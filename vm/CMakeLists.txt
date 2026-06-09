@@ -37,14 +37,14 @@ if(${BPFTIME_LLVM_JIT})
   set(BPFTIME_BPF_RUNTIME_NAME "bpftime_llvm_vm")
   # Apply compatibility patch for modern LLVM/GCC (LLVM 21, GCC 15)
   execute_process(
-    COMMAND git apply --check ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/llvm_jit_compat.patch
+    COMMAND git apply --check --ignore-whitespace ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/llvm_jit_compat.patch
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/llvm-jit
     RESULT_VARIABLE PATCH_CHECK_RESULT
     OUTPUT_QUIET ERROR_QUIET
   )
   if(PATCH_CHECK_RESULT EQUAL 0)
     execute_process(
-      COMMAND git apply ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/llvm_jit_compat.patch
+      COMMAND git apply --ignore-whitespace ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/llvm_jit_compat.patch
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/llvm-jit
       RESULT_VARIABLE PATCH_RESULT
     )

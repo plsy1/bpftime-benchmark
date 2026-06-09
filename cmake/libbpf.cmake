@@ -86,7 +86,7 @@ ExternalProject_Add(bpftool
   PREFIX bpftool
   SOURCE_DIR ${BPFTOOL_DIR}/src
   CONFIGURE_COMMAND "mkdir" "-p" "${BPFTOOL_INSTALL_DIR}"
-  BUILD_COMMAND "make" "EXTRA_CFLAGS=-g -O2 " "-j"
+  BUILD_COMMAND "make" "EXTRA_CFLAGS=-g -O2 -Wno-error" "-j"
   INSTALL_COMMAND "cp" "${BPFTOOL_DIR}/src/bpftool" "${BPFTOOL_INSTALL_DIR}/bpftool"
   BUILD_IN_SOURCE TRUE
   BUILD_BYPRODUCTS ${BPFTOOL_DIR}/src/bpftool
