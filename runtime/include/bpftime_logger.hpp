@@ -44,7 +44,7 @@ inline void bpftime_set_logger(const std::string &target) noexcept
 	if (logger_target == "console") {
 		// Set logger to stderr
 		auto logger = spdlog::stderr_color_mt("stderr");
-		logger->set_pattern("[%Y-%m-%d %H:%M:%S][%^%l%$][%t] %v");
+		logger->set_pattern("[%Y-%m-%d %H:%M:%S.%f][%^%l%$][%t] %v");
 		logger->flush_on(spdlog::level::info);
 		spdlog::set_default_logger(logger);
 	} else {
@@ -53,7 +53,7 @@ inline void bpftime_set_logger(const std::string &target) noexcept
 		auto max_files = 3;
 		auto logger = spdlog::rotating_logger_mt(
 			"bpftime_logger", logger_target, max_size, max_files);
-		logger->set_pattern("[%Y-%m-%d %H:%M:%S][%^%l%$][%t] %v");
+		logger->set_pattern("[%Y-%m-%d %H:%M:%S.%f][%^%l%$][%t] %v");
 		logger->flush_on(spdlog::level::info);
 		spdlog::set_default_logger(logger);
 	}
