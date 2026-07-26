@@ -231,18 +231,42 @@ jobs:
           {
             echo "## ${{ inputs.suite }} — ${{ matrix.arch }} @ \`${{ inputs.ref }}\`"
             echo
+            grep -h "SUITE-FAILED" "$OUT/run.log" 2>/dev/null || true
+            echo
 
-            # first ~20 lines of each result txt (summary tables live at the top)
-            find "$OUT" -name 'size_benchmark_*.txt' -o -name '*results*.txt' \
-              | sort | head -8 | while IFS= read -r f; do
-              echo "<details open><summary><b>${f#"$OUT"/}</b></summary>"
+            # render every collected result file (bounded to stay under the
+            # 1MiB step-summary limit; full files land in the artifact)
+            budget=800000
+            found=0
+            while IFS= read -r f; do
+              sz=$(stat -c%s "$f")
+              case "$f" in
+                *.json) [ "$sz" -le 4096 ] || continue ;;
+              esac
+              found=1
+              if [ "$budget" -le 0 ]; then continue; fi
+              budget=$((budget - (sz > 20000 ? 20000 : sz)))
+              echo "<details open><summary><b>${f#"$OUT"/files/}</b> (${sz} bytes)</summary>"
               echo
               echo '```'
-              head -20 "$f"
+              head -60 "$f"
+              [ "$(wc -l < "$f")" -le 60 ] || echo "... (truncated; full file in the artifact)"
               echo '```'
               echo "</details>"
               echo
-            done
+            done < <(find "$OUT/files" -type f \
+                       \( -name '*.txt' -o -name '*.csv' -o -name '*.json' \) 2>/dev/null | sort)
+            [ "$budget" -gt 0 ] || echo "_summary size budget reached; remaining files are in the artifact_"
+            [ "$found" = "1" ] || echo "_this suite produced no result files; its output is in the run log below_"
+            echo
+
+            echo "<details><summary><b>run.log (tail)</b></summary>"
+            echo
+            echo '```'
+            tail -80 "$OUT/run.log" 2>/dev/null || true
+            echo '```'
+            echo "</details>"
+            echo
 
             for entry in ${urls[@]+"${urls[@]}"}; do
               echo "### ${entry#*|}"
