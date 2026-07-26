@@ -17,7 +17,11 @@
 | `bpf_perf_event_output` 忽略 `flags` | `BPF_F_INDEX_MASK` 显式索引被当 current-cpu 处理 |
 | ring 满时静默丢弃 | `output_data` 恒返回 0，且全 runtime 无 `PERF_RECORD_LOST`，丢弃对消费者不可见 |
 | aarch64 syscall tracing 静默构建失败 | `text_segment_transformer` 蹦床未实现但构建成功（.so 带未定义符号，运行时才炸）；反汇编器写死 `CS_ARCH_X86` |
-| `per_cpu_hash_map::elem_delete` 清零范围疑似有误 | fill 的是 `[begin, begin+cpu*value_size)` 而非本 cpu 切片，未验证 |
+| `per_cpu_hash_map::elem_delete` 清零范围错误 | **已确认（代码走读，per_cpu_hash_map.cpp:96-106）**：fill 的是 `[begin, begin+cpu*value_size)`（即切片 0..cpu）而非本 cpu 切片，且不 erase 条目；对照 :83-84 的 elem_update 可证 |
+| `ensure_on_certain_cpu` 泛型主模板是坏死代码 | `map_common_def.hpp:38` 对零参 `std::function` 调 `func(currcpu)`，实例化即编译错误；仅 void 特化被单测使用 |
+| `create_intervally_triggered_perf_event` 单位疑似错误 | `sample_period = duration_ms*1000`，但 CPU_CLOCK period 单位为 ns（名义 10ms 实际 10µs），未实测验证 |
+| `handle_mmap64` mock 兜底路径重复 mmap | `syscall_context.cpp:890-892` 连调两次 `orig_mmap64_fn`，第一次返回值被丢弃（疑似每次泄漏一段匿名映射），意图不明 |
+| `attach_at` 互斥检查不对称 | 先挂 uprobe 再挂 override 会静默失效（`frida_uprobe_attach_impl.cpp:75-79` 只查 `has_override`，`has_uprobe_or_uretprobe` 定义了但无调用者） |
 | `*probe*` 单测既有失败 | mocked `get_global_attach_ctx` 异常，23/24，与上述修复无关 |
 
 ## 更新记录
