@@ -526,6 +526,12 @@ prepare_compat_paths() {
     ln -sf ../../tracing/syscount/syscount "$REPO/example/libbpf-tools/syscount/syscount"
     log "Created compatibility symlink for syscount"
   fi
+  # benchmark/ssl-nginx/benchmark.py expects example/sslsniff/sslsniff.
+  # Newer bpftime trees keep sslsniff under example/tracing/sslsniff.
+  if [[ ! -e "$REPO/example/sslsniff" && -d "$REPO/example/tracing/sslsniff" ]]; then
+    ln -sf tracing/sslsniff "$REPO/example/sslsniff"
+    log "Created compatibility symlink for sslsniff"
+  fi
 }
 
 APT_DEPENDENCIES=(
