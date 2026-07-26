@@ -1,0 +1,40 @@
+name: ssl-nginx
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: Runner architecture
+        type: choice
+        options: [both, arm64, x64]
+        default: both
+      ref:
+        description: bpftime code ref (branch/tag/full sha of this repo)
+        default: codex/official-no-btf
+      ssl_sizes:
+        description: Comma-separated payload sizes
+        default: 16b,1kb,2kb,4kb,16kb,128kb,256kb
+      ssl_num_runs:
+        description: wrk repetitions per mode
+        default: "10"
+      wrk_params:
+        description: "wrk duration_s,connections"
+        default: "10,100"
+      prebuilt_run_id:
+        description: "Build Prebuilt run id, or 'latest' (empty = build from source)"
+        default: ""
+
+permissions:
+  contents: write # bench-core pushes result charts to the ci-assets branch
+  actions: read
+
+jobs:
+  bench:
+    uses: ./.github/workflows/bench-core.yml
+    with:
+      suite: ssl-nginx
+      arch: ${{ inputs.arch }}
+      ref: ${{ inputs.ref }}
+      ssl_sizes: ${{ inputs.ssl_sizes }}
+      ssl_num_runs: ${{ inputs.ssl_num_runs }}
+      wrk_params: ${{ inputs.wrk_params }}
+      prebuilt_run_id: ${{ inputs.prebuilt_run_id }}
