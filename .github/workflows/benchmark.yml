@@ -108,6 +108,40 @@ jobs:
         if: always()
         run: tail -50 "results-${{ matrix.arch }}/run.log" || true
 
+      - name: publish results to job summary
+        if: always()
+        run: |
+          set -uo pipefail
+          OUT="results-${{ matrix.arch }}"
+          [ -d "$OUT" ] || exit 0
+          {
+            echo "## ${{ matrix.arch }} — ${{ inputs.suites }} @ \`${{ inputs.ref }}\`"
+            echo
+            grep -hE "Selected benchmarks|Completed with|failed" "$OUT/run.log" 2>/dev/null | tail -3 || true
+            echo
+
+            # first ~20 lines of each result txt (summary tables live at the top)
+            find "$OUT" -name 'size_benchmark_*.txt' -o -name '*results*.txt' \
+              | sort | head -8 | while IFS= read -r f; do
+              echo "<details open><summary><b>${f#"$OUT"/}</b></summary>"
+              echo
+              echo '```'
+              head -20 "$f"
+              echo '```'
+              echo "</details>"
+              echo
+            done
+
+            # inline charts (base64 data URIs; keep well under the 1MiB summary cap)
+            find "$OUT" -name '*.png' | sort | head -3 | while IFS= read -r img; do
+              if [ "$(stat -c%s "$img")" -lt 300000 ]; then
+                echo "### ${img#"$OUT"/}"
+                echo "![](data:image/png;base64,$(base64 -w0 "$img"))"
+                echo
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: upload results
         if: always()
         uses: actions/upload-artifact@v4
