@@ -185,6 +185,31 @@ affinity 绑核序列是 Jetson/ARM 上 BPFtime 输给 kernel eBPF 的主因，
 去掉后 BPFtime 在 16B 与 256KB 均反超 kernel 约 10%，方差同步收敛**——
 与 x64 上 BPFtime 全面领先 20–30% 的格局方向一致。
 
+## Fair 口径验证（修复后，发表级主口径，2026-07-27）
+
+方法：`v4-ablation/fair-test.sh`——kernel sslsniff 以 `-p <nginx worker PID>`
+等范围挂载（与 bpftime 只注入 nginx 对等），三腿**逐 rep 交错**
+（baseline → kernel-fair → bpftime，每 rep 各自重启进程），每 payload 3 轮 × 10 reps
+= 30 样本/腿。被测 runtime 为已提交的修复版（commit `076e3e4`）。
+数据：`benchmark-results/v4-ablation/fair/fixed/`（16B: run02/05/06；256KB: run01–03）。
+
+| Payload | baseline 中位 | kernel-fair 中位 | bpftime 中位 | **bpftime vs kernel-fair** | 各轮方向 |
+|---|---:|---:|---:|---:|---|
+| 16B | 16558 | 11398 | 12263 | **+7.58%**（均值口径 +6.50%） | +6.94 / +8.45 / +6.98，3/3 一致 |
+| 256KB | 1699.7 | 1182.0 | 1297.9 | **+9.81%**（均值口径 +8.17%） | +8.87 / +8.87 / +11.95，3/3 一致 |
+
+判定：
+
+1. **等范围口径下翻转成立**：修复前 fair 差距 −9.57%（07-22，16B）→ 修复后
+   **+7.58%**，净改善约 17 pp；256KB 同向 +9.81%。六轮全部同方向，无一例外。
+   "BPFtime 在 ARM 上反超 kernel eBPF"的结论不再依赖挂载范围不对等的口径。
+2. 全局挂载对 kernel 的额外负担实测很小（fair kernel 11398 vs stock kernel
+   ~11259，约 1%），历史 stock 口径的结论未被显著放水。
+3. **残余离群未根除**：60 个 bpftime 样本中 4 个 MAD 离群（约 −10%～−15%，如
+   16B 的 10501/9892），pooled CV 4.5%（16B）/6.9%（256KB），仍高于 kernel 的
+   1.5%/2.6%。绑核删除消掉了持续性高方差，但偶发低值另有来源（待查，见 P3）；
+   中位数口径下不影响上述判定。
+
 ## 结论边界与下一步
 
 本方法测的是端到端吞吐量消融差值，不是函数级 CPU 时间；各段成本近似可加，噪声约 ±2～3 pp。
@@ -214,6 +239,8 @@ affinity 绑核序列是 Jetson/ARM 上 BPFtime 输给 kernel eBPF 的主因，
    修复验证阶段可在 x64 补一轮 no-affinity vs full 差分（预期 ≈0）作对照证据。
 
 ## 更新记录
+
+- 2026-07-27：**Fair 口径验证完成**（3 轮 × 10 reps × 2 payload，逐 rep 交错）：修复版 bpftime 在等范围挂载下 16B **+7.58%**、256KB **+9.81%** 反超 kernel，六轮全同向；修复前 fair 差距为 −9.57%，净改善 ~17pp。残余离群（60 样本中 4 个，−10~−15%）未根除，列入 P3。数据 `benchmark-results/v4-ablation/fair/fixed/`。
 
 - 2026-07-27：**正式修复已提交**：`076e3e4` "Remove per-event CPU affinity pinning from bpf_perf_event_output"（分支 codex/official-no-btf；同时 `99adf3a` 把 `sslsniff.bpf.c` 恢复为上游 c796f45 干净完整版——注意此前 HEAD 里提交的是 V2 消融版）。修复验证：单元测试 8,358 断言全过；16B 短测 bpftime 中位数 12,329 RPS、**反超 kernel +8.8%**、CV 1.22%，与 no-affinity 变体一致（数据 `benchmark-results/v4-ablation/short/fixed/16b-run01/`）。注意：修复后 worktree 不再匹配 `v4-ablation/original/` 与 `v1-v4-ablation/v4-full/` 的冻结副本（实验历史产物），如需再做消融应以修复后代码为新基线重建参照。
 - 2026-07-27：新增独立解释文档 `bpftime-perf-event-output-affinity-redundancy-20260727.md`：绑核为何冗余（快照先于绑核 / per-thread shard / 绑核非锁 / KERNEL_USER 路径无效）、两个既有 bug（错误路径钉死单核、陈旧 mask 竞态）、删除后的行为边界。
