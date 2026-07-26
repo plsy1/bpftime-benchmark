@@ -7,7 +7,8 @@
 | `bpftime-arm-performance-root-cause-20260727.md` | **一页纸根因报告**：ARM 上为什么输给 kernel eBPF（三层根因 + 修复后状态），入口首选 |
 | `bpftime-official-no-btf-change-log.md` | bug 修复记录（已修 / 未修清单） |
 | `bpftime-official-no-btf-ssl-nginx-benchmark-runbook.md` | 操作手册：docker 流程、变体、脚本、归档口径 |
-| `bpftime-source-code-reading-guide.md` | 源码阅读指南（多文件主版本在 `docs/source-reading-guide` 分支） |
+
+> 源码阅读指南在独立分支 [`docs/source-reading-guide`](https://github.com/plsy1/bpftime-benchmark/tree/docs/source-reading-guide)。
 
 ## archive/（调查过程的详细报告，结论已并入根因报告）
 
