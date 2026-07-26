@@ -132,37 +132,25 @@ x64 上 BPFtime 对 kernel eBPF 全 payload 快 20–30%（另见 07-22 的 x64 
    per-thread shard、不依赖绑核保证正确性，该序列在此路径上很可能整体冗余；
    若验证成立，ARM 上有望恢复与 x64 一致的领先格局。
 
-### x64 实测（GitHub 托管 runner，stock 全局挂载口径）
+### x64 现状：暂无有效数据，待同 VM A/B（2026-07-27）
 
-有效数据点：commit `fe47c3b`（**字节对齐修复之后、绑核序列仍在**）的完整
-draw_figture.py 一轮：
+x64 侧目前**没有可引用的完整 benchmark 数据**：
 
-| Payload | Baseline | Kernel | BPFtime | BPFtime vs kernel | kernel imp | BPFtime imp |
-|---|---:|---:|---:|---:|---:|---:|
-| 16B | 22553 | 10023 | 15852 | **+58.2%** | 55.6% | 29.7% |
-| 1KB | 21890 | 9909 | 15815 | +59.6% | 54.7% | 27.8% |
-| 2KB | 21282 | 9936 | 15262 | +53.6% | 53.3% | 28.3% |
-| 4KB | 20266 | 9593 | 14539 | +51.6% | 52.7% | 28.3% |
-| 16KB | 15310 | 6476 | 10615 | +63.9% | 57.7% | 30.7% |
-| 128KB | 4424 | 2158 | 3337 | +54.6% | 51.2% | 24.6% |
-| 256KB | 2699 | 1213 | 2066 | **+70.3%** | 55.1% | 23.5% |
+1. Actions 历史中 07-23/07-24 的 x64 run checkout 的分支 HEAD 当时携带
+   V2/V3 消融版 sslsniff（d28ca42/73e9b78），两腿均跑轻量程序，不能作为完整
+   benchmark 对照——引用历史 run 前必须核对该 run 实际 checkout 的 commit。
+2. 另一份曾被引用的 x64 数据集已由作者撤回，不再采用。
+3. 托管 runner 硬件抽签（观测 baseline 22.2k–31.3k）使跨 run 数值不可比；
+   任何 x64 的修复前后对比必须在**同一 VM 内 A/B**。
 
-判读：
-
-1. **绑核序列在 x64 上不是瓶颈**：绑核未删时 x64 已全 payload 领先 kernel
-   +52%～+70%。与微基准（x64 上 sched_setaffinity 仅数百 ns）及"性能翻转仅发生
-   在 ARM"的定位完全自洽——删除绑核的收益集中在 syscall 昂贵的平台（Jetson：
-   fair 口径 −9.6% → +7.6%）。删除对 x64 的净效应未实测，预期 2–4 pp 量级。
-2. 数据甄别教训：Actions 历史里 07-23/07-24 的 x64 run checkout 的分支 HEAD
-   当时携带 **V2/V3 消融版 sslsniff**（d28ca42/73e9b78），两腿 impact 均偏低
-   （bpftime 11–16%、kernel 33–35%），不可作为完整 benchmark 对照——引用历史
-   run 前必须核对该 run 实际 checkout 的 commit 与 sslsniff 状态。
-3. 托管 runner 硬件抽签真实存在（各 run baseline 22.2k–31.3k），跨 run 的
-   impact 数值对比不可靠；只有同一 run 内的三腿对比（同 VM 同 session）有效。
-4. "trap 计价 vs 代码计价"框架：x64 完整程序下 kernel uprobe impact 55.6%
-   （虚拟化放大陷入成本）vs Jetson 本地稳定 29–32%，方向支持"平台差异主要在
-   kernel 一侧"；bpftime impact（x64 该 run 23.5–30.7% vs Jetson ~25%）量级
-   接近，但因 x64 仅一轮有效数据且含绑核，定量的跨平台不变性**不下结论**。
+已就绪的测量方案：benchmark.yml 的 `ref_b` 输入（2026-07-27 加入）——同一 job
+内先后构建并运行两个 ref，summary 自动出逐 payload A/B 表；kernel 腿与被测代码
+无关，其 Δ 即该 VM 的噪声水位，bpftime Δ 超出水位的部分才是真实差异。
+待跑：`arch=x64, ref=HEAD(去绑核), ref_b=99adf3a(绑核仍在)`，建议
+`ssl_sizes=16b,256kb`。预期：绑核删除在 x64 上效应仅 2–4 pp（setaffinity
+在 x64 数百 ns）。跑出结果前，本报告对 x64 只保留方向性说法（07-22 的
+nginx-path-perf 对照：BPFtime 的 nginx tracing CPU delta 为 kernel 的
+0.49–0.57×，与"翻转仅发生在 ARM"一致）。
 
 ## ④ 段内部消融：短测结果（2026-07-27，预注册后执行）
 
