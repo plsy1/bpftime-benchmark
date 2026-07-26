@@ -111,6 +111,8 @@ thread_local static ORIGIN_HANDLER_EXIST_FLAG exist_read =
 
 thread_local static void (*origin_segv_read_handler)(int, siginfo_t *,
 						     void *) = nullptr;
+// The SIGSEGV handler only needs to be installed once per thread.
+thread_local static bool segv_read_handler_installed = false;
 #endif
 #ifdef ENABLE_PROBE_WRITE_CHECK
 
@@ -121,6 +123,8 @@ thread_local static ORIGIN_HANDLER_EXIST_FLAG exist_write =
 
 thread_local static void (*origin_segv_write_handler)(int, siginfo_t *,
 						      void *) = nullptr;
+// The SIGSEGV handler only needs to be installed once per thread.
+thread_local static bool segv_write_handler_installed = false;
 #endif
 
 #ifdef ENABLE_PROBE_READ_CHECK
@@ -178,7 +182,7 @@ int64_t bpftime_probe_read(uint64_t dst, int64_t size, uint64_t ptr, uint64_t,
 		}
 	}
 
-	if (original_sa.sa_sigaction != segv_read_handler) {
+	if (!segv_read_handler_installed) {
 		sa.sa_flags = SA_SIGINFO;
 		int err = 0;
 		err = sigemptyset(&sa.sa_mask);
@@ -192,6 +196,7 @@ int64_t bpftime_probe_read(uint64_t dst, int64_t size, uint64_t ptr, uint64_t,
 			SPDLOG_ERROR("Failed to set signal handler: {}", errno);
 			return -EFAULT;
 		}
+		segv_read_handler_installed = true;
 	}
 #endif
 	memcpy((void *)dst, (void *)ptr, (size_t)size);
@@ -265,7 +270,7 @@ int64_t bpftime_probe_write_user(uint64_t dst, uint64_t src, int64_t len,
 		}
 	}
 
-	if (original_sa.sa_sigaction != segv_write_handler) {
+	if (!segv_write_handler_installed) {
 		sa.sa_flags = SA_SIGINFO;
 		int err = 0;
 		err = sigemptyset(&sa.sa_mask);
@@ -280,6 +285,7 @@ int64_t bpftime_probe_write_user(uint64_t dst, uint64_t src, int64_t len,
 			SPDLOG_ERROR("Failed to set signal handler: {}", errno);
 			return -EFAULT;
 		}
+		segv_write_handler_installed = true;
 	}
 #endif
 
