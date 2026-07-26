@@ -12,19 +12,23 @@
 
 ## 已知未修
 
-| Bug | 说明 |
-|---|---|
-| `bpf_perf_event_output` 忽略 `flags` | `BPF_F_INDEX_MASK` 显式索引被当 current-cpu 处理 |
-| ring 满时静默丢弃 | `output_data` 恒返回 0，且全 runtime 无 `PERF_RECORD_LOST`，丢弃对消费者不可见 |
-| aarch64 syscall tracing 静默构建失败 | `text_segment_transformer` 蹦床未实现但构建成功（.so 带未定义符号，运行时才炸）；反汇编器写死 `CS_ARCH_X86` |
-| `per_cpu_hash_map::elem_delete` 清零范围错误 | **已确认（代码走读，per_cpu_hash_map.cpp:96-106）**：fill 的是 `[begin, begin+cpu*value_size)`（即切片 0..cpu）而非本 cpu 切片，且不 erase 条目；对照 :83-84 的 elem_update 可证 |
-| `ensure_on_certain_cpu` 泛型主模板是坏死代码 | `map_common_def.hpp:38` 对零参 `std::function` 调 `func(currcpu)`，实例化即编译错误；仅 void 特化被单测使用 |
-| `create_intervally_triggered_perf_event` 单位疑似错误 | `sample_period = duration_ms*1000`，但 CPU_CLOCK period 单位为 ns（名义 10ms 实际 10µs），未实测验证 |
-| `handle_mmap64` mock 兜底路径重复 mmap | `syscall_context.cpp:890-892` 连调两次 `orig_mmap64_fn`，第一次返回值被丢弃（疑似每次泄漏一段匿名映射），意图不明 |
-| `attach_at` 互斥检查不对称 | 先挂 uprobe 再挂 override 会静默失效（`frida_uprobe_attach_impl.cpp:75-79` 只查 `has_override`，`has_uprobe_or_uretprobe` 定义了但无调用者） |
-| `*probe*` 单测既有失败 | mocked `get_global_attach_ctx` 异常，23/24，与上述修复无关 |
+严重度：🔴 静默错误结果 / 🟡 性能或行为偏差 / ⚪ 无运行时影响（整洁性）。
+下表每条均经代码走读 + 独立对抗式复核（2026-07-27）确认，并附实际触发面。
+
+| 严重度 | Bug | 精确表述与影响 |
+|---|---|---|
+| 🔴 | `per_cpu_hash_map::elem_delete` 语义错误<br>`per_cpu_hash_map.cpp:96-107` | eBPF 程序对 PERCPU_HASH 调 `bpf_map_delete_elem` 时：`fill` 清的是切片 `0..cpu-1`（**别的 CPU 的数据**），本 CPU 数据保留；entry 从不 `erase`；key 不存在也返回 0。内核语义应为整条 entry 删除 + 未命中返回 `-ENOENT`，故修法是 `impl.erase(itr)` 而非调整 fill 区间。后果：静默数据损坏（日志仅 DEBUG）、delete 后 lookup 仍非空、槽位不释放。syscall 侧（`elem_delete_userspace`）实现正确、不补偿此路径。该路径零测试覆盖，常见示例用不到 PERCPU_HASH+程序内 delete，属潜伏 bug |
+| 🟡 | `bpf_perf_event_output` 忽略 `flags` | `BPF_F_INDEX_MASK` 显式索引被当作 current-cpu 处理 |
+| 🟡 | ring 满时静默丢弃<br>`perf_event_handler.cpp:385-386` | `output_data` 忽略 `append_sample` 返回值恒返回 0；全 runtime 无 `PERF_RECORD_LOST`，丢弃对消费者不可见 |
+| 🟡 | aarch64 syscall tracing 静默构建失败 | `text_segment_transformer` 蹦床未实现（仅 TODO 注释）却构建成功，产出带未定义符号的 `.so`，运行时才失败；反汇编器写死 `CS_ARCH_X86` |
+| 🟡 | `attach_at` 互斥检查不对称<br>`frida_uprobe_attach_impl.cpp:75-79` | 只查 `has_override()`，`has_uprobe_or_uretprobe()` 定义了却无调用者。同地址"先 uprobe 后 override"→ override **静默 no-op**（返回正常 attach id 但程序永不执行）；且该幽灵条目使 `has_override()` 从此为真，**污染该地址**：后续合法 uprobe 被误拒 `-EEXIST`。反方向仅 DEBUG 日志，双向静默 |
+| 🟡 | 定时 perf event 周期快 1000 倍<br>`perf_event_array_kernel_user.cpp:453` | `sample_period = duration_ms*1000` 但 CPU_CLOCK 单位为 ns：名义 10ms 实际 **10µs**（恰为内核 hrtimer 下限，无法更快）。仅影响 kernel-user 共享 perf array 路径（daemon / RUN_WITH_KERNEL）；内核采样节流封顶开销，且事件 task-bound，故为性能偏差非正确性问题 |
+| 🟡 | `handle_mmap64` 兜底路径重复 mmap<br>`runtime/syscall-server/syscall_context.cpp:890-892` | 三类 mock 均不命中时连调两次 `orig_mmap64_fn`，第一次返回值丢弃。无 `MAP_FIXED` 时两段落在不同地址 → 第一段永久残留（泄漏虚拟地址空间 + VMA，非 RSS）；`MAP_FIXED` 或首次失败时不泄漏。仅注入了 syscall-server 的加载端进程受影响，量级为每进程几十~几百次 |
+| ⚪ | `ensure_on_certain_cpu` 泛型主模板是死代码<br>`map_common_def.hpp:33-49` | `func(currcpu)` 对零参 `std::function<T()>` 传参，**定义体一旦被实例化即编译失败**（T=void 走显式特化不受影响）；且 `currcpu` 初始化后从不赋值，快路径永假且语义错误。全仓仅单测以显式 `<void>` 调用，生产无调用者 → 运行时影响为零，但为未来维护者埋了编译期陷阱，建议整段删除 |
+| ⚪ | `*probe*` 单测既有失败 | mocked `get_global_attach_ctx` 异常，23/24；与本轮三个修复无关（A/B 已确认） |
 
 ## 更新记录
 
 - 2026-07-27：首版（三项修复 + 未修清单）。
 - 2026-07-27：按要求精简为纯 bug 记录（移除基础设施与非修复类提交）。
+- 2026-07-27：源码深读新增 5 条待修项，全部经独立对抗式复核确认（含表述纠正与实际影响分级）；"已知未修"表改为带严重度与精确影响的形式。
