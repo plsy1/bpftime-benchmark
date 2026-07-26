@@ -1,2 +1,0 @@
-add_subdirectory(ebpf_controller)
-add_subdirectory(baseline_nginx_plugin)
