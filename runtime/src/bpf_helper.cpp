@@ -500,16 +500,12 @@ uint64_t bpf_perf_event_output(uint64_t ctx, uint64_t map, uint64_t flags,
 			"Unable to get current cpu when running perf event output");
 		return (uint64_t)-1;
 	}
-	cpu_set_t mask, orig;
-	CPU_ZERO(&mask);
-	CPU_SET(current_cpu, &mask);
-	sched_getaffinity(0, sizeof(orig), &orig);
-	// Bind to the current cpu
-	if (sched_setaffinity(0, sizeof(mask), &mask) < 0) {
-		SPDLOG_ERROR("Failed to set cpu affinity: {}", errno);
-		errno = EINVAL;
-		return (uint64_t)(-1);
-	}
+	// current_cpu is only a snapshot used as the per-CPU map lookup key,
+	// and ring writes go to per-thread producer shards, so nothing below
+	// depends on staying on this CPU. Do not pin the thread here: the
+	// sched_getaffinity/sched_setaffinity pair costs microseconds per
+	// event on some platforms (e.g. ARM) and provides no exclusion or
+	// ownership guarantee.
 	int fd = (int)map;
 	// Check map type. userspace perf event array, or shared perf event
 	// array?
@@ -549,7 +545,6 @@ uint64_t bpf_perf_event_output(uint64_t ctx, uint64_t map, uint64_t flags,
 		ret = -1;
 	}
 
-	sched_setaffinity(0, sizeof(orig), &orig);
 	return (uint64_t)ret;
 }
 
