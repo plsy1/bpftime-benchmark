@@ -11,9 +11,11 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-# Configuration
-NUM_RUNS = 10
-WRK_CMD = ["wrk", "https://127.0.0.1:4043/index.html", "-c", "100", "-d", "10"]
+# Configuration (overridable via environment for CI/short runs)
+NUM_RUNS = int(os.environ.get("SSL_NGINX_NUM_RUNS", "10"))
+WRK_CMD = ["wrk", "https://127.0.0.1:4043/index.html",
+           "-c", os.environ.get("SSL_NGINX_WRK_CONNECTIONS", "100"),
+           "-d", os.environ.get("SSL_NGINX_WRK_DURATION", "10")]
 NGINX_CMD = ["nginx", "-c", "nginx.conf", "-p", "benchmark/ssl-nginx"]
 TEST_URL = "https://127.0.0.1:4043/index.html"
 SSLSNIFF_PATH = "example/sslsniff/sslsniff"
