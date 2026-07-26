@@ -146,23 +146,52 @@ jobs:
             exit 1
           fi
 
-          build_flag=--build
-          [ -n "${{ inputs.prebuilt_run_id }}" ] && build_flag=--no-build
+          export SSL_NGINX_SIZES="${{ inputs.ssl_sizes }}"
+
+          # deps + build via the orchestrator; measurement of ssl-nginx runs
+          # draw_figture.py directly so its SSL_NGINX_* env parameters apply
+          # without an extra layer. Other suites still run via the orchestrator.
+          setup_tree() {
+            if [ -n "${{ inputs.prebuilt_run_id }}" ]; then
+              RUN_UPROBE=0 RUN_SYSCALL=0 RUN_SYSCOUNT=0 RUN_SSL_NGINX=0 RUN_MPK=0 \
+                harness/run_bpftime_arm64_benchmarks.sh --install-deps --no-build \
+                  --output-dir "$1/.deps-check" "$1" || true
+            else
+              harness/run_bpftime_arm64_benchmarks.sh --install-deps --build-only \
+                --llvm-dir "$(llvm-config-15 --cmakedir)" \
+                --output-dir "$1/.build-log" "$1"
+            fi
+            # historical path expected by benchmark.py
+            if [ ! -e "$1/example/sslsniff" ] && [ -d "$1/example/tracing/sslsniff" ]; then
+              ln -sf tracing/sslsniff "$1/example/sslsniff"
+            fi
+          }
 
           run_one() {
-            harness/run_bpftime_arm64_benchmarks.sh \
-              --install-deps \
-              "$build_flag" \
-              --mode "${{ inputs.mode }}" \
-              --ssl-sizes "${{ inputs.ssl_sizes }}" \
-              --llvm-dir "$(llvm-config-15 --cmakedir)" \
-              --output-dir "$2" \
-              "${extra_args[@]}" \
-              "$1"
+            mkdir -p "$2/files/benchmark/ssl-nginx"
+            if [ "$RUN_SSL_NGINX" = "1" ]; then
+              ( cd "$1" && PYTHONUNBUFFERED=1 \
+                  python3 benchmark/ssl-nginx/draw_figture.py ) 2>&1 \
+                | tee -a "$2/run.log"
+              cp "$1"/benchmark/ssl-nginx/size_benchmark_* \
+                 "$1"/benchmark/ssl-nginx/benchmark_results_* \
+                 "$1"/benchmark/ssl-nginx/*.png \
+                 "$2/files/benchmark/ssl-nginx/" 2>/dev/null || true
+            fi
+            if [ "$RUN_UPROBE$RUN_SYSCALL$RUN_SYSCOUNT$RUN_MPK" != "0000" ]; then
+              RUN_SSL_NGINX=0 harness/run_bpftime_arm64_benchmarks.sh \
+                --no-build --mode "${{ inputs.mode }}" \
+                --output-dir "$2-suites" \
+                "${extra_args[@]}" \
+                "$1" 2>&1 | tee -a "$2/run.log" || true
+            fi
+            tar -czf "$2.tar.gz" -C "$(dirname "$2")" "$(basename "$2")" || true
           }
+
+          setup_tree "$GITHUB_WORKSPACE/bpftime"
           run_one "$GITHUB_WORKSPACE/bpftime" "$GITHUB_WORKSPACE/results-${{ matrix.arch }}"
           if [ -n "${{ inputs.ref_b }}" ]; then
-            build_flag=--build
+            setup_tree "$GITHUB_WORKSPACE/bpftime-b"
             run_one "$GITHUB_WORKSPACE/bpftime-b" "$GITHUB_WORKSPACE/results-b-${{ matrix.arch }}"
           fi
 
