@@ -15,9 +15,24 @@ SIZES = {
     "2kb": 2 * 1024,
     "4kb": 4 * 1024,
     "16kb": 16 * 1024,
+    "32kb": 32 * 1024,
+    "64kb": 64 * 1024,
     "128kb": 128 * 1024,
     "256kb": 256 * 1024
 }
+# Default sweep keeps the historical seven sizes; SSL_NGINX_SIZES selects a
+# subset/order, e.g. SSL_NGINX_SIZES=16b,1kb,256kb
+DEFAULT_SIZE_NAMES = ["16b", "1kb", "2kb", "4kb", "16kb", "128kb", "256kb"]
+_env_sizes = os.environ.get("SSL_NGINX_SIZES", "")
+if _env_sizes.strip():
+    _selected = [s.strip().lower() for s in _env_sizes.split(",") if s.strip()]
+    _unknown = [s for s in _selected if s not in SIZES]
+    if _unknown:
+        raise SystemExit(f"Unknown SSL_NGINX_SIZES entries: {_unknown}; "
+                         f"valid: {list(SIZES)}")
+    SIZES = {name: SIZES[name] for name in _selected}
+else:
+    SIZES = {name: SIZES[name] for name in DEFAULT_SIZE_NAMES}
 
 BENCHMARK_CMD = ["python", "benchmark/ssl-nginx/benchmark.py"]
 OUTPUT_DIR = "benchmark/ssl-nginx"
