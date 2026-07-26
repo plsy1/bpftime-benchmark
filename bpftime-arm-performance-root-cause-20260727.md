@@ -62,7 +62,15 @@ record header 可落在环缓冲最后一字节，libbpf 读到跨界 `size=0` �
 
 **bpftime 的先天优势是把 tracing 从 trap 计价改成代码计价；它在 ARM 上输，
 不是因为 ARM 慢，而是自己的热路径里藏着每事件 6 个无效 syscall（绑核 4 个 +
-重装信号处理器 2 个），把优势全部漏光——拔掉之后，两个平台全面反超 kernel。**
+重装信号处理器 2 个），把优势全部漏光——拔掉之后，Jetson 与 x64 全面反超
+kernel。**
+
+已知残留边界（2026-07-27，完全体双平台全量 run 30220955196）：高吞吐托管
+arm64 runner 上大 payload 仍落后（128kb −5.0%、256kb −9.0%；中小 payload
++8~+22%）。候选解释：大事件高频率下 bpftime 的多次用户态拷贝
+（probe_read → shard 写入 → drain 二次拷贝到 consumer buffer）成为带宽/
+拷贝瓶颈（对应消融中 no-ringwrite 的残余成本），kernel 路径只拷一遍；
+x64 带宽富余、Jetson 吞吐低均未触及该阈值。这是下一个优化目标。
 
 ## 详细文档索引（summry 分支）
 
