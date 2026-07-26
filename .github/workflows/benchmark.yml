@@ -36,7 +36,7 @@ on:
         default: ""
 
 permissions:
-  contents: read
+  contents: write # push result charts to the ci-assets branch
   actions: read
 
 jobs:
@@ -149,10 +149,40 @@ jobs:
 
       - name: publish results to job summary
         if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
           OUT="results-${{ matrix.arch }}"
           [ -d "$OUT" ] || exit 0
+
+          # Push small result charts to the ci-assets branch so the summary
+          # can hot-link them (GitHub strips data: URIs from summaries).
+          ASSET_DIR="runs/${{ github.run_id }}/${{ matrix.arch }}"
+          mapfile -t pngs < <(find "$OUT" -name '*.png' -size -300k | sort | head -3)
+          urls=()
+          if [ "${#pngs[@]}" -gt 0 ]; then
+            REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            if ! git clone -q --depth 1 -b ci-assets "$REPO_URL" assets 2>/dev/null; then
+              git init -q -b ci-assets assets
+              git -C assets remote add origin "$REPO_URL"
+            fi
+            mkdir -p "assets/$ASSET_DIR"
+            for img in "${pngs[@]}"; do
+              cp "$img" "assets/$ASSET_DIR/$(basename "$img")"
+              urls+=("https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/ci-assets/$ASSET_DIR/$(basename "$img")|${img#"$OUT"/}")
+            done
+            git -C assets add -A
+            git -C assets -c user.name=github-actions \
+              -c user.email=github-actions@github.com \
+              commit -q -m "charts for run ${{ github.run_id }} (${{ matrix.arch }})"
+            for i in 1 2 3 4 5; do
+              git -C assets push -q origin ci-assets && break
+              git -C assets pull -q --rebase origin ci-assets || true
+              sleep 3
+            done
+          fi
+
           {
             echo "## ${{ matrix.arch }} — ${{ inputs.suites }} @ \`${{ inputs.ref }}\`"
             echo
@@ -171,13 +201,10 @@ jobs:
               echo
             done
 
-            # inline charts (base64 data URIs; keep well under the 1MiB summary cap)
-            find "$OUT" -name '*.png' | sort | head -3 | while IFS= read -r img; do
-              if [ "$(stat -c%s "$img")" -lt 300000 ]; then
-                echo "### ${img#"$OUT"/}"
-                echo "![](data:image/png;base64,$(base64 -w0 "$img"))"
-                echo
-              fi
+            for entry in ${urls[@]+"${urls[@]}"}; do
+              echo "### ${entry#*|}"
+              echo "![](${entry%%|*})"
+              echo
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
