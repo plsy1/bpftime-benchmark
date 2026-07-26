@@ -311,22 +311,6 @@ x64 上得到：
 
 因此，旧数据中的部分高吞吐量实际上是“少处理了 tracing 工作”产生的虚高。修复后，结果收敛到原有低状态附近，表示系统稳定执行了正确的消费路径。不能把旧的异常高均值与修复后的正确均值直接解释为性能下降。
 
-## 这项修复的意义
-
-1. **修复了 software perf record 布局与 libbpf 消费假设不兼容的正确性缺陷。**
-2. **消除了零长度记录造成的 callback 无限重复和消费者空转。**
-3. **将消费者指令量和 CPU 时间降低约 95% 以上。**
-4. **将完整 benchmark 的平均变异系数降低约 81.94%。**
-5. **解释了旧结果中 BPFtime 吞吐量双状态及部分性能虚高。**
-6. **明确了完整 perf 归因必须同时测量 nginx worker 和 `sslsniff` reader。**
-7. **确认 BPFtime 在 nginx 路径上的额外指令约为 kernel eBPF 的 1.8×。**
-8. **确认该 `1.8×` 是 Jetson 平台现象；x64 上 BPFtime 的 nginx CPU delta 反而低 43–51%。**
-9. **使后续 BPFtime 与 kernel eBPF 的性能比较更可信、更可复现。**
-
-最适合组会汇报的一句话总结是：
-
-> 我们定位并修复了 BPFtime software perf buffer 未按 8 字节对齐的问题。该缺陷会使 libbpf 在 ring 边界读到零长度记录，导致消费者空转和不可见丢事件。修复后，消费者指令量下降约 96%，完整 benchmark 的平均变异系数从 14.21% 降到 2.57%，下降约 82%，显著提高了结果的正确性与可重复性。
-
 ## 尚未解决的问题与结论边界
 
 - `output_data()` 仍然忽略 `append_sample()` 的 Boolean 返回值，并向 BPF 程序返回成功；producer buffer 满时的显式丢失统计仍需单独修复。
@@ -346,16 +330,3 @@ x64 上得到：
 - 修复提交：`0fcdb0ef4f33cc09d0bf43136154f611c0271132`
 - x64 nginx-path perf workflow：`https://github.com/plsy1/bpftime-benchmark/actions/runs/29924995620`
 - x64 原始 artifact：`benchmark-results/latest/diagnostics/x64-nginx-path-perf-20260722-run29924995620/`
-
-## 复核记录
-
-- 2026-07-27 代码复核（commit `0fcdb0e`）：修复确认正确且完整。验证要点：
-  `data_head` 仅由 `append_record_parts` 一处按对齐长度推进，shard 与 consumer
-  两级 ring 走同一路径，记录起始恒为 8 的倍数，header（8 字节）不再可能跨环边界；
-  生产推进、drain 拷贝、libbpf 消费三方使用同一 `header.size`（对齐值），
-  `sample->size` 保持裸 payload 长度，与 libbpf 布局约定一致；u16 上限（65528）
-  对 sslsniff 最大事件（约 8.2KB）无影响；单元测试覆盖了 header 顶到环末尾的
-  最坏槽位。遗留观察（非本修复缺陷）：ring 满时 `output_data` 仍忽略 append
-  失败并返回 0，且 `PERF_RECORD_LOST`（`perf_sample_lost`）全 runtime 无使用——
-  丢弃对消费者不可见；`copy_next_record_to` 遇损坏记录会丢整个 shard（防御性，
-  有日志）。修复本身的性能开销为噪声级（每事件至多 7 字节 padding）。
