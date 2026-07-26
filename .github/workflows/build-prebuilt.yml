@@ -1,0 +1,100 @@
+name: Build Prebuilt
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: Runner architecture
+        type: choice
+        options: [both, arm64, x64]
+        default: both
+      ref:
+        description: bpftime code ref to build (branch/tag/sha of this repo)
+        default: codex/official-no-btf
+      suites:
+        description: "Benchmark targets to build: ssl-nginx,uprobe,syscall,syscount,mpk"
+        default: ssl-nginx,uprobe,syscall,syscount
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(inputs.arch == 'both' && '["arm64","x64"]' || format('["{0}"]', inputs.arch)) }}
+    name: build ${{ matrix.arch }} @ ${{ inputs.ref }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 180
+    env:
+      CLANG: clang-15
+      LD_LIBRARY_PATH: /usr/lib/llvm-15/lib
+
+    steps:
+      - name: checkout harness (this branch)
+        uses: actions/checkout@v4
+        with:
+          path: harness
+
+      - name: checkout bpftime code (${{ inputs.ref }})
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: "recursive"
+          path: bpftime
+
+      - name: install LLVM 15 toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-15 llvm-15 llvm-15-dev zstd
+          llvm-config-15 --version
+
+      - name: build (all selected benchmark targets, no benchmark run)
+        run: |
+          set -euxo pipefail
+          suites=",$(echo '${{ inputs.suites }}' | tr -d ' '),"
+          has() { [[ "$suites" == *",$1,"* ]] && echo 1 || echo 0; }
+          export RUN_SSL_NGINX="$(has ssl-nginx)"
+          export RUN_UPROBE="$(has uprobe)"
+          export RUN_SYSCALL="$(has syscall)"
+          export RUN_SYSCOUNT="$(has syscount)"
+          export RUN_MPK="$(has mpk)"
+
+          harness/run_bpftime_arm64_benchmarks.sh \
+            --install-deps \
+            --build-only \
+            --llvm-dir "$(llvm-config-15 --cmakedir)" \
+            --output-dir "$GITHUB_WORKSPACE/build-log" \
+            "$GITHUB_WORKSPACE/bpftime"
+
+      - name: pack built tree
+        run: |
+          set -euxo pipefail
+          git -C bpftime rev-parse HEAD > bpftime/PREBUILT_COMMIT
+          echo "${{ inputs.ref }}" >> bpftime/PREBUILT_COMMIT
+          date -Is >> bpftime/PREBUILT_COMMIT
+          tar -I 'zstd -T0 -8' -cf bpftime-prebuilt.tar.zst \
+            --exclude='bpftime/.git' \
+            --exclude='*/CMakeFiles' \
+            bpftime
+          ls -lh bpftime-prebuilt.tar.zst
+
+      - name: upload prebuilt artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bpftime-prebuilt-${{ matrix.arch }}
+          path: bpftime-prebuilt.tar.zst
+          retention-days: 30
+          compression-level: 0
+
+      - name: summary
+        run: |
+          {
+            echo "## prebuilt ${{ matrix.arch }} @ \`${{ inputs.ref }}\`"
+            echo '- commit: `'"$(head -1 bpftime/PREBUILT_COMMIT)"'`'
+            echo "- suites built: ${{ inputs.suites }}"
+            echo "- archive: $(ls -lh bpftime-prebuilt.tar.zst | awk '{print $5}')"
+            echo "- use it: run the Benchmark workflow with prebuilt_run_id = ${{ github.run_id }} (or 'latest')"
+          } >> "$GITHUB_STEP_SUMMARY"

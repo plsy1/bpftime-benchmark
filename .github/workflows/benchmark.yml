@@ -31,9 +31,13 @@ on:
       uprobe_iters:
         description: "uprobe outer,inner iterations (empty = suite default)"
         default: ""
+      prebuilt_run_id:
+        description: "Build Prebuilt run id, or 'latest' (empty = build from source)"
+        default: ""
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   bench:
@@ -55,11 +59,43 @@ jobs:
           path: harness
 
       - name: checkout bpftime code (${{ inputs.ref }})
+        if: ${{ inputs.prebuilt_run_id == '' }}
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
           submodules: "recursive"
           path: bpftime
+
+      - name: resolve prebuilt run
+        if: ${{ inputs.prebuilt_run_id != '' }}
+        id: prebuilt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rid='${{ inputs.prebuilt_run_id }}'
+          if [ "$rid" = "latest" ]; then
+            rid="$(gh run list -R "$GITHUB_REPOSITORY" \
+              --workflow build-prebuilt.yml --status success --limit 1 \
+              --json databaseId --jq '.[0].databaseId')"
+          fi
+          { [ -n "$rid" ] && [ "$rid" != "null" ]; } \
+            || { echo "no successful Build Prebuilt run found"; exit 1; }
+          echo "run_id=$rid" >> "$GITHUB_OUTPUT"
+
+      - name: download prebuilt tree
+        if: ${{ inputs.prebuilt_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: bpftime-prebuilt-${{ matrix.arch }}
+          run-id: ${{ steps.prebuilt.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: unpack prebuilt tree
+        if: ${{ inputs.prebuilt_run_id != '' }}
+        run: |
+          sudo apt-get install -y zstd >/dev/null 2>&1 || true
+          tar -I zstd -xf bpftime-prebuilt.tar.zst
+          echo "prebuilt from:"; cat bpftime/PREBUILT_COMMIT
 
       - name: install LLVM 15 toolchain
         run: |
@@ -94,9 +130,12 @@ jobs:
             [[ -n "${up_inner:-}" ]] && extra_args+=(--uprobe-test-iter "$up_inner")
           fi
 
+          build_flag=--build
+          [ -n "${{ inputs.prebuilt_run_id }}" ] && build_flag=--no-build
+
           harness/run_bpftime_arm64_benchmarks.sh \
             --install-deps \
-            --build \
+            "$build_flag" \
             --mode "${{ inputs.mode }}" \
             --ssl-sizes "${{ inputs.ssl_sizes }}" \
             --llvm-dir "$(llvm-config-15 --cmakedir)" \
