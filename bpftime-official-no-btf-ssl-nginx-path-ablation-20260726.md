@@ -132,25 +132,35 @@ x64 上 BPFtime 对 kernel eBPF 全 payload 快 20–30%（另见 07-22 的 x64 
    per-thread shard、不依赖绑核保证正确性，该序列在此路径上很可能整体冗余；
    若验证成立，ARM 上有望恢复与 x64 一致的领先格局。
 
-### x64 现状：暂无有效数据，待同 VM A/B（2026-07-27）
+### x64 同 VM A/B（2026-07-27，Actions run 30217974408，有效）
 
-x64 侧目前**没有可引用的完整 benchmark 数据**：
+同一台托管 x64 VM 内先后完整构建并运行两个 ref：
+A = `7bd421b`（含绑核删除 `076e3e4`；sigaction bug 尚在）、
+B = `99adf3a`（绑核仍在；其余相同）。公共 payload 对比：
 
-1. Actions 历史中 07-23/07-24 的 x64 run checkout 的分支 HEAD 当时携带
-   V2/V3 消融版 sslsniff（d28ca42/73e9b78），两腿均跑轻量程序，不能作为完整
-   benchmark 对照——引用历史 run 前必须核对该 run 实际 checkout 的 commit。
-2. 另一份曾被引用的 x64 数据集已由作者撤回，不再采用。
-3. 托管 runner 硬件抽签（观测 baseline 22.2k–31.3k）使跨 run 数值不可比；
-   任何 x64 的修复前后对比必须在**同一 VM 内 A/B**。
+| | A（删绑核） | B（含绑核） | Δ(A/B) |
+|---|---:|---:|---:|
+| baseline 16b / 256kb | 31778 / 2550 | 31175 / 2545 | +1.9% / +0.2% |
+| kernel 16b / 256kb | 12071 / 1360 | 12161 / 1360 | **−0.7% / 0.0%（噪声水位）** |
+| **bpftime 16b / 256kb** | **23759 / 2184** | 17344 / 1546 | **+37.0% / +41.3%** |
+| bpftime vs kernel | **+96.8% / +60.6%** | +42.6% / +13.7% | |
 
-已就绪的测量方案：benchmark.yml 的 `ref_b` 输入（2026-07-27 加入）——同一 job
-内先后构建并运行两个 ref，summary 自动出逐 payload A/B 表；kernel 腿与被测代码
-无关，其 Δ 即该 VM 的噪声水位，bpftime Δ 超出水位的部分才是真实差异。
-待跑：`arch=x64, ref=HEAD(去绑核), ref_b=99adf3a(绑核仍在)`，建议
-`ssl_sizes=16b,256kb`。预期：绑核删除在 x64 上效应仅 2–4 pp（setaffinity
-在 x64 数百 ns）。跑出结果前，本报告对 x64 只保留方向性说法（07-22 的
-nginx-path-perf 对照：BPFtime 的 nginx tracing CPU delta 为 kernel 的
-0.49–0.57×，与"翻转仅发生在 ARM"一致）。
+判读：
+
+1. **同 VM 控制成立**：与被测代码无关的 baseline/kernel 两腿差异 ≤1.9%，
+   bpftime 的 +37–41% 是纯净的绑核删除效应。
+2. **修正一个错误预期**：此前依据"x64 上 setaffinity 数百 ns"的推断，预测删除
+   在 x64 仅值 2–4 pp——**被证伪**。虚拟化 x64 上 affinity syscall 序列同样
+   昂贵（缓解措施+虚拟化放大），删除带来 +37–41% 吞吐。绑核序列是**跨平台的
+   手刹**，只是 x64 上 kernel uprobe 更惨（本 run kernel impact ~62%/47%），
+   bpftime 带着手刹也领先（+42.6%），故此前无人察觉。
+3. 删绑核后 bpftime impact：16b 25.2%（23759/31778）——与 Jetson fair 的
+   25.9% 再次落入同一带；"修复后 bpftime impact 平台近似不变（代码计价）"
+   的假设获得新证据，但仍以两个环境为限，不作强结论。
+4. B 侧全 7 档可见绑核代价随 payload 增大（vs kernel 由 +42.6% 收窄至
+   +13.7%）——与"事件数放大每事件成本差"的 payload 缩放机制一致。
+5. 历史告诫仍在：07-23/24 的 x64 run 跑的是消融版程序不可用；跨 run 对比受
+   硬件抽签限制；本节结论只依赖单 run 内与同 VM A/B 的对比。
 
 ## ④ 段内部消融：短测结果（2026-07-27，预注册后执行）
 
@@ -291,6 +301,8 @@ affinity 绑核序列是 Jetson/ARM 上 BPFtime 输给 kernel eBPF 的主因，
    修复验证阶段可在 x64 补一轮 no-affinity vs full 差分（预期 ≈0）作对照证据。
 
 ## 更新记录
+
+- 2026-07-27：x64 同 VM A/B（run 30217974408）落定：删绑核在 x64 亦带来 **+37~41%** bpftime 吞吐（kernel 腿 Δ≤0.7% 证明控制干净），推翻"仅 2–4pp"的预测——绑核序列是跨平台手刹；删后 bpftime vs kernel 达 +96.8%（16b）。
 
 - 2026-07-27：新增"Payload 缩放"一节：事件数随 payload 增长（ssl_buffer_size 16KB 分块，256KB ≈ 17 事件/请求）放大每事件成本差，解释修复前劣势随 payload 恶化、修复后优势随 payload 扩大的反转；256KB 事件数为推断值，待 event-audit 直接确认。
 
