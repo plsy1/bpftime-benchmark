@@ -66,8 +66,8 @@ record header 可落在环缓冲最后一字节，libbpf 读到跨界 `size=0` �
 
 ## 详细文档索引（summry 分支）
 
-- 消融方法与全部数据：`bpftime-official-no-btf-ssl-nginx-path-ablation-20260726.md`
-- 绑核为何冗余（代码级论证）：`bpftime-perf-event-output-affinity-redundancy-20260727.md`
-- 对齐 bug 定位与修复：`bpftime-software-perf-record-alignment-fix-20260722.md`
+- 消融方法与全部数据：`archive/bpftime-official-no-btf-ssl-nginx-path-ablation-20260726.md`
+- 绑核为何冗余（代码级论证）：`archive/bpftime-perf-event-output-affinity-redundancy-20260727.md`
+- 对齐 bug 定位与修复：`archive/bpftime-software-perf-record-alignment-fix-20260722.md`
 - 修复清单与验证：`bpftime-official-no-btf-change-log.md`
 - 操作手册：`bpftime-official-no-btf-ssl-nginx-benchmark-runbook.md`
