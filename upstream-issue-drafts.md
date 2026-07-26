@@ -1,6 +1,6 @@
 # 上游 issue 草稿（eunomia-bpf/bpftime）
 
-状态：待 master 验证 run（30221575655 / 30221579383）出数后填入 `<MASTER-*>` 占位符即可发布。
+状态：**master 验证数据已填入（2026-07-27），可发布**。剩余占位：Issue 2 里的 #<ISSUE1> 序号在 Issue 1 发布后回填。
 发布顺序建议：先 Issue 1（主发现），隔天 Issue 2；对齐 bug 单独成篇后续再发。
 
 ---
@@ -61,11 +61,17 @@ on the nginx worker's critical path.
 |---|---|---:|---:|
 | Jetson Orin (arm64, bare metal) | equal-scope attach, 3 rounds × 30 samples | **−9.6%** (16B) | **+7.6%** (16B) / **+9.8%** (256KB) |
 | x86-64 (hosted VM), same-VM A/B | stock scope | +42.6% (16B) | **+96.8%** (16B); bpftime throughput itself **+37–41%** |
-| current master (<MASTER-SHA>), arm64 runner | stock scope | <MASTER-ARM-BEFORE> | <MASTER-ARM-AFTER> |
-| current master (<MASTER-SHA>), x64 runner | stock scope | <MASTER-X64-BEFORE> | <MASTER-X64-AFTER> |
+| current master (`005635b`), hosted arm64 runner | stock scope | +13.4% (16B) / **−0.7%** (256KB) | +16.9% / +4.0% |
+| current master (`005635b`), hosted x64 runner | stock scope | +55.8% (16B) | **+90.6%** (16B) |
 
 In the same-VM A/B the kernel-eBPF leg differed by ≤0.7% between the two
 builds (it does not contain the changed code), confirming the control.
+The current-master rows compare within-run bpftime/kernel ratios across two
+hosted-runner dispatches (runs 30221575655 / 30221579383); hosted runners
+draw different hardware per run, so we treat those rows as directional
+reproduction on master — the controlled measurements are the Jetson
+bare-metal and same-VM A/B rows. (The x64 256KB cell is omitted above for
+exactly that reason: the two dispatches landed on different hardware tiers.)
 bpftime's variance also converges to the kernel leg's level once the
 per-event affinity churn is gone.
 
@@ -73,7 +79,7 @@ per-event affinity churn is gone.
 
 Delete the pin/restore sequence and keep the existing `my_sched_getcpu()`
 snapshot (rseq-backed, ~3.5 ns). The patch cherry-picks cleanly onto
-current master: <FIXED-BRANCH-LINK>. Happy to open a PR if this analysis
+current master: https://github.com/plsy1/bpftime-benchmark/tree/upstream-fixed (master + the two fixes, clean cherry-picks). Happy to open a PR if this analysis
 looks right to you.
 
 Full benchmark data and methodology:
@@ -105,7 +111,7 @@ on the tracing hot path.
 Track installation with an explicit `thread_local bool` (one per path).
 The handler genuinely needs to be installed once per thread; the fix
 preserves behavior exactly and removes the UB read. Cherry-picks cleanly
-onto master: <FIXED-BRANCH-LINK>.
+onto master: https://github.com/plsy1/bpftime-benchmark/tree/upstream-fixed (master + the two fixes, clean cherry-picks).
 
 ## Impact
 
