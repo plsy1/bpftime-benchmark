@@ -2,45 +2,50 @@
 
 ## 技术摘要
 
-本目录保存 Jetson 上 `ssl-nginx` benchmark 的四组路径消融实验结果。四个版本逐步恢复 `sslsniff.bpf.c` 中的执行路径，通过观察端到端吞吐量（Requests/sec）的变化，判断不同路径对 kernel eBPF 和 BPFtime 的性能影响。
+本目录保存 Jetson 上 `ssl-nginx` benchmark 的路径消融实验。实验逐步恢复 `sslsniff.bpf.c` 的执行路径，通过端到端吞吐量（Requests/sec）变化，比较 kernel eBPF 与 BPFtime，并近似判断不同路径对吞吐量的影响。
 
-当前结果表明：
+当前正式对比使用 V1、V2、V3 和修复 software perf record 8 字节对齐问题后的 V4 Full：
 
-- V1 空 Probe 下，BPFtime 在全部 payload 上均比 kernel eBPF 快，优势为 `6.76%～14.90%`。
-- 恢复 metadata helper、map 和事件准备逻辑后，BPFtime 仍保持优势。
-- 恢复 `bpf_probe_read_user` 后，BPFtime 的优势收窄到 `2.92%～4.95%`。
-- 恢复完整 event-output 路径后，256KB 下 BPFtime 从比 kernel 快 `4.18%` 变为慢 `5.45%`。
-- 当前 V4 Full 使用的是未包含 software perf record 8 字节对齐修复的 runtime，BPFtime 吞吐量存在明显双峰，变异系数为 `8.73%～16.58%`。这组结果仅作为未对齐 bug 的异常对照，不能用于量化正常完整输出路径的吞吐量影响。
+- V1 空 Probe 下，BPFtime 在全部 payload 上比 kernel eBPF 快 `6.76%～14.90%`。
+- V2 恢复 metadata helper、map 和事件准备后，BPFtime 仍比 kernel 快 `5.65%～15.18%`。
+- V3 恢复 `bpf_probe_read_user` 后，BPFtime 优势收窄到 `2.92%～4.95%`。
+- V4 恢复完整 event-output 路径后，BPFtime 在全部 payload 上转为比 kernel 慢 `4.86%～12.28%`。
+- V4 相对 V3 增加了约 `15.56～19.70` 个百分点的 BPFtime 吞吐量损失，是当前四级消融中影响最大的阶段。
+- 对齐修复使 V4 BPFtime 的七种 payload 平均 CV 从 `13.54%` 降至 `3.47%`，此前的明显双峰消失。
 
-本文只分析当前目录中的新实验，不包含 `old/` 目录。
+因此，这组吞吐量消融实验支持：
+
+> BPFtime 的基础 probe/runtime 路径本身具有优势；helper、map 和明文复制逐步消耗这项优势；完整 perf-event 输出、传输和消费路径进一步造成最大的吞吐量下降，并使最终 Full 结果低于 kernel eBPF。
+
+本文只分析当前目录中的新实验，不包含 `old/`。
 
 ## 一个 `run` 具体执行了什么
 
-每个 `runXX/` 都表示完整执行了一次：
+每个 `runXX/` 都表示完整执行一次：
 
 ```bash
 python3 benchmark/ssl-nginx/draw_figture.py
 ```
 
-`draw_figture.py` 会依次生成并测试以下七种 payload：
+`draw_figture.py` 依次生成并测试七种 payload：
 
 ```text
 16B、1KB、2KB、4KB、16KB、128KB、256KB
 ```
 
-对于每一种 payload，脚本都会调用一次：
+对于每种 payload，脚本调用一次：
 
 ```bash
 python3 benchmark/ssl-nginx/benchmark.py
 ```
 
-`benchmark.py` 中 `NUM_RUNS = 10`，因此每一种 payload 都包括：
+`benchmark.py` 中 `NUM_RUNS = 10`，因此每种 payload 包含：
 
 - Baseline：10 次 `wrk`
 - Kernel sslsniff：10 次 `wrk`
 - BPFtime sslsniff：10 次 `wrk`
 
-每个 `wrk` 测试使用 100 个连接并持续 10 秒：
+每次 `wrk` 使用 100 个连接并持续 10 秒：
 
 ```bash
 wrk https://127.0.0.1:4043/index.html -c 100 -d 10
@@ -49,12 +54,13 @@ wrk https://127.0.0.1:4043/index.html -c 100 -d 10
 因此：
 
 - 一次完整 `draw_figture.py` 包含 `7 × 3 × 10 = 210` 个吞吐量样本。
-- V1、V2、V3 各执行了一次完整 run，每种 payload、每种模式各有 10 个样本。
-- V4（未对齐 runtime）执行了两次完整 run，每种 payload、每种模式合计各有 20 个样本。
+- V1、V2、V3 各有一次完整 run，每种 payload、每种模式各有 10 个样本。
+- V4 Full aligned 有两次完整 run，每种 payload、每种模式合计各有 20 个样本。
+- V4 Full unaligned 也保留两次完整 run，但只作为未对齐 bug 的异常对照。
 
 这里的“一次 run”不是单次 `wrk`，而是包含七种 payload 和三种运行模式的完整 benchmark。
 
-## 四个消融版本
+## 四个正式消融版本
 
 ### V1：Empty Probe
 
@@ -66,7 +72,7 @@ empty-probe/run01/
 
 `SSL_read`、`SSL_write` 和 handshake 的 entry/return probe 均直接返回 `0`。
 
-该版本保留：
+该版本只保留：
 
 - uprobe/uretprobe 触发
 - 上下文保存与恢复
@@ -74,16 +80,7 @@ empty-probe/run01/
 - kernel BPF 或 BPFtime JIT 执行
 - 返回 nginx
 
-该版本排除：
-
-- helper 调用
-- map 操作
-- event metadata 准备
-- `bpf_probe_read_user`
-- `bpf_perf_event_output`
-- perf-buffer 传输和消费者处理
-
-因此，V1 反映基础 probe/runtime 路径对 benchmark 吞吐量的影响。
+它排除 helper、map、metadata 准备、明文复制、perf-event 输出、数据传输和消费者处理。因此，V1 反映基础 probe/runtime 路径对 benchmark 吞吐量的影响。
 
 ### V2：No-copy + No-output
 
@@ -103,14 +100,14 @@ no-copy_no-output/run01/
 - per-CPU array lookup
 - event metadata 初始化
 
-该版本仍禁用：
+仍禁用：
 
 ```c
 bpf_probe_read_user(...);
 bpf_perf_event_output(...);
 ```
 
-V2 相对 V1 的吞吐量变化，近似反映 metadata helper、map 操作和 event preparation 对端到端吞吐量的影响。
+V2 相对 V1 的吞吐量变化，近似反映 metadata helper、map 操作和 event preparation 的影响。
 
 ### V3：No-output
 
@@ -132,18 +129,18 @@ bpf_probe_read_user(...);
 bpf_perf_event_output(...);
 ```
 
-V3 相对 V2 的吞吐量变化，近似反映 SSL 明文复制路径对端到端吞吐量的影响。
+V3 相对 V2 的吞吐量变化，近似反映 SSL 明文复制路径的影响。
 
-### V4：Full（未对齐 runtime，异常对照）
+### V4：Full aligned
 
 目录：
 
 ```text
-full-unaligned/run01/
-full-unaligned/run02/
+full-aligned/run01/
+full-aligned/run02/
 ```
 
-该版本恢复原始完整 `sslsniff.bpf.c` 路径，包括：
+该版本恢复完整 `sslsniff.bpf.c`，包括：
 
 - probe/runtime 执行
 - metadata helper
@@ -153,18 +150,32 @@ full-unaligned/run02/
 - perf-buffer 数据传输
 - userspace `sslsniff` 消费者
 
-这两次 V4 使用的 Docker 镜像未包含 software perf record 8 字节对齐修复。启用 `bpf_perf_event_output` 后会触发已知的未对齐 record bug，引起消费者空转、隐藏丢事件和吞吐量双峰。因此，这组 V4 只能用于展示未修复状态，不能用来估算正常 event output、数据传输和消费者路径的吞吐量影响。
+容器中的 BPFtime runtime 使用修复后的 agent、syscall-server 和 `bpftimetool`，software perf record 按 8 字节对齐。V4 相对 V3 的吞吐量变化，近似反映完整 event-output、传输和消费路径的端到端影响。
 
-后续应用对齐修复重新运行的结果应保存到：
+## V4 aligned 的完整吞吐量结果
 
-```text
-full-aligned/run01/
-full-aligned/run02/
-```
+下表汇总 `full-aligned/run01` 和 `run02`，每项为 20 个样本的平均值。CV 为 BPFtime Requests/sec 的变异系数。
 
-## BPFtime 相对 kernel eBPF 的吞吐量
+| Payload | Baseline RPS | Kernel RPS | BPFtime RPS | BPFtime 相对 Kernel | BPFtime CV |
+|---|---:|---:|---:|---:|---:|
+| 16B | 16541.78 | 11259.38 | 10315.27 | −8.39% | 2.11% |
+| 1KB | 15896.07 | 10883.89 | 10079.05 | −7.39% | 3.46% |
+| 2KB | 15131.01 | 10457.03 | 9812.67 | −6.16% | 2.13% |
+| 4KB | 14330.22 | 9924.30 | 9441.82 | −4.86% | 3.76% |
+| 16KB | 9916.62 | 7059.99 | 6193.26 | −12.28% | 3.96% |
+| 128KB | 2966.59 | 2028.68 | 1929.99 | −4.86% | 4.37% |
+| 256KB | 1644.17 | 1164.48 | 1061.72 | −8.82% | 4.47% |
 
-下表计算：
+两次 aligned run 分开计算时，七种 payload 中 BPFtime 也都低于 kernel，说明方向在两轮之间一致：
+
+- `run01`：BPFtime 相对 kernel 为 `−4.97%～−12.56%`
+- `run02`：BPFtime 相对 kernel 为 `−3.76%～−11.99%`
+
+当前数据没有显示“输出路径只在大 payload 才明显变重”的单调趋势。完整输出路径在全部 payload 上都造成了较大的额外吞吐量损失。
+
+## BPFtime 相对 kernel eBPF 的逐级变化
+
+计算方式：
 
 ```text
 BPFtime relative to kernel =
@@ -173,21 +184,19 @@ BPFtime relative to kernel =
 
 正数表示 BPFtime 吞吐量高于 kernel eBPF，负数表示低于 kernel eBPF。
 
-| Payload | V1 Empty | V2 No-copy/No-output | V3 No-output | V4 Full（未对齐，仅供参考） |
+| Payload | V1 Empty | V2 No-copy/No-output | V3 No-output | V4 Full aligned |
 |---|---:|---:|---:|---:|
-| 16B | +8.39% | +5.65% | +3.60% | +4.99% |
-| 1KB | +12.96% | +7.68% | +4.95% | +3.65% |
-| 2KB | +6.76% | +10.99% | +2.92% | +14.00% |
-| 4KB | +7.35% | +5.83% | +3.91% | +9.90% |
-| 16KB | +9.53% | +10.14% | +4.92% | +3.91% |
-| 128KB | +10.88% | +15.18% | +3.95% | +5.51% |
-| 256KB | +14.90% | +10.92% | +4.18% | **−5.45%** |
+| 16B | +8.39% | +5.65% | +3.60% | **−8.39%** |
+| 1KB | +12.96% | +7.68% | +4.95% | **−7.39%** |
+| 2KB | +6.76% | +10.99% | +2.92% | **−6.16%** |
+| 4KB | +7.35% | +5.83% | +3.91% | **−4.86%** |
+| 16KB | +9.53% | +10.14% | +4.92% | **−12.28%** |
+| 128KB | +10.88% | +15.18% | +3.95% | **−4.86%** |
+| 256KB | +14.90% | +10.92% | +4.18% | **−8.82%** |
 
-V1 到 V3 的结果比较稳定：BPFtime 始终优于 kernel，但随着 BPF 程序逐步恢复复制等实际工作，优势逐渐缩小。
+V1 到 V3 中，BPFtime 始终优于 kernel。性能关系在 V4 恢复完整输出路径后统一翻转，因此当前最主要的吞吐量分界出现在 `bpf_perf_event_output` 及其后续传输和消费链路。
 
-未对齐 V4 中 256KB 的性能翻转，以及 2KB 和 4KB 的较高优势，均受到双峰和隐藏丢事件影响，不能解释为正常完整输出路径的稳定性能。
-
-## BPFtime 各阶段引入的吞吐量损失
+## 各阶段引入的 BPFtime 吞吐量损失
 
 每个版本首先相对其同轮 baseline 计算吞吐量损失：
 
@@ -196,54 +205,67 @@ Throughput impact =
     (Baseline RPS - BPFtime RPS) / Baseline RPS × 100%
 ```
 
-再比较相邻版本的 impact 差值。单位为百分点（percentage points，pp）。
+再比较相邻版本的 impact 差值，单位为百分点（percentage points，pp）。
 
-| Payload | V2−V1：helper/map/准备 | V3−V2：明文复制 | V4−V3：未对齐异常路径 |
+| Payload | V2−V1：helper/map/准备 | V3−V2：明文复制 | V4 aligned−V3：完整输出路径 |
 |---|---:|---:|---:|
-| 16B | +7.67 pp | +2.46 pp | +8.79 pp |
-| 1KB | +6.89 pp | +2.63 pp | +9.94 pp |
-| 2KB | +6.21 pp | +3.23 pp | +3.26 pp |
-| 4KB | +5.98 pp | +3.91 pp | +4.73 pp |
-| 16KB | +6.48 pp | +4.23 pp | +10.14 pp |
-| 128KB | +6.37 pp | +3.80 pp | +8.34 pp |
-| 256KB | +5.83 pp | +5.29 pp | **+16.29 pp** |
+| 16B | +7.67 pp | +2.46 pp | **+17.81 pp** |
+| 1KB | +6.89 pp | +2.63 pp | **+17.49 pp** |
+| 2KB | +6.21 pp | +3.23 pp | **+16.15 pp** |
+| 4KB | +5.98 pp | +3.91 pp | **+15.56 pp** |
+| 16KB | +6.48 pp | +4.23 pp | **+19.70 pp** |
+| 128KB | +6.37 pp | +3.80 pp | **+17.69 pp** |
+| 256KB | +5.83 pp | +5.29 pp | **+18.27 pp** |
 
 从吞吐量角度看：
 
 - helper、map 和事件准备路径带来约 `5.83～7.67 pp` 的额外损失。
-- `bpf_probe_read_user` 路径带来约 `2.46～5.29 pp` 的额外损失，并随 payload 增大呈增强趋势。
-- 未对齐 V4 与 V3 的表面差值为 `3.26～16.29 pp`，但它混入了 record 未对齐 bug，不能作为正常完整输出路径的成本。
+- `bpf_probe_read_user` 路径带来约 `2.46～5.29 pp` 的额外损失。
+- 完整输出路径带来约 `15.56～19.70 pp` 的额外损失，是前三段增量中最大的一段。
 
-这些数值是相邻消融版本的 benchmark 吞吐量差异，不是函数级 CPU 执行时间，也不应被理解为严格可加的绝对路径成本。
+这些数值是不同时间执行的相邻消融版本之间的 benchmark 吞吐量差异，不是函数级 CPU 时间，也不应解释为严格可加的绝对执行成本。
 
-## 稳定性：未对齐 V4 触发已知双峰
+## 字节对齐修复消除了 V4 双峰
 
-各版本 BPFtime 吞吐量样本的变异系数（CV）如下：
+`full-unaligned/` 保存未应用 software perf record 8 字节对齐修复的两轮 V4：
 
-| Payload | V1 Empty | V2 No-copy/No-output | V3 No-output | V4 Full（未对齐） |
-|---|---:|---:|---:|---:|
-| 16B | 1.36% | 0.89% | 0.74% | **16.58%** |
-| 1KB | 0.62% | 1.51% | 1.10% | **14.89%** |
-| 2KB | 1.31% | 1.40% | 2.36% | **12.63%** |
-| 4KB | 1.12% | 2.81% | 1.86% | **12.46%** |
-| 16KB | 0.67% | 1.30% | 1.95% | **15.28%** |
-| 128KB | 0.58% | 1.18% | 3.25% | **14.17%** |
-| 256KB | 1.58% | 2.71% | 2.66% | **8.73%** |
+```text
+full-unaligned/run01/
+full-unaligned/run02/
+```
 
-Baseline 和 kernel 样本整体稳定，V1–V3 的 BPFtime 样本也基本稳定。显著波动出现在使用未修复 runtime 并启用 `bpf_perf_event_output` 的 V4 BPFtime 中。
+未对齐 V4 会使 libbpf perf-buffer 消费者在跨 ring 边界读取 record header 时停滞，引起消费者空转、隐藏丢事件和双峰吞吐量。该目录只作为 bug 对照，不参与正式 V1–V4 路径归因。
 
-例如 V4 `run01` 的 16B BPFtime 样本同时包含约 10k RPS 和约 14k RPS 两组状态：
+| Payload | V1 CV | V2 CV | V3 CV | V4 unaligned CV | V4 aligned CV |
+|---|---:|---:|---:|---:|---:|
+| 16B | 1.36% | 0.89% | 0.74% | 16.58% | **2.11%** |
+| 1KB | 0.62% | 1.51% | 1.10% | 14.89% | **3.46%** |
+| 2KB | 1.31% | 1.40% | 2.36% | 12.63% | **2.13%** |
+| 4KB | 1.12% | 2.81% | 1.86% | 12.46% | **3.76%** |
+| 16KB | 0.67% | 1.30% | 1.95% | 15.28% | **3.96%** |
+| 128KB | 0.58% | 1.18% | 3.25% | 14.17% | **4.37%** |
+| 256KB | 1.58% | 2.71% | 2.66% | 8.73% | **4.47%** |
+
+七种 payload 的 V4 BPFtime 平均 CV：
+
+```text
+unaligned：13.54%
+aligned：   3.47%
+下降：     74.4%
+```
+
+例如未对齐 V4 `run01` 的 16B BPFtime 同时出现约 10k 和约 14k RPS：
 
 ```text
 10436 10358 14182 14354 10387
 14210 10381 10574 9953 14266
 ```
 
-因此，V4 的均值混合了两个不同的异常运行状态。此前已经确认，该双峰来自 software perf record 未按 8 字节对齐，而不是完整输出路径在正常实现下必然具有的性能特征。必须使用修复后的 runtime 重跑 V4，才能计算有效的 `V4 − V3`。
+修复后不再出现这一明显双峰。这说明字节对齐修复主要恢复了 perf-buffer 消费的正确性和测量稳定性；未对齐版本中被隐藏丢事件抬高的部分吞吐量不能视为真实性能。
 
 ## 结果文件的读取方式
 
-每个 run 中：
+每个完整 run 中：
 
 - `size_benchmark_*.txt`：七种 payload 的汇总表和完整文本输出。
 - `size_benchmark_*.json`：七种 payload 的结构化汇总结果。
@@ -251,17 +273,19 @@ Baseline 和 kernel 样本整体稳定，V1–V3 的 BPFtime 样本也基本稳�
 - `absolute_performance.png`：该次完整 run 生成的吞吐量图。
 - `*.log`：完整执行日志。
 
-`no-copy_no-output/run01/` 当前没有单独保存 `benchmark_results_*.json` 和 `size_benchmark_*.json`，但 `size_benchmark_20260724_171625.txt` 的 raw output 中仍包含全部 210 个吞吐量样本，因此可以恢复并核对均值与方差。
+`no-copy_no-output/run01/` 没有单独保存 `benchmark_results_*.json` 和 `size_benchmark_*.json`，但 `size_benchmark_20260724_171625.txt` 的 raw output 中包含全部 210 个吞吐量样本，可以恢复并核对均值与方差。
 
-以下文件虽然存在于部分新结果目录中，但时间戳明显早于本轮路径消融实验，分析时未纳入：
+以下文件时间戳早于本轮路径消融实验，分析时未纳入：
 
 ```text
 benchmark_results_20260711_081448.json
 ```
 
-## 结论边界与后续验证
+`v4-ablation/` 保存对 V4 内部子路径的后续短测和 fair-scope 验证，不与本 README 中四个完整 `draw_figture.py` run 的主表混合。
 
-这组实验采用吞吐量消融法，能够回答：
+## 结论边界与后续问题
+
+这组吞吐量消融能够回答：
 
 > 启用某段 `sslsniff` 路径后，完整 `ssl-nginx` benchmark 的吞吐量发生了多大变化？
 
@@ -271,9 +295,10 @@ benchmark_results_20260711_081448.json
 
 当前最可靠的结论是：
 
-1. 空 Probe 下，BPFtime 的基础 runtime/JIT 路径在所有 payload 上均优于 kernel eBPF。
-2. metadata helper、map 操作和明文复制会逐步缩小 BPFtime 的吞吐量优势。
-3. 当前未对齐 V4 在恢复 event-output 路径后触发了已知 record alignment bug，因此其吞吐量均值、性能翻转和方差不能作为正常 V4 结论。
-4. V1、V2、V3 不调用 `bpf_perf_event_output`，不受该字节对齐 bug 影响，可以继续保留。
+1. BPFtime 的基础 probe/runtime 路径在七种 payload 上均优于 kernel eBPF。
+2. metadata helper、map 操作和明文复制逐步缩小 BPFtime 的吞吐量优势。
+3. aligned V4 的完整输出路径带来最大的吞吐量损失，使 BPFtime 在七种 payload 上均转为低于 kernel。
+4. 8 字节对齐修复消除了未对齐 V4 的明显双峰，使 Full 结果从异常状态恢复为可用于路径归因的稳定测量。
+5. 相邻版本在不同时间顺序执行，因此各阶段差值是近似吞吐量归因；如需更强的因果证据，应采用同一时段交错执行 V1–V4。
 
-下一步只需使用包含 8 字节对齐修复的 runtime 重跑 V4，并将结果保存到 `full-aligned/`。完成后再用 aligned V4 与 V3 比较，分析正常完整输出路径的吞吐量影响。
+后续如果继续分解 V4，应分别消融 `bpf_perf_event_output` 的 producer helper、software perf ring 写入以及 userspace consumer，并保持相同 attach scope、网络模式、构建产物和执行顺序。
