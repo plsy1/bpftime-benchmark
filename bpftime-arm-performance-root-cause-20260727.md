@@ -65,12 +65,15 @@ record header 可落在环缓冲最后一字节，libbpf 读到跨界 `size=0` �
 重装信号处理器 2 个），把优势全部漏光——拔掉之后，Jetson 与 x64 全面反超
 kernel。**
 
-已知残留边界（2026-07-27，完全体双平台全量 run 30220955196）：高吞吐托管
-arm64 runner 上大 payload 仍落后（128kb −5.0%、256kb −9.0%；中小 payload
-+8~+22%）。候选解释：大事件高频率下 bpftime 的多次用户态拷贝
-（probe_read → shard 写入 → drain 二次拷贝到 consumer buffer）成为带宽/
-拷贝瓶颈（对应消融中 no-ringwrite 的残余成本），kernel 路径只拷一遍；
-x64 带宽富余、Jetson 吞吐低均未触及该阈值。这是下一个优化目标。
+测量平台可信度（2026-07-27 复核）：**托管 arm64 runner 不适合分辨 10pp 以内的
+差异**。三次独立 run 中，裸 nginx baseline 稳定（跨 run 极差 4%），但 kernel
+sslsniff 腿抖动达 26%（23457→29583 RPS，该腿代码未变），导致 256KB 的
+bpftime/kernel 比值在 −0.7% / +4.0% / −9.0% 之间横跳（极差 13 pp、跨越正负）。
+推测为虚拟化环境下内核陷入成本受同宿主负载干扰，而纯用户态 baseline 不敏感。
+因此曾据单次 run 记录的"高吞吐 arm64 上大 payload 落后 5–9%"**已撤回**——
+该现象无法与噪声区分。可信的 ARM 结论以 Jetson 裸机为准（baseline 跨轮极差
+1.1%，fair 口径 256KB bpftime 领先 +9.8%）；托管 runner 数据仅用于数量级方向
+（如 x64 的 +65~104%，幅度远超噪声）。
 
 ## 详细文档索引（summry 分支）
 
