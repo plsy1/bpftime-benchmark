@@ -7,7 +7,7 @@ OUT_DIR="${OUT_DIR:-$PWD/docker-results}"
 mkdir -p "$OUT_DIR"
 
 if [[ "$#" -eq 0 ]]; then
-  set -- ./run_bpftime_arm64_benchmarks.sh --mode smoke --skip-syscall
+  set -- bash
 fi
 
 TTY_ARGS=()
@@ -24,4 +24,4 @@ exec docker run --rm "${TTY_ARGS[@]}" \
   -e SSL_NGINX_SSLSNIFF_ARGS="${SSL_NGINX_SSLSNIFF_ARGS:---no-gnutls --no-nss -c nginx}" \
   -e SYSCOUNT_NGINX_BIN="${SYSCOUNT_NGINX_BIN:-nginx}" \
   "$IMAGE" \
-  "$@" --output-dir /results/benchmark-results-arm64-container
+  "$@"

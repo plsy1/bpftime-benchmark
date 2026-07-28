@@ -32,11 +32,6 @@ jobs:
       LD_LIBRARY_PATH: /usr/lib/llvm-15/lib
 
     steps:
-      - name: checkout harness (this branch)
-        uses: actions/checkout@v4
-        with:
-          path: harness
-
       - name: checkout bpftime code (${{ inputs.ref }})
         uses: actions/checkout@v4
         with:
@@ -44,14 +39,20 @@ jobs:
           submodules: "recursive"
           path: bpftime
 
-      - name: install LLVM 15 toolchain
+      - name: install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            clang-15 llvm-15 llvm-15-dev zstd
+            autoconf automake binutils-dev build-essential ca-certificates \
+            clang clang-15 cmake curl git libboost-all-dev libcrypt-dev \
+            libelf-dev libfuse-dev libncurses-dev libpcre2-dev libssl-dev \
+            libtool libyaml-cpp-dev llvm llvm-dev llvm-15 llvm-15-dev \
+            nginx pkg-config python-is-python3 python3 python3-matplotlib \
+            python3-numpy python3-pip systemtap-sdt-dev wrk zlib1g-dev zstd
           llvm-config-15 --version
 
       - name: build (all selected benchmark targets, no benchmark run)
+        working-directory: bpftime
         run: |
           set -euxo pipefail
           suites=",$(echo '${{ inputs.suites }}' | tr -d ' '),"
@@ -62,12 +63,68 @@ jobs:
           export RUN_SYSCOUNT="$(has syscount)"
           export RUN_MPK="$(has mpk)"
 
-          harness/run_bpftime_arm64_benchmarks.sh \
-            --install-deps \
-            --build-only \
-            --llvm-dir "$(llvm-config-15 --cmakedir)" \
-            --output-dir "$GITHUB_WORKSPACE/build-log" \
-            "$GITHUB_WORKSPACE/bpftime"
+          BUILD_ATTACH_IMPL_EXAMPLE=0
+          if [[ "$RUN_SYSCOUNT" == "1" || "$RUN_SSL_NGINX" == "1" ]]; then
+            BUILD_ATTACH_IMPL_EXAMPLE=1
+          fi
+
+          LLVM_DIR="$(llvm-config-15 --cmakedir)"
+          cmake -Bbuild \
+            -DLLVM_DIR="$LLVM_DIR" \
+            -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo \
+            -DBPFTIME_LLVM_JIT=1 \
+            -DBPFTIME_ENABLE_LTO=1 \
+            -DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO \
+            -DENABLE_PROBE_WRITE_CHECK=1 \
+            -DENABLE_PROBE_READ_CHECK=1 \
+            -DBPFTIME_ENABLE_MPK=0 \
+            -DBUILD_ATTACH_IMPL_EXAMPLE="$BUILD_ATTACH_IMPL_EXAMPLE"
+          cmake --build build --config RelWithDebInfo --target install -j"$(nproc)"
+
+          if [[ "$BUILD_ATTACH_IMPL_EXAMPLE" == "1" ]]; then
+            cmake --build build --config RelWithDebInfo \
+              --target attach_impl_example_nginx -j"$(nproc)" || true
+          fi
+          if [[ "$RUN_UPROBE" == "1" || "$RUN_MPK" == "1" ]]; then
+            make -C benchmark test
+          fi
+          if [[ "$RUN_UPROBE" == "1" ]]; then
+            make -C benchmark/uprobe
+          fi
+          if [[ "$RUN_SYSCALL" == "1" ]]; then
+            make -C benchmark/syscall
+          fi
+          if [[ "$RUN_SYSCOUNT" == "1" ]]; then
+            make -C benchmark/syscount-nginx
+          fi
+          if [[ "$RUN_SSL_NGINX" == "1" ]]; then
+            make -C benchmark/ssl-nginx
+          fi
+
+          if [[ "$RUN_MPK" == "1" ]]; then
+            cmake -Bbuild-mpk \
+              -DLLVM_DIR="$LLVM_DIR" \
+              -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo \
+              -DBPFTIME_LLVM_JIT=1 \
+              -DBPFTIME_ENABLE_LTO=1 \
+              -DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO \
+              -DENABLE_PROBE_WRITE_CHECK=1 \
+              -DENABLE_PROBE_READ_CHECK=1 \
+              -DBPFTIME_ENABLE_MPK=1 \
+              -DBUILD_ATTACH_IMPL_EXAMPLE=0
+            cmake --build build-mpk --config RelWithDebInfo \
+              --target install -j"$(nproc)"
+          fi
+
+          if [[ ! -e example/sslsniff && -d example/tracing/sslsniff ]]; then
+            ln -s tracing/sslsniff example/sslsniff
+          fi
+          if [[ ! -e example/libbpf-tools/syscount/syscount \
+                && -e example/tracing/syscount/syscount ]]; then
+            mkdir -p example/libbpf-tools/syscount
+            ln -s ../../tracing/syscount/syscount \
+              example/libbpf-tools/syscount/syscount
+          fi
 
       - name: pack built tree
         run: |

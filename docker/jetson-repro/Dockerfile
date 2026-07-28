@@ -45,8 +45,8 @@ RUN cmake -Bbuild \
       -DBPFTIME_LLVM_JIT=1 \
       -DBPFTIME_ENABLE_LTO=1 \
       -DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO \
-      -DENABLE_PROBE_WRITE_CHECK=0 \
-      -DENABLE_PROBE_READ_CHECK=0 \
+      -DENABLE_PROBE_WRITE_CHECK=1 \
+      -DENABLE_PROBE_READ_CHECK=1 \
       -DBPFTIME_ENABLE_MPK=0 \
       -DBUILD_ATTACH_IMPL_EXAMPLE=1 \
     && cmake --build build --config RelWithDebInfo --target install -j"$(nproc)" \
@@ -60,4 +60,4 @@ RUN make -C benchmark test \
 ENV SSL_NGINX_SSLSNIFF_ARGS="--no-gnutls --no-nss -c nginx"
 ENV SYSCOUNT_NGINX_BIN="nginx"
 
-CMD ["./run_bpftime_arm64_benchmarks.sh", "--mode", "smoke", "--skip-syscall"]
+CMD ["bash"]

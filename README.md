@@ -77,10 +77,8 @@ checkout 或取预编译产物 → 装依赖 → 只构建该 suite 的目标 �
   `SSL_NGINX_WRK_CONNECTIONS`），本地跑同样适用，例如：
   `SSL_NGINX_SIZES=16b SSL_NGINX_NUM_RUNS=1 python3 benchmark/ssl-nginx/draw_figture.py`。
 
-## 本地脚本（CI 不再使用，保留作本机工具）
+## 辅助脚本
 
-- `run_bpftime_arm64_benchmarks.sh`：多 suite 一键跑（`--only`/`--skip-*`/
-  `--ssl-sizes`/`--build` 等，`-h` 看全部选项）
 - `run_x64_syscount_smoke.sh`、`setup.sh`
 - Jetson 本机的消融/短测/审计工具在代码分支的 `v4-ablation/`、`v1-v4-ablation/`
   目录，用法见 summry 分支的 runbook

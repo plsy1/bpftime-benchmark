@@ -33,31 +33,30 @@ docker save bpftime-benchmark-jetson-userspace:20260709 \
 gunzip -c bpftime-benchmark-jetson-userspace-20260709.tar.gz | docker load
 ```
 
-Run smoke:
-
-```bash
-docker/jetson-repro/run-container.sh \
-  ./run_bpftime_arm64_benchmarks.sh --mode smoke --skip-syscall
-```
-
 Run only `ssl-nginx`:
 
 ```bash
 docker/jetson-repro/run-container.sh \
-  ./run_bpftime_arm64_benchmarks.sh --only ssl-nginx --ssl-sizes 1kb
+  bash -lc \
+  'SSL_NGINX_SIZES=1kb SSL_NGINX_NUM_RUNS=1 \
+   python3 benchmark/ssl-nginx/draw_figture.py &&
+   cp benchmark/ssl-nginx/size_benchmark_* /results/'
 ```
 
 Run full `uprobe`:
 
 ```bash
 docker/jetson-repro/run-container.sh \
-  ./run_bpftime_arm64_benchmarks.sh --only uprobe
+  bash -lc \
+  'python3 benchmark/uprobe/benchmark.py &&
+   cp benchmark/uprobe/benchmark-output.json \
+      benchmark/uprobe/results.md /results/'
 ```
 
 Results are written to:
 
 ```text
-./docker-results/benchmark-results-arm64-container
+./docker-results
 ```
 
 ## Runtime Requirements
