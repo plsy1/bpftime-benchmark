@@ -179,13 +179,24 @@ jobs:
           dir="$SUITE"; [ "$SUITE" = "syscount" ] && dir=syscount-nginx
           find "bpftime/benchmark/$dir" -maxdepth 3 -type f \
             \( -name '*.json' -o -name '*.txt' -o -name '*.csv' \
-               -o -name '*.png' -o -name '*.log' \) \
+               -o -name '*.png' -o -name '*.log' -o -name '*.md' \) \
             -newer "$MARKER" ! -name "access.log" -print0 2>/dev/null \
           | while IFS= read -r -d '' f; do
               rel="${f#bpftime/}"
               mkdir -p "$OUT/files/$(dirname "$rel")"
               cp -a "$f" "$OUT/files/$rel"
             done
+
+          # uprobe/benchmark.py always generates the Markdown report after a
+          # successful run. Treat a missing report as an incomplete result
+          # instead of publishing a green job with only logs.
+          if [ "$SUITE" = "uprobe" ] \
+             && [ ! -s "$OUT/files/benchmark/uprobe/results.md" ]; then
+            echo "SUITE-FAILED: benchmark/uprobe/results.md was not collected" \
+              | tee -a "$OUT/run.log"
+            rc=1
+          fi
+
           tar -czf "$OUT.tar.gz" -C "$(dirname "$OUT")" "$(basename "$OUT")" || true
           exit "$rc"
 
@@ -235,8 +246,10 @@ jobs:
             grep -h "SUITE-FAILED" "$OUT/run.log" 2>/dev/null || true
             echo
 
-            # render every collected result file (bounded to stay under the
-            # 1MiB step-summary limit; full files land in the artifact)
+            # Render every collected result file (bounded to stay under the
+            # 1MiB step-summary limit; full files land in the artifact).
+            # Markdown reports are emitted as Markdown so their tables render
+            # in the job summary instead of appearing as a code block.
             budget=800000
             found=0
             while IFS= read -r f; do
@@ -249,14 +262,22 @@ jobs:
               budget=$((budget - (sz > 20000 ? 20000 : sz)))
               echo "<details open><summary><b>${f#"$OUT"/files/}</b> (${sz} bytes)</summary>"
               echo
-              echo '```'
-              head -60 "$f"
-              [ "$(wc -l < "$f")" -le 60 ] || echo "... (truncated; full file in the artifact)"
-              echo '```'
+              if [[ "$f" = *.md ]]; then
+                head -200 "$f"
+                [ "$(wc -l < "$f")" -le 200 ] \
+                  || echo "_... truncated; full report is in the artifact_"
+              else
+                echo '```'
+                head -60 "$f"
+                [ "$(wc -l < "$f")" -le 60 ] \
+                  || echo "... (truncated; full file in the artifact)"
+                echo '```'
+              fi
               echo "</details>"
               echo
             done < <(find "$OUT/files" -type f \
-                       \( -name '*.txt' -o -name '*.csv' -o -name '*.json' \) 2>/dev/null | sort)
+                       \( -name '*.txt' -o -name '*.csv' -o -name '*.json' \
+                          -o -name '*.md' \) 2>/dev/null | sort)
             [ "$budget" -gt 0 ] || echo "_summary size budget reached; remaining files are in the artifact_"
             [ "$found" = "1" ] || echo "_this suite produced no result files; its output is in the run log below_"
             echo
@@ -284,4 +305,5 @@ jobs:
           path: |
             results-${{ matrix.arch }}.tar.gz
             results-${{ matrix.arch }}/run.log
+            results-${{ matrix.arch }}/files/**/*.md
           if-no-files-found: warn
