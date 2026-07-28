@@ -6,6 +6,9 @@ on:
       ref:
         description: bpftime source ref (branch, tag, or full SHA)
         default: codex/official-no-btf
+      image_tag:
+        description: Published GHCR image tag
+        default: jetson-no-btf-arm64
 
 permissions:
   contents: read
@@ -46,8 +49,8 @@ jobs:
           platforms: linux/arm64
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/bpftime:jetson-no-btf-arm64
-            ghcr.io/${{ github.repository_owner }}/bpftime:jetson-no-btf-arm64-${{ steps.source.outputs.sha }}
+            ghcr.io/${{ github.repository_owner }}/bpftime:${{ inputs.image_tag }}
+            ghcr.io/${{ github.repository_owner }}/bpftime:${{ inputs.image_tag }}-${{ steps.source.outputs.sha }}
           labels: |
             org.opencontainers.image.revision=${{ steps.source.outputs.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
@@ -58,6 +61,6 @@ jobs:
             echo "## Jetson No-BTF image"
             echo "- source ref: \`${{ inputs.ref }}\`"
             echo "- source commit: \`${{ steps.source.outputs.sha }}\`"
-            echo "- tag: \`ghcr.io/${{ github.repository_owner }}/bpftime:jetson-no-btf-arm64\`"
-            echo "- immutable tag: \`ghcr.io/${{ github.repository_owner }}/bpftime:jetson-no-btf-arm64-${{ steps.source.outputs.sha }}\`"
+            echo "- tag: \`ghcr.io/${{ github.repository_owner }}/bpftime:${{ inputs.image_tag }}\`"
+            echo "- immutable tag: \`ghcr.io/${{ github.repository_owner }}/bpftime:${{ inputs.image_tag }}-${{ steps.source.outputs.sha }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
