@@ -193,7 +193,18 @@ jobs:
           # Push small result charts to the ci-assets branch so the summary
           # can hot-link them (GitHub strips data: URIs from summaries).
           ASSET_DIR="runs/${{ github.run_id }}/${{ matrix.arch }}"
-          mapfile -t pngs < <(find "$OUT" -name '*.png' -size -300k | sort | head -3)
+          if [ "${{ inputs.suite }}" = "ssl-nginx" ]; then
+            mapfile -t pngs < <(
+              find "$OUT/files/benchmark/ssl-nginx" -type f \
+                -name 'absolute_performance*.png' -size -300k \
+                -printf '%T@ %p\n' 2>/dev/null \
+              | sort -nr | head -1 | cut -d' ' -f2-
+            )
+          else
+            mapfile -t pngs < <(
+              find "$OUT" -name '*.png' -size -300k | sort | head -3
+            )
+          fi
           urls=()
           if [ "${#pngs[@]}" -gt 0 ]; then
             REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
@@ -215,6 +226,42 @@ jobs:
               git -C assets pull -q --rebase origin ci-assets || true
               sleep 3
             done
+          fi
+
+          # ssl-nginx produces a timestamp-matched JSON/TXT result pair and
+          # one absolute-performance chart. Keep the summary limited to those
+          # final outputs instead of rendering intermediate per-size results.
+          if [ "${{ inputs.suite }}" = "ssl-nginx" ]; then
+            REPORT="$(
+              find "$OUT/files/benchmark/ssl-nginx" -type f \
+                -name 'size_benchmark_*.txt' -printf '%T@ %p\n' 2>/dev/null \
+              | sort -nr | head -1 | cut -d' ' -f2-
+            )"
+            [ -n "$REPORT" ] && [ -s "$REPORT" ] || exit 0
+            JSON_REPORT="${REPORT%.txt}.json"
+            {
+              echo '```text'
+              head -20 "$REPORT"
+              echo '```'
+              echo
+
+              if [ -s "$JSON_REPORT" ]; then
+                echo "<details><summary><b>$(basename "$JSON_REPORT")</b></summary>"
+                echo
+                echo '```json'
+                cat "$JSON_REPORT"
+                echo
+                echo '```'
+                echo "</details>"
+                echo
+              fi
+
+              for entry in ${urls[@]+"${urls[@]}"}; do
+                echo "![](${entry%%|*})"
+                echo
+              done
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
 
           {
