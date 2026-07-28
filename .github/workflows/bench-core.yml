@@ -180,6 +180,16 @@ jobs:
           OUT="results-${{ matrix.arch }}"
           [ -d "$OUT" ] || exit 0
 
+          # The uprobe benchmark already produces a complete Markdown report.
+          # Keep its job summary focused by publishing only that report; the
+          # run log and other collected files remain available in the artifact.
+          if [ "${{ inputs.suite }}" = "uprobe" ]; then
+            REPORT="$OUT/files/benchmark/uprobe/results.md"
+            [ -s "$REPORT" ] || exit 0
+            cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           # Push small result charts to the ci-assets branch so the summary
           # can hot-link them (GitHub strips data: URIs from summaries).
           ASSET_DIR="runs/${{ github.run_id }}/${{ matrix.arch }}"
