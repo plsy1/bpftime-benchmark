@@ -87,64 +87,31 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             autoconf automake binutils-dev build-essential ca-certificates \
-            clang clang-15 cmake curl git libboost-all-dev libelf-dev \
-            libncurses-dev libssl-dev libtool libyaml-cpp-dev \
+            clang clang-15 cmake curl git libboost-all-dev libcrypt-dev \
+            libelf-dev libfuse-dev libncurses-dev libpcre2-dev libssl-dev \
+            libtool libyaml-cpp-dev \
             llvm llvm-dev llvm-15 llvm-15-dev nginx pkg-config \
-            python-is-python3 python3 python3-matplotlib python3-numpy \
+            python-is-python3 python3 python3-matplotlib python3-numpy python3-pip \
             systemtap-sdt-dev wrk zlib1g-dev zstd
           llvm-config-15 --version
 
-      - name: build
+      - name: build with repository Makefile
         if: ${{ inputs.prebuilt_run_id == '' }}
         working-directory: bpftime
         run: |
           set -euxo pipefail
-          SUITE='${{ inputs.suite }}'
+          make benchmark \
+            SKIP_TESTS="deepflow fuse gpu redis-durability-tuning"
 
-          LLVM_DIR="$(llvm-config-15 --cmakedir)"
-          cmake -Bbuild \
-            -DLLVM_DIR="$LLVM_DIR" \
-            -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo \
-            -DBPFTIME_LLVM_JIT=1 \
-            -DBPFTIME_ENABLE_LTO=1 \
-            -DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO \
-            -DENABLE_PROBE_WRITE_CHECK=1 \
-            -DENABLE_PROBE_READ_CHECK=1 \
-            -DBUILD_ATTACH_IMPL_EXAMPLE=1
-          cmake --build build --config RelWithDebInfo --target install -j"$(nproc)"
-          cmake --build build --config RelWithDebInfo --target attach_impl_example_nginx -j"$(nproc)" || true
-
-          case "$SUITE" in
-            ssl-nginx)
-              make -C benchmark/ssl-nginx
-              if [ ! -e example/sslsniff ] && [ -d example/tracing/sslsniff ]; then
-                ln -sf tracing/sslsniff example/sslsniff
-              fi
-              ;;
-            uprobe)
-              make -C benchmark test
-              make -C benchmark/uprobe
-              ;;
-            syscall)
-              make -C benchmark/syscall
-              ;;
-            syscount)
-              make -C benchmark/syscount-nginx
-              if [ ! -e example/libbpf-tools/syscount/syscount ] \
-                 && [ -e example/tracing/syscount/syscount ]; then
-                mkdir -p example/libbpf-tools/syscount
-                ln -sf ../../tracing/syscount/syscount example/libbpf-tools/syscount/syscount
-              fi
-              ;;
-            mpk)
-              make -C benchmark test
-              cmake -Bbuild-mpk -DLLVM_DIR="$LLVM_DIR" \
-                -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo \
-                -DBPFTIME_LLVM_JIT=1 -DBPFTIME_ENABLE_MPK=1
-              cmake --build build-mpk --config RelWithDebInfo -j"$(nproc)" || true
-              ;;
-            *) echo "unknown suite: $SUITE" >&2; exit 1 ;;
-          esac
+          if [ ! -e example/sslsniff ] && [ -d example/tracing/sslsniff ]; then
+            ln -sf tracing/sslsniff example/sslsniff
+          fi
+          if [ ! -e example/libbpf-tools/syscount/syscount ] \
+             && [ -e example/tracing/syscount/syscount ]; then
+            mkdir -p example/libbpf-tools/syscount
+            ln -sf ../../tracing/syscount/syscount \
+              example/libbpf-tools/syscount/syscount
+          fi
 
       - name: run benchmark
         run: |

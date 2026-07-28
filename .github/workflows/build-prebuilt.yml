@@ -11,10 +11,6 @@ on:
       ref:
         description: bpftime code ref to build (branch/tag/sha of this repo)
         default: codex/official-no-btf
-      suites:
-        description: "Benchmark targets to build: ssl-nginx,uprobe,syscall,syscount,mpk"
-        default: ssl-nginx,uprobe,syscall,syscount
-
 permissions:
   contents: read
 
@@ -51,70 +47,12 @@ jobs:
             python3-numpy python3-pip systemtap-sdt-dev wrk zlib1g-dev zstd
           llvm-config-15 --version
 
-      - name: build (all selected benchmark targets, no benchmark run)
+      - name: build with repository Makefile
         working-directory: bpftime
         run: |
           set -euxo pipefail
-          suites=",$(echo '${{ inputs.suites }}' | tr -d ' '),"
-          has() { [[ "$suites" == *",$1,"* ]] && echo 1 || echo 0; }
-          export RUN_SSL_NGINX="$(has ssl-nginx)"
-          export RUN_UPROBE="$(has uprobe)"
-          export RUN_SYSCALL="$(has syscall)"
-          export RUN_SYSCOUNT="$(has syscount)"
-          export RUN_MPK="$(has mpk)"
-
-          BUILD_ATTACH_IMPL_EXAMPLE=0
-          if [[ "$RUN_SYSCOUNT" == "1" || "$RUN_SSL_NGINX" == "1" ]]; then
-            BUILD_ATTACH_IMPL_EXAMPLE=1
-          fi
-
-          LLVM_DIR="$(llvm-config-15 --cmakedir)"
-          cmake -Bbuild \
-            -DLLVM_DIR="$LLVM_DIR" \
-            -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo \
-            -DBPFTIME_LLVM_JIT=1 \
-            -DBPFTIME_ENABLE_LTO=1 \
-            -DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO \
-            -DENABLE_PROBE_WRITE_CHECK=1 \
-            -DENABLE_PROBE_READ_CHECK=1 \
-            -DBPFTIME_ENABLE_MPK=0 \
-            -DBUILD_ATTACH_IMPL_EXAMPLE="$BUILD_ATTACH_IMPL_EXAMPLE"
-          cmake --build build --config RelWithDebInfo --target install -j"$(nproc)"
-
-          if [[ "$BUILD_ATTACH_IMPL_EXAMPLE" == "1" ]]; then
-            cmake --build build --config RelWithDebInfo \
-              --target attach_impl_example_nginx -j"$(nproc)" || true
-          fi
-          if [[ "$RUN_UPROBE" == "1" || "$RUN_MPK" == "1" ]]; then
-            make -C benchmark test
-          fi
-          if [[ "$RUN_UPROBE" == "1" ]]; then
-            make -C benchmark/uprobe
-          fi
-          if [[ "$RUN_SYSCALL" == "1" ]]; then
-            make -C benchmark/syscall
-          fi
-          if [[ "$RUN_SYSCOUNT" == "1" ]]; then
-            make -C benchmark/syscount-nginx
-          fi
-          if [[ "$RUN_SSL_NGINX" == "1" ]]; then
-            make -C benchmark/ssl-nginx
-          fi
-
-          if [[ "$RUN_MPK" == "1" ]]; then
-            cmake -Bbuild-mpk \
-              -DLLVM_DIR="$LLVM_DIR" \
-              -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo \
-              -DBPFTIME_LLVM_JIT=1 \
-              -DBPFTIME_ENABLE_LTO=1 \
-              -DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO \
-              -DENABLE_PROBE_WRITE_CHECK=1 \
-              -DENABLE_PROBE_READ_CHECK=1 \
-              -DBPFTIME_ENABLE_MPK=1 \
-              -DBUILD_ATTACH_IMPL_EXAMPLE=0
-            cmake --build build-mpk --config RelWithDebInfo \
-              --target install -j"$(nproc)"
-          fi
+          make benchmark \
+            SKIP_TESTS="deepflow fuse gpu redis-durability-tuning"
 
           if [[ ! -e example/sslsniff && -d example/tracing/sslsniff ]]; then
             ln -s tracing/sslsniff example/sslsniff
@@ -151,7 +89,7 @@ jobs:
           {
             echo "## prebuilt ${{ matrix.arch }} @ \`${{ inputs.ref }}\`"
             echo '- commit: `'"$(head -1 bpftime/PREBUILT_COMMIT)"'`'
-            echo "- suites built: ${{ inputs.suites }}"
+            echo '- build command: `make benchmark SKIP_TESTS="deepflow fuse gpu redis-durability-tuning"`'
             echo "- archive: $(ls -lh bpftime-prebuilt.tar.zst | awk '{print $5}')"
             echo "- use it: run the Benchmark workflow with prebuilt_run_id = ${{ github.run_id }} (or 'latest')"
           } >> "$GITHUB_STEP_SUMMARY"

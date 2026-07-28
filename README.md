@@ -16,7 +16,9 @@ bpftime 的 benchmark 工具仓库：workflow、脚本与说明在 `main`，被�
 ## Benchmark workflows（Actions 页面手动触发）
 
 每个 benchmark 一个 workflow，公共逻辑在 `bench-core.yml`（reusable workflow）：
-checkout 或取预编译产物 → 装依赖 → 只构建该 suite 的目标 → **直接运行
+checkout 或取预编译产物 → 装依赖 → 使用仓库根目录的 `make benchmark` 构建
+（跳过无关的 deepflow/fuse/gpu/redis）→
+**直接运行
 `benchmark/<suite>/` 下的 py 脚本** → 结果文件与图表渲染到 run 页面 Summary →
 完整产物上传 artifact。
 
@@ -70,8 +72,9 @@ checkout 或取预编译产物 → 装依赖 → 只构建该 suite 的目标 �
 - 托管 runner 存在**硬件抽签**（不同 run 分到的 CPU 不同，baseline 可差 30%+）：
   跨 run 的数值对比只看大方向，几个 pp 的差异不作数；同一 run 内
   baseline/kernel/bpftime 三腿的对比（同 VM 同 session）才可靠。
-- CI 构建固定 LLVM 15、`ENABLE_PROBE_READ/WRITE_CHECK=1`（与 Jetson 本地
-  构建对齐）。
+- CI 直接使用被测仓库的 `make benchmark`。该官方目标当前固定 LLVM 15，并将
+  `ENABLE_PROBE_READ/WRITE_CHECK` 设为 `0`；因此这种 benchmark 构建不执行
+  SIGSEGV handler 检查路径。
 - ssl-nginx 的负载参数通过环境变量进入 `benchmark.py` / `draw_figture.py`
   （`SSL_NGINX_SIZES` / `SSL_NGINX_NUM_RUNS` / `SSL_NGINX_WRK_DURATION` /
   `SSL_NGINX_WRK_CONNECTIONS`），本地跑同样适用，例如：
@@ -79,6 +82,6 @@ checkout 或取预编译产物 → 装依赖 → 只构建该 suite 的目标 �
 
 ## 辅助脚本
 
-- `run_x64_syscount_smoke.sh`、`setup.sh`
+- `setup.sh`
 - Jetson 本机的消融/短测/审计工具在代码分支的 `v4-ablation/`、`v1-v4-ablation/`
   目录，用法见 summry 分支的 runbook
