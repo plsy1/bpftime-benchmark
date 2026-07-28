@@ -19,6 +19,11 @@ jobs:
     name: build arm64 image @ ${{ inputs.ref }}
     runs-on: ubuntu-24.04-arm
     steps:
+      - name: checkout image build recipe
+        uses: actions/checkout@v4
+        with:
+          path: harness
+
       - name: checkout bpftime source (${{ inputs.ref }})
         uses: actions/checkout@v4
         with:
@@ -45,7 +50,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: bpftime
-          file: bpftime/Dockerfile.jetson-no-btf
+          file: harness/docker/jetson-benchmark-image/Dockerfile
           platforms: linux/arm64
           push: true
           tags: |

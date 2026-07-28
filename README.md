@@ -64,7 +64,7 @@ checkout 或取预编译产物 → 装依赖 → 使用仓库根目录的 `make 
 | Workflow | 用途 |
 |---|---|
 | `build-prebuilt` | 预编译整棵树并按 arch 上传 artifact（保留 30 天），供 `prebuilt_run_id` 复用 |
-| `build-jetson-no-btf-image` | 构建 Jetson 用的 no-btf Docker 镜像 |
+| `build-jetson-no-btf-image` | 构建 Jetson no-BTF 镜像；预编译 ssl-nginx、uprobe、syscall、syscount-nginx，并在发布前检查关键产物 |
 | `official-no-btf-nginx-path-perf-x64` | perf 计数诊断（nginx 路径 CPU 归因），独立于吞吐 benchmark |
 
 ## 注意事项
