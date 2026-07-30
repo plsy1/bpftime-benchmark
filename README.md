@@ -5,6 +5,7 @@
 | 文档 | 内容 |
 |---|---|
 | `bpftime-arm-performance-root-cause-20260727.md` | **一页纸根因报告**：ARM 上为什么输给 kernel eBPF（三层根因 + 修复后状态），入口首选 |
+| `bpftime-uprobe-percpu-cross-architecture-analysis-20260728.md` | uprobe 原版/修复版与 ARM64/x64 per-CPU map 对比，解释 ARM 相对倍率更大的分母效应 |
 | `bpftime-official-no-btf-change-log.md` | bug 修复记录（已修 / 未修清单） |
 | `bpftime-official-no-btf-ssl-nginx-benchmark-runbook.md` | 操作手册：docker 流程、变体、脚本、归档口径 |
 | `performance-analysis-playbook.md` | 性能分析方法论 checklist（从本战役提炼，可复用） |
