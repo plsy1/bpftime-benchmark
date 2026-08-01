@@ -137,3 +137,41 @@ $(APPS): %: $(OUTPUT)/%.o $(LIBBPF_OBJ) | $(OUTPUT)
 
 # keep intermediate (.skel.h, .bpf.o, etc) targets
 .SECONDARY:
+
+# Matched kernel-BPF runtime A/B for ordinary array/hash lookup and update.
+KMR_OUTPUT := $(OUTPUT)/kernel-map-runtime
+KMR_BPF_OBJ := $(KMR_OUTPUT)/kernel_map_runtime.bpf.o
+KMR_SKEL := $(KMR_OUTPUT)/kernel_map_runtime.skel.h
+KMR_LOADER_OBJ := $(KMR_OUTPUT)/kernel_map_runtime.o
+KMR_LOADER := $(KMR_OUTPUT)/kernel-map-runtime
+KMR_VICTIM := $(KMR_OUTPUT)/kernel-map-runtime-victim
+
+.PHONY: kernel-map-runtime-diagnostic
+kernel-map-runtime-diagnostic: $(KMR_LOADER) $(KMR_VICTIM)
+
+$(KMR_OUTPUT):
+	$(call msg,MKDIR,$@)
+	$(Q)mkdir -p $@
+
+$(KMR_BPF_OBJ): diagnostics/kernel_map_runtime.bpf.c $(VMLINUX) | $(KMR_OUTPUT) $(BPFTOOL)
+	$(call msg,BPF,$@)
+	$(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) \
+		     $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
+		     -c $< -o $(KMR_OUTPUT)/kernel_map_runtime.tmp.bpf.o
+	$(Q)$(BPFTOOL) gen object $@ $(KMR_OUTPUT)/kernel_map_runtime.tmp.bpf.o
+
+$(KMR_SKEL): $(KMR_BPF_OBJ) | $(KMR_OUTPUT) $(BPFTOOL)
+	$(call msg,GEN-SKEL,$@)
+	$(Q)$(BPFTOOL) gen skeleton $< > $@
+
+$(KMR_LOADER_OBJ): diagnostics/kernel_map_runtime.c $(KMR_SKEL) | $(KMR_OUTPUT)
+	$(call msg,CC,$@)
+	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -I$(KMR_OUTPUT) -c $< -o $@
+
+$(KMR_LOADER): $(KMR_LOADER_OBJ) $(LIBBPF_OBJ) | $(KMR_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+
+$(KMR_VICTIM): diagnostics/kernel_map_runtime_victim.c | $(KMR_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) $(CFLAGS) $< -o $@

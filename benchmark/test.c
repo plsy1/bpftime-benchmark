@@ -16,9 +16,11 @@ BENCH_FUNC(__bench_array_map_update)
 BENCH_FUNC(__bench_hash_map_lookup)
 BENCH_FUNC(__bench_hash_map_delete)
 BENCH_FUNC(__bench_hash_map_update)
+BENCH_FUNC(__setup_hash_map_delete)
 BENCH_FUNC(__bench_per_cpu_hash_map_lookup)
 BENCH_FUNC(__bench_per_cpu_hash_map_delete)
 BENCH_FUNC(__bench_per_cpu_hash_map_update)
+BENCH_FUNC(__setup_per_cpu_hash_map_delete)
 BENCH_FUNC(__bench_per_cpu_array_map_lookup)
 BENCH_FUNC(__bench_per_cpu_array_map_delete)
 BENCH_FUNC(__bench_per_cpu_array_map_update)
@@ -67,6 +69,29 @@ static double get_function_time(benchmark_test_function_t func, int iter)
 	return time;
 }
 
+/*
+ * Mutating operations need their precondition restored before every sample.
+ * Keep setup outside the measured interval so a delete benchmark measures
+ * successful deletes rather than setup + delete or repeated delete misses.
+ */
+static double get_function_time_with_setup(benchmark_test_function_t setup,
+					    benchmark_test_function_t func,
+					    int iter)
+{
+	struct timespec start_time, end_time;
+	double time = 0;
+	char buffer[20] = "hello world";
+
+	for (int i = 0; i < iter; i++) {
+		setup(buffer, i % 4, i);
+		start_timer(&start_time);
+		func(buffer, i % 4, i);
+		end_timer(&end_time);
+		time += get_elapsed_time(start_time, end_time);
+	}
+	return time;
+}
+
 void do_benchmark_userspace(benchmark_test_function_t func, const char *name,
 			    int iter, int id)
 {
@@ -77,9 +102,23 @@ void do_benchmark_userspace(benchmark_test_function_t func, const char *name,
 	       name, id, (base_line_time) / iter * 1000000000.0, iter);
 }
 
+void do_benchmark_userspace_with_setup(benchmark_test_function_t setup,
+				       benchmark_test_function_t func,
+				       const char *name, int iter, int id)
+{
+	double elapsed = get_function_time_with_setup(setup, func, iter);
+	printf("Benchmarking %s in thread %d\nAverage time usage %lf ns, iter %d times\n\n",
+	       name, id, elapsed / iter * 1000000000.0, iter);
+}
+
 #define do_benchmark_func(func, iter, id)                                      \
 	do {                                                                   \
 		do_benchmark_userspace(func, #func, iter, id);                 \
+	} while (0)
+
+#define do_benchmark_func_with_setup(setup, func, iter, id)                    \
+	do {                                                                   \
+		do_benchmark_userspace_with_setup(setup, func, #func, iter, id); \
 	} while (0)
 
 int iter = 100 * 1000;
@@ -95,13 +134,15 @@ void *run_bench_functions(void *id_ptr)
 	do_benchmark_func(__bench_write, iter, id);
 	do_benchmark_func(__bench_hash_map_update, iter, id);
 	do_benchmark_func(__bench_hash_map_lookup, iter, id);
-	do_benchmark_func(__bench_hash_map_delete, iter, id);
+	do_benchmark_func_with_setup(__setup_hash_map_delete,
+				     __bench_hash_map_delete, iter, id);
 	do_benchmark_func(__bench_array_map_update, iter, id);
 	do_benchmark_func(__bench_array_map_lookup, iter, id);
 	do_benchmark_func(__bench_array_map_delete, iter, id);
 	do_benchmark_func(__bench_per_cpu_hash_map_update, iter, id);
 	do_benchmark_func(__bench_per_cpu_hash_map_lookup, iter, id);
-	do_benchmark_func(__bench_per_cpu_hash_map_delete, iter, id);
+	do_benchmark_func_with_setup(__setup_per_cpu_hash_map_delete,
+				     __bench_per_cpu_hash_map_delete, iter, id);
 	do_benchmark_func(__bench_per_cpu_array_map_update, iter, id);
 	do_benchmark_func(__bench_per_cpu_array_map_lookup, iter, id);
 	do_benchmark_func(__bench_per_cpu_array_map_delete, iter, id);
