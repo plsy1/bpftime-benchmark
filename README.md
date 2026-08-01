@@ -10,6 +10,7 @@
 | `bpftime-uprobe-hash-map-six-operation-semantics-20260801.md` | hash map 六种稳定操作语义、原 delete-miss 问题及修正后的 delete-hit 计时设计 |
 | `bpftime-uprobe-array-hash-cross-architecture-experiment-plan-20260801.md` | 普通 array/hash lookup/update 的 ARM64/x64 matched-path 实验设计：JIT A/B、L0–L3、kernel BPF runtime A/B |
 | `bpftime-uprobe-kernel-map-runtime-arm64-20260801.md` | 第二阶段 Jetson kernel BPF runtime A/B：普通 array/hash lookup-hit 与 update-existing 的 ARM64 基线 |
+| `bpftime-uprobe-x64-kernel-map-runtime-handoff-20260802.md` | x64 交接清单：用相同 harness 补齐 kernel map runtime A/B、归档并计算 x64/ARM64 比率 |
 | `bpftime-uprobe-array-cross-architecture-diagnosis-20260731.md` | 普通 array map 的 ARM64/x64 差异：lookup 内联、无效 delete、x64 kernel update 分档 |
 | `bpftime-uprobe-array-jetson-path-decomposition-20260801.md` | Jetson 普通 array map userspace 路径的 L0–L3 与 JIT/helper 分层结果 |
 | `bpftime-uprobe-hash-jetson-path-decomposition-20260801.md` | Jetson 普通 hash map userspace 路径的查找、复制、哈希及容器访问分层结果 |
