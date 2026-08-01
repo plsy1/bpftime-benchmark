@@ -54,6 +54,25 @@ DEFINE_MAP_OPERATIONS(per_cpu_hash_map, BPF_MAP_TYPE_PERCPU_HASH)
 // Define operations for a per-cpu hash map
 DEFINE_MAP_OPERATIONS(per_cpu_array_map, BPF_MAP_TYPE_PERCPU_ARRAY)
 
+/*
+ * Repopulate hash maps before each timed delete sample. These probes are
+ * invoked by benchmark/test.c outside the measured interval.
+ */
+#define DEFINE_HASH_DELETE_SETUP(map_name) \
+SEC("uprobe/benchmark/test:__setup_" #map_name "_delete") \
+int map_name##_setup_delete(struct pt_regs *ctx) \
+{ \
+    for (int i = 0; i < 1000; i++) { \
+        u32 key = i; \
+        u64 value = i; \
+        bpf_map_update_elem(&map_name, &key, &value, BPF_ANY); \
+    } \
+    return 0; \
+}
+
+DEFINE_HASH_DELETE_SETUP(hash_map)
+DEFINE_HASH_DELETE_SETUP(per_cpu_hash_map)
+
 SEC("uprobe/benchmark/test:__bench_write")
 int BPF_UPROBE(__bench_write, char *a, int b, uint64_t c)
 {
