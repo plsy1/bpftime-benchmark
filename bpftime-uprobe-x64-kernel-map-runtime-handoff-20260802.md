@@ -35,6 +35,59 @@ benchmark/uprobe/diagnostics/kernel_map_runtime_victim.c
 先确认当前提交包含 `8ed291e`，并记录工作树状态。不要在存在不明本地修改的目录中
 强制清理；必要时新建干净 clone。
 
+## 从空 Ubuntu x64 主机准备环境
+
+本交接不假设机器上已经存在源码或构建依赖。先安装这个独立 kernel 诊断目标所需
+的最小依赖：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  ca-certificates git build-essential make pkg-config \
+  clang-15 llvm-15 \
+  libelf-dev zlib1g-dev libzstd-dev flex bison python3
+```
+
+这里不需要构建完整 BPFtime runtime，因此不需要先安装 Boost、CMake，也不需要
+下载预构建 Docker 镜像。Makefile 会从仓库子模块构建本实验使用的 libbpf 和
+bpftool。
+
+如果系统软件源没有 `clang-15`/`llvm-15`，不要静默改用其他版本。先记录发行版，
+再安装 LLVM 15，或者明确记录实际替代版本。跨架构比较应优先保持 BPF Clang 15
+一致。
+
+拉取包含诊断代码的分支：
+
+```bash
+mkdir -p "$HOME/src"
+cd "$HOME/src"
+
+git clone --branch codex/official-no-btf \
+  --single-branch --recurse-submodules \
+  https://github.com/plsy1/bpftime-benchmark.git \
+  bpftime-official-no-btf
+
+cd "$HOME/src/bpftime-official-no-btf"
+git submodule update --init --recursive
+git rev-parse HEAD
+git merge-base --is-ancestor 8ed291e HEAD
+git status --short
+```
+
+`git merge-base --is-ancestor` 返回 0 且工作树为空，才继续构建。当前分支可以比
+`8ed291e` 更新，但必须仍包含该诊断提交；将最终实际 commit 写入结果。
+
+运行权限和 kernel 前置检查：
+
+```bash
+test "$(uname -m)" = x86_64
+test -e /proc/sys/kernel/bpf_stats_enabled
+sudo true
+```
+
+如果第二项不存在，说明当前 kernel 没有提供本实验依赖的 BPF runtime stats，不能
+用普通 wall time 替代后继续声称测得相同指标。
+
 ## 环境记录
 
 执行前保存以下信息：
@@ -61,7 +114,10 @@ SMT sibling。记录所选逻辑 CPU。测试期间保持 governor、turbo 状�
 
 ```bash
 git submodule update --init --recursive
-make -C benchmark/uprobe kernel-map-runtime-diagnostic -j"$(nproc)"
+make -C benchmark/uprobe \
+  CLANG=clang-15 \
+  kernel-map-runtime-diagnostic \
+  -j"$(nproc)"
 ```
 
 应生成：
