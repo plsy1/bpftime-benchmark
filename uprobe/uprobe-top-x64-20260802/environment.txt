@@ -1,0 +1,45 @@
+Experiment date: 2026-08-02 (Asia/Shanghai)
+Host: y1-Zephyrus-M-GM501GS
+CPU: Intel Core i7-8750H, 6 physical cores / 12 logical CPUs
+Kernel: Linux 7.0.0-27-generic #27-Ubuntu SMP PREEMPT_DYNAMIC Thu Jun 18 19:13:49 UTC 2026 x86_64
+
+Source repository: /home/y1/src/bpftime-offical-no-btf
+Source branch: codex/official-no-btf
+Source commit: 8ed291e130fe3f15f99955b0d259eb119efdaa7d
+Source dirty status before and after benchmark: clean
+Build directory: /home/y1/src/bpftime-offical-no-btf/build-map-path-x64-20260802
+Build type: RelWithDebInfo
+C compiler: gcc-13 13.4.0
+C++ compiler: g++-13 13.4.0
+BPF compiler: clang 15.0.7 (llvm-project 8dfdcc7b7bf66834a761bd8de445840ef68e4d1a)
+LLVM_DIR: /home/y1/src/llvm-project-15.0.7/build-kmr-gcc12/lib/cmake/llvm
+Boost: 1.83.0 from /home/y1/src/.toolchains/boost-1.83
+CMake: 4.2.3
+perf: 7.0.12
+
+BPFTIME_LLVM_JIT: ON
+BPFTIME_ENABLE_LTO: ON
+ENABLE_PROBE_READ_CHECK: OFF
+ENABLE_PROBE_WRITE_CHECK: OFF
+
+Victim: benchmark/test, built directly with gcc-13 -g -O3 -lpthread
+Loader: benchmark/uprobe/uprobe, built with gcc-13
+BPF object: benchmark/uprobe/.output/uprobe.bpf.o, built with clang 15.0.7
+Victim parameters: 1 thread, 100000 iterations (official default iteration count)
+Independent victim processes: 5 for kernel, 5 for BPFtime
+Helpers per ordinary map BPF program invocation: 1000
+
+Pinned logical CPU: 5
+SMT sibling: CPU 11, offline during all formal runs
+CPU governor during benchmark: performance on all policies
+Intel turbo during benchmark: disabled (intel_pstate/no_turbo=1)
+Loader stabilization delay: 5 seconds before each group
+Execution: host directly, no Docker
+Privilege: root for loader and victim, matching benchmark/uprobe/benchmark.py's sudo execution
+
+Post-run restoration verified:
+- CPU 11 online
+- governors restored to powersave
+- intel_pstate/no_turbo restored to 0
+- zero kernel BPF links from the benchmark
+- /dev/shm/bpftime_maps_shm absent
