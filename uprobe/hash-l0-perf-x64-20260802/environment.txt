@@ -1,0 +1,36 @@
+captured_at=2026-08-02T02:37:13+08:00..2026-08-02T02:37:18+08:00
+hostname=y1-Zephyrus-M-GM501GS
+cpu=Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
+kernel=7.0.0-27-generic
+architecture=x86_64
+code_repo=/home/y1/src/bpftime-offical-no-btf
+code_branch=codex/official-no-btf
+code_commit=8ed291e130fe3f15f99955b0d259eb119efdaa7d
+code_dirty=no
+binary=build-map-path-x64-20260802/benchmark/uprobe/diagnostics/hash-map-path-layers
+binary_build_id=6bbcc4d029100dc3cfac32262ead05b541e81e39
+libc_build_id=240c8909736b31f963346aca80667fd00c551e32
+perf_version=7.0.12
+record_event=cycles:u
+record_sample_period=100003
+record_call_graph=frame-pointer
+record_sample_cpu=yes
+record_lost_samples=0
+benchmark_cpu=5
+offline_smt_sibling=11
+governor_during=performance
+intel_no_turbo_during=1
+operations_per_round=10000000
+formal_rounds=3
+warmup_operations=1000000
+perf_stat_denominator=31000000
+governor_after=powersave
+intel_no_turbo_after=0
+smt_sibling_online_after=1
+
+record_commands:
+sudo perf record -e cycles:u -c 100003 --call-graph fp --sample-cpu -o lookup.perf.data -- taskset -c 5 hash-map-path-layers l0 lookup 10000000 3 5
+sudo perf record -e cycles:u -c 100003 --call-graph fp --sample-cpu -o update.perf.data -- taskset -c 5 hash-map-path-layers l0 update 10000000 3 5
+
+divider_stat_commands:
+sudo perf stat -x, -e cycles,instructions,arith.divider_active -- taskset -c 5 hash-map-path-layers control|l0 lookup|update 10000000 3 5

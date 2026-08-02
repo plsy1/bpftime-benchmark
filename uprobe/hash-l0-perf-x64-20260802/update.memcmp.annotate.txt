@@ -1,0 +1,271 @@
+ Percent |	Source code & Disassembly of libc.so.6 for cycles:u (15893 samples, percent: local period)
+----------------------------------------------------------------------------------------------------------
+         : 0      0x1973e0 <__memcmp_avx2_movbe>:
+    5.93 :   1973e0:        endbr64
+    0.00 :   1973e4:        cmpq    $0x20, %rdx
+    0.00 :   1973e8:        jb      0x1976c0 <__memcmp_avx2_movbe+0x2e0>
+    0.00 :   1973ee:        vmovdqu (%rsi), %ymm1
+    0.00 :   1973f2:        vpcmpeqb        (%rdi), %ymm1, %ymm1
+    0.00 :   1973f6:        vpmovmskb       %ymm1, %eax
+    0.00 :   1973fa:        incl    %eax
+    0.00 :   1973fc:        jne     0x1974c0 <__memcmp_avx2_movbe+0xe0>
+    0.00 :   197402:        cmpq    $0x40, %rdx
+    0.00 :   197406:        jbe     0x197644 <__memcmp_avx2_movbe+0x264>
+    0.00 :   19740c:        vmovdqu 0x20(%rsi), %ymm2
+    0.00 :   197411:        vpcmpeqb        0x20(%rdi), %ymm2, %ymm2
+    0.00 :   197416:        vpmovmskb       %ymm2, %eax
+    0.00 :   19741a:        incl    %eax
+    0.00 :   19741c:        jne     0x1974e0 <__memcmp_avx2_movbe+0x100>
+    0.00 :   197422:        cmpq    $0x80, %rdx
+    0.00 :   197429:        jbe     0x197630 <__memcmp_avx2_movbe+0x250>
+    0.00 :   19742f:        vmovdqu 0x40(%rsi), %ymm3
+    0.00 :   197434:        vpcmpeqb        0x40(%rdi), %ymm3, %ymm3
+    0.00 :   197439:        vpmovmskb       %ymm3, %eax
+    0.00 :   19743d:        incl    %eax
+    0.00 :   19743f:        jne     0x197500 <__memcmp_avx2_movbe+0x120>
+    0.00 :   197445:        vmovdqu 0x60(%rsi), %ymm4
+    0.00 :   19744a:        vpcmpeqb        0x60(%rdi), %ymm4, %ymm4
+    0.00 :   19744f:        vpmovmskb       %ymm4, %ecx
+    0.00 :   197453:        incl    %ecx
+    0.00 :   197455:        jne     0x19753b <__memcmp_avx2_movbe+0x15b>
+    0.00 :   19745b:        cmpq    $0x100, %rdx
+    0.00 :   197462:        ja      0x197550 <__memcmp_avx2_movbe+0x170>
+    0.00 :   197468:        vmovdqu -0x80(%rsi,%rdx), %ymm1
+    0.00 :   19746e:        vmovdqu -0x60(%rsi,%rdx), %ymm2
+    0.00 :   197474:        leaq    -0x80(%rdi,%rdx), %rdi
+    0.00 :   197479:        leaq    -0x80(%rsi,%rdx), %rsi
+    0.00 :   19747e:        vpcmpeqb        (%rdi), %ymm1, %ymm1
+    0.00 :   197482:        vpcmpeqb        0x20(%rdi), %ymm2, %ymm2
+    0.00 :   197487:        vmovdqu 0x40(%rsi), %ymm3
+    0.00 :   19748c:        vpcmpeqb        0x40(%rdi), %ymm3, %ymm3
+    0.00 :   197491:        vmovdqu 0x60(%rsi), %ymm4
+    0.00 :   197496:        vpcmpeqb        0x60(%rdi), %ymm4, %ymm4
+    0.00 :   19749b:        vpand   %ymm1, %ymm2, %ymm5
+    0.00 :   19749f:        vpand   %ymm3, %ymm4, %ymm6
+    0.00 :   1974a3:        vpand   %ymm5, %ymm6, %ymm7
+    0.00 :   1974a7:        vpmovmskb       %ymm7, %ecx
+    0.00 :   1974ab:        incl    %ecx
+    0.00 :   1974ad:        jne     0x197523 <__memcmp_avx2_movbe+0x143>
+    0.00 :   1974af:        vzeroupper
+    0.00 :   1974b2:        retq
+    0.00 :   1974b3:        nop
+    0.00 :   1974b5:        nopw    %cs:(%rax,%rax)
+    0.71 :   1974c0:        tzcntl  %eax, %eax
+    5.20 :   1974c4:        movzbl  (%rsi,%rax), %ecx
+   14.21 :   1974c8:        movzbl  (%rdi,%rax), %eax
+    0.07 :   1974cc:        subl    %ecx, %eax
+    2.83 :   1974ce:        vzeroupper
+    2.94 :   1974d1:        retq
+    0.00 :   1974d2:        nopl    (%rax)
+    0.00 :   1974d5:        nopw    %cs:(%rax,%rax)
+    0.00 :   1974e0:        tzcntl  %eax, %eax
+    0.00 :   1974e4:        movzbl  0x20(%rsi,%rax), %ecx
+    0.00 :   1974e9:        movzbl  0x20(%rdi,%rax), %eax
+    0.00 :   1974ee:        subl    %ecx, %eax
+    0.00 :   1974f0:        vzeroupper
+    0.00 :   1974f3:        retq
+    0.00 :   1974f4:        nop
+    0.00 :   1974f5:        nopw    %cs:(%rax,%rax)
+    0.00 :   197500:        tzcntl  %eax, %eax
+    0.00 :   197504:        movzbl  0x40(%rsi,%rax), %ecx
+    0.00 :   197509:        movzbl  0x40(%rdi,%rax), %eax
+    0.00 :   19750e:        subl    %ecx, %eax
+    0.00 :   197510:        vzeroupper
+    0.00 :   197513:        retq
+    0.00 :   197514:        nop
+    0.00 :   197515:        nopw    %cs:(%rax,%rax)
+    0.00 :   197520:        addq    %rdi, %rsi
+    0.00 :   197523:        vpmovmskb       %ymm1, %eax
+    0.00 :   197527:        incl    %eax
+    0.00 :   197529:        jne     0x1974c0 <__memcmp_avx2_movbe+0xe0>
+    0.00 :   19752b:        vpmovmskb       %ymm2, %eax
+    0.00 :   19752f:        incl    %eax
+    0.00 :   197531:        jne     0x1974e0 <__memcmp_avx2_movbe+0x100>
+    0.00 :   197533:        vpmovmskb       %ymm3, %eax
+    0.00 :   197537:        incl    %eax
+    0.00 :   197539:        jne     0x197500 <__memcmp_avx2_movbe+0x120>
+    0.00 :   19753b:        tzcntl  %ecx, %ecx
+    0.00 :   19753f:        movzbl  0x60(%rdi,%rcx), %eax
+    0.00 :   197544:        movzbl  0x60(%rsi,%rcx), %ecx
+    0.00 :   197549:        subl    %ecx, %eax
+    0.00 :   19754b:        vzeroupper
+    0.00 :   19754e:        retq
+    0.00 :   19754f:        nop
+    0.00 :   197550:        leaq    -0x80(%rdi,%rdx), %rdx
+    0.00 :   197555:        subq    %rdi, %rsi
+    0.00 :   197558:        andq    $-0x20, %rdi
+    0.00 :   19755c:        subq    $-0x80, %rdi
+    0.00 :   197560:        vmovdqu (%rsi,%rdi), %ymm1
+    0.00 :   197565:        vpcmpeqb        (%rdi), %ymm1, %ymm1
+    0.00 :   197569:        vmovdqu 0x20(%rsi,%rdi), %ymm2
+    0.00 :   19756f:        vpcmpeqb        0x20(%rdi), %ymm2, %ymm2
+    0.00 :   197574:        vmovdqu 0x40(%rsi,%rdi), %ymm3
+    0.00 :   19757a:        vpcmpeqb        0x40(%rdi), %ymm3, %ymm3
+    0.00 :   19757f:        vmovdqu 0x60(%rsi,%rdi), %ymm4
+    0.00 :   197585:        vpcmpeqb        0x60(%rdi), %ymm4, %ymm4
+    0.00 :   19758a:        vpand   %ymm1, %ymm2, %ymm5
+    0.00 :   19758e:        vpand   %ymm3, %ymm4, %ymm6
+    0.00 :   197592:        vpand   %ymm5, %ymm6, %ymm7
+    0.00 :   197596:        vpmovmskb       %ymm7, %ecx
+    0.00 :   19759a:        incl    %ecx
+    0.00 :   19759c:        jne     0x197520 <__memcmp_avx2_movbe+0x140>
+    0.00 :   19759e:        subq    $-0x80, %rdi
+    0.00 :   1975a2:        cmpq    %rdx, %rdi
+    0.00 :   1975a5:        jb      0x197560 <__memcmp_avx2_movbe+0x180>
+    0.00 :   1975a7:        subq    %rdx, %rdi
+    0.00 :   1975aa:        cmpl    $0x60, %edi
+    0.00 :   1975ad:        jae     0x197610 <__memcmp_avx2_movbe+0x230>
+    0.00 :   1975af:        vmovdqu 0x40(%rsi,%rdx), %ymm3
+    0.00 :   1975b5:        cmpl    $0x40, %edi
+    0.00 :   1975b8:        jae     0x197600 <__memcmp_avx2_movbe+0x220>
+    0.00 :   1975ba:        vmovdqu (%rsi,%rdx), %ymm1
+    0.00 :   1975bf:        vpcmpeqb        (%rdx), %ymm1, %ymm1
+    0.00 :   1975c3:        vmovdqu 0x20(%rsi,%rdx), %ymm2
+    0.00 :   1975c9:        vpcmpeqb        0x20(%rdx), %ymm2, %ymm2
+    0.00 :   1975ce:        vpcmpeqb        0x40(%rdx), %ymm3, %ymm3
+    0.00 :   1975d3:        vmovdqu 0x60(%rsi,%rdx), %ymm4
+    0.00 :   1975d9:        vpcmpeqb        0x60(%rdx), %ymm4, %ymm4
+    0.00 :   1975de:        vpand   %ymm1, %ymm2, %ymm5
+    0.00 :   1975e2:        vpand   %ymm3, %ymm4, %ymm6
+    0.00 :   1975e6:        vpand   %ymm5, %ymm6, %ymm7
+    0.00 :   1975ea:        vpmovmskb       %ymm7, %ecx
+    0.00 :   1975ee:        movq    %rdx, %rdi
+    0.00 :   1975f1:        incl    %ecx
+    0.00 :   1975f3:        jne     0x197520 <__memcmp_avx2_movbe+0x140>
+    0.00 :   1975f9:        vzeroupper
+    0.00 :   1975fc:        retq
+    0.00 :   1975fd:        nopl    (%rax)
+    0.00 :   197600:        vpcmpeqb        0x40(%rdx), %ymm3, %ymm3
+    0.00 :   197605:        vpmovmskb       %ymm3, %eax
+    0.00 :   197609:        incl    %eax
+    0.00 :   19760b:        jne     0x197660 <__memcmp_avx2_movbe+0x280>
+    0.00 :   19760d:        nopl    (%rax)
+    0.00 :   197610:        vmovdqu 0x60(%rsi,%rdx), %ymm4
+    0.00 :   197616:        vpcmpeqb        0x60(%rdx), %ymm4, %ymm4
+    0.00 :   19761b:        vpmovmskb       %ymm4, %eax
+    0.00 :   19761f:        incl    %eax
+    0.00 :   197621:        jne     0x197664 <__memcmp_avx2_movbe+0x284>
+    0.00 :   197623:        vzeroupper
+    0.00 :   197626:        retq
+    0.00 :   197627:        nopw    (%rax,%rax)
+    0.00 :   197630:        vmovdqu -0x40(%rsi,%rdx), %ymm1
+    0.00 :   197636:        vpcmpeqb        -0x40(%rdi,%rdx), %ymm1, %ymm1
+    0.00 :   19763c:        vpmovmskb       %ymm1, %eax
+    0.00 :   197640:        incl    %eax
+    0.00 :   197642:        jne     0x197680 <__memcmp_avx2_movbe+0x2a0>
+    0.00 :   197644:        vmovdqu -0x20(%rsi,%rdx), %ymm1
+    0.00 :   19764a:        vpcmpeqb        -0x20(%rdi,%rdx), %ymm1, %ymm1
+    0.00 :   197650:        vpmovmskb       %ymm1, %eax
+    0.00 :   197654:        incl    %eax
+    0.00 :   197656:        jne     0x1976a0 <__memcmp_avx2_movbe+0x2c0>
+    0.00 :   197658:        vzeroupper
+    0.00 :   19765b:        retq
+    0.00 :   19765c:        nopl    (%rax)
+    0.00 :   197660:        subq    $0x20, %rdx
+    0.00 :   197664:        tzcntl  %eax, %eax
+    0.00 :   197668:        addq    %rdx, %rax
+    0.00 :   19766b:        movzbl  0x60(%rsi,%rax), %ecx
+    0.00 :   197670:        movzbl  0x60(%rax), %eax
+    0.00 :   197674:        subl    %ecx, %eax
+    0.00 :   197676:        vzeroupper
+    0.00 :   197679:        retq
+    0.00 :   19767a:        nopw    (%rax,%rax)
+    0.00 :   197680:        tzcntl  %eax, %eax
+    0.00 :   197684:        addl    %edx, %eax
+    0.00 :   197686:        movzbl  -0x40(%rsi,%rax), %ecx
+    0.00 :   19768b:        movzbl  -0x40(%rdi,%rax), %eax
+    0.00 :   197690:        subl    %ecx, %eax
+    0.00 :   197692:        vzeroupper
+    0.00 :   197695:        retq
+    0.00 :   197696:        nopw    %cs:(%rax,%rax)
+    0.00 :   1976a0:        tzcntl  %eax, %eax
+    0.00 :   1976a4:        addl    %edx, %eax
+    0.00 :   1976a6:        movzbl  -0x20(%rsi,%rax), %ecx
+    0.00 :   1976ab:        movzbl  -0x20(%rdi,%rax), %eax
+    0.00 :   1976b0:        subl    %ecx, %eax
+    0.00 :   1976b2:        vzeroupper
+    0.00 :   1976b5:        retq
+    0.00 :   1976b6:        nopw    %cs:(%rax,%rax)
+    5.45 :   1976c0:        cmpl    $0x1, %edx
+    0.00 :   1976c3:        jbe     0x197740 <__memcmp_avx2_movbe+0x360>
+    0.00 :   1976c5:        movl    %edi, %eax
+    0.00 :   1976c7:        orl     %esi, %eax
+    0.00 :   1976c9:        andl    $0xfff, %eax
+   10.05 :   1976ce:        cmpl    $0xfe0, %eax
+    0.00 :   1976d3:        jg      0x197700 <__memcmp_avx2_movbe+0x320>
+    1.44 :   1976d5:        vmovdqu (%rsi), %ymm2
+    2.06 :   1976d9:        vpcmpeqb        (%rdi), %ymm2, %ymm2
+   20.63 :   1976dd:        vpmovmskb       %ymm2, %eax
+    0.05 :   1976e1:        incl    %eax
+    4.27 :   1976e3:        bzhil   %edx, %eax, %edx
+    7.14 :   1976e8:        jne     0x1974c0 <__memcmp_avx2_movbe+0xe0>
+    2.75 :   1976ee:        xorl    %eax, %eax
+    0.10 :   1976f0:        vzeroupper
+    1.44 :   1976f3:        retq
+    0.00 :   1976f4:        nop
+    0.00 :   1976f5:        nopw    %cs:(%rax,%rax)
+    2.08 :   197700:        cmpl    $0x10, %edx
+    0.00 :   197703:        jae     0x197783 <__memcmp_avx2_movbe+0x3a3>
+    1.69 :   197705:        cmpl    $0x8, %edx
+    0.00 :   197708:        jae     0x197760 <__memcmp_avx2_movbe+0x380>
+    0.21 :   19770a:        cmpl    $0x4, %edx
+    0.00 :   19770d:        jb      0x1977c0 <__memcmp_avx2_movbe+0x3e0>
+    1.45 :   197713:        movbel  (%rdi), %eax
+    1.23 :   197717:        movbel  (%rsi), %ecx
+    1.24 :   19771b:        shlq    $0x20, %rax
+    0.42 :   19771f:        shlq    $0x20, %rcx
+    0.12 :   197723:        movbel  -0x4(%rdi,%rdx), %edi
+    1.22 :   197729:        movbel  -0x4(%rsi,%rdx), %esi
+    0.28 :   19772f:        orq     %rdi, %rax
+    0.00 :   197732:        orq     %rsi, %rcx
+    1.35 :   197735:        subq    %rcx, %rax
+    0.00 :   197738:        jne     0x197750 <__memcmp_avx2_movbe+0x370>
+    0.63 :   19773a:        retq
+    0.00 :   19773b:        nopl    (%rax,%rax)
+    0.00 :   197740:        jb      0x197756 <__memcmp_avx2_movbe+0x376>
+    0.00 :   197742:        movzbl  (%rsi), %ecx
+    0.00 :   197745:        movzbl  (%rdi), %eax
+    0.00 :   197748:        subl    %ecx, %eax
+    0.00 :   19774a:        retq
+    0.00 :   19774b:        nopl    (%rax,%rax)
+    0.43 :   197750:        sbbl    %eax, %eax
+    0.10 :   197752:        orl     $0x1, %eax
+    0.26 :   197755:        retq
+    0.00 :   197756:        xorl    %eax, %eax
+    0.00 :   197758:        retq
+    0.00 :   197759:        nopl    (%rax)
+    0.00 :   197760:        movbeq  (%rdi), %rax
+    0.00 :   197765:        movbeq  (%rsi), %rcx
+    0.00 :   19776a:        subq    %rcx, %rax
+    0.00 :   19776d:        jne     0x197750 <__memcmp_avx2_movbe+0x370>
+    0.00 :   19776f:        movbeq  -0x8(%rdi,%rdx), %rax
+    0.00 :   197776:        movbeq  -0x8(%rsi,%rdx), %rcx
+    0.00 :   19777d:        subq    %rcx, %rax
+    0.00 :   197780:        jne     0x197750 <__memcmp_avx2_movbe+0x370>
+    0.00 :   197782:        retq
+    0.00 :   197783:        vmovdqu (%rsi), %xmm2
+    0.00 :   197787:        vpcmpeqb        (%rdi), %xmm2, %xmm2
+    0.00 :   19778b:        vpmovmskb       %xmm2, %eax
+    0.00 :   19778f:        subl    $0xffff, %eax
+    0.00 :   197794:        jne     0x1974c0 <__memcmp_avx2_movbe+0xe0>
+    0.00 :   19779a:        vmovdqu -0x10(%rsi,%rdx), %xmm2
+    0.00 :   1977a0:        leaq    -0x10(%rdi,%rdx), %rdi
+    0.00 :   1977a5:        leaq    -0x10(%rsi,%rdx), %rsi
+    0.00 :   1977aa:        vpcmpeqb        (%rdi), %xmm2, %xmm2
+    0.00 :   1977ae:        vpmovmskb       %xmm2, %eax
+    0.00 :   1977b2:        subl    $0xffff, %eax
+    0.00 :   1977b7:        jne     0x1974c0 <__memcmp_avx2_movbe+0xe0>
+    0.00 :   1977bd:        retq
+    0.00 :   1977be:        nop
+    0.00 :   1977c0:        movzwl  (%rdi), %eax
+    0.00 :   1977c3:        movzwl  (%rsi), %ecx
+    0.00 :   1977c6:        bswapl  %eax
+    0.00 :   1977c8:        bswapl  %ecx
+    0.00 :   1977ca:        shrl    %eax
+    0.00 :   1977cc:        shrl    %ecx
+    0.00 :   1977ce:        movzbl  -0x1(%rdi,%rdx), %edi
+    0.00 :   1977d3:        movzbl  -0x1(%rsi,%rdx), %esi
+    0.00 :   1977d8:        orl     %edi, %eax
+    0.00 :   1977da:        orl     %esi, %ecx
+    0.00 :   1977dc:        subl    %ecx, %eax
+    0.00 :   1977de:        retq
