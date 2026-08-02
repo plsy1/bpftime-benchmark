@@ -1,0 +1,24 @@
+int kmr_array_update_real(struct pt_regs * ctx):
+; int kmr_array_update_real(struct pt_regs *ctx)
+   0: (b7) r6 = 0
+; u32 key = i;
+   1: (63) *(u32 *)(r10 -4) = r6
+; u64 value = i;
+   2: (7b) *(u64 *)(r10 -16) = r6
+   3: (bf) r2 = r10
+; 
+   4: (07) r2 += -4
+   5: (bf) r3 = r10
+   6: (07) r3 += -16
+; bpf_map_update_elem(&kmr_array, &key, &value, BPF_ANY);
+   7: (18) r1 = map[id:172]
+   9: (b7) r4 = 0
+  10: (85) call array_map_update_elem#409360
+; for (int i = 0; i < 1000; ++i) {
+  11: (07) r6 += 1
+; for (int i = 0; i < 1000; ++i) {
+  12: (15) if r6 == 0x3e8 goto pc+1
+  13: (05) goto pc-13
+; return 0;
+  14: (b7) r0 = 0
+  15: (95) exit

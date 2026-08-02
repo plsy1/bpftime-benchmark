@@ -1,0 +1,36 @@
+int kmr_array_update_real(struct pt_regs * ctx):
+bpf_prog_6936bc586c4513b2_kmr_array_update_real:
+; int kmr_array_update_real(struct pt_regs *ctx)
+   0:	nopl	(%rax,%rax)
+   5:	nopl	(%rax)
+   8:	pushq	%rbp
+   9:	movq	%rsp, %rbp
+   c:	subq	$16, %rsp
+  13:	pushq	%rbx
+  14:	xorl	%ebx, %ebx
+; u32 key = i;
+  16:	movl	%ebx, -4(%rbp)
+; u64 value = i;
+  19:	movq	%rbx, -16(%rbp)
+  1d:	movq	%rbp, %rsi
+; 
+  20:	addq	$-4, %rsi
+  24:	movq	%rbp, %rdx
+  27:	addq	$-16, %rdx
+; bpf_map_update_elem(&kmr_array, &key, &value, BPF_ANY);
+  2b:	movabsq	$-130098553978880, %rdi
+  35:	xorl	%ecx, %ecx
+  37:	callq	0xffffffffb9100b60
+; for (int i = 0; i < 1000; ++i) {
+  3c:	addq	$1, %rbx
+; for (int i = 0; i < 1000; ++i) {
+  40:	cmpq	$1000, %rbx
+  47:	je	0xffffffffc01e295b
+  49:	jmp	0xffffffffc01e2926
+; return 0;
+  4b:	xorl	%eax, %eax
+  4d:	popq	%rbx
+  4e:	leave
+  4f:	retq
+  50:	int3
+

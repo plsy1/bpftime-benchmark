@@ -1,0 +1,55 @@
+Experiment date: 2026-08-03 (Asia/Shanghai)
+Host: y1-Zephyrus-M-GM501GS
+CPU: Intel Core i7-8750H
+Kernel: Linux 7.0.0-27-generic #27-Ubuntu SMP PREEMPT_DYNAMIC Thu Jun 18 19:13:49 UTC 2026 x86_64
+Kernel compiler: GCC 15.2.0
+
+Source repository: /home/y1/src/bpftime-offical-no-btf
+Source branch: codex/official-no-btf
+Source commit: 8ed291e130fe3f15f99955b0d259eb119efdaa7d
+Source dirty status before and after experiment: clean
+Diagnostic source modified: no
+Kernel-map-runtime loader SHA256: 6a1dd6a4c88465aae9ca2f4061c0ea3ba86cbec0adca15199c423ffe2c70af60
+Kernel-map-runtime victim SHA256: 92cc73d057c249a55ca2b696f85be6da429eff92311cbac3a91e456acd7aa375
+Diagnostic build host compiler: GCC 12.5.0
+BPF compiler: LLVM/Clang 15.0.7, commit 8dfdcc7b7bf66834a761bd8de445840ef68e4d1a
+
+Runtime parameters: 20000 invocations, 5 rounds, CPU 5, 1000 warm-up invocations
+Helpers per real BPF program invocation: 1000
+Control/real execution order: alternating by round, unchanged from diagnostic source
+Map state: keys 0 through 999 primed before every measurement
+
+Pinned logical CPU: 5
+SMT sibling: CPU 11, offline during all formal runs
+CPU driver: intel_pstate active mode
+CPU governor during experiment: performance on all policies
+Intel turbo during experiment: disabled
+Intel pstate min/max performance: 100/100
+Observed Bzy_MHz: 2200 in runtime A/B, all four single-metric profiles, and perf record
+Observed core temperature: 34-38 C
+kernel.bpf_stats_enabled: 1 only during collection, restored to 0
+
+Profile bpftool: /home/y1/src/.toolchains/bpftool-profile-v2/bpftool
+Profile bpftool version: 7.7.0, libbpf 1.7, features llvm and skeletons
+Profile skeleton compiler: LLVM/Clang 15.0.7
+Profile JIT disassembly library: LLVM 21.1.8
+Profile bpftool host compiler: GCC 13.4.0
+Profile bpftool extra CFLAGS: -Wno-error=discarded-qualifiers
+Profile bpftool VMLINUX_H: third_party/vmlinux/x86/vmlinux.h
+Profile duration: 30 seconds
+Profile runs captured per control and real program: 80000
+Profile method: one metric per process pair; enabled equals running for every metric
+
+Perf record: perf 7.0.12, cycles:k, call graph fp
+Perf samples: 102279
+Perf lost samples: 0
+Perf data size: 17751975 bytes
+Live-kernel disassembly source: /proc/kcore plus /proc/kallsyms, read as root
+
+Post-run restoration verified after every collection:
+- CPU 11 online
+- governors restored to powersave
+- intel_pstate min/max performance restored to 19/100
+- intel_pstate no_turbo restored to 0
+- kernel.bpf_stats_enabled restored to 0
+- zero residual BPF links

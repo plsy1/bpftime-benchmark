@@ -1,0 +1,29 @@
+int kmr_array_update_control(struct pt_regs * ctx):
+bpf_prog_9479e084c1174e78_kmr_array_update_control:
+; int kmr_array_update_control(struct pt_regs *ctx)
+   0:	nopl	(%rax,%rax)
+   5:	nopl	(%rax)
+   8:	pushq	%rbp
+   9:	movq	%rsp, %rbp
+   c:	subq	$16, %rsp
+  13:	xorl	%edi, %edi
+; u32 key = i;
+  15:	movl	%edi, -4(%rbp)
+; u64 value = i;
+  18:	movq	%rdi, -16(%rbp)
+  1c:	movq	%rbp, %rsi
+; 
+  1f:	addq	$-4, %rsi
+  23:	movq	%rbp, %rsi
+  26:	addq	$-16, %rsi
+; for (int i = 0; i < 1000; ++i) {
+  2a:	addq	$1, %rdi
+; for (int i = 0; i < 1000; ++i) {
+  2e:	cmpq	$1000, %rdi
+  35:	jne	0xffffffffc01e9061
+; return 0;
+  37:	xorl	%eax, %eax
+  39:	leave
+  3a:	retq
+  3b:	int3
+
