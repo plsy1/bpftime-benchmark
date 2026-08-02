@@ -146,8 +146,21 @@ KMR_LOADER_OBJ := $(KMR_OUTPUT)/kernel_map_runtime.o
 KMR_LOADER := $(KMR_OUTPUT)/kernel-map-runtime
 KMR_VICTIM := $(KMR_OUTPUT)/kernel-map-runtime-victim
 
+# Matched kernel-BPF array-update value-size sweep.  This is separate from the
+# official uprobe benchmark and the general kernel-map-runtime diagnostic so
+# changing the diagnostic matrix cannot change either benchmark's semantics.
+KAUS_OUTPUT := $(OUTPUT)/kernel-array-update-sizes
+KAUS_BPF_OBJ := $(KAUS_OUTPUT)/kernel_array_update_sizes.bpf.o
+KAUS_SKEL := $(KAUS_OUTPUT)/kernel_array_update_sizes.skel.h
+KAUS_LOADER_OBJ := $(KAUS_OUTPUT)/kernel_array_update_sizes.o
+KAUS_LOADER := $(KAUS_OUTPUT)/kernel-array-update-sizes
+KAUS_VICTIM := $(KAUS_OUTPUT)/kernel-array-update-sizes-victim
+
 .PHONY: kernel-map-runtime-diagnostic
 kernel-map-runtime-diagnostic: $(KMR_LOADER) $(KMR_VICTIM)
+
+.PHONY: kernel-array-update-sizes-diagnostic
+kernel-array-update-sizes-diagnostic: $(KAUS_LOADER) $(KAUS_VICTIM)
 
 $(KMR_OUTPUT):
 	$(call msg,MKDIR,$@)
@@ -173,5 +186,32 @@ $(KMR_LOADER): $(KMR_LOADER_OBJ) $(LIBBPF_OBJ) | $(KMR_OUTPUT)
 	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
 
 $(KMR_VICTIM): diagnostics/kernel_map_runtime_victim.c | $(KMR_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) $(CFLAGS) $< -o $@
+
+$(KAUS_OUTPUT):
+	$(call msg,MKDIR,$@)
+	$(Q)mkdir -p $@
+
+$(KAUS_BPF_OBJ): diagnostics/kernel_array_update_sizes.bpf.c $(VMLINUX) | $(KAUS_OUTPUT) $(BPFTOOL)
+	$(call msg,BPF,$@)
+	$(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) \
+		     $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
+		     -c $< -o $(KAUS_OUTPUT)/kernel_array_update_sizes.tmp.bpf.o
+	$(Q)$(BPFTOOL) gen object $@ $(KAUS_OUTPUT)/kernel_array_update_sizes.tmp.bpf.o
+
+$(KAUS_SKEL): $(KAUS_BPF_OBJ) | $(KAUS_OUTPUT) $(BPFTOOL)
+	$(call msg,GEN-SKEL,$@)
+	$(Q)$(BPFTOOL) gen skeleton $< > $@
+
+$(KAUS_LOADER_OBJ): diagnostics/kernel_array_update_sizes.c $(KAUS_SKEL) | $(KAUS_OUTPUT)
+	$(call msg,CC,$@)
+	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -I$(KAUS_OUTPUT) -c $< -o $@
+
+$(KAUS_LOADER): $(KAUS_LOADER_OBJ) $(LIBBPF_OBJ) | $(KAUS_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+
+$(KAUS_VICTIM): diagnostics/kernel_array_update_sizes_victim.c | $(KAUS_OUTPUT)
 	$(call msg,BINARY,$@)
 	$(Q)$(CC) $(CFLAGS) $< -o $@
