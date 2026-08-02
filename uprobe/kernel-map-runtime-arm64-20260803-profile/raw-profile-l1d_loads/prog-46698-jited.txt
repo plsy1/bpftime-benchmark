@@ -1,0 +1,48 @@
+int kmr_array_update_control(struct pt_regs * ctx):
+bpf_prog_f98fbb11804b5f85_kmr_array_update_control:
+; int kmr_array_update_control(struct pt_regs *ctx)
+   0:	add	x9, x30, #0
+   4:	nop
+   8:	hint	#25
+   c:	stp	x29, x30, [sp, #-16]!
+  10:	mov	x29, sp
+  14:	stp	x19, x20, [sp, #-16]!
+  18:	stp	x21, x22, [sp, #-16]!
+  1c:	stp	x26, x25, [sp, #-16]!
+  20:	mov	x26, #0
+  24:	stp	x26, x25, [sp, #-16]!
+  28:	mov	x26, sp
+  2c:	stp	x27, x28, [sp, #-16]!
+  30:	mov	x25, sp
+  34:	sub	x27, x25, #16
+  38:	sub	sp, sp, #16
+  3c:	mov	x0, #0
+; u32 key = i;
+  40:	str	w0, [x27, #12]
+; u64 value = i;
+  44:	str	x0, [x27]
+  48:	add	x1, x25, #0
+; 
+  4c:	sub	x1, x1, #4
+  50:	add	x1, x25, #0
+  54:	sub	x1, x1, #16
+; for (int i = 0; i < 1000; ++i) {
+  58:	add	x0, x0, #1
+; for (int i = 0; i < 1000; ++i) {
+  5c:	cmp	x0, #1000
+  60:	b.ne	-0x7fff7f624560
+; return 0;
+  64:	mov	x7, #0
+  68:	add	sp, sp, #16
+  6c:	ldp	x27, x28, [sp], #16
+  70:	ldp	x26, x25, [sp], #16
+  74:	ldp	x26, x25, [sp], #16
+  78:	ldp	x21, x22, [sp], #16
+  7c:	ldp	x19, x20, [sp], #16
+  80:	ldp	x29, x30, [sp], #16
+  84:	add	x0, x7, #0
+  88:	hint	#29
+  8c:	ret
+  90:	ldr	x10, #8
+  94:	br	x10
+
