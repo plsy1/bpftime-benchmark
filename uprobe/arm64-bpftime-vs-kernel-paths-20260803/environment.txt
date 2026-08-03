@@ -1,0 +1,64 @@
+Experiment: ARM64 BPFtime-versus-kernel map-path closure
+PMU supplement window: 2026-08-03 10:21:26--10:23:38 +09:00
+Host: orin-nano
+Architecture: aarch64
+CPU: NVIDIA Jetson Orin Nano, 6-core Cortex-A78AE
+Kernel: Linux 6.8.12-1021-tegra aarch64
+Jetson release: R39.2.0
+
+Source repository: /home/jetson/src/bpftime-offical-no-btf
+Source branch: codex/official-no-btf
+Source commit: 176eb291ead95eb5f8a56280deae626fac46eaa9
+Official top-level result commit: 8ed291e130fe3f15f99955b0d259eb119efdaa7d
+Results parent commit: ed176b06327656ade4906e62e87fc311c0f81b34
+
+Pre-existing source status (preserved; none is used by this experiment):
+?? benchmark/ssl-nginx/absolute_performance.png
+?? example/sslsniff/
+?? v1-v4-ablation/
+?? v4-ablation/
+
+Compatibility audit:
+- 8ed291e..176eb29 changes only benchmark/uprobe/Makefile and adds the
+  kernel-array-update-size diagnostic sources.
+- No BPFtime production runtime source changed between those commits.
+- ead56c9..8ed291e changes benchmark/test.c, benchmark/uprobe/uprobe.bpf.c,
+  benchmark build files, and adds map diagnostics; it does not change the
+  BPFtime production runtime.
+
+Build and tools:
+- GCC 13.3.0
+- LLVM/Clang 15.0.7 for the BPF object
+- CMake 3.28.3
+- RelWithDebInfo, BPFTIME_LLVM_JIT=ON, BPFTIME_ENABLE_LTO=ON
+- ENABLE_PROBE_READ_CHECK=OFF, ENABLE_PROBE_WRITE_CHECK=OFF
+- Boost 1.83
+- profiling bpftool SHA256:
+  cbf197fbf7dd3ed21861a4fb91258ab53ef7d4bd8d7b585463a3460a2f3ff33d
+- kernel-map-runtime loader SHA256:
+  ecdca1e3c8801f2d620316d3cbf392304be4bdfb386cda0a79d296611a422def
+- kernel-map-runtime victim SHA256:
+  90b16236547716752e12b20d40d7a55ec30714ac081284ec1f5befff30e90db0
+- kernel_map_runtime.bpf.o SHA256:
+  f257862dc2da75578f51f3677b63166026e78d4a2841b81b6aad1767d9ef69b5
+
+Execution controls for new PMU runs:
+- host execution; no Docker
+- CPU 5 pinned; CPU 5 has no SMT sibling
+- MAXN_SUPER; jetson_clocks enabled
+- CPU 5 min/max/current frequency: 1728000 kHz
+- GPU frequency: 1020000000 Hz
+- EMC frequency: 3199000000 Hz
+- 20000 invocations, 5 rounds, 1000 warm-up invocations
+- 1000 helpers per BPF-program invocation
+- 30 seconds per program and PMU metric
+- one metric per profile; enabled == running for every profile
+- control and real run_count: 80000 each
+- root privilege for loader, victim, and bpftool profiler
+
+Cleanup verification:
+- kernel.bpf_stats_enabled: 0
+- kernel BPF link count: 0
+- /dev/shm/bpftime_maps_shm: absent
+
+Raw per-run frequency snapshots and PMU JSON are under raw-kernel-pmu/.

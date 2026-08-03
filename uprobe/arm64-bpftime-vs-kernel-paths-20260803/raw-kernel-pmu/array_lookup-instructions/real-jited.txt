@@ -1,0 +1,62 @@
+int kmr_array_lookup_real(struct pt_regs * ctx):
+bpf_prog_f96e550b4757120a_kmr_array_lookup_real:
+; int kmr_array_lookup_real(struct pt_regs *ctx)
+   0:	add	x9, x30, #0
+   4:	nop
+   8:	hint	#25
+   c:	stp	x29, x30, [sp, #-16]!
+  10:	mov	x29, sp
+  14:	stp	x19, x20, [sp, #-16]!
+  18:	stp	x21, x22, [sp, #-16]!
+  1c:	stp	x26, x25, [sp, #-16]!
+  20:	mov	x26, #0
+  24:	stp	x26, x25, [sp, #-16]!
+  28:	mov	x26, sp
+  2c:	stp	x27, x28, [sp, #-16]!
+  30:	mov	x25, sp
+  34:	sub	x27, x25, #0
+  38:	sub	sp, sp, #16
+  3c:	mov	x19, #0
+; u32 key = i;
+  40:	mov	x10, #-4
+  44:	str	w19, [x25, x10]
+  48:	add	x1, x25, #0
+; 
+  4c:	sub	x1, x1, #4
+; bpf_map_lookup_elem(&kmr_array, &key);
+  50:	mov	x0, #-281474976710656
+  54:	movk	x0, #63139, lsl #16
+  58:	movk	x0, #32768
+  5c:	add	x0, x0, #336
+  60:	ldr	w7, [x1]
+  64:	cmp	x7, #1024
+  68:	b.hs	-0x7fff7f7474b4
+  6c:	lsl	x7, x7, #3
+  70:	add	x7, x7, x0
+  74:	b	-0x7fff7f7474b0
+  78:	mov	x7, #0
+; for (int i = 0; i < 1000; ++i) {
+  7c:	add	x19, x19, #1
+  80:	add	x0, x19, #0
+  84:	lsl	x0, x0, #32
+  88:	lsr	x0, x0, #32
+; for (int i = 0; i < 1000; ++i) {
+  8c:	cmp	x0, #1000
+  90:	b.eq	-0x7fff7f747494
+  94:	b	-0x7fff7f7474ec
+; return 0;
+  98:	mov	x7, #0
+  9c:	add	sp, sp, #16
+  a0:	ldp	x27, x28, [sp], #16
+  a4:	ldp	x26, x25, [sp], #16
+  a8:	ldp	x26, x25, [sp], #16
+  ac:	ldp	x21, x22, [sp], #16
+  b0:	ldp	x19, x20, [sp], #16
+  b4:	ldp	x29, x30, [sp], #16
+  b8:	add	x0, x7, #0
+  bc:	hint	#29
+  c0:	ret
+  c4:	nop
+  c8:	ldr	x10, #8
+  cc:	br	x10
+

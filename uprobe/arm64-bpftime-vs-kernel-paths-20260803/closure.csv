@@ -1,0 +1,40 @@
+operation,quantity,value_ns_per_helper,uncertainty_sample_sd_ns,formula,evidence_class
+array_lookup,kernel_top,2.563189440,0.005485087,official five-process median,measured
+array_lookup,bpftime_top,12.901251840,0.063106563,official five-process median,measured
+array_lookup,top_gap,10.338062400,0.063344491,bpftime_top - kernel_top,inferred compatible subtraction
+array_lookup,kernel_runtime,1.384079000,0.001074000,matched kernel real-control mean,measured
+array_lookup,bpftime_direct_l3,8.919958000,0.001878000,direct L3-control mean,measured
+array_lookup,direct_helper_gap,7.535879000,0.002163414,bpftime_direct_l3 - kernel_runtime,inferred separate-run subtraction
+array_lookup,bpftime_jit_helper,10.062801000,0.005937147,real-helper minus byte-identical no-op-helper,measured
+array_lookup,jit_context_premium,1.142843000,0.006227086,bpftime_jit_helper - bpftime_direct_l3,inferred separate-run subtraction
+array_lookup,bpftime_top_above_jit,2.838450840,0.063385235,bpftime_top - bpftime_jit_helper,inferred separate-run subtraction
+array_lookup,kernel_top_above_runtime,1.179110440,0.005589244,kernel_top - kernel_runtime,inferred separate-run subtraction
+array_lookup,top_integration_residual,1.659340400,0.063631185,(bpftime_top-jit) - (kernel_top-runtime),inferred; not internally localized
+array_lookup,reconstructed_top_gap,10.338062400,0.063631185,direct_helper_gap + jit_context_premium + top_integration_residual,algebraic closure
+array_lookup,closure_error,0.000000000,0.000000000,reconstructed_top_gap - top_gap,algebraic check
+array_update,kernel_top,11.858371520,0.010861240,official five-process median,measured
+array_update,bpftime_top,16.426424000,0.059424745,official five-process median,measured
+array_update,top_gap,4.568052480,0.060409162,bpftime_top - kernel_top,inferred compatible subtraction
+array_update,kernel_runtime,10.951741000,0.016267000,matched kernel real-control mean,measured
+array_update,bpftime_direct_l3,13.177641000,0.005821000,direct L3-control mean,measured
+array_update,direct_helper_gap,2.225900000,0.017277133,bpftime_direct_l3 - kernel_runtime,inferred separate-run subtraction
+array_update,bpftime_jit_helper,14.506699000,0.000932734,real-helper minus byte-identical no-op-helper,measured
+array_update,jit_context_premium,1.329058000,0.005895255,bpftime_jit_helper - bpftime_direct_l3,inferred separate-run subtraction
+array_update,bpftime_top_above_jit,1.919725000,0.059432064,bpftime_top - bpftime_jit_helper,inferred separate-run subtraction
+array_update,kernel_top_above_runtime,0.906630520,0.019559699,kernel_top - kernel_runtime,inferred separate-run subtraction
+array_update,top_integration_residual,1.013094480,0.062567980,(bpftime_top-jit) - (kernel_top-runtime),inferred; not internally localized
+array_update,reconstructed_top_gap,4.568052480,0.062567980,direct_helper_gap + jit_context_premium + top_integration_residual,algebraic closure
+array_update,closure_error,0.000000000,0.000000000,reconstructed_top_gap - top_gap,algebraic check
+hash_lookup,kernel_top,27.807821120,0.101317141,official five-process median,measured
+hash_lookup,bpftime_top,54.608218880,0.259336137,official five-process median,measured
+hash_lookup,top_gap,26.800397760,0.278424846,bpftime_top - kernel_top,inferred compatible subtraction
+hash_lookup,kernel_runtime,26.768945000,0.028820000,matched kernel real-control mean,measured
+hash_lookup,bpftime_direct_l3,41.261145000,0.006762000,direct L3-control mean,measured
+hash_lookup,direct_helper_gap,14.492200000,0.029602653,bpftime_direct_l3 - kernel_runtime,inferred separate-run subtraction
+hash_lookup,bpftime_jit_helper,41.558263000,0.020471194,real-helper minus byte-identical no-op-helper,measured
+hash_lookup,jit_context_premium,0.297118000,0.021559091,bpftime_jit_helper - bpftime_direct_l3,inferred separate-run subtraction
+hash_lookup,bpftime_top_above_jit,13.049955880,0.260142848,bpftime_top - bpftime_jit_helper,inferred separate-run subtraction
+hash_lookup,kernel_top_above_runtime,1.038876120,0.105336392,kernel_top - kernel_runtime,inferred separate-run subtraction
+hash_lookup,top_integration_residual,12.011079760,0.280660038,(bpftime_top-jit) - (kernel_top-runtime),inferred; not internally localized
+hash_lookup,reconstructed_top_gap,26.800397760,0.280660038,direct_helper_gap + jit_context_premium + top_integration_residual,algebraic closure
+hash_lookup,closure_error,0.000000000,0.000000000,reconstructed_top_gap - top_gap,algebraic check

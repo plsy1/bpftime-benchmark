@@ -1,0 +1,23 @@
+operation,component,cumulative_bpftime_ns,incremental_ns,incremental_cycles,incremental_instructions,role,evidence_class
+array_lookup,map_implementation,0.228244000,0.228244000,0.393101000,14.000000000,array bounds/address and lookup or 8-byte update work,measured cumulative; adjacent delta inferred
+array_lookup,generic_handler,4.988563000,4.760319000,8.219016000,50.000001000,"map-type dispatch, offset_ptr and lock-policy checks",measured cumulative; adjacent delta inferred
+array_lookup,shm_fd_variant_dispatch,9.947365000,4.958802000,8.562242000,34.000011000,fd bounds and handler variant extraction,measured cumulative; adjacent delta inferred
+array_lookup,lto_shaped_final_helper,8.919958000,-1.027407000,-1.774304000,-8.999999000,production helper after whole-path LTO reshaping,measured cumulative; adjacent delta inferred
+array_update,map_implementation,2.771385000,2.771385000,4.784692000,48.000000000,array bounds/address and lookup or 8-byte update work,measured cumulative; adjacent delta inferred
+array_update,generic_handler,8.937341000,6.165956000,10.646661000,60.000012000,"map-type dispatch, offset_ptr and lock-policy checks",measured cumulative; adjacent delta inferred
+array_update,shm_fd_variant_dispatch,14.878298000,5.940957000,10.257072000,41.000001000,fd bounds and handler variant extraction,measured cumulative; adjacent delta inferred
+array_update,lto_shaped_final_helper,13.177641000,-1.700657000,-2.935769000,-18.000001000,production helper after whole-path LTO reshaping,measured cumulative; adjacent delta inferred
+hash_lookup,spin_lock,11.450990000,11.450990000,19.813000000,43.000000000,uncontended lock-only reference; directional component,measured references; lock/body split is directional
+hash_lookup,hash_map_body_after_lock,36.414280000,24.963290000,43.083000000,126.908000000,"hash, modulo, probing, key compare and value access after lock estimate",measured references; lock/body split is directional
+hash_lookup,generic_handler,39.970981000,3.556701000,6.130000000,79.000000000,map-type/offset_ptr and handler path,measured references; lock/body split is directional
+hash_lookup,shm_fd_variant_dispatch,41.415240000,1.444259000,2.483000000,34.000000000,fd bounds and handler variant extraction,measured references; lock/body split is directional
+hash_lookup,lto_shaped_final_helper,41.261145000,-0.154095000,-0.259000000,3.000000000,production helper after whole-path LTO reshaping,measured references; lock/body split is directional
+array_lookup,kernel_runtime_denominator,,-1.384079000,-2.421584475,-10.997402437,kernel work subtracted from BPFtime helper path,measured then sign-inverted
+array_lookup,jit_context_premium,,1.142843000,1.974229000,-4.000136000,difference between JIT helper A/B and direct L3,inferred separate-run subtraction
+array_lookup,top_integration_residual,,1.659340400,,,remaining top-level difference after helper and JIT boundaries,inferred; not internally localized
+array_update,kernel_runtime_denominator,,-10.951741000,-19.033509925,-82.029433787,kernel work subtracted from BPFtime helper path,measured then sign-inverted
+array_update,jit_context_premium,,1.329058000,2.294154000,3.000188000,difference between JIT helper A/B and direct L3,inferred separate-run subtraction
+array_update,top_integration_residual,,1.013094480,,,remaining top-level difference after helper and JIT boundaries,inferred; not internally localized
+hash_lookup,kernel_runtime_denominator,,-26.768945000,-44.441213938,-122.409785712,kernel work subtracted from BPFtime helper path,measured then sign-inverted
+hash_lookup,jit_context_premium,,0.297118000,0.504000000,-15.003000000,difference between JIT helper A/B and direct L3,inferred separate-run subtraction
+hash_lookup,top_integration_residual,,12.011079760,,,remaining top-level difference after helper and JIT boundaries,inferred; not internally localized
