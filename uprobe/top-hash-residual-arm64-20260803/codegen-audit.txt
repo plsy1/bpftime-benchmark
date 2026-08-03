@@ -1,0 +1,37 @@
+Static code-generation audit
+============================
+
+Top-level diagnostic BPF program (Clang 15, -O2):
+- empty: 2 BPF instructions
+- loop-control: 12 BPF instructions
+- hash-lookup: 15 BPF instructions
+
+Standalone synthetic JIT lookup program:
+- 17 BPF instructions
+- It sets fd=3 and four helper arguments explicitly, then calls helper ID 1000.
+- The top-level production program is not longer at the BPF-bytecode level.
+
+Final-link helper symbol comparison:
+
+Standalone hash-helper-jit-layers executable
+  SHA256: 443c9004af3667efd95742e59c17358537a6f7def3b6fc0712a3185e5b8019e2
+  symbol: 00000000008bc0f4 size 0000000000001518 T bpftime_map_lookup_elem_helper
+
+Production bpftime agent shared library
+  SHA256: 1cdc9c6efe48769f3fad3430b32e38a740f82df45ae3b233e5392f19c395841d
+  symbol: 0000000000ade260 size 0000000000000038 t bpftime_map_lookup_elem_helper
+
+Interpretation:
+- The source-level helper is the same, but the final machine-code boundary is
+  not byte-identical across the standalone diagnostic executable and agent DSO.
+- Runtime LTO/constant propagation shapes the final links differently.  The
+  agent helper is a small wrapper/tail-call into const-propagated functions;
+  the standalone symbol contains a much larger generic body.
+- Symbol size does not by itself predict runtime cost.  It proves only that a
+  subtraction across these final binaries is not an exact code-identical A/B.
+
+Commands:
+  llvm-objdump-15 -d top_hash_residual.bpf.o
+  llvm-objdump-15 -d array_helper_jit.bpf.o
+  nm -S -C hash-helper-jit-layers | grep bpftime_map_lookup_elem_helper
+  nm -S -C libbpftime-agent.so | grep bpftime_map_lookup_elem_helper

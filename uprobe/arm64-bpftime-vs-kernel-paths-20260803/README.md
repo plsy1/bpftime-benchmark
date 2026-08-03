@@ -186,3 +186,12 @@ python3 summarize.py
 结论可在注明限制后共享：闭合计算已经独立重算；新 PMU 无 multiplex；运行结束时
 `kernel.bpf_stats_enabled=0`、kernel BPF link 为 0、BPFtime shared memory 已清除。
 唯一实质性未决项是 hash lookup 的顶层整合残差，报告中没有把它错误归因。
+
+## 2026-08-03 后续定位
+
+后续 matched 顶层实验已经增加 `empty → loop-control → full hash lookup` 边界。
+结果表明 loop/key-stack 路径不是该残差来源；全部差额集中在 production agent 的
+helper-containing 路径。并且 standalone 诊断 executable 与 production agent
+经过 LTO 后并非相同机器码，因此本报告中的 `12.011 ns/helper` 应解释为跨 harness
+整合项，而不是一个独立 runtime 阶段。详见相邻目录
+`top-hash-residual-arm64-20260803/README.md`。
