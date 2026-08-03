@@ -146,6 +146,16 @@ KMR_LOADER_OBJ := $(KMR_OUTPUT)/kernel_map_runtime.o
 KMR_LOADER := $(KMR_OUTPUT)/kernel-map-runtime
 KMR_VICTIM := $(KMR_OUTPUT)/kernel-map-runtime-victim
 
+# Top-level matched empty/loop/full hash-lookup diagnostic.  It attaches three
+# programs to byte-equivalent victim functions so the complete uprobe path can
+# be split without modifying the official benchmark or the runtime.
+THR_OUTPUT := $(OUTPUT)/top-hash-residual
+THR_BPF_OBJ := $(THR_OUTPUT)/top_hash_residual.bpf.o
+THR_SKEL := $(THR_OUTPUT)/top_hash_residual.skel.h
+THR_LOADER_OBJ := $(THR_OUTPUT)/top_hash_residual.o
+THR_LOADER := $(THR_OUTPUT)/top-hash-residual
+THR_VICTIM := $(THR_OUTPUT)/top-hash-residual-victim
+
 # Matched kernel-BPF array-update value-size sweep.  This is separate from the
 # official uprobe benchmark and the general kernel-map-runtime diagnostic so
 # changing the diagnostic matrix cannot change either benchmark's semantics.
@@ -158,6 +168,9 @@ KAUS_VICTIM := $(KAUS_OUTPUT)/kernel-array-update-sizes-victim
 
 .PHONY: kernel-map-runtime-diagnostic
 kernel-map-runtime-diagnostic: $(KMR_LOADER) $(KMR_VICTIM)
+
+.PHONY: top-hash-residual-diagnostic
+top-hash-residual-diagnostic: $(THR_LOADER) $(THR_VICTIM)
 
 .PHONY: kernel-array-update-sizes-diagnostic
 kernel-array-update-sizes-diagnostic: $(KAUS_LOADER) $(KAUS_VICTIM)
@@ -188,6 +201,33 @@ $(KMR_LOADER): $(KMR_LOADER_OBJ) $(LIBBPF_OBJ) | $(KMR_OUTPUT)
 $(KMR_VICTIM): diagnostics/kernel_map_runtime_victim.c | $(KMR_OUTPUT)
 	$(call msg,BINARY,$@)
 	$(Q)$(CC) $(CFLAGS) $< -o $@
+
+$(THR_OUTPUT):
+	$(call msg,MKDIR,$@)
+	$(Q)mkdir -p $@
+
+$(THR_BPF_OBJ): diagnostics/top_hash_residual.bpf.c $(VMLINUX) | $(THR_OUTPUT) $(BPFTOOL)
+	$(call msg,BPF,$@)
+	$(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) \
+		     $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
+		     -c $< -o $(THR_OUTPUT)/top_hash_residual.tmp.bpf.o
+	$(Q)$(BPFTOOL) gen object $@ $(THR_OUTPUT)/top_hash_residual.tmp.bpf.o
+
+$(THR_SKEL): $(THR_BPF_OBJ) | $(THR_OUTPUT) $(BPFTOOL)
+	$(call msg,GEN-SKEL,$@)
+	$(Q)$(BPFTOOL) gen skeleton $< > $@
+
+$(THR_LOADER_OBJ): diagnostics/top_hash_residual.c $(THR_SKEL) | $(THR_OUTPUT)
+	$(call msg,CC,$@)
+	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -I$(THR_OUTPUT) -c $< -o $@
+
+$(THR_LOADER): $(THR_LOADER_OBJ) $(LIBBPF_OBJ) | $(THR_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+
+$(THR_VICTIM): diagnostics/top_hash_residual_victim.c | $(THR_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) -g -O3 -Wall $< -o $@
 
 $(KAUS_OUTPUT):
 	$(call msg,MKDIR,$@)
