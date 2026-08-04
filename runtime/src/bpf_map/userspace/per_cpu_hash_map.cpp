@@ -126,9 +126,6 @@ long per_cpu_hash_map_impl::elem_delete(const void *key)
 		errno = ENOENT;
 		return -1;
 	}
-	// bpf_map_delete_elem removes the whole element regardless of the
-	// current cpu slot; the old per-cpu fill targeted the wrong range and
-	// left the key lookupable.
 	impl.erase(itr);
 	return 0;
 }
