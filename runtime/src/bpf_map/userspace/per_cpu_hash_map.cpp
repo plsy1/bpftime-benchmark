@@ -99,10 +99,12 @@ long per_cpu_hash_map_impl::elem_delete(const void *key)
 	SPDLOG_DEBUG("Run per cpu hash delete at cpu {}", cpu);
 	bytes_vec &key_vec = this->key_templates[cpu];
 	key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
-	if (auto itr = impl.find(key_vec); itr != impl.end()) {
-		std::fill(itr->second.begin(),
-			  itr->second.begin() + cpu * value_size, 0);
+	auto itr = impl.find(key_vec);
+	if (itr == impl.end()) {
+		errno = ENOENT;
+		return -1;
 	}
+	impl.erase(itr);
 	return 0;
 }
 
