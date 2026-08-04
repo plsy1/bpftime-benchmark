@@ -156,6 +156,15 @@ THR_LOADER_OBJ := $(THR_OUTPUT)/top_hash_residual.o
 THR_LOADER := $(THR_OUTPUT)/top-hash-residual
 THR_VICTIM := $(THR_OUTPUT)/top-hash-residual-victim
 
+# Matched helper/array/hash lookup ladder.  This is separate from the
+# top-hash-residual diagnostic so its raw data remain independently auditable.
+HML_OUTPUT := $(OUTPUT)/helper-map-ladder
+HML_BPF_OBJ := $(HML_OUTPUT)/helper_map_ladder.bpf.o
+HML_SKEL := $(HML_OUTPUT)/helper_map_ladder.skel.h
+HML_LOADER_OBJ := $(HML_OUTPUT)/helper_map_ladder.o
+HML_LOADER := $(HML_OUTPUT)/helper-map-ladder
+HML_VICTIM := $(HML_OUTPUT)/helper-map-ladder-victim
+
 # Matched kernel-BPF array-update value-size sweep.  This is separate from the
 # official uprobe benchmark and the general kernel-map-runtime diagnostic so
 # changing the diagnostic matrix cannot change either benchmark's semantics.
@@ -171,6 +180,9 @@ kernel-map-runtime-diagnostic: $(KMR_LOADER) $(KMR_VICTIM)
 
 .PHONY: top-hash-residual-diagnostic
 top-hash-residual-diagnostic: $(THR_LOADER) $(THR_VICTIM)
+
+.PHONY: helper-map-ladder-diagnostic
+helper-map-ladder-diagnostic: $(HML_LOADER) $(HML_VICTIM)
 
 .PHONY: kernel-array-update-sizes-diagnostic
 kernel-array-update-sizes-diagnostic: $(KAUS_LOADER) $(KAUS_VICTIM)
@@ -226,6 +238,33 @@ $(THR_LOADER): $(THR_LOADER_OBJ) $(LIBBPF_OBJ) | $(THR_OUTPUT)
 	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
 
 $(THR_VICTIM): diagnostics/top_hash_residual_victim.c | $(THR_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) -g -O3 -Wall $< -o $@
+
+$(HML_OUTPUT):
+	$(call msg,MKDIR,$@)
+	$(Q)mkdir -p $@
+
+$(HML_BPF_OBJ): diagnostics/helper_map_ladder.bpf.c $(VMLINUX) | $(HML_OUTPUT) $(BPFTOOL)
+	$(call msg,BPF,$@)
+	$(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) \
+		     $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
+		     -c $< -o $(HML_OUTPUT)/helper_map_ladder.tmp.bpf.o
+	$(Q)$(BPFTOOL) gen object $@ $(HML_OUTPUT)/helper_map_ladder.tmp.bpf.o
+
+$(HML_SKEL): $(HML_BPF_OBJ) | $(HML_OUTPUT) $(BPFTOOL)
+	$(call msg,GEN-SKEL,$@)
+	$(Q)$(BPFTOOL) gen skeleton $< > $@
+
+$(HML_LOADER_OBJ): diagnostics/helper_map_ladder.c $(HML_SKEL) | $(HML_OUTPUT)
+	$(call msg,CC,$@)
+	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -I$(HML_OUTPUT) -c $< -o $@
+
+$(HML_LOADER): $(HML_LOADER_OBJ) $(LIBBPF_OBJ) | $(HML_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+
+$(HML_VICTIM): diagnostics/helper_map_ladder_victim.c | $(HML_OUTPUT)
 	$(call msg,BINARY,$@)
 	$(Q)$(CC) -g -O3 -Wall $< -o $@
 
