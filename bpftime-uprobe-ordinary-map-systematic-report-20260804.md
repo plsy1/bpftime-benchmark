@@ -26,8 +26,10 @@ Jetson ARM64 与固定频率 x64 顶层对照，再进入 helper、runtime 和 k
    hash lookup，BPFtime 只赢 hash update。四项中唯一发生胜负翻转的是 array
    update；修正后的 ordinary hash delete-hit 则在两个平台都由 BPFtime 获胜。
 5. 这不是“BPFtime 在 ARM64 上绝对执行得更慢”。四个 BPFtime 普通 map 路径在
-   Jetson 上的绝对 ns/helper 都低于 x64。趋势变化来自不同操作的分子、分母缩放
-   不同，其中 array update 的翻转主要来自 Jetson kernel helper 异常轻。
+   Jetson 上的绝对 ns/helper 都低于 x64。matched kernel-runtime A/B 进一步确认，
+   ARM64 的 array update、hash lookup 和 hash update kernel 路径分别比固定频率
+   x64 轻约 3.00×、1.80× 和 1.40×；array lookup 是接近持平的例外。趋势变化来自
+   不同操作的分子、分母缩放不同。
 6. 后续重点分析了三个 Jetson 上由 kernel 获胜的项目：array lookup、array
    update、hash lookup。array 两项的主要 BPFtime 成本位于 generic handler 与
    shm/fd/variant dispatch；hash lookup 还包含更重的 hash/probing 本体。最新
@@ -259,6 +261,37 @@ delete 没有进入这轮四项对照：array delete 是无效操作；hash dele
 “BPFtime userspace map 在 ARM64 上普遍执行得更慢”。但在同一 Jetson 内部，
 BPFtime array lookup/update 与 hash lookup 确实比对应 kernel 路径重；这正是后续
 需要拆分 BPFtime 分子和 kernel 分母的原因。
+
+## Matched kernel runtime 证明 ARM64 的三条 kernel 路径更轻
+
+顶层 elapsed time 之外，还使用相同的 kernel BPF 源码做了 matched
+control/real runtime A/B。control 保留 1000 次循环、key/value stack 写入和指针
+准备，real 只比 control 多真实 map helper；净成本定义为：
+
+```text
+kernel net ns/helper
+  = (real program runtime - control program runtime) / 1000
+```
+
+固定频率两平台结果如下：
+
+| kernel BPF 操作 | Jetson ARM64 | x64 2.2 GHz | x64/ARM64 | 解释 |
+|---|---:|---:|---:|---|
+| array lookup-hit | 1.384 ns | 0.929 ns | 0.671× | 两边都极轻；x64 direct runtime 略低 |
+| array update-existing | 10.952 ns | 32.877 ns | **3.002×** | x64 明显更重，解释胜负翻转 |
+| hash lookup-hit | 26.769 ns | 48.228 ns | **1.802×** | x64 kernel 路径明显更重 |
+| hash update-existing | 90.823 ns | 127.492 ns | **1.404×** | x64 kernel 路径更重 |
+
+所以“ARM 上 kernel BPF 更轻”有直接的 kernel runtime 证据，但应准确表述为：
+
+- array update、hash lookup、hash update 在 Jetson 上明显更轻；
+- array lookup 在两个平台都接近 1 ns，direct runtime 中反而是 x64 略轻；
+- 官方顶层 array lookup 是 ARM64 2.563 ns、x64 2.757 ns，差别同样很小，说明
+  这个极短路径容易受到 harness 边界影响，不应概括成明显的平台优势。
+
+这一组数据也解释了为什么只比较 `BPFtime/kernel` 倍率会产生误导：BPFtime 在
+ARM64 上的绝对时间虽然没有变重，但 kernel 分母在三条路径上下降得更多，尤其是
+array update，于是 BPFtime 的相对优势会缩小甚至翻转。
 
 ## Array update 的翻转主要来自 Jetson kernel 路径更轻
 
