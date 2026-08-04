@@ -96,4 +96,21 @@ TEST_CASE("Test basic operations of hash map")
 			});
 		}
 	}
+
+	SECTION("Test helper delete removes the complete per-CPU entry")
+	{
+		per_cpu_hash_map_impl map(mem, 4, 8, 1 << 20);
+		uint32_t key = 0xabcdef;
+		std::vector<uint64_t> values(ncpu);
+		for (uint32_t cpu = 0; cpu < ncpu; cpu++)
+			values[cpu] = cpu + 100;
+
+		REQUIRE(map.elem_update_userspace(&key, values.data(), 0) == 0);
+		REQUIRE(map.elem_lookup_userspace(&key) != nullptr);
+		REQUIRE(map.elem_delete(&key) == 0);
+		REQUIRE(map.elem_lookup_userspace(&key) == nullptr);
+		REQUIRE(errno == ENOENT);
+		REQUIRE(map.elem_delete(&key) == -1);
+		REQUIRE(errno == ENOENT);
+	}
 }
