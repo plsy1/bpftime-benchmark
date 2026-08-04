@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=/home/y1/src/bpftime-offical-no-btf
+BUILD="$ROOT/build-map-path-x64-20260802"
+OUT=/home/y1/src/benchmark-results/uprobe/percpu-hash-delete-fix-x64-20260804
+RAW="$OUT/raw"
+CPU=5
+SIBLING=11
+RUNS=1
+ITER=100000
+EXPECTED_COMMIT=c6e2737aabddb23a9915f5eec2fe890f2c3fba07
+LOADER="$ROOT/benchmark/uprobe/uprobe"
+VICTIM="$ROOT/benchmark/test"
+SERVER_SO="$BUILD/runtime/syscall-server/libbpftime-syscall-server.so"
+AGENT_SO="$BUILD/runtime/agent/libbpftime-agent.so"
+BPFTIMETOOL="$BUILD/tools/bpftimetool/bpftimetool"
+PSTATE=/sys/devices/system/cpu/intel_pstate
+TURBOSTAT_COLUMNS=CPU,Avg_MHz,Busy%,Bzy_MHz,TSC_MHz,CoreTmp,PkgTmp,PkgWatt
+
+mkdir -p "$RAW"
+cd "$ROOT"
+sudo -n true
+
+if [[ $(git -C "$ROOT" rev-parse HEAD) != "$EXPECTED_COMMIT" ]]; then
+    echo "unexpected source commit" >&2
+    exit 1
+fi
+git -C "$ROOT" diff --quiet
+git -C "$ROOT" diff --cached --quiet
+
+sibling_before=$(cat "/sys/devices/system/cpu/cpu${SIBLING}/online")
+no_turbo_before=$(cat "$PSTATE/no_turbo")
+min_perf_before=$(cat "$PSTATE/min_perf_pct")
+max_perf_before=$(cat "$PSTATE/max_perf_pct")
+declare -A governor_before
+for policy in /sys/devices/system/cpu/cpufreq/policy*; do
+    governor_before["$policy"]=$(cat "$policy/scaling_governor")
+done
+
+loader_pid=
+cleanup() {
+    status=$?
+    set +e
+    sudo -n pkill -INT -x uprobe 2>/dev/null
+    if [[ -n "$loader_pid" ]]; then
+        wait "$loader_pid" 2>/dev/null
+    fi
+    sudo -n "$BPFTIMETOOL" remove >/dev/null 2>&1
+    if [[ "$sibling_before" == 1 ]]; then
+        echo 1 | sudo -n tee "/sys/devices/system/cpu/cpu${SIBLING}/online" >/dev/null
+    fi
+    echo "$min_perf_before" | sudo -n tee "$PSTATE/min_perf_pct" >/dev/null
+    echo "$max_perf_before" | sudo -n tee "$PSTATE/max_perf_pct" >/dev/null
+    echo "$no_turbo_before" | sudo -n tee "$PSTATE/no_turbo" >/dev/null
+    for policy in "${!governor_before[@]}"; do
+        echo "${governor_before[$policy]}" | sudo -n tee "$policy/scaling_governor" >/dev/null
+    done
+    sudo -n chown -R "$(id -u):$(id -g)" "$OUT"
+    trap - EXIT INT TERM
+    exit "$status"
+}
+trap cleanup EXIT INT TERM
+
+for policy in /sys/devices/system/cpu/cpufreq/policy*; do
+    echo performance | sudo -n tee "$policy/scaling_governor" >/dev/null
+done
+echo 1 | sudo -n tee "$PSTATE/no_turbo" >/dev/null
+echo 100 | sudo -n tee "$PSTATE/max_perf_pct" >/dev/null
+echo 100 | sudo -n tee "$PSTATE/min_perf_pct" >/dev/null
+echo 0 | sudo -n tee "/sys/devices/system/cpu/cpu${SIBLING}/online" >/dev/null
+
+{
+    date --iso-8601=seconds
+    echo "cpu=$CPU"
+    echo "sibling=$SIBLING"
+    echo "sibling_online=$(cat /sys/devices/system/cpu/cpu${SIBLING}/online)"
+    echo "scaling_driver=$(cat /sys/devices/system/cpu/cpufreq/policy${CPU}/scaling_driver)"
+    echo "base_frequency_khz=$(cat /sys/devices/system/cpu/cpufreq/policy${CPU}/base_frequency)"
+    echo "governor=$(cat /sys/devices/system/cpu/cpufreq/policy${CPU}/scaling_governor)"
+    echo "no_turbo=$(cat "$PSTATE/no_turbo")"
+    echo "min_perf_pct=$(cat "$PSTATE/min_perf_pct")"
+    echo "max_perf_pct=$(cat "$PSTATE/max_perf_pct")"
+} >"$OUT/fixed-frequency-state.txt"
+
+wait_started() {
+    local log=$1
+    for _ in $(seq 1 200); do
+        if grep -q 'Successfully started!' "$log"; then
+            return 0
+        fi
+        if [[ -n "$loader_pid" ]] && ! kill -0 "$loader_pid" 2>/dev/null; then
+            echo "loader exited before startup" >&2
+            return 1
+        fi
+        sleep 0.1
+    done
+    echo "timed out waiting for loader" >&2
+    return 1
+}
+
+run_victims() {
+    local environment=$1
+    for run in $(seq 1 "$RUNS"); do
+        echo "$(date --iso-8601=seconds) $environment run $run/$RUNS"
+        if [[ "$environment" == kernel ]]; then
+            sudo -n /usr/bin/time -v -o "$RAW/kernel-run-${run}.time.txt" \
+                turbostat --quiet --cpu "$CPU" \
+                --out "$RAW/kernel-run-${run}.turbostat.txt" \
+                --show "$TURBOSTAT_COLUMNS" -- \
+                taskset -c "$CPU" "$VICTIM" 1 "$ITER" \
+                >"$RAW/kernel-run-${run}.txt" 2>&1
+        else
+            sudo -n /usr/bin/time -v -o "$RAW/bpftime-run-${run}.time.txt" \
+                turbostat --quiet --cpu "$CPU" \
+                --out "$RAW/bpftime-run-${run}.turbostat.txt" \
+                --show "$TURBOSTAT_COLUMNS" -- \
+                taskset -c "$CPU" env LD_PRELOAD="$AGENT_SO" \
+                BPFTIME_LOG_OUTPUT=console SPDLOG_LEVEL=info \
+                "$VICTIM" 1 "$ITER" \
+                >"$RAW/bpftime-run-${run}.txt" 2>&1
+        fi
+    done
+}
+
+sudo -n pkill -INT -x uprobe 2>/dev/null || true
+sudo -n "$BPFTIMETOOL" remove >/dev/null 2>&1 || true
+
+echo "$(date --iso-8601=seconds) starting kernel loader"
+sudo -n taskset -c "$CPU" "$LOADER" >"$RAW/kernel-loader.txt" 2>&1 &
+loader_pid=$!
+wait_started "$RAW/kernel-loader.txt"
+if [[ $(sudo -n bpftool link show | wc -l) -eq 0 ]]; then
+    echo "kernel loader created no links" >&2
+    exit 1
+fi
+sleep 5
+run_victims kernel
+sudo -n pkill -INT -x uprobe
+wait "$loader_pid" || true
+loader_pid=
+if [[ $(sudo -n bpftool link show | wc -l) -ne 0 ]]; then
+    echo "kernel links remained after loader exit" >&2
+    exit 1
+fi
+
+sudo -n "$BPFTIMETOOL" remove >/dev/null 2>&1 || true
+echo "$(date --iso-8601=seconds) starting bpftime loader"
+sudo -n taskset -c "$CPU" env LD_PRELOAD="$SERVER_SO" SPDLOG_LEVEL=info \
+    "$LOADER" >"$RAW/bpftime-loader.txt" 2>&1 &
+loader_pid=$!
+wait_started "$RAW/bpftime-loader.txt"
+if ! grep -q 'Starting syscall server' "$RAW/bpftime-loader.txt"; then
+    echo "bpftime loader did not start syscall server" >&2
+    exit 1
+fi
+if [[ ! -e /dev/shm/bpftime_maps_shm ]]; then
+    echo "bpftime shared memory was not created" >&2
+    exit 1
+fi
+if [[ $(sudo -n bpftool link show | wc -l) -ne 0 ]]; then
+    echo "bpftime loader unexpectedly created kernel links" >&2
+    exit 1
+fi
+sleep 5
+run_victims bpftime
+if ! grep -q 'shm_open_type 1' "$RAW/bpftime-run-1.txt"; then
+    echo "bpftime victim did not use userspace shared memory" >&2
+    exit 1
+fi
+sudo -n pkill -INT -x uprobe
+wait "$loader_pid" || true
+loader_pid=
+sudo -n "$BPFTIMETOOL" remove >/dev/null 2>&1 || true
+
+for frequency in "$RAW"/*.turbostat.txt; do
+    if ! sudo -n grep -Eq '^5[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+2200[[:space:]]+' "$frequency"; then
+        echo "CPU5 was not fixed at 2.2 GHz in $frequency" >&2
+        exit 1
+    fi
+done
+
+echo "$(date --iso-8601=seconds) completed"
