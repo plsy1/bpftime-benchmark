@@ -1,0 +1,19 @@
+Profile command used for the clean reports:
+
+```bash
+/usr/lib/linux-tools-6.8.0-134/perf record \
+  -e cycles:u -g --call-graph fp \
+  -- env LD_PRELOAD=<libbpftime-agent.so> \
+  benchmark/uprobe/.output/helper-map-ladder/helper-map-ladder-victim \
+  100000 0 0 <case>
+
+/usr/lib/linux-tools-6.8.0-134/perf report --stdio \
+  --no-children --no-demangle --percent-limit 1 --max-stack 4 \
+  --sort dso,symbol
+```
+
+The victim argument `warmup=0` prevents the other ladder cases from entering
+the profile. The one setup invocation still initializes the two maps before
+the timed case. These profiles are used only to identify symbols; the numeric
+comparison comes from `wall-summary.csv`, `decomposition.csv`, and
+`pmu-summary.csv`.

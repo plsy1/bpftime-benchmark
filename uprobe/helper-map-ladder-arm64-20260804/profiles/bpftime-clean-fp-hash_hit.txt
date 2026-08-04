@@ -1,0 +1,94 @@
+[2026-08-04 17:15:29.808] [info] [bpftime_shm_internal.cpp:852] Global shm constructed. shm_open_type 1 for bpftime_maps_shm
+[2026-08-04 17:15:29.809] [info] [bpftime_shm_internal.cpp:44] Global shm initialized
+case,order,iterations,total_ns,ns_per_invocation
+hash_hit,0,100000,5525081856,55250.818560000
+[ perf record: Woken up 4395 times to write data ]
+[ perf record: Captured and wrote 3.245 MB /tmp/helper-map-ladder-clean-profile.zms4cT/hash_hit.data (22431 samples) ]
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 22K of event 'cycles:u'
+# Event count (approx.): 9586682735
+#
+# Overhead  Shared Object          Symbol                                                                                                                                                                                                                                                                                           IPC   [IPC Coverage]
+# ........  .....................  ...............................................................................................................................................................................................................................................................................................  ....................
+#
+    46.85%  libbpftime-agent.so    [.] _ZN7bpftime22fix_size_hash_map_impl11elem_lookupEPKv                                                                                                                                                                                                                                         -      -
+            |
+            ---_ZN7bpftime22fix_size_hash_map_impl11elem_lookupEPKv
+               |
+                --46.11%--_ZNK7bpftime15bpf_map_handler15map_lookup_elemEPKvb
+                          0xffff7d52d034
+                          _ZL24uprobe_listener_on_enterP22_GumInvocationListenerP21_GumInvocationContext
+
+    16.17%  libc.so.6              [.] __aarch64_swp4_acq                                                                                                                                                                                                                                                                           -      -
+            |
+            ---__aarch64_swp4_acq
+               pthread_spin_lock@@GLIBC_2.34
+               _ZNK7bpftime15bpf_map_handler15map_lookup_elemEPKvb
+               0xffff7d52d034
+               _ZL24uprobe_listener_on_enterP22_GumInvocationListenerP21_GumInvocationContext
+
+    11.14%  libbpftime-agent.so    [.] _ZNK7bpftime15bpf_map_handler15map_lookup_elemEPKvb                                                                                                                                                                                                                                          -      -
+            |
+            ---_ZNK7bpftime15bpf_map_handler15map_lookup_elemEPKvb
+               |
+                --10.65%--0xffff7d52d034
+                          _ZL24uprobe_listener_on_enterP22_GumInvocationListenerP21_GumInvocationContext
+                          _gum_function_context_begin_invocation
+
+     7.70%  libc.so.6              [.] memcmp                                                                                                                                                                                                                                                                                       -      -
+            |
+            ---memcmp
+               _ZN7bpftime22fix_size_hash_map_impl11elem_lookupEPKv
+               _ZNK7bpftime15bpf_map_handler15map_lookup_elemEPKvb
+               0xffff7d52d034
+               _ZL24uprobe_listener_on_enterP22_GumInvocationListenerP21_GumInvocationContext
+
+     5.45%  libbpftime-agent.so    [.] _ZNK7bpftime11bpftime_shm19try_get_map_handlerEi.constprop.0                                                                                                                                                                                                                                 -      -
+            |
+            ---_ZNK7bpftime11bpftime_shm19try_get_map_handlerEi.constprop.0
+               bpftime_map_lookup_elem_helper
+               0xffff7d52d034
+               _ZL24uprobe_listener_on_enterP22_GumInvocationListenerP21_GumInvocationContext
+               _gum_function_context_begin_invocation
+
+     3.09%  libbpftime-agent.so    [.] _ZN6spdlog7details8registry8instanceEv                                                                                                                                                                                                                                                       -      -
+            |
+            ---_ZN6spdlog7details8registry8instanceEv
+               |
+                --2.64%--_ZN7bpftime22fix_size_hash_map_impl11elem_lookupEPKv
+                          _ZNK7bpftime15bpf_map_handler15map_lookup_elemEPKvb
+                          0xffff7d52d034
+
+     2.18%  libc.so.6              [.] pthread_spin_lock@@GLIBC_2.34                                                                                                                                                                                                                                                                -      -
+            |
+            ---pthread_spin_lock@@GLIBC_2.34
+               |
+                --1.89%--_ZNK7bpftime15bpf_map_handler15map_lookup_elemEPKvb
+                          0xffff7d52d034
+                          _ZL24uprobe_listener_on_enterP22_GumInvocationListenerP21_GumInvocationContext
+
+     1.38%  libbpftime-agent.so    [.] bpftime_map_lookup_elem_helper                                                                                                                                                                                                                                                               -      -
+            |
+            ---bpftime_map_lookup_elem_helper
+               |
+                --1.02%--0xffff7d52d034
+                          _ZL24uprobe_listener_on_enterP22_GumInvocationListenerP21_GumInvocationContext
+                          _gum_function_context_begin_invocation
+
+     1.17%  libbpftime-agent.so    [.] memcmp@plt                                                                                                                                                                                                                                                                                   -      -
+            |
+            ---memcmp@plt
+               _ZN7bpftime22fix_size_hash_map_impl11elem_lookupEPKv
+               _ZNK7bpftime15bpf_map_handler15map_lookup_elemEPKvb
+               0xffff7d52d034
+               _ZL24uprobe_listener_on_enterP22_GumInvocationListenerP21_GumInvocationContext
+
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

@@ -1,0 +1,46 @@
+[2026-08-04 17:15:27.158] [info] [bpftime_shm_internal.cpp:852] Global shm constructed. shm_open_type 1 for bpftime_maps_shm
+[2026-08-04 17:15:27.158] [info] [bpftime_shm_internal.cpp:44] Global shm initialized
+case,order,iterations,total_ns,ns_per_invocation
+array_lookup,0,100000,1328916160,13289.161600000
+[ perf record: Woken up 4074 times to write data ]
+[ perf record: Captured and wrote 0.807 MB /tmp/helper-map-ladder-clean-profile.zms4cT/array_lookup.data (5651 samples) ]
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 5K of event 'cycles:u'
+# Event count (approx.): 2390463757
+#
+# Overhead  Shared Object             Symbol                                                                                                                                                                                                                                                                                IPC   [IPC Coverage]
+# ........  ........................  ....................................................................................................................................................................................................................................................................................  ....................
+#
+    49.86%  libbpftime-agent.so       [.] _ZNK7bpftime15bpf_map_handler15map_lookup_elemEPKvb                                                                                                                                                                                                                               -      -
+            |
+            ---_ZNK7bpftime15bpf_map_handler15map_lookup_elemEPKvb
+               |
+                --47.92%--0xffff97bd2034
+                          _ZL24uprobe_listener_on_enterP22_GumInvocationListenerP21_GumInvocationContext
+                          _gum_function_context_begin_invocation
+
+    30.65%  libbpftime-agent.so       [.] _ZNK7bpftime11bpftime_shm19try_get_map_handlerEi.constprop.0                                                                                                                                                                                                                      -      -
+            |
+            ---_ZNK7bpftime11bpftime_shm19try_get_map_handlerEi.constprop.0
+               bpftime_map_lookup_elem_helper
+               0xffff97bd2034
+               _ZL24uprobe_listener_on_enterP22_GumInvocationListenerP21_GumInvocationContext
+               _gum_function_context_begin_invocation
+
+     5.32%  libbpftime-agent.so       [.] bpftime_map_lookup_elem_helper                                                                                                                                                                                                                                                    -      -
+            |
+            ---bpftime_map_lookup_elem_helper
+               |
+                --4.32%--0xffff97bd2034
+                          _ZL24uprobe_listener_on_enterP22_GumInvocationListenerP21_GumInvocationContext
+                          _gum_function_context_begin_invocation
+
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
