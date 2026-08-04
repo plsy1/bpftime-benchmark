@@ -450,6 +450,25 @@ wrapper 不是主因。
 成本也会上升。官方顶层测量的是 lookup-hit，因此高负载 miss 只用于验证实现机制，
 不能拿 185 ns 的 miss 值直接解释顶层 hit。
 
+## 三项重点调查的完成度
+
+下表把三个重点项目的顶层现象、已经确认的路径和剩余问题集中到同一处。这里的
+“完成”指已经足以解释 Jetson 上的性能方向，不表示已经得到可直接合入的优化 patch。
+
+| 项目 | Jetson 顶层差距 | 已确认的主要原因 | 证据层级 | 当前状态 | 尚未拆分 |
+|---|---:|---|---|---|---|
+| array lookup-hit | BPFtime `+10.338 ns/helper` | array 访问本体只有 0.228 ns/14 instructions；主要成本在 generic handler 与 shm/fd/variant dispatch；kernel lookup 又极轻 | 顶层 5 进程、JIT real/no-op、direct L0–L3、kernel runtime/PMU | **路径级定位完成** | handler 内类型分派、fd lookup、`offset_ptr`、variant 提取的独立成本 |
+| array update-existing | BPFtime `+4.568 ns/helper` | BPFtime 有 generic userspace 分发；同时 Jetson kernel update 比 x64 轻约 3.00×，导致跨平台胜负翻转 | 顶层、JIT/direct、两平台 kernel runtime/PMU、kernel 机器码、8B–256B sweep | **胜负翻转已解释** | BPFtime 通用分发的逐源码成本；kernel 编译器、版本、ISA 与微架构的严格分离 |
+| hash lookup-hit | 官方 BPFtime `+26.800 ns/helper`；matched ladder `+27.075 ns/helper` | spin lock 与 TRACE 合计解释约一半；剩余主要在 hash/probing/memcmp 本体及 handler/shm 分发 | 顶层、matched helper ladder、2×2 源码 A/B、PMU、direct L0–L3、负载率 hit/miss | **主要贡献项定位完成** | `hash_func`、取模、`is_empty`、`memcmp`、单次 probe；no-lock 方案的并发正确性 |
+
+按研究目标区分，当前完成度为：
+
+- 如果问题是“为什么 Jetson 上这三项由 kernel 获胜”，三项都已经有足够证据回答；
+- 如果问题是“哪个 runtime 层最重”，array 两项落在通用 map 分发，hash 进一步
+  落在 lock/TRACE 与 hash/probing 本体；
+- 如果目标是提交优化 patch，仍需对表中“尚未拆分”部分做同一 harness 的源码级
+  A/B，并补并发正确性验证。
+
 ## 测量方法与证据强度
 
 本轮不是用一次完整 benchmark 的差值猜测函数，而是使用多层 matched A/B：
