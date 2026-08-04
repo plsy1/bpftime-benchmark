@@ -34,6 +34,7 @@
 | [per-CPU 跨架构分析](bpftime-uprobe-percpu-cross-architecture-analysis-20260728.md) | ARM64/x64、kernel/BPFtime 的 per-CPU map 结果和倍率解释 |
 | [ARM per-CPU 根因](bpftime-percpu-arm-root-cause-20260729.md) | Jetson userspace per-CPU map 的源码路径与主要成本 |
 | [x64 per-CPU hash delete 交接](bpftime-uprobe-percpu-hash-delete-x64-handoff-20260804.md) | 修复 delete helper 语义后的 x64 单轮重建、固频运行、解析和归档步骤 |
+| [Jetson per-CPU 路径分层诊断](bpftime-uprobe-percpu-path-diagnosis-20260805.md) | array/hash 的 CPU 选择、key/hash 查找、value copy、delete-hit 与公共 handler/SHM 分层结果 |
 
 普通 map 调查与 per-CPU map 调查是两条不同路径：前者重点分析普通
 array/hash helper，后者包含 CPU 选择和 per-CPU 数据布局，不应把两组结论直接
