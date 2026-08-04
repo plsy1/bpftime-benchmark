@@ -19,6 +19,16 @@ set_target_properties(array-map-path-layers PROPERTIES
   INTERPROCEDURAL_OPTIMIZATION FALSE
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
 
+# Diagnostic-only microbenchmark for decomposing the userspace per-CPU
+# array-map lookup/update path.  Synthetic layers mirror the implementation;
+# l0-l3 add the production class, handler, shared-memory, and helper layers.
+add_executable(per-cpu-array-path-layers
+  uprobe/diagnostics/per_cpu_array_path_layers.cpp)
+target_link_libraries(per-cpu-array-path-layers PRIVATE runtime)
+set_target_properties(per-cpu-array-path-layers PROPERTIES
+  INTERPROCEDURAL_OPTIMIZATION FALSE
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
+
 add_executable(hash-map-path-layers
   uprobe/diagnostics/hash_map_path_layers.cpp)
 target_link_libraries(hash-map-path-layers PRIVATE runtime)
