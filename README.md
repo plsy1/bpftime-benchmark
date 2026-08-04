@@ -14,6 +14,7 @@
 | `bpftime-uprobe-array-cross-architecture-diagnosis-20260731.md` | 普通 array map 的 ARM64/x64 差异：lookup 内联、无效 delete、x64 kernel update 分档 |
 | `bpftime-uprobe-array-jetson-path-decomposition-20260801.md` | Jetson 普通 array map userspace 路径的 L0–L3 与 JIT/helper 分层结果 |
 | `bpftime-uprobe-hash-jetson-path-decomposition-20260801.md` | Jetson 普通 hash map userspace 路径的查找、复制、哈希及容器访问分层结果 |
+| `bpftime-uprobe-arm64-map-three-task-summary-20260804.md` | **Jetson 普通 map 三项任务总结**：array lookup、array update 与 hash lookup 的顶层现象、路径归因、证据边界及 hash 最新源码级 A/B |
 | `bpftime-perf-event-output-cpu-affinity-explanation-20260728.md` | `bpf_perf_event_output` 临时绑核的用途、冗余条件与兼容性边界 |
 | `bpftime-official-no-btf-change-log.md` | bug 修复记录（已修 / 未修清单） |
 | `bpftime-official-no-btf-ssl-nginx-benchmark-runbook.md` | 操作手册：docker 流程、变体、脚本、归档口径 |
