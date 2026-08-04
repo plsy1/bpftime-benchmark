@@ -1,31 +1,71 @@
-# summry — bpftime benchmark 分析文档
+# BPFtime 性能调查文档索引
 
-## 顶层（活跃维护）
+本分支保存 Jetson ARM64、x64 跨平台性能调查的结论、实验设计、源码路径分析和
+运行手册。原始数据位于同一仓库的 `benchmark-results/jetson` 分支。
+
+## 建议阅读顺序
+
+1. [普通 map 系统报告](bpftime-uprobe-ordinary-map-systematic-report-20260804.md)：
+   当前 uprobe 普通 map 调查的完整结论，包含六项 benchmark 语义、跨平台结果及
+   array lookup/update、hash lookup 的路径归因。
+2. [ARM 性能根因总览](bpftime-arm-performance-root-cause-20260727.md)：
+   `ssl-nginx` 调查的一页纸总结，说明 probe/runtime、输出路径和已修问题。
+3. [性能分析方法手册](performance-analysis-playbook.md)：
+   从本轮工作提炼出的可复用实验与归因流程。
+
+## uprobe：普通 map
 
 | 文档 | 内容 |
 |---|---|
-| `bpftime-arm-performance-root-cause-20260727.md` | **一页纸根因报告**：ARM 上为什么输给 kernel eBPF（三层根因 + 修复后状态），入口首选 |
-| `bpftime-uprobe-percpu-cross-architecture-analysis-20260728.md` | uprobe 原版/修复版与 ARM64/x64 per-CPU map 对比，解释 ARM 相对倍率更大的分母效应 |
-| `bpftime-uprobe-map-path-investigation-guide-20260731.md` | `benchmark/uprobe` map helper 路径阅读、分层测量、操作矩阵与跨架构验证指南 |
-| `bpftime-uprobe-hash-map-six-operation-semantics-20260801.md` | hash map 六种稳定操作语义、原 delete-miss 问题及修正后的 delete-hit 计时设计 |
-| `bpftime-uprobe-array-hash-cross-architecture-experiment-plan-20260801.md` | 普通 array/hash lookup/update 的 ARM64/x64 matched-path 实验设计：JIT A/B、L0–L3、kernel BPF runtime A/B |
-| `bpftime-uprobe-kernel-map-runtime-arm64-20260801.md` | 第二阶段 Jetson kernel BPF runtime A/B：普通 array/hash lookup-hit 与 update-existing 的 ARM64 基线 |
-| `bpftime-uprobe-x64-kernel-map-runtime-handoff-20260802.md` | x64 交接清单：用相同 harness 补齐 kernel map runtime A/B、归档并计算 x64/ARM64 比率 |
-| `bpftime-uprobe-array-cross-architecture-diagnosis-20260731.md` | 普通 array map 的 ARM64/x64 差异：lookup 内联、无效 delete、x64 kernel update 分档 |
-| `bpftime-uprobe-array-jetson-path-decomposition-20260801.md` | Jetson 普通 array map userspace 路径的 L0–L3 与 JIT/helper 分层结果 |
-| `bpftime-uprobe-hash-jetson-path-decomposition-20260801.md` | Jetson 普通 hash map userspace 路径的查找、复制、哈希及容器访问分层结果 |
-| `bpftime-uprobe-ordinary-map-systematic-report-20260804.md` | **普通 map 系统报告**：从 uprobe map case 与六种 hash 语义、delete benchmark 修正，到 ARM64/x64 趋势及 array lookup/update、hash lookup 路径归因 |
-| `bpftime-perf-event-output-cpu-affinity-explanation-20260728.md` | `bpf_perf_event_output` 临时绑核的用途、冗余条件与兼容性边界 |
-| `bpftime-official-no-btf-change-log.md` | bug 修复记录（已修 / 未修清单） |
-| `bpftime-official-no-btf-ssl-nginx-benchmark-runbook.md` | 操作手册：docker 流程、变体、脚本、归档口径 |
-| `performance-analysis-playbook.md` | 性能分析方法论 checklist（从本战役提炼，可复用） |
+| [系统报告](bpftime-uprobe-ordinary-map-systematic-report-20260804.md) | **主入口**：六项结果、ARM64/x64 趋势、三个重点项目及 hash lookup 叶子级闭环 |
+| [map 路径调查指南](bpftime-uprobe-map-path-investigation-guide-20260731.md) | 源码阅读顺序、L0–L3 分层、操作矩阵与测量边界 |
+| [hash 六种操作语义](bpftime-uprobe-hash-map-six-operation-semantics-20260801.md) | lookup/update/delete 的 hit、miss、insert、existing 语义，以及 delete benchmark 修正 |
+| [跨架构实验方案](bpftime-uprobe-array-hash-cross-architecture-experiment-plan-20260801.md) | 顶层、JIT A/B、direct runtime 与 kernel runtime 的 matched-path 设计 |
+| [ARM64 kernel runtime](bpftime-uprobe-kernel-map-runtime-arm64-20260801.md) | Jetson 普通 array/hash lookup、update 的 kernel helper 基线 |
+| [x64 实验交接](bpftime-uprobe-x64-kernel-map-runtime-handoff-20260802.md) | x64 环境、命令、统计口径和归档要求 |
+| [array 跨架构诊断](bpftime-uprobe-array-cross-architecture-diagnosis-20260731.md) | array lookup/update 的 ARM64/x64 趋势和 kernel update 差异 |
+| [Jetson array 路径分解](bpftime-uprobe-array-jetson-path-decomposition-20260801.md) | array userspace L0–L3、JIT/helper 与 generic dispatch 成本 |
+| [Jetson hash 路径分解](bpftime-uprobe-hash-jetson-path-decomposition-20260801.md) | hash lookup 的哈希、查找、复制和容器访问路径 |
 
-> 源码阅读指南在独立分支 [`docs/source-reading-guide`](https://github.com/plsy1/bpftime-benchmark/tree/docs/source-reading-guide)。
+## uprobe：per-CPU map
 
-## archive/（调查过程的详细报告，结论已并入根因报告）
+| 文档 | 内容 |
+|---|---|
+| [per-CPU 跨架构分析](bpftime-uprobe-percpu-cross-architecture-analysis-20260728.md) | ARM64/x64、kernel/BPFtime 的 per-CPU map 结果和倍率解释 |
+| [ARM per-CPU 根因](bpftime-percpu-arm-root-cause-20260729.md) | Jetson userspace per-CPU map 的源码路径与主要成本 |
 
-- `bpftime-official-no-btf-ssl-nginx-path-ablation-20260726.md` — 消融方法与全部数据（最详尽）
-- `bpftime-perf-event-output-affinity-redundancy-20260727.md` — 绑核为何冗余的代码级论证
-- `bpftime-software-perf-record-alignment-fix-20260722.md` — 8 字节对齐 bug 定位与修复
-- `bpftime-latest-jetson-ssl-nginx-bridge-path-analysis-20260721.md` — 早期 bridge 归因
-- `bpftime-v020-*` — v0.2.0 时代的验证报告
+普通 map 调查与 per-CPU map 调查是两条不同路径：前者重点分析普通
+array/hash helper，后者包含 CPU 选择和 per-CPU 数据布局，不应把两组结论直接
+互相替代。
+
+## ssl-nginx 与 perf-event 输出路径
+
+| 文档 | 内容 |
+|---|---|
+| [ARM 性能根因总览](bpftime-arm-performance-root-cause-20260727.md) | **主入口**：`ssl-nginx` 端到端结论和修复后状态 |
+| [CPU affinity 语义说明](bpftime-perf-event-output-cpu-affinity-explanation-20260728.md) | `bpf_perf_event_output` 临时绑核的目的、冗余条件和兼容边界 |
+| [No-BTF 修改记录](bpftime-official-no-btf-change-log.md) | official no-BTF 分支已做与未做的修改 |
+| [ssl-nginx 运行手册](bpftime-official-no-btf-ssl-nginx-benchmark-runbook.md) | Docker/host 流程、变体、脚本和结果归档口径 |
+
+## 工程与协作材料
+
+| 文档 | 内容 |
+|---|---|
+| [性能分析方法手册](performance-analysis-playbook.md) | 实验控制、matched A/B、PMU、统计和结论边界 checklist |
+| [上游 issue 草稿](upstream-issue-drafts.md) | 可整理后提交上游的问题描述 |
+
+源码阅读指南位于独立分支
+[`docs/source-reading-guide`](https://github.com/plsy1/bpftime-benchmark/tree/docs/source-reading-guide)。
+
+## archive：历史调查过程
+
+| 文档 | 内容 |
+|---|---|
+| [ssl-nginx 路径消融](archive/bpftime-official-no-btf-ssl-nginx-path-ablation-20260726.md) | V1–V4 消融方法和完整数据解释 |
+| [perf-event-output affinity 冗余](archive/bpftime-perf-event-output-affinity-redundancy-20260727.md) | 临时绑核成本及冗余条件的代码级分析 |
+| [software perf record 对齐修复](archive/bpftime-software-perf-record-alignment-fix-20260722.md) | 8 字节对齐 bug、隐藏丢事件与方差下降 |
+| [latest bridge 路径分析](archive/bpftime-latest-jetson-ssl-nginx-bridge-path-analysis-20260721.md) | 早期 Docker bridge/host 网络环境调查 |
+| [v0.2.0 host 网络验证](archive/bpftime-v020-jetson-host-network-validation.md) | v0.2.0、Tailscale/netfilter 和 network namespace 对照 |
+
+`archive/` 中的材料保留调查过程和历史口径；需要引用当前结论时，优先使用顶层的
+系统报告或根因总览。
