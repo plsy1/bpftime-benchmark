@@ -1,4 +1,85 @@
-# Jetson `ssl-nginx` 路径消融实验说明
+# Jetson BPFtime benchmark 结果索引
+
+本分支保存 Jetson ARM64 与固定频率 x64 上的 `ssl-nginx`、`benchmark/uprobe`
+原始结果、统计汇总、复现脚本和环境记录。分析结论位于
+[`summry/jetson`](https://github.com/plsy1/bpftime-benchmark/tree/summry/jetson) 分支。
+
+## 快速入口
+
+| 主题 | 结果入口 | 对应结论 |
+|---|---|---|
+| uprobe 普通 map 系统调查 | [ARM64/x64 顶层对照](uprobe/uprobe-top-cross-arch-20260803/) | [系统报告](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/bpftime-uprobe-ordinary-map-systematic-report-20260804.md) |
+| uprobe per-CPU map | [ARM64 路径诊断](uprobe/arm64-bpftime-vs-kernel-paths-20260803/) | [跨架构分析](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/bpftime-uprobe-percpu-cross-architecture-analysis-20260728.md) |
+| ssl-nginx V1–V4 消融 | [Empty Probe](empty-probe/run01/) · [No-copy/No-output](no-copy_no-output/run01/) · [No-output](no-output/run01/) · [Full aligned](full-aligned/) | [ARM 根因总览](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/bpftime-arm-performance-root-cause-20260727.md) |
+| software perf record 对齐 | [Full unaligned](full-unaligned/) 与 [Full aligned](full-aligned/) | [对齐修复报告](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/archive/bpftime-software-perf-record-alignment-fix-20260722.md) |
+
+## uprobe 数据索引
+
+### 顶层官方 benchmark
+
+| 目录 | 内容 |
+|---|---|
+| [uprobe-top-arm64-20260803](uprobe/uprobe-top-arm64-20260803/) | Jetson CPU5、5 个独立 victim 的完整官方 uprobe 顶层结果 |
+| [uprobe-top-x64-20260803-fixedfreq](uprobe/uprobe-top-x64-20260803-fixedfreq/) | 固定频率 x64 的对应顶层结果 |
+| [uprobe-top-cross-arch-20260803](uprobe/uprobe-top-cross-arch-20260803/) | 两个平台统一口径的 raw、net helper 与比较表 |
+| [uprobe-top-x64-20260802](uprobe/uprobe-top-x64-20260802/) | x64 早期顶层实验，保留用于审计 |
+
+### BPFtime helper 与 userspace map 路径
+
+| 目录 | 内容 |
+|---|---|
+| [helper-map-ladder-arm64-20260804](uprobe/helper-map-ladder-arm64-20260804/) | Jetson matched helper ladder、direct L0–L3 与 PMU |
+| [array-path-arm-diagnosis-20260801](uprobe/array-path-arm-diagnosis-20260801/) | Jetson array map userspace 路径分解 |
+| [hash-path-arm-diagnosis-20260801](uprobe/hash-path-arm-diagnosis-20260801/) | Jetson hash map userspace 路径分解 |
+| [map-path-x64-20260802](uprobe/map-path-x64-20260802/) | x64 对应 map 路径数据 |
+| [hash-l0-perf-x64-20260802](uprobe/hash-l0-perf-x64-20260802/) | x64 hash L0 microbenchmark 与 perf 数据 |
+| [top-hash-residual-arm64-20260803](uprobe/top-hash-residual-arm64-20260803/) | Jetson hash lookup 顶层 matched 边界与 PMU |
+
+### Kernel map runtime 与跨架构诊断
+
+| 目录 | 内容 |
+|---|---|
+| [kernel-map-runtime-arm64-20260803-profile](uprobe/kernel-map-runtime-arm64-20260803-profile/) | Jetson kernel helper wall、PMU、perf report 和反汇编 |
+| [kernel-map-runtime-x64-20260803-fixedfreq](uprobe/kernel-map-runtime-x64-20260803-fixedfreq/) | 固定频率 x64 的对应 kernel runtime 数据 |
+| [kernel-array-update-sizes-arm64-20260803](uprobe/kernel-array-update-sizes-arm64-20260803/) | Jetson array update 8B–256B value-size sweep |
+| [kernel-array-update-sizes-x64-20260803-fixedfreq](uprobe/kernel-array-update-sizes-x64-20260803-fixedfreq/) | x64 的对应 value-size sweep |
+| [kernel-array-update-internal-x64-20260803-fixedfreq](uprobe/kernel-array-update-internal-x64-20260803-fixedfreq/) | x64 kernel array update 内部路径诊断 |
+| [kernel-map-runtime-arm64-20260801](uprobe/kernel-map-runtime-arm64-20260801/) | Jetson 第一阶段 kernel runtime A/B |
+| [kernel-map-runtime-x64-20260802](uprobe/kernel-map-runtime-x64-20260802/) | x64 第一阶段 kernel runtime A/B |
+
+### 其他 ARM64 诊断
+
+| 目录 | 内容 |
+|---|---|
+| [arm64-bpftime-vs-kernel-paths-20260803](uprobe/arm64-bpftime-vs-kernel-paths-20260803/) | ARM64 BPFtime/kernel 路径与 PMU 对照 |
+
+任务交接要求保存在
+[ARM64-BPFTIME-KERNEL-PATH-TASK-20260803.md](uprobe/ARM64-BPFTIME-KERNEL-PATH-TASK-20260803.md)。
+
+## ssl-nginx 数据索引
+
+| 目录 | 变体或用途 |
+|---|---|
+| [empty-probe/run01](empty-probe/run01/) | V1：probe 立即返回，只保留 hook/runtime/JIT 基础路径 |
+| [no-copy_no-output](no-copy_no-output/) | V2：metadata helper、map、事件准备；无 copy、无 output |
+| [no-output/run01](no-output/run01/) | V3：增加 `bpf_probe_read_user`；无 perf-event output |
+| [full-aligned](full-aligned/) | V4 正式结果：完整路径并应用 software perf record 8 字节对齐 |
+| [full-unaligned](full-unaligned/) | V4 异常对照：未修复对齐问题 |
+| [v4-ablation](v4-ablation/) | Full 内部子路径短测和 fair-scope 对照 |
+| [old](old/) | 历史、失败和 v0.2.0 结果；不用于当前正式结论 |
+
+## 归档约定
+
+- 每个正式结果目录应包含 `README.md` 或环境说明、统计表、解析脚本和原始输出。
+- 顶层吞吐量汇总使用 `size_benchmark_*.txt/.json`；单 payload 原始样本使用
+  `benchmark_results_*.json`。
+- 临时构建产物、staging 二进制、`__pycache__` 和超过结果复核所需范围的大型 perf
+  数据不应提交。
+- `old/` 只用于历史审计；引用当前结论时优先使用上表列出的正式目录。
+
+---
+
+## `ssl-nginx` 路径消融实验说明
 
 ## 技术摘要
 
