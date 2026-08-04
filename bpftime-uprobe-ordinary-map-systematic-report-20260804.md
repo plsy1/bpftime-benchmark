@@ -21,9 +21,10 @@ Jetson ARM64 与固定频率 x64 顶层对照，再进入 helper、runtime 和 k
    `8ed291e` 增加计时区外的 setup probe，在每一个 delete 样本前恢复 key
    `0..999`，使计时区中的 1000 次 helper 全部成为 delete-hit。lookup/update 的
    原执行逻辑没有改变。
-4. 最终锁频顶层结果显示：x64 上 kernel 赢两个 lookup，BPFtime 赢两个 update；
-   Jetson 上 kernel 赢 array lookup、array update 和 hash lookup，BPFtime 只赢
-   hash update。唯一发生胜负翻转的是 array update。
+4. 最终锁频 lookup/update 四项净结果显示：x64 上 kernel 赢两个 lookup，
+   BPFtime 赢两个 update；Jetson 上 kernel 赢 array lookup、array update 和
+   hash lookup，BPFtime 只赢 hash update。四项中唯一发生胜负翻转的是 array
+   update；修正后的 ordinary hash delete-hit 则在两个平台都由 BPFtime 获胜。
 5. 这不是“BPFtime 在 ARM64 上绝对执行得更慢”。四个 BPFtime 普通 map 路径在
    Jetson 上的绝对 ns/helper 都低于 x64。趋势变化来自不同操作的分子、分母缩放
    不同，其中 array update 的翻转主要来自 Jetson kernel helper 异常轻。
@@ -32,6 +33,36 @@ Jetson ARM64 与固定频率 x64 顶层对照，再进入 helper、runtime 和 k
    shm/fd/variant dispatch；hash lookup 还包含更重的 hash/probing 本体。最新
    A/B 证明 hash lookup 的 spin lock 和 `SPDLOG_TRACE` 都有真实成本，但合计只能
    解释约一半差距。
+
+## 六项普通 map 结果总览
+
+先看官方 victim 中普通 array/hash 六个名称的直接结果。表中数值是 5 个独立
+victim 的中位数，单位为 `µs/invocation`；每次 invocation 内执行 1000 次 map
+helper，因此除以 1000 后数值上也近似等于 `ns/helper`，但这里保留 victim 的原始
+计时口径，不先做 empty-uprobe subtraction。
+
+| 普通 map case | 当前实际语义 | ARM64 kernel | ARM64 BPFtime | ARM 结果 | x64 kernel | x64 BPFtime | x64 结果 |
+|---|---|---:|---:|---|---:|---:|---|
+| array lookup | lookup-hit | 3.792 | 13.281 | kernel 更快 | 6.122 | 13.829 | kernel 更快 |
+| array update | update-existing | 13.091 | 16.805 | kernel 更快 | 37.493 | 18.974 | BPFtime 更快 |
+| array delete | 不支持删除，错误返回路径 | 3.683 | 13.474 | **不解释胜负** | 10.704 | 13.737 | **不解释胜负** |
+| hash lookup | lookup-hit | 29.035 | 54.984 | kernel 更快 | 53.316 | 77.921 | kernel 更快 |
+| hash update | 近似 update-existing | 94.568 | 52.024 | BPFtime 更快 | 132.470 | 83.639 | BPFtime 更快 |
+| hash delete | 修正后的 delete-hit | 108.539 | 29.125 | BPFtime 约快 3.73× | 112.116 | 40.970 | BPFtime 约快 2.74× |
+
+六项结果先给出三个直接观察：
+
+1. 两个平台的普通 lookup 都由 kernel 获胜；
+2. hash update 与修正后的 hash delete-hit 都由 BPFtime 获胜；
+3. array update 是唯一的平台胜负翻转项：ARM64 kernel 获胜，x64 BPFtime 获胜。
+
+array delete 的数值只代表不支持操作的错误返回路径，不能称为 delete 性能。hash
+delete 使用每个样本单独 setup 和计时，计时边界不同于非破坏性 case；它能回答
+delete-hit 在同一平台上谁更快，但不与修正前的 delete-miss 数值直接比较。
+
+后文用于精确分析 lookup/update 的四项顶层表会按同进程
+`(map case − empty uprobe) / 1000` 计算净 ns/helper。这里先展示 raw 表，是为了让
+六个官方普通 map 名称及其实际结果在报告开头完整可见。
 
 ## 官方 uprobe 中的 map case 是如何组织的
 
