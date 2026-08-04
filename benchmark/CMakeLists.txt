@@ -36,6 +36,15 @@ set_target_properties(hash-map-path-layers PROPERTIES
   INTERPROCEDURAL_OPTIMIZATION FALSE
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
 
+# Diagnostic-only microbenchmark for decomposing the userspace per-CPU
+# hash-map lookup/update/delete path.
+add_executable(per-cpu-hash-path-layers
+  uprobe/diagnostics/per_cpu_hash_path_layers.cpp)
+target_link_libraries(per-cpu-hash-path-layers PRIVATE runtime)
+set_target_properties(per-cpu-hash-path-layers PROPERTIES
+  INTERPROCEDURAL_OPTIMIZATION FALSE
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
+
 find_program(DIAGNOSTIC_BPF_CLANG NAMES clang-16 clang-15 clang REQUIRED)
 set(ARRAY_HELPER_JIT_BPF_OBJECT
   ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics/array_helper_jit.bpf.o)
