@@ -96,17 +96,89 @@ PMU 明细见 `pmu-summary.csv` 和 `pmu-matched.csv`。kernel profile 每次只
 与之前同一提交的 per-CPU hash 分层结果相互印证，详见：
 `../percpu-hash-path-arm64-20260805/README.md`。
 
-该分层结果显示：
+### 各操作的主要成本、占比和 kernel 对应关系
 
-- per-CPU hash lookup：`sched_getcpu()` 约 +1.73 ns，key copy 约 +10.74 ns；
-  `Boost.Interprocess`/unordered-map 的 hash `find` 约 +102.04 ns，是主体；
-  per-CPU value slot 选择仅约 +1.02 ns；生产 L0 相对 synthetic 层还有约
-  +10.35 ns 的完整容器路径差异；
-- per-CPU hash update-existing：key/value 模板复制先增加约 +18.52 ns；hash
-  find 后的命中 value copy 再增加约 +61.35 ns；生产 L0 相对 synthetic 层再
-  增加约 +7.96 ns；
-- 因而不能把整个 per-CPU 差异归因给 `sched_getcpu()`，它只是固定小项，主要
-  成本是 key hash/find、容器访问和 per-CPU value copy。
+下面的“路径额外开销”是相邻 A/B 层的差值；“占比”的分母是该操作
+`生产 L0 − control` 的 BPFtime 内部增量。这个占比用于回答 BPFtime per-CPU
+实现内部哪里最重，不等同于上文已经扣除 kernel 对应成本的
+`per-CPU-specific gap`。
+
+“双方都有”表示 kernel BPF 也必须完成相同语义，但 kernel 使用自己的专用 map
+实现；“BPFtime 独有”表示 kernel 路径没有该 userspace/Boost/shared-memory
+实现步骤；“混合”表示同一 A/B 层同时包含双方共有语义和 BPFtime 特有机制，
+当前实验不能进一步把两者严格拆开。
+
+#### per-CPU array lookup：主要是当前 CPU 获取和 `std::function`
+
+生产 L0 相对 control 共增加 **10.090 ns/op**。
+
+| 路径 | 路径额外开销 | 占 L0 额外开销 | kernel 是否也有 |
+|---|---:|---:|---|
+| key/null/bounds 检查和 slot 地址计算 | +0.393 ns | 3.9% | 双方都有；实现不同 |
+| 获取当前 CPU：`my_sched_getcpu()` | +3.792 ns | 37.6% | 双方都有“确定当前 CPU”语义；userspace `sched_getcpu()` 路径为 BPFtime 特有 |
+| `ensure_on_current_cpu(std::function)` 调用/构造 | **+5.555 ns** | **55.1%** | **BPFtime 独有** |
+| synthetic 等价层到生产 L0 的剩余实现 | +0.351 ns | 3.5% | BPFtime 独有 |
+
+#### per-CPU array update：`std::function` 与 value copy 占 83.3%
+
+生产 L0 相对 control 共增加 **38.948 ns/op**。
+
+| 路径 | 路径额外开销 | 占 L0 额外开销 | kernel 是否也有 |
+|---|---:|---:|---|
+| key/null/bounds 检查、slot 地址计算 | +2.926 ns | 7.5% | 双方都有；实现不同 |
+| 获取当前 CPU：`my_sched_getcpu()` | +3.543 ns | 9.1% | 双方都有语义；userspace 调用路径为 BPFtime 特有 |
+| `ensure_on_current_cpu(std::function)` 加 8-byte value copy | **+32.431 ns** | **83.3%** | **混合**：value copy 双方都有，`std::function` 为 BPFtime 独有 |
+| synthetic 等价层到生产 L0 的剩余实现 | +0.048 ns | 0.1% | BPFtime 独有，但量级可忽略 |
+
+这一层没有继续把 `std::function` 和 value copy 单独拆开，因此不能声称
+32.431 ns 全部来自 `std::function` 或全部来自复制。
+
+#### per-CPU hash lookup：Boost hash/find 占 80.5%
+
+生产 L0 相对 control 共增加 **113.399 ns/op**。
+
+| 路径 | 路径额外开销 | 占 L0 额外开销 | kernel 是否也有 |
+|---|---:|---:|---|
+| 获取当前 CPU：`my_sched_getcpu()` | +1.731 ns | 1.5% | 双方都有语义；userspace 调用路径为 BPFtime 特有 |
+| `key_templates[cpu].assign(key)` | +9.011 ns | 7.9% | BPFtime 独有的 vector key 模板复制；kernel 读取 key，但没有该模板路径 |
+| Boost.Interprocess unordered-map hash/find | **+91.293 ns** | **80.5%** | **混合**：hash lookup 双方都有，Boost 容器、`offset_ptr`、vector hash/compare 为 BPFtime 特有 |
+| 选择当前 CPU 的 value slot | +1.017 ns | 0.9% | 双方都有；实现不同 |
+| synthetic `value_select` 到生产 L0 的容器/iterator 剩余差异 | +10.346 ns | 9.1% | BPFtime 独有 |
+
+PMU 同时显示 `key_copy → hash_find` 增加约 **489 instructions/op** 和约
+**0.36 branch-miss/op**，与 wall-time 的大头一致。
+
+#### per-CPU hash update-existing：hash/find 与 value copy 合计占 85.2%
+
+生产 L0 相对 control 共增加 **178.991 ns/op**。
+
+| 路径 | 路径额外开销 | 占 L0 额外开销 | kernel 是否也有 |
+|---|---:|---:|---|
+| 获取当前 CPU：`my_sched_getcpu()` | +1.769 ns | 1.0% | 双方都有语义；userspace 调用路径为 BPFtime 特有 |
+| `key_templates[cpu].assign(key)` | +8.416 ns | 4.7% | BPFtime 独有的 vector key 模板复制 |
+| `single_value_templates[cpu].assign(value)` | +8.335 ns | 4.7% | 混合：准备待写 value 双方都有，vector 模板路径为 BPFtime 特有 |
+| Boost.Interprocess unordered-map hash/find | **+91.160 ns** | **50.9%** | **混合**：查找语义双方都有，Boost 容器实现为 BPFtime 特有 |
+| 命中后复制到当前 CPU 的 value slot | **+61.351 ns** | **34.3%** | **混合**：value update 双方都有，userspace vector/shared-memory copy 路径为 BPFtime 特有 |
+| synthetic `copy_existing` 到生产 L0 的剩余差异 | +7.959 ns | 4.4% | BPFtime 独有 |
+
+因此 hash update 的两个绝对大头是 hash/find 和命中后的 per-CPU value copy，
+两项合计约 **152.511 ns/op，占 85.2%**。`sched_getcpu()` 只有约 1%，不能解释
+该操作的高成本。
+
+#### per-CPU hash delete-hit：主要是 find/erase 和 allocator
+
+生产 L0 相对 control 增加约 **970.801 ns/op**。CPU 选择和 key copy 合计只有
+约 10.842 ns；其余约 **99%** 集中在 Boost hash `find + erase`、节点处理和共享
+内存 allocator 回收。该百分比只是路径量级估算：synthetic 和生产对象的
+allocator/bucket 状态不同，不能像 lookup/update 一样严格逐层相减。delete
+语义双方都有，但 Boost erase/allocator 路径为 BPFtime 实现特有；本轮没有为
+delete 建立 matched kernel PMU 对照，所以不把它列入上面的跨引擎 gap 表。
+
+综合来看，双方都需要“获取当前 CPU、查找 map、选择 per-CPU slot、读取或更新
+value”这些语义；真正只在 BPFtime 出现的是 `std::function`、key/value 模板
+vector、Boost.Interprocess 容器、`offset_ptr` 和 shared-memory 分发。当前数据
+表明主要额外成本来自这些 BPFtime 实现机制与共有语义的组合，而不是共有语义
+本身。
 
 kernel 的 `perf record` 也已归档到 `raw-perf/kernel-cycles-record/`。top symbols
 包括：`htab_map_update_elem` 31.97%、`__htab_percpu_map_update_elem` 22.35%、
