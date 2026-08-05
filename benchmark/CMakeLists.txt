@@ -78,6 +78,17 @@ set_target_properties(hash-helper-jit-layers PROPERTIES
   INTERPROCEDURAL_OPTIMIZATION FALSE
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
 
+# Matched ordinary/per-CPU map helper diagnostic through the LLVM JIT.
+add_executable(per-cpu-helper-jit-layers
+  uprobe/diagnostics/per_cpu_helper_jit_layers.cpp)
+add_dependencies(per-cpu-helper-jit-layers array-helper-jit-bpf)
+target_link_libraries(per-cpu-helper-jit-layers PRIVATE runtime)
+target_compile_definitions(per-cpu-helper-jit-layers PRIVATE
+  ARRAY_HELPER_JIT_BPF_OBJECT="${ARRAY_HELPER_JIT_BPF_OBJECT}")
+set_target_properties(per-cpu-helper-jit-layers PROPERTIES
+  INTERPROCEDURAL_OPTIMIZATION FALSE
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
+
 if(BPFTIME_ENABLE_CUDA_ATTACH)
   add_executable(gpu_array_map_host_perf
     gpu/host/gpu_array_map_host_perf.cpp)
