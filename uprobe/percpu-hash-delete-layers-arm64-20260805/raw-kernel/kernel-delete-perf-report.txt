@@ -1,0 +1,1078 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 3K of event 'cycles:k'
+# Event count (approx.): 1521721226
+#
+# Overhead  Command          Shared Object                                              Symbol                                                       
+# ........  ...............  .........................................................  .............................................................
+#
+     9.83%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __htab_percpu_map_update_elem
+            |
+            ---__htab_percpu_map_update_elem
+               bpf_percpu_hash_update
+               bpf_map_update_value
+               __sys_bpf
+               __arm64_sys_bpf
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               syscall
+               bpf_map_update_elem
+               prime_map
+               measure
+               main
+               __libc_start_call_main
+               __libc_start_main@@GLIBC_2.34
+               _start
+
+     6.71%  kernel-percpu-h  [kernel.kallsyms]                                          [k] el0_svc
+            |
+            ---el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               |          
+                --6.28%--syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     4.36%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __update_cpu_freelist_fast
+            |
+            ---__update_cpu_freelist_fast
+               |          
+               |--1.99%--kfree
+               |          |          
+               |           --1.97%--kvfree
+               |                     __sys_bpf
+               |                     __arm64_sys_bpf
+               |                     invoke_syscall
+               |                     el0_svc_common.constprop.0
+               |                     do_el0_svc
+               |                     el0_svc
+               |                     el0t_64_sync_handler
+               |                     el0t_64_sync
+               |                     syscall
+               |                     bpf_map_update_elem
+               |                     prime_map
+               |                     measure
+               |                     main
+               |                     __libc_start_call_main
+               |                     __libc_start_main@@GLIBC_2.34
+               |                     _start
+               |          
+                --1.83%--__kmalloc_node
+                          kvmalloc_node
+                          __sys_bpf
+                          __arm64_sys_bpf
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     4.14%  kernel-percpu-h  libc.so.6                                                  [.] syscall
+            |
+            ---syscall
+               bpf_map_update_elem
+               prime_map
+               measure
+               main
+               __libc_start_call_main
+               __libc_start_main@@GLIBC_2.34
+               _start
+
+     4.12%  kernel-percpu-h  [kernel.kallsyms]                                          [k] htab_map_update_elem
+            |
+            ---htab_map_update_elem
+               |          
+                --4.09%--bpf_map_update_value
+                          __sys_bpf
+                          __arm64_sys_bpf
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     3.69%  kernel-percpu-h  [kernel.kallsyms]                                          [k] htab_map_delete_elem
+            |
+            ---htab_map_delete_elem
+               |          
+               |--1.87%--bpf_prog_48c065fa14be0def_khd_percpu_hash_noprealloc_real
+               |          __uprobe_perf_func
+               |          uprobe_dispatcher
+               |          uprobe_notify_resume
+               |          do_notify_resume
+               |          el0_dbg
+               |          el0t_64_sync_handler
+               |          el0t_64_sync
+               |          khd_percpu_hash_noprealloc_real
+               |          main
+               |          __libc_start_call_main
+               |          __libc_start_main@@GLIBC_2.34
+               |          _start
+               |          
+               |--0.67%--bpf_prog_48c065fa14be0def_khd_hash_noprealloc_real
+               |          __uprobe_perf_func
+               |          uprobe_dispatcher
+               |          uprobe_notify_resume
+               |          do_notify_resume
+               |          el0_dbg
+               |          el0t_64_sync_handler
+               |          el0t_64_sync
+               |          khd_hash_noprealloc_real
+               |          main
+               |          __libc_start_call_main
+               |          __libc_start_main@@GLIBC_2.34
+               |          _start
+               |          
+                --0.59%--bpf_prog_48c065fa14be0def_khd_hash_real
+                          __uprobe_perf_func
+                          uprobe_dispatcher
+                          uprobe_notify_resume
+                          do_notify_resume
+                          el0_dbg
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          khd_hash_real
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     2.92%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __kmalloc_node
+            |
+            ---__kmalloc_node
+               |          
+                --2.76%--kvmalloc_node
+                          |          
+                           --2.73%--__sys_bpf
+                                     __arm64_sys_bpf
+                                     invoke_syscall
+                                     el0_svc_common.constprop.0
+                                     do_el0_svc
+                                     el0_svc
+                                     el0t_64_sync_handler
+                                     el0t_64_sync
+                                     syscall
+                                     bpf_map_update_elem
+                                     prime_map
+                                     measure
+                                     main
+                                     __libc_start_call_main
+                                     __libc_start_main@@GLIBC_2.34
+                                     _start
+
+     1.65%  kernel-percpu-h  [kernel.kallsyms]                                          [k] migrate_enable
+            |
+            ---migrate_enable
+               |          
+                --1.57%--bpf_enable_instrumentation
+                          bpf_map_update_value
+                          __sys_bpf
+                          __arm64_sys_bpf
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     1.60%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __sys_bpf
+            |
+            ---__sys_bpf
+               |          
+                --1.55%--__arm64_sys_bpf
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     1.58%  kernel-percpu-h  [kernel.kallsyms]                                          [k] memset
+            |
+            ---memset
+               |          
+                --0.94%--__arm64_sys_bpf
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     1.46%  kernel-percpu-h  kernel-percpu-hash-delete-runtime                          [.] prime_map
+            |
+            ---prime_map
+               measure
+               main
+               __libc_start_call_main
+               __libc_start_main@@GLIBC_2.34
+               _start
+
+     1.40%  kernel-percpu-h  [kernel.kallsyms]                                          [k] percpu_counter_add_batch
+            |
+            ---percpu_counter_add_batch
+               |          
+                --0.75%--dec_elem_count
+                          free_htab_elem
+                          |          
+                           --0.52%--htab_map_delete_elem
+
+     1.32%  kernel-percpu-h  [kernel.kallsyms]                                          [k] unmap_page_range
+            |
+            ---unmap_page_range
+               unmap_single_vma.isra.0
+               unmap_vmas
+               |          
+                --1.19%--exit_mmap
+                          __mmput
+                          mmput
+                          |          
+                           --0.86%--begin_new_exec
+                                     load_elf_binary
+                                     bprm_execve
+                                     do_execveat_common.isra.0
+                                     __arm64_sys_execve
+                                     invoke_syscall
+                                     el0_svc_common.constprop.0
+                                     do_el0_svc
+                                     el0_svc
+                                     el0t_64_sync_handler
+                                     el0t_64_sync
+                                     __GI___execve
+
+     1.26%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __check_object_size
+            |
+            ---__check_object_size
+               |          
+                --1.07%--__sys_bpf
+                          __arm64_sys_bpf
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     1.23%  kernel-percpu-h  [kernel.kallsyms]                                          [k] _raw_spin_unlock_irqrestore
+            |
+            ---_raw_spin_unlock_irqrestore
+
+     1.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] aa_dfa_leftmatch
+            |
+            ---aa_dfa_leftmatch
+               |          
+                --1.06%--find_attach
+                          profile_transition
+                          apparmor_bprm_creds_for_exec
+                          security_bprm_creds_for_exec
+                          bprm_execve
+                          do_execveat_common.isra.0
+                          __arm64_sys_execve
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          __GI___execve
+                          execl
+                          run_victim_once
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     1.06%  kernel-percpu-h  [kernel.kallsyms]                                          [k] next_uptodate_folio
+            |
+            ---next_uptodate_folio
+               filemap_map_pages
+               __handle_mm_fault
+               handle_mm_fault
+               |          
+                --1.01%--do_page_fault
+                          do_translation_fault
+                          do_mem_abort
+                          |          
+                          |--0.51%--el0_da
+                          |          el0t_64_sync_handler
+                          |          el0t_64_sync
+                          |          
+                           --0.50%--el0_ia
+                                     el0t_64_sync_handler
+                                     el0t_64_sync
+
+     1.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] kfree
+            |
+            ---kfree
+               |          
+                --0.77%--kvfree
+                          __sys_bpf
+                          __arm64_sys_bpf
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     0.97%  kernel-percpu-h  [kernel.kallsyms]                                          [k] unit_free
+            |
+            ---unit_free
+               bpf_mem_cache_free
+               free_htab_elem
+               |          
+                --0.86%--htab_map_delete_elem
+                          |          
+                           --0.78%--bpf_prog_48c065fa14be0def_khd_percpu_hash_noprealloc_real
+                                     __uprobe_perf_func
+                                     uprobe_dispatcher
+                                     uprobe_notify_resume
+                                     do_notify_resume
+                                     el0_dbg
+                                     el0t_64_sync_handler
+                                     el0t_64_sync
+                                     khd_percpu_hash_noprealloc_real
+                                     main
+                                     __libc_start_call_main
+                                     __libc_start_main@@GLIBC_2.34
+                                     _start
+
+     0.97%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __fget_light
+            |
+            ---__fget_light
+               |          
+                --0.94%--__fdget
+                          __sys_bpf
+                          __arm64_sys_bpf
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     0.97%  kernel-percpu-h  [kernel.kallsyms]                                          [k] _copy_from_user
+            |
+            ---_copy_from_user
+               |          
+                --0.72%--__sys_bpf
+                          __arm64_sys_bpf
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     0.96%  kernel-percpu-h  [kernel.kallsyms]                                          [k] migrate_disable
+            |
+            ---migrate_disable
+               |          
+                --0.76%--bpf_disable_instrumentation
+                          bpf_map_update_value
+                          __sys_bpf
+                          __arm64_sys_bpf
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     0.88%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __check_heap_object
+            |
+            ---__check_heap_object
+               |          
+                --0.82%--__check_object_size
+                          __sys_bpf
+                          __arm64_sys_bpf
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     0.85%  kernel-percpu-h  [kernel.kallsyms]                                          [k] memchr_inv
+            |
+            ---memchr_inv
+               __arm64_sys_bpf
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               syscall
+               bpf_map_update_elem
+               prime_map
+               measure
+               main
+               __libc_start_call_main
+               __libc_start_main@@GLIBC_2.34
+               _start
+
+     0.77%  kernel-percpu-h  [kernel.kallsyms]                                          [k] bpf_disable_instrumentation
+            |
+            ---bpf_disable_instrumentation
+               |          
+                --0.67%--bpf_map_update_value
+                          __sys_bpf
+                          __arm64_sys_bpf
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     0.66%  kernel-percpu-h  [kernel.kallsyms]                                          [k] bpf_enable_instrumentation
+            |
+            ---bpf_enable_instrumentation
+               |          
+                --0.59%--bpf_map_update_value
+                          __sys_bpf
+                          __arm64_sys_bpf
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          syscall
+                          bpf_map_update_elem
+                          prime_map
+                          measure
+                          main
+                          __libc_start_call_main
+                          __libc_start_main@@GLIBC_2.34
+                          _start
+
+     0.60%  kernel-percpu-h  [kernel.kallsyms]                                          [k] el0_da
+            |
+            ---el0_da
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.57%  kernel-percpu-h  [kernel.kallsyms]                                          [k] memmove
+            |
+            ---memmove
+
+     0.56%  kernel-percpu-h  [kernel.kallsyms]                                          [k] kmem_cache_alloc
+            |
+            ---kmem_cache_alloc
+
+     0.53%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __audit_syscall_entry
+            |
+            ---__audit_syscall_entry
+
+     0.52%  kernel-percpu-h  [kernel.kallsyms]                                          [k] dec_elem_count
+            |
+            ---dec_elem_count
+               free_htab_elem
+
+     0.51%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __pi_copy_page
+            |
+            ---__pi_copy_page
+
+     0.51%  kernel-percpu-h  kernel-percpu-hash-delete-runtime                          [.] bpf_map_update_elem
+            |
+            ---bpf_map_update_elem
+               prime_map
+               measure
+               main
+               __libc_start_call_main
+               __libc_start_main@@GLIBC_2.34
+               _start
+
+     0.48%  kernel-percpu-h  [kernel.kallsyms]                                          [k] pcpu_freelist_push
+     0.47%  kernel-percpu-h  [kernel.kallsyms]                                          [k] ptep_clear_flush
+     0.47%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __arch_copy_from_user
+     0.46%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mod_objcg_state
+     0.46%  kernel-percpu-h  [kernel.kallsyms]                                          [k] folio_unlock
+     0.45%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_walk
+     0.45%  kernel-percpu-h  [kernel.kallsyms]                                          [k] check_and_free_fields
+     0.44%  kernel-percpu-h  [kernel.kallsyms]                                          [k] ktime_get_coarse_real_ts64
+     0.44%  kworker/5:2-mm_  [kernel.kallsyms]                                          [k] arch_counter_get_cntpct
+     0.43%  kernel-percpu-h  [kernel.kallsyms]                                          [k] free_htab_elem
+     0.42%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __pi_clear_page
+     0.42%  kernel-percpu-h  [kernel.kallsyms]                                          [k] up_write
+     0.40%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __handle_mm_fault
+     0.39%  kernel-percpu-h  [kernel.kallsyms]                                          [k] _raw_write_unlock_irq
+     0.39%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __mod_memcg_lruvec_state
+     0.39%  kernel-percpu-h  [kernel.kallsyms]                                          [k] htab_map_hash
+     0.37%  kernel-percpu-h  [kernel.kallsyms]                                          [k] bsearch
+     0.37%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __mark_chain_precision
+     0.37%  kernel-percpu-h  [kernel.kallsyms]                                          [k] down_write
+     0.36%  kernel-percpu-h  [kernel.kallsyms]                                          [k] finish_task_switch.isra.0
+     0.35%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __pi_caches_clean_inval_pou
+     0.35%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_next_slot
+     0.35%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __memcg_slab_free_hook
+     0.34%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __bitmap_weight
+     0.34%  kernel-percpu-h  [kernel.kallsyms]                                          [k] free_pgd_range
+     0.31%  kernel-percpu-h  [kernel.kallsyms]                                          [k] kmem_cache_free
+     0.30%  kernel-percpu-h  [kernel.kallsyms]                                          [k] _raw_spin_lock
+     0.30%  kernel-percpu-h  [kernel.kallsyms]                                          [k] release_pages
+     0.29%  kernel-percpu-h  [kernel.kallsyms]                                          [k] folio_remove_rmap_ptes
+     0.28%  kernel-percpu-h  [kernel.kallsyms]                                          [k] syscall_trace_exit
+     0.28%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __pte_offset_map
+     0.27%  kernel-percpu-h  [kernel.kallsyms]                                          [k] el0_ia
+     0.26%  kernel-percpu-h  [kernel.kallsyms]                                          [k] set_pte_range
+     0.26%  kernel-percpu-h  [kernel.kallsyms]                                          [k] syscall_trace_enter
+     0.26%  kernel-percpu-h  [kernel.kallsyms]                                          [k] do_check_common
+     0.25%  kernel-percpu-h  [kernel.kallsyms]                                          [k] bpf_map_update_value
+     0.25%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __alloc_pages
+     0.25%  kernel-percpu-h  [kernel.kallsyms]                                          [k] folio_add_file_rmap_ptes
+     0.25%  kernel-percpu-h  [kernel.kallsyms]                                          [k] memblock_is_map_memory
+     0.25%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __memcg_slab_post_alloc_hook
+     0.25%  kernel-percpu-h  [kernel.kallsyms]                                          [k] free_swap_cache
+     0.25%  kernel-percpu-h  [kernel.kallsyms]                                          [k] filemap_map_pages
+     0.24%  kernel-percpu-h  [kernel.kallsyms]                                          [k] handle_mm_fault
+     0.24%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_find
+     0.24%  kernel-percpu-h  [kernel.kallsyms]                                          [k] _find_next_bit
+     0.23%  kernel-percpu-h  [kernel.kallsyms]                                          [k] vm_normal_page
+     0.23%  kernel-percpu-h  [kernel.kallsyms]                                          [k] refill_obj_stock
+     0.23%  kernel-percpu-h  [kernel.kallsyms]                                          [k] memcg_account_kmem
+     0.23%  kernel-percpu-h  [kernel.kallsyms]                                          [k] copy_page_range
+     0.22%  kernel-percpu-h  [kernel.kallsyms]                                          [k] kvmalloc_node
+     0.22%  kernel-percpu-h  [kernel.kallsyms]                                          [k] obj_cgroup_charge
+     0.21%  kernel-percpu-h  [kernel.kallsyms]                                          [k] _raw_spin_unlock_irq
+     0.20%  kernel-percpu-h  [kernel.kallsyms]                                          [k] invoke_syscall
+     0.20%  kernel-percpu-h  [kernel.kallsyms]                                          [k] up_read
+     0.20%  kernel-percpu-h  [kernel.kallsyms]                                          [k] do_page_fault
+     0.20%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __rcu_read_unlock
+     0.20%  kernel-percpu-h  [kernel.kallsyms]                                          [k] search_cmp_ftr_reg
+     0.18%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mmap_region
+     0.18%  kernel-percpu-h  [kernel.kallsyms]                                          [k] check_stack_object
+     0.18%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_wr_node_store
+     0.18%  kernel-percpu-h  [kernel.kallsyms]                                          [k] kvfree
+     0.17%  kernel-percpu-h  [kernel.kallsyms]                                          [k] adjust_reg_min_max_vals
+     0.17%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __rcu_read_lock
+     0.16%  kernel-percpu-h  [kernel.kallsyms]                                          [k] pfn_is_map_memory
+     0.15%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __rb_insert_augmented
+     0.15%  kernel-percpu-h  [kernel.kallsyms]                                          [k] copy_process
+     0.15%  kernel-percpu-h  [kernel.kallsyms]                                          [k] exit_mmap
+     0.15%  kernel-percpu-h  [kernel.kallsyms]                                          [k] alloc_pages
+     0.15%  kernel-percpu-h  [kernel.kallsyms]                                          [k] is_vmalloc_addr
+     0.15%  kernel-percpu-h  [kernel.kallsyms]                                          [k] get_page_from_freelist
+     0.15%  kernel-percpu-h  [kernel.kallsyms]                                          [k] reg_bounds_sync
+     0.15%  kernel-percpu-h  [kernel.kallsyms]                                          [k] fput
+     0.15%  kernel-percpu-h  [kernel.kallsyms]                                          [k] el0_dbg
+     0.15%  kernel-percpu-h  [kernel.kallsyms]                                          [k] find_attach
+     0.15%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __audit_syscall_exit
+     0.14%  kernel-percpu-h  [kernel.kallsyms]                                          [k] load_elf_binary
+     0.13%  kernel-percpu-h  [kernel.kallsyms]                                          [k] obj_cgroup_charge_pages
+     0.13%  kernel-percpu-h  [kernel.kallsyms]                                          [k] workingset_age_nonresident
+     0.13%  kernel-percpu-h  [kernel.kallsyms]                                          [k] vma_interval_tree_remove
+     0.13%  kernel-percpu-h  [kernel.kallsyms]                                          [k] crng_make_state
+     0.13%  kernel-percpu-h  [kernel.kallsyms]                                          [k] page_counter_cancel
+     0.13%  kernel-percpu-h  [kernel.kallsyms]                                          [k] percpu_ref_put_many.constprop.0
+     0.13%  kernel-percpu-h  [kernel.kallsyms]                                          [k] anon_vma_interval_tree_remove
+     0.13%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __pte_offset_map_lock
+     0.13%  kernel-percpu-h  [kernel.kallsyms]                                          [k] bpf_check_uarg_tail_zero
+     0.13%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_wr_walk
+     0.12%  kernel-percpu-h  [kernel.kallsyms]                                          [k] el0_svc_common.constprop.0
+     0.12%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __rmqueue_pcplist
+     0.12%  kernel-percpu-h  [kernel.kallsyms]                                          [k] down_read_trylock
+     0.12%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __arch_clear_user
+     0.12%  kernel-percpu-h  [kernel.kallsyms]                                          [k] uncharge_folio
+     0.12%  kernel-percpu-h  [kernel.kallsyms]                                          [k] bpf_obj_free_fields
+     0.12%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __reg32_deduce_bounds
+     0.12%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __lruvec_stat_mod_folio
+     0.12%  kernel-percpu-h  [kernel.kallsyms]                                          [k] reg_bounds_sanity_check
+     0.12%  kernel-percpu-h  [kernel.kallsyms]                                          [k] perf_output_begin
+     0.11%  kernel-percpu-h  [kernel.kallsyms]                                          [k] check_alu_op
+     0.11%  kernel-percpu-h  [kernel.kallsyms]                                          [k] free_pgtables
+     0.11%  kernel-percpu-h  [kernel.kallsyms]                                          [k] vma_interval_tree_insert
+     0.11%  kernel-percpu-h  [kernel.kallsyms]                                          [k] unmap_vmas
+     0.11%  kernel-percpu-h  [kernel.kallsyms]                                          [k] security_bpf
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __kmalloc
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mem_cgroup_commit_charge
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] do_dentry_open
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_wr_store_entry.isra.0
+     0.10%  ksoftirqd/5      [kernel.kallsyms]                                          [k] memcg_account_kmem
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __mod_node_page_state
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mt_find
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] fsnotify
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] dup_fd
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] el1_abort
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] inode_permission
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] perf_event_mmap_output
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] anon_vma_interval_tree_insert
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] bpf_map_value_size
+     0.10%  ksoftirqd/5      [kernel.kallsyms]                                          [k] uncharge_batch
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __sync_icache_dcache
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] try_charge_memcg
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] khugepaged_enter_vma
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] prepend_path
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __call_rcu_common.constprop.0
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] unlink_anon_vmas
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] _raw_spin_unlock
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] el0_undef
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] strnlen_user
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] bpf_percpu_hash_update
+     0.10%  kernel-percpu-h  [kernel.kallsyms]                                          [k] percpu_ref_get_many
+     0.09%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __reg_deduce_mixed_bounds
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] slab_update_freelist.isra.0
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] down_write_killable
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] ___slab_alloc
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_alloc_nodes
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] vm_area_dup
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __next_zones_zonelist
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] get_pfnblock_flags_mask
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] current_obj_cgroup
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __pmd_alloc
+     0.08%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] munmap
+     0.08%  ksoftirqd/5      [kernel.kallsyms]                                          [k] page_counter_cancel
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] bpf_mem_cache_free
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] uprobe_munmap
+     0.08%  ksoftirqd/5      [kernel.kallsyms]                                          [k] slab_update_freelist.isra.0
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] path_openat
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] unlink_file_vma
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __arch_copy_to_user
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] do_el0_svc
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __sw_hweight64
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] blk_cgroup_congested
+     0.08%  kernel-percpu-h  libc.so.6                                                  [.] _Fork
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] uprobe_mmap
+     0.08%  kernel-percpu-h  [kernel.kallsyms]                                          [k] folio_prep_large_rmappable
+     0.07%  kernel-percpu-h  [kernel.kallsyms]                                          [k] htab_lock_bucket
+     0.07%  kernel-percpu-h  [kernel.kallsyms]                                          [k] vma_complete
+     0.07%  kernel-percpu-h  [kernel.kallsyms]                                          [k] uncharge_batch
+     0.07%  kernel-percpu-h  [kernel.kallsyms]                                          [k] do_vmi_align_munmap.isra.0
+     0.07%  kernel-percpu-h  [kernel.kallsyms]                                          [k] cgroup_rstat_updated
+     0.07%  kernel-percpu-h  [kernel.kallsyms]                                          [k] copy_from_kernel_nofault
+     0.07%  kernel-percpu-h  [kernel.kallsyms]                                          [k] tlb_flush
+     0.07%  kernel-percpu-h  [kernel.kallsyms]                                          [k] step_into
+     0.07%  kernel-percpu-h  [kernel.kallsyms]                                          [k] tlb_flush
+     0.06%  kernel-percpu-h  [kernel.kallsyms]                                          [k] memcmp
+     0.06%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mark_reg_read
+     0.06%  kernel-percpu-h  [kernel.kallsyms]                                          [k] save_aux_ptr_type
+     0.06%  kernel-percpu-h  [kernel.kallsyms]                                          [k] is_reg64.isra.0
+     0.06%  kernel-percpu-h  [kernel.kallsyms]                                          [k] check_helper_call.isra.0
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] kmem_cache_alloc_bulk
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] link_path_walk.part.0.constprop.0
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] arch_counter_get_cntpct
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] change_protection
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __local_bh_enable_ip
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] zone_statistics
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] lock_mm_and_find_vma
+     0.05%  ksoftirqd/5      [kernel.kallsyms]                                          [k] percpu_ref_get_many
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_ascend
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] audit_reset_context
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] vmalloc_to_page
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] security_mmap_file
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] _raw_read_lock
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] unmap_single_vma.isra.0
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] perf_iterate_sb.constprop.0
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] account_kernel_stack.isra.0
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] strncpy_from_user
+     0.05%  kernel-percpu-h  libc.so.6                                                  [.] __aarch64_cas4_acq
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] do_mem_abort
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] map_id_up
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] ksm_add_vma
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] clear_rseq_cs
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __vm_area_free
+     0.05%  kernel-percpu-h  bpf_prog_48c065fa14be0def_khd_percpu_hash_noprealloc_real  [k] bpf_prog_48c065fa14be0def_khd_percpu_hash_noprealloc_real
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] read_sanitised_ftr_reg
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] filemap_get_read_batch
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __arm64_sys_bpf
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __tlb_remove_page_size
+     0.05%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] _dl_start
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] should_failslab.constprop.0
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] this_cpu_has_cap
+     0.05%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] access
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] current_objcg_update
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] _raw_read_unlock
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] fpsimd_load_state
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] security_mmap_addr
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] cgroup_post_fork
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] filemap_get_pages
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_wr_store_setup.isra.0
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] path_init
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __slab_free
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] _raw_spin_trylock
+     0.05%  ksoftirqd/5      [kernel.kallsyms]                                          [k] percpu_ref_put_many.constprop.0
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] do_wp_page
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] exit_task_namespaces
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] folio_add_lru
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] bprm_execve
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] may_expand_vm
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] perf_event_mmap
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] rcu_cblist_dequeue
+     0.05%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] dl_main
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] sched_clock_noinstr
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] begin_new_exec
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] perf_output_copy
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] do_notify_resume
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] lock_vma_under_rcu
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __output_copy
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_mab_cp
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_wr_end_piv
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] exit_tasks_rcu_start
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] do_mprotect_pkey.constprop.0
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_prev
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __arm64_sys_mmap
+     0.05%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] mmap64
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_destroy
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] flush_dcache_folio
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] expand_downwards
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] aa_get_buffer
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] policy_nodemask
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_prev_range
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] get_user_arg_ptr.isra.0
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] security_file_open
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_empty_area_rev
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __d_lookup_rcu
+     0.05%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] mprotect
+     0.05%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __mark_reg_unknown
+     0.04%  kernel-percpu-h  [kernel.kallsyms]                                          [k] get_user_pages_remote
+     0.04%  swapper          [kernel.kallsyms]                                          [k] handle_softirqs
+     0.04%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mutex_unlock
+     0.03%  swapper          [kernel.kallsyms]                                          [k] cpuidle_enter_state
+     0.03%  taskset          [kernel.kallsyms]                                          [k] unmap_page_range
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] cpumask_weight.constprop.0
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] check_reg_sane_offset
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __fput
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] check_stack_write_fixed_off
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __check_reg_arg
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] bpf_int_jit_compile
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] aarch64_insn_gen_load_store_pair
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __kmalloc_node_track_caller
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __update_reg32_bounds
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] destroy_if_dynptr_stack_slot
+     0.03%  swapper          [kernel.kallsyms]                                          [k] queue_work_on
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] smp_call_function_many_cond
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] dnotify_flush
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] free_pages_and_swap_cache
+     0.03%  ksoftirqd/5      [kernel.kallsyms]                                          [k] put_cpu_partial
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __perf_event__output_id_sample
+     0.03%  kernel-percpu-h  bpf_prog_48c065fa14be0def_khd_hash_noprealloc_real         [k] bpf_prog_48c065fa14be0def_khd_hash_noprealloc_real
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mm_pasid_drop
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] pcpu_chunk_addr_search
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] wait_consider_task
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __do_wait
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] ksys_mmap_pgoff
+     0.03%  ksoftirqd/5      [kernel.kallsyms]                                          [k] free_unref_page
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] ____fput
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] get_unmapped_area
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mtree_range_walk
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] obj_cgroup_uncharge_pages
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] get_random_u64
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __rseq_handle_notify_resume
+     0.03%  kernel-percpu-h  kernel-percpu-hash-delete-runtime-victim                   [.] khd_hash_noprealloc_ctl
+     0.03%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] __GI___open64_nocancel
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] call_rcu
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] strrchr
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] preempt_schedule_irq
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] folio_add_new_anon_rmap
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __thp_vma_allowable_orders
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_next_setup.constprop.0
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] xas_start
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] acct_collect
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __free_pages
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] key_put
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] security_prepare_creds
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __do_sys_clone
+     0.03%  kernel-percpu-h  bpf_prog_48c065fa14be0def_khd_hash_real                    [k] bpf_prog_48c065fa14be0def_khd_hash_real
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] _raw_spin_lock_irq
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] tsk_fork_get_node
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] count.constprop.0.isra.0
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_wr_bnode
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] vma_prepare
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] cgroup_get_e_css
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] do_translation_fault
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] hrtimer_init
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __vfs_getxattr
+     0.03%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] __tunable_get_val
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] workingset_activation
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] copy_creds
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] vfs_getattr
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] do_faccessat
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] map_id_range_down
+     0.03%  ksoftirqd/5      [kernel.kallsyms]                                          [k] finish_task_switch.isra.0
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] flush_itimer_signals
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __mod_lruvec_state
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] free_bprm
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __fdget
+     0.03%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] _start
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] vm_mmap_pgoff
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] get_random_u16
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mab_mas_cp
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] follow_page_pte
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] task_dead_fair
+     0.03%  ksoftirqd/5      [kernel.kallsyms]                                          [k] obj_cgroup_uncharge_pages
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] filemap_get_entry
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] vm_mmap
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_prev_slot
+     0.03%  ksoftirqd/5      [kernel.kallsyms]                                          [k] run_ksoftirqd
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] should_fail_alloc_page
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __put_anon_vma
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mutex_lock
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] bpf_map_write_active_inc
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] ext4_file_mmap
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] build_open_flags
+     0.03%  kernel-percpu-h  libc.so.6                                                  [.] __libc_fork
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] hook_file_open
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] put_pid.part.0
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] cpuset_can_fork
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] check_pte
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] terminate_walk
+     0.03%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] memset
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __memcg_kmem_charge_page
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_data_end
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __legitimize_path
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] cpu_do_switch_mm
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] security_vm_enough_memory_mm
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] rw_verify_area
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] getname_kernel
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] filemap_read
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] sched_mm_cid_after_execve
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] cmp_ex_search
+     0.03%  ksoftirqd/5      [kernel.kallsyms]                                          [k] mod_objcg_state
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __split_vma
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] free_unref_page_prepare
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] free_page_and_swap_cache
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] inotify_handle_inode_event
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] cgroup_exit
+     0.03%  kernel-percpu-h  libc.so.6                                                  [.] __libc_early_init
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] put_files_struct
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] obj_cgroup_uncharge
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __anon_vma_interval_tree_augment_rotate
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] strscpy
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_store_gfp
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] task_fpsimd_load
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] in_group_p
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] alloc_pages_mpol
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] anon_vma_clone
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __lookup_mnt
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] insert_vm_struct
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] rb_next
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] inode_to_bdi
+     0.03%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] _dl_map_object
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] kmalloc_trace
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] vm_get_page_prot
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] setup_arg_pages
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] put_cpu_partial
+     0.03%  kernel-percpu-h  [kernel.kallsyms]                                          [k] uprobe_perf_filter
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] do_mmap
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] thp_get_unmapped_area
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_store_prealloc
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] special_mapping_close
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] filp_close
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] folio_mark_accessed
+     0.02%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] __GI___read_nocancel
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __arm64_sys_read
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] prepend
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] get_vma_policy
+     0.02%  kernel-percpu-h  libc.so.6                                                  [.] __GI___wait4
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] folio_lruvec_lock_irqsave
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_dup_build.constprop.0
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] handle_softirqs
+     0.02%  ksoftirqd/5      [kernel.kallsyms]                                          [k] __free_pages
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __percpu_counter_init_many
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] put_cred_rcu
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] get_ucounts
+     0.02%  ksoftirqd/5      [kernel.kallsyms]                                          [k] key_put
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] uprobe_notify_resume
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] rcu_core
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] strcmp
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] fetch_robust_entry
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] membarrier_exec_mmap
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] set_cpus_allowed_ptr
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] tlb_remove_table
+     0.02%  kernel-percpu-h  bpf_prog_549b956b07be49c9_khd_percpu_hash_noprealloc_ctl   [k] bpf_prog_549b956b07be49c9_khd_percpu_hash_noprealloc_ctl
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] security_file_alloc
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] security_task_alloc
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] perf_event_task_output
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] follow_page_mask
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mtree_load
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] expand_files
+     0.02%  ksoftirqd/5      [kernel.kallsyms]                                          [k] vm_area_free_rcu_cb
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] init_numa_balancing
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] lockref_get
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] pte_offset_map_nolock
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] apparmor_file_alloc_security
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] cgroup_fork
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __uprobe_perf_func
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mem_cgroup_handle_over_high
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] copy_highpage
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] strnlen
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] asm_exit_to_user_mode
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] vma_modify
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __alloc_percpu
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] sync_icache_aliases
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] prepare_exec_creds
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __mmput
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] security_inode_permission
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] copy_strings.isra.0
+     0.02%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] _dl_map_object_from_fd
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] prepend_copy
+     0.02%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] _dl_relocate_object
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] vma_adjust_trans_huge
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] shift_arg_pages
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] filemap_fault
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] arch_pick_mmap_layout
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] free_unref_page_commit
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] copy_to_page
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] setup_new_exec
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] ma_free_rcu
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_wr_slot_store
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] get_mem_cgroup_from_mm
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] free_unref_page_list
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_topiary_replace
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mem_cgroup_from_task
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __vm_enough_memory
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] getname
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] from_kgid_munged
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mntget
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] hugepage_pmd_enabled
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mntput_no_expire
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] mas_preallocate
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] hook_file_alloc_security
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] apparmor_mmap_file
+     0.02%  kernel-percpu-h  ld-linux-aarch64.so.1                                      [.] _dl_init_paths
+     0.02%  swapper          [kernel.kallsyms]                                          [k] percpu_ref_get_many
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] anon_vma_fork
+     0.02%  kernel-percpu-h  [kernel.kallsyms]                                          [k] cap_mmap_file
+     0.01%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __fsnotify_parent
+     0.01%  kernel-percpu-h  [kernel.kallsyms]                                          [k] apparmor_capable
+     0.01%  swapper          [kernel.kallsyms]                                          [k] _raw_spin_unlock_irqrestore
+     0.01%  swapper          [kernel.kallsyms]                                          [k] __free_pages
+     0.01%  kernel-percpu-h  [kernel.kallsyms]                                          [k] put_ctx
+     0.01%  swapper          [kernel.kallsyms]                                          [k] finish_task_switch.isra.0
+     0.00%  swapper          [kernel.kallsyms]                                          [k] update_sd_lb_stats.constprop.0
+     0.00%  kernel-percpu-h  [kernel.kallsyms]                                          [k] filp_flush
+     0.00%  perf             [kernel.kallsyms]                                          [k] strlen
+     0.00%  kernel-percpu-h  [kernel.kallsyms]                                          [k] format_decode
+     0.00%  swapper          [kernel.kallsyms]                                          [k] update_blocked_averages
+     0.00%  swapper          [kernel.kallsyms]                                          [k] _find_next_and_bit
+     0.00%  kernel-percpu-h  [kernel.kallsyms]                                          [k] schedule
+     0.00%  kernel-percpu-h  [kernel.kallsyms]                                          [k] put_event
+     0.00%  kernel-percpu-h  [kernel.kallsyms]                                          [k] __radix_tree_delete
+     0.00%  kernel-percpu-h  [kernel.kallsyms]                                          [k] bpf_link_free
+     0.00%  kernel-percpu-h  [kernel.kallsyms]                                          [k] smp_call_function_single
+     0.00%  kworker/5:2-mm_  [kernel.kallsyms]                                          [k] finish_task_switch.isra.0
+     0.00%  swapper          [kernel.kallsyms]                                          [k] tick_nohz_idle_exit
+     0.00%  kernel-percpu-h  [kernel.kallsyms]                                          [k] perf_event_release_kernel
+     0.00%  kernel-percpu-h  [kernel.kallsyms]                                          [k] _atomic_dec_and_raw_lock_irqsave
+     0.00%  kworker/5:2-mm_  [kernel.kallsyms]                                          [k] queue_work_on
+     0.00%  perf             [kernel.kallsyms]                                          [k] _raw_spin_unlock_irq
+     0.00%  perf             [kernel.kallsyms]                                          [k] generic_exec_single
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

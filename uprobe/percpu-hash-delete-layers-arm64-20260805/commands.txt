@@ -1,0 +1,21 @@
+# Source/build
+cd /home/jetson/src/bpftime-offical-no-btf
+cmake --build build-array-layers --target per-cpu-hash-delete-layers -j2
+make -C benchmark/uprobe kernel-percpu-hash-delete-diagnostic CLANG=/usr/lib/llvm-15/bin/clang
+
+# BPFtime wall layers (CPU5, 1000 successful delete-hit helpers per round)
+for layer in control cpu_key find_only find_extract_hold find_extract_drop find_erase l0; do
+  taskset -c 5 build-array-layers/benchmark/uprobe/diagnostics/per-cpu-hash-delete-layers "$layer" 1000 5 5
+done
+
+# BPFtime attached PMU: start with BPFTIME_DELETE_LAYERS_WAIT=1, attach perf to
+# the printed PID, send SIGUSR1, detach after timed-delete-complete, then send
+# SIGUSR2 so deferred node destruction remains outside the measured interval.
+
+# Kernel default/no-prealloc comparison; bpf_stats_enabled is restored to its
+# previous value by the surrounding run command.
+OLD_STATS=$(cat /proc/sys/kernel/bpf_stats_enabled)
+sudo -n sysctl -q -w kernel.bpf_stats_enabled=1
+sudo -n taskset -c 5 benchmark/uprobe/.output/kernel-percpu-hash-delete-runtime/kernel-percpu-hash-delete-runtime \
+  benchmark/uprobe/.output/kernel-percpu-hash-delete-runtime/kernel-percpu-hash-delete-runtime-victim 10 5 5
+sudo -n sysctl -q -w "kernel.bpf_stats_enabled=$OLD_STATS"
