@@ -45,6 +45,15 @@ set_target_properties(per-cpu-hash-path-layers PROPERTIES
   INTERPROCEDURAL_OPTIMIZATION FALSE
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
 
+# Diagnostic-only microbenchmark for separating per-CPU hash find, unlink,
+# and synchronous shared-memory node destruction.
+add_executable(per-cpu-hash-delete-layers
+  uprobe/diagnostics/per_cpu_hash_delete_layers.cpp)
+target_link_libraries(per-cpu-hash-delete-layers PRIVATE runtime)
+set_target_properties(per-cpu-hash-delete-layers PROPERTIES
+  INTERPROCEDURAL_OPTIMIZATION FALSE
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
+
 find_program(DIAGNOSTIC_BPF_CLANG NAMES clang-16 clang-15 clang REQUIRED)
 set(ARRAY_HELPER_JIT_BPF_OBJECT
   ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics/array_helper_jit.bpf.o)
