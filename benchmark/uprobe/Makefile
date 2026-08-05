@@ -154,6 +154,15 @@ KPMR_LOADER_OBJ := $(KPMR_OUTPUT)/kernel_percpu_map_runtime.o
 KPMR_LOADER := $(KPMR_OUTPUT)/kernel-percpu-map-runtime
 KPMR_VICTIM := $(KPMR_OUTPUT)/kernel-percpu-map-runtime-victim
 
+# Matched kernel-BPF delete-hit diagnostic for ordinary/per-CPU hash maps,
+# with and without the kernel's BPF_F_NO_PREALLOC flag.
+KHD_OUTPUT := $(OUTPUT)/kernel-percpu-hash-delete-runtime
+KHD_BPF_OBJ := $(KHD_OUTPUT)/kernel_percpu_hash_delete_runtime.bpf.o
+KHD_SKEL := $(KHD_OUTPUT)/kernel_percpu_hash_delete_runtime.skel.h
+KHD_LOADER_OBJ := $(KHD_OUTPUT)/kernel_percpu_hash_delete_runtime.o
+KHD_LOADER := $(KHD_OUTPUT)/kernel-percpu-hash-delete-runtime
+KHD_VICTIM := $(KHD_OUTPUT)/kernel-percpu-hash-delete-runtime-victim
+
 # Top-level matched empty/loop/full hash-lookup diagnostic.  It attaches three
 # programs to byte-equivalent victim functions so the complete uprobe path can
 # be split without modifying the official benchmark or the runtime.
@@ -188,6 +197,9 @@ kernel-map-runtime-diagnostic: $(KMR_LOADER) $(KMR_VICTIM)
 
 .PHONY: kernel-percpu-map-runtime-diagnostic
 kernel-percpu-map-runtime-diagnostic: $(KPMR_LOADER) $(KPMR_VICTIM)
+
+.PHONY: kernel-percpu-hash-delete-diagnostic
+kernel-percpu-hash-delete-diagnostic: $(KHD_LOADER) $(KHD_VICTIM)
 
 .PHONY: top-hash-residual-diagnostic
 top-hash-residual-diagnostic: $(THR_LOADER) $(THR_VICTIM)
@@ -249,6 +261,33 @@ $(KPMR_LOADER): $(KPMR_LOADER_OBJ) $(LIBBPF_OBJ) | $(KPMR_OUTPUT)
 	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
 
 $(KPMR_VICTIM): diagnostics/kernel_percpu_map_runtime_victim.c | $(KPMR_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) $(CFLAGS) $< -o $@
+
+$(KHD_OUTPUT):
+	$(call msg,MKDIR,$@)
+	$(Q)mkdir -p $@
+
+$(KHD_BPF_OBJ): diagnostics/kernel_percpu_hash_delete_runtime.bpf.c $(VMLINUX) | $(KHD_OUTPUT) $(BPFTOOL)
+	$(call msg,BPF,$@)
+	$(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) \
+		     $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
+		     -c $< -o $(KHD_OUTPUT)/kernel_percpu_hash_delete_runtime.tmp.bpf.o
+	$(Q)$(BPFTOOL) gen object $@ $(KHD_OUTPUT)/kernel_percpu_hash_delete_runtime.tmp.bpf.o
+
+$(KHD_SKEL): $(KHD_BPF_OBJ) | $(KHD_OUTPUT) $(BPFTOOL)
+	$(call msg,GEN-SKEL,$@)
+	$(Q)$(BPFTOOL) gen skeleton $< > $@
+
+$(KHD_LOADER_OBJ): diagnostics/kernel_percpu_hash_delete_runtime.c $(KHD_SKEL) | $(KHD_OUTPUT)
+	$(call msg,CC,$@)
+	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -I$(KHD_OUTPUT) -c $< -o $@
+
+$(KHD_LOADER): $(KHD_LOADER_OBJ) $(LIBBPF_OBJ) | $(KHD_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+
+$(KHD_VICTIM): diagnostics/kernel_percpu_hash_delete_runtime_victim.c | $(KHD_OUTPUT)
 	$(call msg,BINARY,$@)
 	$(Q)$(CC) $(CFLAGS) $< -o $@
 
