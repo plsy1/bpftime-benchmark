@@ -1,0 +1,19 @@
+int kpp_u_ctl(struct pt_regs * ctx):
+; DEFINE_LOOKUP_UPDATE(kpp, kpmr_percpu_array)
+   0: (b7) r1 = 0
+; u32 key = i;
+   1: (63) *(u32 *)(r10 -4) = r1
+; u64 value = i;
+   2: (7b) *(u64 *)(r10 -16) = r1
+   3: (bf) r2 = r10
+; 
+   4: (07) r2 += -4
+   5: (bf) r2 = r10
+   6: (07) r2 += -16
+; for (int i = 0; i < 1000; ++i) {
+   7: (07) r1 += 1
+; for (int i = 0; i < 1000; ++i) {
+   8: (55) if r1 != 0x3e8 goto pc-8
+; DEFINE_LOOKUP_UPDATE(kpp, kpmr_percpu_array)
+   9: (b7) r0 = 0
+  10: (95) exit

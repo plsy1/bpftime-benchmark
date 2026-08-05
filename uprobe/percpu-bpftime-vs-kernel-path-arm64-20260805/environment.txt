@@ -1,0 +1,31 @@
+experiment=percpu-bpftime-vs-kernel-path-arm64-20260805
+host=Jetson Orin Nano
+architecture=aarch64
+cpu_model=Cortex-A78AE
+cpu_topology=6 online CPUs (0-5), 1 thread/core, no SMT sibling
+test_cpu=5
+kernel=6.8.12-1021-tegra
+power_mode=MAXN_SUPER
+cpu_governor=schedutil
+cpu_frequency_khz=1728000
+source_repo=/home/jetson/src/bpftime-offical-no-btf
+source_branch=codex/official-no-btf
+source_commit=1ee2eb6e2e2eacfc5a3ec7a3f8769adfdae6d492
+source_build=RelWithDebInfo
+source_jit=BPFTIME_LLVM_JIT=ON
+source_lto=BPFTIME_ENABLE_LTO=ON
+source_probe_read_check=OFF
+source_probe_write_check=OFF
+clang=Ubuntu clang version 15.0.7
+gcc=gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+llvm_dir=/usr/lib/llvm-15/cmake
+boost=1.83 (diagnostic environment)
+perf=/usr/lib/linux-tools-6.8.0-134/perf (perf version 6.8.12)
+bpftool=/home/jetson/src/.toolchains/bpftool-profile-arm64/bpftool (v7.7.0, libbpf v1.7)
+kernel_stats=enabled only during kernel PMU/wall collection, restored to 0 afterwards
+kernel_wall=5 rounds, 20000 victim invocations/round, 1000 warm-up, 1000 helpers/invocation
+bpftime_wall=5 paired rounds, 100000 invocations for array and 20000 for hash, 1000 helpers/invocation
+bpftime_pmu=perf stat -r 3, 50000 invocations, 1000 helpers/invocation
+kernel_pmu=bpftool prog profile, one program at a time, 8 seconds/program, 80 loader rounds
+kernel_perf_record=perf record -C 5 -e cycles:k -g --call-graph fp, 10 loader rounds
+runtime_changes=none; diagnostic source and build targets only
