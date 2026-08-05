@@ -116,8 +116,9 @@ kernel 的 `perf record` 也已归档到 `raw-perf/kernel-cycles-record/`。top 
 
 ## 实验条件与复现
 
-- source commit：`1ee2eb6e2e2eacfc5a3ec7a3f8769adfdae6d492`，branch
-  `codex/official-no-btf`；LLVM/Clang 15，GCC 13，Boost 1.83，RelWithDebInfo，
+- 实验基线是 `1ee2eb6e2e2eacfc5a3ec7a3f8769adfdae6d492`；诊断文件随后以
+  `e0240a1a81c461f758d3db9fcb8d159e2d9dcf98` 提交到 `codex/official-no-btf`，
+  两者的诊断源码相同；LLVM/Clang 15，GCC 13，Boost 1.83，RelWithDebInfo，
   LLVM JIT/LTO 开启，probe read/write check 关闭；
 - Jetson CPU5，MAXN_SUPER，1.728 GHz；loader/victim 均 root、taskset CPU5；
 - kernel wall：5 轮、每轮 20,000 victim invocation、1000 warm-up；

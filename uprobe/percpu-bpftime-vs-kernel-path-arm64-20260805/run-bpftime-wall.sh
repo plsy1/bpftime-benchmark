@@ -7,7 +7,7 @@ BIN="$SRC/build-array-layers/benchmark/uprobe/diagnostics/per-cpu-helper-jit-lay
 CPU=5
 ROUNDS=5
 
-test "$(git -C "$SRC" rev-parse HEAD)" = "1ee2eb6e2e2eacfc5a3ec7a3f8769adfdae6d492"
+test "$(git -C "$SRC" rev-parse HEAD)" = "e0240a1a81c461f758d3db9fcb8d159e2d9dcf98"
 test -x "$BIN"
 sudo -n true
 sudo -n jetson_clocks

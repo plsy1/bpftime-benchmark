@@ -12,7 +12,7 @@ ROUNDS=80
 WARMUP=1000
 DURATION=8
 
-test "$(git -C "$SRC" rev-parse HEAD)" = "1ee2eb6e2e2eacfc5a3ec7a3f8769adfdae6d492"
+test "$(git -C "$SRC" rev-parse HEAD)" = "e0240a1a81c461f758d3db9fcb8d159e2d9dcf98"
 test -x "$KPMR" -a -x "$VICTIM" -a -x "$BPFTOOL"
 sudo -n true
 
