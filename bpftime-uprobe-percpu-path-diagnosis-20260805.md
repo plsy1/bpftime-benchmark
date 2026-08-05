@@ -16,10 +16,15 @@
    91.29 ns/op、约 489 instructions/op。
 4. **per-CPU hash update** 先承担 hash find，再承担命中后的 per-CPU value copy；
    `hash_find → copy_existing` 增加约 61.35 ns/op。
-5. **per-CPU hash delete-hit** 每轮都在计时区外重新插入 1000 个 key，避免原
-   benchmark 的“第一遍 hit、后续 miss”问题。`find + erase` 约 0.9–1.0 μs/op，
-   但 synthetic 与生产 allocator 状态不同，delete 只用于确认路径位置，不做精确
-   逐层相减。
+5. **per-CPU hash delete-hit** 已从原先的 `find + erase` 大区间继续拆开。延迟
+   node 析构/释放的 `find_extract_hold` 约 147.96 ns/op，立即执行完整
+   `find + erase` 约 998.53 ns/op，两者相差 **850.57 ns/op**。因此 delete 的
+   绝对大头不是 CPU 选择、key copy、hash find 或摘链，而是 key/value vector、
+   hash node 的同步析构和 Boost.Interprocess shared-memory allocator 回收。
+6. kernel 的 matched 对照进一步支持回收机制差异：per-CPU hash delete 在默认
+   预分配下约 174.91 ns/helper，使用 `BPF_F_NO_PREALLOC` 后升至
+   578.04 ns/helper。kernel 默认节点池/freelist 显著降低了删除成本；BPFtime
+   当前 Boost erase 则在 helper 返回前同步完成节点销毁和共享内存回收。
 
 ## 测试口径
 
@@ -35,6 +40,17 @@
   branches/branch-misses；
 - 所有 map case 都是 hit 或 existing 状态；没有把完整 `benchmark/uprobe` 顶层
   结果与 direct runtime 微基准混在一起。
+
+delete 叶子级补测沿用 CPU5、MAXN_SUPER、CPU 1.728 GHz、GCC 13.3、Clang 15
+和 Boost 1.83：
+
+- BPFtime wall：每层 1000 个真实 delete-hit，5 轮；每轮计时前重新插入；
+- BPFtime PMU：程序完成预填充后暂停，perf attach 后才开始删除；删除结束后先
+  detach perf，再释放延迟持有的 node，避免把计时外 setup/cleanup 算进删除路径；
+- kernel：ordinary/per-CPU hash × 默认预分配/`BPF_F_NO_PREALLOC`，5 轮、
+  每轮 control/real 各 10 个样本；`run_time_ns` 只统计 BPF delete 程序；
+- delete 补测的源码诊断提交为 `deb8f56`（基于 `e0240a1`），仅增加诊断
+  target，没有修改生产 runtime。
 
 ## Per-CPU array
 
@@ -106,20 +122,83 @@ instructions/op。
 
 ### Delete-hit
 
-每轮先在计时区外重新插入 1000 个 key，再计时成功删除：
+每轮先在计时区外重新插入 1000 个 key，再计时成功删除。新诊断使用 Boost
+node handle 把“从 hash 表摘出节点”和“析构/释放节点”分开：
 
-| 层 | ns/op |
-|---|---:|
-| control | 3.098 |
-| sched | 4.947 |
-| key copy | 13.940 |
-| synthetic find+erase | 996.696 |
-| 生产 L0 | 973.898 |
-| L1/L2/L3 | 919.688/924.962/933.359 |
+| 层 | 平均 ns/op | 相对 control 增量 | 含义 |
+|---|---:|---:|---|
+| control | 2.976 | 0 | 循环与函数调用 |
+| CPU + key copy | 14.112 | +11.136 | `sched_getcpu` 与 key template assign |
+| find only | 109.760 | +106.784 | 成功 hash find，不修改 map |
+| find + extract + hold | 147.963 | +144.987 | 摘出节点，析构和释放延迟到计时外 |
+| find + extract + drop | 981.335 | +978.359 | 摘出后立即析构和释放 |
+| find + erase | 998.532 | +995.556 | 与当前生产逻辑等价的 synthetic 路径 |
+| 生产 L0 | 966.596 | +963.620 | `per_cpu_hash_map_impl::elem_delete` |
 
-erase 的主要成本来自 hash find、节点删除和 allocator/bucket 状态。因为
-synthetic 与生产 map 的分配器状态不同，不能解读为 handler 比 L0 更快；本轮
-只确认了 delete-hit 语义和路径位置。
+相邻关键差额：
+
+```text
+find only - CPU/key copy                 =  95.648 ns/op
+find + extract + hold - find only       =  38.202 ns/op
+find + erase - find + extract + hold    = 850.569 ns/op
+find + erase - find + extract + drop    =  17.197 ns/op
+```
+
+`find + erase` 相对 control 的 synthetic 完整增量为 995.556 ns/op；其中延迟
+回收 A/B 的 850.569 ns/op 占约 **85.4%**。生产 L0 相对 control 是
+963.620 ns/op，与 synthetic 完整路径同量级。若用生产 L0 作为量级分母，回收
+差额约为 88.3%，但这不是严格可加的生产路径百分比。
+
+`find_extract_hold` 与 `find_erase` 都使用相同初始 map、相同 key 顺序，并都会
+从表中摘除节点；区别是前者把 node handle 的析构和共享内存释放推迟到 perf/
+计时结束以后。`find_extract_drop` 与 `find_erase` 只差约 17 ns/op，进一步说明
+大头来自 node destruction/allocator，而不是 `erase` 与 `extract` 的接口差异。
+
+附着式 PMU 单次结果也与 wall 一致：
+
+| 层 | 相对 control cycles/op | 相对 control instructions/op |
+|---|---:|---:|
+| find only | +206.6 | +599.9 |
+| find + extract + hold | +300.5 | +861.4 |
+| find + extract + drop | +1691.2 | +5884.7 |
+| find + erase | +1746.2 | +5974.6 |
+
+`find_erase - find_extract_hold` 约为 **1445.6 cycles/op**，在约 1.69 GHz 的
+实际 PMU 频率下与 850.6 ns/op 的 wall 差额相符。删除区间调用图出现了：
+
+- `boost::unordered::detail::table::delete_node`；
+- `boost::container::vector::~vector`；
+- `boost::interprocess::rbtree_best_fit::deallocate`；
+- shared-memory allocator 使用的 `interprocess_mutex`。
+
+因此，当前可以把 BPFtime per-CPU hash delete 的主要原因明确为：
+
+> `unordered_map<bytes_vec, bytes_vec>::erase()` 在 helper 路径内同步析构 key
+> vector、包含所有 CPU slot 的 value vector 和 hash node，并通过
+> Boost.Interprocess segment allocator 同步回收共享内存；该回收路径约占本轮
+> control-adjusted synthetic delete 成本的 85%。
+
+### Kernel 预分配对照
+
+kernel 侧使用相同的 4-byte key、8-byte value、1024 max entries 和每个程序
+1000 次 delete helper。`real-minus-control` 已除以 1000：
+
+| map | 分配方式 | 平均 net ns/helper | 标准差 |
+|---|---|---:|---:|
+| ordinary hash | 默认预分配 | 131.741 | 5.825 |
+| per-CPU hash | 默认预分配 | 174.910 | 1.890 |
+| ordinary hash | `BPF_F_NO_PREALLOC` | 209.575 | 1.075 |
+| per-CPU hash | `BPF_F_NO_PREALLOC` | 578.038 | 12.193 |
+
+关闭预分配使 ordinary hash 增加约 77.83 ns/helper，使 per-CPU hash 增加约
+403.13 ns/helper；后者变为默认预分配路径的 **3.30×**。kernel perf 调用图中
+确认出现 `htab_map_delete_elem`、`free_htab_elem`、`pcpu_freelist_push` 和
+`__update_cpu_freelist_fast`。
+
+这组实验支持“kernel 默认预分配/freelist 与 BPFtime 同步动态回收不同”这一机制
+解释，但不能把 kernel `run_time_ns` 与 BPFtime direct wall 逐数相减。kernel
+perf record 还包含计时外 userspace `prime_map` 的系统调用，因此调用图只用于
+确认 kernel 路径，不能用全局 sample 百分比给 delete 子函数精确分摊。
 
 ## 与普通 map 的公共路径对照
 
@@ -139,14 +218,26 @@ synthetic 与生产 map 的分配器状态不同，不能解读为 handler 比 L
 ## 边界
 
 这些结果证明了 Jetson ARM64 上 BPFtime per-CPU userspace 路径的具体成本位置，
-但没有证明 ARM 指令执行本身相对 x64 更差。若要做跨平台结论，必须在 x64 用同一
-诊断程序、同一 commit、同一 map 参数和 PMU 口径复测；本轮没有做优化，也没有
-修改 kernel BPF。
+并把 hash delete 从 `find + erase` 继续定位到同步 node/vector 析构和
+shared-memory allocator 回收。但仍有以下边界：
+
+1. delete 的 `extract` A/B 能严格区分“延迟释放”和“立即释放”，但没有继续把
+   key vector、value vector、hash node 三次释放逐项单独计时；
+2. attached PMU 是单次删除区间采集，主要用于验证 wall 差额对应真实 cycles/
+   instructions，不作为跨轮方差结论；
+3. kernel 默认/`NO_PREALLOC` 实验验证了分配策略影响，但两端实现和计时器不同，
+   不能声称 850 ns 全部由 kernel/BPFtime 分配策略差异严格解释；
+4. 本轮没有证明 ARM 指令执行本身相对 x64 更差。跨平台结论仍需要 x64 使用同一
+   delete leaf 诊断、同一 map 参数和 PMU 口径复测；
+5. 本轮没有做性能优化，也没有修改 BPFtime 生产 runtime 或 kernel BPF。
 
 ## 可复核文件
 
 - 结果分支：`benchmark-results/jetson`；
 - array：`uprobe/percpu-array-path-arm64-20260804/`，提交 `7a58da4`；
 - hash：`uprobe/percpu-hash-path-arm64-20260805/`，提交 `6f68112`；
-- 源码诊断：`codex/official-no-btf`，提交 `1ee2eb6`；
-- 两个结果目录均包含 raw stdout、PMU、CSV 和 `parse.py`。
+- hash delete 叶子级：`uprobe/percpu-hash-delete-layers-arm64-20260805/`，包含
+  wall、附着式 PMU、BPFtime 调用图、kernel 预分配对照及命令记录；
+- 源码诊断：`codex/official-no-btf`，既有提交 `1ee2eb6`；
+- delete 叶子级诊断提交：`deb8f56`（基于 `e0240a1`）；
+- 各结果目录包含 raw stdout、PMU/perf、汇总 CSV 和复现命令。
