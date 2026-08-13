@@ -12,6 +12,7 @@
 | uprobe per-CPU map | [ARM64 路径诊断](uprobe/arm64-bpftime-vs-kernel-paths-20260803/) | [跨架构分析](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/percpu/bpftime-uprobe-percpu-cross-architecture-analysis-20260728.md) |
 | uprobe ARM64 matched 顶层差额 | [统一 lookup/update 对照](uprobe/relative-kernel-attribution-arm64-20260812/) | [口径与结论](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md) |
 | uprobe ARM64 生产路径归因 | [生产 runtime A/B 与 PMU](uprobe/map-production-leaf-ab-arm64-20260813/) | [具体操作归因](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md) |
+| per-CPU hash lookup 叶子归因 | [hash/equality/container A/B](uprobe/percpu-hash-lookup-leaf-ab-arm64-20260813/) | [叶子级报告](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/percpu/bpftime-uprobe-percpu-hash-lookup-leaf-attribution-20260813.md) |
 | ssl-nginx V1–V4 消融 | [Empty Probe](empty-probe/run01/) · [No-copy/No-output](no-copy_no-output/run01/) · [No-output](no-output/run01/) · [Full aligned](full-aligned/) | [ARM 根因总览](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/ssl-nginx/bpftime-arm-performance-root-cause-20260727.md) |
 | software perf record 对齐 | [Full unaligned](full-unaligned/) 与 [Full aligned](full-aligned/) | [对齐修复报告](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/archive/bpftime-software-perf-record-alignment-fix-20260722.md) |
 
@@ -38,6 +39,7 @@
 | [top-hash-residual-arm64-20260803](uprobe/top-hash-residual-arm64-20260803/) | Jetson hash lookup 顶层 matched 边界与 PMU |
 | [relative-kernel-attribution-arm64-20260812](uprobe/relative-kernel-attribution-arm64-20260812/) | 普通/per-CPU lookup/update 的统一 matched BPFtime−kernel 顶层差额；目录名保留，但不将跨 harness 余项解释为归因阶段 |
 | [map-production-leaf-ab-arm64-20260813](uprobe/map-production-leaf-ab-arm64-20260813/) | 同一诊断 runtime 二进制上的生产路径 A/B、PMU 复核与 per-CPU hash delete 延迟回收实验 |
+| [percpu-hash-lookup-leaf-ab-arm64-20260813](uprobe/percpu-hash-lookup-leaf-ab-arm64-20260813/) | per-CPU hash lookup 的 key assign、2×2 hash/equality、完整 find 边界和 perf 路径确认 |
 
 ### Kernel map runtime 与跨架构诊断
 
