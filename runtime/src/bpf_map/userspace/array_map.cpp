@@ -5,6 +5,7 @@
  */
 #include "bpftime_internal.h"
 #include "bpf_map/map_common_def.hpp"
+#include "bpf_map/map_production_ab.hpp"
 #include "linux/bpf.h"
 #include <bpf_map/userspace/array_map.hpp>
 #include <cerrno>
@@ -39,6 +40,9 @@ long array_map_impl::elem_update(const void *key, const void *value,
 {
 	if (unlikely(!check_update_flags(flags)))
 		return -1;
+	const auto mode = get_map_production_ab_mode();
+	if (mode == map_production_ab_mode::array_update_no_body)
+		return 0;
 	auto key_val = *(uint32_t *)key;
 	if (unlikely(key_val < _max_entries && flags == BPF_NOEXIST)) {
 		errno = EEXIST;
@@ -49,8 +53,15 @@ long array_map_impl::elem_update(const void *key, const void *value,
 		errno = E2BIG;
 		return -1;
 	}
+	if (mode == map_production_ab_mode::array_update_no_address)
+		return 0;
+	auto *destination = &data[key_val * _value_size];
+	if (mode == map_production_ab_mode::array_update_address_only) {
+		asm volatile("" : : "r"(destination) : "memory");
+		return 0;
+	}
 	std::copy((uint8_t *)value, (uint8_t *)value + _value_size,
-		  &data[key_val * _value_size]);
+		  destination);
 	return 0;
 }
 

@@ -110,18 +110,38 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
 	SPDLOG_DEBUG("Run per cpu hash update at cpu {}", cpu);
 	bytes_vec &key_vec = this->key_templates[cpu];
 	bytes_vec &value_vec = this->single_value_templates[cpu];
-	key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
-	value_vec.assign((uint8_t *)value, (uint8_t *)value + value_size);
+	const auto mode = get_map_production_ab_mode();
+	if (mode == map_production_ab_mode::percpu_hash_update_raw_key_copy)
+		std::memcpy(key_vec.data(), key, key_size);
+	else
+		key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
+	if (mode == map_production_ab_mode::percpu_hash_update_raw_value_copy)
+		std::memcpy(value_vec.data(), value, value_size);
+	else
+		value_vec.assign((uint8_t *)value, (uint8_t *)value + value_size);
 	if (get_map_production_ab_mode() ==
 	    map_production_ab_mode::percpu_hash_update_no_find) {
 		return 0;
 	}
+	const bool collect_stats = map_production_ab_stats_enabled();
+	if (collect_stats) {
+		map_production_ab_lookup_active() = true;
+		++map_production_ab_stats().lookups;
+	}
 	if (auto itr = impl.find(key_vec); itr != impl.end()) {
+		if (collect_stats) {
+			++map_production_ab_stats().hits;
+			map_production_ab_lookup_active() = false;
+		}
 		if (get_map_production_ab_mode() !=
 		    map_production_ab_mode::percpu_hash_update_no_copy)
 			std::copy(value_vec.begin(), value_vec.end(),
 				  itr->second.begin() + cpu * value_size);
 	} else {
+		if (collect_stats) {
+			++map_production_ab_stats().misses;
+			map_production_ab_lookup_active() = false;
+		}
 		bytes_vec full_value_vec = this->value_template;
 		std::copy(value_vec.begin(), value_vec.end(),
 			  full_value_vec.begin() + cpu * value_size);
