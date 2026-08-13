@@ -17,6 +17,17 @@ enum class map_production_ab_mode {
 	percpu_array_direct,
 	percpu_array_fixed_cpu,
 	percpu_array_no_copy,
+	percpu_array_lookup_no_address,
+	percpu_array_lookup_fixed_cpu_no_address,
+	percpu_array_lookup_no_body,
+	percpu_array_update_address_only,
+	percpu_array_update_fixed_cpu_address_only,
+	percpu_array_update_no_address,
+	percpu_array_update_fixed_cpu_no_address,
+	percpu_array_update_no_body,
+	array_update_address_only,
+	array_update_no_address,
+	array_update_no_body,
 	percpu_hash_lookup_no_find,
 	percpu_hash_lookup_raw_key_copy,
 	percpu_hash_lookup_cached_hash,
@@ -24,6 +35,11 @@ enum class map_production_ab_mode {
 	percpu_hash_lookup_cached_hash_fixed4_equal,
 	percpu_hash_update_no_find,
 	percpu_hash_update_no_copy,
+	percpu_hash_update_raw_key_copy,
+	percpu_hash_update_raw_value_copy,
+	percpu_hash_update_cached_hash,
+	percpu_hash_update_fixed4_equal,
+	percpu_hash_update_cached_hash_fixed4_equal,
 	percpu_hash_delete_defer_reclaim,
 };
 
@@ -44,6 +60,28 @@ inline map_production_ab_mode get_map_production_ab_mode()
 			return map_production_ab_mode::percpu_array_fixed_cpu;
 		if (value == "percpu_array_no_copy")
 			return map_production_ab_mode::percpu_array_no_copy;
+		if (value == "percpu_array_lookup_no_address")
+			return map_production_ab_mode::percpu_array_lookup_no_address;
+		if (value == "percpu_array_lookup_fixed_cpu_no_address")
+			return map_production_ab_mode::percpu_array_lookup_fixed_cpu_no_address;
+		if (value == "percpu_array_lookup_no_body")
+			return map_production_ab_mode::percpu_array_lookup_no_body;
+		if (value == "percpu_array_update_address_only")
+			return map_production_ab_mode::percpu_array_update_address_only;
+		if (value == "percpu_array_update_fixed_cpu_address_only")
+			return map_production_ab_mode::percpu_array_update_fixed_cpu_address_only;
+		if (value == "percpu_array_update_no_address")
+			return map_production_ab_mode::percpu_array_update_no_address;
+		if (value == "percpu_array_update_fixed_cpu_no_address")
+			return map_production_ab_mode::percpu_array_update_fixed_cpu_no_address;
+		if (value == "percpu_array_update_no_body")
+			return map_production_ab_mode::percpu_array_update_no_body;
+		if (value == "array_update_address_only")
+			return map_production_ab_mode::array_update_address_only;
+		if (value == "array_update_no_address")
+			return map_production_ab_mode::array_update_no_address;
+		if (value == "array_update_no_body")
+			return map_production_ab_mode::array_update_no_body;
 		if (value == "percpu_hash_lookup_no_find")
 			return map_production_ab_mode::percpu_hash_lookup_no_find;
 		if (value == "percpu_hash_lookup_raw_key_copy")
@@ -58,6 +96,16 @@ inline map_production_ab_mode get_map_production_ab_mode()
 			return map_production_ab_mode::percpu_hash_update_no_find;
 		if (value == "percpu_hash_update_no_copy")
 			return map_production_ab_mode::percpu_hash_update_no_copy;
+		if (value == "percpu_hash_update_raw_key_copy")
+			return map_production_ab_mode::percpu_hash_update_raw_key_copy;
+		if (value == "percpu_hash_update_raw_value_copy")
+			return map_production_ab_mode::percpu_hash_update_raw_value_copy;
+		if (value == "percpu_hash_update_cached_hash")
+			return map_production_ab_mode::percpu_hash_update_cached_hash;
+		if (value == "percpu_hash_update_fixed4_equal")
+			return map_production_ab_mode::percpu_hash_update_fixed4_equal;
+		if (value == "percpu_hash_update_cached_hash_fixed4_equal")
+			return map_production_ab_mode::percpu_hash_update_cached_hash_fixed4_equal;
 		if (value == "percpu_hash_delete_defer_reclaim")
 			return map_production_ab_mode::percpu_hash_delete_defer_reclaim;
 		return map_production_ab_mode::base;
@@ -69,14 +117,18 @@ inline bool map_production_ab_cached_hash()
 {
 	const auto mode = get_map_production_ab_mode();
 	return mode == map_production_ab_mode::percpu_hash_lookup_cached_hash ||
-	       mode == map_production_ab_mode::percpu_hash_lookup_cached_hash_fixed4_equal;
+	       mode == map_production_ab_mode::percpu_hash_lookup_cached_hash_fixed4_equal ||
+	       mode == map_production_ab_mode::percpu_hash_update_cached_hash ||
+	       mode == map_production_ab_mode::percpu_hash_update_cached_hash_fixed4_equal;
 }
 
 inline bool map_production_ab_fixed4_equal()
 {
 	const auto mode = get_map_production_ab_mode();
 	return mode == map_production_ab_mode::percpu_hash_lookup_fixed4_equal ||
-	       mode == map_production_ab_mode::percpu_hash_lookup_cached_hash_fixed4_equal;
+	       mode == map_production_ab_mode::percpu_hash_lookup_cached_hash_fixed4_equal ||
+	       mode == map_production_ab_mode::percpu_hash_update_fixed4_equal ||
+	       mode == map_production_ab_mode::percpu_hash_update_cached_hash_fixed4_equal;
 }
 
 inline bool map_production_ab_stats_enabled()

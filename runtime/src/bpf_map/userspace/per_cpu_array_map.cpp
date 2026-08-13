@@ -35,10 +35,17 @@ per_cpu_array_map_impl::per_cpu_array_map_impl(
 void *per_cpu_array_map_impl::elem_lookup(const void *key)
 {
 	const auto mode = get_map_production_ab_mode();
+	if (mode == map_production_ab_mode::percpu_array_lookup_no_body)
+		return const_cast<void *>(key);
 	if (mode == map_production_ab_mode::percpu_array_direct ||
 	    mode == map_production_ab_mode::percpu_array_fixed_cpu ||
-	    mode == map_production_ab_mode::percpu_array_no_copy) {
-		const int cpu = mode == map_production_ab_mode::percpu_array_fixed_cpu ?
+	    mode == map_production_ab_mode::percpu_array_no_copy ||
+	    mode == map_production_ab_mode::percpu_array_lookup_no_address ||
+	    mode == map_production_ab_mode::percpu_array_lookup_fixed_cpu_no_address) {
+		const bool fixed_cpu =
+			mode == map_production_ab_mode::percpu_array_fixed_cpu ||
+			mode == map_production_ab_mode::percpu_array_lookup_fixed_cpu_no_address;
+		const int cpu = fixed_cpu ?
 				5 : my_sched_getcpu();
 		if (key == nullptr) {
 			errno = ENOENT;
@@ -49,6 +56,9 @@ void *per_cpu_array_map_impl::elem_lookup(const void *key)
 			errno = ENOENT;
 			return nullptr;
 		}
+		if (mode == map_production_ab_mode::percpu_array_lookup_no_address ||
+		    mode == map_production_ab_mode::percpu_array_lookup_fixed_cpu_no_address)
+			return const_cast<void *>(key);
 		return data_at(key_val, cpu);
 	}
 	return ensure_on_current_cpu<void *>([&](int cpu) -> void * {
@@ -71,10 +81,20 @@ long per_cpu_array_map_impl::elem_update(const void *key, const void *value,
 	if (!check_update_flags(flags))
 		return -1;
 	const auto mode = get_map_production_ab_mode();
+	if (mode == map_production_ab_mode::percpu_array_update_no_body)
+		return 0;
 	if (mode == map_production_ab_mode::percpu_array_direct ||
 	    mode == map_production_ab_mode::percpu_array_fixed_cpu ||
-	    mode == map_production_ab_mode::percpu_array_no_copy) {
-		const int cpu = mode == map_production_ab_mode::percpu_array_fixed_cpu ?
+	    mode == map_production_ab_mode::percpu_array_no_copy ||
+	    mode == map_production_ab_mode::percpu_array_update_address_only ||
+	    mode == map_production_ab_mode::percpu_array_update_fixed_cpu_address_only ||
+	    mode == map_production_ab_mode::percpu_array_update_no_address ||
+	    mode == map_production_ab_mode::percpu_array_update_fixed_cpu_no_address) {
+		const bool fixed_cpu =
+			mode == map_production_ab_mode::percpu_array_fixed_cpu ||
+			mode == map_production_ab_mode::percpu_array_update_fixed_cpu_address_only ||
+			mode == map_production_ab_mode::percpu_array_update_fixed_cpu_no_address;
+		const int cpu = fixed_cpu ?
 				5 : my_sched_getcpu();
 		if (key == nullptr) {
 			errno = ENOENT;
@@ -89,10 +109,19 @@ long per_cpu_array_map_impl::elem_update(const void *key, const void *value,
 			errno = E2BIG;
 			return -1;
 		}
+		if (mode == map_production_ab_mode::percpu_array_update_no_address ||
+		    mode == map_production_ab_mode::percpu_array_update_fixed_cpu_no_address)
+			return 0;
+		auto *destination = data_at(key_val, cpu);
+		if (mode == map_production_ab_mode::percpu_array_update_address_only ||
+		    mode == map_production_ab_mode::percpu_array_update_fixed_cpu_address_only) {
+			asm volatile("" : : "r"(destination) : "memory");
+			return 0;
+		}
 		if (mode != map_production_ab_mode::percpu_array_no_copy)
 			std::copy((uint8_t *)value,
 				  (uint8_t *)value + value_size,
-				  data_at(key_val, cpu));
+				  destination);
 		return 0;
 	}
 	return ensure_on_current_cpu<long>([&](int cpu) -> long {
