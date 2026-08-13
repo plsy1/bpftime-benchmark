@@ -182,6 +182,22 @@ HML_LOADER_OBJ := $(HML_OUTPUT)/helper_map_ladder.o
 HML_LOADER := $(HML_OUTPUT)/helper-map-ladder
 HML_VICTIM := $(HML_OUTPUT)/helper-map-ladder-victim
 
+# Matched production-agent closure for ordinary/per-CPU array lookup/update.
+# Kept separate from helper-map-ladder for auditability.
+HMC_OUTPUT := $(OUTPUT)/helper-map-closure
+HMC_BPF_OBJ := $(HMC_OUTPUT)/helper_map_closure.bpf.o
+HMC_SKEL := $(HMC_OUTPUT)/helper_map_closure.skel.h
+HMC_LOADER_OBJ := $(HMC_OUTPUT)/helper_map_closure.o
+HMC_LOADER := $(HMC_OUTPUT)/helper-map-closure
+HMC_VICTIM := $(HMC_OUTPUT)/helper-map-closure-victim
+
+HHC_OUTPUT := $(OUTPUT)/helper-hash-closure
+HHC_BPF_OBJ := $(HHC_OUTPUT)/helper_hash_closure.bpf.o
+HHC_SKEL := $(HHC_OUTPUT)/helper_hash_closure.skel.h
+HHC_LOADER_OBJ := $(HHC_OUTPUT)/helper_hash_closure.o
+HHC_LOADER := $(HHC_OUTPUT)/helper-hash-closure
+HHC_VICTIM := $(HHC_OUTPUT)/helper-hash-closure-victim
+
 # Matched kernel-BPF array-update value-size sweep.  This is separate from the
 # official uprobe benchmark and the general kernel-map-runtime diagnostic so
 # changing the diagnostic matrix cannot change either benchmark's semantics.
@@ -206,6 +222,12 @@ top-hash-residual-diagnostic: $(THR_LOADER) $(THR_VICTIM)
 
 .PHONY: helper-map-ladder-diagnostic
 helper-map-ladder-diagnostic: $(HML_LOADER) $(HML_VICTIM)
+
+.PHONY: helper-map-closure-diagnostic
+helper-map-closure-diagnostic: $(HMC_LOADER) $(HMC_VICTIM)
+
+.PHONY: helper-hash-closure-diagnostic
+helper-hash-closure-diagnostic: $(HHC_LOADER) $(HHC_VICTIM)
 
 .PHONY: kernel-array-update-sizes-diagnostic
 kernel-array-update-sizes-diagnostic: $(KAUS_LOADER) $(KAUS_VICTIM)
@@ -342,6 +364,60 @@ $(HML_LOADER): $(HML_LOADER_OBJ) $(LIBBPF_OBJ) | $(HML_OUTPUT)
 	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
 
 $(HML_VICTIM): diagnostics/helper_map_ladder_victim.c | $(HML_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) -g -O3 -Wall $< -o $@
+
+$(HMC_OUTPUT):
+	$(call msg,MKDIR,$@)
+	$(Q)mkdir -p $@
+
+$(HMC_BPF_OBJ): diagnostics/helper_map_closure.bpf.c $(VMLINUX) | $(HMC_OUTPUT) $(BPFTOOL)
+	$(call msg,BPF,$@)
+	$(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) \
+		     $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
+		     -c $< -o $(HMC_OUTPUT)/helper_map_closure.tmp.bpf.o
+	$(Q)$(BPFTOOL) gen object $@ $(HMC_OUTPUT)/helper_map_closure.tmp.bpf.o
+
+$(HMC_SKEL): $(HMC_BPF_OBJ) | $(HMC_OUTPUT) $(BPFTOOL)
+	$(call msg,GEN-SKEL,$@)
+	$(Q)$(BPFTOOL) gen skeleton $< > $@
+
+$(HMC_LOADER_OBJ): diagnostics/helper_map_closure.c $(HMC_SKEL) | $(HMC_OUTPUT)
+	$(call msg,CC,$@)
+	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -I$(HMC_OUTPUT) -c $< -o $@
+
+$(HMC_LOADER): $(HMC_LOADER_OBJ) $(LIBBPF_OBJ) | $(HMC_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+
+$(HMC_VICTIM): diagnostics/helper_map_closure_victim.c | $(HMC_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) -g -O3 -Wall $< -o $@
+
+$(HHC_OUTPUT):
+	$(call msg,MKDIR,$@)
+	$(Q)mkdir -p $@
+
+$(HHC_BPF_OBJ): diagnostics/helper_hash_closure.bpf.c $(VMLINUX) | $(HHC_OUTPUT) $(BPFTOOL)
+	$(call msg,BPF,$@)
+	$(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) \
+		     $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
+		     -c $< -o $(HHC_OUTPUT)/helper_hash_closure.tmp.bpf.o
+	$(Q)$(BPFTOOL) gen object $@ $(HHC_OUTPUT)/helper_hash_closure.tmp.bpf.o
+
+$(HHC_SKEL): $(HHC_BPF_OBJ) | $(HHC_OUTPUT) $(BPFTOOL)
+	$(call msg,GEN-SKEL,$@)
+	$(Q)$(BPFTOOL) gen skeleton $< > $@
+
+$(HHC_LOADER_OBJ): diagnostics/helper_hash_closure.c $(HHC_SKEL) | $(HHC_OUTPUT)
+	$(call msg,CC,$@)
+	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -I$(HHC_OUTPUT) -c $< -o $@
+
+$(HHC_LOADER): $(HHC_LOADER_OBJ) $(LIBBPF_OBJ) | $(HHC_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+
+$(HHC_VICTIM): diagnostics/helper_hash_closure_victim.c | $(HHC_OUTPUT)
 	$(call msg,BINARY,$@)
 	$(Q)$(CC) -g -O3 -Wall $< -o $@
 
