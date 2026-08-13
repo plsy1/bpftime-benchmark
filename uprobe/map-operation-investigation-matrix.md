@@ -58,7 +58,7 @@
 
 ## 相关报告
 
-- [普通 map 系统报告](../ordinary/bpftime-uprobe-ordinary-map-systematic-report-20260804.md)
-- [Per-CPU map 路径诊断](../percpu/bpftime-uprobe-percpu-path-diagnosis-20260805.md)
-- [ARM64 matched 顶层差距](bpftime-uprobe-matched-kernel-gap-arm64-20260812.md)
-- [ARM64 生产路径归因](bpftime-uprobe-production-path-attribution-arm64-20260813.md)
+- [普通 map 系统报告](ordinary/bpftime-uprobe-ordinary-map-systematic-report-20260804.md)
+- [Per-CPU map 路径诊断](percpu/bpftime-uprobe-percpu-path-diagnosis-20260805.md)
+- [ARM64 matched 顶层差距](attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md)
+- [ARM64 生产路径归因](attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md)
