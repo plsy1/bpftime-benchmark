@@ -200,6 +200,12 @@ class bpf_map_handler {
 	// *		Returns zero on success. On error, -1 is returned and
 	// *errno* *		is set appropriately.
 	long map_delete_elem(const void *key, bool from_syscall = false) const;
+	// Diagnostic production A/B entry points. These keep the concrete map
+	// operation while bypassing generic map-type dispatch for supported maps.
+	const void *diagnostic_direct_lookup(const void *key) const;
+	long diagnostic_direct_update(const void *key, const void *value,
+				      uint64_t flags) const;
+	long diagnostic_direct_delete(const void *key) const;
 	// * BPF_MAP_GET_NEXT_KEY
 	// *	Description
 	// *		Look up an element by key in a specified map and return
