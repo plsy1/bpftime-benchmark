@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 #include "bpftime_shm.hpp"
+#include "bpf_map/map_production_ab.hpp"
 #include "handler/map_handler.hpp"
 #include "handler/memfd_handler.hpp"
 #include <ebpf-vm.h>
@@ -281,6 +282,29 @@ uint32_t bpftime_shm::bpf_map_value_size(int fd) const
 const void *bpftime_shm::bpf_map_lookup_elem(int fd, const void *key,
 					     bool from_syscall) const
 {
+	const auto mode = get_map_production_ab_mode();
+	if (!from_syscall &&
+	    (mode == map_production_ab_mode::cache_control ||
+	     mode == map_production_ab_mode::cached_handler ||
+	     mode == map_production_ab_mode::direct_map)) {
+		static thread_local std::vector<const bpf_map_handler *> cache;
+		if (cache.empty())
+			cache.resize(manager->size(), nullptr);
+		if (fd < 0 || (std::size_t)fd >= cache.size())
+			return nullptr;
+		auto *&handler = cache[fd];
+		if (!handler)
+			handler = try_get_map_handler(fd);
+		if (!handler)
+			return nullptr;
+		if (mode == map_production_ab_mode::cache_control) {
+			auto *normal = try_get_map_handler(fd);
+			return normal ? normal->map_lookup_elem(key, false) : nullptr;
+		}
+		return mode == map_production_ab_mode::direct_map ?
+			       handler->diagnostic_direct_lookup(key) :
+			       handler->map_lookup_elem(key, false);
+	}
 	auto *handler = try_get_map_handler(fd);
 	return handler ? handler->map_lookup_elem(key, from_syscall) : nullptr;
 }
@@ -289,6 +313,30 @@ long bpftime_shm::bpf_map_update_elem(int fd, const void *key,
 				      const void *value, uint64_t flags,
 				      bool from_syscall) const
 {
+	const auto mode = get_map_production_ab_mode();
+	if (!from_syscall &&
+	    (mode == map_production_ab_mode::cache_control ||
+	     mode == map_production_ab_mode::cached_handler ||
+	     mode == map_production_ab_mode::direct_map)) {
+		static thread_local std::vector<const bpf_map_handler *> cache;
+		if (cache.empty())
+			cache.resize(manager->size(), nullptr);
+		if (fd < 0 || (std::size_t)fd >= cache.size())
+			return -1;
+		auto *&handler = cache[fd];
+		if (!handler)
+			handler = try_get_map_handler(fd);
+		if (!handler)
+			return -1;
+		if (mode == map_production_ab_mode::cache_control) {
+			auto *normal = try_get_map_handler(fd);
+			return normal ? normal->map_update_elem(key, value, flags,
+							 false) : -1;
+		}
+		return mode == map_production_ab_mode::direct_map ?
+			       handler->diagnostic_direct_update(key, value, flags) :
+			       handler->map_update_elem(key, value, flags, false);
+	}
 	auto *handler = try_get_map_handler(fd);
 	return handler ? handler->map_update_elem(key, value, flags,
 						  from_syscall) :
@@ -298,6 +346,29 @@ long bpftime_shm::bpf_map_update_elem(int fd, const void *key,
 long bpftime_shm::bpf_delete_elem(int fd, const void *key,
 				  bool from_syscall) const
 {
+	const auto mode = get_map_production_ab_mode();
+	if (!from_syscall &&
+	    (mode == map_production_ab_mode::cache_control ||
+	     mode == map_production_ab_mode::cached_handler ||
+	     mode == map_production_ab_mode::direct_map)) {
+		static thread_local std::vector<const bpf_map_handler *> cache;
+		if (cache.empty())
+			cache.resize(manager->size(), nullptr);
+		if (fd < 0 || (std::size_t)fd >= cache.size())
+			return -1;
+		auto *&handler = cache[fd];
+		if (!handler)
+			handler = try_get_map_handler(fd);
+		if (!handler)
+			return -1;
+		if (mode == map_production_ab_mode::cache_control) {
+			auto *normal = try_get_map_handler(fd);
+			return normal ? normal->map_delete_elem(key, false) : -1;
+		}
+		return mode == map_production_ab_mode::direct_map ?
+			       handler->diagnostic_direct_delete(key) :
+			       handler->map_delete_elem(key, false);
+	}
 	auto *handler = try_get_map_handler(fd);
 	return handler ? handler->map_delete_elem(key, from_syscall) : -1;
 }

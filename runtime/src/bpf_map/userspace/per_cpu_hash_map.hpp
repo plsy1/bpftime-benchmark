@@ -13,6 +13,7 @@
 #include <bpf_map/map_common_def.hpp>
 #include <boost/unordered/unordered_map.hpp>
 #include <cstdint>
+#include <vector>
 
 namespace bpftime
 {
@@ -38,6 +39,7 @@ class per_cpu_hash_map_impl {
 		boost::interprocess::managed_shared_memory::segment_manager>;
 	using bytes_vec_vec =
 		boost::interprocess::vector<bytes_vec, bytes_vec_vec_allocator>;
+	using node_type = shm_hash_map::node_type;
 
 	shm_hash_map impl;
 	uint32_t key_size;
@@ -47,6 +49,7 @@ class per_cpu_hash_map_impl {
 
 	bytes_vec value_template;
 	bytes_vec_vec key_templates, single_value_templates;
+	static std::vector<node_type> &diagnostic_deferred_nodes();
 
     public:
 	const static bool should_lock = false;
