@@ -5,12 +5,15 @@
  */
 #ifndef _MAP_COMMON_DEF_HPP
 #define _MAP_COMMON_DEF_HPP
+#include "bpf_map/map_production_ab.hpp"
 #include "spdlog/spdlog.h"
 #include <boost/container_hash/hash.hpp>
 #include <cinttypes>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/containers/vector.hpp>
 #include <cstdint>
+#include <array>
+#include <cstring>
 #include <functional>
 #include "platform_utils.hpp"
 
@@ -62,14 +65,55 @@ inline void ensure_on_certain_cpu(int cpu, std::function<void()> func)
 }
 
 struct bytes_vec_hasher {
-	size_t operator()(bytes_vec const &vec) const
+	static size_t normal_hash(const uint8_t *data, size_t size)
 	{
 		using boost::hash_combine;
 		size_t seed = 0;
-		hash_combine(seed, vec.size());
-		for (auto x : vec)
-			hash_combine(seed, x);
+		hash_combine(seed, size);
+		for (size_t i = 0; i < size; ++i)
+			hash_combine(seed, data[i]);
 		return seed;
+	}
+
+	size_t operator()(bytes_vec const &vec) const
+	{
+		if (map_production_ab_stats_enabled() &&
+		    map_production_ab_lookup_active())
+			++map_production_ab_stats().hash_calls;
+		if (map_production_ab_cached_hash() && vec.size() == 4) {
+			uint32_t key;
+			std::memcpy(&key, vec.data(), sizeof(key));
+			if (key < 1024) {
+				static const std::array<size_t, 1024> hashes = [] {
+					std::array<size_t, 1024> result{};
+					for (uint32_t value = 0; value < result.size(); ++value) {
+						uint8_t bytes[sizeof(value)];
+						std::memcpy(bytes, &value, sizeof(value));
+						result[value] = normal_hash(bytes, sizeof(bytes));
+					}
+					return result;
+				}();
+				return hashes[key];
+			}
+		}
+		return normal_hash(vec.data(), vec.size());
+	}
+};
+
+struct bytes_vec_equal {
+	bool operator()(bytes_vec const &lhs, bytes_vec const &rhs) const
+	{
+		if (map_production_ab_stats_enabled() &&
+		    map_production_ab_lookup_active())
+			++map_production_ab_stats().equal_calls;
+		if (map_production_ab_fixed4_equal() && lhs.size() == 4 &&
+		    rhs.size() == 4) {
+			uint32_t left, right;
+			std::memcpy(&left, lhs.data(), sizeof(left));
+			std::memcpy(&right, rhs.data(), sizeof(right));
+			return left == right;
+		}
+		return lhs == rhs;
 	}
 };
 
