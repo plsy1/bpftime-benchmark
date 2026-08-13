@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 #include "bpf_map/map_common_def.hpp"
+#include "bpf_map/map_production_ab.hpp"
 #include "linux/bpf.h"
 #include "spdlog/fmt/bin_to_hex.h"
 #include "spdlog/spdlog.h"
@@ -17,6 +18,15 @@
 
 namespace bpftime
 {
+std::vector<per_cpu_hash_map_impl::node_type> &
+per_cpu_hash_map_impl::diagnostic_deferred_nodes()
+{
+	static thread_local std::vector<node_type> nodes;
+	if (nodes.capacity() < 1024)
+		nodes.reserve(1024);
+	return nodes;
+}
+
 per_cpu_hash_map_impl::per_cpu_hash_map_impl(
 	boost::interprocess::managed_shared_memory &memory, uint32_t key_size,
 	uint32_t value_size, uint32_t max_entries)
@@ -56,6 +66,9 @@ void *per_cpu_hash_map_impl::elem_lookup(const void *key)
 	}
 	bytes_vec &key_vec = this->key_templates[cpu];
 	key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
+	if (get_map_production_ab_mode() ==
+	    map_production_ab_mode::percpu_hash_lookup_no_find)
+		return &value_template[value_size * cpu];
 	if (auto itr = impl.find(key_vec); itr != impl.end()) {
 		SPDLOG_TRACE("Exit elem lookup of hash map");
 		return &itr->second[value_size * cpu];
@@ -69,6 +82,9 @@ void *per_cpu_hash_map_impl::elem_lookup(const void *key)
 long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
 					uint64_t flags)
 {
+	if (get_map_production_ab_mode() ==
+	    map_production_ab_mode::percpu_hash_delete_defer_reclaim)
+		diagnostic_deferred_nodes().clear();
 	if (!check_update_flags(flags))
 		return -1;
 	flags &= 0xFFFFFFFFULL;
@@ -85,25 +101,15 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
 	bytes_vec &value_vec = this->single_value_templates[cpu];
 	key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
 	value_vec.assign((uint8_t *)value, (uint8_t *)value + value_size);
-	auto itr = impl.find(key_vec);
-	bool elem_exists = itr != impl.end();
-	// Enforce BPF update-flag and capacity semantics, matching the
-	// userspace and var-size hash implementations.
-	if (flags == BPF_NOEXIST && elem_exists) {
-		errno = EEXIST;
-		return -1;
+	if (get_map_production_ab_mode() ==
+	    map_production_ab_mode::percpu_hash_update_no_find) {
+		return 0;
 	}
-	if (flags == BPF_EXIST && !elem_exists) {
-		errno = ENOENT;
-		return -1;
-	}
-	if (!elem_exists && impl.size() == _max_entries) {
-		errno = E2BIG;
-		return -1;
-	}
-	if (elem_exists) {
-		std::copy(value_vec.begin(), value_vec.end(),
-			  itr->second.begin() + cpu * value_size);
+	if (auto itr = impl.find(key_vec); itr != impl.end()) {
+		if (get_map_production_ab_mode() !=
+		    map_production_ab_mode::percpu_hash_update_no_copy)
+			std::copy(value_vec.begin(), value_vec.end(),
+				  itr->second.begin() + cpu * value_size);
 	} else {
 		bytes_vec full_value_vec = this->value_template;
 		std::copy(value_vec.begin(), value_vec.end(),
@@ -126,7 +132,13 @@ long per_cpu_hash_map_impl::elem_delete(const void *key)
 		errno = ENOENT;
 		return -1;
 	}
-	impl.erase(itr);
+	if (get_map_production_ab_mode() ==
+	    map_production_ab_mode::percpu_hash_delete_defer_reclaim) {
+		auto node = impl.extract(itr);
+		diagnostic_deferred_nodes().push_back(std::move(node));
+	} else {
+		impl.erase(itr);
+	}
 	return 0;
 }
 

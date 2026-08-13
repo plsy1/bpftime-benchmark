@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 #include "bpf_map/map_common_def.hpp"
+#include "bpf_map/map_production_ab.hpp"
 #include "linux/bpf.h"
 #include "spdlog/spdlog.h"
 #include <algorithm>
@@ -33,6 +34,23 @@ per_cpu_array_map_impl::per_cpu_array_map_impl(
 
 void *per_cpu_array_map_impl::elem_lookup(const void *key)
 {
+	const auto mode = get_map_production_ab_mode();
+	if (mode == map_production_ab_mode::percpu_array_direct ||
+	    mode == map_production_ab_mode::percpu_array_fixed_cpu ||
+	    mode == map_production_ab_mode::percpu_array_no_copy) {
+		const int cpu = mode == map_production_ab_mode::percpu_array_fixed_cpu ?
+				5 : my_sched_getcpu();
+		if (key == nullptr) {
+			errno = ENOENT;
+			return nullptr;
+		}
+		const uint32_t key_val = *(uint32_t *)key;
+		if (key_val >= max_ent) {
+			errno = ENOENT;
+			return nullptr;
+		}
+		return data_at(key_val, cpu);
+	}
 	return ensure_on_current_cpu<void *>([&](int cpu) -> void * {
 		if (key == nullptr) {
 			errno = ENOENT;
@@ -52,6 +70,31 @@ long per_cpu_array_map_impl::elem_update(const void *key, const void *value,
 {
 	if (!check_update_flags(flags))
 		return -1;
+	const auto mode = get_map_production_ab_mode();
+	if (mode == map_production_ab_mode::percpu_array_direct ||
+	    mode == map_production_ab_mode::percpu_array_fixed_cpu ||
+	    mode == map_production_ab_mode::percpu_array_no_copy) {
+		const int cpu = mode == map_production_ab_mode::percpu_array_fixed_cpu ?
+				5 : my_sched_getcpu();
+		if (key == nullptr) {
+			errno = ENOENT;
+			return -1;
+		}
+		const uint32_t key_val = *(uint32_t *)key;
+		if (key_val < max_ent && flags == BPF_NOEXIST) {
+			errno = EEXIST;
+			return -1;
+		}
+		if (key_val >= max_ent) {
+			errno = E2BIG;
+			return -1;
+		}
+		if (mode != map_production_ab_mode::percpu_array_no_copy)
+			std::copy((uint8_t *)value,
+				  (uint8_t *)value + value_size,
+				  data_at(key_val, cpu));
+		return 0;
+	}
 	return ensure_on_current_cpu<long>([&](int cpu) -> long {
 		// return impl[cpu].elem_update(key, value, flags);
 		if (key == nullptr) {
