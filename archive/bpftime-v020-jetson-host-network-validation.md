@@ -473,13 +473,13 @@ CPU 隔离显著释放了 BPFtime 的绝对吞吐，说明 reader、nginx 与其
 
 ### perf 与最新版
 
-- [v0.2.0 Docker netns 第一阶段 10 轮进程级 perf 汇总](../benchmark-results/v0.2.0/diagnostics/netns-phase1-10x-valid-20260721_095905/summary.md)
+- [v0.2.0 Docker netns 第一阶段 10 轮进程级 perf 汇总](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/v0.2.0/diagnostics/netns-phase1-10x-valid-20260721_095905/summary.md)
 - [v0.2.0 Docker netns 第一阶段逐样本数据](../benchmark-results/v0.2.0/diagnostics/netns-phase1-10x-valid-20260721_095905/cases.tsv)
-- [v0.2.0 第二阶段 CPU affinity 10 轮汇总](../benchmark-results/v0.2.0/diagnostics/netns-phase2-affinity-10x-20260721/summary.md)
+- [v0.2.0 第二阶段 CPU affinity 10 轮汇总](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/v0.2.0/diagnostics/netns-phase2-affinity-10x-20260721/summary.md)
 - [v0.2.0 第二阶段逐样本数据](../benchmark-results/v0.2.0/diagnostics/netns-phase2-affinity-10x-20260721/cases.tsv)
-- [v0.2.0 第三阶段网络因素 5 轮汇总](../benchmark-results/v0.2.0/diagnostics/netns-phase3-network-factors-5x-20260721/summary.md)
+- [v0.2.0 第三阶段网络因素 5 轮汇总](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/v0.2.0/diagnostics/netns-phase3-network-factors-5x-20260721/summary.md)
 - [v0.2.0 第三阶段网络因素逐样本数据](../benchmark-results/v0.2.0/diagnostics/netns-phase3-network-factors-5x-20260721/cases.tsv)
-- [v0.2.0 `INPUT -> ts-input` 定向 10 轮汇总](../benchmark-results/v0.2.0/diagnostics/netns-phase3-input-chain-10x-20260721/summary.md)
+- [v0.2.0 `INPUT -> ts-input` 定向 10 轮汇总](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/v0.2.0/diagnostics/netns-phase3-input-chain-10x-20260721/summary.md)
 - [v0.2.0 `INPUT -> ts-input` 定向逐样本数据](../benchmark-results/v0.2.0/diagnostics/netns-phase3-input-chain-10x-20260721/cases.tsv)
 - [v0.2.0 host BPFtime 1KB perf 复测](../benchmark-results/v0.2.0/perf/v020-host-bpftime-1kb-perf-recheck-20260712_223610/v020-host-bpftime-1kb-perf-recheck-20260712_223610.perf.txt)
 - [v0.2.0 Docker BPFtime 1KB perf](../benchmark-results/v0.2.0/perf/v020-docker-bpftime-1kb-perf-20260712_222632/v020-docker-bpftime-1kb-perf-20260712_222632.perf.txt)
