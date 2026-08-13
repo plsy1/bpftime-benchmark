@@ -8,11 +8,11 @@
 
 | 主题 | 结果入口 | 对应结论 |
 |---|---|---|
-| uprobe 普通 map 系统调查 | [ARM64/x64 顶层对照](uprobe/uprobe-top-cross-arch-20260803/) | [系统报告](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/bpftime-uprobe-ordinary-map-systematic-report-20260804.md) |
-| uprobe per-CPU map | [ARM64 路径诊断](uprobe/arm64-bpftime-vs-kernel-paths-20260803/) | [跨架构分析](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/bpftime-uprobe-percpu-cross-architecture-analysis-20260728.md) |
-| uprobe ARM64 matched 顶层差额 | [统一 lookup/update 对照](uprobe/relative-kernel-attribution-arm64-20260812/) | [口径与结论](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md) |
-| uprobe ARM64 生产路径归因 | [生产 runtime A/B 与 PMU](uprobe/map-production-leaf-ab-arm64-20260813/) | [具体操作归因](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/bpftime-uprobe-production-path-attribution-arm64-20260813.md) |
-| ssl-nginx V1–V4 消融 | [Empty Probe](empty-probe/run01/) · [No-copy/No-output](no-copy_no-output/run01/) · [No-output](no-output/run01/) · [Full aligned](full-aligned/) | [ARM 根因总览](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/bpftime-arm-performance-root-cause-20260727.md) |
+| uprobe 普通 map 系统调查 | [ARM64/x64 顶层对照](uprobe/uprobe-top-cross-arch-20260803/) | [系统报告](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/ordinary/bpftime-uprobe-ordinary-map-systematic-report-20260804.md) |
+| uprobe per-CPU map | [ARM64 路径诊断](uprobe/arm64-bpftime-vs-kernel-paths-20260803/) | [跨架构分析](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/percpu/bpftime-uprobe-percpu-cross-architecture-analysis-20260728.md) |
+| uprobe ARM64 matched 顶层差额 | [统一 lookup/update 对照](uprobe/relative-kernel-attribution-arm64-20260812/) | [口径与结论](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md) |
+| uprobe ARM64 生产路径归因 | [生产 runtime A/B 与 PMU](uprobe/map-production-leaf-ab-arm64-20260813/) | [具体操作归因](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md) |
+| ssl-nginx V1–V4 消融 | [Empty Probe](empty-probe/run01/) · [No-copy/No-output](no-copy_no-output/run01/) · [No-output](no-output/run01/) · [Full aligned](full-aligned/) | [ARM 根因总览](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/ssl-nginx/bpftime-arm-performance-root-cause-20260727.md) |
 | software perf record 对齐 | [Full unaligned](full-unaligned/) 与 [Full aligned](full-aligned/) | [对齐修复报告](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/archive/bpftime-software-perf-record-alignment-fix-20260722.md) |
 
 ## uprobe 数据索引
