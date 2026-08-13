@@ -5,17 +5,20 @@
 
 ## 建议阅读顺序
 
-1. [普通 map 系统报告](uprobe/ordinary/bpftime-uprobe-ordinary-map-systematic-report-20260804.md)：
+1. [Uprobe 综合调查报告](uprobe/bpftime-uprobe-comprehensive-investigation-report-20260813.md)：
+   从 benchmark 语义修正、ARM64/x64 顶层对照，到 Jetson matched 差额、L0–L3
+   分层及源码叶子路径的统一主报告。
+2. [普通 map 系统报告](uprobe/ordinary/bpftime-uprobe-ordinary-map-systematic-report-20260804.md)：
    当前 uprobe 普通 map 调查的完整结论，包含六项 benchmark 语义、跨平台结果及
    array lookup/update、hash lookup 的路径归因。
-2. [ARM 性能根因总览](ssl-nginx/bpftime-arm-performance-root-cause-20260727.md)：
+3. [ARM 性能根因总览](ssl-nginx/bpftime-arm-performance-root-cause-20260727.md)：
    `ssl-nginx` 调查的一页纸总结，说明 probe/runtime、输出路径和已修问题。
-3. [性能分析方法手册](guides/performance-analysis-playbook.md)：
+4. [性能分析方法手册](guides/performance-analysis-playbook.md)：
    从本轮工作提炼出的可复用实验与归因流程。
-4. [ARM64 matched 顶层对照补充](uprobe/attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md)：
+5. [ARM64 matched 顶层对照补充](uprobe/attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md)：
    统一 operation-specific control 下的 BPFtime−kernel 差额与 PMU 复核，并明确
    不能把跨 harness 代数余项解释为独立 runtime 阶段。
-5. [ARM64 生产路径归因](uprobe/attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md)：
+6. [ARM64 生产路径归因](uprobe/attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md)：
    用同一诊断 runtime 二进制执行生产 helper 路径 A/B，并以 PMU 验证具体操作对
    BPFtime−kernel 顶层差距的贡献量级。
 
@@ -23,6 +26,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [Uprobe 综合调查报告](uprobe/bpftime-uprobe-comprehensive-investigation-report-20260813.md) | **统一主入口**：语义、跨平台顶层、matched 差额、分层与源码叶子归因 |
 | [系统报告](uprobe/ordinary/bpftime-uprobe-ordinary-map-systematic-report-20260804.md) | **主入口**：六项结果、ARM64/x64 趋势、三个重点项目及 hash lookup 叶子级闭环 |
 | [ARM64 matched 顶层对照补充](uprobe/attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md) | 普通/per-CPU lookup/update 的统一 matched 差额和 PMU 复核 |
 | [ARM64 生产路径归因](uprobe/attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md) | fd/variant、generic handler、per-CPU array、Boost hash/find/value copy 和 delete 回收的生产路径 A/B |
