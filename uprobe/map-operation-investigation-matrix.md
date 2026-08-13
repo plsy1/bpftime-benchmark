@@ -28,7 +28,7 @@
 | Per-CPU array lookup | 稳定 lookup-hit | Kernel / Kernel 更快 | S3 | 已定位 SHM dispatch、generic handler、`std::function` wrapper 和 userspace CPU selection | 可继续拆 wrapper、`data_at()`、地址计算和 shared-memory pointer；完整性项目 |
 | Per-CPU array update | 稳定 update-existing | Kernel / Kernel 更快 | S3 | `std::function`/间接访问组合块约 `44.11 ns/helper`；CPU selection 约 `2.74 ns`，8-byte copy 约 `3.66 ns` | 高优先级 S4：拆类型擦除、间接调用、`data_at()` 和目标地址访问 |
 | Per-CPU array delete | Per-CPU array map 不支持 delete | 无有效性能含义 | S0 | 与 ordinary array delete 相同，只是 unsupported/error-return path | Excluded |
-| Per-CPU hash lookup | 稳定 lookup-hit | Kernel / Kernel 更快 | S3 | Boost.Interprocess `unordered_map::find()` 约 `121.67 ns/helper`，与此前 ARM64 顶层 gap 同量级；PMU 同向 | 最高优先级 S4：拆 key assign、hash、equality、bucket/node、`offset_ptr` 和 value-address extraction |
+| Per-CPU hash lookup | 稳定 lookup-hit | Kernel / Kernel 更快 | S4 | 完整 `impl.find()` 为 `125.275 ns/helper`；hash `15.186 ns`、通用 equality `27.280 ns`、交互 `0.332 ns`，Boost bucket/node/`offset_ptr`/value extraction 组合剩余 `82.476 ns`；key assign 相对 fixed copy 多 `7.147 ns` | 主要叶子 A/B 已完成；仅在优化或要求完全闭合时继续拆 65.8% 容器组合剩余量 |
 | Per-CPU hash update | 稳定 update-existing | Kernel / Kernel 更快 | S3 | Boost find 约 `120.63 ns/helper`；existing shared-memory value copy 约 `55.81 ns/helper` | 高优先级 S4：复用 lookup 的 find 拆分，再拆 value preparation、destination 和 copy |
 | Per-CPU hash delete | 修正后为稳定 delete-hit | Kernel / Kernel 更快 | S4 / Closed | 延迟析构/回收使生产路径从约 `998.56` 降至 `211.98 ns/helper`；同步 vector/node 析构与 SHM reclamation 贡献约 `786.59 ns/helper` | 已闭环；只有准备优化 allocator/reclamation 时才继续细拆 |
 
@@ -41,8 +41,9 @@
 └── 8 个进入成本调查
     ├── 2 个基本闭环：ordinary hash lookup、per-CPU hash delete-hit
     ├── 2 个生产操作级解释已足够：ordinary array lookup/update
-    └── 4 个仍可进入源码叶子级
-        ├── 高优先级：per-CPU hash lookup/update、per-CPU array update
+    ├── 1 个已完成首轮源码叶子 A/B：per-CPU hash lookup
+    └── 3 个仍可进入源码叶子级
+        ├── 高优先级：per-CPU hash update、per-CPU array update
         └── 完整性项目：per-CPU array lookup
 ```
 
@@ -50,10 +51,10 @@
 
 ## 下一步顺序
 
-1. Per-CPU hash lookup：2×2 hasher/equality A/B，另测 key preparation，剩余 Boost container path 用 perf/反汇编确认。
-2. Per-CPU hash update：复用 lookup 的 find 结论，拆 `value_vec.assign()`、entry destination 和 `std::copy`。
-3. Per-CPU array update：比较原 `std::function` wrapper、模板 inline wrapper、direct body、precomputed destination。
-4. Per-CPU array lookup：复用 array update 的 wrapper/CPU/address 分析，补 lookup-specific return path。
+1. Per-CPU hash update：复用 lookup 已量化的 find 结论，拆 `value_vec.assign()`、entry destination 和 `std::copy`。
+2. Per-CPU array update：比较原 `std::function` wrapper、模板 inline wrapper、direct body、precomputed destination。
+3. Per-CPU array lookup：复用 array update 的 wrapper/CPU/address 分析，补 lookup-specific return path。
+4. Per-CPU hash lookup：只有进入优化或要求完全叶子闭合时，再拆 bucket、node、`offset_ptr` 和 value extraction 的 82.476 ns 组合剩余量。
 5. Ordinary array update：仅在需要全矩阵叶子闭合时，继续拆 fd lookup、variant extraction、map-type switch 和 handler。
 
 ## 相关报告
@@ -62,3 +63,4 @@
 - [Per-CPU map 路径诊断](percpu/bpftime-uprobe-percpu-path-diagnosis-20260805.md)
 - [ARM64 matched 顶层差距](attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md)
 - [ARM64 生产路径归因](attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md)
+- [Per-CPU hash lookup 叶子级归因](percpu/bpftime-uprobe-percpu-hash-lookup-leaf-attribution-20260813.md)
