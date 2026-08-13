@@ -44,8 +44,6 @@
     └── 1 个生产操作级解释已足够：ordinary array lookup
 ```
 
-如果把 ordinary array update 的 BPFtime runtime 公共分发也要求拆到每个语句，则“仍可继续”的项目是5项；但它已有足够的顶层方向和主要机制解释，因此不属于最高优先级。
-
 ## 下一步
 
 剩余慢项的主要成本已经定位。下一步不再默认继续拆分，而是先决定研究目标：若进入优化，优先处理per-CPU array的`std::function` wrapper、per-CPU hash的Boost container/value representation；若只需诊断报告，则当前深度已经足够。
