@@ -1,0 +1,638 @@
+diff --git a/benchmark/uprobe/Makefile b/benchmark/uprobe/Makefile
+index 06ed9d8..e79c853 100644
+--- a/benchmark/uprobe/Makefile
++++ b/benchmark/uprobe/Makefile
+@@ -182,6 +182,22 @@ HML_LOADER_OBJ := $(HML_OUTPUT)/helper_map_ladder.o
+ HML_LOADER := $(HML_OUTPUT)/helper-map-ladder
+ HML_VICTIM := $(HML_OUTPUT)/helper-map-ladder-victim
+ 
++# Matched production-agent closure for ordinary/per-CPU array lookup/update.
++# Kept separate from helper-map-ladder for auditability.
++HMC_OUTPUT := $(OUTPUT)/helper-map-closure
++HMC_BPF_OBJ := $(HMC_OUTPUT)/helper_map_closure.bpf.o
++HMC_SKEL := $(HMC_OUTPUT)/helper_map_closure.skel.h
++HMC_LOADER_OBJ := $(HMC_OUTPUT)/helper_map_closure.o
++HMC_LOADER := $(HMC_OUTPUT)/helper-map-closure
++HMC_VICTIM := $(HMC_OUTPUT)/helper-map-closure-victim
++
++HHC_OUTPUT := $(OUTPUT)/helper-hash-closure
++HHC_BPF_OBJ := $(HHC_OUTPUT)/helper_hash_closure.bpf.o
++HHC_SKEL := $(HHC_OUTPUT)/helper_hash_closure.skel.h
++HHC_LOADER_OBJ := $(HHC_OUTPUT)/helper_hash_closure.o
++HHC_LOADER := $(HHC_OUTPUT)/helper-hash-closure
++HHC_VICTIM := $(HHC_OUTPUT)/helper-hash-closure-victim
++
+ # Matched kernel-BPF array-update value-size sweep.  This is separate from the
+ # official uprobe benchmark and the general kernel-map-runtime diagnostic so
+ # changing the diagnostic matrix cannot change either benchmark's semantics.
+@@ -207,6 +223,12 @@ top-hash-residual-diagnostic: $(THR_LOADER) $(THR_VICTIM)
+ .PHONY: helper-map-ladder-diagnostic
+ helper-map-ladder-diagnostic: $(HML_LOADER) $(HML_VICTIM)
+ 
++.PHONY: helper-map-closure-diagnostic
++helper-map-closure-diagnostic: $(HMC_LOADER) $(HMC_VICTIM)
++
++.PHONY: helper-hash-closure-diagnostic
++helper-hash-closure-diagnostic: $(HHC_LOADER) $(HHC_VICTIM)
++
+ .PHONY: kernel-array-update-sizes-diagnostic
+ kernel-array-update-sizes-diagnostic: $(KAUS_LOADER) $(KAUS_VICTIM)
+ 
+@@ -345,6 +367,60 @@ $(HML_VICTIM): diagnostics/helper_map_ladder_victim.c | $(HML_OUTPUT)
+ 	$(call msg,BINARY,$@)
+ 	$(Q)$(CC) -g -O3 -Wall $< -o $@
+ 
++$(HMC_OUTPUT):
++	$(call msg,MKDIR,$@)
++	$(Q)mkdir -p $@
++
++$(HMC_BPF_OBJ): diagnostics/helper_map_closure.bpf.c $(VMLINUX) | $(HMC_OUTPUT) $(BPFTOOL)
++	$(call msg,BPF,$@)
++	$(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) \
++		     $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
++		     -c $< -o $(HMC_OUTPUT)/helper_map_closure.tmp.bpf.o
++	$(Q)$(BPFTOOL) gen object $@ $(HMC_OUTPUT)/helper_map_closure.tmp.bpf.o
++
++$(HMC_SKEL): $(HMC_BPF_OBJ) | $(HMC_OUTPUT) $(BPFTOOL)
++	$(call msg,GEN-SKEL,$@)
++	$(Q)$(BPFTOOL) gen skeleton $< > $@
++
++$(HMC_LOADER_OBJ): diagnostics/helper_map_closure.c $(HMC_SKEL) | $(HMC_OUTPUT)
++	$(call msg,CC,$@)
++	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -I$(HMC_OUTPUT) -c $< -o $@
++
++$(HMC_LOADER): $(HMC_LOADER_OBJ) $(LIBBPF_OBJ) | $(HMC_OUTPUT)
++	$(call msg,BINARY,$@)
++	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
++
++$(HMC_VICTIM): diagnostics/helper_map_closure_victim.c | $(HMC_OUTPUT)
++	$(call msg,BINARY,$@)
++	$(Q)$(CC) -g -O3 -Wall $< -o $@
++
++$(HHC_OUTPUT):
++	$(call msg,MKDIR,$@)
++	$(Q)mkdir -p $@
++
++$(HHC_BPF_OBJ): diagnostics/helper_hash_closure.bpf.c $(VMLINUX) | $(HHC_OUTPUT) $(BPFTOOL)
++	$(call msg,BPF,$@)
++	$(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) \
++		     $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
++		     -c $< -o $(HHC_OUTPUT)/helper_hash_closure.tmp.bpf.o
++	$(Q)$(BPFTOOL) gen object $@ $(HHC_OUTPUT)/helper_hash_closure.tmp.bpf.o
++
++$(HHC_SKEL): $(HHC_BPF_OBJ) | $(HHC_OUTPUT) $(BPFTOOL)
++	$(call msg,GEN-SKEL,$@)
++	$(Q)$(BPFTOOL) gen skeleton $< > $@
++
++$(HHC_LOADER_OBJ): diagnostics/helper_hash_closure.c $(HHC_SKEL) | $(HHC_OUTPUT)
++	$(call msg,CC,$@)
++	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -I$(HHC_OUTPUT) -c $< -o $@
++
++$(HHC_LOADER): $(HHC_LOADER_OBJ) $(LIBBPF_OBJ) | $(HHC_OUTPUT)
++	$(call msg,BINARY,$@)
++	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
++
++$(HHC_VICTIM): diagnostics/helper_hash_closure_victim.c | $(HHC_OUTPUT)
++	$(call msg,BINARY,$@)
++	$(Q)$(CC) -g -O3 -Wall $< -o $@
++
+ $(KAUS_OUTPUT):
+ 	$(call msg,MKDIR,$@)
+ 	$(Q)mkdir -p $@
+diff --git a/benchmark/uprobe/diagnostics/helper_map_closure.bpf.c b/benchmark/uprobe/diagnostics/helper_map_closure.bpf.c
+new file mode 100644
+index 0000000..9d0d9b2
+--- /dev/null
++++ b/benchmark/uprobe/diagnostics/helper_map_closure.bpf.c
+@@ -0,0 +1,99 @@
++// SPDX-License-Identifier: GPL-2.0
++// Matched kernel/BPFtime ordinary/per-CPU array closure diagnostic.
++// Kept separate from the hash closure so the production shared-memory size is
++// not changed merely to fit every diagnostic map in one object.
++
++#define BPF_NO_GLOBAL_DATA
++#include <vmlinux.h>
++#include <bpf/bpf_helpers.h>
++
++#define DEFINE_MAP(name, map_type)                                            \
++	struct {                                                                 \
++		__uint(type, map_type);                                           \
++		__uint(max_entries, 1024);                                        \
++		__type(key, u32);                                                  \
++		__type(value, u64);                                                \
++	} name SEC(".maps")
++
++DEFINE_MAP(closure_array, BPF_MAP_TYPE_ARRAY);
++DEFINE_MAP(closure_percpu_array, BPF_MAP_TYPE_PERCPU_ARRAY);
++
++SEC("uprobe/benchmark/uprobe/.output/helper-map-closure/helper-map-closure-victim:__closure_setup")
++int closure_setup(struct pt_regs *ctx)
++{
++#pragma clang loop unroll(disable)
++	for (int i = 0; i < 1000; ++i) {
++		u32 key = i;
++		u64 value = i;
++		bpf_map_update_elem(&closure_array, &key, &value, BPF_ANY);
++		bpf_map_update_elem(&closure_percpu_array, &key, &value, BPF_ANY);
++	}
++	return 0;
++}
++
++SEC("uprobe/benchmark/uprobe/.output/helper-map-closure/helper-map-closure-victim:__closure_empty")
++int closure_empty(struct pt_regs *ctx)
++{
++	return 0;
++}
++
++SEC("uprobe/benchmark/uprobe/.output/helper-map-closure/helper-map-closure-victim:__closure_lookup_control")
++int closure_lookup_control(struct pt_regs *ctx)
++{
++#pragma clang loop unroll(disable)
++	for (int i = 0; i < 1000; ++i) {
++		u32 key = i;
++		void *key_pointer = &key;
++		barrier_var(key_pointer);
++		barrier();
++	}
++	return 0;
++}
++
++SEC("uprobe/benchmark/uprobe/.output/helper-map-closure/helper-map-closure-victim:__closure_update_control")
++int closure_update_control(struct pt_regs *ctx)
++{
++#pragma clang loop unroll(disable)
++	for (int i = 0; i < 1000; ++i) {
++		u32 key = i;
++		u64 value = i;
++		void *key_pointer = &key;
++		void *value_pointer = &value;
++		barrier_var(key_pointer);
++		barrier_var(value_pointer);
++		barrier();
++	}
++	return 0;
++}
++
++#define DEFINE_LOOKUP(program, map)                                           \
++	SEC("uprobe/benchmark/uprobe/.output/helper-map-closure/helper-map-closure-victim:__closure_" #program) \
++	int closure_##program(struct pt_regs *ctx)                              \
++	{                                                                        \
++	_Pragma("clang loop unroll(disable)")                                  \
++		for (int i = 0; i < 1000; ++i) {                               \
++			u32 key = i;                                              \
++			bpf_map_lookup_elem(&map, &key);                           \
++		}                                                                \
++		return 0;                                                        \
++	}
++
++#define DEFINE_UPDATE(program, map)                                           \
++	SEC("uprobe/benchmark/uprobe/.output/helper-map-closure/helper-map-closure-victim:__closure_" #program) \
++	int closure_##program(struct pt_regs *ctx)                              \
++	{                                                                        \
++	_Pragma("clang loop unroll(disable)")                                  \
++		for (int i = 0; i < 1000; ++i) {                               \
++			u32 key = i;                                              \
++			u64 value = i;                                            \
++			bpf_map_update_elem(&map, &key, &value, BPF_ANY);          \
++		}                                                                \
++		return 0;                                                        \
++	}
++
++DEFINE_LOOKUP(array_lookup, closure_array)
++DEFINE_UPDATE(array_update, closure_array)
++DEFINE_LOOKUP(percpu_array_lookup, closure_percpu_array)
++DEFINE_UPDATE(percpu_array_update, closure_percpu_array)
++
++char LICENSE[] SEC("license") = "GPL";
+diff --git a/benchmark/uprobe/diagnostics/helper_map_closure.c b/benchmark/uprobe/diagnostics/helper_map_closure.c
+new file mode 100644
+index 0000000..975b132
+--- /dev/null
++++ b/benchmark/uprobe/diagnostics/helper_map_closure.c
+@@ -0,0 +1,58 @@
++// SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
++
++#include <bpf/libbpf.h>
++#include <signal.h>
++#include <stdio.h>
++#include <unistd.h>
++
++#include "helper_map_closure.skel.h"
++
++static volatile sig_atomic_t exiting;
++
++static void sig_handler(int sig)
++{
++	(void)sig;
++	exiting = 1;
++}
++
++static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
++			   va_list args)
++{
++	(void)level;
++	return vfprintf(stderr, format, args);
++}
++
++int main(void)
++{
++	struct helper_map_closure_bpf *skel;
++	int err;
++
++	libbpf_set_print(libbpf_print_fn);
++	signal(SIGINT, sig_handler);
++	signal(SIGTERM, sig_handler);
++
++	skel = helper_map_closure_bpf__open();
++	if (!skel) {
++		fprintf(stderr, "Failed to open BPF skeleton\n");
++		return 1;
++	}
++	err = helper_map_closure_bpf__load(skel);
++	if (err) {
++		fprintf(stderr, "Failed to load BPF skeleton: %d\n", err);
++		goto cleanup;
++	}
++	err = helper_map_closure_bpf__attach(skel);
++	if (err) {
++		fprintf(stderr, "Failed to attach BPF skeleton: %d\n", err);
++		goto cleanup;
++	}
++
++	printf("Successfully started!\n");
++	fflush(stdout);
++	while (!exiting)
++		sleep(1);
++
++cleanup:
++	helper_map_closure_bpf__destroy(skel);
++	return err < 0 ? -err : err;
++}
+diff --git a/benchmark/uprobe/diagnostics/helper_map_closure_victim.c b/benchmark/uprobe/diagnostics/helper_map_closure_victim.c
+new file mode 100644
+index 0000000..901c48c
+--- /dev/null
++++ b/benchmark/uprobe/diagnostics/helper_map_closure_victim.c
+@@ -0,0 +1,115 @@
++#include <errno.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <time.h>
++
++#define BENCH_FUNC(name)                                                       \
++	__attribute__((noinline, noclone)) uint64_t name(char *a, int b,          \
++						     uint64_t c)             \
++	{                                                                          \
++		return a[b] + c;                                                     \
++	}
++
++BENCH_FUNC(__closure_setup)
++BENCH_FUNC(__closure_empty)
++BENCH_FUNC(__closure_lookup_control)
++BENCH_FUNC(__closure_update_control)
++BENCH_FUNC(__closure_array_lookup)
++BENCH_FUNC(__closure_array_update)
++BENCH_FUNC(__closure_percpu_array_lookup)
++BENCH_FUNC(__closure_percpu_array_update)
++
++typedef uint64_t (*bench_fn)(char *, int, uint64_t);
++
++struct bench_case {
++	const char *name;
++	bench_fn fn;
++};
++
++static uint64_t elapsed_ns(struct timespec begin, struct timespec end)
++{
++	return (uint64_t)(end.tv_sec - begin.tv_sec) * 1000000000ULL +
++	       (uint64_t)(end.tv_nsec - begin.tv_nsec);
++}
++
++static void invoke(bench_fn fn, uint64_t iterations)
++{
++	char buffer[20] = "hello world";
++	volatile uint64_t sink = 0;
++
++	for (uint64_t i = 0; i < iterations; ++i)
++		sink += fn(buffer, i % 4, i);
++	(void)sink;
++}
++
++static uint64_t measure(bench_fn fn, uint64_t iterations)
++{
++	struct timespec begin, end;
++
++	clock_gettime(CLOCK_MONOTONIC_RAW, &begin);
++	invoke(fn, iterations);
++	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
++	return elapsed_ns(begin, end);
++}
++
++static uint64_t parse_u64(const char *text, const char *name)
++{
++	char *end;
++	unsigned long long value;
++
++	errno = 0;
++	value = strtoull(text, &end, 10);
++	if (errno || !*text || *end) {
++		fprintf(stderr, "invalid %s: %s\n", name, text);
++		exit(2);
++	}
++	return value;
++}
++
++int main(int argc, char **argv)
++{
++	static const struct bench_case cases[] = {
++		{ "empty", __closure_empty },
++		{ "lookup_control", __closure_lookup_control },
++		{ "update_control", __closure_update_control },
++		{ "array_lookup", __closure_array_lookup },
++		{ "array_update", __closure_array_update },
++		{ "percpu_array_lookup", __closure_percpu_array_lookup },
++		{ "percpu_array_update", __closure_percpu_array_update },
++	};
++	static const unsigned count = sizeof(cases) / sizeof(cases[0]);
++	const uint64_t iterations = argc > 1 ? parse_u64(argv[1], "iterations") :
++						 20000;
++	const unsigned order = argc > 2 ? parse_u64(argv[2], "order") % count : 0;
++	const uint64_t warmup = argc > 3 ? parse_u64(argv[3], "warmup") : 1000;
++	const char *only = argc > 4 ? argv[4] : NULL;
++
++	/* Populate all maps outside every timed interval. */
++	invoke(__closure_setup, 1);
++	for (unsigned i = 0; i < count; ++i)
++		invoke(cases[i].fn, warmup);
++
++	printf("case,order,iterations,total_ns,ns_per_invocation\n");
++	for (unsigned position = 0; position < count; ++position) {
++		unsigned index = (order + position) % count;
++		const struct bench_case *item = &cases[index];
++		if (only && strcmp(only, item->name) != 0)
++			continue;
++		uint64_t total = measure(item->fn, iterations);
++		printf("%s,%u,%llu,%llu,%.9f\n", item->name, order,
++		       (unsigned long long)iterations, (unsigned long long)total,
++		       (double)total / (double)iterations);
++	}
++	if (only) {
++		int known = 0;
++		for (unsigned i = 0; i < count; ++i)
++			known |= strcmp(only, cases[i].name) == 0;
++		if (!known) {
++			fprintf(stderr, "unknown case: %s\n", only);
++			return 2;
++		}
++	}
++	return 0;
++}
+diff --git a/benchmark/uprobe/diagnostics/helper_hash_closure.bpf.c b/benchmark/uprobe/diagnostics/helper_hash_closure.bpf.c
+new file mode 100644
+index 0000000..7038549
+--- /dev/null
++++ b/benchmark/uprobe/diagnostics/helper_hash_closure.bpf.c
+@@ -0,0 +1,98 @@
++// SPDX-License-Identifier: GPL-2.0
++// Matched kernel/BPFtime ordinary/per-CPU hash closure diagnostic.
++
++#define BPF_NO_GLOBAL_DATA
++#include <vmlinux.h>
++#include <bpf/bpf_helpers.h>
++
++#define DEFINE_MAP(name, map_type)                                            \
++	struct {                                                                 \
++		__uint(type, map_type);                                           \
++		__uint(max_entries, 1024);                                        \
++		__type(key, u32);                                                  \
++		__type(value, u64);                                                \
++	} name SEC(".maps")
++
++/* Create the larger per-CPU hash map first, matching the official object. */
++DEFINE_MAP(closure_percpu_hash, BPF_MAP_TYPE_PERCPU_HASH);
++DEFINE_MAP(closure_hash, BPF_MAP_TYPE_HASH);
++
++SEC("uprobe/benchmark/uprobe/.output/helper-hash-closure/helper-hash-closure-victim:__closure_setup")
++int closure_setup(struct pt_regs *ctx)
++{
++#pragma clang loop unroll(disable)
++	for (int i = 0; i < 1000; ++i) {
++		u32 key = i;
++		u64 value = i;
++		bpf_map_update_elem(&closure_percpu_hash, &key, &value, BPF_ANY);
++		bpf_map_update_elem(&closure_hash, &key, &value, BPF_ANY);
++	}
++	return 0;
++}
++
++SEC("uprobe/benchmark/uprobe/.output/helper-hash-closure/helper-hash-closure-victim:__closure_empty")
++int closure_empty(struct pt_regs *ctx)
++{
++	return 0;
++}
++
++SEC("uprobe/benchmark/uprobe/.output/helper-hash-closure/helper-hash-closure-victim:__closure_lookup_control")
++int closure_lookup_control(struct pt_regs *ctx)
++{
++#pragma clang loop unroll(disable)
++	for (int i = 0; i < 1000; ++i) {
++		u32 key = i;
++		void *key_pointer = &key;
++		barrier_var(key_pointer);
++		barrier();
++	}
++	return 0;
++}
++
++SEC("uprobe/benchmark/uprobe/.output/helper-hash-closure/helper-hash-closure-victim:__closure_update_control")
++int closure_update_control(struct pt_regs *ctx)
++{
++#pragma clang loop unroll(disable)
++	for (int i = 0; i < 1000; ++i) {
++		u32 key = i;
++		u64 value = i;
++		void *key_pointer = &key;
++		void *value_pointer = &value;
++		barrier_var(key_pointer);
++		barrier_var(value_pointer);
++		barrier();
++	}
++	return 0;
++}
++
++#define DEFINE_LOOKUP(program, map)                                           \
++	SEC("uprobe/benchmark/uprobe/.output/helper-hash-closure/helper-hash-closure-victim:__closure_" #program) \
++	int closure_##program(struct pt_regs *ctx)                              \
++	{                                                                        \
++	_Pragma("clang loop unroll(disable)")                                  \
++		for (int i = 0; i < 1000; ++i) {                               \
++			u32 key = i;                                              \
++			bpf_map_lookup_elem(&map, &key);                           \
++		}                                                                \
++		return 0;                                                        \
++	}
++
++#define DEFINE_UPDATE(program, map)                                           \
++	SEC("uprobe/benchmark/uprobe/.output/helper-hash-closure/helper-hash-closure-victim:__closure_" #program) \
++	int closure_##program(struct pt_regs *ctx)                              \
++	{                                                                        \
++	_Pragma("clang loop unroll(disable)")                                  \
++		for (int i = 0; i < 1000; ++i) {                               \
++			u32 key = i;                                              \
++			u64 value = i;                                            \
++			bpf_map_update_elem(&map, &key, &value, BPF_ANY);          \
++		}                                                                \
++		return 0;                                                        \
++	}
++
++DEFINE_LOOKUP(hash_lookup, closure_hash)
++DEFINE_UPDATE(hash_update, closure_hash)
++DEFINE_LOOKUP(percpu_hash_lookup, closure_percpu_hash)
++DEFINE_UPDATE(percpu_hash_update, closure_percpu_hash)
++
++char LICENSE[] SEC("license") = "GPL";
+diff --git a/benchmark/uprobe/diagnostics/helper_hash_closure.c b/benchmark/uprobe/diagnostics/helper_hash_closure.c
+new file mode 100644
+index 0000000..f502dc0
+--- /dev/null
++++ b/benchmark/uprobe/diagnostics/helper_hash_closure.c
+@@ -0,0 +1,32 @@
++// SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
++#include <bpf/libbpf.h>
++#include <signal.h>
++#include <stdio.h>
++#include <unistd.h>
++#include "helper_hash_closure.skel.h"
++
++static volatile sig_atomic_t exiting;
++static void sig_handler(int sig) { (void)sig; exiting = 1; }
++static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
++{ (void)level; return vfprintf(stderr, format, args); }
++
++int main(void)
++{
++	struct helper_hash_closure_bpf *skel;
++	int err;
++	libbpf_set_print(libbpf_print_fn);
++	signal(SIGINT, sig_handler);
++	signal(SIGTERM, sig_handler);
++	skel = helper_hash_closure_bpf__open();
++	if (!skel) return 1;
++	err = helper_hash_closure_bpf__load(skel);
++	if (err) goto cleanup;
++	err = helper_hash_closure_bpf__attach(skel);
++	if (err) goto cleanup;
++	printf("Successfully started!\n");
++	fflush(stdout);
++	while (!exiting) sleep(1);
++cleanup:
++	helper_hash_closure_bpf__destroy(skel);
++	return err < 0 ? -err : err;
++}
+diff --git a/benchmark/uprobe/diagnostics/helper_hash_closure_victim.c b/benchmark/uprobe/diagnostics/helper_hash_closure_victim.c
+new file mode 100644
+index 0000000..5f8a084
+--- /dev/null
++++ b/benchmark/uprobe/diagnostics/helper_hash_closure_victim.c
+@@ -0,0 +1,99 @@
++#include <errno.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <time.h>
++
++#define BENCH_FUNC(name)                                                       \
++	__attribute__((noinline, noclone)) uint64_t name(char *a, int b, uint64_t c) \
++	{ return a[b] + c; }
++
++BENCH_FUNC(__closure_setup)
++BENCH_FUNC(__closure_empty)
++BENCH_FUNC(__closure_lookup_control)
++BENCH_FUNC(__closure_update_control)
++BENCH_FUNC(__closure_hash_lookup)
++BENCH_FUNC(__closure_hash_update)
++BENCH_FUNC(__closure_percpu_hash_lookup)
++BENCH_FUNC(__closure_percpu_hash_update)
++
++typedef uint64_t (*bench_fn)(char *, int, uint64_t);
++struct bench_case { const char *name; bench_fn fn; };
++
++static uint64_t elapsed_ns(struct timespec begin, struct timespec end)
++{
++	return (uint64_t)(end.tv_sec - begin.tv_sec) * 1000000000ULL +
++	       (uint64_t)(end.tv_nsec - begin.tv_nsec);
++}
++
++static void invoke(bench_fn fn, uint64_t iterations)
++{
++	char buffer[20] = "hello world";
++	volatile uint64_t sink = 0;
++	for (uint64_t i = 0; i < iterations; ++i)
++		sink += fn(buffer, i % 4, i);
++	(void)sink;
++}
++
++static uint64_t measure(bench_fn fn, uint64_t iterations)
++{
++	struct timespec begin, end;
++	clock_gettime(CLOCK_MONOTONIC_RAW, &begin);
++	invoke(fn, iterations);
++	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
++	return elapsed_ns(begin, end);
++}
++
++static uint64_t parse_u64(const char *text, const char *name)
++{
++	char *end;
++	errno = 0;
++	unsigned long long value = strtoull(text, &end, 10);
++	if (errno || !*text || *end) {
++		fprintf(stderr, "invalid %s: %s\n", name, text);
++		exit(2);
++	}
++	return value;
++}
++
++int main(int argc, char **argv)
++{
++	static const struct bench_case cases[] = {
++		{ "empty", __closure_empty },
++		{ "lookup_control", __closure_lookup_control },
++		{ "update_control", __closure_update_control },
++		{ "hash_lookup", __closure_hash_lookup },
++		{ "hash_update", __closure_hash_update },
++		{ "percpu_hash_lookup", __closure_percpu_hash_lookup },
++		{ "percpu_hash_update", __closure_percpu_hash_update },
++	};
++	static const unsigned count = sizeof(cases) / sizeof(cases[0]);
++	const uint64_t iterations = argc > 1 ? parse_u64(argv[1], "iterations") : 20000;
++	const unsigned order = argc > 2 ? parse_u64(argv[2], "order") % count : 0;
++	const uint64_t warmup = argc > 3 ? parse_u64(argv[3], "warmup") : 1000;
++	const char *only = argc > 4 ? argv[4] : NULL;
++
++	invoke(__closure_setup, 1);
++	for (unsigned i = 0; i < count; ++i)
++		invoke(cases[i].fn, warmup);
++
++	printf("case,order,iterations,total_ns,ns_per_invocation\n");
++	for (unsigned position = 0; position < count; ++position) {
++		unsigned index = (order + position) % count;
++		const struct bench_case *item = &cases[index];
++		if (only && strcmp(only, item->name) != 0)
++			continue;
++		uint64_t total = measure(item->fn, iterations);
++		printf("%s,%u,%llu,%llu,%.9f\n", item->name, order,
++		       (unsigned long long)iterations, (unsigned long long)total,
++		       (double)total / (double)iterations);
++	}
++	if (only) {
++		int known = 0;
++		for (unsigned i = 0; i < count; ++i)
++			known |= strcmp(only, cases[i].name) == 0;
++		if (!known) return 2;
++	}
++	return 0;
++}

@@ -1,0 +1,413 @@
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp b/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
+index 7d06f69..190c3c6 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
+@@ -4,6 +4,7 @@
+  * All rights reserved.
+  */
+ #include "bpf_map/map_common_def.hpp"
++#include "bpf_map/map_production_ab.hpp"
+ #include "linux/bpf.h"
+ #include "spdlog/spdlog.h"
+ #include <algorithm>
+@@ -33,6 +34,23 @@ per_cpu_array_map_impl::per_cpu_array_map_impl(
+ 
+ void *per_cpu_array_map_impl::elem_lookup(const void *key)
+ {
++	const auto mode = get_map_production_ab_mode();
++	if (mode == map_production_ab_mode::percpu_array_direct ||
++	    mode == map_production_ab_mode::percpu_array_fixed_cpu ||
++	    mode == map_production_ab_mode::percpu_array_no_copy) {
++		const int cpu = mode == map_production_ab_mode::percpu_array_fixed_cpu ?
++				5 : my_sched_getcpu();
++		if (key == nullptr) {
++			errno = ENOENT;
++			return nullptr;
++		}
++		const uint32_t key_val = *(uint32_t *)key;
++		if (key_val >= max_ent) {
++			errno = ENOENT;
++			return nullptr;
++		}
++		return data_at(key_val, cpu);
++	}
+ 	return ensure_on_current_cpu<void *>([&](int cpu) -> void * {
+ 		if (key == nullptr) {
+ 			errno = ENOENT;
+@@ -52,6 +70,31 @@ long per_cpu_array_map_impl::elem_update(const void *key, const void *value,
+ {
+ 	if (!check_update_flags(flags))
+ 		return -1;
++	const auto mode = get_map_production_ab_mode();
++	if (mode == map_production_ab_mode::percpu_array_direct ||
++	    mode == map_production_ab_mode::percpu_array_fixed_cpu ||
++	    mode == map_production_ab_mode::percpu_array_no_copy) {
++		const int cpu = mode == map_production_ab_mode::percpu_array_fixed_cpu ?
++				5 : my_sched_getcpu();
++		if (key == nullptr) {
++			errno = ENOENT;
++			return -1;
++		}
++		const uint32_t key_val = *(uint32_t *)key;
++		if (key_val < max_ent && flags == BPF_NOEXIST) {
++			errno = EEXIST;
++			return -1;
++		}
++		if (key_val >= max_ent) {
++			errno = E2BIG;
++			return -1;
++		}
++		if (mode != map_production_ab_mode::percpu_array_no_copy)
++			std::copy((uint8_t *)value,
++				  (uint8_t *)value + value_size,
++				  data_at(key_val, cpu));
++		return 0;
++	}
+ 	return ensure_on_current_cpu<long>([&](int cpu) -> long {
+ 		// return impl[cpu].elem_update(key, value, flags);
+ 		if (key == nullptr) {
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp b/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp
+index 3e506c5..525f51a 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp
+@@ -4,6 +4,7 @@
+  * All rights reserved.
+  */
+ #include "bpf_map/map_common_def.hpp"
++#include "bpf_map/map_production_ab.hpp"
+ #include "linux/bpf.h"
+ #include "spdlog/fmt/bin_to_hex.h"
+ #include "spdlog/spdlog.h"
+@@ -17,6 +18,15 @@
+ 
+ namespace bpftime
+ {
++std::vector<per_cpu_hash_map_impl::node_type> &
++per_cpu_hash_map_impl::diagnostic_deferred_nodes()
++{
++	static thread_local std::vector<node_type> nodes;
++	if (nodes.capacity() < 1024)
++		nodes.reserve(1024);
++	return nodes;
++}
++
+ per_cpu_hash_map_impl::per_cpu_hash_map_impl(
+ 	boost::interprocess::managed_shared_memory &memory, uint32_t key_size,
+ 	uint32_t value_size, uint32_t max_entries)
+@@ -55,6 +65,9 @@ void *per_cpu_hash_map_impl::elem_lookup(const void *key)
+ 	}
+ 	bytes_vec &key_vec = this->key_templates[cpu];
+ 	key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
++	if (get_map_production_ab_mode() ==
++	    map_production_ab_mode::percpu_hash_lookup_no_find)
++		return &value_template[value_size * cpu];
+ 	if (auto itr = impl.find(key_vec); itr != impl.end()) {
+ 		SPDLOG_TRACE("Exit elem lookup of hash map");
+ 		return &itr->second[value_size * cpu];
+@@ -68,6 +81,9 @@ void *per_cpu_hash_map_impl::elem_lookup(const void *key)
+ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
+ 					uint64_t flags)
+ {
++	if (get_map_production_ab_mode() ==
++	    map_production_ab_mode::percpu_hash_delete_defer_reclaim)
++		diagnostic_deferred_nodes().clear();
+ 	if (!check_update_flags(flags))
+ 		return -1;
+ 	int cpu = my_sched_getcpu();
+@@ -79,9 +95,15 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
+ 	bytes_vec &value_vec = this->single_value_templates[cpu];
+ 	key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
+ 	value_vec.assign((uint8_t *)value, (uint8_t *)value + value_size);
++	if (get_map_production_ab_mode() ==
++	    map_production_ab_mode::percpu_hash_update_no_find) {
++		return 0;
++	}
+ 	if (auto itr = impl.find(key_vec); itr != impl.end()) {
+-		std::copy(value_vec.begin(), value_vec.end(),
+-			  itr->second.begin() + cpu * value_size);
++		if (get_map_production_ab_mode() !=
++		    map_production_ab_mode::percpu_hash_update_no_copy)
++			std::copy(value_vec.begin(), value_vec.end(),
++				  itr->second.begin() + cpu * value_size);
+ 	} else {
+ 		bytes_vec full_value_vec = this->value_template;
+ 		std::copy(value_vec.begin(), value_vec.end(),
+@@ -104,7 +126,13 @@ long per_cpu_hash_map_impl::elem_delete(const void *key)
+ 		errno = ENOENT;
+ 		return -1;
+ 	}
+-	impl.erase(itr);
++	if (get_map_production_ab_mode() ==
++	    map_production_ab_mode::percpu_hash_delete_defer_reclaim) {
++		auto node = impl.extract(itr);
++		diagnostic_deferred_nodes().push_back(std::move(node));
++	} else {
++		impl.erase(itr);
++	}
+ 	return 0;
+ }
+ 
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp b/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp
+index 420ac51..77c0ec9 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp
+@@ -13,6 +13,7 @@
+ #include <bpf_map/map_common_def.hpp>
+ #include <boost/unordered/unordered_map.hpp>
+ #include <cstdint>
++#include <vector>
+ 
+ namespace bpftime
+ {
+@@ -38,6 +39,7 @@ class per_cpu_hash_map_impl {
+ 		boost::interprocess::managed_shared_memory::segment_manager>;
+ 	using bytes_vec_vec =
+ 		boost::interprocess::vector<bytes_vec, bytes_vec_vec_allocator>;
++	using node_type = shm_hash_map::node_type;
+ 
+ 	shm_hash_map impl;
+ 	uint32_t key_size;
+@@ -47,6 +49,7 @@ class per_cpu_hash_map_impl {
+ 
+ 	bytes_vec value_template;
+ 	bytes_vec_vec key_templates, single_value_templates;
++	static std::vector<node_type> &diagnostic_deferred_nodes();
+ 
+     public:
+ 	const static bool should_lock = false;
+diff --git a/runtime/src/bpftime_shm_internal.cpp b/runtime/src/bpftime_shm_internal.cpp
+index cfceead..e14c114 100644
+--- a/runtime/src/bpftime_shm_internal.cpp
++++ b/runtime/src/bpftime_shm_internal.cpp
+@@ -4,6 +4,7 @@
+  * All rights reserved.
+  */
+ #include "bpftime_shm.hpp"
++#include "bpf_map/map_production_ab.hpp"
+ #include "handler/map_handler.hpp"
+ #include "handler/memfd_handler.hpp"
+ #include <ebpf-vm.h>
+@@ -17,6 +18,7 @@
+ #include <cstdint>
+ #include <cstdio>
+ #include <memory>
++#include <vector>
+ #if __linux__
+ #include <sys/epoll.h>
+ #ifdef BPFTIME_ENABLE_CUDA_ATTACH
+@@ -137,6 +139,29 @@ uint32_t bpftime_shm::bpf_map_value_size(int fd) const
+ const void *bpftime_shm::bpf_map_lookup_elem(int fd, const void *key,
+ 					     bool from_syscall) const
+ {
++	const auto mode = get_map_production_ab_mode();
++	if (!from_syscall &&
++	    (mode == map_production_ab_mode::cache_control ||
++	     mode == map_production_ab_mode::cached_handler ||
++	     mode == map_production_ab_mode::direct_map)) {
++		static thread_local std::vector<const bpf_map_handler *> cache;
++		if (cache.empty())
++			cache.resize(manager->size(), nullptr);
++		if (fd < 0 || (std::size_t)fd >= cache.size())
++			return nullptr;
++		auto *&handler = cache[fd];
++		if (!handler)
++			handler = try_get_map_handler(fd);
++		if (!handler)
++			return nullptr;
++		if (mode == map_production_ab_mode::cache_control) {
++			auto *normal = try_get_map_handler(fd);
++			return normal ? normal->map_lookup_elem(key, false) : nullptr;
++		}
++		return mode == map_production_ab_mode::direct_map ?
++			       handler->diagnostic_direct_lookup(key) :
++			       handler->map_lookup_elem(key, false);
++	}
+ 	auto *handler = try_get_map_handler(fd);
+ 	return handler ? handler->map_lookup_elem(key, from_syscall) : nullptr;
+ }
+@@ -145,6 +170,30 @@ long bpftime_shm::bpf_map_update_elem(int fd, const void *key,
+ 				      const void *value, uint64_t flags,
+ 				      bool from_syscall) const
+ {
++	const auto mode = get_map_production_ab_mode();
++	if (!from_syscall &&
++	    (mode == map_production_ab_mode::cache_control ||
++	     mode == map_production_ab_mode::cached_handler ||
++	     mode == map_production_ab_mode::direct_map)) {
++		static thread_local std::vector<const bpf_map_handler *> cache;
++		if (cache.empty())
++			cache.resize(manager->size(), nullptr);
++		if (fd < 0 || (std::size_t)fd >= cache.size())
++			return -1;
++		auto *&handler = cache[fd];
++		if (!handler)
++			handler = try_get_map_handler(fd);
++		if (!handler)
++			return -1;
++		if (mode == map_production_ab_mode::cache_control) {
++			auto *normal = try_get_map_handler(fd);
++			return normal ? normal->map_update_elem(key, value, flags,
++							 false) : -1;
++		}
++		return mode == map_production_ab_mode::direct_map ?
++			       handler->diagnostic_direct_update(key, value, flags) :
++			       handler->map_update_elem(key, value, flags, false);
++	}
+ 	auto *handler = try_get_map_handler(fd);
+ 	return handler ? handler->map_update_elem(key, value, flags,
+ 						  from_syscall) :
+@@ -154,6 +203,29 @@ long bpftime_shm::bpf_map_update_elem(int fd, const void *key,
+ long bpftime_shm::bpf_delete_elem(int fd, const void *key,
+ 				  bool from_syscall) const
+ {
++	const auto mode = get_map_production_ab_mode();
++	if (!from_syscall &&
++	    (mode == map_production_ab_mode::cache_control ||
++	     mode == map_production_ab_mode::cached_handler ||
++	     mode == map_production_ab_mode::direct_map)) {
++		static thread_local std::vector<const bpf_map_handler *> cache;
++		if (cache.empty())
++			cache.resize(manager->size(), nullptr);
++		if (fd < 0 || (std::size_t)fd >= cache.size())
++			return -1;
++		auto *&handler = cache[fd];
++		if (!handler)
++			handler = try_get_map_handler(fd);
++		if (!handler)
++			return -1;
++		if (mode == map_production_ab_mode::cache_control) {
++			auto *normal = try_get_map_handler(fd);
++			return normal ? normal->map_delete_elem(key, false) : -1;
++		}
++		return mode == map_production_ab_mode::direct_map ?
++			       handler->diagnostic_direct_delete(key) :
++			       handler->map_delete_elem(key, false);
++	}
+ 	auto *handler = try_get_map_handler(fd);
+ 	return handler ? handler->map_delete_elem(key, from_syscall) : -1;
+ }
+diff --git a/runtime/src/handler/map_handler.cpp b/runtime/src/handler/map_handler.cpp
+index 721888a..1e3068b 100644
+--- a/runtime/src/handler/map_handler.cpp
++++ b/runtime/src/handler/map_handler.cpp
+@@ -272,6 +272,44 @@ const void *bpf_map_handler::map_lookup_elem(const void *key,
+ 	return 0;
+ }
+ 
++const void *bpf_map_handler::diagnostic_direct_lookup(const void *key) const
++{
++	if (type == bpf_map_type::BPF_MAP_TYPE_ARRAY)
++		return static_cast<array_map_impl *>(map_impl_ptr.get())
++			->elem_lookup(key);
++	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)
++		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
++			->elem_lookup(key);
++	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH)
++		return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
++			->elem_lookup(key);
++	return map_lookup_elem(key, false);
++}
++
++long bpf_map_handler::diagnostic_direct_update(const void *key,
++					       const void *value,
++					       uint64_t flags) const
++{
++	if (type == bpf_map_type::BPF_MAP_TYPE_ARRAY)
++		return static_cast<array_map_impl *>(map_impl_ptr.get())
++			->elem_update(key, value, flags);
++	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)
++		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
++			->elem_update(key, value, flags);
++	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH)
++		return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
++			->elem_update(key, value, flags);
++	return map_update_elem(key, value, flags, false);
++}
++
++long bpf_map_handler::diagnostic_direct_delete(const void *key) const
++{
++	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH)
++		return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
++			->elem_delete(key);
++	return map_delete_elem(key, false);
++}
++
+ long bpf_map_handler::map_update_elem(const void *key, const void *value,
+ 				      uint64_t flags, bool from_syscall) const
+ {
+diff --git a/runtime/src/handler/map_handler.hpp b/runtime/src/handler/map_handler.hpp
+index 58385d8..9af1105 100644
+--- a/runtime/src/handler/map_handler.hpp
++++ b/runtime/src/handler/map_handler.hpp
+@@ -200,6 +200,12 @@ class bpf_map_handler {
+ 	// *		Returns zero on success. On error, -1 is returned and
+ 	// *errno* *		is set appropriately.
+ 	long map_delete_elem(const void *key, bool from_syscall = false) const;
++	// Diagnostic production A/B entry points. These keep the concrete map
++	// operation while bypassing generic map-type dispatch for supported maps.
++	const void *diagnostic_direct_lookup(const void *key) const;
++	long diagnostic_direct_update(const void *key, const void *value,
++				      uint64_t flags) const;
++	long diagnostic_direct_delete(const void *key) const;
+ 	// * BPF_MAP_GET_NEXT_KEY
+ 	// *	Description
+ 	// *		Look up an element by key in a specified map and return
+diff --git a/runtime/src/bpf_map/map_production_ab.hpp b/runtime/src/bpf_map/map_production_ab.hpp
+new file mode 100644
+index 0000000..2a8c6e9
+--- /dev/null
++++ b/runtime/src/bpf_map/map_production_ab.hpp
+@@ -0,0 +1,53 @@
++// SPDX-License-Identifier: MIT
++// Diagnostic-only runtime switches for production-agent map path A/B tests.
++#pragma once
++
++#include <cstdlib>
++#include <string_view>
++
++namespace bpftime
++{
++enum class map_production_ab_mode {
++	base,
++	cache_control,
++	cached_handler,
++	direct_map,
++	percpu_array_direct,
++	percpu_array_fixed_cpu,
++	percpu_array_no_copy,
++	percpu_hash_lookup_no_find,
++	percpu_hash_update_no_find,
++	percpu_hash_update_no_copy,
++	percpu_hash_delete_defer_reclaim,
++};
++
++inline map_production_ab_mode get_map_production_ab_mode()
++{
++	static const map_production_ab_mode mode = [] {
++		const char *raw = std::getenv("BPFTIME_MAP_PRODUCTION_AB");
++		const std::string_view value = raw ? raw : "base";
++		if (value == "cache_control")
++			return map_production_ab_mode::cache_control;
++		if (value == "cached_handler")
++			return map_production_ab_mode::cached_handler;
++		if (value == "direct_map")
++			return map_production_ab_mode::direct_map;
++		if (value == "percpu_array_direct")
++			return map_production_ab_mode::percpu_array_direct;
++		if (value == "percpu_array_fixed_cpu")
++			return map_production_ab_mode::percpu_array_fixed_cpu;
++		if (value == "percpu_array_no_copy")
++			return map_production_ab_mode::percpu_array_no_copy;
++		if (value == "percpu_hash_lookup_no_find")
++			return map_production_ab_mode::percpu_hash_lookup_no_find;
++		if (value == "percpu_hash_update_no_find")
++			return map_production_ab_mode::percpu_hash_update_no_find;
++		if (value == "percpu_hash_update_no_copy")
++			return map_production_ab_mode::percpu_hash_update_no_copy;
++		if (value == "percpu_hash_delete_defer_reclaim")
++			return map_production_ab_mode::percpu_hash_delete_defer_reclaim;
++		return map_production_ab_mode::base;
++	}();
++	return mode;
++}
++} // namespace bpftime

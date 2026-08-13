@@ -1,0 +1,22 @@
+operation,prior_strict_gap_ns_per_helper,concrete_operation,production_ab_saving_ns_per_helper,effect_as_percent_of_prior_gap,pmu_cycles_saving_per_helper,pmu_instructions_saving_per_helper,mechanism_scope
+ordinary array lookup,11.451517568,SHM fd/variant lookup,1.840031488,16.068,4.198021200,26.397924750,BPFtime-only shared-memory runtime machinery
+ordinary array lookup,11.451517568,generic handler dispatch,4.729208192,41.298,10.042923967,51.588528817,BPFtime-only generic userspace dispatch
+ordinary array update,5.888155648,SHM fd/variant lookup,1.850054144,31.420,4.103718383,26.376374783,BPFtime-only shared-memory runtime machinery
+ordinary array update,5.888155648,generic handler dispatch,4.287593600,72.817,9.346671833,53.590138800,BPFtime-only generic userspace dispatch
+per-CPU array lookup,19.731560192,SHM fd/variant lookup,2.077524224,10.529,3.750038367,26.409881483,BPFtime-only shared-memory runtime machinery
+per-CPU array lookup,19.731560192,generic handler dispatch,5.066376960,25.677,11.579487417,48.565344150,BPFtime-only generic userspace dispatch
+per-CPU array lookup,19.731560192,std::function wrapper,4.921894528,24.944,13.510051750,48.968026567,BPFtime-only implementation machinery
+per-CPU array lookup,19.731560192,sched_getcpu,2.723334400,13.802,5.058035583,29.686397450,logical CPU selection exists in both; measured userspace mechanism is BPFtime-specific
+per-CPU array update,50.174986880,SHM fd/variant lookup,5.848665088,11.657,10.417793867,26.414904767,BPFtime-only shared-memory runtime machinery
+per-CPU array update,50.174986880,generic handler dispatch,9.282634752,18.501,17.902650400,51.567988433,BPFtime-only generic userspace dispatch
+per-CPU array update,50.174986880,std::function wrapper,44.110588160,87.914,80.830127850,258.024508450,BPFtime-only implementation machinery
+per-CPU array update,50.174986880,sched_getcpu,2.736439296,5.454,4.982849833,29.723322167,logical CPU selection exists in both; measured userspace mechanism is BPFtime-specific
+per-CPU array update,50.174986880,8-byte value copy,3.659913984,7.294,6.975989500,38.870184667,logical value copy exists in both; measured userspace copy is BPFtime's implementation
+per-CPU hash lookup,127.038709440,SHM fd/variant lookup,3.960375040,3.117,7.288743933,26.399167400,BPFtime-only shared-memory runtime machinery
+per-CPU hash lookup,127.038709440,generic handler dispatch,7.608592960,5.989,14.554914733,41.270263767,BPFtime-only generic userspace dispatch
+per-CPU hash lookup,127.038709440,Boost hash/find,121.668187200,95.773,219.912404633,676.958940433,logical hash lookup exists in both; Boost.Interprocess implementation is BPFtime-specific
+per-CPU hash update,162.486728000,SHM fd/variant lookup,4.117839360,2.534,6.139830383,26.383190933,BPFtime-only shared-memory runtime machinery
+per-CPU hash update,162.486728000,generic handler dispatch,8.143836800,5.012,17.300405900,44.289823550,BPFtime-only generic userspace dispatch
+per-CPU hash update,162.486728000,existing value copy,55.805867200,34.345,101.162056950,392.774367550,logical update copy exists in both; measured shared-memory vector copy is BPFtime-specific
+per-CPU hash update,162.486728000,Boost hash/find,120.630732160,74.240,218.782458450,598.088692550,logical hash lookup exists in both; Boost.Interprocess implementation is BPFtime-specific
+per-CPU hash delete-hit,831.170000000,synchronous vector/node destruction and SHM reclamation,786.587948800,94.636,see prior delete-layer PMU,see prior delete-layer PMU,BPFtime-only Boost.Interprocess destruction/reclamation; kernel uses preallocation/freelist

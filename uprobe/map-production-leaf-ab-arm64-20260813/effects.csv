@@ -1,0 +1,21 @@
+operation,concrete_operation,from_mode,to_mode,mean_saving_ns_per_helper,paired_median,paired_sd,min,max
+ordinary array lookup,SHM fd/variant lookup,cache_control,cached_handler,1.840031488,1.845843840,0.132728370,1.714147840,2.041380480
+ordinary array lookup,generic handler dispatch,cached_handler,direct_map,4.729208192,4.728192640,0.062232943,4.660168320,4.798006400
+ordinary array update,SHM fd/variant lookup,cache_control,cached_handler,1.850054144,1.802545280,0.134131477,1.681619200,2.015881600
+ordinary array update,generic handler dispatch,cached_handler,direct_map,4.287593600,4.230256000,0.146175596,4.141858560,4.497767680
+per-CPU array lookup,SHM fd/variant lookup,cache_control,cached_handler,2.077524224,2.104764800,0.186925889,1.774976000,2.290776320
+per-CPU array lookup,generic handler dispatch,cached_handler,direct_map,5.066376960,5.070600320,0.118901398,4.905724800,5.240074240
+per-CPU array lookup,std::function wrapper,base,percpu_array_direct,4.921894528,4.955262720,0.141014841,4.723223040,5.050787840
+per-CPU array lookup,sched_getcpu,percpu_array_direct,percpu_array_fixed_cpu,2.723334400,2.755738240,0.096586365,2.553727360,2.796508160
+per-CPU array update,SHM fd/variant lookup,cache_control,cached_handler,5.848665088,5.824029440,0.136358989,5.648874240,5.991269120
+per-CPU array update,generic handler dispatch,cached_handler,direct_map,9.282634752,9.463747840,0.391232212,8.600044800,9.522524800
+per-CPU array update,std::function wrapper,base,percpu_array_direct,44.110588160,44.098236800,0.105005786,43.975607680,44.253701120
+per-CPU array update,sched_getcpu,percpu_array_direct,percpu_array_fixed_cpu,2.736439296,2.700595200,0.066436968,2.674884480,2.813827840
+per-CPU array update,8-byte value copy,percpu_array_direct,percpu_array_no_copy,3.659913984,3.822117760,0.425974169,2.900643840,3.897326080
+per-CPU hash lookup,SHM fd/variant lookup,cache_control,cached_handler,3.960375040,3.958188800,0.740199161,3.249198400,5.152241600
+per-CPU hash lookup,generic handler dispatch,cached_handler,direct_map,7.608592960,7.554121600,0.651810475,6.957779200,8.356856000
+per-CPU hash lookup,Boost hash/find,base,percpu_hash_lookup_no_find,121.668187200,121.630920000,0.247908927,121.406627200,122.070097600
+per-CPU hash update,SHM fd/variant lookup,cache_control,cached_handler,4.117839360,3.573256000,1.385715349,3.401768000,6.590339200
+per-CPU hash update,generic handler dispatch,cached_handler,direct_map,8.143836800,8.596740800,1.333400995,5.790232000,9.037054400
+per-CPU hash update,existing value copy,base,percpu_hash_update_no_copy,55.805867200,55.665691200,0.642681916,55.115920000,56.840974400
+per-CPU hash update,Boost hash/find,percpu_hash_update_no_copy,percpu_hash_update_no_find,120.630732160,120.876521600,0.695423339,119.505024000,121.262691200

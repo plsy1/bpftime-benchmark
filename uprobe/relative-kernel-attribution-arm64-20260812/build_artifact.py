@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""Build the canonical portable-report artifact from reviewed CSV outputs."""
+
+import csv
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent
+
+
+def rows(name: str):
+    with (ROOT / name).open(newline="") as stream:
+        return list(csv.DictReader(stream))
+
+
+def number(value: str):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return value
+
+
+top_gap = [{key: number(value) for key, value in row.items()} for row in rows("top-gap.csv")]
+
+# Keep the ranking chart decision-oriented while retaining exact values in the table.
+top_gap_ranked = sorted(top_gap, key=lambda row: row["gap_ns_per_helper"], reverse=True)
+generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+strict_source = {
+    "id": "strict_matched",
+    "label": "Matched ARM64 production-agent closure results",
+    "path": "benchmark-results/uprobe/relative-kernel-attribution-arm64-20260812/top-gap.csv",
+    "query": {
+        "engine": "Python CSV analysis",
+        "description": "Five interleaved Jetson runs with operation-specific matched controls; PMU uses three paired rounds.",
+        "executed_at": "2026-08-12",
+        "language": "python",
+        "filters": [
+            "Jetson Orin Nano CPU5",
+            "MAXN_SUPER with jetson_clocks",
+            "host execution with root loader and victim",
+            "1000 helper calls per BPF invocation",
+        ],
+        "metric_definitions": [
+            "Engine net ns/helper = (real case ns/invocation - matched control ns/invocation) / 1000.",
+            "Top-level gap = BPFtime net ns/helper - kernel net ns/helper.",
+        ],
+        "tables_used": ["top-gap.csv"],
+    },
+}
+
+artifact = {
+    "surface": "report",
+    "manifest": {
+        "version": 1,
+        "surface": "report",
+        "title": "ARM64 BPFtime map-helper cost relative to kernel BPF",
+        "description": "Strict matched top-level measurements on Jetson Orin Nano.",
+        "generatedAt": generated_at,
+        "sources": [strict_source],
+        "blocks": [
+            {
+                "id": "title",
+                "type": "markdown",
+                "body": "# ARM64 BPFtime map-helper cost relative to kernel BPF\n\nStrict matched top-level measurements on Jetson Orin Nano.",
+                "layout": "full",
+            },
+            {
+                "id": "technical-summary",
+                "type": "markdown",
+                "body": "## Technical summary\n\nThe strict matched tests confirm that the largest BPFtime overheads are per-CPU hash update (+162.49 ns/helper) and per-CPU hash lookup (+127.04 ns/helper). Ordinary hash update is the exception: BPFtime is 39.98 ns/helper faster than kernel BPF. PMU deltas have the same direction, so these are executed-work differences rather than wall-time noise.",
+                "sourceId": "strict_matched",
+                "layout": "full",
+            },
+            {
+                "id": "gap-chart-block",
+                "type": "chart",
+                "chartId": "gap-chart",
+                "layout": "full",
+            },
+            {
+                "id": "strict-findings",
+                "type": "markdown",
+                "body": "## Strict matched top-level findings\n\nThe chart and table use operation-specific controls with the same BPF program shape, loop, key/value preparation, victim, CPU, frequency, and map state. Positive values mean BPFtime is slower; negative values mean BPFtime is faster.",
+                "sourceId": "strict_matched",
+                "layout": "full",
+            },
+            {
+                "id": "gap-table-block",
+                "type": "table",
+                "tableId": "gap-table",
+                "layout": "full",
+            },
+            {
+                "id": "relationship-to-prior-work",
+                "type": "markdown",
+                "body": "## Relationship to the completed path investigation\n\nEarlier L0-L3 and leaf A/B experiments already located the major BPFtime-internal costs: generic handler and shared-memory dispatch for arrays; lock, TRACE, generic key comparison, and probing modulo for ordinary hash lookup; CPU selection and std::function for per-CPU arrays; and Boost.Interprocess hash/find and value-vector handling for per-CPU hash. Those standalone diagnostics and this strict top-level comparison are complementary evidence, not one additive timing experiment.",
+                "layout": "full",
+            },
+            {
+                "id": "definitions-method",
+                "type": "markdown",
+                "body": "## Definitions and methodology\n\nEngine net cost is `(real case - operation-specific matched control) / 1000`. The strict top-level gap is `BPFtime net - kernel net`. Five wall-time runs were interleaved by engine; PMU used three paired rounds per case and metric, with all counters at 100% running.",
+                "sourceId": "strict_matched",
+                "layout": "full",
+            },
+            {
+                "id": "limitations",
+                "type": "markdown",
+                "body": "## Limitations\n\nThe top-level gaps are strict same-harness measurements. Existing L0-L3 components come from standalone diagnostics and must not be subtracted from these values to create a production-context residual. Such a remainder is not an independently measured runtime stage. Corrected per-CPU hash delete is excluded from this new five-run matrix.",
+                "layout": "full",
+            },
+            {
+                "id": "next-steps",
+                "type": "markdown",
+                "body": "## Current boundary and next steps\n\nThe major map-helper cost paths have already been located, so no additional path splitting is required for the current diagnosis objective. Further work should be a separately scoped benchmark-coverage project for lookup-miss, update-insert, and delete-miss, or an optimization project with full correctness, concurrency, and top-level performance validation.",
+                "layout": "full",
+            },
+        ],
+        "charts": [
+            {
+                "id": "gap-chart",
+                "title": "BPFtime minus kernel BPF net cost by operation",
+                "subtitle": "Per-CPU hash operations dominate the measured ARM64 overhead",
+                "intent": "comparison",
+                "question": "Which valid map operations contribute the largest BPFtime-versus-kernel cost gaps on Jetson?",
+                "rationale": "A signed horizontal bar chart makes ranking, direction, and the zero crossover visible without encoding a redundant category series.",
+                "comparisonContext": {
+                    "baseline": "kernel BPF",
+                    "denominator": "one map-helper execution after matched-control subtraction",
+                    "grain": "map operation and map type",
+                    "normalization": "1000 helper calls per BPF invocation",
+                    "semanticFamily": "runtime cost difference",
+                    "unit": "ns/helper",
+                },
+                "type": "horizontalBar",
+                "dataset": "top_gap_ranked",
+                "sourceId": "strict_matched",
+                "encodings": {
+                    "x": {"field": "gap_ns_per_helper", "type": "quantitative", "label": "BPFtime - kernel", "unit": "ns/helper"},
+                    "y": {"field": "operation", "type": "nominal", "label": "Operation"},
+                    "tooltip": [
+                        {"field": "kernel_ns_per_helper", "type": "quantitative", "label": "Kernel", "unit": "ns/helper"},
+                        {"field": "bpftime_ns_per_helper", "type": "quantitative", "label": "BPFtime", "unit": "ns/helper"},
+                        {"field": "gap_ns_per_helper", "type": "quantitative", "label": "Gap", "unit": "ns/helper"},
+                    ],
+                },
+                "xAxisTitle": "BPFtime - kernel BPF (ns/helper)",
+                "yAxisTitle": "Operation",
+                "valueFormat": "number",
+                "unit": "ns/helper",
+                "layout": "full",
+                "maxRows": 8,
+                "referenceLines": [{"axis": "x", "value": 0, "label": "Kernel parity", "lineStyle": "dashed"}],
+                "surface": {"labels": {"values": "all"}},
+            }
+        ],
+        "tables": [
+            {
+                "id": "gap-table",
+                "title": "Exact strict matched costs",
+                "subtitle": "Five-run means; positive gap means BPFtime is slower",
+                "dataset": "top_gap",
+                "defaultSort": {"field": "gap_ns_per_helper", "direction": "desc"},
+                "density": "dense",
+                "sourceId": "strict_matched",
+                "layout": "full",
+                "columns": [
+                    {"field": "operation", "label": "Operation", "type": "text"},
+                    {"field": "kernel_ns_per_helper", "label": "Kernel ns/helper", "format": "number"},
+                    {"field": "bpftime_ns_per_helper", "label": "BPFtime ns/helper", "format": "number"},
+                    {"field": "gap_ns_per_helper", "label": "Gap ns/helper", "format": "number", "movement": True},
+                    {"field": "gap_cycles_per_helper", "label": "Extra cycles", "format": "number"},
+                    {"field": "gap_instructions_per_helper", "label": "Extra instructions", "format": "number"},
+                ],
+            },
+        ],
+    },
+    "snapshot": {
+        "version": 1,
+        "generatedAt": generated_at,
+        "status": "ready",
+        "datasets": {
+            "top_gap": top_gap,
+            "top_gap_ranked": top_gap_ranked,
+        },
+        "accessIssues": [],
+    },
+    "sources": [strict_source],
+}
+
+(ROOT / "artifact.json").write_text(json.dumps(artifact, indent=2) + "\n")
