@@ -29,6 +29,7 @@
 | [系统报告](uprobe/ordinary/bpftime-uprobe-ordinary-map-systematic-report-20260804.md) | **主入口**：六项结果、ARM64/x64 趋势、三个重点项目及 hash lookup 叶子级闭环 |
 | [ARM64 matched 顶层对照补充](uprobe/attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md) | 普通/per-CPU lookup/update 的统一 matched 差额和 PMU 复核 |
 | [ARM64 生产路径归因](uprobe/attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md) | fd/variant、generic handler、per-CPU array、Boost hash/find/value copy 和 delete 回收的生产路径 A/B |
+| [12项操作调查状态表](uprobe/attribution/map-operation-investigation-matrix.md) | 全部 map 操作的有效语义、平台方向、当前调查阶段和后续优先级 |
 | [map 路径调查指南](uprobe/ordinary/bpftime-uprobe-map-path-investigation-guide-20260731.md) | 源码阅读顺序、L0–L3 分层、操作矩阵与测量边界 |
 | [hash 六种操作语义](uprobe/ordinary/bpftime-uprobe-hash-map-six-operation-semantics-20260801.md) | lookup/update/delete 的 hit、miss、insert、existing 语义，以及 delete benchmark 修正 |
 | [跨架构实验方案](uprobe/ordinary/bpftime-uprobe-array-hash-cross-architecture-experiment-plan-20260801.md) | 顶层、JIT A/B、direct runtime 与 kernel runtime 的 matched-path 设计 |
