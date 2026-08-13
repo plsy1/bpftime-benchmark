@@ -5,20 +5,17 @@
 
 ## 建议阅读顺序
 
-1. [2026-08-05 组会材料](meetings/meeting-20260805.md)：
-   普通 map/per-CPU map 跨平台确认与 Jetson 路径归因的精炼汇报；配套
-   [讲稿](meetings/meeting-20260805-speaker-notes.md)。
-2. [普通 map 系统报告](uprobe/ordinary/bpftime-uprobe-ordinary-map-systematic-report-20260804.md)：
+1. [普通 map 系统报告](uprobe/ordinary/bpftime-uprobe-ordinary-map-systematic-report-20260804.md)：
    当前 uprobe 普通 map 调查的完整结论，包含六项 benchmark 语义、跨平台结果及
    array lookup/update、hash lookup 的路径归因。
-3. [ARM 性能根因总览](ssl-nginx/bpftime-arm-performance-root-cause-20260727.md)：
+2. [ARM 性能根因总览](ssl-nginx/bpftime-arm-performance-root-cause-20260727.md)：
    `ssl-nginx` 调查的一页纸总结，说明 probe/runtime、输出路径和已修问题。
-4. [性能分析方法手册](guides/performance-analysis-playbook.md)：
+3. [性能分析方法手册](guides/performance-analysis-playbook.md)：
    从本轮工作提炼出的可复用实验与归因流程。
-5. [ARM64 matched 顶层对照补充](uprobe/attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md)：
+4. [ARM64 matched 顶层对照补充](uprobe/attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md)：
    统一 operation-specific control 下的 BPFtime−kernel 差额与 PMU 复核，并明确
    不能把跨 harness 代数余项解释为独立 runtime 阶段。
-6. [ARM64 生产路径归因](uprobe/attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md)：
+5. [ARM64 生产路径归因](uprobe/attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md)：
    用同一诊断 runtime 二进制执行生产 helper 路径 A/B，并以 PMU 验证具体操作对
    BPFtime−kernel 顶层差距的贡献量级。
 
