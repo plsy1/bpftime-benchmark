@@ -54,5 +54,4 @@
 - [Per-CPU map 路径诊断](percpu/bpftime-uprobe-percpu-path-diagnosis-20260805.md)
 - [ARM64 matched 顶层差距](attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md)
 - [ARM64 生产路径归因](attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md)
-- [Per-CPU hash lookup 叶子级归因](percpu/bpftime-uprobe-percpu-hash-lookup-leaf-attribution-20260813.md)
-- [剩余四项叶子级归因](attribution/bpftime-uprobe-remaining-map-leaf-attribution-arm64-20260813.md)
+- [五项map操作叶子级归因](attribution/bpftime-uprobe-five-map-leaf-attribution-arm64-20260813.md)
