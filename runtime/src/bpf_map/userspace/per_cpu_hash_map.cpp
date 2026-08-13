@@ -64,14 +64,31 @@ void *per_cpu_hash_map_impl::elem_lookup(const void *key)
 		return nullptr;
 	}
 	bytes_vec &key_vec = this->key_templates[cpu];
-	key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
+	if (get_map_production_ab_mode() ==
+	    map_production_ab_mode::percpu_hash_lookup_raw_key_copy)
+		std::memcpy(key_vec.data(), key, key_size);
+	else
+		key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
 	if (get_map_production_ab_mode() ==
 	    map_production_ab_mode::percpu_hash_lookup_no_find)
 		return &value_template[value_size * cpu];
+	const bool collect_stats = map_production_ab_stats_enabled();
+	if (collect_stats) {
+		map_production_ab_lookup_active() = true;
+		++map_production_ab_stats().lookups;
+	}
 	if (auto itr = impl.find(key_vec); itr != impl.end()) {
+		if (collect_stats) {
+			++map_production_ab_stats().hits;
+			map_production_ab_lookup_active() = false;
+		}
 		SPDLOG_TRACE("Exit elem lookup of hash map");
 		return &itr->second[value_size * cpu];
 	} else {
+		if (collect_stats) {
+			++map_production_ab_stats().misses;
+			map_production_ab_lookup_active() = false;
+		}
 		SPDLOG_TRACE("Exit elem lookup of hash map");
 		errno = ENOENT;
 		return nullptr;
