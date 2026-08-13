@@ -25,7 +25,7 @@ class per_cpu_hash_map_impl {
 		boost::interprocess::managed_shared_memory::segment_manager>;
 	using shm_hash_map =
 		boost::unordered_map<bytes_vec, bytes_vec, bytes_vec_hasher,
-				     std::equal_to<bytes_vec>, bi_map_allocator>;
+				     bytes_vec_equal, bi_map_allocator>;
 
 	using shm_hash_map_vec_allocator = boost::interprocess::allocator<
 		shm_hash_map,
