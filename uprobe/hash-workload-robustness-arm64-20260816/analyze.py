@@ -85,7 +85,7 @@ with (ROOT / "wall-raw.csv").open("w", newline="") as handle:
         "environment", "run", "case", "real_ns_per_invocation",
         "control_ns_per_invocation", "net_ns_per_helper",
     ]
-    writer = csv.DictWriter(handle, fieldnames=fields)
+    writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
     writer.writerows(raw_rows)
 
@@ -139,7 +139,7 @@ with (ROOT / "wall-summary.csv").open("w", newline="") as handle:
     fields = list(configs[0]) + [
         "environment", "case", "mean", "median", "sample_sd", "min", "max",
     ]
-    writer = csv.DictWriter(handle, fieldnames=fields)
+    writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
     writer.writerows(summary_rows)
 
@@ -149,7 +149,7 @@ with (ROOT / "gaps.csv").open("w", newline="") as handle:
         "bpftime_median", "gap_of_means", "gap_of_medians", "mean_ratio",
         "paired_gap_sample_sd",
     ]
-    writer = csv.DictWriter(handle, fieldnames=fields)
+    writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
     writer.writerows(gap_rows)
 
@@ -157,7 +157,7 @@ with (ROOT / "percpu-specific.csv").open("w", newline="") as handle:
     fields = list(configs[0]) + [
         "environment", "operation", "mean", "median", "sample_sd", "min", "max",
     ]
-    writer = csv.DictWriter(handle, fieldnames=fields)
+    writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
     writer.writerows(percpu_rows)
 
@@ -218,7 +218,7 @@ with (ROOT / "pmu-raw.csv").open("w", newline="") as handle:
         "environment", "metric", "run", "iterations", "real_count",
         "control_count", "net_per_helper",
     ]
-    writer = csv.DictWriter(handle, fieldnames=fields)
+    writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
     writer.writerows(pmu_raw)
 
@@ -258,7 +258,7 @@ with (ROOT / "pmu-summary.csv").open("w", newline="") as handle:
     fields = list(endpoints[0]) + [
         "environment", "metric", "mean", "median", "sample_sd", "min", "max",
     ]
-    writer = csv.DictWriter(handle, fieldnames=fields)
+    writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
     writer.writerows(pmu_summary)
 
@@ -267,6 +267,6 @@ with (ROOT / "pmu-gaps.csv").open("w", newline="") as handle:
         "metric", "kernel_mean", "bpftime_mean", "gap_of_means",
         "paired_gap_sample_sd",
     ]
-    writer = csv.DictWriter(handle, fieldnames=fields)
+    writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
     writer.writerows(pmu_gaps)
