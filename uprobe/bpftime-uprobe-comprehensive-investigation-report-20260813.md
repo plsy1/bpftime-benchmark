@@ -457,7 +457,23 @@ Per-CPU array 在普通 array 数据访问之外引入 CPU slot 选择与 wrappe
 
 因此，以“查明主要高成本路径”为目标，本轮调查已经完成。进一步拆 Boost container remainder 内部的 bucket/node/`offset_ptr`，或改写 `std::function`、key/value representation，主要是为了选择和验证优化方案。
 
-## 14. 局限性与稳健性
+## 14. Workload 稳健性补充（2026-08-16）
+
+后续在 Jetson 上完成了 load factor、key size、value size 的 matched sweep。高负载 4B/8B 基线与本报告原结果的最大偏差为 3.34%，方向全部复现。
+
+关键增量为：
+
+- 64→1000 active keys：ordinary BPFtime lookup 增加 14.88 ns 和约 81 instructions/helper，支持 probing/collision 归因；
+- 4B→64B key：ordinary BPFtime lookup/update 分别增加 116.64/117.73 ns，per-CPU BPFtime lookup/update 分别增加 412.08/411.07 ns；
+- 8B→256B value：BPFtime per-CPU update 增加 800.29 ns 和约 4487 instructions/helper，而 per-CPU lookup 基本不变。
+
+Lookup/update 对 key size 的斜率在同一 map 类型中几乎相同，进一步把增量定位到共同 key-processing 路径。Value size 只显著放大 per-CPU update，则直接确认 shared-memory value-vector copy 的 update-specific 成本。
+
+同时需要更新一项适用范围：ordinary hash update 在 4B/16B key 时仍由 BPFtime 获胜，但 64B key 时翻转为 kernel 获胜。因此“BPFtime hash update 更快”不是与 key size 无关的普遍结论。
+
+详细报告：[Hash workload 稳健性结果](attribution/bpftime-uprobe-hash-workload-robustness-arm64-20260816.md)。
+
+## 15. 局限性与稳健性
 
 1. ARM64 与 x64 使用不同 kernel 构建、编译器产物、ISA 和微架构；跨平台结果不能归因给单一因素。
 2. ordinary hash lookup 使用 1000 key/1031 bucket，load 约 97%；结论适用于当前 benchmark 的高负载查找分布，不代表所有 hash workload。
@@ -467,7 +483,7 @@ Per-CPU array 在普通 array 数据访问之外引入 CPU slot 选择与 wrappe
 6. 叶子开关是诊断工具，不是已经验证可合入的生产优化。
 7. 极短的 1–3 ns 路径容易受 harness 边界影响，因此同时使用 wall-time、cycles 和 instructions 判断方向。
 
-## 15. 后续工作
+## 16. 后续工作
 
 若继续以“语义和诊断完整性”为目标：
 
@@ -483,7 +499,7 @@ Per-CPU array 在普通 array 数据访问之外引入 CPU slot 选择与 wrappe
 4. 评估 ordinary hash 的固定长度 compare 和无除法 probing；
 5. 每个候选优化必须回到未修改 benchmark 做端到端验证，并检查语义、并发和 shared-memory 兼容性。
 
-## 16. 结果与文档索引
+## 17. 结果与文档索引
 
 ### 主要报告
 
@@ -493,6 +509,7 @@ Per-CPU array 在普通 array 数据访问之外引入 CPU slot 选择与 wrappe
 - [ARM64 matched BPFtime–kernel 差额](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md)
 - [ARM64 production-path 归因](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md)
 - [五项 map 叶子级归因](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/attribution/bpftime-uprobe-five-map-leaf-attribution-arm64-20260813.md)
+- [Hash workload 稳健性结果](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/attribution/bpftime-uprobe-hash-workload-robustness-arm64-20260816.md)
 - [12 项操作调查矩阵](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/map-operation-investigation-matrix.md)
 
 ### 主要原始结果
@@ -505,8 +522,9 @@ Per-CPU array 在普通 array 数据访问之外引入 CPU slot 选择与 wrappe
 - [Per-CPU hash lookup 叶子 A/B](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/uprobe/percpu-hash-lookup-leaf-ab-arm64-20260813)
 - [其余四项叶子 A/B](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/uprobe/remaining-map-leaf-ab-arm64-20260813)
 - [Per-CPU hash delete 分层](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/uprobe/percpu-hash-delete-layers-arm64-20260805)
+- [Hash workload 稳健性原始结果](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/uprobe/hash-workload-robustness-arm64-20260816)
 
-## 17. 仍可回答的后续问题
+## 18. 仍可回答的后续问题
 
 - Boost container remainder 的 65%–69% 中，bucket traversal、node/`offset_ptr` 和 allocator metadata 各占多少？
 - `std::function` wrapper 的高成本主要来自类型擦除、不可内联间接调用，还是 lambda 捕获/返回对象？

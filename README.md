@@ -27,6 +27,8 @@
 | 文档 | 内容 |
 |---|---|
 | [Uprobe 综合调查报告](uprobe/bpftime-uprobe-comprehensive-investigation-report-20260813.md) | **统一主入口**：语义、跨平台顶层、matched 差额、分层与源码叶子归因 |
+| [Uprobe workload 稳健性计划](uprobe/bpftime-uprobe-next-step-workload-robustness-plan-20260816.md) | 后续 load factor、key/value size、PMU 和缺失语义实验计划 |
+| [Uprobe hash workload 稳健性结果](uprobe/attribution/bpftime-uprobe-hash-workload-robustness-arm64-20260816.md) | Jetson load factor、key/value size matched sweep 及源码归因复核 |
 | [系统报告](uprobe/ordinary/bpftime-uprobe-ordinary-map-systematic-report-20260804.md) | **主入口**：六项结果、ARM64/x64 趋势、三个重点项目及 hash lookup 叶子级闭环 |
 | [ARM64 matched 顶层对照补充](uprobe/attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md) | 普通/per-CPU lookup/update 的统一 matched 差额和 PMU 复核 |
 | [ARM64 生产路径归因](uprobe/attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md) | fd/variant、generic handler、per-CPU array、Boost hash/find/value copy 和 delete 回收的生产路径 A/B |
