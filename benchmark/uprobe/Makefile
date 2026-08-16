@@ -198,6 +198,21 @@ HHC_LOADER_OBJ := $(HHC_OUTPUT)/helper_hash_closure.o
 HHC_LOADER := $(HHC_OUTPUT)/helper-hash-closure
 HHC_VICTIM := $(HHC_OUTPUT)/helper-hash-closure-victim
 
+# Matched ordinary/per-CPU hash workload robustness sweep. Each HWS_TAG gets
+# its own output directory so changing map dimensions cannot accidentally reuse
+# an object or skeleton built for another configuration.
+HWS_TAG ?= baseline
+HWS_ACTIVE_KEYS ?= 1000
+HWS_MAX_ENTRIES ?= 1024
+HWS_KEY_SIZE ?= 4
+HWS_VALUE_SIZE ?= 8
+HWS_OUTPUT := $(OUTPUT)/hash-workload-sweep-$(HWS_TAG)
+HWS_BPF_OBJ := $(HWS_OUTPUT)/hash_workload_sweep.bpf.o
+HWS_SKEL := $(HWS_OUTPUT)/hash_workload_sweep.skel.h
+HWS_LOADER_OBJ := $(HWS_OUTPUT)/hash_workload_sweep.o
+HWS_LOADER := $(HWS_OUTPUT)/hash-workload-sweep
+HWS_VICTIM := $(HWS_OUTPUT)/hash-workload-sweep-victim
+
 # Matched kernel-BPF array-update value-size sweep.  This is separate from the
 # official uprobe benchmark and the general kernel-map-runtime diagnostic so
 # changing the diagnostic matrix cannot change either benchmark's semantics.
@@ -228,6 +243,9 @@ helper-map-closure-diagnostic: $(HMC_LOADER) $(HMC_VICTIM)
 
 .PHONY: helper-hash-closure-diagnostic
 helper-hash-closure-diagnostic: $(HHC_LOADER) $(HHC_VICTIM)
+
+.PHONY: hash-workload-sweep-diagnostic
+hash-workload-sweep-diagnostic: $(HWS_LOADER) $(HWS_VICTIM)
 
 .PHONY: kernel-array-update-sizes-diagnostic
 kernel-array-update-sizes-diagnostic: $(KAUS_LOADER) $(KAUS_VICTIM)
@@ -420,6 +438,38 @@ $(HHC_LOADER): $(HHC_LOADER_OBJ) $(LIBBPF_OBJ) | $(HHC_OUTPUT)
 $(HHC_VICTIM): diagnostics/helper_hash_closure_victim.c | $(HHC_OUTPUT)
 	$(call msg,BINARY,$@)
 	$(Q)$(CC) -g -O3 -Wall $< -o $@
+
+$(HWS_OUTPUT):
+	$(call msg,MKDIR,$@)
+	$(Q)mkdir -p $@
+
+$(HWS_BPF_OBJ): diagnostics/hash_workload_sweep.bpf.c $(VMLINUX) | $(HWS_OUTPUT) $(BPFTOOL)
+	$(call msg,BPF,$@)
+	$(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) \
+		     -DHWS_ACTIVE_KEYS=$(HWS_ACTIVE_KEYS) \
+		     -DHWS_MAX_ENTRIES=$(HWS_MAX_ENTRIES) \
+		     -DHWS_KEY_SIZE=$(HWS_KEY_SIZE) \
+		     -DHWS_VALUE_SIZE=$(HWS_VALUE_SIZE) \
+		     -DHWS_VICTIM_PATH=\"benchmark/uprobe/.output/hash-workload-sweep-$(HWS_TAG)/hash-workload-sweep-victim\" \
+		     $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
+		     -c $< -o $(HWS_OUTPUT)/hash_workload_sweep.tmp.bpf.o
+	$(Q)$(BPFTOOL) gen object $@ $(HWS_OUTPUT)/hash_workload_sweep.tmp.bpf.o
+
+$(HWS_SKEL): $(HWS_BPF_OBJ) | $(HWS_OUTPUT) $(BPFTOOL)
+	$(call msg,GEN-SKEL,$@)
+	$(Q)$(BPFTOOL) gen skeleton $< > $@
+
+$(HWS_LOADER_OBJ): diagnostics/hash_workload_sweep.c $(HWS_SKEL) | $(HWS_OUTPUT)
+	$(call msg,CC,$@)
+	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -I$(HWS_OUTPUT) -c $< -o $@
+
+$(HWS_LOADER): $(HWS_LOADER_OBJ) $(LIBBPF_OBJ) | $(HWS_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+
+$(HWS_VICTIM): diagnostics/hash_workload_sweep_victim.c | $(HWS_OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) -g -O3 -Wall -fno-omit-frame-pointer $< -o $@
 
 $(KAUS_OUTPUT):
 	$(call msg,MKDIR,$@)
