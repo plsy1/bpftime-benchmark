@@ -15,6 +15,7 @@
 #include <array>
 #include <cstring>
 #include <functional>
+#include <utility>
 #include "platform_utils.hpp"
 
 namespace bpftime
@@ -27,10 +28,12 @@ using uint64_vec_allocator = boost::interprocess::allocator<
 	uint64_t, boost::interprocess::managed_shared_memory::segment_manager>;
 using uint64_vec = boost::interprocess::vector<uint64_t, uint64_vec_allocator>;
 
-template <class T>
-static inline T ensure_on_current_cpu(std::function<T(int cpu)> func)
+template <class T, class Func>
+static inline T ensure_on_current_cpu(Func &&func)
 {
-	return func(my_sched_getcpu());
+	// Preserve the callable's concrete type so map helpers can inline it
+	// without constructing std::function or allocating for large captures.
+	return std::forward<Func>(func)(my_sched_getcpu());
 }
 
 template <class T>
