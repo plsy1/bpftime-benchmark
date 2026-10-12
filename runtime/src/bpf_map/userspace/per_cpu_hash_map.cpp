@@ -64,11 +64,9 @@ void *per_cpu_hash_map_impl::elem_lookup(const void *key)
 		return nullptr;
 	}
 	bytes_vec &key_vec = this->key_templates[cpu];
-	if (get_map_production_ab_mode() ==
-	    map_production_ab_mode::percpu_hash_lookup_raw_key_copy)
-		std::memcpy(key_vec.data(), key, key_size);
-	else
-		key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
+	// key_vec is pre-sized in the constructor. Reusing its storage avoids the
+	// iterator/range machinery in vector::assign on every helper invocation.
+	std::memcpy(key_vec.data(), key, key_size);
 	if (get_map_production_ab_mode() ==
 	    map_production_ab_mode::percpu_hash_lookup_no_find)
 		return &value_template[value_size * cpu];
@@ -109,18 +107,13 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
 
 	SPDLOG_DEBUG("Run per cpu hash update at cpu {}", cpu);
 	bytes_vec &key_vec = this->key_templates[cpu];
-	bytes_vec &value_vec = this->single_value_templates[cpu];
 	const auto mode = get_map_production_ab_mode();
-	if (mode == map_production_ab_mode::percpu_hash_update_raw_key_copy)
-		std::memcpy(key_vec.data(), key, key_size);
-	else
-		key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
-	if (mode == map_production_ab_mode::percpu_hash_update_raw_value_copy)
-		std::memcpy(value_vec.data(), value, value_size);
-	else
-		value_vec.assign((uint8_t *)value, (uint8_t *)value + value_size);
-	if (get_map_production_ab_mode() ==
-	    map_production_ab_mode::percpu_hash_update_no_find) {
+	std::memcpy(key_vec.data(), key, key_size);
+	if (mode == map_production_ab_mode::percpu_hash_update_no_find) {
+		// Keep this diagnostic mode measuring both input copies while avoiding
+		// any map lookup.
+		std::memcpy(single_value_templates[cpu].data(), value,
+			    value_size);
 		return 0;
 	}
 	const bool collect_stats = map_production_ab_stats_enabled();
@@ -133,18 +126,18 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
 			++map_production_ab_stats().hits;
 			map_production_ab_lookup_active() = false;
 		}
-		if (get_map_production_ab_mode() !=
-		    map_production_ab_mode::percpu_hash_update_no_copy)
-			std::copy(value_vec.begin(), value_vec.end(),
-				  itr->second.begin() + cpu * value_size);
+		if (mode != map_production_ab_mode::percpu_hash_update_no_copy) {
+			std::memcpy(itr->second.data() + cpu * value_size, value,
+				    value_size);
+		}
 	} else {
 		if (collect_stats) {
 			++map_production_ab_stats().misses;
 			map_production_ab_lookup_active() = false;
 		}
 		bytes_vec full_value_vec = this->value_template;
-		std::copy(value_vec.begin(), value_vec.end(),
-			  full_value_vec.begin() + cpu * value_size);
+		std::memcpy(full_value_vec.data() + cpu * value_size, value,
+			    value_size);
 
 		impl.insert(bi_map_value_ty(key_vec, full_value_vec));
 	}
