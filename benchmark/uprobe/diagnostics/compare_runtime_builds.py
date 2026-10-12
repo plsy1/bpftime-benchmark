@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Paired, production-mode array helper measurements for two runtime builds.
+"""Paired, production-mode map helper measurements for two runtime builds.
 
-Build helper-map-closure-diagnostic before running this script. The existing
-operation-specific controls and unmodified BPF object are shared by all engines.
-Run as the normal user with non-interactive sudo available, without other
-BPFtime experiments running. Output must be a new directory.
+Build the selected helper closure diagnostic before running this script. The
+existing operation-specific controls and unmodified BPF object are shared by
+all engines. Run as the normal user with non-interactive sudo available,
+without other BPFtime experiments running. Output must be a new directory.
 """
 
 import argparse
@@ -22,8 +22,24 @@ import time
 
 
 ROOT = Path(__file__).resolve().parents[3]
-CASES = ("empty", "lookup_control", "update_control", "array_lookup",
-         "array_update", "percpu_array_lookup", "percpu_array_update")
+SUITES = {
+    "array": {
+        "directory": "helper-map-closure",
+        "object": "helper_map_closure.bpf.o",
+        "cases": ("empty", "lookup_control", "update_control", "array_lookup",
+                  "array_update", "percpu_array_lookup", "percpu_array_update"),
+        "summary": ("array_lookup", "array_update", "percpu_array_lookup",
+                    "percpu_array_update"),
+    },
+    "hash": {
+        "directory": "helper-hash-closure",
+        "object": "helper_hash_closure.bpf.o",
+        "cases": ("empty", "lookup_control", "update_control", "hash_lookup",
+                  "hash_update", "percpu_hash_lookup", "percpu_hash_update"),
+        "summary": ("hash_lookup", "hash_update", "percpu_hash_lookup",
+                    "percpu_hash_update"),
+    },
+}
 
 
 def digest(path):
@@ -40,6 +56,7 @@ def main():
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--suite", choices=SUITES, default="array")
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--iterations", type=int, default=20000)
     parser.add_argument("--warmup", type=int, default=1000)
@@ -51,13 +68,15 @@ def main():
         parser.error("runs/iterations must be positive; warmup must be nonnegative")
     builds = {"baseline": args.baseline.resolve(),
               "candidate": args.candidate.resolve()}
+    suite = SUITES[args.suite]
+    cases = suite["cases"]
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
-    diag = ROOT / "benchmark/uprobe/.output/helper-map-closure"
-    loader = diag / "helper-map-closure"
-    victim = diag / "helper-map-closure-victim"
+    diag = ROOT / "benchmark/uprobe/.output" / suite["directory"]
+    loader = diag / suite["directory"]
+    victim = diag / f"{suite['directory']}-victim"
     tool = builds["baseline"] / "tools/bpftimetool/bpftimetool"
-    artifacts = [loader, victim, diag / "helper_map_closure.bpf.o"]
+    artifacts = [loader, victim, diag / suite["object"]]
     for build in builds.values():
         artifacts.extend([build / "runtime/agent/libbpftime-agent.so",
                           build / "runtime/syscall-server/libbpftime-syscall-server.so"])
@@ -150,7 +169,7 @@ def main():
                 time.sleep(1)
                 with (dest / "victim.log").open("w") as victim_log:
                     run_target(pinned + target_env(victim_env) + [str(victim),
-                        str(args.iterations), str(round_number % len(CASES)),
+                        str(args.iterations), str(round_number % len(cases)),
                         str(args.warmup)], victim_log, timeout=300)
                 text = (dest / "victim.log").read_text()
                 if engine != "kernel" and "shm_open_type 1" not in text:
@@ -158,11 +177,11 @@ def main():
                 values = {}
                 for line in text.splitlines():
                     fields = line.split(",")
-                    if fields[0] in CASES and len(fields) == 5:
+                    if fields[0] in cases and len(fields) == 5:
                         if fields[0] in values or int(fields[2]) != args.iterations:
                             raise RuntimeError("Duplicate or incomplete timing row")
                         values[fields[0]] = float(fields[4])
-                if set(values) != set(CASES) or any(
+                if set(values) != set(cases) or any(
                         not math.isfinite(v) or v <= 0 for v in values.values()):
                     raise RuntimeError(f"Incomplete timings: {values}")
                 for case, raw in values.items():
@@ -202,7 +221,7 @@ def main():
             writer.writeheader()
             writer.writerows(rows)
         summary = []
-        for case in ("array_lookup", "array_update", "percpu_array_lookup", "percpu_array_update"):
+        for case in suite["summary"]:
             record = {"case": case}
             for engine in ("kernel", "baseline", "candidate"):
                 values = [row["net_ns_per_helper"] for row in rows
