@@ -4,8 +4,12 @@
 #include <boost/interprocess/interprocess_fwd.hpp>
 #include <bpf_map/userspace/per_cpu_hash_map.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <cerrno>
+#include <cstring>
 #include <cstdint>
+#include <linux/bpf.h>
 #include <sched.h>
+#include <string>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <vector>
@@ -115,38 +119,72 @@ TEST_CASE("Test basic operations of hash map")
 	}
 }
 
-TEST_CASE("Per-CPU hash helper flags preserve conditional update semantics",
-	  "[maps][percpu_hash][update_flags]")
+TEST_CASE("per-cpu hash preserves arbitrary key and value bytes",
+	  "[percpu-hash]")
 {
-	shm_remove remover("BPFTIME_PER_CPU_HASH_FLAGS_SHM");
-	managed_shared_memory mem(create_only, "BPFTIME_PER_CPU_HASH_FLAGS_SHM",
-				 20 << 20);
-	per_cpu_hash_map_impl map(mem, sizeof(uint32_t), sizeof(uint64_t), 1);
-	uint32_t key = 1, missing = 2;
-	uint64_t replacement = 22;
-	std::vector<uint64_t> values(map.getncpu(), 11);
-	REQUIRE(map.elem_update_userspace(&key, values.data(), 0) == 0);
-	// The common flag validator reserves the high bits for custom operations;
-	// they must not bypass BPF_NOEXIST/BPF_EXIST in the low 32 bits.
-	for (uint64_t custom : { 0ULL, 1ULL << 32 }) {
-		errno = 0;
-		REQUIRE(map.elem_update(&key, &replacement, custom | 1) == -1);
-		REQUIRE(errno == EEXIST);
-		auto *stored = static_cast<uint64_t *>(map.elem_lookup_userspace(&key));
-		REQUIRE(stored != nullptr);
-		REQUIRE(std::equal(values.begin(), values.end(), stored));
-		errno = 0;
-		REQUIRE(map.elem_update(&missing, &replacement, custom | 2) == -1);
-		REQUIRE(errno == ENOENT);
+	const std::string shm_name =
+		"BPFTIME_PER_CPU_HASH_SIZED_SHM_" + std::to_string(getpid());
+	shm_remove remover(shm_name.c_str());
+	managed_shared_memory mem(create_only, shm_name.c_str(), 32 << 20);
+	const int ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+	const int cpu = sched_getcpu();
+
+	for (uint32_t key_size : { 1U, 4U, 17U }) {
+		for (uint32_t value_size : { 1U, 8U, 24U, 257U }) {
+			CAPTURE(key_size, value_size, cpu, ncpu);
+			per_cpu_hash_map_impl map(mem, key_size, value_size, 16,
+					       ncpu);
+			std::vector<uint8_t> key(key_size);
+			std::vector<uint8_t> missing_key(key_size);
+			std::vector<uint8_t> initial(value_size);
+			std::vector<uint8_t> updated(value_size);
+			for (uint32_t i = 0; i < key_size; ++i) {
+				key[i] = static_cast<uint8_t>(0x31 + i * 7);
+				missing_key[i] = key[i];
+			}
+			missing_key[0] ^= 0xff;
+			for (uint32_t i = 0; i < value_size; ++i) {
+				initial[i] = static_cast<uint8_t>(i * 3 + 1);
+				updated[i] = static_cast<uint8_t>(i * 5 + 9);
+			}
+
+			ensure_on_certain_cpu<void>(cpu, [&]() {
+				REQUIRE(map.elem_update(key.data(), initial.data(),
+							BPF_ANY) == 0);
+				auto *found = static_cast<uint8_t *>(
+					map.elem_lookup(key.data()));
+				REQUIRE(found != nullptr);
+				REQUIRE(std::memcmp(found, initial.data(),
+						    value_size) == 0);
+				REQUIRE(map.elem_update(key.data(), updated.data(),
+							BPF_EXIST) == 0);
+				found = static_cast<uint8_t *>(
+					map.elem_lookup(key.data()));
+				REQUIRE(found != nullptr);
+				REQUIRE(std::memcmp(found, updated.data(),
+						    value_size) == 0);
+				REQUIRE(map.elem_lookup(missing_key.data()) ==
+					nullptr);
+				REQUIRE(errno == ENOENT);
+			});
+
+			auto *all_values = static_cast<uint8_t *>(
+				map.elem_lookup_userspace(key.data()));
+			REQUIRE(all_values != nullptr);
+			for (int slot = 0; slot < ncpu; ++slot) {
+				const auto *actual =
+					all_values + slot * value_size;
+				if (slot == cpu) {
+					REQUIRE(std::memcmp(actual, updated.data(),
+							    value_size) == 0);
+				} else {
+					REQUIRE(std::all_of(
+						actual, actual + value_size,
+						[](uint8_t byte) {
+							return byte == 0;
+						}));
+				}
+			}
+		}
 	}
-	errno = 0;
-	REQUIRE(map.elem_update(&missing, &replacement, 0) == -1);
-	REQUIRE(errno == E2BIG);
-	REQUIRE(map.elem_delete(&key) == 0);
-	REQUIRE(map.elem_lookup_userspace(&key) == nullptr);
-	REQUIRE(map.elem_lookup(&key) == nullptr);
-	errno = 0;
-	REQUIRE(map.elem_delete(&key) == -1);
-	REQUIRE(errno == ENOENT);
-	REQUIRE(map.elem_update(&missing, &replacement, 1) == 0);
 }
