@@ -109,14 +109,16 @@ struct bytes_vec_equal {
 		if (map_production_ab_stats_enabled() &&
 		    map_production_ab_lookup_active())
 			++map_production_ab_stats().equal_calls;
-		if (map_production_ab_fixed4_equal() && lhs.size() == 4 &&
-		    rhs.size() == 4) {
+		if (lhs.size() != rhs.size())
+			return false;
+		if (lhs.size() == sizeof(uint32_t)) {
 			uint32_t left, right;
 			std::memcpy(&left, lhs.data(), sizeof(left));
 			std::memcpy(&right, rhs.data(), sizeof(right));
 			return left == right;
 		}
-		return lhs == rhs;
+		return lhs.empty() ||
+		       std::memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
 	}
 };
 
