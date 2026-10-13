@@ -71,6 +71,14 @@ struct bytes_vec_hasher {
 	static size_t normal_hash(const uint8_t *data, size_t size)
 	{
 		using boost::hash_combine;
+		if (size == sizeof(uint32_t)) {
+			// Match the existing uint32_hasher fast path used by fixed-key
+			// maps. The integer itself is a complete hash for a four-byte
+			// key and avoids five serial boost::hash_combine operations.
+			uint32_t key;
+			std::memcpy(&key, data, sizeof(key));
+			return key;
+		}
 		size_t seed = 0;
 		hash_combine(seed, size);
 		for (size_t i = 0; i < size; ++i)
