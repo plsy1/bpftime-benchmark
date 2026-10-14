@@ -109,6 +109,11 @@ static void handle_sub_process()
 	test_delete_map(1, manager_ref, segment);
 	test_delete_map(3, manager_ref, segment);
 	test_delete_map(4, manager_ref, segment);
+	// Reinsert the per-CPU entries from a process with a different shared
+	// memory mapping. This exercises recycled node handles across processes.
+	test_insert_percpu_map(4, manager_ref);
+	test_lookup_map(4, manager_ref, segment);
+	test_delete_map(4, manager_ref, segment);
 	manager->clear_all(segment);
 	spdlog::info("Print maps value finished");
 	segment.destroy_ptr(manager);
