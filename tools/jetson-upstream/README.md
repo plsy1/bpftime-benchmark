@@ -33,13 +33,15 @@ python3 tools/jetson-upstream/tracker.py daily --push
 1. updates and optionally pushes `official-latest`;
 2. creates a detached official worktree;
 3. initializes its submodules;
-4. builds with GCC 13, LLVM 15, RelWithDebInfo, LTO enabled, and probe checks
-   disabled;
-5. runs the complete runtime unit-test binary;
+4. builds with GCC 13, clang/LLVM 15, RelWithDebInfo, LTO enabled, and probe
+   checks disabled;
+5. runs the per-CPU array/hash, shared hash, and four-byte fast-path runtime
+   tests that cover the maintained patch stack;
 6. applies `jetson_clocks`, pins the suite to CPU 5, and runs the official
    uprobe benchmark for 10 rounds;
 7. validates every raw result has 10 samples and archives metadata;
-8. attempts the configured patch stack in a separate candidate worktree.
+8. attempts the configured patch stack in a separate candidate worktree;
+9. builds and tests a conflict-free candidate, then pushes its dated branch.
 
 Results are written below `../results/uprobe/official-daily`. Worktrees,
 migration reports, and the lock file are written below
@@ -54,6 +56,11 @@ The former SIGSEGV-handler installation patch is not replayed: current
 official bpftime replaced that implementation with `process_vm_readv` and
 `process_vm_writev`, so replaying the old signal-based path would be a semantic
 regression rather than a migration.
+
+The configured commit IDs are the rebased/adapted commits from
+`codex/uprobe-official-8da867d541f8`, not the original historical commit IDs.
+This makes the patch stack portable to another Jetson without relying on a
+machine-local `rerere` cache.
 
 The uncommitted clean-leaf per-CPU array lookup experiment is intentionally not
 in the patch list. Add its commit to `candidate.commits` only after accepting
@@ -71,3 +78,12 @@ tools/jetson-upstream/install-user-timer.sh
 The service uses non-interactive `sudo` for `jetson_clocks` and the kernel BPF
 loader. Verify `sudo -n true` works before enabling it. The lock file prevents
 two tracker jobs from running concurrently.
+
+The current official bpftool bootstrap also requires the `libssl-dev` package.
+It is installed on this Jetson; install the same package when moving the
+automation to another machine.
+
+The complete upstream runtime suite is not used as the daily gate because the
+official `Test attach replace with ebpf` case currently SIGSEGVs on this Jetson
+before reaching the map tests. The configured focused suite passes 24,550
+assertions in 14 test cases and directly covers the maintained changes.

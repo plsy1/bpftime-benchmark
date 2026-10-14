@@ -199,7 +199,13 @@ def migrate(config: dict[str, Any], repo: Path, official_sha: str) -> Path:
     for patch in config["candidate"]["commits"]:
         sha = patch["sha"]
         marker = f"(cherry picked from commit {sha})"
-        if marker in completed:
+        is_ancestor = run(
+            ["git", "merge-base", "--is-ancestor", sha, "HEAD"],
+            cwd=path,
+            check=False,
+            capture=True,
+        ).returncode == 0
+        if is_ancestor or marker in completed:
             applied.append(patch)
             continue
         if git(path, "rev-parse", "--verify", "CHERRY_PICK_HEAD", check=False):
@@ -286,7 +292,17 @@ def build(config: dict[str, Any], path: Path) -> Path:
         cwd=path,
     )
     run(["make", "-C", "benchmark", "test"], cwd=path)
-    run(["make", "-C", "benchmark/uprobe", "uprobe"], cwd=path)
+    run(
+        [
+            "make",
+            "-C",
+            "benchmark/uprobe",
+            "CLANG=/usr/bin/clang-15",
+            "CC=/usr/bin/gcc-13",
+            "uprobe",
+        ],
+        cwd=path,
+    )
     required = (
         build_dir / "runtime/agent/libbpftime-agent.so",
         build_dir / "runtime/syscall-server/libbpftime-syscall-server.so",
@@ -302,9 +318,9 @@ def build(config: dict[str, Any], path: Path) -> Path:
     return build_dir
 
 
-def test_runtime(path: Path, build_dir: Path) -> None:
+def test_runtime(config: dict[str, Any], path: Path, build_dir: Path) -> None:
     test_binary = build_dir / "runtime/unit-test/bpftime_runtime_tests"
-    run([str(test_binary)], cwd=path)
+    run([str(test_binary), config["build"]["test_filter"]], cwd=path)
 
 
 def cpu_frequency(cpu: int) -> dict[str, int | None]:
@@ -456,14 +472,32 @@ def daily(config: dict[str, Any], repo: Path, *, push: bool, force: bool) -> dic
     official_path = worktree_path(state_root, official_sha, "official")
     ensure_worktree(repo, official_path, official_sha)
     build_dir = build(config, official_path)
-    test_runtime(official_path, build_dir)
+    test_runtime(config, official_path, build_dir)
     result_dir = benchmark(config, official_path, build_dir, official_sha)
     status["official_result"] = str(result_dir)
     try:
         candidate_path = migrate(config, repo, official_sha)
         status["candidate_worktree"] = str(candidate_path)
         status["migration"] = "success"
-    except TrackerError as error:
+        if config["candidate"].get("build_and_test", True):
+            candidate_build = build(config, candidate_path)
+            test_runtime(config, candidate_path, candidate_build)
+            status["candidate_build"] = str(candidate_build)
+            status["candidate_tests"] = "passed"
+        if config["candidate"].get("push_after_test", False):
+            candidate_branch = git(candidate_path, "branch", "--show-current")
+            run(
+                [
+                    "git",
+                    "push",
+                    "-u",
+                    config["candidate"]["push_remote"],
+                    candidate_branch,
+                ],
+                cwd=candidate_path,
+            )
+            status["candidate_pushed"] = candidate_branch
+    except (TrackerError, subprocess.CalledProcessError) as error:
         status["migration"] = "needs-attention"
         status["migration_error"] = str(error)
     status.update({"status": "success", "finished": now()})
