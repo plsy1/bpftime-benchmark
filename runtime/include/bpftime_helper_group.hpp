@@ -47,7 +47,9 @@ class bpftime_helper_group {
 	static const bpftime_helper_group &get_shm_maps_helper_group();
 
 	// Add the helper group to the program
-	int add_helper_group_to_prog(bpftime_prog *prog) const;
+	int add_helper_group_to_prog(
+		bpftime_prog *prog,
+		const bpftime_helper_info *override_helper = nullptr) const;
 	// Get all helper ids of this helper group
 	std::vector<int32_t> get_helper_ids() const;
 
@@ -60,4 +62,7 @@ std::map<int32_t, bpftime::verifier::BpftimeHelperProrotype>
 get_ufunc_helper_protos();
 #endif
 } // namespace bpftime
+
+extern "C" uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
 #endif
