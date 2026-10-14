@@ -7,6 +7,7 @@
 #define _MAP_HANDLER
 
 #include "bpf_map/userspace/array_map.hpp"
+#include "bpf_map/userspace/per_cpu_array_map.hpp"
 #include "bpf_map/userspace/ringbuf_map.hpp"
 #include "bpf_map/userspace/stack_trace_map.hpp"
 #include "bpftime_shm.hpp"
@@ -159,6 +160,11 @@ class bpf_map_handler {
 	// *
 	const void *map_lookup_elem(const void *key,
 				    bool from_syscall = false) const;
+	const void *map_lookup_percpu_array(const void *key) const
+	{
+		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
+			->elem_lookup(key);
+	}
 	// * BPF_MAP_UPDATE_ELEM
 	// *	Description
 	// *		Create or update an element (key/value pair) in a
