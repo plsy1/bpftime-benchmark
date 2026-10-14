@@ -267,3 +267,78 @@ TEST_CASE("four-byte per-cpu hash preserves userspace map semantics",
 	REQUIRE(map.map_get_next_key(nullptr, &current) == -1);
 	REQUIRE(errno == ENOENT);
 }
+
+TEST_CASE("four-byte per-cpu hash reuses value slots without stale data",
+	  "[percpu-hash][uint32-key][slot-pool]")
+{
+	const std::string shm_name =
+		"BPFTIME_PER_CPU_HASH_SLOT_SHM_" + std::to_string(getpid());
+	shm_remove remover(shm_name.c_str());
+	managed_shared_memory mem(create_only, shm_name.c_str(), 4 << 20);
+	const int ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+	const int cpu = sched_getcpu();
+	per_cpu_hash_map_impl map(mem, sizeof(uint32_t), sizeof(uint64_t), 2,
+				       ncpu);
+	std::vector<uint64_t> old_values(ncpu);
+	for (int slot = 0; slot < ncpu; ++slot)
+		old_values[slot] = 1000 + slot;
+
+	uint32_t key = 1;
+	REQUIRE(map.elem_update_userspace(&key, old_values.data(), BPF_ANY) ==
+		0);
+	REQUIRE(map.elem_delete(&key) == 0);
+
+	key = 2;
+	const uint64_t new_value = 0xabcdef0123456789ULL;
+	ensure_on_certain_cpu<void>(cpu, [&]() {
+		REQUIRE(map.elem_update(&key, &new_value, BPF_ANY) == 0);
+	});
+	auto *values = static_cast<uint64_t *>(map.elem_lookup_userspace(&key));
+	REQUIRE(values != nullptr);
+	for (int slot = 0; slot < ncpu; ++slot) {
+		if (slot == cpu)
+			REQUIRE(values[slot] == new_value);
+		else
+			REQUIRE(values[slot] == 0);
+	}
+
+	REQUIRE(map.elem_delete(&key) == 0);
+	const auto steady_free_memory = mem.get_free_memory();
+	for (uint32_t iteration = 0; iteration < 2048; ++iteration) {
+		key = 100 + iteration;
+		REQUIRE(map.elem_update_userspace(&key, old_values.data(),
+						  BPF_ANY) == 0);
+		REQUIRE(map.elem_delete_userspace(&key) == 0);
+	}
+	REQUIRE(mem.get_free_memory() == steady_free_memory);
+}
+
+TEST_CASE("four-byte per-cpu hash keeps values stable across pool growth",
+	  "[percpu-hash][uint32-key][slot-pool]")
+{
+	const std::string shm_name =
+		"BPFTIME_PER_CPU_HASH_GROW_SHM_" + std::to_string(getpid());
+	shm_remove remover(shm_name.c_str());
+	managed_shared_memory mem(create_only, shm_name.c_str(), 4 << 20);
+	constexpr int ncpu = 4;
+	constexpr uint32_t entry_count = 513;
+	per_cpu_hash_map_impl map(mem, sizeof(uint32_t), sizeof(uint64_t),
+				       entry_count, ncpu);
+
+	for (uint32_t key = 0; key < entry_count; ++key) {
+		std::array<uint64_t, ncpu> values{};
+		for (int cpu = 0; cpu < ncpu; ++cpu)
+			values[cpu] = static_cast<uint64_t>(key) * 100 + cpu;
+		REQUIRE(map.elem_update_userspace(&key, values.data(),
+						  BPF_NOEXIST) == 0);
+	}
+
+	for (uint32_t key : { 0U, 1U, 255U, 256U, 511U, 512U }) {
+		auto *values =
+			static_cast<uint64_t *>(map.elem_lookup_userspace(&key));
+		REQUIRE(values != nullptr);
+		for (int cpu = 0; cpu < ncpu; ++cpu)
+			REQUIRE(values[cpu] ==
+				static_cast<uint64_t>(key) * 100 + cpu);
+	}
+}
