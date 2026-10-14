@@ -12,12 +12,31 @@
 #include <bpf_map/userspace/per_cpu_hash_map.hpp>
 #include <cerrno>
 #include <cstring>
+#include <limits>
 #include <unistd.h>
 #include "platform_utils.hpp"
 
 
 namespace bpftime
 {
+namespace
+{
+constexpr uint32_t invalid_uint32_value_slot =
+	std::numeric_limits<uint32_t>::max();
+constexpr uint64_t target_uint32_value_chunk_bytes = 64ULL << 10;
+constexpr uint32_t max_uint32_value_slots_per_chunk = 256;
+
+uint32_t choose_uint32_value_slots_per_chunk(uint64_t value_stride)
+{
+	uint32_t slots = 1;
+	while (slots < max_uint32_value_slots_per_chunk &&
+	       static_cast<uint64_t>(slots * 2) * value_stride <=
+		       target_uint32_value_chunk_bytes)
+		slots *= 2;
+	return slots;
+}
+} // namespace
+
 std::vector<per_cpu_hash_map_impl::node_type> &
 per_cpu_hash_map_impl::diagnostic_deferred_nodes()
 {
@@ -52,7 +71,12 @@ per_cpu_hash_map_impl::per_cpu_hash_map_impl(
 	  value_size(value_size), ncpu(ncpu), _max_entries(max_entries),
 	  value_template(value_size * ncpu, memory.get_segment_manager()),
 	  key_templates(memory.get_segment_manager()),
-	  single_value_templates(memory.get_segment_manager())
+	  single_value_templates(memory.get_segment_manager()),
+	  uint32_value_chunks(memory.get_segment_manager()),
+	  uint32_free_next(memory.get_segment_manager()),
+	  uint32_free_head(invalid_uint32_value_slot), uint32_slot_count(0),
+	  uint32_slots_per_chunk(choose_uint32_value_slots_per_chunk(
+		  static_cast<uint64_t>(value_size) * ncpu))
 {
 	SPDLOG_DEBUG(
 		"Initializing per cpu hash, key size {}, value size {}, ncpu {}",
@@ -65,6 +89,45 @@ per_cpu_hash_map_impl::per_cpu_hash_map_impl(
 		bytes_vec value_vec(value_size, memory.get_segment_manager());
 		single_value_templates.push_back(value_vec);
 	}
+}
+
+per_cpu_hash_map_impl::uint32_value_ref
+per_cpu_hash_map_impl::acquire_uint32_value()
+{
+	uint32_t slot;
+	if (uint32_free_head != invalid_uint32_value_slot) {
+		slot = uint32_free_head;
+		uint32_free_head = uint32_free_next[slot];
+	} else {
+		if (uint32_slot_count >= _max_entries) {
+			errno = E2BIG;
+			return { nullptr, invalid_uint32_value_slot };
+		}
+		slot = uint32_slot_count++;
+		if (slot % uint32_slots_per_chunk == 0) {
+			const size_t chunk_bytes =
+				static_cast<size_t>(value_size) * ncpu *
+				uint32_slots_per_chunk;
+			bytes_vec chunk(chunk_bytes,
+					value_template.get_allocator());
+			uint32_value_chunks.push_back(std::move(chunk));
+		}
+		uint32_free_next.push_back(invalid_uint32_value_slot);
+	}
+
+	auto &chunk =
+		uint32_value_chunks[slot / uint32_slots_per_chunk];
+	uint8_t *data = chunk.data() +
+			static_cast<size_t>(slot % uint32_slots_per_chunk) *
+				value_size * ncpu;
+	std::memset(data, 0, static_cast<size_t>(value_size) * ncpu);
+	return { data, slot };
+}
+
+void per_cpu_hash_map_impl::release_uint32_value(uint32_t slot)
+{
+	uint32_free_next[slot] = uint32_free_head;
+	uint32_free_head = slot;
 }
 
 void *per_cpu_hash_map_impl::elem_lookup(const void *key)
@@ -89,7 +152,7 @@ void *per_cpu_hash_map_impl::elem_lookup(const void *key)
 		std::memcpy(&key_value, key, sizeof(key_value));
 		auto itr = uint32_impl.find(key_value);
 		if (itr != uint32_impl.end())
-			result = itr->second.data() + value_size * cpu;
+			result = itr->second.data.get() + value_size * cpu;
 	} else {
 		bytes_vec &key_vec = this->key_templates[cpu];
 		// key_vec is pre-sized in the constructor. Reusing its storage avoids
@@ -145,19 +208,19 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
 		map_production_ab_lookup_active() = true;
 		++map_production_ab_stats().lookups;
 	}
-	bytes_vec *existing_value = nullptr;
+	uint8_t *existing_value = nullptr;
 	if (uses_uint32_keys()) {
 		uint32_t key_value;
 		std::memcpy(&key_value, key, sizeof(key_value));
 		auto itr = uint32_impl.find(key_value);
 		if (itr != uint32_impl.end())
-			existing_value = &itr->second;
+			existing_value = itr->second.data.get();
 	} else {
 		bytes_vec &key_vec = this->key_templates[cpu];
 		std::memcpy(key_vec.data(), key, key_size);
 		auto itr = impl.find(key_vec);
 		if (itr != impl.end())
-			existing_value = &itr->second;
+			existing_value = itr->second.data();
 	}
 	if (existing_value != nullptr) {
 		if (collect_stats) {
@@ -165,7 +228,7 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
 			map_production_ab_lookup_active() = false;
 		}
 		if (mode != map_production_ab_mode::percpu_hash_update_no_copy) {
-			std::memcpy(existing_value->data() + cpu * value_size, value,
+			std::memcpy(existing_value + cpu * value_size, value,
 				    value_size);
 		}
 	} else {
@@ -173,16 +236,22 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
 			++map_production_ab_stats().misses;
 			map_production_ab_lookup_active() = false;
 		}
-		bytes_vec full_value_vec = this->value_template;
-		std::memcpy(full_value_vec.data() + cpu * value_size, value,
-			    value_size);
-
 		if (uses_uint32_keys()) {
 			uint32_t key_value;
 			std::memcpy(&key_value, key, sizeof(key_value));
-			uint32_impl.insert(bi_uint32_map_value_ty(key_value,
-							       full_value_vec));
+			auto value_ref = acquire_uint32_value();
+			if (value_ref.data == nullptr)
+				return -1;
+			std::memcpy(value_ref.data.get() + cpu * value_size,
+				    value, value_size);
+			const auto result = uint32_impl.insert(
+				bi_uint32_map_value_ty(key_value, value_ref));
+			if (!result.second)
+				release_uint32_value(value_ref.slot);
 		} else {
+			bytes_vec full_value_vec = this->value_template;
+			std::memcpy(full_value_vec.data() + cpu * value_size,
+				    value, value_size);
 			impl.insert(bi_map_value_ty(key_templates[cpu],
 						    full_value_vec));
 		}
@@ -203,6 +272,7 @@ long per_cpu_hash_map_impl::elem_delete(const void *key)
 			errno = ENOENT;
 			return -1;
 		}
+		const uint32_t slot = itr->second.slot;
 		if (get_map_production_ab_mode() ==
 		    map_production_ab_mode::percpu_hash_delete_defer_reclaim) {
 			auto node = uint32_impl.extract(itr);
@@ -211,6 +281,7 @@ long per_cpu_hash_map_impl::elem_delete(const void *key)
 		} else {
 			uint32_impl.erase(itr);
 		}
+		release_uint32_value(slot);
 	} else {
 		bytes_vec &key_vec = this->key_templates[cpu];
 		std::memcpy(key_vec.data(), key, key_size);
@@ -292,24 +363,23 @@ void *per_cpu_hash_map_impl::elem_lookup_userspace(const void *key)
 		errno = ENOENT;
 		return nullptr;
 	}
-	bytes_vec *result = nullptr;
+	uint8_t *result = nullptr;
 	if (uses_uint32_keys()) {
 		uint32_t key_value;
 		std::memcpy(&key_value, key, sizeof(key_value));
 		auto itr = uint32_impl.find(key_value);
 		if (itr != uint32_impl.end())
-			result = &itr->second;
+			result = itr->second.data.get();
 	} else {
 		bytes_vec &key_vec = this->key_templates[0];
 		std::memcpy(key_vec.data(), key, key_size);
 		auto itr = impl.find(key_vec);
 		if (itr != impl.end())
-			result = &itr->second;
+			result = itr->second.data();
 	}
 	if (result != nullptr) {
-		SPDLOG_TRACE("Exit elem lookup of hash map: {}",
-			     spdlog::to_hex(result->begin(), result->end()));
-		return result->data();
+		SPDLOG_TRACE("Exit elem lookup of hash map");
+		return result;
 	} else {
 		SPDLOG_TRACE("Exit elem lookup of hash map");
 		errno = ENOENT;
@@ -323,18 +393,19 @@ long per_cpu_hash_map_impl::elem_update_userspace(const void *key,
 {
 	if (!check_update_flags(flags))
 		return -1;
-	bytes_vec value_vec = this->value_template;
-	value_vec.assign((uint8_t *)value,
-			 (uint8_t *)value + value_size * ncpu);
 	bool elem_exists;
 	uint32_t key_value = 0;
+	shm_uint32_hash_map::iterator uint32_itr;
+	shm_hash_map::iterator generic_itr;
 	if (uses_uint32_keys()) {
 		std::memcpy(&key_value, key, sizeof(key_value));
-		elem_exists = uint32_impl.find(key_value) != uint32_impl.end();
+		uint32_itr = uint32_impl.find(key_value);
+		elem_exists = uint32_itr != uint32_impl.end();
 	} else {
 		bytes_vec &key_vec = this->key_templates[0];
 		std::memcpy(key_vec.data(), key, key_size);
-		elem_exists = impl.find(key_vec) != impl.end();
+		generic_itr = impl.find(key_vec);
+		elem_exists = generic_itr != impl.end();
 	}
 	if (flags == BPF_NOEXIST && elem_exists) {
 		errno = EEXIST;
@@ -350,10 +421,33 @@ long per_cpu_hash_map_impl::elem_update_userspace(const void *key,
 		errno = E2BIG;
 		return -1;
 	}
-	if (uses_uint32_keys())
-		uint32_impl.insert_or_assign(key_value, value_vec);
-	else
-		impl.insert_or_assign(key_templates[0], value_vec);
+	if (uses_uint32_keys()) {
+		if (elem_exists) {
+			std::memcpy(uint32_itr->second.data.get(), value,
+				    static_cast<size_t>(value_size) * ncpu);
+		} else {
+			auto value_ref = acquire_uint32_value();
+			if (value_ref.data == nullptr)
+				return -1;
+			std::memcpy(value_ref.data.get(), value,
+				    static_cast<size_t>(value_size) * ncpu);
+			const auto result = uint32_impl.insert(
+				bi_uint32_map_value_ty(key_value, value_ref));
+			if (!result.second) {
+				release_uint32_value(value_ref.slot);
+				errno = EEXIST;
+				return -1;
+			}
+		}
+	} else {
+		bytes_vec value_vec = this->value_template;
+		value_vec.assign((uint8_t *)value,
+				 (uint8_t *)value + value_size * ncpu);
+		if (elem_exists)
+			generic_itr->second = value_vec;
+		else
+			impl.insert(bi_map_value_ty(key_templates[0], value_vec));
+	}
 	return 0;
 }
 long per_cpu_hash_map_impl::elem_delete_userspace(const void *key)
@@ -366,7 +460,9 @@ long per_cpu_hash_map_impl::elem_delete_userspace(const void *key)
 			errno = ENOENT;
 			return -1;
 		}
+		const uint32_t slot = itr->second.slot;
 		uint32_impl.erase(itr);
+		release_uint32_value(slot);
 	} else {
 		bytes_vec &key_vec = this->key_templates[0];
 		std::memcpy(key_vec.data(), key, key_size);
@@ -391,8 +487,10 @@ long per_cpu_hash_map_impl::lookup_and_delete_userspace(const void *key,
 			errno = ENOENT;
 			return -1;
 		}
-		memcpy(value, itr->second.data(), ncpu * value_size);
+		memcpy(value, itr->second.data.get(), ncpu * value_size);
+		const uint32_t slot = itr->second.slot;
 		uint32_impl.erase(itr);
+		release_uint32_value(slot);
 	} else {
 		bytes_vec &key_vec = this->key_templates[0];
 		std::memcpy(key_vec.data(), key, key_size);
