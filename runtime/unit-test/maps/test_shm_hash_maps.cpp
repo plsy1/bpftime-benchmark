@@ -11,6 +11,7 @@
 #include <linux/bpf.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <vector>
 
 static const char *SHM_NAME = "my_shm_maps_test";
 static const char *HANDLER_NAME = "my_handler";
@@ -26,6 +27,20 @@ static void test_insert_map(int fd, bpftime::handler_manager &manager_ref,
 		uint32_t key = i;
 		uint64_t value = (((uint64_t)key) << 32) | 0xffffffff;
 		map_handler.map_update_elem(&key, &value, 0);
+	}
+}
+
+static void test_insert_percpu_map(int fd,
+				    bpftime::handler_manager &manager_ref)
+{
+	auto &map_handler = std::get<bpf_map_handler>(manager_ref[fd]);
+	const int ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+	for (int i = 0; i < 100; i++) {
+		uint32_t key = i;
+		const uint64_t expected =
+			(static_cast<uint64_t>(key) << 32) | 0xffffffff;
+		std::vector<uint64_t> values(ncpu, expected);
+		map_handler.map_update_elem(&key, values.data(), 0, true);
 	}
 }
 
@@ -73,10 +88,13 @@ static void handle_sub_process()
 	manager_ref.clear_id_at(2, segment);
 	test_lookup_map(1, manager_ref, segment);
 	test_lookup_map(3, manager_ref, segment);
+	test_lookup_map(4, manager_ref, segment);
 	test_get_next_element(1, manager_ref, segment);
 	test_get_next_element(3, manager_ref, segment);
+	test_get_next_element(4, manager_ref, segment);
 	test_delete_map(1, manager_ref, segment);
 	test_delete_map(3, manager_ref, segment);
+	test_delete_map(4, manager_ref, segment);
 	manager->clear_all(segment);
 	spdlog::info("Print maps value finished");
 	segment.destroy_ptr(manager);
@@ -110,15 +128,22 @@ TEST_CASE("Test shm hash maps with sub process")
 				bpf_map_handler(3, BPF_MAP_TYPE_ARRAY, 4, 8,
 						1024, 0, "array1", segment),
 				segment);
+	manager_ref.set_handler(4,
+				bpf_map_handler(4, BPF_MAP_TYPE_PERCPU_HASH, 4, 8,
+						1024, 0, "percpu_hash1", segment),
+				segment);
 
 	// test insert
 	test_insert_map(1, manager_ref, segment);
 	test_insert_map(3, manager_ref, segment);
+	test_insert_percpu_map(4, manager_ref);
 	test_get_next_element(1, manager_ref, segment);
 	test_get_next_element(3, manager_ref, segment);
+	test_get_next_element(4, manager_ref, segment);
 	// test lookup
 	test_lookup_map(1, manager_ref, segment);
 	test_lookup_map(3, manager_ref, segment);
+	test_lookup_map(4, manager_ref, segment);
 	spdlog::info("Starting subprocess");
 	int pid = fork();
 	if (pid == 0) {
