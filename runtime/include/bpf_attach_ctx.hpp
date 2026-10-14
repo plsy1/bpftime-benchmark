@@ -244,7 +244,8 @@ private:
 				   std::set<int> &stk,
 				   const runtime_config &config,
 				   bool handle_nv_attach_impl);
-	int instantiate_prog_handler_at(int id, const bpf_prog_handler &handler,
+	int instantiate_prog_handler_at(const handler_manager *manager, int id,
+					const bpf_prog_handler &handler,
 					const runtime_config &config);
 	int instantiate_bpf_link_handler_at(int id,
 					    const bpf_link_handler &handler,
@@ -258,7 +259,9 @@ private:
 #endif
 };
 
-int load_prog_and_helpers(bpftime_prog *prog, const runtime_config &config);
+int load_prog_and_helpers(
+	bpftime_prog *prog, const runtime_config &config,
+	const bpftime_helper_info *map_lookup_override = nullptr);
 
 } // namespace bpftime
 
