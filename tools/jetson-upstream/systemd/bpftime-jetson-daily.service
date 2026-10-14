@@ -1,0 +1,11 @@
+[Unit]
+Description=Track official bpftime and run Jetson uprobe benchmark
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@WORKTREE@
+ExecStart=/usr/bin/python3 @WORKTREE@/tools/jetson-upstream/tracker.py daily --push
+Nice=5
+

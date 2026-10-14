@@ -1,0 +1,69 @@
+{
+  "official": {
+    "url": "https://github.com/eunomia-bpf/bpftime.git",
+    "remote": "official",
+    "branch": "master",
+    "mirror_branch": "official-latest",
+    "push_remote": "origin",
+    "push_mirror": true
+  },
+  "paths": {
+    "state_root": "{repo_parent}/bpftime-daily-state",
+    "results_root": "{repo_parent}/results/uprobe/official-daily"
+  },
+  "candidate": {
+    "branch_prefix": "codex/uprobe-official",
+    "commits": [
+      {"sha": "8ed291e130fe3f15f99955b0d259eb119efdaa7d", "kind": "benchmark", "subject": "Fix hash delete state and add map diagnostics"},
+      {"sha": "176eb291ead95eb5f8a56280deae626fac46eaa9", "kind": "benchmark", "subject": "Add kernel array value-size diagnostic"},
+      {"sha": "98db0fdb1a8dd1fc526540309ca850ee730f67ff", "kind": "benchmark", "subject": "Add matched top hash residual diagnostic"},
+      {"sha": "47f853ccfa86e054ff033e734dadd17f2d60166c", "kind": "benchmark", "subject": "Add matched helper map ladder diagnostic"},
+      {"sha": "c6e2737aabddb23a9915f5eec2fe890f2c3fba07", "kind": "runtime-fix", "subject": "Fix per-CPU hash helper delete semantics"},
+      {"sha": "ac48902409930816ee0fdc54ebe0023fee631b06", "kind": "benchmark", "subject": "Add per-CPU array path diagnostics"},
+      {"sha": "1ee2eb6e2e2eacfc5a3ec7a3f8769adfdae6d492", "kind": "benchmark", "subject": "Add per-CPU hash path diagnostics"},
+      {"sha": "e0240a1a81c461f758d3db9fcb8d159e2d9dcf98", "kind": "benchmark", "subject": "Add matched per-CPU map path diagnostics"},
+      {"sha": "deb8f56a66a4a36850810b634dba0c94a9fc63d3", "kind": "benchmark", "subject": "Diagnose per-CPU hash delete reclamation"},
+      {"sha": "9c90b225c5673a7ce0f5957a4f1a013a9dcbceb5", "kind": "diagnostic-runtime", "subject": "Add production map path A/B diagnostics"},
+      {"sha": "fea5a4b63446677da2bcea22c760b28a33ed8a95", "kind": "benchmark", "subject": "Add matched map helper closure diagnostics"},
+      {"sha": "0b65eb42ecb9bab1156640625c95818bc5e6dcaa", "kind": "benchmark", "subject": "Diagnose per-CPU hash lookup leaf costs"},
+      {"sha": "a199a4c2385227af4e9b536f0592133664bf52bb", "kind": "benchmark", "subject": "Diagnose remaining map operation leaf costs"},
+      {"sha": "1a1dc0d6c2026a5e4b0e4faa964e3eea8ccdd241", "kind": "benchmark", "subject": "Diagnose hash workload sensitivity"},
+      {"sha": "0572f81713785a15e245a552d76a59aa876a78aa", "kind": "optimization", "subject": "Optimize per-CPU array callable dispatch"},
+      {"sha": "3ba5d73ae08f0f58bdafc76ece381fcf5660feba", "kind": "optimization", "subject": "Optimize per-CPU hash copy paths"},
+      {"sha": "ed4aeb77e2cc1a4b2ef351d6b83b36cdf5058040", "kind": "optimization", "subject": "Optimize shared-memory key equality"},
+      {"sha": "f9cf67f7649fed225ad46be40cc4844c662299d4", "kind": "optimization", "subject": "Optimize four-byte shared-memory key hashing"},
+      {"sha": "77468b3b22004dc86a437b284eee2669d5af8d35", "kind": "optimization", "subject": "Optimize four-byte per-CPU hash node keys"},
+      {"sha": "69cb4dcec6e21b2ad7b48f6757c22b5caa9277b4", "kind": "optimization", "subject": "Reuse four-byte per-CPU hash value storage"},
+      {"sha": "f4025239e09cee96151313dbf57955cd186adb51", "kind": "optimization", "subject": "Reuse four-byte per-CPU hash nodes"},
+      {"sha": "b9fee864bf542b07cf83eb5c990201bd830519f5", "kind": "optimization", "subject": "Specialize per-CPU array lookup helper at load time"}
+    ]
+  },
+  "build": {
+    "jobs": 6,
+    "cmake_args": [
+      "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
+      "-DCMAKE_C_COMPILER=/usr/bin/gcc-13",
+      "-DCMAKE_CXX_COMPILER=/usr/bin/g++-13",
+      "-DLLVM_DIR=/usr/lib/llvm-15/lib/cmake/llvm",
+      "-DBPFTIME_ENABLE_LTO=ON",
+      "-DBPFTIME_ENABLE_UNIT_TESTING=ON",
+      "-DBPFTIME_ENABLE_CUDA_ATTACH=OFF",
+      "-DENABLE_EBPF_VERIFIER=OFF",
+      "-DENABLE_PROBE_READ_CHECK=OFF",
+      "-DENABLE_PROBE_WRITE_CHECK=OFF",
+      "-DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO"
+    ],
+    "targets": [
+      "bpftime-agent",
+      "bpftime-syscall-server",
+      "simple-benchmark-with-embed-ebpf-calling",
+      "bpftime_runtime_tests"
+    ]
+  },
+  "benchmark": {
+    "cpu": 5,
+    "runs": 10,
+    "skip_unchanged_sha": true,
+    "regression_threshold_percent": 5.0
+  }
+}
