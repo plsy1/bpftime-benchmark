@@ -77,6 +77,11 @@ class per_cpu_hash_map_impl {
 		boost::interprocess::vector<uint32_t, uint32_vec_allocator>;
 	using node_type = shm_hash_map::node_type;
 	using uint32_node_type = shm_uint32_hash_map::node_type;
+	using uint32_node_vec_allocator = boost::interprocess::allocator<
+		uint32_node_type,
+		boost::interprocess::managed_shared_memory::segment_manager>;
+	using uint32_node_vec = boost::interprocess::vector<
+		uint32_node_type, uint32_node_vec_allocator>;
 
 	shm_hash_map impl;
 	// Four-byte BPF keys are stored inline in the node. The generic map remains
@@ -94,6 +99,11 @@ class per_cpu_hash_map_impl {
 	// destroy and deallocate a separately owned bytes_vec.
 	bytes_vec_vec uint32_value_chunks;
 	uint32_vec uint32_free_next;
+	// Keep extracted nodes alive so a later insertion can relink them without
+	// returning to the managed shared-memory allocator. This mirrors the
+	// preallocated/free-list behavior of kernel hash maps while preserving
+	// normal map size and iteration semantics.
+	uint32_node_vec uint32_recycled_nodes;
 	uint32_t uint32_free_head;
 	uint32_t uint32_slot_count;
 	uint32_t uint32_slots_per_chunk;
@@ -106,6 +116,8 @@ class per_cpu_hash_map_impl {
 	}
 	uint32_value_ref acquire_uint32_value();
 	void release_uint32_value(uint32_t slot);
+	bool insert_uint32_value(uint32_t key, uint32_value_ref value);
+	void recycle_uint32_node(shm_uint32_hash_map::iterator itr);
 
     public:
 	const static bool should_lock = false;
