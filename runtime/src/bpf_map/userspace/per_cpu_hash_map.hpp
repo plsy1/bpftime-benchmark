@@ -8,6 +8,7 @@
 #include <boost/interprocess/allocators/allocator.hpp>
 #include <boost/interprocess/interprocess_fwd.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
+#include <boost/interprocess/offset_ptr.hpp>
 #include <boost/interprocess/smart_ptr/unique_ptr.hpp>
 #include <boost/interprocess/containers/vector.hpp>
 #include <bpf_map/map_common_def.hpp>
@@ -44,12 +45,17 @@ class per_cpu_hash_map_impl {
 			return lhs == rhs;
 		}
 	};
-	using bi_uint32_map_value_ty = std::pair<const uint32_t, bytes_vec>;
+	struct uint32_value_ref {
+		boost::interprocess::offset_ptr<uint8_t> data;
+		uint32_t slot;
+	};
+	using bi_uint32_map_value_ty =
+		std::pair<const uint32_t, uint32_value_ref>;
 	using bi_uint32_map_allocator = boost::interprocess::allocator<
 		bi_uint32_map_value_ty,
 		boost::interprocess::managed_shared_memory::segment_manager>;
 	using shm_uint32_hash_map = boost::unordered_map<
-		uint32_t, bytes_vec, uint32_key_hasher, uint32_key_equal,
+		uint32_t, uint32_value_ref, uint32_key_hasher, uint32_key_equal,
 		bi_uint32_map_allocator>;
 
 	using shm_hash_map_vec_allocator = boost::interprocess::allocator<
@@ -64,6 +70,11 @@ class per_cpu_hash_map_impl {
 		boost::interprocess::managed_shared_memory::segment_manager>;
 	using bytes_vec_vec =
 		boost::interprocess::vector<bytes_vec, bytes_vec_vec_allocator>;
+	using uint32_vec_allocator = boost::interprocess::allocator<
+		uint32_t,
+		boost::interprocess::managed_shared_memory::segment_manager>;
+	using uint32_vec =
+		boost::interprocess::vector<uint32_t, uint32_vec_allocator>;
 	using node_type = shm_hash_map::node_type;
 	using uint32_node_type = shm_uint32_hash_map::node_type;
 
@@ -78,6 +89,14 @@ class per_cpu_hash_map_impl {
 
 	bytes_vec value_template;
 	bytes_vec_vec key_templates, single_value_templates;
+	// Four-byte-key maps keep values in stable, reusable chunks. Hash nodes
+	// contain only a pointer and slot number, so erasing a node does not also
+	// destroy and deallocate a separately owned bytes_vec.
+	bytes_vec_vec uint32_value_chunks;
+	uint32_vec uint32_free_next;
+	uint32_t uint32_free_head;
+	uint32_t uint32_slot_count;
+	uint32_t uint32_slots_per_chunk;
 	static std::vector<node_type> &diagnostic_deferred_nodes();
 	static std::vector<uint32_node_type> &
 	diagnostic_deferred_uint32_nodes();
@@ -85,6 +104,8 @@ class per_cpu_hash_map_impl {
 	{
 		return key_size == sizeof(uint32_t);
 	}
+	uint32_value_ref acquire_uint32_value();
+	void release_uint32_value(uint32_t slot);
 
     public:
 	const static bool should_lock = false;
