@@ -213,3 +213,57 @@ TEST_CASE("per-cpu hash preserves arbitrary key and value bytes",
 		}
 	}
 }
+
+TEST_CASE("four-byte per-cpu hash preserves userspace map semantics",
+	  "[percpu-hash][uint32-key]")
+{
+	const std::string shm_name =
+		"BPFTIME_PER_CPU_HASH_UINT32_SHM_" + std::to_string(getpid());
+	shm_remove remover(shm_name.c_str());
+	managed_shared_memory mem(create_only, shm_name.c_str(), 4 << 20);
+	const int ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+	per_cpu_hash_map_impl map(mem, sizeof(uint32_t), sizeof(uint64_t), 2,
+				       ncpu);
+	std::vector<uint64_t> values(ncpu);
+	for (int cpu = 0; cpu < ncpu; ++cpu)
+		values[cpu] = 1000 + cpu;
+
+	uint32_t key1 = 0x12345678;
+	uint32_t key2 = 0xabcdef01;
+	uint32_t missing = 0xfeedface;
+	REQUIRE(map.elem_update_userspace(&key1, values.data(), BPF_NOEXIST) ==
+		0);
+	REQUIRE(map.elem_update_userspace(&key1, values.data(), BPF_NOEXIST) ==
+		-1);
+	REQUIRE(errno == EEXIST);
+	REQUIRE(map.elem_update_userspace(&missing, values.data(), BPF_EXIST) ==
+		-1);
+	REQUIRE(errno == ENOENT);
+	REQUIRE(map.elem_update_userspace(&key2, values.data(), BPF_NOEXIST) ==
+		0);
+	REQUIRE(map.elem_update_userspace(&missing, values.data(), BPF_NOEXIST) ==
+		-1);
+	REQUIRE(errno == E2BIG);
+
+	std::vector<uint32_t> iterated;
+	uint32_t current;
+	REQUIRE(map.map_get_next_key(nullptr, &current) == 0);
+	iterated.push_back(current);
+	while (map.map_get_next_key(&current, &current) == 0)
+		iterated.push_back(current);
+	REQUIRE(errno == ENOENT);
+	std::sort(iterated.begin(), iterated.end());
+	std::array<uint32_t, 2> expected{ key1, key2 };
+	std::sort(expected.begin(), expected.end());
+	REQUIRE(iterated == std::vector<uint32_t>(expected.begin(),
+						  expected.end()));
+
+	std::vector<uint64_t> copied(ncpu);
+	REQUIRE(map.lookup_and_delete_userspace(&key1, copied.data()) == 0);
+	REQUIRE(copied == values);
+	REQUIRE(map.elem_lookup_userspace(&key1) == nullptr);
+	REQUIRE(errno == ENOENT);
+	REQUIRE(map.elem_delete_userspace(&key2) == 0);
+	REQUIRE(map.map_get_next_key(nullptr, &current) == -1);
+	REQUIRE(errno == ENOENT);
+}

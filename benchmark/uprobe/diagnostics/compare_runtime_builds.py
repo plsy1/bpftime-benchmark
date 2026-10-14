@@ -75,7 +75,10 @@ def main():
     diag = ROOT / "benchmark/uprobe/.output" / suite["directory"]
     loader = diag / suite["directory"]
     victim = diag / f"{suite['directory']}-victim"
-    tool = builds["baseline"] / "tools/bpftimetool/bpftimetool"
+    # Cleanup must understand the candidate's shared-memory object layout.
+    # This also lets a previously archived baseline remain immutable even if
+    # it was built without the optional command-line tools target.
+    tool = builds["candidate"] / "tools/bpftimetool/bpftimetool"
     artifacts = [loader, victim, diag / suite["object"]]
     for build in builds.values():
         artifacts.extend([build / "runtime/agent/libbpftime-agent.so",
