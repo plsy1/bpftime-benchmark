@@ -34,7 +34,9 @@ python3 tools/jetson-upstream/tracker.py daily --push
 2. creates a detached official worktree;
 3. initializes its submodules;
 4. builds with GCC 13, clang/LLVM 15, RelWithDebInfo, LTO enabled, and probe
-   checks disabled;
+   checks disabled; on this Jetson it generates a build-local ARM64
+   `vmlinux.h` with CO-RE relocations disabled because the host kernel does not
+   expose `/sys/kernel/btf/vmlinux`;
 5. runs the per-CPU array/hash, shared hash, and four-byte fast-path runtime
    tests that cover the maintained patch stack;
 6. applies `jetson_clocks`, pins the suite to CPU 5, and runs the official
@@ -47,6 +49,14 @@ Results are written below `../results/uprobe/official-daily`. Worktrees,
 migration reports, and the lock file are written below
 `../bpftime-daily-state`. Both roots are configurable in `config.json` and are
 resolved relative to the automation worktree's parent directory.
+
+The upstream `benchmark.py` assumes both a repository directory named
+`bpftime` and a build directory named `build`. The tracker creates a temporary
+runner view below the state directory that provides those names as symlinks;
+it does not modify the detached official worktree. The temporary runner also
+guards cleanup of an already-exited loader and treats a missing
+`Successfully started!` signal as a hard failure. This prevents an unloaded
+probe from being recorded as an implausibly fast successful benchmark.
 
 If migration conflicts, the candidate worktree and a JSON report are retained.
 Resolve the conflict there, test it, and then update the patch stack rather

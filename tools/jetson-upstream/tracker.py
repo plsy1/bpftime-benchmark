@@ -270,6 +270,31 @@ def initialize_submodules(path: Path, jobs: int) -> None:
     )
 
 
+def benchmark_vmlinux(config: dict[str, Any], path: Path, build_dir: Path) -> Path:
+    source = (path / "third_party/vmlinux/arm64/vmlinux.h").resolve()
+    if not config["benchmark"].get("disable_core_relocations", False):
+        return source
+    source_text = source.read_text()
+    push = "#pragma clang attribute push (__attribute__((preserve_access_index)), apply_to = record)"
+    pop = "#pragma clang attribute pop"
+    if source_text.count(push) != 1 or source_text.count(pop) != 1:
+        raise TrackerError(
+            f"unexpected CO-RE pragma layout in {source}; no-BTF header needs review"
+        )
+    output_text = source_text.replace(
+        push,
+        "/* Jetson has no host BTF; compile this benchmark without CO-RE relocations. */",
+    ).replace(
+        pop,
+        "/* preserve_access_index intentionally disabled for the Jetson benchmark. */",
+    )
+    output = build_dir / "jetson-no-btf/include/vmlinux.h"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if not output.exists() or output.read_text() != output_text:
+        output.write_text(output_text)
+    return output
+
+
 def build(config: dict[str, Any], path: Path) -> Path:
     build_cfg = config["build"]
     jobs = int(build_cfg["jobs"])
@@ -292,6 +317,7 @@ def build(config: dict[str, Any], path: Path) -> Path:
         cwd=path,
     )
     run(["make", "-C", "benchmark", "test"], cwd=path)
+    vmlinux = benchmark_vmlinux(config, path, build_dir)
     run(
         [
             "make",
@@ -299,6 +325,7 @@ def build(config: dict[str, Any], path: Path) -> Path:
             "benchmark/uprobe",
             "CLANG=/usr/bin/clang-15",
             "CC=/usr/bin/gcc-13",
+            f"VMLINUX={vmlinux}",
             "uprobe",
         ],
         cwd=path,
@@ -371,6 +398,72 @@ def result_summary(data: dict[str, Any], official_sha: str) -> dict[str, Any]:
     }
 
 
+def benchmark_runner_root(path: Path, build_dir: Path) -> tuple[Path, Path]:
+    """Provide the directory layout expected by upstream benchmark.py.
+
+    The upstream runner derives the repository location from cwd and only
+    treats it as the project root when its basename is exactly ``bpftime``.
+    It also hard-codes the build directory as ``build``.  Daily worktrees and
+    builds intentionally use different names, so expose both through symlinks
+    outside the official worktree instead of modifying upstream sources.
+    """
+    runner_root = path.parent / "runner" / "bpftime"
+    runner_root.mkdir(parents=True, exist_ok=True)
+    links = {
+        runner_root / "benchmark": path / "benchmark",
+        runner_root / "build": build_dir,
+    }
+    for link, target in links.items():
+        target = target.resolve()
+        if link.is_symlink():
+            if link.resolve() != target:
+                raise TrackerError(
+                    f"benchmark runner link {link} points to {link.resolve()}, "
+                    f"expected {target}"
+                )
+        elif link.exists():
+            raise TrackerError(f"benchmark runner path exists and is not a symlink: {link}")
+        else:
+            link.symlink_to(target, target_is_directory=True)
+    source = path / "benchmark/uprobe/benchmark.py"
+    runner = runner_root / "benchmark.py"
+    source_text = source.read_text()
+    cleanup = "    server.kill()\n    await server.communicate()"
+    guarded_cleanup = (
+        "    if server.returncode is None:\n"
+        "        try:\n"
+        "            server.kill()\n"
+        "        except ProcessLookupError:\n"
+        "            pass\n"
+        "    await server.communicate()"
+    )
+    cleanup_count = source_text.count(cleanup)
+    if cleanup_count != 2:
+        raise TrackerError(
+            f"expected two unguarded server cleanup blocks in {source}, "
+            f"found {cleanup_count}; upstream benchmark runner needs review"
+        )
+    runner_text = source_text.replace(cleanup, guarded_cleanup)
+    timeout_handler = "    except asyncio.TimeoutError:\n"
+    timeout_count = runner_text.count(timeout_handler)
+    if timeout_count != 2:
+        raise TrackerError(
+            f"expected two server readiness timeout handlers in {source}, "
+            f"found {timeout_count}; upstream benchmark runner needs review"
+        )
+    runner_text = runner_text.replace(
+        timeout_handler,
+        timeout_handler
+        + "        raise RuntimeError(\n"
+        + "            f\"uprobe server did not report readiness within 10 seconds \"\n"
+        + "            f\"(returncode={server.returncode})\"\n"
+        + "        )\n",
+    )
+    if not runner.exists() or runner.read_text() != runner_text:
+        runner.write_text(runner_text)
+    return runner_root, runner
+
+
 def benchmark(config: dict[str, Any], path: Path, build_dir: Path, official_sha: str) -> Path:
     _, results_root = state_paths(config)
     bench_cfg = config["benchmark"]
@@ -389,12 +482,13 @@ def benchmark(config: dict[str, Any], path: Path, build_dir: Path, official_sha:
     environment = os.environ.copy()
     environment["BPFTIME_BUILD_DIR"] = str(build_dir)
     environment["BPFTIME_LOG_OUTPUT"] = "console"
+    runner_root, runner_script = benchmark_runner_root(path, build_dir)
     command = [
         "taskset",
         "-c",
         str(cpu),
         sys.executable,
-        "benchmark/uprobe/benchmark.py",
+        str(runner_script),
         "--iter",
         str(runs),
     ]
@@ -403,7 +497,7 @@ def benchmark(config: dict[str, Any], path: Path, build_dir: Path, official_sha:
     with log_path.open("w") as log:
         result = subprocess.run(
             command,
-            cwd=path,
+            cwd=runner_root,
             env=environment,
             text=True,
             stdout=log,
@@ -436,6 +530,10 @@ def benchmark(config: dict[str, Any], path: Path, build_dir: Path, official_sha:
         "official_sha": official_sha,
         "worktree": str(path),
         "build_dir": str(build_dir),
+        "runner_root": str(runner_root),
+        "disable_core_relocations": bool(
+            config["benchmark"].get("disable_core_relocations", False)
+        ),
         "cpu": cpu,
         "frequency_before": before,
         "frequency_after": after,
