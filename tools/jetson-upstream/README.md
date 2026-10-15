@@ -72,9 +72,11 @@ The configured commit IDs are the rebased/adapted commits from
 This makes the patch stack portable to another Jetson without relying on a
 machine-local `rerere` cache.
 
-The uncommitted clean-leaf per-CPU array lookup experiment is intentionally not
-in the patch list. Add its commit to `candidate.commits` only after accepting
-and committing it.
+The per-CPU array clean production leaf is included in the maintained patch
+stack as commit `05eac852dc7b`. On the official 8da base, the same-base full
+benchmark reduced per-CPU array lookup from 15,923.76 ns to 14,410.72 ns per
+invocation, a 9.50% improvement; this reproduced the older-base 9.48% A/B
+result.
 
 ## Timer
 
