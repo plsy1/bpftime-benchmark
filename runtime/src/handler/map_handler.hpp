@@ -163,7 +163,7 @@ class bpf_map_handler {
 	const void *map_lookup_percpu_array(const void *key) const
 	{
 		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
-			->elem_lookup(key);
+			->elem_lookup_base(key);
 	}
 	// * BPF_MAP_UPDATE_ELEM
 	// *	Description
