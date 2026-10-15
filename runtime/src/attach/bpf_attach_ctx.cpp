@@ -63,8 +63,9 @@ int load_prog_and_helpers(
 	return prog->bpftime_prog_load(config.jit_enabled);
 }
 
-static bool uses_only_percpu_array_maps_for_lookup(
-	const handler_manager *manager, const bpf_prog_handler &prog)
+static bool uses_only_maps_of_type_for_lookup(
+	const handler_manager *manager, const bpf_prog_handler &prog,
+	bpf_map_type expected_type)
 {
 	bool has_map = false;
 	bool has_lookup = false;
@@ -87,8 +88,7 @@ static bool uses_only_percpu_array_maps_for_lookup(
 			return false;
 		const auto *map = std::get_if<bpf_map_handler>(
 			&manager->get_handler(fd));
-		if (map == nullptr ||
-		    map->type != bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)
+		if (map == nullptr || map->type != expected_type)
 			return false;
 		// LDDW occupies two instructions.
 		if (i + 1 < prog.insns.size())
@@ -341,23 +341,36 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 	instantiated_progs[id] =
 		std::make_unique<bpftime_prog>(insns, cnt, name);
 	bpftime_prog *prog = instantiated_progs[id].get();
+	const bpftime_helper_info array_lookup{
+		.index = BPF_FUNC_map_lookup_elem,
+		.name = "bpf_map_lookup_elem",
+		.fn = reinterpret_cast<void *>(
+			bpftime_array_map_lookup_elem_helper),
+	};
 	const bpftime_helper_info percpu_array_lookup{
 		.index = BPF_FUNC_map_lookup_elem,
 		.name = "bpf_map_lookup_elem",
 		.fn = reinterpret_cast<void *>(
 			bpftime_percpu_array_map_lookup_elem_helper),
 	};
-	const bool use_specialized_percpu_array_lookup =
-		get_map_production_ab_mode() == map_production_ab_mode::base &&
-		uses_only_percpu_array_maps_for_lookup(manager, handler);
-	const auto *map_lookup_override =
-		use_specialized_percpu_array_lookup ?
-			&percpu_array_lookup :
-			nullptr;
-	if (map_lookup_override != nullptr)
+	const auto mode = get_map_production_ab_mode();
+	const bpftime_helper_info *map_lookup_override = nullptr;
+	if (mode == map_production_ab_mode::base &&
+	    uses_only_maps_of_type_for_lookup(
+		    manager, handler, bpf_map_type::BPF_MAP_TYPE_ARRAY)) {
+		map_lookup_override = &array_lookup;
+		SPDLOG_INFO(
+			"Using specialized array lookup helper for program {}",
+			name);
+	} else if (mode == map_production_ab_mode::base &&
+		   uses_only_maps_of_type_for_lookup(
+			   manager, handler,
+			   bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)) {
+		map_lookup_override = &percpu_array_lookup;
 		SPDLOG_INFO(
 			"Using specialized per-CPU array lookup helper for program {}",
 			name);
+	}
 	if (int err = load_prog_and_helpers(prog, config, map_lookup_override);
 	    err < 0) {
 		SPDLOG_ERROR(
