@@ -61,6 +61,11 @@ void *per_cpu_array_map_impl::elem_lookup(const void *key)
 			return const_cast<void *>(key);
 		return data_at(key_val, cpu);
 	}
+	return elem_lookup_base(key);
+}
+
+void *per_cpu_array_map_impl::elem_lookup_base(const void *key)
+{
 	return ensure_on_current_cpu<void *>([&](int cpu) -> void * {
 		if (key == nullptr) {
 			errno = ENOENT;
