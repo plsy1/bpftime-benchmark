@@ -38,6 +38,9 @@ class per_cpu_array_map_impl {
 		uint32_t value_size, uint32_t max_entries);
 
 	void *elem_lookup(const void *key);
+	// Production lookup path without diagnostic A/B mode dispatch. Callers
+	// must select this path only when the runtime is in the base mode.
+	void *elem_lookup_base(const void *key);
 
 	long elem_update(const void *key, const void *value, uint64_t flags);
 
