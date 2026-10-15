@@ -78,6 +78,12 @@ benchmark reduced per-CPU array lookup from 15,923.76 ns to 14,410.72 ns per
 invocation, a 9.50% improvement; this reproduced the older-base 9.48% A/B
 result.
 
+The ordinary array lookup load-time specialization is included as commit
+`bc5150e5fed5`. Its matched A/B reduced the helper cost from 23.43 ns to 9.72
+ns, a 58.51% improvement. The complete 10-run uprobe benchmark reduced the
+operation from 24,386.66 ns to 10,715.45 ns per invocation, leaving it at
+2.82x the same-run kernel result.
+
 ## Timer
 
 The checked-in user service runs at 03:30 local time and is persistent. Install
