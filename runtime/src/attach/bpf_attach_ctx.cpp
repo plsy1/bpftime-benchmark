@@ -28,6 +28,7 @@
 #include <spdlog/spdlog.h>
 #include <handler/perf_event_handler.hpp>
 #include <bpftime_helper_group.hpp>
+#include <bpf_map/map_production_ab.hpp>
 #include <handler/handler_manager.hpp>
 #include <linux/bpf.h>
 #include <utility>
@@ -346,8 +347,11 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 		.fn = reinterpret_cast<void *>(
 			bpftime_percpu_array_map_lookup_elem_helper),
 	};
+	const bool use_specialized_percpu_array_lookup =
+		get_map_production_ab_mode() == map_production_ab_mode::base &&
+		uses_only_percpu_array_maps_for_lookup(manager, handler);
 	const auto *map_lookup_override =
-		uses_only_percpu_array_maps_for_lookup(manager, handler) ?
+		use_specialized_percpu_array_lookup ?
 			&percpu_array_lookup :
 			nullptr;
 	if (map_lookup_override != nullptr)
