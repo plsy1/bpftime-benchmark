@@ -360,6 +360,12 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 		.fn = reinterpret_cast<void *>(
 			bpftime_percpu_array_map_lookup_elem_helper),
 	};
+	const bpftime_helper_info percpu_hash_lookup{
+		.index = BPF_FUNC_map_lookup_elem,
+		.name = "bpf_map_lookup_elem",
+		.fn = reinterpret_cast<void *>(
+			bpftime_percpu_hash_map_lookup_elem_helper),
+	};
 	const bpftime_helper_info array_update{
 		.index = BPF_FUNC_map_update_elem,
 		.name = "bpf_map_update_elem",
@@ -393,6 +399,15 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 		map_lookup_override = &percpu_array_lookup;
 		SPDLOG_INFO(
 			"Using specialized per-CPU array lookup helper for program {}",
+			name);
+	} else if (mode == map_production_ab_mode::base &&
+		   uses_only_maps_of_type_for_helper(
+			   manager, handler,
+			   bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH,
+			   BPF_FUNC_map_lookup_elem)) {
+		map_lookup_override = &percpu_hash_lookup;
+		SPDLOG_INFO(
+			"Using specialized per-CPU hash lookup helper for program {}",
 			name);
 	}
 	if (mode == map_production_ab_mode::base &&
