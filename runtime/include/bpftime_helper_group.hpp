@@ -72,4 +72,6 @@ extern "C" uint64_t bpftime_array_map_update_elem_helper(
 	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
 extern "C" uint64_t bpftime_percpu_array_map_lookup_elem_helper(
 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+extern "C" uint64_t bpftime_percpu_hash_map_lookup_elem_helper(
+	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
 #endif
