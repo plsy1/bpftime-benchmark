@@ -44,7 +44,8 @@ namespace bpftime
 
 int load_prog_and_helpers(
 	bpftime_prog *prog, const runtime_config &config,
-	const bpftime_helper_info *map_lookup_override)
+	const bpftime_helper_info *map_lookup_override,
+	const bpftime_helper_info *map_update_override)
 {
 #if defined(__linux__)
 	if (config.enable_kernel_helper_group) {
@@ -58,22 +59,22 @@ int load_prog_and_helpers(
 	}
 	if (config.enable_shm_maps_helper_group) {
 		bpftime_helper_group::get_shm_maps_helper_group()
-			.add_helper_group_to_prog(prog, map_lookup_override);
+			.add_helper_group_to_prog(prog, map_lookup_override,
+						  map_update_override);
 	}
 	return prog->bpftime_prog_load(config.jit_enabled);
 }
 
-static bool uses_only_maps_of_type_for_lookup(
+static bool uses_only_maps_of_type_for_helper(
 	const handler_manager *manager, const bpf_prog_handler &prog,
-	bpf_map_type expected_type)
+	bpf_map_type expected_type, unsigned int helper_id)
 {
 	bool has_map = false;
-	bool has_lookup = false;
+	bool has_helper = false;
 	for (std::size_t i = 0; i < prog.insns.size(); ++i) {
 		const auto &insn = prog.insns[i];
-		if (insn.code == EBPF_OP_CALL &&
-		    insn.imm == BPF_FUNC_map_lookup_elem)
-			has_lookup = true;
+		if (insn.code == EBPF_OP_CALL && insn.imm == helper_id)
+			has_helper = true;
 		if (insn.code != EBPF_OP_LDDW)
 			continue;
 		// A MAP_VALUE relocation is a direct value pointer, not an
@@ -94,7 +95,7 @@ static bool uses_only_maps_of_type_for_lookup(
 		if (i + 1 < prog.insns.size())
 			++i;
 	}
-	return has_map && has_lookup;
+	return has_map && has_helper;
 }
 
 int bpf_attach_ctx::init_attach_ctx_from_handlers(const runtime_config &config)
@@ -347,31 +348,64 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 		.fn = reinterpret_cast<void *>(
 			bpftime_array_map_lookup_elem_helper),
 	};
+	const bpftime_helper_info hash_lookup{
+		.index = BPF_FUNC_map_lookup_elem,
+		.name = "bpf_map_lookup_elem",
+		.fn = reinterpret_cast<void *>(
+			bpftime_hash_map_lookup_elem_helper),
+	};
 	const bpftime_helper_info percpu_array_lookup{
 		.index = BPF_FUNC_map_lookup_elem,
 		.name = "bpf_map_lookup_elem",
 		.fn = reinterpret_cast<void *>(
 			bpftime_percpu_array_map_lookup_elem_helper),
 	};
+	const bpftime_helper_info array_update{
+		.index = BPF_FUNC_map_update_elem,
+		.name = "bpf_map_update_elem",
+		.fn = reinterpret_cast<void *>(
+			bpftime_array_map_update_elem_helper),
+	};
 	const auto mode = get_map_production_ab_mode();
 	const bpftime_helper_info *map_lookup_override = nullptr;
+	const bpftime_helper_info *map_update_override = nullptr;
 	if (mode == map_production_ab_mode::base &&
-	    uses_only_maps_of_type_for_lookup(
-		    manager, handler, bpf_map_type::BPF_MAP_TYPE_ARRAY)) {
+	    uses_only_maps_of_type_for_helper(
+		    manager, handler, bpf_map_type::BPF_MAP_TYPE_ARRAY,
+		    BPF_FUNC_map_lookup_elem)) {
 		map_lookup_override = &array_lookup;
 		SPDLOG_INFO(
 			"Using specialized array lookup helper for program {}",
 			name);
 	} else if (mode == map_production_ab_mode::base &&
-		   uses_only_maps_of_type_for_lookup(
+		   uses_only_maps_of_type_for_helper(
+			   manager, handler, bpf_map_type::BPF_MAP_TYPE_HASH,
+			   BPF_FUNC_map_lookup_elem)) {
+		map_lookup_override = &hash_lookup;
+		SPDLOG_INFO(
+			"Using specialized hash lookup helper for program {}",
+			name);
+	} else if (mode == map_production_ab_mode::base &&
+		   uses_only_maps_of_type_for_helper(
 			   manager, handler,
-			   bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)) {
+			   bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY,
+			   BPF_FUNC_map_lookup_elem)) {
 		map_lookup_override = &percpu_array_lookup;
 		SPDLOG_INFO(
 			"Using specialized per-CPU array lookup helper for program {}",
 			name);
 	}
-	if (int err = load_prog_and_helpers(prog, config, map_lookup_override);
+	if (mode == map_production_ab_mode::base &&
+	    uses_only_maps_of_type_for_helper(
+		    manager, handler, bpf_map_type::BPF_MAP_TYPE_ARRAY,
+		    BPF_FUNC_map_update_elem)) {
+		map_update_override = &array_update;
+		SPDLOG_INFO(
+			"Using specialized array update helper for program {}",
+			name);
+	}
+	if (int err = load_prog_and_helpers(prog, config, map_lookup_override,
+					    map_update_override);
 	    err < 0) {
 		SPDLOG_ERROR(
 			"Failed to load program helpers for prog handler {}: {}",
