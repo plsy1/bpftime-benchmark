@@ -12,12 +12,81 @@
 #include <boost/interprocess/smart_ptr/unique_ptr.hpp>
 #include <boost/interprocess/containers/vector.hpp>
 #include <bpf_map/map_common_def.hpp>
+#if defined(BPFTIME_ENABLE_MAP_PRODUCTION_AB)
+#include <bpf_map/map_production_ab.hpp>
+#endif
 #include <boost/unordered/unordered_map.hpp>
+#include <array>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 namespace bpftime
 {
+
+struct per_cpu_bytes_vec_hasher {
+	static size_t normal_hash(const uint8_t *data, size_t size)
+	{
+		using boost::hash_combine;
+		if (size == sizeof(uint32_t)) {
+			uint32_t key;
+			std::memcpy(&key, data, sizeof(key));
+			return key;
+		}
+		size_t seed = 0;
+		hash_combine(seed, size);
+		for (size_t i = 0; i < size; ++i)
+			hash_combine(seed, data[i]);
+		return seed;
+	}
+
+	size_t operator()(bytes_vec const &vec) const
+	{
+#if defined(BPFTIME_ENABLE_MAP_PRODUCTION_AB)
+		if (map_production_ab_stats_enabled() &&
+		    map_production_ab_lookup_active())
+			++map_production_ab_stats().hash_calls;
+		if (map_production_ab_cached_hash() && vec.size() == 4) {
+			uint32_t key;
+			std::memcpy(&key, vec.data(), sizeof(key));
+			if (key < 1024) {
+				static const std::array<size_t, 1024> hashes = [] {
+					std::array<size_t, 1024> result{};
+					for (uint32_t value = 0; value < result.size(); ++value) {
+						uint8_t bytes[sizeof(value)];
+						std::memcpy(bytes, &value, sizeof(value));
+						result[value] = normal_hash(bytes, sizeof(bytes));
+					}
+					return result;
+				}();
+				return hashes[key];
+			}
+		}
+#endif
+		return normal_hash(vec.data(), vec.size());
+	}
+};
+
+struct per_cpu_bytes_vec_equal {
+	bool operator()(bytes_vec const &lhs, bytes_vec const &rhs) const
+	{
+#if defined(BPFTIME_ENABLE_MAP_PRODUCTION_AB)
+		if (map_production_ab_stats_enabled() &&
+		    map_production_ab_lookup_active())
+			++map_production_ab_stats().equal_calls;
+#endif
+		if (lhs.size() != rhs.size())
+			return false;
+		if (lhs.size() == sizeof(uint32_t)) {
+			uint32_t left, right;
+			std::memcpy(&left, lhs.data(), sizeof(left));
+			std::memcpy(&right, rhs.data(), sizeof(right));
+			return left == right;
+		}
+		return lhs.empty() ||
+		       std::memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+	}
+};
 
 class per_cpu_hash_map_impl {
 	using bi_map_value_ty = std::pair<const bytes_vec, bytes_vec>;
@@ -25,23 +94,28 @@ class per_cpu_hash_map_impl {
 		bi_map_value_ty,
 		boost::interprocess::managed_shared_memory::segment_manager>;
 	using shm_hash_map =
-		boost::unordered_map<bytes_vec, bytes_vec, bytes_vec_hasher,
-				     bytes_vec_equal, bi_map_allocator>;
+		boost::unordered_map<bytes_vec, bytes_vec,
+				     per_cpu_bytes_vec_hasher,
+				     per_cpu_bytes_vec_equal, bi_map_allocator>;
 	struct uint32_key_hasher {
 		size_t operator()(uint32_t key) const
 		{
+#if defined(BPFTIME_ENABLE_MAP_PRODUCTION_AB)
 			if (map_production_ab_stats_enabled() &&
 			    map_production_ab_lookup_active())
 				++map_production_ab_stats().hash_calls;
+#endif
 			return key;
 		}
 	};
 	struct uint32_key_equal {
 		bool operator()(uint32_t lhs, uint32_t rhs) const
 		{
+#if defined(BPFTIME_ENABLE_MAP_PRODUCTION_AB)
 			if (map_production_ab_stats_enabled() &&
 			    map_production_ab_lookup_active())
 				++map_production_ab_stats().equal_calls;
+#endif
 			return lhs == rhs;
 		}
 	};
