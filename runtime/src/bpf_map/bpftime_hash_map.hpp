@@ -39,6 +39,12 @@ public:
 
 	static size_t hash_func(const void *key, size_t key_size)
 	{
+		if (key_size == sizeof(uint32_t)) {
+			const auto *bytes = static_cast<const uint8_t *>(key);
+			return size_t{ bytes[0] } * 29791 +
+			       size_t{ bytes[1] } * 961 +
+			       size_t{ bytes[2] } * 31 + bytes[3];
+		}
 		size_t hash = 0;
 		for (size_t i = 0; i < key_size; i++) {
 			hash = hash * 31 + ((uint8_t *)key)[i];
@@ -152,7 +158,8 @@ class bpftime_hash_map {
 			    std::memcmp(get_key(index), key, _key_size) == 0) {
 				return get_value(index);
 			}
-			index = (index + 1) % _num_buckets;
+			if (++index == _num_buckets)
+				index = 0;
 		} while (index != start_index);
 		return nullptr;
 	}
@@ -196,7 +203,8 @@ class bpftime_hash_map {
 			}
 
 			// Move to the next bucket
-			index = (index + 1) % _num_buckets;
+			if (++index == _num_buckets)
+				index = 0;
 		} while (index != start_index);
 
 		if (first_deleted != _num_buckets &&
@@ -228,7 +236,8 @@ class bpftime_hash_map {
 				_count--;
 				return true;
 			}
-			index = (index + 1) % _num_buckets;
+			if (++index == _num_buckets)
+				index = 0;
 		} while (index != start_index);
 		return false; // Key not found
 	}
