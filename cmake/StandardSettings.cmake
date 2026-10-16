@@ -33,6 +33,11 @@ option(BPFTIME_ENABLE_UNIT_TESTING "Enable unit tests for the projects (from the
 
 option(BPFTIME_USE_CATCH2 "Use the Catch2 project for creating unit tests." OFF)
 
+# Enable environment-controlled map hot-path A/B diagnostics. Keep this off in
+# production builds so the compiler can remove all diagnostic branches and
+# counters from lookup/update/delete paths.
+option(BPFTIME_ENABLE_MAP_PRODUCTION_AB "Enable map hot-path A/B diagnostics" OFF)
+
 #
 # Miscelanious options
 #
