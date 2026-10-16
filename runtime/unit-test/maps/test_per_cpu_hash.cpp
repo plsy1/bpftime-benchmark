@@ -44,7 +44,7 @@ TEST_CASE("four-byte key hash uses the direct integer value",
 		std::copy(bytes.begin(), bytes.end(), key.begin());
 		uint32_t expected;
 		std::memcpy(&expected, bytes.data(), sizeof(expected));
-		REQUIRE(bytes_vec_hasher{}(key) == expected);
+		REQUIRE(per_cpu_bytes_vec_hasher{}(key) == expected);
 	}
 }
 
