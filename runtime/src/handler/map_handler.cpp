@@ -267,6 +267,12 @@ const void *bpf_map_handler::map_lookup_elem(const void *key,
 	return 0;
 }
 
+const void *bpf_map_handler::map_lookup_hash(const void *key) const
+{
+	bpftime_lock_guard guard(map_lock);
+	return static_cast<hash_map_impl *>(map_impl_ptr.get())->elem_lookup(key);
+}
+
 const void *bpf_map_handler::diagnostic_direct_lookup(const void *key) const
 {
 	if (type == bpf_map_type::BPF_MAP_TYPE_ARRAY)
