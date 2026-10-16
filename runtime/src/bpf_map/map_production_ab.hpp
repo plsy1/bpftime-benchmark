@@ -43,6 +43,7 @@ enum class map_production_ab_mode {
 	percpu_hash_delete_defer_reclaim,
 };
 
+#if defined(BPFTIME_ENABLE_MAP_PRODUCTION_AB)
 inline map_production_ab_mode get_map_production_ab_mode()
 {
 	static const map_production_ab_mode mode = [] {
@@ -139,6 +140,27 @@ inline bool map_production_ab_stats_enabled()
 	}();
 	return enabled;
 }
+#else
+inline constexpr map_production_ab_mode get_map_production_ab_mode()
+{
+	return map_production_ab_mode::base;
+}
+
+inline constexpr bool map_production_ab_cached_hash()
+{
+	return false;
+}
+
+inline constexpr bool map_production_ab_fixed4_equal()
+{
+	return false;
+}
+
+inline constexpr bool map_production_ab_stats_enabled()
+{
+	return false;
+}
+#endif
 
 struct map_production_ab_lookup_stats {
 	uint64_t lookups = 0;
