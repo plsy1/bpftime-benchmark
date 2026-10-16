@@ -160,6 +160,7 @@ class bpf_map_handler {
 	// *
 	const void *map_lookup_elem(const void *key,
 				    bool from_syscall = false) const;
+	const void *map_lookup_hash(const void *key) const;
 	const void *map_lookup_array(const void *key) const
 	{
 		return static_cast<array_map_impl *>(map_impl_ptr.get())
@@ -203,6 +204,12 @@ class bpf_map_handler {
 	// *
 	long map_update_elem(const void *key, const void *value, uint64_t flags,
 			     bool from_syscall = false) const;
+	long map_update_array(const void *key, const void *value,
+			      uint64_t flags) const
+	{
+		return static_cast<array_map_impl *>(map_impl_ptr.get())
+			->elem_update(key, value, flags);
+	}
 	// * BPF_MAP_DELETE_ELEM
 	// *	Description
 	// *		Look up and delete an element by key in a specified map.
