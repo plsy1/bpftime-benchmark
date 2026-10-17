@@ -352,7 +352,7 @@ uint64_t bpftime_array_map_lookup_elem_helper(
 		return 0;
 	}
 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
-		&manager->get_handler(fd));
+		&manager->get_handler_at_valid_fd(fd));
 	if (handler == nullptr) {
 		errno = ENOENT;
 		return 0;
@@ -377,7 +377,7 @@ uint64_t bpftime_hash_map_lookup_elem_helper(
 		return 0;
 	}
 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
-		&manager->get_handler(fd));
+		&manager->get_handler_at_valid_fd(fd));
 	if (handler == nullptr) {
 		errno = ENOENT;
 		return 0;
@@ -402,7 +402,7 @@ uint64_t bpftime_array_map_update_elem_helper(
 		return static_cast<uint64_t>(-1);
 	}
 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
-		&manager->get_handler(fd));
+		&manager->get_handler_at_valid_fd(fd));
 	if (handler == nullptr) {
 		errno = ENOENT;
 		return static_cast<uint64_t>(-1);
@@ -428,7 +428,7 @@ uint64_t bpftime_percpu_array_map_lookup_elem_helper(
 		return 0;
 	}
 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
-		&manager->get_handler(fd));
+		&manager->get_handler_at_valid_fd(fd));
 	if (handler == nullptr) {
 		errno = ENOENT;
 		return 0;
@@ -454,7 +454,7 @@ uint64_t bpftime_percpu_hash_map_lookup_elem_helper(
 		return 0;
 	}
 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
-		&manager->get_handler(fd));
+		&manager->get_handler_at_valid_fd(fd));
 	if (handler == nullptr) {
 		errno = ENOENT;
 		return 0;
