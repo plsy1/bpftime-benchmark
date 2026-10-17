@@ -129,6 +129,20 @@ long per_cpu_array_map_impl::elem_update(const void *key, const void *value,
 				  destination);
 		return 0;
 	}
+	return elem_update_checked(key, value, flags);
+}
+
+long per_cpu_array_map_impl::elem_update_base(const void *key,
+					       const void *value, uint64_t flags)
+{
+	if (!check_update_flags(flags))
+		return -1;
+	return elem_update_checked(key, value, flags);
+}
+
+long per_cpu_array_map_impl::elem_update_checked(const void *key,
+					  const void *value, uint64_t flags)
+{
 	return ensure_on_current_cpu<long>([&](int cpu) -> long {
 		// return impl[cpu].elem_update(key, value, flags);
 		if (key == nullptr) {
