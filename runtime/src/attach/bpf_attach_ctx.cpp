@@ -372,6 +372,24 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 		.fn = reinterpret_cast<void *>(
 			bpftime_array_map_update_elem_helper),
 	};
+	const bpftime_helper_info percpu_array_update{
+		.index = BPF_FUNC_map_update_elem,
+		.name = "bpf_map_update_elem",
+		.fn = reinterpret_cast<void *>(
+			bpftime_percpu_array_map_update_elem_helper),
+	};
+	const bpftime_helper_info hash_update{
+		.index = BPF_FUNC_map_update_elem,
+		.name = "bpf_map_update_elem",
+		.fn = reinterpret_cast<void *>(
+			bpftime_hash_map_update_elem_helper),
+	};
+	const bpftime_helper_info percpu_hash_update{
+		.index = BPF_FUNC_map_update_elem,
+		.name = "bpf_map_update_elem",
+		.fn = reinterpret_cast<void *>(
+			bpftime_percpu_hash_map_update_elem_helper),
+	};
 	const auto mode = get_map_production_ab_mode();
 	const bpftime_helper_info *map_lookup_override = nullptr;
 	const bpftime_helper_info *map_update_override = nullptr;
@@ -417,6 +435,32 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 		map_update_override = &array_update;
 		SPDLOG_INFO(
 			"Using specialized array update helper for program {}",
+			name);
+	} else if (mode == map_production_ab_mode::base &&
+		   uses_only_maps_of_type_for_helper(
+			   manager, handler,
+			   bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY,
+			   BPF_FUNC_map_update_elem)) {
+		map_update_override = &percpu_array_update;
+		SPDLOG_INFO(
+			"Using specialized per-CPU array update helper for program {}",
+			name);
+	} else if (mode == map_production_ab_mode::base &&
+		   uses_only_maps_of_type_for_helper(
+			   manager, handler, bpf_map_type::BPF_MAP_TYPE_HASH,
+			   BPF_FUNC_map_update_elem)) {
+		map_update_override = &hash_update;
+		SPDLOG_INFO(
+			"Using specialized hash update helper for program {}",
+			name);
+	} else if (mode == map_production_ab_mode::base &&
+		   uses_only_maps_of_type_for_helper(
+			   manager, handler,
+			   bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH,
+			   BPF_FUNC_map_update_elem)) {
+		map_update_override = &percpu_hash_update;
+		SPDLOG_INFO(
+			"Using specialized per-CPU hash update helper for program {}",
 			name);
 	}
 	if (int err = load_prog_and_helpers(prog, config, map_lookup_override,

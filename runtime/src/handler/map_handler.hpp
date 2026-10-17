@@ -211,6 +211,16 @@ class bpf_map_handler {
 		return static_cast<array_map_impl *>(map_impl_ptr.get())
 			->elem_update(key, value, flags);
 	}
+	long map_update_percpu_array(const void *key, const void *value,
+				     uint64_t flags) const
+	{
+		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
+			->elem_update_base(key, value, flags);
+	}
+	long map_update_hash(const void *key, const void *value,
+			     uint64_t flags) const;
+	long map_update_percpu_hash(const void *key, const void *value,
+				    uint64_t flags) const;
 	// * BPF_MAP_DELETE_ELEM
 	// *	Description
 	// *		Look up and delete an element by key in a specified map.
