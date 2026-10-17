@@ -26,6 +26,8 @@ class per_cpu_array_map_impl {
 	{
 		return data.data() + idx * value_size * ncpu + cpu * value_size;
 	}
+	long elem_update_checked(const void *key, const void *value,
+				 uint64_t flags);
 
     public:
 	const static bool should_lock = false;
@@ -43,6 +45,9 @@ class per_cpu_array_map_impl {
 	void *elem_lookup_base(const void *key);
 
 	long elem_update(const void *key, const void *value, uint64_t flags);
+	// Production update path without diagnostic A/B mode dispatch. Callers
+	// must select this path only when the runtime is in the base mode.
+	long elem_update_base(const void *key, const void *value, uint64_t flags);
 
 	long elem_delete(const void *key);
 
