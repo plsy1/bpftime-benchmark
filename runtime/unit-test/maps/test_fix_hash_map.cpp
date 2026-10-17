@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 using namespace boost::interprocess;
@@ -25,6 +26,43 @@ struct shm_cleanup {
 	const char *name;
 };
 } // namespace
+
+TEST_CASE("Fast modulo preserves the remainder",
+	  "[maps][hash][fast-modulo]")
+{
+	const std::array<size_t, 8> divisors = {
+		2, 3, 11, 257, 1031, 65537, 1000003,
+		std::numeric_limits<uint32_t>::max()
+	};
+	const std::array<size_t, 8> edge_values = {
+		0,
+		1,
+		2,
+		std::numeric_limits<uint32_t>::max(),
+		static_cast<size_t>(std::numeric_limits<uint32_t>::max()) + 1,
+		std::numeric_limits<size_t>::max() / 2,
+		std::numeric_limits<size_t>::max() - 1,
+		std::numeric_limits<size_t>::max(),
+	};
+
+	for (size_t divisor : divisors) {
+		const size_t reciprocal =
+			bpftime_hasher::modulo_reciprocal(divisor);
+		for (size_t value : edge_values) {
+			REQUIRE(bpftime_hasher::fast_modulo(
+					value, divisor, reciprocal) ==
+				value % divisor);
+		}
+
+		size_t value = 0x9e3779b97f4a7c15ULL;
+		for (size_t i = 0; i < 10000; ++i) {
+			value = value * 6364136223846793005ULL + 1;
+			REQUIRE(bpftime_hasher::fast_modulo(
+					value, divisor, reciprocal) ==
+				value % divisor);
+		}
+	}
+}
 
 TEST_CASE("Four-byte fixed hash preserves the upstream byte hash",
 	  "[maps][hash][hash-fast4]")
