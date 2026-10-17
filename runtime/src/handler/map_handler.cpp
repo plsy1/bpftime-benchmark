@@ -279,6 +279,22 @@ const void *bpf_map_handler::map_lookup_percpu_hash(const void *key) const
 		->elem_lookup(key);
 }
 
+long bpf_map_handler::map_update_hash(const void *key, const void *value,
+				      uint64_t flags) const
+{
+	bpftime_lock_guard guard(map_lock);
+	return static_cast<hash_map_impl *>(map_impl_ptr.get())
+		->elem_update(key, value, flags);
+}
+
+long bpf_map_handler::map_update_percpu_hash(const void *key,
+					     const void *value,
+					     uint64_t flags) const
+{
+	return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
+		->elem_update(key, value, flags);
+}
+
 const void *bpf_map_handler::diagnostic_direct_lookup(const void *key) const
 {
 	if (type == bpf_map_type::BPF_MAP_TYPE_ARRAY)
