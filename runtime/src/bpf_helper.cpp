@@ -442,6 +442,86 @@ uint64_t bpftime_percpu_array_map_lookup_elem_helper(
 		handler->map_lookup_percpu_array(reinterpret_cast<void *>(key)));
 }
 
+uint64_t bpftime_percpu_array_map_update_elem_helper(
+	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t)
+{
+	auto &shm = bpftime::shm_holder.global_shared_memory;
+	const int fd = static_cast<int>(map);
+	const auto *manager = shm.get_manager();
+	if (manager == nullptr || fd < 0 ||
+	    static_cast<std::size_t>(fd) >= manager->size()) {
+		errno = ENOENT;
+		return static_cast<uint64_t>(-1);
+	}
+	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
+		&manager->get_handler_at_valid_fd(fd));
+	if (handler == nullptr) {
+		errno = ENOENT;
+		return static_cast<uint64_t>(-1);
+	}
+	if (handler->type !=
+	    bpftime::bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)
+		return static_cast<uint64_t>(handler->map_update_elem(
+			reinterpret_cast<void *>(key),
+			reinterpret_cast<void *>(value), flags, false));
+	return static_cast<uint64_t>(handler->map_update_percpu_array(
+		reinterpret_cast<void *>(key), reinterpret_cast<void *>(value),
+		flags));
+}
+
+uint64_t bpftime_hash_map_update_elem_helper(
+	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t)
+{
+	auto &shm = bpftime::shm_holder.global_shared_memory;
+	const int fd = static_cast<int>(map);
+	const auto *manager = shm.get_manager();
+	if (manager == nullptr || fd < 0 ||
+	    static_cast<std::size_t>(fd) >= manager->size()) {
+		errno = ENOENT;
+		return static_cast<uint64_t>(-1);
+	}
+	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
+		&manager->get_handler_at_valid_fd(fd));
+	if (handler == nullptr) {
+		errno = ENOENT;
+		return static_cast<uint64_t>(-1);
+	}
+	if (handler->type != bpftime::bpf_map_type::BPF_MAP_TYPE_HASH)
+		return static_cast<uint64_t>(handler->map_update_elem(
+			reinterpret_cast<void *>(key),
+			reinterpret_cast<void *>(value), flags, false));
+	return static_cast<uint64_t>(handler->map_update_hash(
+		reinterpret_cast<void *>(key), reinterpret_cast<void *>(value),
+		flags));
+}
+
+uint64_t bpftime_percpu_hash_map_update_elem_helper(
+	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t)
+{
+	auto &shm = bpftime::shm_holder.global_shared_memory;
+	const int fd = static_cast<int>(map);
+	const auto *manager = shm.get_manager();
+	if (manager == nullptr || fd < 0 ||
+	    static_cast<std::size_t>(fd) >= manager->size()) {
+		errno = ENOENT;
+		return static_cast<uint64_t>(-1);
+	}
+	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
+		&manager->get_handler_at_valid_fd(fd));
+	if (handler == nullptr) {
+		errno = ENOENT;
+		return static_cast<uint64_t>(-1);
+	}
+	if (handler->type !=
+	    bpftime::bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH)
+		return static_cast<uint64_t>(handler->map_update_elem(
+			reinterpret_cast<void *>(key),
+			reinterpret_cast<void *>(value), flags, false));
+	return static_cast<uint64_t>(handler->map_update_percpu_hash(
+		reinterpret_cast<void *>(key), reinterpret_cast<void *>(value),
+		flags));
+}
+
 uint64_t bpftime_percpu_hash_map_lookup_elem_helper(
 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t)
 {
