@@ -66,6 +66,18 @@ class bpftime_hash_map {
 		return index * (4 + _key_size + _value_size);
 	}
 
+	inline bool keys_equal(const void *lhs, const void *rhs) const
+	{
+		if (_key_size == sizeof(uint32_t)) {
+			uint32_t lhs_value;
+			uint32_t rhs_value;
+			std::memcpy(&lhs_value, lhs, sizeof(lhs_value));
+			std::memcpy(&rhs_value, rhs, sizeof(rhs_value));
+			return lhs_value == rhs_value;
+		}
+		return std::memcmp(lhs, rhs, _key_size) == 0;
+	}
+
 	size_t _key_size;
 	size_t _value_size;
 	size_t _num_buckets; // Adjusted number of buckets (prime)
@@ -155,7 +167,7 @@ class bpftime_hash_map {
 				return nullptr;
 			}
 			if (state == BUCKET_FILLED &&
-			    std::memcmp(get_key(index), key, _key_size) == 0) {
+			    keys_equal(get_key(index), key)) {
 				return get_value(index);
 			}
 			if (++index == _num_buckets)
@@ -193,8 +205,7 @@ class bpftime_hash_map {
 			} else if (state == BUCKET_DELETED) {
 				if (first_deleted == _num_buckets)
 					first_deleted = index;
-			} else if (std::memcmp(get_key(index), key,
-					       _key_size) == 0) {
+			} else if (keys_equal(get_key(index), key)) {
 				// If the current bucket has a matching key,
 				// update the value
 				std::memcpy(get_value(index), value,
@@ -230,7 +241,7 @@ class bpftime_hash_map {
 				return false; // Key not found
 			}
 			if (state == BUCKET_FILLED &&
-			    std::memcmp(get_key(index), key, _key_size) == 0) {
+			    keys_equal(get_key(index), key)) {
 				set_deleted(index);
 				// Decrease count if deleting an element
 				_count--;

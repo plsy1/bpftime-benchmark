@@ -108,6 +108,31 @@ TEST_CASE("Fixed hash preserves uint32 keys across delete and reinsert cycles",
 	}
 }
 
+TEST_CASE("Fixed hash map preserves non-four-byte key comparisons",
+	  "[maps][hash][hash-key-size-fallback]")
+{
+	static const char *shm_name = "bpftime_fix_hash_key_size_fallback_test";
+	shm_cleanup cleanup(shm_name);
+	managed_shared_memory segment(create_only, shm_name, 65536);
+
+	bpftime_hash_map map(segment, 8, 3, sizeof(uint64_t));
+	const std::array<uint8_t, 3> first_key = { 0x10, 0x20, 0x30 };
+	const std::array<uint8_t, 3> second_key = { 0x10, 0x20, 0x31 };
+	const uint64_t first_value = 0x1111222233334444ULL;
+	const uint64_t second_value = 0x5555666677778888ULL;
+
+	REQUIRE(map.elem_update(first_key.data(), &first_value));
+	REQUIRE(map.elem_update(second_key.data(), &second_value));
+	REQUIRE(*static_cast<const uint64_t *>(
+			map.elem_lookup(first_key.data())) == first_value);
+	REQUIRE(*static_cast<const uint64_t *>(
+			map.elem_lookup(second_key.data())) == second_value);
+	REQUIRE(map.elem_delete(first_key.data()));
+	REQUIRE(map.elem_lookup(first_key.data()) == nullptr);
+	REQUIRE(*static_cast<const uint64_t *>(
+			map.elem_lookup(second_key.data())) == second_value);
+}
+
 TEST_CASE("Fixed hash iteration scans adjusted bucket count",
 	  "[maps][hash][iteration]")
 {
