@@ -29,6 +29,33 @@ private:
 	}
 
 public:
+	static inline size_t modulo_reciprocal(size_t divisor)
+	{
+#if SIZE_MAX == UINT64_MAX && defined(__SIZEOF_INT128__)
+		return static_cast<size_t>(
+			(static_cast<unsigned __int128>(1) << 64) / divisor);
+#else
+		(void)divisor;
+		return 0;
+#endif
+	}
+
+	static inline size_t fast_modulo(size_t value, size_t divisor,
+					 size_t reciprocal)
+	{
+#if SIZE_MAX == UINT64_MAX && defined(__SIZEOF_INT128__)
+		const size_t quotient = static_cast<size_t>(
+			(static_cast<unsigned __int128>(value) * reciprocal) >> 64);
+		size_t remainder = value - quotient * divisor;
+		if (remainder >= divisor)
+			remainder -= divisor;
+		return remainder;
+#else
+		(void)reciprocal;
+		return value % divisor;
+#endif
+	}
+
 	static inline size_t next_prime(size_t n)
 	{
 		while (!is_prime(n)) {
@@ -81,6 +108,7 @@ class bpftime_hash_map {
 	size_t _key_size;
 	size_t _value_size;
 	size_t _num_buckets; // Adjusted number of buckets (prime)
+	size_t _bucket_reciprocal; // Precomputed for fast initial bucket mapping
 	size_t _max_element_count; // Maximum number of elements based on the
 				   // original num_buckets
 	size_t _count; // Current number of elements
@@ -99,6 +127,8 @@ class bpftime_hash_map {
 		: _key_size(key_size), _value_size(value_size),
 		  // Use nearest prime  number
 		  _num_buckets(bpftime_hasher::next_prime(num_buckets)),
+		  _bucket_reciprocal(
+			  bpftime_hasher::modulo_reciprocal(_num_buckets)),
 		  // Use the original bucket count
 		  _max_element_count(num_buckets),
 		  // Initialize count to 0
@@ -159,7 +189,9 @@ class bpftime_hash_map {
 
 	void *elem_lookup(const void *key)
 	{
-		size_t index = bpftime_hasher::hash_func(key, _key_size) % _num_buckets;
+		size_t index = bpftime_hasher::fast_modulo(
+			bpftime_hasher::hash_func(key, _key_size), _num_buckets,
+			_bucket_reciprocal);
 		size_t start_index = index;
 		do {
 			const auto state = get_bucket_state(index);
@@ -178,7 +210,9 @@ class bpftime_hash_map {
 
 	bool elem_update(const void *key, const void *value)
 	{
-		size_t index = bpftime_hasher::hash_func(key, _key_size) % _num_buckets;
+		size_t index = bpftime_hasher::fast_modulo(
+			bpftime_hasher::hash_func(key, _key_size), _num_buckets,
+			_bucket_reciprocal);
 		size_t start_index = index;
 		size_t first_deleted = _num_buckets;
 
@@ -233,7 +267,9 @@ class bpftime_hash_map {
 
 	bool elem_delete(const void *key)
 	{
-		size_t index = bpftime_hasher::hash_func(key, _key_size) % _num_buckets;
+		size_t index = bpftime_hasher::fast_modulo(
+			bpftime_hasher::hash_func(key, _key_size), _num_buckets,
+			_bucket_reciprocal);
 		size_t start_index = index;
 		do {
 			const auto state = get_bucket_state(index);
