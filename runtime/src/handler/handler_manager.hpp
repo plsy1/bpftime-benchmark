@@ -104,6 +104,12 @@ class handler_manager {
 	~handler_manager();
 
 	const handler_variant &get_handler(int fd) const;
+	// The caller must validate fd against size() first. Keeping this accessor
+	// inline avoids repeating the bounds check in specialized helper paths.
+	const handler_variant &get_handler_at_valid_fd(int fd) const
+	{
+		return handlers[static_cast<std::size_t>(fd)];
+	}
 
 	const handler_variant &operator[](int idx) const;
 	std::size_t size() const;
