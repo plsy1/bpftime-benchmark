@@ -73,11 +73,20 @@ This makes the patch stack portable to another Jetson without relying on a
 machine-local `rerere` cache.
 
 The maintained stack now includes all accepted optimizations through
-`df934cd13027` (2026-10-18), including ordinary hash lookup key dispatch and
-per-CPU hash bucket-local iteration. The focused test filter also includes
+`eb09b972d59c` (accepted 2026-10-19), including ordinary hash lookup key dispatch,
+per-CPU hash bucket-local iteration and per-CPU array production lookup leaf
+inlining. The focused test filter also includes
 `[maps][hash]` for fast modulo, generic keys, wrapped probe chains and full-table
 misses. The latest complete ten-round run has eight of ten map operations
 below same-run kernel BPF; ordinary and per-CPU array lookup remain slower.
+
+The latest per-CPU array lookup change reduces full-suite cost from 11.64 to
+10.92 ns/helper (-6.2%, 2.48x same-run kernel). Two additional balanced six-round
+A/B tests reproduce roughly 7% lookup gains. They do not consistently reproduce
+the original +0.82% per-CPU array update difference (-0.19% and +0.45% median
+changes); the unchanged update instruction sequence and remaining uncertainty
+are documented in the experiment archive. CPU selection is still performed
+on every lookup, with affinity-change correctness coverage.
 
 The per-CPU array clean production leaf is included in the maintained patch
 stack as commit `05eac852dc7b`. On the official 8da base, the same-base full
