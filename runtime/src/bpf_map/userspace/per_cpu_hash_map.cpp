@@ -159,7 +159,8 @@ void per_cpu_hash_map_impl::recycle_uint32_node(
 	uint32_recycled_nodes.push_back(uint32_impl.extract(itr));
 }
 
-void *per_cpu_hash_map_impl::elem_lookup(const void *key)
+__attribute__((flatten)) void *
+per_cpu_hash_map_impl::elem_lookup(const void *key)
 {
 	int cpu = my_sched_getcpu();
 	SPDLOG_DEBUG("Run per cpu hash lookup at cpu {}", cpu);
