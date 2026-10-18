@@ -180,9 +180,20 @@ per_cpu_hash_map_impl::elem_lookup(const void *key)
 	if (uses_uint32_keys()) {
 		uint32_t key_value;
 		std::memcpy(&key_value, key, sizeof(key_value));
-		auto itr = uint32_impl.find(key_value);
-		if (itr != uint32_impl.end())
-			result = itr->second.data.get() + value_size * cpu;
+		if (!uint32_impl.empty()) {
+			// A lookup only visits one bucket. Local iterators avoid the
+			// bucket-group state carried by a shared-memory global iterator.
+			const auto bucket = uint32_impl.bucket(key_value);
+			const auto equal = uint32_impl.key_eq();
+			for (auto itr = uint32_impl.begin(bucket);
+			     itr != uint32_impl.end(bucket); ++itr) {
+				auto &entry = *itr;
+				if (equal(key_value, entry.first)) {
+					result = entry.second.data.get() + value_size * cpu;
+					break;
+				}
+			}
+		}
 	} else {
 		bytes_vec &key_vec = this->key_templates[cpu];
 		// key_vec is pre-sized in the constructor. Reusing its storage avoids
