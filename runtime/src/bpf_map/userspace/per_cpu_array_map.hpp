@@ -12,6 +12,7 @@
 #include <boost/interprocess/smart_ptr/unique_ptr.hpp>
 #include <boost/interprocess/containers/vector.hpp>
 
+#include <cerrno>
 #include <cstdint>
 namespace bpftime
 {
@@ -42,7 +43,21 @@ class per_cpu_array_map_impl {
 	void *elem_lookup(const void *key);
 	// Production lookup path without diagnostic A/B mode dispatch. Callers
 	// must select this path only when the runtime is in the base mode.
-	void *elem_lookup_base(const void *key);
+	__attribute__((always_inline)) void *elem_lookup_base(const void *key)
+	{
+		return ensure_on_current_cpu<void *>([&](int cpu) -> void * {
+			if (key == nullptr) {
+				errno = ENOENT;
+				return nullptr;
+			}
+			uint32_t key_val = *(uint32_t *)key;
+			if (key_val >= max_ent) {
+				errno = ENOENT;
+				return nullptr;
+			}
+			return data_at(key_val, cpu);
+		});
+	}
 
 	long elem_update(const void *key, const void *value, uint64_t flags);
 	// Production update path without diagnostic A/B mode dispatch. Callers
