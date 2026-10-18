@@ -342,3 +342,65 @@ TEST_CASE("four-byte per-cpu hash keeps values stable across pool growth",
 				static_cast<uint64_t>(key) * 100 + cpu);
 	}
 }
+
+TEST_CASE("per-cpu hash helper lookup handles empty maps and colliding keys",
+	  "[percpu-hash][lookup-bucket]")
+{
+	const std::string shm_name =
+		"BPFTIME_PER_CPU_HASH_LOOKUP_SHM_" + std::to_string(getpid());
+	shm_remove remover(shm_name.c_str());
+	managed_shared_memory mem(create_only, shm_name.c_str(), 4 << 20);
+	const int ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+	const int cpu = sched_getcpu();
+
+	for (uint32_t key_size : { 4U, 8U, 17U }) {
+		CAPTURE(key_size, cpu);
+		per_cpu_hash_map_impl map(mem, key_size, sizeof(uint64_t), 16, ncpu);
+		// Each query starts at an unaligned address. Long keys share their
+		// first four bytes, so the generic path must compare the suffix.
+		std::array<std::vector<uint8_t>, 9> keys;
+		for (size_t index = 0; index < keys.size(); ++index) {
+			keys[index].resize(key_size + 1, 0);
+			const uint32_t number = 1 + 13 * index;
+			const size_t offset = key_size == 4 ? 1 : key_size - 3;
+			std::memcpy(keys[index].data() + offset, &number, sizeof(number));
+		}
+		errno = 0;
+		REQUIRE(map.elem_lookup(keys[0].data() + 1) == nullptr);
+		REQUIRE(errno == ENOENT);
+		errno = 0;
+		REQUIRE(map.elem_lookup(nullptr) == nullptr);
+		REQUIRE(errno == ENOENT);
+
+		for (size_t index = 0; index < 8; ++index) {
+			std::vector<uint64_t> values(ncpu);
+			for (int slot = 0; slot < ncpu; ++slot)
+				values[slot] = (index + 1) * 1000 + slot;
+			REQUIRE(map.elem_update_userspace(keys[index].data() + 1,
+							 values.data(), BPF_NOEXIST) == 0);
+		}
+		ensure_on_certain_cpu<void>(cpu, [&]() {
+			for (size_t index = 0; index < 8; ++index) {
+				const auto *value = static_cast<const uint64_t *>(
+					map.elem_lookup(keys[index].data() + 1));
+				REQUIRE(value != nullptr);
+				REQUIRE(*value == (index + 1) * 1000 + cpu);
+			}
+			REQUIRE(map.elem_lookup(keys.back().data() + 1) == nullptr);
+			REQUIRE(errno == ENOENT);
+		});
+		REQUIRE(map.elem_delete(keys[3].data() + 1) == 0);
+		ensure_on_certain_cpu<void>(cpu, [&]() {
+			REQUIRE(map.elem_lookup(keys[3].data() + 1) == nullptr);
+			REQUIRE(errno == ENOENT);
+			for (size_t index = 0; index < 8; ++index) {
+				if (index != 3) {
+					const auto *value = static_cast<const uint64_t *>(
+						map.elem_lookup(keys[index].data() + 1));
+					REQUIRE(value != nullptr);
+					REQUIRE(*value == (index + 1) * 1000 + cpu);
+				}
+			}
+		});
+	}
+}
