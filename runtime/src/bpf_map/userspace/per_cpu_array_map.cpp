@@ -64,22 +64,6 @@ void *per_cpu_array_map_impl::elem_lookup(const void *key)
 	return elem_lookup_base(key);
 }
 
-void *per_cpu_array_map_impl::elem_lookup_base(const void *key)
-{
-	return ensure_on_current_cpu<void *>([&](int cpu) -> void * {
-		if (key == nullptr) {
-			errno = ENOENT;
-			return nullptr;
-		}
-		uint32_t key_val = *(uint32_t *)key;
-		if (key_val >= max_ent) {
-			errno = ENOENT;
-			return nullptr;
-		}
-		return data_at(key_val, cpu);
-	});
-}
-
 long per_cpu_array_map_impl::elem_update(const void *key, const void *value,
 					 uint64_t flags)
 {
