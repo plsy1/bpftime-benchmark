@@ -72,6 +72,13 @@ The configured commit IDs are the rebased/adapted commits from
 This makes the patch stack portable to another Jetson without relying on a
 machine-local `rerere` cache.
 
+The maintained stack now includes all accepted optimizations through
+`df934cd13027` (2026-10-18), including ordinary hash lookup key dispatch and
+per-CPU hash bucket-local iteration. The focused test filter also includes
+`[maps][hash]` for fast modulo, generic keys, wrapped probe chains and full-table
+misses. The latest complete ten-round run has eight of ten map operations
+below same-run kernel BPF; ordinary and per-CPU array lookup remain slower.
+
 The per-CPU array clean production leaf is included in the maintained patch
 stack as commit `05eac852dc7b`. On the official 8da base, the same-base full
 benchmark reduced per-CPU array lookup from 15,923.76 ns to 14,410.72 ns per
