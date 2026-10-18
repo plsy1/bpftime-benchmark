@@ -1,0 +1,42 @@
+000: stp	x29, x30, [sp, #-16]!
+004: adrp	x4, <trace_init_lock+0x28>
+008: mov	x29, sp
+00c: ldr	x4, [x4, #2184]
+010: cmp	x4, #0x0
+014: ccmp	w0, #0x0, #0x1, ne
+018: b.lt	self+0x70
+01c: ldr	x5, [x4, #16]
+020: cmp	x5, w0, sxtw
+024: b.ls	self+0x70
+028: ldr	x5, [x4, #8]
+02c: mov	w6, #0xa8
+030: add	x4, x4, #0x8
+034: cmp	x5, #0x1
+038: add	x4, x4, x5
+03c: smull	x0, w0, w6
+040: csetm	x5, ne
+044: and	x4, x5, x4
+048: adds	x0, x4, x0
+04c: b.eq	self+0x70
+050: ldrb	w4, [x0, #160]
+054: cmp	w4, #0x1
+058: b.ne	self+0x70
+05c: ldr	w4, [x0, #72]
+060: cmp	w4, #0x6
+064: b.eq	self+0x88
+068: ldp	x29, x30, [sp], #16
+06c: b	<bpftime::bpf_map_handler::map_update_elem(void const*, void const*, unsigned long, bool) const [clone .constprop.0]>
+070: bl	<__errno_location@plt>
+074: mov	w1, #0x2
+078: str	w1, [x0]
+07c: mov	x0, #0xffffffffffffffff
+080: ldp	x29, x30, [sp], #16
+084: ret
+088: ldp	x29, x30, [sp], #16
+08c: add	x0, x0, #0x78
+090: ldr	x4, [x0]
+094: cmp	x4, #0x1
+098: add	x0, x0, x4
+09c: csetm	x4, ne
+0a0: and	x0, x4, x0
+0a4: b	<bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)>

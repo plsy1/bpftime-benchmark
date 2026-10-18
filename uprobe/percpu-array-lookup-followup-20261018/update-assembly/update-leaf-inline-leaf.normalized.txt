@@ -1,0 +1,66 @@
+000: stp	x29, x30, [sp, #-48]!
+004: mov	x29, sp
+008: cmp	w3, #0x2
+00c: b.hi	self+0xa0
+010: stp	x19, x20, [sp, #16]
+014: mov	x20, x1
+018: mov	x19, x0
+01c: stp	x21, x22, [sp, #32]
+020: mov	x22, x3
+024: mov	x21, x2
+028: bl	<sched_getcpu@plt>
+02c: cbz	x20, self+0xe8
+030: ldr	w2, [x19, #40]
+034: ldr	w1, [x20]
+038: cmp	w1, w2
+03c: b.cs	self+0xcc
+040: cmp	x22, #0x1
+044: b.eq	self+0xf8
+048: ldrsw	x3, [x19, #32]
+04c: mov	w1, w1
+050: sxtw	x0, w0
+054: ldr	w2, [x19, #36]
+058: ldr	x4, [x19, #8]
+05c: add	x19, x19, #0x8
+060: madd	x3, x3, x1, x0
+064: cmp	x4, #0x1
+068: add	x19, x19, x4
+06c: csetm	x1, ne
+070: and	x1, x1, x19
+074: mul	x3, x3, x2
+078: add	x0, x1, x3
+07c: cmp	x2, #0x1
+080: b.le	self+0xbc
+084: mov	x1, x21
+088: bl	<memmove@plt>
+08c: ldp	x19, x20, [sp, #16]
+090: mov	x0, #0x0
+094: ldp	x21, x22, [sp, #32]
+098: ldp	x29, x30, [sp], #48
+09c: ret
+0a0: bl	<__errno_location@plt>
+0a4: mov	x1, x0
+0a8: mov	w2, #0x16
+0ac: mov	x0, #0xffffffffffffffff
+0b0: str	w2, [x1]
+0b4: ldp	x29, x30, [sp], #48
+0b8: ret
+0bc: b.ne	self+0x8c
+0c0: ldrb	w0, [x21]
+0c4: strb	w0, [x1, x3]
+0c8: b	self+0x8c
+0cc: bl	<__errno_location@plt>
+0d0: mov	w1, #0x7
+0d4: str	w1, [x0]
+0d8: ldp	x19, x20, [sp, #16]
+0dc: mov	x0, #0xffffffffffffffff
+0e0: ldp	x21, x22, [sp, #32]
+0e4: b	self+0x98
+0e8: bl	<__errno_location@plt>
+0ec: mov	w1, #0x2
+0f0: str	w1, [x0]
+0f4: b	self+0xd8
+0f8: bl	<__errno_location@plt>
+0fc: mov	w1, #0x11
+100: str	w1, [x0]
+104: b	self+0xd8
