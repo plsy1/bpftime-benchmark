@@ -105,6 +105,36 @@ class bpftime_hash_map {
 		return std::memcmp(lhs, rhs, _key_size) == 0;
 	}
 
+	template <bool Uint32Key>
+	void *lookup_from_bucket(const void *key, size_t index)
+	{
+		uint32_t key_value = 0;
+		if constexpr (Uint32Key)
+			std::memcpy(&key_value, key, sizeof(key_value));
+		const size_t start_index = index;
+		do {
+			const auto state = get_bucket_state(index);
+			if (state == BUCKET_EMPTY)
+				return nullptr;
+			if (state == BUCKET_FILLED) {
+				bool equal;
+				if constexpr (Uint32Key) {
+					uint32_t bucket_key;
+					std::memcpy(&bucket_key, get_key(index),
+						    sizeof(bucket_key));
+					equal = bucket_key == key_value;
+				} else {
+					equal = std::memcmp(get_key(index), key, _key_size) == 0;
+				}
+				if (equal)
+					return get_value(index);
+			}
+			if (++index == _num_buckets)
+				index = 0;
+		} while (index != start_index);
+		return nullptr;
+	}
+
 	size_t _key_size;
 	size_t _value_size;
 	size_t _num_buckets; // Adjusted number of buckets (prime)
@@ -189,23 +219,12 @@ class bpftime_hash_map {
 
 	void *elem_lookup(const void *key)
 	{
-		size_t index = bpftime_hasher::fast_modulo(
+		const size_t index = bpftime_hasher::fast_modulo(
 			bpftime_hasher::hash_func(key, _key_size), _num_buckets,
 			_bucket_reciprocal);
-		size_t start_index = index;
-		do {
-			const auto state = get_bucket_state(index);
-			if (state == BUCKET_EMPTY) {
-				return nullptr;
-			}
-			if (state == BUCKET_FILLED &&
-			    keys_equal(get_key(index), key)) {
-				return get_value(index);
-			}
-			if (++index == _num_buckets)
-				index = 0;
-		} while (index != start_index);
-		return nullptr;
+		if (_key_size == sizeof(uint32_t))
+			return lookup_from_bucket<true>(key, index);
+		return lookup_from_bucket<false>(key, index);
 	}
 
 	bool elem_update(const void *key, const void *value)

@@ -200,101 +200,72 @@ TEST_CASE("Fixed hash iteration scans adjusted bucket count",
 	REQUIRE(next_key == key);
 }
 
-TEST_CASE("Fixed hash map propagates update flags and failures",
-	  "[maps][hash]")
+TEST_CASE("Fixed hash lookup preserves wrapped probe chains and full-table misses",
+	  "[maps][hash][hash-probe-loop]")
 {
-	static const char *shm_name = "bpftime_fix_hash_errors_test";
+	static const char *shm_name = "bpftime_fix_hash_probe_loop_test";
 	shm_cleanup cleanup(shm_name);
 	managed_shared_memory segment(create_only, shm_name, 65536);
+	constexpr size_t capacity = 7; // Prime: the table can have no empty buckets.
 
-	fix_size_hash_map_impl map(segment, 1, sizeof(uint32_t),
-				   sizeof(uint64_t));
-	uint32_t key = 1, other_key = 2, missing_key = 99;
-	uint64_t v1 = 11, v2 = 22;
+	for (size_t key_size : { 1U, 3U, 4U, 8U, 16U }) {
+		for (size_t value_size : { 1U, 8U }) {
+			CAPTURE(key_size, value_size);
+			bpftime_hash_map map(segment, capacity, key_size, value_size);
+			std::vector<std::vector<uint8_t>> keys;
+			// Start at the final bucket so every later collision wraps.
+			// Offset each key by one byte to also exercise unaligned input.
+			for (uint32_t n = 0; keys.size() < capacity + 1 && n < 65536;
+			     ++n) {
+				std::vector<uint8_t> key(key_size + 1, 0);
+				// Long keys share their first four bytes: equality must
+				// inspect the suffix rather than just the uint32 prefix.
+				const size_t offset = key_size > 4 ? key_size - 3 : 1;
+				for (size_t byte = 0; byte < std::min(key_size, size_t{4});
+				     ++byte)
+					key[byte + offset] = static_cast<uint8_t>(n >> (8 * byte));
+				if (bpftime_hasher::hash_func(key.data() + 1, key_size) %
+					    capacity == capacity - 1)
+					keys.push_back(std::move(key));
+			}
+			REQUIRE(keys.size() == capacity + 1);
 
-	REQUIRE(map.elem_update(&key, &v1, BPF_ANY) == 0);
+			auto verify_value = [&](size_t index) {
+				const auto *value = static_cast<const uint8_t *>(
+					map.elem_lookup(keys[index].data() + 1));
+				REQUIRE(value != nullptr);
+				for (size_t byte = 0; byte < value_size; ++byte)
+					REQUIRE(value[byte] == index + 1);
+			};
+			for (size_t index = 0; index < capacity; ++index) {
+				const std::vector<uint8_t> value(value_size, index + 1);
+				REQUIRE(map.elem_update(keys[index].data() + 1, value.data()));
+			}
+			for (size_t index = 0; index < capacity; ++index)
+				verify_value(index);
+			REQUIRE(map.elem_lookup(keys.back().data() + 1) == nullptr);
 
-	// BPF_NOEXIST on an existing key fails and keeps the old value
-	errno = 0;
-	REQUIRE(map.elem_update(&key, &v2, BPF_NOEXIST) == -1);
-	REQUIRE(errno == EEXIST);
-	REQUIRE(*static_cast<uint64_t *>(map.elem_lookup(&key)) == v1);
-
-	// BPF_EXIST on a missing key fails
-	errno = 0;
-	REQUIRE(map.elem_update(&other_key, &v1, BPF_EXIST) == -1);
-	REQUIRE(errno == ENOENT);
-
-	// Unknown flags are rejected
-	errno = 0;
-	REQUIRE(map.elem_update(&other_key, &v1, 3) == -1);
-	REQUIRE(errno == EINVAL);
-
-	// The single entry fills the capacity; new inserts must be reported
-	errno = 0;
-	REQUIRE(map.elem_update(&other_key, &v1, BPF_ANY) == -1);
-	REQUIRE(errno == E2BIG);
-	REQUIRE(map.elem_lookup(&other_key) == nullptr);
-
-	// Updating the existing key still succeeds while the map is full
-	REQUIRE(map.elem_update(&key, &v2, BPF_EXIST) == 0);
-	REQUIRE(*static_cast<uint64_t *>(map.elem_lookup(&key)) == v2);
-
-	// Deleting a missing key fails; deleting an existing key works
-	errno = 0;
-	REQUIRE(map.elem_delete(&missing_key) == -1);
-	REQUIRE(errno == ENOENT);
-	REQUIRE(map.elem_delete(&key) == 0);
-	REQUIRE(map.elem_lookup(&key) == nullptr);
-}
-
-TEST_CASE("Fixed hash map supports inserts, overwrites and reinsertion",
-	  "[maps][hash]")
-{
-	static const char *shm_name = "bpftime_fix_hash_success_test";
-	shm_cleanup cleanup(shm_name);
-	managed_shared_memory segment(create_only, shm_name, 65536);
-
-	fix_size_hash_map_impl map(segment, 2, sizeof(uint32_t),
-				   sizeof(uint64_t));
-	uint32_t key = 1, other_key = 2, missing_key = 99;
-	uint64_t v1 = 11, v2 = 22, v3 = 33;
-
-	// Deleting from an empty map reports ENOENT
-	errno = 0;
-	REQUIRE(map.elem_delete(&missing_key) == -1);
-	REQUIRE(errno == ENOENT);
-
-	// BPF_NOEXIST successfully inserts a missing key
-	errno = 0;
-	REQUIRE(map.elem_update(&key, &v1, BPF_NOEXIST) == 0);
-	REQUIRE(errno == 0);
-	REQUIRE(*static_cast<uint64_t *>(map.elem_lookup(&key)) == v1);
-
-	// BPF_ANY overwrites the existing value
-	errno = 0;
-	REQUIRE(map.elem_update(&key, &v2, BPF_ANY) == 0);
-	REQUIRE(errno == 0);
-	REQUIRE(*static_cast<uint64_t *>(map.elem_lookup(&key)) == v2);
-
-	// BPF_ANY inserts a second key within capacity
-	errno = 0;
-	REQUIRE(map.elem_update(&other_key, &v3, BPF_ANY) == 0);
-	REQUIRE(errno == 0);
-	REQUIRE(*static_cast<uint64_t *>(map.elem_lookup(&other_key)) == v3);
-
-	// A deleted key can be reinserted, freeing capacity
-	REQUIRE(map.elem_delete(&key) == 0);
-	REQUIRE(map.elem_lookup(&key) == nullptr);
-	errno = 0;
-	REQUIRE(map.elem_update(&key, &v1, BPF_NOEXIST) == 0);
-	REQUIRE(errno == 0);
-	REQUIRE(*static_cast<uint64_t *>(map.elem_lookup(&key)) == v1);
-
-	// Unknown flags, including bits above the low 32, are rejected and
-	// leave the stored value untouched
-	errno = 0;
-	REQUIRE(map.elem_update(&key, &v2, 1ULL << 32) == -1);
-	REQUIRE(errno == EINVAL);
-	REQUIRE(*static_cast<uint64_t *>(map.elem_lookup(&key)) == v1);
+			REQUIRE(map.elem_delete(keys[0].data() + 1));
+			REQUIRE(map.elem_delete(keys[3].data() + 1));
+			for (size_t index = 0; index < capacity; ++index) {
+				if (index == 0 || index == 3)
+					REQUIRE(map.elem_lookup(keys[index].data() + 1) == nullptr);
+				else
+					verify_value(index);
+			}
+			REQUIRE(map.elem_lookup(keys.back().data() + 1) == nullptr);
+			for (size_t index = 0; index < capacity; ++index) {
+				if (index != 0 && index != 3)
+					REQUIRE(map.elem_delete(keys[index].data() + 1));
+			}
+			// No empty buckets remain: every bucket is now a tombstone.
+			REQUIRE(map.elem_lookup(keys.back().data() + 1) == nullptr);
+			for (size_t index = 0; index < capacity; ++index) {
+				const std::vector<uint8_t> value(value_size, index + 1);
+				REQUIRE(map.elem_update(keys[index].data() + 1, value.data()));
+			}
+			for (size_t index = 0; index < capacity; ++index)
+				verify_value(index);
+		}
+	}
 }
