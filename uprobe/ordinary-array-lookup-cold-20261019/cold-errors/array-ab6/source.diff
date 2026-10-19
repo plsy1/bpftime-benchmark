@@ -1,0 +1,122 @@
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index 901b184..3614c85 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -348,14 +348,14 @@ uint64_t bpftime_array_map_lookup_elem_helper(
+ 	const auto *manager = shm.get_manager();
+ 	if (manager == nullptr || fd < 0 ||
+ 	    static_cast<std::size_t>(fd) >= manager->size()) {
+-		errno = ENOENT;
+-		return 0;
++		return reinterpret_cast<uint64_t>(
++			bpftime::detail::array_lookup_enoent());
+ 	}
+ 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
+ 		&manager->get_handler_at_valid_fd(fd));
+ 	if (handler == nullptr) {
+-		errno = ENOENT;
+-		return 0;
++		return reinterpret_cast<uint64_t>(
++			bpftime::detail::array_lookup_enoent());
+ 	}
+ 	if (handler->type != bpftime::bpf_map_type::BPF_MAP_TYPE_ARRAY)
+ 		return reinterpret_cast<uint64_t>(
+diff --git a/runtime/src/bpf_map/userspace/array_map.cpp b/runtime/src/bpf_map/userspace/array_map.cpp
+index bc7a403..36543b4 100644
+--- a/runtime/src/bpf_map/userspace/array_map.cpp
++++ b/runtime/src/bpf_map/userspace/array_map.cpp
+@@ -13,6 +13,12 @@
+ namespace bpftime
+ {
+ 
++void *detail::array_lookup_enoent()
++{
++	errno = ENOENT;
++	return nullptr;
++}
++
+ void *array_map_impl::get_raw_data() const
+ {
+ 	return (void *)data.data();
+@@ -29,8 +35,7 @@ void *array_map_impl::elem_lookup(const void *key)
+ {
+ 	auto key_val = *(uint32_t *)key;
+ 	if (key_val >= _max_entries) {
+-		errno = ENOENT;
+-		return nullptr;
++		return detail::array_lookup_enoent();
+ 	}
+ 	return &data[key_val * _value_size];
+ }
+diff --git a/runtime/src/bpf_map/userspace/array_map.hpp b/runtime/src/bpf_map/userspace/array_map.hpp
+index 9da5d5b..dbd6289 100644
+--- a/runtime/src/bpf_map/userspace/array_map.hpp
++++ b/runtime/src/bpf_map/userspace/array_map.hpp
+@@ -10,6 +10,13 @@
+ namespace bpftime
+ {
+ 
++namespace detail
++{
++// Keep errno access off successful array lookups so callers can remain
++// leaf functions without saving registers for an error-only call.
++__attribute__((cold, noinline)) void *array_lookup_enoent();
++} // namespace detail
++
+ // implementation of array map
+ class array_map_impl {
+ 	bytes_vec data;
+diff --git a/runtime/unit-test/maps/test_per_cpu_array.cpp b/runtime/unit-test/maps/test_per_cpu_array.cpp
+index c430e84..c082f49 100644
+--- a/runtime/unit-test/maps/test_per_cpu_array.cpp
++++ b/runtime/unit-test/maps/test_per_cpu_array.cpp
+@@ -9,6 +9,7 @@
+ #include <cerrno>
+ #include <linux/bpf.h>
+ #include <limits>
++#include "bpf_map/userspace/array_map.hpp"
+ #include <string>
+ #include <thread>
+ #include <sched.h>
+@@ -179,6 +180,41 @@ TEST_CASE("Per-CPU array production lookup follows CPU affinity changes",
+ 	}
+ }
+ 
++TEST_CASE("Ordinary array lookup preserves bounds and errno on its cold path",
++	  "[array-lookup-cold]")
++{
++	const auto name = "_ARRAY_LOOKUP_COLD_" + std::to_string(getpid());
++	shm_remove remover(name.c_str());
++	managed_shared_memory mem(create_only, name.c_str(), 4 << 20);
++	for (uint32_t value_size : { 1U, 8U, 24U, 257U }) {
++		CAPTURE(value_size);
++		array_map_impl map(mem, value_size, 4);
++		for (uint32_t key : { 0U, 3U }) {
++			std::vector<uint8_t> expected(value_size);
++			for (uint32_t byte = 0; byte < value_size; ++byte)
++				expected[byte] = static_cast<uint8_t>(key * 17 + byte);
++			REQUIRE(map.elem_update(&key, expected.data(), BPF_ANY) == 0);
++			errno = EDOM;
++			auto *value = static_cast<uint8_t *>(map.elem_lookup(&key));
++			REQUIRE(value != nullptr);
++			REQUIRE(errno == EDOM);
++			for (uint32_t byte = 0; byte < value_size; ++byte)
++				REQUIRE(value[byte] == expected[byte]);
++			value[0] ^= 0xff;
++			REQUIRE(static_cast<uint8_t *>(map.elem_lookup(&key))[0] ==
++				static_cast<uint8_t>(expected[0] ^ 0xff));
++		}
++		for (uint32_t key : { 4U, std::numeric_limits<uint32_t>::max() }) {
++			errno = EDOM;
++			REQUIRE(map.elem_lookup(&key) == nullptr);
++			REQUIRE(errno == ENOENT);
++		}
++		uint32_t key = 0;
++		REQUIRE(map.elem_lookup(&key) != nullptr);
++		REQUIRE(errno == ENOENT);
++	}
++}
++
+ TEST_CASE("Test basic operations of array map")
+ {
+ 	shm_remove remover(SHM_NAME);
