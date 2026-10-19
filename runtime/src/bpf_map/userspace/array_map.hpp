@@ -10,6 +10,13 @@
 namespace bpftime
 {
 
+namespace detail
+{
+// Keep errno access off successful array lookups so callers can remain
+// leaf functions without saving registers for an error-only call.
+__attribute__((cold, noinline)) void *array_lookup_enoent();
+} // namespace detail
+
 // implementation of array map
 class array_map_impl {
 	bytes_vec data;
