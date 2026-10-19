@@ -9,6 +9,7 @@
 #include <cerrno>
 #include <linux/bpf.h>
 #include <limits>
+#include "bpf_map/userspace/array_map.hpp"
 #include <string>
 #include <thread>
 #include <sched.h>
@@ -176,6 +177,41 @@ TEST_CASE("Per-CPU array production lookup follows CPU affinity changes",
 			REQUIRE(map.elem_lookup_base(nullptr) == nullptr);
 			REQUIRE(errno == ENOENT);
 		}
+	}
+}
+
+TEST_CASE("Ordinary array lookup preserves bounds and errno on its cold path",
+	  "[array-lookup-cold]")
+{
+	const auto name = "_ARRAY_LOOKUP_COLD_" + std::to_string(getpid());
+	shm_remove remover(name.c_str());
+	managed_shared_memory mem(create_only, name.c_str(), 4 << 20);
+	for (uint32_t value_size : { 1U, 8U, 24U, 257U }) {
+		CAPTURE(value_size);
+		array_map_impl map(mem, value_size, 4);
+		for (uint32_t key : { 0U, 3U }) {
+			std::vector<uint8_t> expected(value_size);
+			for (uint32_t byte = 0; byte < value_size; ++byte)
+				expected[byte] = static_cast<uint8_t>(key * 17 + byte);
+			REQUIRE(map.elem_update(&key, expected.data(), BPF_ANY) == 0);
+			errno = EDOM;
+			auto *value = static_cast<uint8_t *>(map.elem_lookup(&key));
+			REQUIRE(value != nullptr);
+			REQUIRE(errno == EDOM);
+			for (uint32_t byte = 0; byte < value_size; ++byte)
+				REQUIRE(value[byte] == expected[byte]);
+			value[0] ^= 0xff;
+			REQUIRE(static_cast<uint8_t *>(map.elem_lookup(&key))[0] ==
+				static_cast<uint8_t>(expected[0] ^ 0xff));
+		}
+		for (uint32_t key : { 4U, std::numeric_limits<uint32_t>::max() }) {
+			errno = EDOM;
+			REQUIRE(map.elem_lookup(&key) == nullptr);
+			REQUIRE(errno == ENOENT);
+		}
+		uint32_t key = 0;
+		REQUIRE(map.elem_lookup(&key) != nullptr);
+		REQUIRE(errno == ENOENT);
 	}
 }
 
