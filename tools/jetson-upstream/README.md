@@ -73,14 +73,24 @@ This makes the patch stack portable to another Jetson without relying on a
 machine-local `rerere` cache.
 
 The maintained stack now includes all accepted optimizations through
-`eb09b972d59c` (accepted 2026-10-19), including ordinary hash lookup key dispatch,
-per-CPU hash bucket-local iteration and per-CPU array production lookup leaf
-inlining. The focused test filter also includes
+`fefe2f6edf27` (accepted 2026-10-19), including ordinary hash lookup key dispatch,
+per-CPU hash bucket-local iteration, per-CPU array production lookup leaf
+inlining and ordinary array lookup error-path outlining. The focused test filter
+includes `[array-lookup-cold]` for the new boundary/errno regression tests and
 `[maps][hash]` for fast modulo, generic keys, wrapped probe chains and full-table
 misses. The latest complete ten-round run has eight of ten map operations
 below same-run kernel BPF; ordinary and per-CPU array lookup remain slower.
 
-The latest per-CPU array lookup change reduces full-suite cost from 11.64 to
+The latest ordinary array lookup change moves ENOENT handling into a shared
+cold, non-inlined function. The specialized helper's successful path no longer
+uses a stack frame, register spills or calls; all checks and generic fallback
+remain. Six-round A/B improves its median by 6.75% (six of six paired wins).
+The full ten-round suite reduces cost from 7.93 to 7.47 ns/helper (-5.8%),
+leaving a 1.96x same-run kernel ratio. The per-CPU array lookup result is
+10.76 ns/helper, 2.45x kernel; the other eight map operations remain below
+same-run kernel. The archived table retains the initial and previous baselines.
+
+The preceding per-CPU array lookup change reduces full-suite cost from 11.64 to
 10.92 ns/helper (-6.2%, 2.48x same-run kernel). Two additional balanced six-round
 A/B tests reproduce roughly 7% lookup gains. They do not consistently reproduce
 the original +0.82% per-CPU array update difference (-0.19% and +0.45% median
