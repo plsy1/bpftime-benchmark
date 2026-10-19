@@ -13,6 +13,12 @@
 namespace bpftime
 {
 
+void *detail::array_lookup_enoent()
+{
+	errno = ENOENT;
+	return nullptr;
+}
+
 void *array_map_impl::get_raw_data() const
 {
 	return (void *)data.data();
@@ -29,8 +35,7 @@ void *array_map_impl::elem_lookup(const void *key)
 {
 	auto key_val = *(uint32_t *)key;
 	if (key_val >= _max_entries) {
-		errno = ENOENT;
-		return nullptr;
+		return detail::array_lookup_enoent();
 	}
 	return &data[key_val * _value_size];
 }

@@ -348,14 +348,14 @@ uint64_t bpftime_array_map_lookup_elem_helper(
 	const auto *manager = shm.get_manager();
 	if (manager == nullptr || fd < 0 ||
 	    static_cast<std::size_t>(fd) >= manager->size()) {
-		errno = ENOENT;
-		return 0;
+		return reinterpret_cast<uint64_t>(
+			bpftime::detail::array_lookup_enoent());
 	}
 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
 		&manager->get_handler_at_valid_fd(fd));
 	if (handler == nullptr) {
-		errno = ENOENT;
-		return 0;
+		return reinterpret_cast<uint64_t>(
+			bpftime::detail::array_lookup_enoent());
 	}
 	if (handler->type != bpftime::bpf_map_type::BPF_MAP_TYPE_ARRAY)
 		return reinterpret_cast<uint64_t>(
