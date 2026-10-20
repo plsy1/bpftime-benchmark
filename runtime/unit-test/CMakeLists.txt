@@ -14,6 +14,8 @@ endif()
 find_package(Boost REQUIRED)
 
 set(TEST_SOURCES
+    maps/test_array_jit_lifetime.cpp
+    maps/test_array_jit_poc.cpp
     maps/test_per_cpu_array.cpp
     maps/test_per_cpu_hash.cpp
     maps/test_shm_hash_maps.cpp
@@ -64,6 +66,14 @@ if(${BPFTIME_ENABLE_CUDA_ATTACH})
 endif()
 option(TEST_LCOV "option for lcov" OFF)
 add_executable(bpftime_runtime_tests ${TEST_SOURCES})
+if(BPFTIME_LLVM_JIT)
+    target_sources(bpftime_runtime_tests PRIVATE $<TARGET_OBJECTS:bpftime_llvm_vm_obj>)
+endif()
+if(BPFTIME_UBPF_JIT)
+    # Keep the uBPF factory constructor when linking the static VM archive,
+    # so the optional-specialization fallback is actually exercised.
+    target_sources(bpftime_runtime_tests PRIVATE $<TARGET_OBJECTS:bpftime_ubpf_vm_obj>)
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(bpftime_runtime_tests PRIVATE test_get_current_uid_gid.cpp)

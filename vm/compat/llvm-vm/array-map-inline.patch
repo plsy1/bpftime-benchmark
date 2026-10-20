@@ -1,0 +1,60 @@
+--- a/llvm_jit_context.cpp
++++ b/llvm_jit_context.cpp
+@@ -403,6 +403,7 @@
+ 	}
+ 
+ 	bool changed = false;
++	size_t inlined_sites = 0;
+ 	for (auto *call : callSites) {
+ 		auto *mapHandle =
+ 			llvm::dyn_cast<llvm::ConstantInt>(call->getArgOperand(0));
+@@ -441,7 +442,7 @@
+ 			"array_lookup.key_ptr");
+ 		auto *index = builder.CreateLoad(builder.getInt32Ty(), keyPtr,
+ 						 "array_lookup.index");
+-		index->setAlignment(llvm::Align(4));
++		index->setAlignment(llvm::Align(1));
+ 		auto *inRange = builder.CreateICmpULT(
+ 			index, builder.getInt32(map.max_entries),
+ 			"array_lookup.in_range");
+@@ -461,17 +462,35 @@
+ 		}
+ 		auto *address = builder.CreateAdd(
+ 			builder.getInt64(valueBase), offset, "array_lookup.addr");
+-		auto *result = builder.CreateSelect(
+-			inRange, address, builder.getInt64(0),
++		// Only the pinned standard runtime helper promises this ENOENT path.
++		// Leave standalone/custom helpers and their map arguments unchanged.
++		if (vm.ext_funcs[1] &&
++		    vm.ext_funcs[1]->name == "bpftime_bound_array_lookup_v1")
++			call->setArgOperand(0, builder.getInt64(UINT64_MAX));
++		// Preserve the registered helper's failure behavior, including errno.
++		// Only successful lookups use the inlined address computation.
++		auto *prefix = call->getParent();
++		auto *slow = prefix->splitBasicBlock(call, "array_lookup.slow");
++		auto *merge = slow->splitBasicBlock(call->getNextNode(), "array_lookup.merge");
++		auto *fast = llvm::BasicBlock::Create(module.getContext(),
++			"array_lookup.fast", prefix->getParent(), slow);
++		prefix->getTerminator()->eraseFromParent();
++		llvm::IRBuilder<> choose(prefix);
++		choose.CreateCondBr(inRange, fast, slow);
++		llvm::IRBuilder<> fast_builder(fast);
++		fast_builder.CreateBr(merge);
++		llvm::IRBuilder<> merge_builder(&*merge->begin());
++		auto *result = merge_builder.CreatePHI(builder.getInt64Ty(), 2,
+ 			"array_lookup.result");
+-
+ 		call->replaceAllUsesWith(result);
+-		call->eraseFromParent();
++		result->addIncoming(address, fast);
++		result->addIncoming(call, slow);
+ 		changed = true;
++		++inlined_sites;
+ 	}
+ 
+ 	if (changed) {
+-		SPDLOG_DEBUG("Inlined array map lookup helper calls");
++		SPDLOG_INFO("[array-jit-inline] inlined {} lookup sites; invalid keys retain helper fallback", inlined_sites);
+ 	}
+ 	return changed;
+ }
