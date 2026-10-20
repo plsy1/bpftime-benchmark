@@ -11,6 +11,7 @@
 #include <handler/handler_manager.hpp>
 #include <variant>
 #include <algorithm>
+#include <bpf_map/array_map_binding.hpp>
 #if __APPLE__
 #include "spinlock_wrapper.hpp"
 #endif
@@ -53,6 +54,7 @@ std::size_t handler_manager::size() const
 int handler_manager::set_handler_at_empty_slot(handler_variant &&handler,
 					       managed_shared_memory &memory)
 {
+	map_binding_guard binding_guard(map_binding_mutex(memory));
 	int id = find_minimal_unused_idx();
 	if (id < 0) {
 		SPDLOG_ERROR("Unable to find empty slot");
@@ -63,6 +65,7 @@ int handler_manager::set_handler_at_empty_slot(handler_variant &&handler,
 int handler_manager::set_handler(int fd, handler_variant &&handler,
 				 managed_shared_memory &memory)
 {
+	map_binding_guard binding_guard(map_binding_mutex(memory));
 	if (fd < 0 || (std::size_t)fd >= handlers.size()) {
 		SPDLOG_ERROR("set_handler: fd {} out of range [0, {})", fd, handlers.size());
 		return -ENOSPC;
@@ -97,6 +100,7 @@ bool handler_manager::is_allocated(int fd) const
 
 void handler_manager::clear_id_at(int fd, managed_shared_memory &memory)
 {
+	map_binding_guard binding_guard(map_binding_mutex(memory));
 	if (fd < 0 || (std::size_t)fd >= handlers.size()) {
 		return;
 	}
@@ -159,6 +163,7 @@ int handler_manager::find_minimal_unused_idx() const
 
 void handler_manager::clear_all(managed_shared_memory &memory)
 {
+	map_binding_guard binding_guard(map_binding_mutex(memory));
 	for (std::size_t i = 0; i < handlers.size(); i++) {
 		if (is_allocated(i)) {
 			clear_id_at(i, memory);
