@@ -18,6 +18,7 @@
 #include <handler/handler_manager.hpp>
 #include <optional>
 #include <cstdint>
+#include <memory>
 
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
 namespace bpftime
@@ -98,7 +99,9 @@ class bpftime_shm {
 
 	bpftime::shm_open_type open_type;
 	// shared memory segment
-	boost::interprocess::managed_shared_memory segment;
+	std::shared_ptr<boost::interprocess::managed_shared_memory> segment_owner =
+		std::make_shared<boost::interprocess::managed_shared_memory>();
+	boost::interprocess::managed_shared_memory &segment = *segment_owner;
 
 	// manage the bpf fds in the shared memory
 	bpftime::handler_manager *manager = nullptr;
@@ -142,11 +145,13 @@ class bpftime_shm {
 #endif
 
     public:
-	// True when the fully-contained [addr, addr+size) range lies inside the
-	// mapped SHM segment. Backends with runtime memory safety checks
-	// (uBPF) use this to admit BPF map/context accesses that the kernel
-	// verifier would normally allow. Includes an overflow guard.
-	bool is_within_shm_segment(uint64_t addr, uint64_t size) const
+	std::shared_ptr<boost::interprocess::managed_shared_memory> retain_mapping() const
+	{
+		return segment_owner;
+	}
+	bpftime_shm(const bpftime_shm &) = delete;
+	bpftime_shm &operator=(const bpftime_shm &) = delete;
+	shm_open_type get_shm_open_type() const
 	{
 		if (size == 0) {
 			return true;

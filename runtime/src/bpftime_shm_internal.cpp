@@ -24,6 +24,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <bpf_map/array_map_binding.hpp>
 #if __linux__
 #include <fcntl.h>
 #include <sys/file.h>
@@ -1163,6 +1164,8 @@ bpftime_shm::bpftime_shm(const char *shm_name, shm_open_type type)
 			"NOT creating global shm. This is only for testing purpose.");
 		return;
 	}
+	if (type != shm_open_type::SHM_OPEN_ONLY)
+		(void)map_binding_mutex(segment); // Advertise the binding protocol.
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
 	// Move CommSharedMem from the agent’s local memory to shared memory to
 	// improve performance.
@@ -1292,6 +1295,7 @@ std::uint64_t bpftime_shm::read_stable_epoch_seq(int max_tries) const
 
 std::uint64_t bpftime_shm::begin_new_session()
 {
+	map_binding_guard binding_guard(map_binding_mutex(segment));
 	if (!epoch_state) {
 		SPDLOG_WARN("begin_new_session: epoch_state missing");
 		reset_server_state();
@@ -1364,11 +1368,14 @@ int bpftime_shm::add_bpf_map(int fd, const char *name,
 
 int bpftime_shm::dup_bpf_map(int oldfd, int newfd)
 {
+	map_binding_guard binding_guard(map_binding_mutex(segment));
 	if (!is_map_fd(oldfd)) {
 		SPDLOG_ERROR("Expected {} to be a map fd", oldfd);
 		errno = EBADF;
 		return -1;
 	}
+	if (oldfd == newfd)
+		return oldfd;
 	if (newfd < 0) {
 		// if fd is negative, we need to create a new fd for allocating
 		newfd = open_fake_fd();
@@ -1669,6 +1676,7 @@ void bpftime_shm::reset_server_state()
 	if (manager == nullptr) {
 		return;
 	}
+	map_binding_guard binding_guard(map_binding_mutex(segment));
 	manager->clear_all(segment);
 	if (syscall_installed_pids != nullptr) {
 		auto clear_syscall_pids = [&]() {

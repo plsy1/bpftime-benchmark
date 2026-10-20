@@ -10,6 +10,7 @@
 #include <linux/bpf.h>
 #include <limits>
 #include "bpf_map/userspace/array_map.hpp"
+#include "bpf_map/offset_ptr_access.hpp"
 #include <string>
 #include <thread>
 #include <sched.h>
@@ -213,6 +214,44 @@ TEST_CASE("Ordinary array lookup preserves bounds and errno on its cold path",
 		REQUIRE(map.elem_lookup(&key) != nullptr);
 		REQUIRE(errno == ENOENT);
 	}
+}
+
+TEST_CASE("Branching offset pointer access preserves null and remapping",
+	  "[array-offset-branch]")
+{
+	struct probe {
+		uint64_t before = 42;
+		boost::interprocess::offset_ptr<void> ptr = nullptr;
+		uint64_t after = 99;
+	};
+	const auto name = "_ARRAY_OFFSET_BRANCH_" + std::to_string(getpid());
+	shm_remove remover(name.c_str());
+	managed_shared_memory mem(create_only, name.c_str(), 1 << 20);
+	auto *original = mem.construct<probe>("probe")();
+	managed_shared_memory remapped(open_only, name.c_str());
+	auto *other = remapped.find<probe>("probe").first;
+	REQUIRE(other != nullptr);
+	REQUIRE(other != original);
+	for (int slot : { 0, 1, 2, 3 }) {
+		void *expected = slot == 0 ? static_cast<void *>(&original->before) :
+			slot == 1 ? static_cast<void *>(&original->after) :
+			slot == 2 ? static_cast<void *>(&original->ptr) : nullptr;
+		void *mapped_expected = slot == 0 ? static_cast<void *>(&other->before) :
+			slot == 1 ? static_cast<void *>(&other->after) :
+			slot == 2 ? static_cast<void *>(&other->ptr) : nullptr;
+		original->ptr = expected;
+		errno = EDOM;
+		REQUIRE(bpftime::detail::offset_ptr_get_branch(original->ptr) == expected);
+		REQUIRE(bpftime::detail::offset_ptr_get_branch(original->ptr) == original->ptr.get());
+		REQUIRE(bpftime::detail::offset_ptr_get_branch(other->ptr) == mapped_expected);
+		REQUIRE(bpftime::detail::offset_ptr_get_branch(other->ptr) == other->ptr.get());
+		boost::interprocess::offset_ptr<void> copy = original->ptr;
+		REQUIRE(bpftime::detail::offset_ptr_get_branch(copy) == expected);
+		copy = other->ptr;
+		REQUIRE(bpftime::detail::offset_ptr_get_branch(copy) == mapped_expected);
+		REQUIRE(errno == EDOM);
+	}
+	mem.destroy<probe>("probe");
 }
 
 TEST_CASE("Test basic operations of array map")

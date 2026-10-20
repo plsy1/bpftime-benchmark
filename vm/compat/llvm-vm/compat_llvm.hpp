@@ -29,6 +29,14 @@ class bpftime_llvm_vm : public bpftime::llvmbpf_vm,
 	}
 	int register_external_function(size_t index, const std::string &name,
 				       void *fn) override;
+	int register_array_map(uint64_t handle, uint64_t value_base,
+		uint32_t key_size, uint32_t value_size, uint32_t stride,
+		uint32_t max_entries) override
+	{
+		return bpftime::llvmbpf_vm::register_array_map(
+			bpftime::array_map_descriptor{handle, value_base, key_size,
+				value_size, stride, max_entries});
+	}
 	void unload_code() override;
 	int exec(void *mem, size_t mem_len,
 		 uint64_t &bpf_return_value) override;

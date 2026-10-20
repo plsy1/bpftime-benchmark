@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <map>
+#include <cerrno>
 #include <iostream>
 
 #ifndef EBPF_STACK_SIZE
@@ -78,6 +79,15 @@ class bpftime_vm_impl {
 		SPDLOG_CRITICAL(
 			"Not implemented yet: register_external_function");
 		return -1;
+	}
+
+	// Optional JIT specialization. The caller owns and keeps the backing
+	// storage alive until the compiled program is destroyed.
+	virtual int register_array_map(uint64_t handle, uint64_t value_base,
+				       uint32_t key_size, uint32_t value_size,
+				       uint32_t stride, uint32_t max_entries)
+	{
+		return -ENOTSUP;
 	}
 
 	/**

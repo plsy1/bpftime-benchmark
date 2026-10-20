@@ -37,6 +37,8 @@ class array_map_impl {
 	int map_get_next_key(const void *key, void *next_key);
 
 	void *get_raw_data() const;
+	uint32_t get_value_size() const { return _value_size; }
+	uint32_t get_max_entries() const { return _max_entries; }
 	friend class stack_trace_map_impl;
 };
 
