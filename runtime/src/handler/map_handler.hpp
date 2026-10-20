@@ -7,6 +7,7 @@
 #define _MAP_HANDLER
 
 #include "bpf_map/userspace/array_map.hpp"
+#include "bpf_map/offset_ptr_access.hpp"
 #include "bpf_map/userspace/per_cpu_array_map.hpp"
 #include "bpf_map/userspace/ringbuf_map.hpp"
 #include "bpf_map/userspace/stack_trace_map.hpp"
@@ -66,6 +67,7 @@ class bpftime_lock_guard {
 // all map data will be put on shared memory, so it can be accessed by
 // different processes
 class bpf_map_handler {
+    friend class array_map_binding;
     public:
 	bpf_map_attr attr;
 	using general_map_impl_ptr = boost::interprocess::offset_ptr<void>;
@@ -163,7 +165,8 @@ class bpf_map_handler {
 	const void *map_lookup_hash(const void *key) const;
 	const void *map_lookup_array(const void *key) const
 	{
-		return static_cast<array_map_impl *>(map_impl_ptr.get())
+		return static_cast<array_map_impl *>(
+			detail::offset_ptr_get_branch(map_impl_ptr))
 			->elem_lookup(key);
 	}
 	const void *map_lookup_percpu_array(const void *key) const

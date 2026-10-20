@@ -177,3 +177,41 @@ establish native concurrent patch/restore behavior.
 
 Do not create a root `docs/` directory or commit pull-request review artifacts.
 Keep repository maintenance and design constraints in this file.
+
+## Ordinary Array JIT Specialization
+
+`BPFTIME_ARRAY_JIT_INLINE=1` opts the runtime loader into LLVM ordinary-array
+lookup specialization. Keep it off by default. Eligibility is deliberately
+conservative: known standard helper, ordinary-array-only, lookup-only programs,
+and no direct map-value relocations, CUDA or MPK. Do not silently bypass custom
+or diagnostic helpers or enable it for signal callbacks or AOT.
+
+Generated addresses must be owned, not cached from a reusable FD. Program
+bindings share the existing implementation reference count and retain the
+exact local shared-memory mapping. Miss fallbacks must resolve the same pinned
+map as inlined hits. Handler mutation and reference acquisition use the named
+map-binding mutex. No mutex or reference increment belongs in the inlined hit
+path. Abrupt process termination can strand shared references until the shared
+segment is removed, as with the existing shared-reference machinery; do not
+claim crash-recovery or mix incompatible runtime versions in one segment.
+The private helper name `bpftime_bound_array_lookup_v1` is reserved for this
+standard-helper contract. Only for that helper may the JIT canonicalize a
+proven out-of-range lookup to FD -1, whose result is ENOENT/null without another
+FD-table or binding lookup. Custom helpers keep their original arguments.
+Management APIs still require their existing external serialization, and this
+feature does not add concurrent-detach/quiescence guarantees to attach backends.
+Fork children must reload rather than execute inherited bound programs. An
+atfork child marker makes those programs return ENOTSUP without touching the
+parent's references; inherited snapshot destruction must not decrement shared
+refcounts or free shared names. Do not claim support for fork from a signal
+handler interrupting an active JIT invocation.
+
+The llvmbpf safety changes are a parent-owned patch applied to a generated
+translation unit in the build directory, not an uncommitted submodule edit.
+Patch conflicts on upstream updates must fail configuration for explicit review.
+
+Use workloads that consume lookup values and check results when measuring JIT
+specialization. An unused lookup result can simplify after inlining; those
+timings must not replace or be compared directly with the historical C++ map
+operation table. Test close/reuse/reset, mapping replacement, duplicate handles,
+last-reference reclamation and concurrent/cross-process lifetimes.

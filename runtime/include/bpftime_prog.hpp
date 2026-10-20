@@ -12,8 +12,15 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <memory>
+#include <cerrno>
+#include <boost/interprocess/managed_shared_memory.hpp>
 namespace bpftime
 {
+class bpftime_shm;
+class handler_manager;
+class array_map_binding;
+struct array_jit_execution_scope;
 
 extern thread_local std::optional<uint64_t> current_thread_bpf_cookie;
 extern thread_local std::optional<uint64_t> current_thread_tail_call_ret;
@@ -46,6 +53,14 @@ class bpftime_prog {
 			      uint64_t *return_val) const;
 
 	int bpftime_prog_register_raw_helper(struct bpftime_helper_info info);
+	// Requested by the runtime loader, never enabled globally or for AOT.
+	int request_array_map_inlining()
+	{
+		if (program_loaded || raw_helpers.contains(1))
+			return -EBUSY;
+		array_jit_requested = true;
+		return 0;
+	}
 	const std::vector<ebpf_inst> &get_insns() const
 	{
 		return insns;
@@ -54,6 +69,7 @@ class bpftime_prog {
 	{
 		return vm;
 	}
+	const char *vm_backend_name() const { return ebpf_get_vm_name(vm); }
 	int load_aot_object(const std::vector<uint8_t> &buf);
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
 	bool is_cuda() const
@@ -77,6 +93,15 @@ class bpftime_prog {
 
 #endif
     private:
+	friend struct array_jit_execution_scope;
+	int bind_array_maps(bpftime_shm &shm);
+	bool array_jit_requested = false;
+	bool array_jit_failed = false;
+	std::map<uint64_t, std::shared_ptr<array_map_binding>> bound_arrays;
+	std::shared_ptr<boost::interprocess::managed_shared_memory> bound_mapping;
+	const handler_manager *bound_manager = nullptr;
+	std::map<unsigned, void *> raw_helpers;
+	void *pending_array_lookup = nullptr;
 	int bpftime_prog_set_insn(struct ebpf_inst *insn, size_t insn_cnt);
 	std::string name;
 	// vm at the first element

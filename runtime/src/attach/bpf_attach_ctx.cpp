@@ -19,6 +19,8 @@
 #include <cerrno>
 #include <cstdint>
 #include <map>
+#include <set>
+#include <cstdlib>
 #include <memory>
 #include <syscall_table.hpp>
 #include <bpf_attach_ctx.hpp>
@@ -30,6 +32,7 @@
 #include <bpftime_helper_group.hpp>
 #include <bpf_map/map_production_ab.hpp>
 #include <handler/handler_manager.hpp>
+#include <bpf_map/array_map_binding.hpp>
 #include <linux/bpf.h>
 #include <utility>
 #include <variant>
@@ -113,6 +116,12 @@ int bpf_attach_ctx::init_attach_ctx_from_handlers(
 	const handler_manager *manager, const runtime_config &config)
 {
 	std::lock_guard<std::mutex> lock(ctx_mutex);
+	// Keep handler variants and relocation metadata stable through the cold
+	// loading/attach transaction. Standalone managers retain their old API.
+	std::optional<map_binding_guard> binding_guard;
+	auto memory = shm_holder.global_shared_memory.retain_mapping();
+	if (manager && manager == shm_holder.global_shared_memory.get_manager())
+		binding_guard.emplace(map_binding_mutex(*memory));
 	for (int attempt = 0; attempt < 3; attempt++) {
 		auto seq = shm_holder.global_shared_memory.read_stable_epoch_seq();
 		if (seq == BPFTIME_EPOCH_SEQ_MISSING) {
@@ -463,6 +472,13 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 			"Using specialized per-CPU hash update helper for program {}",
 			name);
 	}
+	const char *array_inline = std::getenv("BPFTIME_ARRAY_JIT_INLINE");
+	if (array_inline && std::string_view(array_inline) == "1" &&
+	    config.jit_enabled && config.enable_shm_maps_helper_group &&
+	    mode == map_production_ab_mode::base &&
+	    manager == shm_holder.global_shared_memory.get_manager() &&
+	    !helpers.contains(BPF_FUNC_map_lookup_elem))
+		prog->request_array_map_inlining();
 	if (int err = load_prog_and_helpers(prog, config, map_lookup_override,
 					    map_update_override);
 	    err < 0) {
@@ -472,7 +488,8 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 		return err;
 	}
 	for (const auto &item : helpers) {
-		prog->bpftime_prog_register_raw_helper(item.second);
+		if (int err = prog->bpftime_prog_register_raw_helper(item.second); err < 0)
+			return err;
 	}
 	instantiated_handlers.insert(id);
 	return 0;
