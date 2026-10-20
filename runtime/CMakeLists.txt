@@ -71,6 +71,7 @@ set(sources
   src/platform_utils.cpp
 
   src/bpf_map/userspace/array_map.cpp
+  src/bpf_map/array_map_binding.cpp
   src/bpf_map/userspace/fix_hash_map.cpp
   src/bpf_map/userspace/var_hash_map.cpp
   src/bpf_map/userspace/ringbuf_map.cpp
