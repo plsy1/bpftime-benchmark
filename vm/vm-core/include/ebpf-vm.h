@@ -117,6 +117,12 @@ void ebpf_set_error_print(struct ebpf_vm *vm,
 int ebpf_register(struct ebpf_vm *vm, unsigned int index, const char *name,
 		  void *fn);
 
+/* Optional array JIT specialization. Returns -ENOTSUP for other backends.
+ * Backing storage must outlive the VM and must not be remapped or resized. */
+int ebpf_register_array_map(struct ebpf_vm *vm, uint64_t handle,
+	uint64_t value_base, uint32_t key_size, uint32_t value_size,
+	uint32_t stride, uint32_t max_entries);
+
 /**
  * @brief Load code into a VM.
  * This must be done before calling ebpf_exec or ebpf_compile and after

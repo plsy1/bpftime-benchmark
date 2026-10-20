@@ -49,6 +49,16 @@ extern "C" int ebpf_load(struct ebpf_vm *vm, const void *code,
 	return err;
 }
 
+extern "C" int ebpf_register_array_map(struct ebpf_vm *vm, uint64_t handle,
+	uint64_t value_base, uint32_t key_size, uint32_t value_size,
+	uint32_t stride, uint32_t max_entries)
+{
+	if (!vm || !vm->vm_instance || value_base == 0)
+		return -EINVAL;
+	return vm->vm_instance->register_array_map(handle, value_base, key_size,
+		value_size, stride, max_entries);
+}
+
 extern "C" void ebpf_unload_code(struct ebpf_vm *vm)
 {
 	vm->vm_instance->unload_code();
