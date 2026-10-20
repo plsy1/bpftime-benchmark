@@ -155,7 +155,8 @@ async def run_userspace_uprobe_test(num_runs=10):
                 "LD_PRELOAD": str(
                     PROJECT_ROOT / "build/runtime/agent/libbpftime-agent.so"
                 ),
-                "BPFTIME_LOG_OUTPUT": "console"
+                "BPFTIME_LOG_OUTPUT": "console",
+                "BPFTIME_ARRAY_JIT_INLINE": os.environ.get("BPFTIME_ARRAY_JIT_INLINE", "0"),
             },
         )
         victim_out, _ = await victim.communicate()
