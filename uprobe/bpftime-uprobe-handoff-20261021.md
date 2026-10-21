@@ -1,7 +1,7 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-21 21:50 JST 左右。以下分支、进程和文件状态均为本机快照；
+最后核对：2026-10-21 23:50 JST 左右。以下分支、进程和文件状态均为本机快照；
 后续模型行动前需重新核实。本轮优化源码已推送为 `c0939bd`；随后修复一个被实验
 过滤器漏掉的测试（`2eea622`，只改测试），并把三者加入每日补丁栈（`a5a5235`），
 均已推送。详见第 7 节。
@@ -38,7 +38,7 @@
 | 用途 | 本机路径 / 分支 |
 |---|---|
 | **后续开发源码** | `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate` |
-| **后续开发分支** | `codex/uprobe-official-177a1dc465ff`，HEAD `5466f0d`（官方最新 177a1dc + 41 个补丁，已推送） |
+| **后续开发分支** | `codex/uprobe-official-177a1dc465ff`，HEAD `f24dc9b`（官方 177a1dc + 补丁栈 42 个 + 诊断 `f24dc9b`，已推送）；`5466f0d` 为基线，`bdd9835` 为全局变量支持 |
 | 本轮实测源码（冻结） | `/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate` |
 | 本轮实测分支（冻结） | `codex/uprobe-official-8da867d541f8` |
 | 已提交并推送 HEAD | `2eea622f97688b82a5c39402f631e79b5eb538f8`，map-name 用例适配 binding mutex（只改测试） |
@@ -174,6 +174,36 @@ array lookup 在 consuming 测试中从官方的 2.5–4.4x kernel 降到整体�
 3. **已知性能缺口**：lookup miss 路径约 2x 慢于 kernel，per-CPU 全命中略慢（以上均为扣 control 粗算）。
 4. 工程层面：每日构建为 LLVM 15，性能实测为 LLVM 16；未提交上游审查；per-CPU 无 kernel 式禁抢占保证。
 
+### 4.3 全局变量支持（`bdd9835`，2026-10-21）
+
+普查（[`jit-eligibility-survey-20261021`](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/uprobe/jit-eligibility-survey-20261021/README.md)）：bcc v0.37.0
+libbpf-tools 的 lookup 调用点 93% 是 hash、5% per-CPU array、无 ordinary array；96% 有 lookup 的程序
+因引用全局变量（`const volatile` 的 `.rodata`、`.bss`）被 JIT 整个拒绝，现有 JIT 一个都覆盖不到。
+
+`bdd9835`：direct map-value LDDW 按内核规则（单元素 ordinary array、偏移在 value 内）绑定并持有，
+加载副本把 LDDW 改写为持有地址常量；原指令保留重定位；不改 llvmbpf/overlay。其余重定位、多元素/
+per-CPU/hash 目标仍走原路径；只有全局变量、没有 array lookup 的程序不建 binding。
+结果（[`array-jit-global-data-20261021`](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/uprobe/array-jit-global-data-20261021/README.md)）：
+
+| 带 `.rodata` 配置 + `.bss` 计数的 consuming workload | kernel | `5466f0d` | `bdd9835` | 新/kernel |
+|---|---:|---:|---:|---:|
+| ordinary 全命中 | 5.89 | 21.99 | 3.09 | 0.53x（-85.9%） |
+| ordinary 约半数 miss | 12.28 | 30.83 | 8.53 | 0.69x（-72.3%） |
+| per-CPU 全命中 | 6.91 | 24.79 | 5.17 | 0.75x（-79.1%） |
+| per-CPU 约半数 miss | 12.82 | 32.48 | 10.65 | 0.83x（-67.2%） |
+
+- 正确性：完整每日 filter 69 cases / 128422 assertions；新增 `[array-jit-global]` 3 例。
+- 无全局变量的原 workload 不变；完整十轮 ordinary hash update 曾显示 +3.8%，经机器码逐条比对一致、
+  样本双峰（约 33/36 ns）加一个 43 ns 离群点、12 轮 AB/BA 短测中位数 33.43 vs 33.45 ns 确认为波动。
+- 覆盖面（静态）：libbpf-tools 通过 JIT 程序门槛 8 → 179/183，可内联 array 调用点 0 → 19
+  （可在用户态运行的 1 → 38/38、0 → 9）。直接收益覆盖面有限，主要价值是为后续通用化铺路。
+- **新发现**：`5466f0d` 跑带全局变量 workload 与官方原版几乎同速（21.99 vs 21.81 ns），因为
+  `bpf_attach_ctx.cpp` 的 `uses_only_maps_of_type_for_helper` 要求程序内所有 map 同类型且无
+  direct map-value，否则退回通用 helper。libbpf 风格程序中的 hash lookup 因此多半拿不到 typed helper；
+  差距测量见 `hash-lookup-helper-gap-20261021`（进行中/见第 8 节）。
+- 构建过程中三次脚本错误（skeleton `name`、skeleton 类型 `u64`、runner 断言）的记录保留在
+  `formal/failed-attempt-*`；运行时行为在三次中都正确。
+
 ## 5. JIT 当前设计与不能破坏的边界
 
 流程：Clang 先编译 C → eBPF；运行时加载并绑定具体 map；LLVM 后端把可证明的
@@ -231,9 +261,10 @@ GCC 13 + LTO 改变内联决策，使普通 hash delete 虽不走 array JIT 也�
 `official-latest` 只能跟踪官方，不加本地优化提交；`automation/jetson-daily` 保存脚本和配置；
 `codex/uprobe-official-<SHA>` 是对应上游快照的优化分支。
 
-2026-10-21 起 config（`automation/jetson-daily` 的 `a5a5235`，已推送）补丁栈共 41 个提交，
-即 `8da867d541f8..2eea622` 按序全部提交：在 `fefe2f6` 之后新增 `9ffbffb`（ordinary JIT）、
-`c0939bd`（默认 ordinary/per-CPU JIT + delete 修复）、`2eea622`（测试修复）。
+2026-10-21 起 config（`automation/jetson-daily`，最新 `8cd91f4`，已推送）补丁栈共 42 个提交：
+`8da867d541f8..2eea622` 按序全部提交（在 `fefe2f6` 之后新增 `9ffbffb` ordinary JIT、
+`c0939bd` 默认 ordinary/per-CPU JIT + delete 修复、`2eea622` 测试修复），再加 `bdd9835` 全局变量支持。
+诊断提交 `f24dc9b`（hash 变体用的结果 map 类型宏与 loader 预写槽位）尚未加入补丁栈。
 测试 filter 新增 `[array-jit-lifetime]`、`[array-jit-poc]`、`[array-offset-branch]`
 和 host-contract 一组（`[allocation]`、`[maps][map_in_map]`、runtime_config、external maps、
 Select Frida*）。README 已同步。
@@ -247,6 +278,7 @@ Select Frida*）。README 已同步。
 | 失败原因 | `9ffbffb` 令 `set_handler`/`clear_*` 取 `map_binding_mutex`，首次调用惰性创建一个 segment 级命名对象。`bpftime_shm` 构造时已创建，但上游用例 `Hash maps with colliding public names remain independent`（`[maps][map_name]`）直接构造裸 segment，命名对象数 1→2。JIT 前候选通过，LLVM 16 热构建同样失败，与 LLVM 版本无关 |
 | 修复 | `2eea622` 让用例在取基线前创建该 mutex，与生产初始化顺序一致；只改测试，不影响性能结果 |
 | 第 2 轮（41 个提交） | 41/41 无冲突，候选 `0fb1fd5`；候选 66 cases / 128293 assertions、官方 26 cases / 17913 assertions 全部通过 |
+| 第 3 轮（42 个提交，加 `bdd9835`） | 42/42 无冲突，树与 `bdd9835` 一致；LLVM 15 候选 69 cases / 128422 assertions、官方 26 cases 全部通过 |
 
 **为何之前没发现**：各 JIT 实验的 `run-build.sh` 使用手选 filter，不含 `[maps][map_name]` 等每日 filter 用例；
 全量套件因官方 `Test attach replace with ebpf` 在本机 SIGSEGV 不可用；JIT 此前从未进入每日补丁栈。
@@ -290,10 +322,11 @@ ExecMainStatus=0，查询时 inactive。后续希望迁到独立 Jetson，还没
    per-CPU hit 5.18 ns 0.76x、mixed 10.65 ns 0.83x）。**以后“上次”对照用这个目录**，
    新实验可复用其 `run-build.sh` / `run-consuming.py` / `run-full.sh`（有防覆盖假设，需新目录）。
    8da 工作区的未提交 hash 诊断改动不随迁移。新提交验收后按序追加到 `config.json` 补丁栈。
-6. 本轮性能目标已完成验证。若继续开发，先与用户确认方向。按投入从小到大的候选：
-   (a) 分析并优化 array lookup miss 路径；(b) 扩大评估覆盖（大 map、多线程、key/value、真实应用，
-   只测不改）；(c) 扩大功能覆盖（更多 map 类型/relocation 形式，改动和风险最大）；
-   另有上游提交、独立测试机迁移。不要擅自扩大为全 map JIT 或修改 map 数据结构/语义。
+6. 若继续开发，先与用户确认方向。当前进行中：测量 hash lookup 在 typed helper（全 hash 程序）、
+   通用 helper（加全局变量）与绑定程序（hash + array 混合）三种情形下的差距
+   （`/home/jetson/src/results/uprobe/hash-lookup-helper-gap-20261021`）。普查显示真实程序 93% 是 hash，
+   array miss 路径在真实程序中少见，优先级已下调。其他候选：扩大评估覆盖（大 map、多线程、真实应用）、
+   上游提交、独立测试机迁移。不要擅自扩大为全 map JIT 或修改 map 数据结构/语义。
 
 ## 9. 复现实验与构建易踩坑
 
