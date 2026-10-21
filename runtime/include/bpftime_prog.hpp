@@ -104,6 +104,14 @@ class bpftime_prog {
 	// address each such LDDW is rewritten to (keyed by instruction index).
 	std::vector<std::shared_ptr<array_map_binding>> bound_values;
 	std::map<size_t, uint64_t> bound_value_addresses;
+	// O(1) dispatch of a bound program's non-inlined map calls, indexed by the
+	// constant FDs it references: owning binding (or null) and whether the FD
+	// is a known non-specialized map. Other handles take the dynamic path.
+	std::vector<array_map_binding *> bound_by_fd;
+	std::vector<uint8_t> unbound_by_fd;
+	void *raw_lookup = nullptr;
+	void *raw_update = nullptr;
+	void *raw_erase = nullptr;
 	std::shared_ptr<boost::interprocess::managed_shared_memory> bound_mapping;
 	const handler_manager *bound_manager = nullptr;
 	std::map<unsigned, void *> raw_helpers;

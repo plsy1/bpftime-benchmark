@@ -179,6 +179,23 @@ struct array_jit_execution_scope {
 		}
 		return binding;
 	}
+	// Same result as find_array(), but constant FDs of the program resolve
+	// through flat tables; known non-specialized maps return null directly.
+	array_map_binding *resolve(uint64_t handle)
+	{
+		const int native_fd = static_cast<int>(handle);
+		if (native_fd >= 0 && static_cast<size_t>(native_fd) < prog.bound_by_fd.size()) {
+			if (auto *binding = prog.bound_by_fd[native_fd])
+				return binding;
+			if (prog.unbound_by_fd[native_fd])
+				return nullptr;
+		}
+		return find_array(handle);
+	}
+	map_helper_fn original(void *cached, unsigned index) const
+	{
+		return reinterpret_cast<map_helper_fn>(cached ? cached : prog.raw_helpers.at(index));
+	}
 	static uint64_t lookup(uint64_t fd, uint64_t key, uint64_t a3, uint64_t a4, uint64_t a5)
 	{
 		if (fd == UINT64_MAX)
@@ -186,30 +203,30 @@ struct array_jit_execution_scope {
 		auto *scope = active_array_scope;
 		if (!scope)
 			return reinterpret_cast<uint64_t>(detail::array_lookup_enoent());
-		if (auto *binding = scope->find_array(fd)) {
+		if (auto *binding = scope->resolve(fd)) {
 			if (!key)
 				return reinterpret_cast<uint64_t>(detail::array_lookup_enoent());
 			return reinterpret_cast<uint64_t>(binding->lookup(reinterpret_cast<const void *>(key)));
 		}
 		// Hash/unknown handles keep the exact original helper and arguments.
-		return reinterpret_cast<map_helper_fn>(scope->prog.raw_helpers.at(1))(fd, key, a3, a4, a5);
+		return scope->original(scope->prog.raw_lookup, 1)(fd, key, a3, a4, a5);
 	}
 	static uint64_t update(uint64_t fd, uint64_t key, uint64_t value, uint64_t flags, uint64_t a5)
 	{
 		auto *scope = active_array_scope;
 		if (!scope) { errno = ENOENT; return uint64_t(-1); }
-		if (auto *binding = scope->find_array(fd))
+		if (auto *binding = scope->resolve(fd))
 			return static_cast<uint64_t>(binding->update(reinterpret_cast<const void *>(key),
 				reinterpret_cast<const void *>(value), flags));
-		return reinterpret_cast<map_helper_fn>(scope->prog.raw_helpers.at(2))(fd, key, value, flags, a5);
+		return scope->original(scope->prog.raw_update, 2)(fd, key, value, flags, a5);
 	}
 	static uint64_t erase(uint64_t fd, uint64_t key, uint64_t a3, uint64_t a4, uint64_t a5)
 	{
 		auto *scope = active_array_scope;
 		if (!scope) { errno = ENOENT; return uint64_t(-1); }
-		if (auto *binding = scope->find_array(fd))
+		if (auto *binding = scope->resolve(fd))
 			return static_cast<uint64_t>(binding->erase(reinterpret_cast<const void *>(key)));
-		return reinterpret_cast<map_helper_fn>(scope->prog.raw_helpers.at(3))(fd, key, a3, a4, a5);
+		return scope->original(scope->prog.raw_erase, 3)(fd, key, a3, a4, a5);
 	}
 };
 
@@ -314,6 +331,20 @@ int bpftime_prog::bind_array_maps(bpftime_shm &shm)
 		if (!bindings.contains(fd))
 			unbound_map_handles.insert(fd);
 	bound_arrays = std::move(bindings);
+	bound_by_fd.assign(static_cast<size_t>(*fds.rbegin()) + 1, nullptr);
+	unbound_by_fd.assign(bound_by_fd.size(), 0);
+	for (const auto &[fd, binding] : bound_arrays)
+		bound_by_fd[fd] = binding.get();
+	for (uint64_t fd : unbound_map_handles)
+		unbound_by_fd[fd] = 1;
+	// Helper slots are fixed from here on (later registrations return EBUSY).
+	const std::pair<unsigned, void **> original_helpers[] = {
+		{BPF_FUNC_map_lookup_elem, &raw_lookup},
+		{BPF_FUNC_map_update_elem, &raw_update},
+		{BPF_FUNC_map_delete_elem, &raw_erase}};
+	for (const auto &[index, slot] : original_helpers)
+		if (auto helper = raw_helpers.find(index); helper != raw_helpers.end())
+			*slot = helper->second;
 	for (auto &[fd, binding] : values)
 		bound_values.push_back(std::move(binding));
 	bound_value_addresses = std::move(value_addresses);
