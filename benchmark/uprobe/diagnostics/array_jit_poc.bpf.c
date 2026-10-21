@@ -18,11 +18,23 @@ struct { __uint(type,BPFTIME_ARRAY_JIT_MAP_TYPE); __uint(max_entries,4);
     __type(key,u32); __type(value,struct outcome); } result_map SEC(".maps");
 
 #define PATH BPFTIME_ARRAY_JIT_PATH
+#ifdef BPFTIME_ARRAY_JIT_GLOBALS
+// libbpf-style global data: a .rodata setting (0 keeps checksums unchanged)
+// and a .bss counter. Both are direct map-value loads in every program.
+const volatile __u64 checksum_bias = 0;
+__u64 invocations;
+#define GLOBAL_BIAS checksum_bias
+#define COUNT_INVOCATION() (++invocations)
+#else
+#define GLOBAL_BIAS 0
+#define COUNT_INVOCATION() ((void)0)
+#endif
 static __always_inline int run(struct pt_regs *ctx, u32 slot, u32 mask, int control)
 {
     u64 seed = PT_REGS_PARM1(ctx);
     u32 state = seed;
-    u64 sum=0, hits=0, misses=0;
+    u64 sum=GLOBAL_BIAS, hits=0, misses=0;
+    COUNT_INVOCATION();
 #pragma clang loop unroll(disable)
     for (u32 i=0; i<1000; ++i) {
         state = state * 1664525u + 1013904223u;
