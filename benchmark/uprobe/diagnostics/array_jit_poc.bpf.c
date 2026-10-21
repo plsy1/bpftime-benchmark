@@ -14,7 +14,10 @@ struct outcome { u64 seed; u64 checksum; u64 hits; u64 misses; };
 #endif
 struct { __uint(type,BPFTIME_ARRAY_JIT_MAP_TYPE); __uint(max_entries,1024);
     __type(key,u32); __type(value,u64); } data_map SEC(".maps");
-struct { __uint(type,BPFTIME_ARRAY_JIT_MAP_TYPE); __uint(max_entries,4);
+#ifndef BPFTIME_ARRAY_JIT_RESULT_MAP_TYPE
+#define BPFTIME_ARRAY_JIT_RESULT_MAP_TYPE BPFTIME_ARRAY_JIT_MAP_TYPE
+#endif
+struct { __uint(type,BPFTIME_ARRAY_JIT_RESULT_MAP_TYPE); __uint(max_entries,4);
     __type(key,u32); __type(value,struct outcome); } result_map SEC(".maps");
 
 #define PATH BPFTIME_ARRAY_JIT_PATH
