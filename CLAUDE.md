@@ -180,11 +180,15 @@ Keep repository maintenance and design constraints in this file.
 
 ## Ordinary Array JIT Specialization
 
-`BPFTIME_ARRAY_JIT_INLINE=1` opts the runtime loader into LLVM ordinary-array
-lookup specialization. Keep it off by default. Eligibility is deliberately
-conservative: known standard helper, ordinary-array-only, lookup-only programs,
-and no direct map-value relocations, CUDA or MPK. Do not silently bypass custom
-or diagnostic helpers or enable it for signal callbacks or AOT.
+Array lookup specialization is automatic for eligible LLVM JIT programs; the
+`BPFTIME_ARRAY_JIT_INLINE` enable switch is obsolete and not read. Descriptor
+kind is per map (explicit even when a per-CPU allocation has one CPU), and LLVM
+selects individual constant-handle lookup sites. Mixed ordinary/per-CPU arrays,
+hash maps, updates and unrelated helpers may coexist. Unknown handles and
+non-array calls retain the exact original helper. Never bypass custom or
+diagnostic helpers. Programs with direct map-value/unsupported relocations,
+CUDA, MPK or indirect helper calls remain on the original path. Interpreter
+and AOT do not acquire JIT bindings; bound programs still reject signal use.
 
 Generated addresses must be owned, not cached from a reusable FD. Program
 bindings share the existing implementation reference count and retain the
@@ -194,8 +198,9 @@ map-binding mutex. No mutex or reference increment belongs in the inlined hit
 path. Abrupt process termination can strand shared references until the shared
 segment is removed, as with the existing shared-reference machinery; do not
 claim crash-recovery or mix incompatible runtime versions in one segment.
-The private helper name `bpftime_bound_array_lookup_v1` is reserved for this
-standard-helper contract. Only for that helper may the JIT canonicalize a
+The private helper names `bpftime_bound_array_lookup_v1`,
+`bpftime_bound_percpu_array_lookup_v1` and `bpftime_bound_array_lookup_v2` are
+reserved for this standard-helper contract. Only for these may the JIT canonicalize a
 proven out-of-range lookup to FD -1, whose result is ENOENT/null without another
 FD-table or binding lookup. Custom helpers keep their original arguments.
 Management APIs still require their existing external serialization, and this
@@ -206,8 +211,16 @@ parent's references; inherited snapshot destruction must not decrement shared
 refcounts or free shared names. Do not claim support for fork from a signal
 handler interrupting an active JIT invocation.
 
-The llvmbpf safety changes are a parent-owned patch applied to a generated
-translation unit in the build directory, not an uncommitted submodule edit.
+Standard update/delete calls in bound programs must resolve the same owned
+array identity as lookup, including after FD reuse; other map kinds keep their
+original helper. Custom helper pointers are selected BEFORE compilation and
+never overridden by this optimization. Dynamic array bindings are retained
+for an invocation; this does not extend non-array map lifetime guarantees.
+
+The llvmbpf safety changes are parent-owned patches applied to a generated
+translation unit and descriptor header in the build directory, not an
+uncommitted submodule edit. All native VM consumers must use the same generated
+descriptor header; do not mix objects built with different definitions.
 Patch conflicts on upstream updates must fail configuration for explicit review.
 
 Use workloads that consume lookup values and check results when measuring JIT
@@ -215,3 +228,27 @@ specialization. An unused lookup result can simplify after inlining; those
 timings must not replace or be compared directly with the historical C++ map
 operation table. Test close/reuse/reset, mapping replacement, duplicate handles,
 last-reference reclamation and concurrent/cross-process lifetimes.
+
+The per-CPU extension is selected per eligible map. Its descriptor stride is value_size times
+the implementation CPU count. JIT code must call the known standard helper 8
+once per in-range lookup, including within a single invocation; never cache its result,
+mark it pure, or assume benchmark affinity is an execution guarantee. A custom
+or missing CPU helper disables per-CPU specialization, not ordinary arrays in
+the same program. Check the CPU against the bound
+allocation's CPU count before forming a usable result. This preserves existing
+userspace selection-at-lookup behavior; it does not provide kernel-style
+preemption disabling or make per-CPU values safe against thread migration while
+the caller subsequently uses a returned pointer. CPU topology/hotplug support
+is not added by this experiment.
+
+The LLVM overlay may weakly resolve `bpftime_resolve_array_cpu_query_v1` at
+compile time. The runtime supplies callbacks only for its exact standard CPU
+helper pointer. The direct query uses the existing public CPU API once per
+in-range lookup. On raw return -1, invoke the same cold error handler as helper
+8 (log once through the selected sink, return CPU 0), then apply the same CPU
+bounds check. Other negative values retain signed extension and fail bounds.
+Keep legacy helper 8 and custom/helper-only VM behavior intact; absence of the
+optional resolver retains the original helper call. Do not introduce CPU
+caching, private TLS offsets, new BPF helper numbers, query purity attributes
+or weaker map-lifetime, null/key/CPU bounds, fork, AOT or signal restrictions.
+The sched_getcpu wrapper used to inject failures belongs only to unit tests.

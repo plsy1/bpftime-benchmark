@@ -34,12 +34,18 @@ array_map_binding::array_map_binding(
 	const bpf_map_handler &source) : memory(std::move(mem)),
 	owner_generation(detail::array_binding_generation.load(std::memory_order_relaxed))
 {
-	auto *impl = *source.try_get_array_map_impl();
 	bpf_map_attr attr{};
-	attr.type = static_cast<int>(bpf_map_type::BPF_MAP_TYPE_ARRAY);
+	attr.type = static_cast<int>(source.type);
 	attr.key_size = sizeof(uint32_t);
-	attr.value_size = impl->get_value_size();
-	attr.max_ents = impl->get_max_entries();
+	if (source.type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY) {
+		auto *impl = static_cast<per_cpu_array_map_impl *>(source.map_impl_ptr.get());
+		attr.value_size = impl->get_value_size();
+		attr.max_ents = impl->get_max_entries();
+	} else {
+		auto *impl = *source.try_get_array_map_impl();
+		attr.value_size = impl->get_value_size();
+		attr.max_ents = impl->get_max_entries();
+	}
 	handler = std::make_unique<bpf_map_handler>(0,
 		"", *memory, attr); // Empty snapshot name owns no shared allocation.
 	handler->share_map_impl_from(source);
@@ -65,7 +71,7 @@ array_map_binding::~array_map_binding()
 
 std::shared_ptr<array_map_binding> array_map_binding::acquire(
 	std::shared_ptr<boost::interprocess::managed_shared_memory> memory,
-	const handler_manager *manager, int fd)
+	const handler_manager *manager, int fd, std::optional<bool> per_cpu)
 {
 	if (!memory || !manager)
 		return {};
@@ -75,7 +81,9 @@ std::shared_ptr<array_map_binding> array_map_binding::acquire(
 	if (fd < 0 || static_cast<size_t>(fd) >= manager->size())
 		return {};
 	const auto *map = std::get_if<bpf_map_handler>(&manager->get_handler(fd));
-	if (!map || map->type != bpf_map_type::BPF_MAP_TYPE_ARRAY ||
+	if (!map || (map->type != bpf_map_type::BPF_MAP_TYPE_ARRAY &&
+	             map->type != bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY) ||
+	    (per_cpu && (*per_cpu != (map->type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY))) ||
 	    map->get_key_size() != sizeof(uint32_t) || !map->can_share_map_impl())
 		return {};
 	return std::shared_ptr<array_map_binding>(new array_map_binding(
