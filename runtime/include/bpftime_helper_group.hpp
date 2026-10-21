@@ -50,7 +50,8 @@ class bpftime_helper_group {
 	int add_helper_group_to_prog(
 		bpftime_prog *prog,
 		const bpftime_helper_info *override_helper = nullptr,
-		const bpftime_helper_info *second_override_helper = nullptr) const;
+		const bpftime_helper_info *second_override_helper = nullptr,
+		const std::map<int, bpftime_helper_info> *custom_helpers = nullptr) const;
 	// Get all helper ids of this helper group
 	std::vector<int32_t> get_helper_ids() const;
 
@@ -64,8 +65,15 @@ get_ufunc_helper_protos();
 #endif
 } // namespace bpftime
 
+extern "C" uint64_t bpftime_map_lookup_elem_helper(
+	uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+extern "C" uint64_t bpftime_map_update_elem_helper(
+	uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+extern "C" uint64_t bpftime_map_delete_elem_helper(
+	uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 extern "C" uint64_t bpftime_array_map_lookup_elem_helper(
 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+extern "C" uint64_t bpftime_get_smp_processor_id();
 extern "C" uint64_t bpftime_hash_map_lookup_elem_helper(
 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
 extern "C" uint64_t bpftime_array_map_update_elem_helper(

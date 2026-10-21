@@ -19,6 +19,7 @@
 #include <pthread.h>
 #elif __linux__
 #include <pthread.h>
+#include <sched.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
 #endif
@@ -27,6 +28,7 @@
 #include "bpf/libbpf_common.h"
 #endif
 #include "bpftime_helper_group.hpp"
+#include "bpftime_array_cpu_query.hpp"
 #include <cerrno>
 #ifdef ENABLE_BPFTIME_VERIFIER
 #include "bpftime-verifier.hpp"
@@ -889,14 +891,35 @@ uint64_t bpftime_get_func_ip(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
 	return bpftime::attach::current_thread_attach_func_ip;
 }
 
+static __attribute__((cold, noinline)) uint64_t cpu_query_error()
+{
+	SPDLOG_ERROR("sched_getcpu error");
+	return 0;
+}
+
 uint64_t bpftime_get_smp_processor_id()
 {
 	int cpu = my_sched_getcpu();
-	if (cpu == -1) {
-		SPDLOG_ERROR("sched_getcpu error");
-		return 0; // unlikely
-	}
+	if (cpu == -1)
+		return cpu_query_error();
 	return (uint64_t)cpu;
+}
+
+bool bpftime_resolve_array_cpu_query_v1(void *registered_helper,
+				     bpftime_array_cpu_query_hooks *hooks)
+{
+	if (!hooks)
+		return false;
+	*hooks = {};
+	if (registered_helper != reinterpret_cast<void *>(bpftime_get_smp_processor_id))
+		return false; // A matching name alone must never bypass a custom helper.
+#if __linux__
+	hooks->read_cpu = ::sched_getcpu;
+#else
+	hooks->read_cpu = my_sched_getcpu;
+#endif
+	hooks->on_error = cpu_query_error;
+	return true;
 }
 
 // From https://github.com/microsoft/ebpf-for-windows
@@ -1370,7 +1393,8 @@ int bpftime_helper_group::append(const bpftime_helper_group &another_group)
 
 int bpftime_helper_group::add_helper_group_to_prog(
 	bpftime_prog *prog, const bpftime_helper_info *override_helper,
-	const bpftime_helper_info *second_override_helper) const
+	const bpftime_helper_info *second_override_helper,
+	const std::map<int, bpftime_helper_info> *custom_helpers) const
 {
 	for (auto it : helper_map) {
 		const bpftime_helper_info *helper = &it.second;
@@ -1380,7 +1404,13 @@ int bpftime_helper_group::add_helper_group_to_prog(
 		else if (second_override_helper != nullptr &&
 			 second_override_helper->index == it.first)
 			helper = second_override_helper;
-		prog->bpftime_prog_register_raw_helper(*helper);
+		if (custom_helpers) {
+			auto custom = custom_helpers->find(it.first);
+			if (custom != custom_helpers->end())
+				helper = &custom->second;
+		}
+		if (int result = prog->bpftime_prog_register_raw_helper(*helper); result < 0)
+			return result;
 	}
 	return 0;
 }
