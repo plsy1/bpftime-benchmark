@@ -6,12 +6,18 @@
 #include <bpf/bpf_tracing.h>
 
 struct outcome { u64 seed; u64 checksum; u64 hits; u64 misses; };
-struct { __uint(type,BPF_MAP_TYPE_ARRAY); __uint(max_entries,1024);
+#ifndef BPFTIME_ARRAY_JIT_MAP_TYPE
+#define BPFTIME_ARRAY_JIT_MAP_TYPE BPF_MAP_TYPE_ARRAY
+#endif
+#ifndef BPFTIME_ARRAY_JIT_PATH
+#define BPFTIME_ARRAY_JIT_PATH "uprobe/benchmark/uprobe/.output/array-jit-poc/victim:"
+#endif
+struct { __uint(type,BPFTIME_ARRAY_JIT_MAP_TYPE); __uint(max_entries,1024);
     __type(key,u32); __type(value,u64); } data_map SEC(".maps");
-struct { __uint(type,BPF_MAP_TYPE_ARRAY); __uint(max_entries,4);
+struct { __uint(type,BPFTIME_ARRAY_JIT_MAP_TYPE); __uint(max_entries,4);
     __type(key,u32); __type(value,struct outcome); } result_map SEC(".maps");
 
-#define PATH "uprobe/benchmark/uprobe/.output/array-jit-poc/victim:"
+#define PATH BPFTIME_ARRAY_JIT_PATH
 static __always_inline int run(struct pt_regs *ctx, u32 slot, u32 mask, int control)
 {
     u64 seed = PT_REGS_PARM1(ctx);

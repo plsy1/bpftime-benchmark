@@ -32,6 +32,7 @@
 #include <linux/bpf.h>
 #include <bpftime_shm_internal.hpp>
 #include <bpf_map/array_map_binding.hpp>
+#include <bpf_map/map_production_ab.hpp>
 
 #define NVPTXCOMPILER_SAFE_CALL(x)                                             \
 	do {                                                                   \
@@ -115,6 +116,26 @@ thread_local std::optional<uint64_t> current_thread_tail_call_ret;
 
 namespace {
 thread_local array_jit_execution_scope *active_array_scope = nullptr;
+using map_helper_fn = uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+bool standard_lookup(void *fn)
+{
+	return fn == reinterpret_cast<void *>(bpftime_map_lookup_elem_helper) ||
+	       fn == reinterpret_cast<void *>(bpftime_array_map_lookup_elem_helper) ||
+	       fn == reinterpret_cast<void *>(bpftime_percpu_array_map_lookup_elem_helper) ||
+	       fn == reinterpret_cast<void *>(bpftime_hash_map_lookup_elem_helper) ||
+	       fn == reinterpret_cast<void *>(bpftime_percpu_hash_map_lookup_elem_helper);
+}
+bool standard_mutation(unsigned index, void *fn)
+{
+	if (index == BPF_FUNC_map_delete_elem)
+		return fn == reinterpret_cast<void *>(bpftime_map_delete_elem_helper);
+	return index == BPF_FUNC_map_update_elem &&
+	       (fn == reinterpret_cast<void *>(bpftime_map_update_elem_helper) ||
+	        fn == reinterpret_cast<void *>(bpftime_array_map_update_elem_helper) ||
+	        fn == reinterpret_cast<void *>(bpftime_percpu_array_map_update_elem_helper) ||
+	        fn == reinterpret_cast<void *>(bpftime_hash_map_update_elem_helper) ||
+	        fn == reinterpret_cast<void *>(bpftime_percpu_hash_map_update_elem_helper));
+}
 }
 
 // Only bound programs enter this scope. Native code has no per-lookup guard.
@@ -129,43 +150,66 @@ struct array_jit_execution_scope {
 		active_array_scope = this;
 	}
 	~array_jit_execution_scope() { active_array_scope = previous; }
-	static uint64_t lookup(uint64_t fd, uint64_t key, uint64_t, uint64_t, uint64_t)
+	array_map_binding *find_array(uint64_t handle)
 	{
-		// The JIT uses the already-invalid FD -1 only after proving that a
-		// registered ordinary-array index is out of range. Its standard
-		// outcome is ENOENT/null, without consulting any mutable FD table.
-		if (fd == UINT64_MAX)
-			return reinterpret_cast<uint64_t>(detail::array_lookup_enoent());
-		auto *scope = active_array_scope;
-		if (!scope) {
-			errno = ENOENT;
-			return 0;
-		}
-		const auto &bindings = scope->prog.bound_arrays;
+		const int native_fd = static_cast<int>(handle);
+		if (native_fd < 0)
+			return nullptr;
+		const uint64_t fd = native_fd;
+		const auto &bindings = prog.bound_arrays;
 		auto found = bindings.find(fd);
 		array_map_binding *binding = nullptr;
 		if (found != bindings.end()) {
 			binding = found->second.get(); // The executing program owns it.
 		} else {
+			if (prog.unbound_map_handles.contains(fd))
+				return nullptr; // Known non-specialized calls go straight to the original helper.
 			// Dynamic handles are not inlined. Keep a temporary reference
 			// through the entire invocation, including uses of its result.
-			auto &dynamic = scope->dynamic_arrays;
+			auto &dynamic = dynamic_arrays;
 			auto it = dynamic.find(fd);
 			if (it == dynamic.end() && fd <= INT_MAX) {
-				auto acquired = array_map_binding::acquire(scope->prog.bound_mapping,
-					scope->prog.bound_manager, static_cast<int>(fd));
+				auto acquired = array_map_binding::acquire(prog.bound_mapping,
+					prog.bound_manager, native_fd, std::nullopt);
 				if (acquired)
 					it = dynamic.emplace(fd, std::move(acquired)).first;
 			}
 			if (it != dynamic.end())
 				binding = it->second.get();
 		}
-		if (!binding) {
-			errno = ENOENT;
-			return 0;
+		return binding;
+	}
+	static uint64_t lookup(uint64_t fd, uint64_t key, uint64_t a3, uint64_t a4, uint64_t a5)
+	{
+		if (fd == UINT64_MAX)
+			return reinterpret_cast<uint64_t>(detail::array_lookup_enoent());
+		auto *scope = active_array_scope;
+		if (!scope)
+			return reinterpret_cast<uint64_t>(detail::array_lookup_enoent());
+		if (auto *binding = scope->find_array(fd)) {
+			if (!key)
+				return reinterpret_cast<uint64_t>(detail::array_lookup_enoent());
+			return reinterpret_cast<uint64_t>(binding->lookup(reinterpret_cast<const void *>(key)));
 		}
-		return reinterpret_cast<uint64_t>(binding->implementation()->elem_lookup(
-			reinterpret_cast<const void *>(key)));
+		// Hash/unknown handles keep the exact original helper and arguments.
+		return reinterpret_cast<map_helper_fn>(scope->prog.raw_helpers.at(1))(fd, key, a3, a4, a5);
+	}
+	static uint64_t update(uint64_t fd, uint64_t key, uint64_t value, uint64_t flags, uint64_t a5)
+	{
+		auto *scope = active_array_scope;
+		if (!scope) { errno = ENOENT; return uint64_t(-1); }
+		if (auto *binding = scope->find_array(fd))
+			return static_cast<uint64_t>(binding->update(reinterpret_cast<const void *>(key),
+				reinterpret_cast<const void *>(value), flags));
+		return reinterpret_cast<map_helper_fn>(scope->prog.raw_helpers.at(2))(fd, key, value, flags, a5);
+	}
+	static uint64_t erase(uint64_t fd, uint64_t key, uint64_t a3, uint64_t a4, uint64_t a5)
+	{
+		auto *scope = active_array_scope;
+		if (!scope) { errno = ENOENT; return uint64_t(-1); }
+		if (auto *binding = scope->find_array(fd))
+			return static_cast<uint64_t>(binding->erase(reinterpret_cast<const void *>(key)));
+		return reinterpret_cast<map_helper_fn>(scope->prog.raw_helpers.at(3))(fd, key, a3, a4, a5);
 	}
 };
 
@@ -174,12 +218,17 @@ int bpftime_prog::bind_array_maps(bpftime_shm &shm)
 #if BPFTIME_ENABLE_MPK
 	return 0; // Retained mappings have not been audited with MPK transitions.
 #endif
-	if (is_cuda() || std::string_view(vm_backend_name()) != "llvm")
+	if (is_cuda() || loaded_from_aot || std::string_view(vm_backend_name()) != "llvm" ||
+	    get_map_production_ab_mode() != map_production_ab_mode::base)
 		return 0;
 	auto helper = raw_helpers.find(BPF_FUNC_map_lookup_elem);
-	if (helper == raw_helpers.end() || helper->second !=
-	    reinterpret_cast<void *>(bpftime_array_map_lookup_elem_helper))
-		return 0; // Never bypass a generic/custom/diagnostic helper.
+	if (helper == raw_helpers.end())
+		return 0;
+	if (!standard_lookup(helper->second))
+		return 0; // Never bypass a custom/diagnostic implementation.
+	auto cpu = raw_helpers.find(BPF_FUNC_get_smp_processor_id);
+	const bool standard_cpu = cpu != raw_helpers.end() &&
+		cpu->second == reinterpret_cast<void *>(bpftime_get_smp_processor_id);
 	std::set<int> fds;
 	bool has_lookup = false;
 	for (size_t i = 0; i < insns.size(); ++i) {
@@ -197,37 +246,45 @@ int bpftime_prog::bind_array_maps(bpftime_shm &shm)
 		} else if (inst.code == 0x85) {
 			if (inst.src_reg == 1)
 				continue; // BPF-to-BPF call within the same program.
-			if (inst.src_reg != 0 || inst.imm != BPF_FUNC_map_lookup_elem)
-				return 0; // Other map operations/backends retain their path.
-			has_lookup = true;
+			if (inst.src_reg != 0)
+				return 0;
+			has_lookup |= inst.imm == BPF_FUNC_map_lookup_elem;
 		}
 	}
 	if (!has_lookup || fds.empty())
 		return 0;
 	auto memory = shm.retain_mapping();
-	if (!memory->find<boost::interprocess::interprocess_recursive_mutex>(
+	if (!memory || !shm.get_manager() ||
+	    !memory->find<boost::interprocess::interprocess_recursive_mutex>(
 		"bpftime_map_binding_mutex_v1").first)
 		return 0; // Legacy segments do not advertise synchronized lifetime support.
 	map_binding_guard guard(map_binding_mutex(*memory));
 	std::map<uint64_t, std::shared_ptr<array_map_binding>> bindings;
 	for (int fd : fds) {
-		auto binding = array_map_binding::acquire(memory, shm.get_manager(), fd);
+		auto binding = array_map_binding::acquire(memory, shm.get_manager(), fd, std::nullopt);
 		if (!binding)
-			return 0;
-		auto *impl = binding->implementation();
-		if (!impl->get_value_size() || !impl->get_max_entries() ||
-		    uint64_t(impl->get_value_size()) * impl->get_max_entries() > UINT32_MAX)
-			return 0; // The existing array implementation uses 32-bit offsets.
+			continue; // Hash/non-array maps are not descriptors for this pass.
+		if (binding->is_per_cpu() && !standard_cpu)
+			continue; // Ordinary arrays can still inline with a custom CPU helper.
+		const uint64_t stride = uint64_t(binding->value_size()) * binding->cpu_count();
+		if (!binding->value_size() || !binding->max_entries() || !binding->cpu_count() ||
+		    stride > UINT32_MAX / binding->max_entries())
+			continue; // The existing array implementation uses 32-bit offsets.
 		bindings.emplace(fd, std::move(binding));
 	}
 	for (const auto &[fd, binding] : bindings) {
-		auto *impl = binding->implementation();
-		int result = ebpf_register_array_map(vm, fd,
-			reinterpret_cast<uint64_t>(impl->get_raw_data()), sizeof(uint32_t),
-			impl->get_value_size(), impl->get_value_size(), impl->get_max_entries());
+		int result = ebpf_register_array_map_kind(vm, fd,
+			reinterpret_cast<uint64_t>(binding->raw_data()), sizeof(uint32_t),
+			binding->value_size(), binding->value_size() * binding->cpu_count(), binding->max_entries(),
+			binding->is_per_cpu());
 		if (result < 0)
 			return result; // Abort this program load, never use a partial binding.
 	}
+	if (bindings.empty())
+		return 0;
+	for (int fd : fds)
+		if (!bindings.contains(fd))
+			unbound_map_handles.insert(fd);
 	bound_arrays = std::move(bindings);
 	bound_mapping = std::move(memory);
 	bound_manager = shm.get_manager();
@@ -298,6 +355,32 @@ bpftime_prog::~bpftime_prog()
 	ebpf_destroy(vm);
 }
 
+int bpftime_prog::register_pending_map_helpers()
+{
+	if (pending_array_lookup) {
+		void *helper = bound_arrays.empty() ? pending_array_lookup :
+			reinterpret_cast<void *>(array_jit_execution_scope::lookup);
+		const char *helper_name = bound_arrays.empty() ? pending_lookup_name.c_str() :
+			"bpftime_bound_array_lookup_v2";
+		int result = ebpf_register(vm, 1, helper_name, helper);
+		if (result < 0)
+			return result;
+		pending_array_lookup = nullptr;
+	}
+	for (const auto &[index, info] : pending_map_mutations) {
+		void *helper = info.second;
+		if (!bound_arrays.empty())
+			helper = index == BPF_FUNC_map_update_elem ?
+				reinterpret_cast<void *>(array_jit_execution_scope::update) :
+				reinterpret_cast<void *>(array_jit_execution_scope::erase);
+		int result = ebpf_register(vm, index, info.first.c_str(), helper);
+		if (result < 0)
+			return result;
+	}
+	pending_map_mutations.clear();
+	return 0;
+}
+
 int bpftime_prog::bpftime_prog_load(bool jit)
 {
 	if (array_jit_failed)
@@ -317,17 +400,10 @@ int bpftime_prog::bpftime_prog_load(bool jit)
 			return res;
 		}
 	}
-	if (pending_array_lookup) {
-		void *helper = bound_arrays.empty() ? pending_array_lookup :
-			reinterpret_cast<void *>(array_jit_execution_scope::lookup);
-		const char *helper_name = bound_arrays.empty() ? "bpf_map_lookup_elem" :
-			"bpftime_bound_array_lookup_v1";
-		res = ebpf_register(vm, BPF_FUNC_map_lookup_elem, helper_name, helper);
-		if (res < 0) {
-			array_jit_failed = true;
-			return res;
-		}
-		pending_array_lookup = nullptr;
+	res = register_pending_map_helpers();
+	if (res < 0) {
+		array_jit_failed = true;
+		return res;
 	}
 
 	SPDLOG_DEBUG("Load insn cnt {}", insns.size());
@@ -470,15 +546,18 @@ int bpftime_prog::bpftime_prog_exec(void *memory, size_t memory_size,
 int bpftime_prog::bpftime_prog_register_raw_helper(
 	struct bpftime_helper_info info)
 {
-	if (!bound_arrays.empty() && info.index == BPF_FUNC_map_lookup_elem)
+	if (!bound_arrays.empty() && (info.index == BPF_FUNC_map_lookup_elem ||
+	    info.index == BPF_FUNC_map_update_elem || info.index == BPF_FUNC_map_delete_elem ||
+	    info.index == BPF_FUNC_get_smp_processor_id))
 		return -EBUSY;
 	if (array_jit_requested && info.index == BPF_FUNC_map_lookup_elem &&
-	    info.fn == reinterpret_cast<void *>(bpftime_array_map_lookup_elem_helper)) {
+	    standard_lookup(info.fn)) {
 		if (pending_array_lookup || raw_helpers.contains(info.index))
 			return -EEXIST;
 		// LLVM helper slots are immutable once registered. Select exactly once
 		// at load time, after eligibility and map ownership are established.
 		pending_array_lookup = info.fn;
+		pending_lookup_name = info.name;
 		raw_helpers[info.index] = info.fn;
 		signal_ready = false;
 		signal_safe_helpers[info.index] = helper_is_async_signal_safe(info.index, info.fn);
@@ -486,6 +565,17 @@ int bpftime_prog::bpftime_prog_register_raw_helper(
 	}
 	if (pending_array_lookup && info.index == BPF_FUNC_map_lookup_elem)
 		return -EEXIST;
+	if (pending_map_mutations.contains(info.index))
+		return -EEXIST;
+	if (array_jit_requested && !program_loaded && standard_mutation(info.index, info.fn)) {
+		if (raw_helpers.contains(info.index))
+			return -EEXIST;
+		pending_map_mutations.emplace(info.index, std::make_pair(info.name, info.fn));
+		raw_helpers[info.index] = info.fn;
+		signal_ready = false;
+		signal_safe_helpers[info.index] = helper_is_async_signal_safe(info.index, info.fn);
+		return 0;
+	}
 	int result = ebpf_register(vm, info.index, info.name.c_str(), info.fn);
 	if (result == 0) {
 		raw_helpers[info.index] = info.fn;
@@ -555,7 +645,14 @@ int bpftime_prog::load_aot_object(const std::vector<uint8_t> &buf)
 	if (!bound_arrays.empty() || array_jit_failed)
 		return -ENOTSUP; // Absolute process-local bindings cannot be serialized.
 	signal_ready = false;
+	program_loaded = false;
+	jitted = false;
+	fn = nullptr;
 	loaded_from_aot = true;
+	// AOT cannot embed retained process-local addresses. Materialize the
+	// original helper registrations without attempting any array binding.
+	if (int result = register_pending_map_helpers(); result < 0)
+		return result;
 	ebpf_jit_fn res = ebpf_load_aot_object(vm, buf.data(), buf.size());
 	if (res == nullptr) {
 		SPDLOG_ERROR("Failed to load aot object");
@@ -563,6 +660,7 @@ int bpftime_prog::load_aot_object(const std::vector<uint8_t> &buf)
 	}
 	fn = res;
 	jitted = true;
+	program_loaded = true;
 	return 0;
 }
 

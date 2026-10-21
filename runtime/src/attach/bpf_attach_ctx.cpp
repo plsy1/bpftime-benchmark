@@ -35,6 +35,7 @@
 #include <bpf_map/array_map_binding.hpp>
 #include <linux/bpf.h>
 #include <utility>
+#include <algorithm>
 #include <variant>
 #include <sys/resource.h>
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
@@ -48,22 +49,32 @@ namespace bpftime
 int load_prog_and_helpers(
 	bpftime_prog *prog, const runtime_config &config,
 	const bpftime_helper_info *map_lookup_override,
-	const bpftime_helper_info *map_update_override)
+	const bpftime_helper_info *map_update_override,
+	const std::map<int, bpftime_helper_info> *custom_helpers)
 {
+	bpftime_helper_group merged;
 #if defined(__linux__)
 	if (config.enable_kernel_helper_group) {
-		bpftime_helper_group::get_kernel_utils_helper_group()
-			.add_helper_group_to_prog(prog);
+		merged.append(bpftime_helper_group::get_kernel_utils_helper_group());
 	}
 #endif
 	if (config.enable_ufunc_helper_group) {
-		bpftime_helper_group::get_ufunc_helper_group()
-			.add_helper_group_to_prog(prog);
+		merged.append(bpftime_helper_group::get_ufunc_helper_group());
 	}
 	if (config.enable_shm_maps_helper_group) {
-		bpftime_helper_group::get_shm_maps_helper_group()
-			.add_helper_group_to_prog(prog, map_lookup_override,
-						  map_update_override);
+		merged.append(bpftime_helper_group::get_shm_maps_helper_group());
+	}
+	if (int result = merged.add_helper_group_to_prog(prog, map_lookup_override,
+		map_update_override, custom_helpers); result < 0)
+		return result;
+	if (custom_helpers) {
+		const auto ids = merged.get_helper_ids();
+		for (const auto &[index, helper] : *custom_helpers) {
+			if (std::find(ids.begin(), ids.end(), index) == ids.end()) {
+				if (int result = prog->bpftime_prog_register_raw_helper(helper); result < 0)
+					return result;
+			}
+		}
 	}
 	return prog->bpftime_prog_load(config.jit_enabled);
 }
@@ -472,24 +483,13 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 			"Using specialized per-CPU hash update helper for program {}",
 			name);
 	}
-	const char *array_inline = std::getenv("BPFTIME_ARRAY_JIT_INLINE");
-	if (array_inline && std::string_view(array_inline) == "1" &&
-	    config.jit_enabled && config.enable_shm_maps_helper_group &&
-	    mode == map_production_ab_mode::base &&
-	    manager == shm_holder.global_shared_memory.get_manager() &&
-	    !helpers.contains(BPF_FUNC_map_lookup_elem))
-		prog->request_array_map_inlining();
 	if (int err = load_prog_and_helpers(prog, config, map_lookup_override,
-					    map_update_override);
+					    map_update_override, &helpers);
 	    err < 0) {
 		SPDLOG_ERROR(
 			"Failed to load program helpers for prog handler {}: {}",
 			id, err);
 		return err;
-	}
-	for (const auto &item : helpers) {
-		if (int err = prog->bpftime_prog_register_raw_helper(item.second); err < 0)
-			return err;
 	}
 	instantiated_handlers.insert(id);
 	return 0;
