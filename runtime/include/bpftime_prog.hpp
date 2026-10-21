@@ -100,6 +100,10 @@ class bpftime_prog {
 	bool array_jit_failed = false;
 	std::map<uint64_t, std::shared_ptr<array_map_binding>> bound_arrays;
 	std::set<uint64_t> unbound_map_handles;
+	// Direct map-value (global data) maps of a bound program, and the owned
+	// address each such LDDW is rewritten to (keyed by instruction index).
+	std::vector<std::shared_ptr<array_map_binding>> bound_values;
+	std::map<size_t, uint64_t> bound_value_addresses;
 	std::shared_ptr<boost::interprocess::managed_shared_memory> bound_mapping;
 	const handler_manager *bound_manager = nullptr;
 	std::map<unsigned, void *> raw_helpers;
