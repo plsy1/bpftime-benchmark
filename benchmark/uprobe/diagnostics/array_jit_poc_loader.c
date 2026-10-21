@@ -19,6 +19,12 @@ int main(void)
         err=bpf_map_update_elem(bpf_map__fd(skel->maps.data_map),&key,&value,BPF_ANY);
         if(err)goto done;
     }
+    // Hash result maps need their slots to exist; harmless for arrays.
+    for(unsigned key=0;key<4;++key){
+        struct outcome empty={0};
+        err=bpf_map_update_elem(bpf_map__fd(skel->maps.result_map),&key,&empty,BPF_ANY);
+        if(err)goto done;
+    }
     err=array_jit_poc_bpf__attach(skel);
     if(err)goto done;
     puts("Successfully started!");fflush(stdout);
