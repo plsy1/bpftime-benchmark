@@ -695,3 +695,172 @@ TEST_CASE("Default array JIT keeps AOT on original helper registrations",
 	bpftime_close(100); create_array(72);
 	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(prog,1))==72);
 }
+
+namespace {
+// Reads global u64 at `offset`, stores the input's u64 into global slot 0,
+// then adds the consumed array lookup value. Input: {u32 key, pad, u64 store}.
+std::vector<ebpf_inst> global_data_program(int lookup_fd, int value_fd, int32_t offset = 8)
+{
+	return {
+		{0xbf,6,1,0,0},
+		{0x18,1,BPF_PSEUDO_MAP_VALUE,0,value_fd}, {0,0,0,0,offset},
+		{0x79,7,1,0,0},
+		{0x18,1,BPF_PSEUDO_MAP_VALUE,0,value_fd}, {0,0,0,0,0},
+		{0x79,3,6,8,0}, {0x7b,1,3,0,0},
+		{0x18,1,BPF_PSEUDO_MAP_FD,0,lookup_fd}, {0,0,0,0,0},
+		{0xbf,2,6,0,0}, {0x85,0,0,0,BPF_FUNC_map_lookup_elem},
+		{0x15,0,0,2,0}, {0x79,0,0,0,0}, {0x0f,0,7,0,0},
+		{0x95,0,0,0,0},
+	};
+}
+int create_global_data(int fd, uint64_t first, uint64_t second, uint32_t entries = 1)
+{
+	REQUIRE(bpftime_maps_create(fd, "prog.bss", {.type = BPF_MAP_TYPE_ARRAY,
+		.key_size = 4, .value_size = 16, .max_ents = entries}) == fd);
+	uint64_t value[2] = {first, second};
+	const uint32_t key = 0;
+	REQUIRE(bpftime_map_update_elem(fd, &key, value, BPF_ANY) == 0);
+	return fd;
+}
+const uint64_t *global_slots(int fd)
+{
+	const uint32_t key = 0;
+	return static_cast<const uint64_t *>(bpftime_map_lookup_elem(fd, &key));
+}
+std::unique_ptr<bpftime_prog> load_global_program(const std::vector<ebpf_inst> &code,
+	void *helper = reinterpret_cast<void *>(bpftime_array_map_lookup_elem_helper), bool jit = true)
+{
+	auto prog = std::make_unique<bpftime_prog>(code.data(), code.size(), "array_jit_global");
+	REQUIRE(prog->bpftime_prog_register_raw_helper({1, "bpf_map_lookup_elem", helper}) == 0);
+	REQUIRE(prog->bpftime_prog_load(jit) == 0);
+	return prog;
+}
+uint64_t run_global(bpftime_prog &prog, uint32_t key, uint64_t store)
+{
+	struct {uint32_t key, pad; uint64_t store;} input{key, 0, store};
+	uint64_t result = 0;
+	REQUIRE(prog.bpftime_prog_exec(&input, sizeof(input), &result) == 0);
+	return result;
+}
+}
+
+TEST_CASE("Array JIT owns global data of bound programs across close, reuse and reset",
+	"[array-jit-lifetime][array-jit-global]")
+{
+	isolated_shm fixture;
+	create_array(42);
+	create_global_data(103, 5, 1000);
+	captured_array_log logs;
+	auto code = global_data_program(100, 103);
+	auto prog = load_global_program(code);
+	REQUIRE(logs.messages.str().find("retained 1 maps and 1 global data maps") != std::string::npos);
+	REQUIRE(logs.messages.str().find("inlined 1 lookup sites") != std::string::npos);
+	// The stored program keeps its relocations; only the loaded copy is rewritten.
+	REQUIRE(prog->get_insns()[1].src_reg == BPF_PSEUDO_MAP_VALUE);
+	REQUIRE(prog->get_insns()[2].imm == 8);
+	REQUIRE(run_global(*prog, 2, 77) == 42 + 1000);
+	REQUIRE(global_slots(103)[0] == 77); // Program writes reach the shared value.
+	const uint32_t zero = 0;
+	uint64_t updated[2] = {6, 2000};
+	REQUIRE(bpftime_map_update_elem(103, &zero, updated, BPF_ANY) == 0);
+	REQUIRE(run_global(*prog, 1, 78) == 42 + 2000);
+	REQUIRE(run_global(*prog, 4, 79) == 0); // Proven miss: the program returns 0.
+	REQUIRE(global_slots(103)[0] == 79);
+	// A new map at the same FD must not become this program's global data.
+	bpftime_close(103);
+	create_global_data(103, 0, 9999);
+	REQUIRE(run_global(*prog, 3, 80) == 42 + 2000);
+	REQUIRE(global_slots(103)[0] == 0);
+	REQUIRE(global_slots(103)[1] == 9999);
+	shm_holder.global_shared_memory.begin_new_session();
+	REQUIRE(run_global(*prog, 3, 81) == 42 + 2000);
+	REQUIRE(prog->prepare_for_signal_execution() == -ENOTSUP);
+	REQUIRE(prog->load_aot_object({}) == -ENOTSUP);
+	REQUIRE(prog->bpftime_prog_load(true) == -EBUSY);
+}
+
+TEST_CASE("Array JIT shares a bound global data map with its lookup binding",
+	"[array-jit-lifetime][array-jit-global]")
+{
+	isolated_shm fixture;
+	auto memory = shm_holder.global_shared_memory.retain_mapping();
+	(void)map_binding_mutex(*memory); // Exclude the persistent mutex allocation.
+	auto before = memory->get_free_memory();
+	// The same single-element array is both looked up and addressed directly.
+	create_global_data(103, 9, 300);
+	captured_array_log logs;
+	auto prog = load_global_program(global_data_program(103, 103));
+	REQUIRE(logs.messages.str().find("retained 1 maps and 1 global data maps") != std::string::npos);
+	REQUIRE(run_global(*prog, 0, 50) == 50 + 300); // The store precedes the lookup.
+	bpftime_close(103);
+	REQUIRE(run_global(*prog, 0, 51) == 51 + 300);
+	REQUIRE(run_global(*prog, 1, 52) == 0);
+	prog.reset(); // The last owner releases the closed map exactly once.
+	REQUIRE(memory->get_free_memory() == before);
+}
+
+TEST_CASE("Array JIT keeps unsupported global data programs on the original path",
+	"[array-jit-lifetime][array-jit-global]")
+{
+	isolated_shm fixture;
+	create_array(42);
+	captured_array_log logs;
+	SECTION("multi-element map") {
+		create_global_data(103, 5, 1000, 4);
+		auto prog = load_global_program(global_data_program(100, 103));
+		REQUIRE(logs.messages.str().find("[array-jit-inline]") == std::string::npos);
+		REQUIRE(run_global(*prog, 2, 1) == 42 + 1000);
+	}
+	SECTION("offset outside the value") {
+		create_global_data(103, 5, 1000);
+		auto prog = load_global_program(global_data_program(100, 103, 16));
+		REQUIRE(logs.messages.str().find("[array-jit-inline]") == std::string::npos);
+	}
+	SECTION("hash map value") {
+		REQUIRE(bpftime_maps_create(103, "not_global", {.type = BPF_MAP_TYPE_HASH,
+			.key_size = 4, .value_size = 16, .max_ents = 1}) == 103);
+		auto prog = load_global_program(global_data_program(100, 103));
+		REQUIRE(logs.messages.str().find("[array-jit-inline]") == std::string::npos);
+	}
+	SECTION("per-CPU map value") {
+		REQUIRE(bpftime_maps_create(103, "percpu_global", {.type = BPF_MAP_TYPE_PERCPU_ARRAY,
+			.key_size = 4, .value_size = 16, .max_ents = 1}) == 103);
+		auto prog = load_global_program(global_data_program(100, 103));
+		REQUIRE(logs.messages.str().find("[array-jit-inline]") == std::string::npos);
+	}
+	SECTION("no array lookup to specialize") {
+		create_global_data(103, 5, 1000);
+		REQUIRE(bpftime_maps_create(102, "global_hash", {.type = BPF_MAP_TYPE_HASH,
+			.key_size = 4, .value_size = 8, .max_ents = 4}) == 102);
+		uint32_t key = 2;
+		uint64_t value = 7;
+		REQUIRE(bpftime_map_update_elem(102, &key, &value, BPF_ANY) == 0);
+		auto prog = load_global_program(global_data_program(102, 103),
+			reinterpret_cast<void *>(bpftime_map_lookup_elem_helper));
+		REQUIRE(logs.messages.str().find("[array-jit-inline]") == std::string::npos);
+		REQUIRE(run_global(*prog, 2, 3) == 7 + 1000);
+		REQUIRE(global_slots(103)[0] == 3);
+	}
+	SECTION("other LDDW relocations") {
+		create_global_data(103, 5, 1000);
+		auto code = global_data_program(100, 103);
+		code.insert(code.begin(), {{0x18,0,BPF_PSEUDO_BTF_ID,0,1}, {0,0,0,0,0}});
+		bpftime_prog prog(code.data(), code.size(), "array_jit_btf_id");
+		REQUIRE(prog.bpftime_prog_register_raw_helper({1, "bpf_map_lookup_elem",
+			reinterpret_cast<void *>(bpftime_array_map_lookup_elem_helper)}) == 0);
+		(void)prog.bpftime_prog_load(true); // Backend support for BTF IDs is not under test.
+		REQUIRE(logs.messages.str().find("[array-jit-inline]") == std::string::npos);
+	}
+	SECTION("uBPF backend") {
+		// Never bound; execution is not asserted because the uBPF
+		// interpreter's own bounds check rejects global data addresses.
+		create_global_data(103, 5, 1000);
+		runtime_config config;
+		config.set_vm_name("ubpf");
+		shm_holder.global_shared_memory.set_runtime_config(std::move(config));
+		auto prog = load_global_program(global_data_program(100, 103),
+			reinterpret_cast<void *>(bpftime_array_map_lookup_elem_helper), false);
+		REQUIRE(logs.messages.str().find("[array-jit-inline]") == std::string::npos);
+		REQUIRE(prog->get_insns()[1].src_reg == BPF_PSEUDO_MAP_VALUE);
+	}
+}
