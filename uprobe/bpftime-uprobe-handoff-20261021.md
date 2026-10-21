@@ -1,7 +1,7 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-21 20:30 JST 左右。以下分支、进程和文件状态均为本机快照；
+最后核对：2026-10-21 21:20 JST 左右。以下分支、进程和文件状态均为本机快照；
 后续模型行动前需重新核实。本轮优化源码已推送为 `c0939bd`；随后修复一个被实验
 过滤器漏掉的测试（`2eea622`，只改测试），并把三者加入每日补丁栈（`a5a5235`），
 均已推送。详见第 7 节。
@@ -232,10 +232,16 @@ ExecMainStatus=0，查询时 inactive。后续希望迁到独立 Jetson，还没
    下次官方 SHA 变化时由定时任务自动迁移。若 cherry-pick 或 overlay patch 冲突，
    按 README 在保留的 candidate worktree 中人工解决，再更新补丁栈。
 5. **后续优化在 `codex/uprobe-official-177a1dc465ff` 上开发**；`8da867d541f8` 分支冻结为已归档实验的
-   源码快照。新优化开始前，需先在新分支上用选定工具链（LLVM 16 与已有 JIT 实测一致，
-   LLVM 15 与每日一致，待用户确认）重跑完整十轮和两类 consuming 测试作为新基线；
-   截至 10-21 20:30 尚未重跑。8da 工作区的未提交 hash 诊断改动不随迁移。
-   新提交验收后按序追加到 `config.json` 补丁栈。
+   源码快照。用户选定 LLVM 16。**新基线已完成**（10-21 20:37–21:11，全部退出码 0）：
+   [`baseline-177a1dc-jit-llvm16-20261021`](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/uprobe/baseline-177a1dc-jit-llvm16-20261021/README.md)，
+   本机 `/home/jetson/src/results/uprobe/baseline-177a1dc-jit-llvm16-20261021`。
+   干净 worktree `/home/jetson/src/bpftime-baseline-177a1dc-20261021`（detached `5466f0d`）+ `build-jit`，
+   CMake 选项与 delete-fix 构建逐项相同；完整每日 filter 66 cases / 128293 assertions 通过；
+   完整十轮八项可比操作 0.34x–0.95x kernel，与 8da 版均在 ±1% 内；consuming 同轮三臂
+   （kernel / c0939bd / 5466f0d）差异 ≤0.2%（ordinary hit 3.10 ns 0.53x、mixed 8.46 ns 0.69x，
+   per-CPU hit 5.18 ns 0.76x、mixed 10.65 ns 0.83x）。**以后“上次”对照用这个目录**，
+   新实验可复用其 `run-build.sh` / `run-consuming.py` / `run-full.sh`（有防覆盖假设，需新目录）。
+   8da 工作区的未提交 hash 诊断改动不随迁移。新提交验收后按序追加到 `config.json` 补丁栈。
 6. 本轮性能目标已完成验证。若继续开发，先与用户确认是完善兼容边界、上游移植、独立测试机，
    还是新性能研究；不要擅自扩大为全 map JIT 或修改 map 数据结构/语义。
 
