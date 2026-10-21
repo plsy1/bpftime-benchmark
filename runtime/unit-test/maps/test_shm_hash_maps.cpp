@@ -6,6 +6,7 @@
 #include "catch2/catch_test_macros.hpp"
 #include "spdlog/spdlog.h"
 #include "bpftime_handler.hpp"
+#include <bpf_map/array_map_binding.hpp>
 #include <array>
 #include <boost/interprocess/creation_tags.hpp>
 #include <cstdint>
@@ -187,6 +188,9 @@ TEST_CASE("Hash maps with colliding public names remain independent",
 	managed_shared_memory segment(create_only, collision_shm_name, 8 << 20);
 	auto *manager = segment.construct<handler_manager>(
 		HANDLER_NAME)(segment, MIN_MAX_FD_COUNT);
+	// bpftime_shm creates the one segment-wide map-binding mutex up front;
+	// do the same so the check covers only per-map named objects.
+	(void)map_binding_mutex(segment);
 	const auto named_objects_before_maps = segment.get_num_named_objects();
 	const auto free_memory_before_maps = segment.get_free_memory();
 
