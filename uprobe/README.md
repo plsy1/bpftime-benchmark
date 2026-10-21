@@ -1,5 +1,10 @@
 # Uprobe map investigation
 
+当前模型接力请先读
+[研究进度与工程接力（2026-10-21）](bpftime-uprobe-handoff-20261021.md)：
+最新默认 array JIT + hash delete 修复已通过完整十轮，新增代码仍待提交/推送及自动化集成。
+下列综合报告与调查矩阵主要保存历史归因，不能代替当前工程状态。
+
 - [综合调查报告](bpftime-uprobe-comprehensive-investigation-report-20260813.md)：**主入口**，统一说明 benchmark 语义修正、ARM64/x64 顶层结果、Jetson BPFtime–kernel 严格差额、L0–L3 分层和源码叶子归因。
 - [下一步 workload 稳健性计划](bpftime-uprobe-next-step-workload-robustness-plan-20260816.md)：load factor、key/value size、PMU 端点和缺失语义的执行方案。
 - [Hash workload 稳健性结果](attribution/bpftime-uprobe-hash-workload-robustness-arm64-20260816.md)：load factor、key/value size 的 matched wall/PMU 结果及对既有源码归因的复核。

@@ -5,6 +5,13 @@
 
 ## 建议阅读顺序
 
+**当前接力入口：[Uprobe 研究进度与工程接力（2026-10-21）](uprobe/bpftime-uprobe-handoff-20261021.md)。**
+包含正式工作区/分支、尚未提交的 JIT 改动、最新十轮与 kernel 对比、array consuming
+测试口径、delete 回退修复、每日自动化尚未更新的边界，以及接手后的行动顺序。
+最新完整十轮已通过，不是仍在运行；此前
+[2026-10-11 优化推进状态](uprobe/bpftime-uprobe-optimization-progress-20261011.md)
+保留为历史阶段记录，不代表当前进度。
+
 1. [Uprobe 综合调查报告](uprobe/bpftime-uprobe-comprehensive-investigation-report-20260813.md)：
    从 benchmark 语义修正、ARM64/x64 顶层对照，到 Jetson matched 差额、L0–L3
    分层及源码叶子路径的统一主报告。
