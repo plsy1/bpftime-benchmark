@@ -864,3 +864,64 @@ TEST_CASE("Array JIT keeps unsupported global data programs on the original path
 		REQUIRE(prog->get_insns()[1].src_reg == BPF_PSEUDO_MAP_VALUE);
 	}
 }
+
+TEST_CASE("Bound programs dispatch non-array and dynamic handles to their original targets",
+	"[array-jit-lifetime][array-jit-dispatch]")
+{
+	isolated_shm fixture;
+	create_array(40); // fd 100: bound and inlined
+	REQUIRE(bpftime_maps_create(105, "dispatch_hash", {.type = BPF_MAP_TYPE_HASH,
+		.key_size = 4, .value_size = 8, .max_ents = 4}) == 105);
+	REQUIRE(bpftime_maps_create(102, "dispatch_dynamic", {.type = BPF_MAP_TYPE_ARRAY,
+		.key_size = 4, .value_size = 8, .max_ents = 4}) == 102);
+	uint32_t one = 1;
+	uint64_t two = 2;
+	REQUIRE(bpftime_map_update_elem(102, &one, &two, BPF_ANY) == 0);
+	// hash update; array lookup; hash lookup; dynamic lookup; hash delete.
+	std::vector<ebpf_inst> code{
+		{0xbf,6,1,0,0},
+		{0x18,1,BPF_PSEUDO_MAP_FD,0,105}, {0,0,0,0,0}, {0xbf,2,6,0,0}, {0xbf,3,6,0,0},
+		{0x07,3,0,0,16}, {0xb7,4,0,0,BPF_ANY}, {0x85,0,0,0,BPF_FUNC_map_update_elem},
+		{0x7b,6,0,24,0}, {0xb7,7,0,0,0},
+		{0x18,1,BPF_PSEUDO_MAP_FD,0,100}, {0,0,0,0,0}, {0xbf,2,6,0,0},
+		{0x85,0,0,0,BPF_FUNC_map_lookup_elem}, {0x15,0,0,1,0}, {0x79,7,0,0,0},
+		{0x18,1,BPF_PSEUDO_MAP_FD,0,105}, {0,0,0,0,0}, {0xbf,2,6,0,0},
+		{0x85,0,0,0,BPF_FUNC_map_lookup_elem}, {0x15,0,0,2,0}, {0x79,0,0,0,0}, {0x0f,7,0,0,0},
+		{0x79,1,6,8,0}, {0xbf,2,6,0,0},
+		{0x85,0,0,0,BPF_FUNC_map_lookup_elem}, {0x15,0,0,2,0}, {0x79,0,0,0,0}, {0x0f,7,0,0,0},
+		{0x18,1,BPF_PSEUDO_MAP_FD,0,105}, {0,0,0,0,0}, {0xbf,2,6,0,0},
+		{0x85,0,0,0,BPF_FUNC_map_delete_elem}, {0x7b,6,0,32,0},
+		{0xbf,0,7,0,0}, {0x95,0,0,0,0},
+	};
+	bpftime_prog prog(code.data(), code.size(), "dispatch_default");
+	runtime_config config;
+	config.set_vm_name("llvm"); config.jit_enabled = true;
+	config.enable_shm_maps_helper_group = true; config.enable_kernel_helper_group = true;
+	captured_array_log logs;
+	REQUIRE(load_prog_and_helpers(&prog, config, nullptr, nullptr, nullptr) == 0);
+	REQUIRE(logs.messages.str().find("retained 1 maps") != std::string::npos);
+	REQUIRE(logs.messages.str().find("inlined 1 lookup sites") != std::string::npos);
+	struct {uint32_t key, pad; uint64_t dynamic_fd, value, update_status, delete_status;} input{};
+	auto run = [&](uint64_t dynamic_fd) {
+		input = {1, 0, dynamic_fd, 500, 99, 99};
+		uint64_t result = 0;
+		REQUIRE(prog.bpftime_prog_exec(&input, sizeof(input), &result) == 0);
+		REQUIRE(input.update_status == 0);
+		REQUIRE(input.delete_status == 0);
+		return result;
+	};
+	REQUIRE(run(102) == 40 + 500 + 2);   // Dynamic FD inside the table range.
+	REQUIRE(bpftime_map_lookup_elem(105, &one) == nullptr); // Deleted again.
+	REQUIRE(run(100) == 40 + 500 + 40);  // Dynamic use of the bound FD.
+	REQUIRE(run(105) == 40 + 500 + 500); // Dynamic use of the unbound hash.
+	// Non-array maps are not pinned: a replacement at the same FD is used.
+	bpftime_close(105);
+	REQUIRE(bpftime_maps_create(105, "dispatch_hash_2", {.type = BPF_MAP_TYPE_HASH,
+		.key_size = 4, .value_size = 8, .max_ents = 4}) == 105);
+	uint32_t key2 = 2;
+	uint64_t kept = 77;
+	REQUIRE(bpftime_map_update_elem(105, &key2, &kept, BPF_ANY) == 0);
+	REQUIRE(run(102) == 40 + 500 + 2);
+	REQUIRE(*static_cast<const uint64_t *>(bpftime_map_lookup_elem(105, &key2)) == 77);
+	REQUIRE(bpftime_map_lookup_elem(105, &one) == nullptr);
+}
