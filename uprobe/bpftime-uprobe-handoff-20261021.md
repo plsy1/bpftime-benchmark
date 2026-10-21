@@ -32,8 +32,10 @@
 
 | 用途 | 本机路径 / 分支 |
 |---|---|
-| 当前正式源码 | `/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate` |
-| 正式源码分支 | `codex/uprobe-official-8da867d541f8` |
+| **后续开发源码** | `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate` |
+| **后续开发分支** | `codex/uprobe-official-177a1dc465ff`，HEAD `5466f0d`（官方最新 177a1dc + 41 个补丁，已推送） |
+| 本轮实测源码（冻结） | `/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate` |
+| 本轮实测分支（冻结） | `codex/uprobe-official-8da867d541f8` |
 | 已提交并推送 HEAD | `2eea622f97688b82a5c39402f631e79b5eb538f8`，map-name 用例适配 binding mutex（只改测试） |
 | 本轮实测源码提交 | `c0939bdf8e3ece38f56d964cac3d333468b8bf23`，默认 ordinary/per-CPU array JIT + delete 修复 |
 | 独立热构建源码 | `/home/jetson/src/bpftime-percpu-array-jit-20261020` |
@@ -203,8 +205,9 @@ Select Frida*）。README 已同步。
 **今后对维护栈的实验至少跑完整每日 filter，再加实验专属标签。**
 
 注意：
-- 每日任务只在官方 SHA 变化时迁移；本地已有的 `codex/uprobe-official-177a1dc465ff`
-  （10-19 生成，37 个提交，不含 `fefe2f6` 和 JIT）不会自动更新，不能把它当作当前栈。
+- 每日任务只在官方 SHA 变化时迁移。`codex/uprobe-official-177a1dc465ff` 原为 10-19 生成的
+  37 个提交，已于 10-21 20:31 用 `tracker.py migrate` 补齐 4 个提交到 `5466f0d` 并推送；
+  其树与第 2 轮已验证候选 `0fb1fd5` 完全一致。
   集成验证 worktree `worktrees/177a1dc465ff/jit-stack-validation{,-2}` 为 detached，未建分支、未推送。
 - 每日构建用 LLVM 15，JIT 性能实测是 LLVM 16 热构建；两者正确性已验证，但每日 candidate 不跑 benchmark，
   不能拿每日结果代表 JIT 性能。
@@ -228,7 +231,12 @@ ExecMainStatus=0，查询时 inactive。后续希望迁到独立 Jetson，还没
 4. 源码、自动化补丁栈、接力文档和选定结果均已同步。补丁栈已在 177a1dc 上验证可重放；
    下次官方 SHA 变化时由定时任务自动迁移。若 cherry-pick 或 overlay patch 冲突，
    按 README 在保留的 candidate worktree 中人工解决，再更新补丁栈。
-5. 本轮性能目标已完成验证。若继续开发，先与用户确认是完善兼容边界、上游移植、独立测试机，
+5. **后续优化在 `codex/uprobe-official-177a1dc465ff` 上开发**；`8da867d541f8` 分支冻结为已归档实验的
+   源码快照。新优化开始前，需先在新分支上用选定工具链（LLVM 16 与已有 JIT 实测一致，
+   LLVM 15 与每日一致，待用户确认）重跑完整十轮和两类 consuming 测试作为新基线；
+   截至 10-21 20:30 尚未重跑。8da 工作区的未提交 hash 诊断改动不随迁移。
+   新提交验收后按序追加到 `config.json` 补丁栈。
+6. 本轮性能目标已完成验证。若继续开发，先与用户确认是完善兼容边界、上游移植、独立测试机，
    还是新性能研究；不要擅自扩大为全 map JIT 或修改 map 数据结构/语义。
 
 ## 9. 复现实验与构建易踩坑
