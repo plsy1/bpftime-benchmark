@@ -89,6 +89,16 @@ injected-agent host-contract cases. `9ffbffb` still passes the obsolete
 `BPFTIME_ARRAY_JIT_INLINE` variable to the userspace benchmark; the runtime no
 longer reads it.
 
+`bdd98355868b` (accepted 2026-10-21) lets programs with libbpf global data
+(`.rodata`/`.data`/`.bss`/`.kconfig` direct map-value loads) use the array
+lookup JIT: such single-element arrays are bound and owned, and the loaded copy
+of the program uses their retained addresses instead of `map_val(fd)`. A
+consuming workload with a `.rodata` setting and a `.bss` counter improves by
+67-86% versus `5466f0d`; the original uprobe suite is unchanged (12-round AB/BA
+screen within +/-0.6%). Its tests are tagged `[array-jit-global]` and are
+already covered by `[array-jit-lifetime]`. Replayed onto official
+`177a1dc465ff` with LLVM 15: 69 cases / 128,422 assertions on the candidate.
+
 Before the JIT, the stack included all accepted optimizations through
 `fefe2f6edf27` (accepted 2026-10-19), including ordinary hash lookup key dispatch,
 per-CPU hash bucket-local iteration, per-CPU array production lookup leaf
@@ -151,7 +161,7 @@ automation to another machine.
 The complete upstream runtime suite is not used as the daily gate because the
 official `Test attach replace with ebpf` case currently SIGSEGVs on this Jetson
 before reaching the map tests. With the JIT commits replayed onto official
-`177a1dc465ff`, the configured focused suite passes 128,293 assertions in 66
+`177a1dc465ff`, the configured focused suite passes 128,422 assertions in 69
 test cases on the LLVM 15 candidate build and 17,913 assertions in 26 test
 cases on the official build; candidate-only tags match nothing there and do not
 fail the gate. Experiments on the maintained stack should run this whole
