@@ -54,7 +54,10 @@
       {"sha": "a1ef4a7e69b3cf17b120a3148a3a4ba1d580a8b9", "kind": "optimization", "subject": "Hoist fixed hash lookup key dispatch out of probe loop"},
       {"sha": "df934cd13027a2d14acec3e7fbfa87b144adab1e", "kind": "optimization", "subject": "Use bucket-local iterators for per-CPU hash lookup"},
       {"sha": "eb09b972d59ca7845e3e1251a2ad96845b93feaf", "kind": "optimization", "subject": "Inline per-CPU array production lookup leaf"},
-      {"sha": "fefe2f6edf276e1b2957711203b5022dd1be8d7c", "kind": "optimization", "subject": "Outline ordinary array lookup error handling"}
+      {"sha": "fefe2f6edf276e1b2957711203b5022dd1be8d7c", "kind": "optimization", "subject": "Outline ordinary array lookup error handling"},
+      {"sha": "9ffbffba8325b92eaa0771345c4054ee82121ca6", "kind": "optimization", "subject": "Add opt-in owned ordinary array lookup JIT specialization"},
+      {"sha": "c0939bdf8e3ece38f56d964cac3d333468b8bf23", "kind": "optimization", "subject": "Enable default ordinary and per-CPU array lookup JIT"},
+      {"sha": "2eea622f97688b82a5c39402f631e79b5eb538f8", "kind": "test-fix", "subject": "Account for map-binding mutex in map-name collision test"}
     ]
   },
   "build": {
@@ -79,7 +82,7 @@
       "simple-benchmark-with-embed-ebpf-calling",
       "bpftime_runtime_tests"
     ],
-    "test_filter": "[array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent"
+    "test_filter": "[array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent,[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps][map_in_map],Test bpftime runtime_config,Allow external maps from the environment,Select Frida*,Test basic operations of external hash map ops"
   },
   "benchmark": {
     "cpu": 5,

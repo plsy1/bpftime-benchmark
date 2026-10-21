@@ -72,14 +72,35 @@ The configured commit IDs are the rebased/adapted commits from
 This makes the patch stack portable to another Jetson without relying on a
 machine-local `rerere` cache.
 
-The maintained stack now includes all accepted optimizations through
+The maintained stack now ends with the default array lookup JIT (accepted
+2026-10-21): `9ffbffba8325` adds the owned ordinary array JIT binding,
+`c0939bdf8e3e` makes ordinary and per-CPU array lookup specialization the
+default for eligible LLVM JIT programs (with the bound array erase fix for the
+GCC 13/LTO ordinary hash delete regression), and `2eea622f9768` makes the
+map-name collision test create the segment-wide map-binding mutex before its
+baseline, as `bpftime_shm` does. The JIT changes keep `vm/llvm-jit` clean: the
+llvmbpf changes are parent-owned patches applied at configure time, and a
+patch conflict after an upstream llvmbpf update fails configuration and needs
+manual review. The JIT was measured with an LLVM 16 build; the daily job
+builds and tests it with LLVM 15, so daily candidate builds are not the same
+toolchain as the archived JIT measurements. The focused filter adds
+`[array-jit-lifetime]`, `[array-jit-poc]`, `[array-offset-branch]` and the
+injected-agent host-contract cases. `9ffbffb` still passes the obsolete
+`BPFTIME_ARRAY_JIT_INLINE` variable to the userspace benchmark; the runtime no
+longer reads it.
+
+Before the JIT, the stack included all accepted optimizations through
 `fefe2f6edf27` (accepted 2026-10-19), including ordinary hash lookup key dispatch,
 per-CPU hash bucket-local iteration, per-CPU array production lookup leaf
 inlining and ordinary array lookup error-path outlining. The focused test filter
 includes `[array-lookup-cold]` for the new boundary/errno regression tests and
 `[maps][hash]` for fast modulo, generic keys, wrapped probe chains and full-table
-misses. The latest complete ten-round run has eight of ten map operations
-below same-run kernel BPF; ordinary and per-CPU array lookup remain slower.
+misses. The complete ten-round run at that point had eight of ten map
+operations below same-run kernel BPF; ordinary and per-CPU array lookup were
+slower. With the JIT, the historical array lookup workload ignores the
+returned value and can simplify after inlining, so array lookup gains are
+measured with separate consuming workloads instead (archived under
+`results/uprobe/array-jit-default-delete-fix-20261021`).
 
 The latest ordinary array lookup change moves ENOENT handling into a shared
 cold, non-inlined function. The specialized helper's successful path no longer
@@ -129,5 +150,10 @@ automation to another machine.
 
 The complete upstream runtime suite is not used as the daily gate because the
 official `Test attach replace with ebpf` case currently SIGSEGVs on this Jetson
-before reaching the map tests. The configured focused suite passes 24,550
-assertions in 14 test cases and directly covers the maintained changes.
+before reaching the map tests. With the JIT commits replayed onto official
+`177a1dc465ff`, the configured focused suite passes 128,293 assertions in 66
+test cases on the LLVM 15 candidate build and 17,913 assertions in 26 test
+cases on the official build; candidate-only tags match nothing there and do not
+fail the gate. Experiments on the maintained stack should run this whole
+filter, not only their own tags: the map-name collision case was missed by the
+JIT experiments' narrower filters until it was replayed here.
