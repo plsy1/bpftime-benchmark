@@ -34,6 +34,7 @@
 #include <handler/handler_manager.hpp>
 #include <bpf_map/array_map_binding.hpp>
 #include <linux/bpf.h>
+#include <optional>
 #include <utility>
 #include <algorithm>
 #include <variant>
@@ -79,37 +80,81 @@ int load_prog_and_helpers(
 	return prog->bpftime_prog_load(config.jit_enabled);
 }
 
-static bool uses_only_maps_of_type_for_helper(
-	const handler_manager *manager, const bpf_prog_handler &prog,
-	bpf_map_type expected_type, unsigned int helper_id)
+// The kernel only passes these maps to perf output, ring buffer, tail call
+// and stack id helpers, never to map lookup or update.
+static bool map_type_without_lookup_or_update(bpf_map_type type)
 {
-	bool has_map = false;
+	switch (type) {
+	case bpf_map_type::BPF_MAP_TYPE_PROG_ARRAY:
+	case bpf_map_type::BPF_MAP_TYPE_PERF_EVENT_ARRAY:
+	case bpf_map_type::BPF_MAP_TYPE_STACK_TRACE:
+	case bpf_map_type::BPF_MAP_TYPE_RINGBUF:
+		return true;
+	default:
+		return false;
+	}
+}
+
+// Selects the map type whose typed helper serves helper_id, or none for the
+// generic helper. Every typed helper re-checks the map type and otherwise
+// takes the generic handler path, so this is only a performance choice.
+// Direct map-value LDDWs (global data) are not helper arguments. Arrays next
+// to exactly one hash kind select the hash helper: eligible array sites are
+// inlined by the JIT, other array calls take the typed helper's fallback.
+static std::optional<bpf_map_type>
+typed_helper_map_type(const handler_manager *manager,
+		      const bpf_prog_handler &prog, unsigned int helper_id)
+{
 	bool has_helper = false;
+	bool array = false, percpu_array = false;
+	bool hash = false, percpu_hash = false;
 	for (std::size_t i = 0; i < prog.insns.size(); ++i) {
 		const auto &insn = prog.insns[i];
 		if (insn.code == EBPF_OP_CALL && insn.imm == helper_id)
 			has_helper = true;
 		if (insn.code != EBPF_OP_LDDW)
 			continue;
-		// A MAP_VALUE relocation is a direct value pointer, not an
-		// opaque map argument. Keep such programs on the generic helper.
-		if (insn.src_reg == BPF_PSEUDO_MAP_VALUE)
-			return false;
-		if (insn.src_reg != BPF_PSEUDO_MAP_FD)
-			continue;
-		has_map = true;
-		const int fd = insn.imm;
-		if (fd < 0 || static_cast<std::size_t>(fd) >= manager->size())
-			return false;
-		const auto *map = std::get_if<bpf_map_handler>(
-			&manager->get_handler(fd));
-		if (map == nullptr || map->type != expected_type)
-			return false;
+		const auto src_reg = insn.src_reg;
 		// LDDW occupies two instructions.
 		if (i + 1 < prog.insns.size())
 			++i;
+		if (src_reg != BPF_PSEUDO_MAP_FD)
+			continue;
+		const int fd = insn.imm;
+		if (fd < 0 || static_cast<std::size_t>(fd) >= manager->size())
+			return std::nullopt;
+		const auto *map = std::get_if<bpf_map_handler>(
+			&manager->get_handler(fd));
+		if (map == nullptr)
+			return std::nullopt;
+		switch (map->type) {
+		case bpf_map_type::BPF_MAP_TYPE_ARRAY:
+			array = true;
+			break;
+		case bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY:
+			percpu_array = true;
+			break;
+		case bpf_map_type::BPF_MAP_TYPE_HASH:
+			hash = true;
+			break;
+		case bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH:
+			percpu_hash = true;
+			break;
+		default:
+			if (!map_type_without_lookup_or_update(map->type))
+				return std::nullopt;
+		}
 	}
-	return has_map && has_helper;
+	if (!has_helper || (hash && percpu_hash))
+		return std::nullopt;
+	if (hash)
+		return bpf_map_type::BPF_MAP_TYPE_HASH;
+	if (percpu_hash)
+		return bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH;
+	if (array == percpu_array)
+		return std::nullopt;
+	return array ? bpf_map_type::BPF_MAP_TYPE_ARRAY :
+		       bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY;
 }
 
 int bpf_attach_ctx::init_attach_ctx_from_handlers(const runtime_config &config)
@@ -413,71 +458,53 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 	const auto mode = get_map_production_ab_mode();
 	const bpftime_helper_info *map_lookup_override = nullptr;
 	const bpftime_helper_info *map_update_override = nullptr;
-	if (mode == map_production_ab_mode::base &&
-	    uses_only_maps_of_type_for_helper(
-		    manager, handler, bpf_map_type::BPF_MAP_TYPE_ARRAY,
-		    BPF_FUNC_map_lookup_elem)) {
+	const auto lookup_type =
+		mode == map_production_ab_mode::base ?
+			typed_helper_map_type(manager, handler,
+					      BPF_FUNC_map_lookup_elem) :
+			std::nullopt;
+	const auto update_type =
+		mode == map_production_ab_mode::base ?
+			typed_helper_map_type(manager, handler,
+					      BPF_FUNC_map_update_elem) :
+			std::nullopt;
+	if (lookup_type == bpf_map_type::BPF_MAP_TYPE_ARRAY) {
 		map_lookup_override = &array_lookup;
 		SPDLOG_INFO(
 			"Using specialized array lookup helper for program {}",
 			name);
-	} else if (mode == map_production_ab_mode::base &&
-		   uses_only_maps_of_type_for_helper(
-			   manager, handler, bpf_map_type::BPF_MAP_TYPE_HASH,
-			   BPF_FUNC_map_lookup_elem)) {
+	} else if (lookup_type == bpf_map_type::BPF_MAP_TYPE_HASH) {
 		map_lookup_override = &hash_lookup;
 		SPDLOG_INFO(
 			"Using specialized hash lookup helper for program {}",
 			name);
-	} else if (mode == map_production_ab_mode::base &&
-		   uses_only_maps_of_type_for_helper(
-			   manager, handler,
-			   bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY,
-			   BPF_FUNC_map_lookup_elem)) {
+	} else if (lookup_type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY) {
 		map_lookup_override = &percpu_array_lookup;
 		SPDLOG_INFO(
 			"Using specialized per-CPU array lookup helper for program {}",
 			name);
-	} else if (mode == map_production_ab_mode::base &&
-		   uses_only_maps_of_type_for_helper(
-			   manager, handler,
-			   bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH,
-			   BPF_FUNC_map_lookup_elem)) {
+	} else if (lookup_type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH) {
 		map_lookup_override = &percpu_hash_lookup;
 		SPDLOG_INFO(
 			"Using specialized per-CPU hash lookup helper for program {}",
 			name);
 	}
-	if (mode == map_production_ab_mode::base &&
-	    uses_only_maps_of_type_for_helper(
-		    manager, handler, bpf_map_type::BPF_MAP_TYPE_ARRAY,
-		    BPF_FUNC_map_update_elem)) {
+	if (update_type == bpf_map_type::BPF_MAP_TYPE_ARRAY) {
 		map_update_override = &array_update;
 		SPDLOG_INFO(
 			"Using specialized array update helper for program {}",
 			name);
-	} else if (mode == map_production_ab_mode::base &&
-		   uses_only_maps_of_type_for_helper(
-			   manager, handler,
-			   bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY,
-			   BPF_FUNC_map_update_elem)) {
+	} else if (update_type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY) {
 		map_update_override = &percpu_array_update;
 		SPDLOG_INFO(
 			"Using specialized per-CPU array update helper for program {}",
 			name);
-	} else if (mode == map_production_ab_mode::base &&
-		   uses_only_maps_of_type_for_helper(
-			   manager, handler, bpf_map_type::BPF_MAP_TYPE_HASH,
-			   BPF_FUNC_map_update_elem)) {
+	} else if (update_type == bpf_map_type::BPF_MAP_TYPE_HASH) {
 		map_update_override = &hash_update;
 		SPDLOG_INFO(
 			"Using specialized hash update helper for program {}",
 			name);
-	} else if (mode == map_production_ab_mode::base &&
-		   uses_only_maps_of_type_for_helper(
-			   manager, handler,
-			   bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH,
-			   BPF_FUNC_map_update_elem)) {
+	} else if (update_type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH) {
 		map_update_override = &percpu_hash_update;
 		SPDLOG_INFO(
 			"Using specialized per-CPU hash update helper for program {}",
