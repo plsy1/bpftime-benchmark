@@ -72,3 +72,20 @@ the `bpf_features` demos; `sslsniff`'s per-CPU array buffer is already eligible.
 4. The large lever for real programs is hash lookup, which is already 0.94x
    kernel through the optimized C++ path; inlining it is much harder (shared
    memory layout, concurrency, lifetime).
+
+## Update: global data accepted (`bdd9835`)
+
+`analyze.py` now also writes `status_global_data` / `inlinable_sites_global_data`,
+applying the rule of `bdd9835` (global-data LDDWs accepted, every other blocker
+kept). See `../array-jit-global-data-20261021`.
+
+| Corpus | Lookup programs passing the gate (before -> after) | Inlinable array sites |
+|---|---|---|
+| libbpf-tools, all | 8 -> 179 of 183 | 0 -> 19 |
+| libbpf-tools, userspace-runnable | 1 -> 38 of 38 | 0 -> 9 |
+| bpftime examples, all | 44 -> 54 of 55 | 18 -> 19 |
+| bpftime examples, userspace-runnable | 19 -> 26 of 27 | 16 -> 16 |
+
+The 4 remaining libbpf-tools rejections reference externs. Hash lookup sites
+(93% in libbpf-tools) are unaffected: there is no hash JIT, and programs with
+global data still get the generic, not the typed, C++ lookup helper.

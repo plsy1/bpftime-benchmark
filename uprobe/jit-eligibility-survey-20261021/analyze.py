@@ -8,6 +8,8 @@ lines ~234-251) on the instructions libbpf would load:
     function pointers) rejects the whole program;
   * CALLX (0x8d) and calls with src_reg other than 0/1 (kfuncs) reject it;
   * at least one bpf_map_lookup_elem call and one map FD are required.
+A second status column applies the d80e8de rule, under which global-data
+LDDWs are accepted (libbpf internal maps are single-element arrays).
 Per-site selection: a lookup whose r1 comes from a constant map LDDW of an
 ordinary or per-CPU array (u32 key) can be inlined; other lookups keep the
 helper. Runtime conditions (LLVM backend, standard helpers, no CUDA/MPK/AOT)
@@ -166,11 +168,17 @@ def analyze(path, corpus):
         else:
             status = 'eligible'
         array_sites = sum(v for k, v in lookups.items() if k in ARRAYS)
+        # d80e8de rule: libbpf global data no longer blocks (internal maps are
+        # single-element ordinary arrays); every other blocker still applies.
+        global_blockers = {k: v for k, v in blockers.items() if k != 'lddw-global-data'}
+        status_global = status if status != 'blocked' else ('blocked' if global_blockers else 'eligible')
         rows.append(dict(
             corpus=corpus, object=path.stem.removesuffix('.bpf'), program=sym['name'],
             section=sections[sym['name']], status=status, lookups=n_lookup,
             array_lookups=array_sites,
             inlinable_sites=array_sites if status == 'eligible' else 0,
+            status_global_data=status_global,
+            inlinable_sites_global_data=array_sites if status_global == 'eligible' else 0,
             lookup_targets=';'.join(f'{k}={v}' for k, v in sorted(lookups.items())),
             blockers=';'.join(f'{k}={v}' for k, v in sorted(blockers.items())),
             attach=attach_class(sections[sym['name']])))
@@ -192,7 +200,8 @@ def main():
         for obj in sorted((ROOT / 'objs' / corpus).glob('*.bpf.o')):
             rows.extend(analyze(obj, corpus))
     fields = ['corpus', 'object', 'program', 'section', 'attach', 'status', 'lookups',
-              'array_lookups', 'inlinable_sites', 'lookup_targets', 'blockers']
+              'array_lookups', 'inlinable_sites', 'status_global_data',
+              'inlinable_sites_global_data', 'lookup_targets', 'blockers']
     with (ROOT / 'programs.csv').open('w', newline='') as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')
         w.writeheader()
