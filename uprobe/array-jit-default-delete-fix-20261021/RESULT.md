@@ -1,8 +1,9 @@
 # Formal repair: short verification and full ten rounds passed
 
 2026-10-21. Fix applied to primary and independently built warm source;
-all 35 locally archived source files match. Optimization source is not committed
-or pushed; selected result text and handoff documentation are published separately.
+all 35 locally archived source files match. Optimization source is committed
+and pushed as c0939bd on codex/uprobe-official-8da867d541f8. Selected result text
+and handoff documentation are published separately; see source-commit.txt.
 
 ## Original full-workload short A/B
 
@@ -69,7 +70,7 @@ unused-return historical timings. Full table:
 [ten-operation-comparison.md](full10/ten-operation-comparison.md).
 
 Validation is complete; no need to rerun merely because older notes said
-pending. New implementation remains uncommitted/unpushed and is not yet
+pending. Implementation is committed and pushed as c0939bd, but is not yet
 included in daily automation's patch stack. Only selected result text is
 published; full source archives and binaries remain local. Model handoff:
 [research and engineering handoff](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/bpftime-uprobe-handoff-20261021.md).

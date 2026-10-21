@@ -2,8 +2,9 @@
 
 User approved applying the diagnosed fix on 2026-10-21. Primary and warm
 sources now match; 35 files are archived in source/ with SHA-256 manifest.
-Optimization source remains uncommitted/unpushed. Selected result text and
-handoff documents are published separately; no automation update was made.
+Optimization source is committed and pushed as c0939bd on
+codex/uprobe-official-8da867d541f8. Selected result text and handoff documents
+are published separately; no automation update was made.
 
 Change: array_map_binding::erase calls the concrete ordinary/per-CPU array
 implementation, not the generic all-map delete dispatcher. These bindings
@@ -49,8 +50,8 @@ See RESULT.md for numbers. Complete ten-round verification FINISHED at
 All 35 cases have ten valid samples; artifact SHA checks and the separate
 default activation audit passed. Ordinary hash delete recovered from 43.69
 to 36.64 ns (0.34x same-run kernel), with no evident non-target regression.
-See full10/ten-operation-comparison.md. New optimization code remains
-uncommitted/unpushed and is not yet in the daily replay stack. Current handoff:
+See full10/ten-operation-comparison.md. Optimization code is published as
+c0939bd (see source-commit.txt) but is not yet in the daily replay stack. Current handoff:
 [handoff document](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/bpftime-uprobe-handoff-20261021.md).
 
 Publication scope: selected result descriptions, complete ten-round JSON/table,

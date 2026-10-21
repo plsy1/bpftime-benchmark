@@ -9,7 +9,7 @@
 最新工程与实验状态（2026-10-21）：
 [默认 array JIT + delete 回退修复](uprobe/array-jit-default-delete-fix-20261021/RESULT.md)，
 [完整十轮与 consuming 对比表](uprobe/array-jit-default-delete-fix-20261021/full10/ten-operation-comparison.md)。
-完整十轮于 14:59:07 JST 结束，退出码/样本/SHA/默认内联审计通过；新增优化源码尚未提交推送。
+完整十轮于 14:59:07 JST 结束，退出码/样本/SHA/默认内联审计通过；优化源码已提交推送为 `c0939bd`，尚未加入每日补丁栈。
 本次同步选定结果文本，不包含本机二进制、完整源码快照及所有中间实验。模型接力见
 [研究进度与接力文档](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/bpftime-uprobe-handoff-20261021.md)。
 
