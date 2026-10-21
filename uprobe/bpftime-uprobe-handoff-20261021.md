@@ -1,9 +1,9 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-21 19:17 JST 左右。以下分支、进程和文件状态均为本机快照；
-后续模型行动前需重新核实。本次发布范围为接力文档和选定实验结果；
-没有提交优化源码，也没有更新每日自动化。
+最后核对：2026-10-21 19:27 JST 左右。以下分支、进程和文件状态均为本机快照；
+后续模型行动前需重新核实。用户随后要求推送本轮优化，源码已提交并推送为
+`c0939bdf8e3ece38f56d964cac3d333468b8bf23`；每日自动化没有更新。
 
 ## 1. 先读结论
 
@@ -18,7 +18,8 @@
 - 默认化改动曾使 ordinary hash delete 从 37.06 升到 43.69 ns；根因已定位，
   修复已落在正式工作区，完整十轮恢复为 36.64 ns，没有发现其他明显回退。
 - 正确性、配对短测、完整十轮、默认内联生效审计均已结束并通过。
-  **新增 per-CPU JIT、默认化/泛化及 delete 修复源码仍未提交、未推送，也未加入每日补丁栈。**
+  **本轮 per-CPU JIT、默认化/泛化及 delete 修复源码已提交并推送为 `c0939bd`，
+  但尚未加入每日补丁栈。**
   接力文档发布在 `summry/jetson`，选定结果发布在 `benchmark-results/jetson`；
   本机完整源码归档、构建产物和中间实验不在本次发布范围。
 - 当前没有本轮 benchmark 在跑；tmux 中遗留的 shell / tail 窗口不代表实验仍在运行。
@@ -29,7 +30,7 @@
 |---|---|
 | 当前正式源码 | `/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate` |
 | 正式源码分支 | `codex/uprobe-official-8da867d541f8` |
-| 已提交 HEAD | `9ffbffba8325b92eaa0771345c4054ee82121ca6`，ordinary array opt-in JIT |
+| 已提交并推送 HEAD | `c0939bdf8e3ece38f56d964cac3d333468b8bf23`，默认 ordinary/per-CPU array JIT + delete 修复 |
 | 独立热构建源码 | `/home/jetson/src/bpftime-percpu-array-jit-20261020` |
 | 热构建目录 | 上述目录中的 `build-jit` |
 | 每日脚本工作区 | `/home/jetson/src/bpftime-jetson-daily`，`automation/jetson-daily` |
@@ -39,8 +40,10 @@
 
 本地 `official-latest` 已是 `177a1dc...`，另有对应 candidate；本轮正在优化的仍是
 `8da867d541f8` 快照，并不因为分支叫 official 就自动变为最新代码。
-普通 array opt-in JIT 的 `9ffbffb` 已在本地已缓存的 origin 同名分支上；
-此后新增功能仅在 dirty worktree 中，不可只 checkout HEAD 就声称复现当前结果。
+`9ffbffb` 是本轮改动的父提交（ordinary opt-in JIT）。最新源码提交
+[`c0939bd`](https://github.com/plsy1/bpftime-benchmark/commit/c0939bdf8e3ece38f56d964cac3d333468b8bf23)
+已在 GitHub 的同名优化分支；其 35 个归档源码文件精确匹配实测版本。
+工作区仍有无关 hash workload 诊断改动，未带入此提交，不是遗漏本轮优化。
 
 正式工作区、热构建源码的 35 个归档文件均已核对最新 `source-sha256.json`，无差异。
 LLVM 子模块 `vm/llvm-jit` 干净，SHA 为
@@ -180,14 +183,13 @@ ExecMainStatus=0，查询时 inactive。后续希望迁到独立 Jetson，还没
 
 1. 先读本文件和正式源码 CLAUDE.md，核对 git status / HEAD、最新结果退出码和实际日志。
    本次测试已结束，不要无理由再跑 25 分钟。需要重新构建才生成新结果目录。
-2. 若用户要求提交/推送，先审查并组织 per-CPU JIT、direct CPU query、默认泛化和 delete
-   修复的现有 dirty diff；不要漏掉新 header / overlay / correctness tests，也别 git add -A。
-   最新 manifest/patch 可用于核对，但不代替提交前 code review。
+2. 本轮源码已在 `c0939bd` 提交并推送，共 24 个变更文件，包括 per-CPU JIT、direct CPU query、
+   默认泛化、delete 修复、新 header/overlay 和正确性测试；不要把它重复当作待提交工作。
+   新机器复现应取此提交并初始化子模块，核对 source manifest 和原实验 toolchain。
 3. 保留无关诊断修改：`benchmark/uprobe/Makefile`、`compare_runtime_builds.py`、
    `hash_workload_sweep.bpf.c`、未跟踪 `hash_candidate_screen.py` / `hash_distribution_validation.py`
-   不能未经审查一并提交或清理。结果、summry 工作区也有大量历史未提交内容。
-4. 本次同步的是接力文档和选定结果，优化源码仍待单独整理提交，自动化没有改动。
-   后续获得对应指令后，才更新补丁栈，
+   不能未经审查一并提交或清理。结果工作区也有大量历史未提交内容。
+4. 源码、接力文档和选定结果已同步；自动化没有改动。后续获得对应指令后，才更新补丁栈，
    纳入 LLVM overlay、generated header、测试 filter 和 toolchain 兼容验证，再迁移到新上游。
 5. 本轮性能目标已完成验证。若继续开发，先与用户确认是完善兼容边界、上游移植、独立测试机，
    还是新性能研究；不要擅自扩大为全 map JIT 或修改 map 数据结构/语义。
