@@ -1,7 +1,7 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-21 21:20 JST 左右。以下分支、进程和文件状态均为本机快照；
+最后核对：2026-10-21 21:50 JST 左右。以下分支、进程和文件状态均为本机快照；
 后续模型行动前需重新核实。本轮优化源码已推送为 `c0939bd`；随后修复一个被实验
 过滤器漏掉的测试（`2eea622`，只改测试），并把三者加入每日补丁栈（`a5a5235`），
 均已推送。详见第 7 节。
@@ -26,6 +26,11 @@
   `2eea622` 已加入每日补丁栈并推送。**
   接力文档发布在 `summry/jetson`，选定结果发布在 `benchmark-results/jetson`；
   本机完整源码归档、构建产物和中间实验不在本次发布范围。
+- **总体评价口径**（与用户确认，2026-10-21）：在 Jetson ARM64 uprobe map 微基准中优化是成功的——
+  八项可比操作全部低于同轮 kernel；array lookup 在自设计 consuming 测试中从官方原版的
+  2.5–4.4x kernel 降到整体 0.53–0.83x，正确性与可迁移性已验证。不足：评估场景只覆盖小 map、
+  单线程微基准；JIT 只覆盖符合条件的 array lookup；lookup 本身的 miss 路径仍约 2x 慢于 kernel。
+  详见第 4.1–4.2 节。
 - 当前没有本轮 benchmark 在跑；tmux 中遗留的 shell / tail 窗口不代表实验仍在运行。
 
 ## 2. 工作区与分支：不要改错目录
@@ -123,8 +128,51 @@ Kernel 6.8.12-1021-tegra，无 `/sys/kernel/btf/vmlinux`；复现 no-BTF 构建�
 | Per-CPU 约半数 miss | 11.5377 | 10.6386 | 12.7457 | 0.83x |
 
 “约半数 miss”是新增诊断 workload，不是原始 benchmark 就有的设定。
-可表述为八项历史可比较操作低于 kernel，加上额外 consuming array 测试也低于 kernel；
 不可把两种口径拼起来声称“原始十项统一口径全胜”，也不代表所有应用或 key/value/load 都更快。
+177a1dc 新基线（见第 8 节）上述数字均在 ±1% 内复现。
+
+### 4.1 consuming 测试的性质与官方原版对照
+
+consuming workload 是**我们自己设计的诊断测试**（`benchmark/uprobe/diagnostics/array_jit_poc*`，
+由 `9ffbffb` / `c0939bd` 加入，上游没有）。与官方 benchmark 的 lookup 相比：官方用固定顺序 key 0..999、
+丢弃返回值、全命中、无结果校验；我们用运行时 LCG key、读出 value 累加校验和、有全命中/约半数 miss
+两种、loader 逐项比对校验和与 hit/miss，并带不访问 map 的 control case。它只在“结果必须被使用”
+这一点上更严格；map 规模（1024 项、u32/u64、8 KB）、单线程、热 cache、CPU5 与官方相同，仍是微基准。
+官方 benchmark 在无 JIT 内联时测 helper 成本仍有效（官方原版 4.22x kernel，与下表 3.78x 一致）；
+其余七项操作走 helper、不被 DCE，数字有效。
+
+同轮三臂对照（[`consuming-official-vs-optimized-20261021`](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/uprobe/consuming-official-vs-optimized-20261021/README.md)；
+官方 = 未打补丁 `177a1dc`，与基线相同 LLVM 16 选项；优化 = `5466f0d`；6 轮中位数，ns/元素）：
+
+| 测试 | kernel | 官方原版 | 优化版 | 官方/kernel | 优化/kernel | 优化 vs 官方 |
+|---|---:|---:|---:|---:|---:|---:|
+| ordinary 全命中 | 5.77 | 21.81 | 3.10 | 3.78x | 0.54x | -85.8% |
+| ordinary 约半数 miss | 12.25 | 30.17 | 8.44 | 2.46x | 0.69x | -72.0% |
+| per-CPU 全命中 | 6.89 | 29.95 | 5.12 | 4.35x | 0.74x | -82.9% |
+| per-CPU 约半数 miss | 12.78 | 39.25 | 10.64 | 3.07x | 0.83x | -72.9% |
+| control_hit（无 map） | 3.76 | 1.61 | 1.60 | 0.43x | 0.42x | -1.1% |
+| control_mixed（无 map） | 9.30 | 2.52 | 2.50 | 0.27x | 0.27x | -0.7% |
+
+- 官方原版在此测试中明显慢于 kernel，因此“低于 kernel”不是测试偏向 bpftime 造成的。
+- control 部分官方与优化版相同，且约为 kernel 的 0.27–0.43x：差距和收益都在 lookup 路径；
+  但 raw 低于 kernel 有相当部分来自 map 以外代码的 LLVM 生成优势。
+- 扣除 control 的粗算（control 无 helper 调用、分支结构不同，仅作参考，不与 raw 混用）：
+  官方原版 lookup 约为 kernel 的 9–11x；优化版 ordinary 全命中约 0.75x、per-CPU 全命中约 1.13x、
+  两种约半数 miss 约 2.0–2.3x。**不能说“array lookup 本身快于 kernel”，miss 路径仍慢。**
+- 分层参考（ordinary 全命中，非同轮）：官方 21.8 → 仅 C++ 优化 7.9（10-19 POC）→ C++ + JIT 3.1 ns。
+
+### 4.2 结论与不足（对外表述口径）
+
+可表述为：在 Jetson ARM64 的 uprobe map 微基准中，优化是成功的——八项可比操作全部低于同轮 kernel；
+array lookup 在 consuming 测试中从官方的 2.5–4.4x kernel 降到整体低于 kernel，且正确性和可迁移性
+都经过验证。不足需同时写明：
+
+1. **评估覆盖不足**（未知，不是已知不行）：小 map、u32/u64、单线程、热 cache、CPU5 微基准；
+   更大 map、多线程、不同 key/value（仅 hash 在 8 月做过）、真实应用端到端均未测。
+2. **功能覆盖有限**（有意收窄）：JIT 只覆盖 constant-handle 的 ordinary/per-CPU array lookup；
+   其余 map/操作走已优化 C++ helper；direct map-value relocation、CALLX、CUDA、MPK、AOT、解释器保守回退。
+3. **已知性能缺口**：lookup miss 路径约 2x 慢于 kernel，per-CPU 全命中略慢（以上均为扣 control 粗算）。
+4. 工程层面：每日构建为 LLVM 15，性能实测为 LLVM 16；未提交上游审查；per-CPU 无 kernel 式禁抢占保证。
 
 ## 5. JIT 当前设计与不能破坏的边界
 
@@ -242,8 +290,10 @@ ExecMainStatus=0，查询时 inactive。后续希望迁到独立 Jetson，还没
    per-CPU hit 5.18 ns 0.76x、mixed 10.65 ns 0.83x）。**以后“上次”对照用这个目录**，
    新实验可复用其 `run-build.sh` / `run-consuming.py` / `run-full.sh`（有防覆盖假设，需新目录）。
    8da 工作区的未提交 hash 诊断改动不随迁移。新提交验收后按序追加到 `config.json` 补丁栈。
-6. 本轮性能目标已完成验证。若继续开发，先与用户确认是完善兼容边界、上游移植、独立测试机，
-   还是新性能研究；不要擅自扩大为全 map JIT 或修改 map 数据结构/语义。
+6. 本轮性能目标已完成验证。若继续开发，先与用户确认方向。按投入从小到大的候选：
+   (a) 分析并优化 array lookup miss 路径；(b) 扩大评估覆盖（大 map、多线程、key/value、真实应用，
+   只测不改）；(c) 扩大功能覆盖（更多 map 类型/relocation 形式，改动和风险最大）；
+   另有上游提交、独立测试机迁移。不要擅自扩大为全 map JIT 或修改 map 数据结构/语义。
 
 ## 9. 复现实验与构建易踩坑
 
