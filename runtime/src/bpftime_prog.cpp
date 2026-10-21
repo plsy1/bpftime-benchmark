@@ -230,6 +230,8 @@ int bpftime_prog::bind_array_maps(bpftime_shm &shm)
 	const bool standard_cpu = cpu != raw_helpers.end() &&
 		cpu->second == reinterpret_cast<void *>(bpftime_get_smp_processor_id);
 	std::set<int> fds;
+	// Global data: LDDW index -> (map FD, offset into element 0).
+	std::map<size_t, std::pair<int, uint32_t>> value_refs;
 	bool has_lookup = false;
 	for (size_t i = 0; i < insns.size(); ++i) {
 		const auto &inst = insns[i];
@@ -238,8 +240,11 @@ int bpftime_prog::bind_array_maps(bpftime_shm &shm)
 				return 0;
 			if (inst.src_reg == BPF_PSEUDO_MAP_FD && inst.imm >= 0)
 				fds.insert(inst.imm);
+			else if (inst.src_reg == BPF_PSEUDO_MAP_VALUE && inst.imm >= 0)
+				value_refs.emplace(i, std::make_pair(inst.imm,
+					static_cast<uint32_t>(insns[i + 1].imm)));
 			else if (inst.src_reg != 0)
-				return 0; // Direct map-value, index and other relocations.
+				return 0; // Index, BTF ID, function and other relocations.
 			++i;
 		} else if (inst.code == 0x8d) {
 			return 0; // Unknown indirect helper implementation.
@@ -272,6 +277,31 @@ int bpftime_prog::bind_array_maps(bpftime_shm &shm)
 			continue; // The existing array implementation uses 32-bit offsets.
 		bindings.emplace(fd, std::move(binding));
 	}
+	if (bindings.empty())
+		return 0;
+	// A bound program must never resolve global data through a reusable FD:
+	// own each map and address it like the kernel's direct value access
+	// (single-element ordinary array, offset inside the value). Anything else
+	// leaves the whole program on the original path.
+	std::map<int, std::shared_ptr<array_map_binding>> values;
+	std::map<size_t, uint64_t> value_addresses;
+	for (const auto &[index, ref] : value_refs) {
+		const auto [fd, offset] = ref;
+		auto &binding = values[fd];
+		if (!binding) {
+			auto shared = bindings.find(fd);
+			binding = shared != bindings.end() ? shared->second :
+				array_map_binding::acquire(memory, shm.get_manager(), fd, false);
+		}
+		if (!binding || binding->is_per_cpu() || binding->max_entries() != 1 ||
+		    offset >= binding->value_size())
+			return 0;
+		const uint32_t first = 0;
+		auto *base = static_cast<char *>(binding->lookup(&first));
+		if (!base)
+			return 0;
+		value_addresses.emplace(index, reinterpret_cast<uint64_t>(base + offset));
+	}
 	for (const auto &[fd, binding] : bindings) {
 		int result = ebpf_register_array_map_kind(vm, fd,
 			reinterpret_cast<uint64_t>(binding->raw_data()), sizeof(uint32_t),
@@ -280,15 +310,20 @@ int bpftime_prog::bind_array_maps(bpftime_shm &shm)
 		if (result < 0)
 			return result; // Abort this program load, never use a partial binding.
 	}
-	if (bindings.empty())
-		return 0;
 	for (int fd : fds)
 		if (!bindings.contains(fd))
 			unbound_map_handles.insert(fd);
 	bound_arrays = std::move(bindings);
+	for (auto &[fd, binding] : values)
+		bound_values.push_back(std::move(binding));
+	bound_value_addresses = std::move(value_addresses);
 	bound_mapping = std::move(memory);
 	bound_manager = shm.get_manager();
-	SPDLOG_INFO("[array-jit-inline] program={} retained {} maps", name, bound_arrays.size());
+	if (bound_values.empty())
+		SPDLOG_INFO("[array-jit-inline] program={} retained {} maps", name, bound_arrays.size());
+	else
+		SPDLOG_INFO("[array-jit-inline] program={} retained {} maps and {} global data maps",
+			name, bound_arrays.size(), bound_values.size());
 	return 0;
 }
 
@@ -407,8 +442,21 @@ int bpftime_prog::bpftime_prog_load(bool jit)
 	}
 
 	SPDLOG_DEBUG("Load insn cnt {}", insns.size());
-	res = ebpf_load(vm, insns.data(),
-			insns.size() * sizeof(struct ebpf_inst), &errmsg);
+	// Bound global data loads become plain 64-bit constants of the retained
+	// address, so no compile (eager or lazy) consults the FD table. The
+	// stored program keeps its original relocations.
+	std::vector<ebpf_inst> owned_insns;
+	if (!bound_value_addresses.empty()) {
+		owned_insns = insns;
+		for (const auto &[index, address] : bound_value_addresses) {
+			owned_insns[index].src_reg = 0;
+			owned_insns[index].imm = static_cast<int32_t>(address & UINT32_MAX);
+			owned_insns[index + 1].imm = static_cast<int32_t>(address >> 32);
+		}
+	}
+	const auto &load_insns = owned_insns.empty() ? insns : owned_insns;
+	res = ebpf_load(vm, load_insns.data(),
+			load_insns.size() * sizeof(struct ebpf_inst), &errmsg);
 	if (res < 0) {
 		SPDLOG_ERROR("Failed to load insn: {}", errmsg);
 		return res;

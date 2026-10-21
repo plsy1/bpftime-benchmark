@@ -186,9 +186,22 @@ kind is per map (explicit even when a per-CPU allocation has one CPU), and LLVM
 selects individual constant-handle lookup sites. Mixed ordinary/per-CPU arrays,
 hash maps, updates and unrelated helpers may coexist. Unknown handles and
 non-array calls retain the exact original helper. Never bypass custom or
-diagnostic helpers. Programs with direct map-value/unsupported relocations,
-CUDA, MPK or indirect helper calls remain on the original path. Interpreter
-and AOT do not acquire JIT bindings; bound programs still reject signal use.
+diagnostic helpers. Programs with map-index, BTF-ID, function or other
+unsupported LDDW relocations, CUDA, MPK or indirect helper calls remain on the
+original path. Interpreter and AOT do not acquire JIT bindings; bound programs
+still reject signal use.
+
+Direct map-value LDDWs (libbpf global data: .rodata/.data/.bss/.kconfig) no
+longer disqualify a program, but only on the kernel's terms: the target is a
+single-element ordinary array and the offset lies inside its value. Each such
+map is bound and owned exactly like an inlined lookup target, and the loaded
+copy of the program replaces the LDDW with a plain 64-bit constant of the
+retained element-0 address plus offset; the stored instructions keep their
+relocations. A bound program must never resolve global data through
+`map_val(fd)`, eagerly or through lazy compilation. Any other direct value
+target (multi-element, per-CPU, hash, out-of-range offset) keeps the whole
+program on the original path. Global data alone, without an array lookup to
+specialize, does not create a binding.
 
 Generated addresses must be owned, not cached from a reusable FD. Program
 bindings share the existing implementation reference count and retain the
