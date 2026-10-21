@@ -925,3 +925,144 @@ TEST_CASE("Bound programs dispatch non-array and dynamic handles to their origin
 	REQUIRE(*static_cast<const uint64_t *>(bpftime_map_lookup_elem(105, &key2)) == 77);
 	REQUIRE(bpftime_map_lookup_elem(105, &one) == nullptr);
 }
+
+namespace {
+// Stores the input value into hash[key], then sums the other map's value,
+// hash[key] and, with value_fd, the global u64 at offset 8.
+// Input: {u32 key, pad, u64 value}. A negative other_fd skips that lookup.
+std::vector<ebpf_inst> typed_selection_program(int hash_fd, int other_fd, int value_fd = -1)
+{
+	std::vector<ebpf_inst> code{
+		{0xbf,6,1,0,0}, {0xb7,7,0,0,0},
+		{0x18,1,BPF_PSEUDO_MAP_FD,0,hash_fd}, {0,0,0,0,0}, {0xbf,2,6,0,0}, {0xbf,3,6,0,0},
+		{0x07,3,0,0,8}, {0xb7,4,0,0,BPF_ANY}, {0x85,0,0,0,BPF_FUNC_map_update_elem},
+		{0x18,1,BPF_PSEUDO_MAP_FD,0,hash_fd}, {0,0,0,0,0}, {0xbf,2,6,0,0},
+		{0x85,0,0,0,BPF_FUNC_map_lookup_elem}, {0x15,0,0,2,0}, {0x79,0,0,0,0}, {0x0f,7,0,0,0},
+		{0xbf,0,7,0,0}, {0x95,0,0,0,0},
+	};
+	if (other_fd >= 0)
+		code.insert(code.begin() + 9, {{0x18,1,BPF_PSEUDO_MAP_FD,0,other_fd}, {0,0,0,0,0},
+			{0xbf,2,6,0,0}, {0x85,0,0,0,BPF_FUNC_map_lookup_elem}, {0x15,0,0,2,0},
+			{0x79,0,0,0,0}, {0x0f,7,0,0,0}});
+	if (value_fd >= 0)
+		code.insert(code.end() - 2, {{0x18,1,BPF_PSEUDO_MAP_VALUE,0,value_fd}, {0,0,0,0,8},
+			{0x79,1,1,0,0}, {0x0f,7,1,0,0}});
+	return code;
+}
+struct typed_selection {
+	captured_array_log logs;
+	bpf_attach_ctx ctx;
+	bpftime_prog *prog = nullptr;
+	typed_selection(const std::vector<ebpf_inst> &code, const char *name)
+	{
+		constexpr int prog_fd = 120;
+		REQUIRE(bpftime_progs_create(prog_fd, code.data(), code.size(), name,
+			(int)bpftime::bpf_prog_type::BPF_PROG_TYPE_KPROBE) == prog_fd);
+		runtime_config config;
+		config.set_vm_name("llvm"); config.jit_enabled = true;
+		config.enable_shm_maps_helper_group = true; config.enable_kernel_helper_group = true;
+		REQUIRE(ctx.init_attach_ctx_from_handlers(config) == 0);
+		prog = ctx.find_instantiated_prog(prog_fd);
+		REQUIRE(prog != nullptr);
+	}
+	bool logged(const std::string &text) const
+	{
+		return logs.messages.str().find(text) != std::string::npos;
+	}
+	uint64_t run(uint32_t key, uint64_t value)
+	{
+		struct {uint32_t key, pad; uint64_t value;} input{key, 0, value};
+		uint64_t result = 0;
+		REQUIRE(prog->bpftime_prog_exec(&input, sizeof(input), &result) == 0);
+		return result;
+	}
+};
+void create_hash(int fd, int type = BPF_MAP_TYPE_HASH)
+{
+	REQUIRE(bpftime_maps_create(fd, "typed_selection_hash", {.type = type,
+		.key_size = 4, .value_size = 8, .max_ents = 4}) == fd);
+}
+}
+
+TEST_CASE("Typed hash helpers serve hash maps next to arrays and global data",
+	"[array-jit-lifetime][typed-helper-selection]")
+{
+	isolated_shm fixture;
+	create_hash(105);
+	SECTION("hash only") {
+		typed_selection selected(typed_selection_program(105, -1), "typed_hash_only");
+		REQUIRE(selected.logged("Using specialized hash lookup helper for program typed_hash_only"));
+		REQUIRE(selected.logged("Using specialized hash update helper for program typed_hash_only"));
+		REQUIRE(selected.run(1, 500) == 500);
+	}
+	SECTION("hash with global data") {
+		create_global_data(103, 5, 1000);
+		typed_selection selected(typed_selection_program(105, -1, 103), "typed_hash_global");
+		REQUIRE(selected.logged("Using specialized hash lookup helper for program typed_hash_global"));
+		REQUIRE(selected.logged("Using specialized hash update helper for program typed_hash_global"));
+		REQUIRE(selected.run(1, 500) == 500 + 1000);
+	}
+	SECTION("hash with inlined array, global data and a tail call map") {
+		create_array(40);
+		create_global_data(103, 5, 1000);
+		REQUIRE(bpftime_maps_create(107, "typed_selection_progs", {
+			.type = BPF_MAP_TYPE_PROG_ARRAY, .key_size = 4, .value_size = 4,
+			.max_ents = 4}) == 107);
+		auto code = typed_selection_program(105, 100, 103);
+		// The tail call map is loaded but never passed to a map helper.
+		code.insert(code.begin(), {{0x18,0,BPF_PSEUDO_MAP_FD,0,107}, {0,0,0,0,0}});
+		typed_selection selected(code, "typed_hash_mixed");
+		REQUIRE(selected.logged("Using specialized hash lookup helper for program typed_hash_mixed"));
+		REQUIRE(selected.logged("Using specialized hash update helper for program typed_hash_mixed"));
+		REQUIRE(selected.logged("inlined 1 lookup sites"));
+		REQUIRE(selected.run(1, 500) == 40 + 500 + 1000);
+		REQUIRE(selected.run(9, 7) == 7 + 1000); // Array miss, hash insert.
+		uint32_t key = 1;
+		REQUIRE(*static_cast<const uint64_t *>(bpftime_map_lookup_elem(105, &key)) == 500);
+	}
+	SECTION("two hash kinds stay generic") {
+		create_hash(106, BPF_MAP_TYPE_PERCPU_HASH);
+		typed_selection selected(typed_selection_program(105, 106), "typed_two_hashes");
+		REQUIRE_FALSE(selected.logged("Using specialized"));
+		REQUIRE(selected.run(1, 500) == 500);
+	}
+	SECTION("other lookup map kinds stay generic") {
+		create_hash(108, BPF_MAP_TYPE_LRU_HASH);
+		typed_selection selected(typed_selection_program(105, 108), "typed_lru");
+		REQUIRE_FALSE(selected.logged("Using specialized"));
+		REQUIRE(selected.run(1, 500) == 500);
+	}
+}
+
+TEST_CASE("Typed hash helpers match the generic helper for other handles",
+	"[array-jit-lifetime][typed-helper-selection]")
+{
+	isolated_shm fixture;
+	create_array(40);
+	uint32_t key = 1, missing = 4;
+	uint64_t value = 6;
+	auto key_arg = reinterpret_cast<uint64_t>(&key);
+	auto value_arg = reinterpret_cast<uint64_t>(&value);
+	REQUIRE(bpftime_hash_map_lookup_elem_helper(100, key_arg, 0, 0, 0) ==
+		bpftime_map_lookup_elem_helper(100, key_arg, 0, 0, 0));
+	REQUIRE(bpftime_hash_map_update_elem_helper(100, key_arg, value_arg, BPF_ANY, 0) == 0);
+	REQUIRE(*static_cast<const uint64_t *>(bpftime_map_lookup_elem(100, &key)) == 6);
+	errno = 0;
+	REQUIRE(bpftime_hash_map_lookup_elem_helper(100, reinterpret_cast<uint64_t>(&missing), 0, 0, 0) == 0);
+	const int array_miss_errno = errno;
+	errno = 0;
+	REQUIRE(bpftime_map_lookup_elem_helper(100, reinterpret_cast<uint64_t>(&missing), 0, 0, 0) == 0);
+	REQUIRE(errno == array_miss_errno);
+	for (uint64_t fd : {uint64_t(99), uint64_t(1u << 30)}) {
+		errno = 0;
+		REQUIRE(bpftime_hash_map_lookup_elem_helper(fd, key_arg, 0, 0, 0) == 0);
+		REQUIRE(errno == ENOENT);
+		errno = 0;
+		REQUIRE(bpftime_map_lookup_elem_helper(fd, key_arg, 0, 0, 0) == 0);
+		REQUIRE(errno == ENOENT);
+		REQUIRE(bpftime_hash_map_update_elem_helper(fd, key_arg, value_arg, BPF_ANY, 0) ==
+			static_cast<uint64_t>(-1));
+		REQUIRE(bpftime_map_update_elem_helper(fd, key_arg, value_arg, BPF_ANY, 0) ==
+			static_cast<uint64_t>(-1));
+	}
+}
