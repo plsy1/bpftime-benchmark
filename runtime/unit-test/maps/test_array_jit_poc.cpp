@@ -11,14 +11,26 @@ uint8_t *storage;
 uint32_t width;
 uint32_t capacity;
 unsigned helper_calls;
+uint64_t selected_cpu;
+unsigned cpu_calls;
+bool advance_cpu;
+uint64_t counted_cpu(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
+{
+	++cpu_calls;
+	return advance_cpu ? selected_cpu++ : selected_cpu;
+}
 uint64_t last_helper_map;
 uint64_t counted_lookup(uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t)
 {
 	++helper_calls;
 	last_helper_map = map;
+	if (map != 7) {
+		errno = ENOENT;
+		return 0;
+	}
 	uint32_t index;
 	std::memcpy(&index, reinterpret_cast<void *>(key), sizeof(index));
-	if (map != 7 || index >= capacity) {
+	if (index >= capacity) {
 		errno = ENOENT;
 		return 0;
 	}
@@ -42,6 +54,42 @@ vm_ptr make_vm(bool dynamic_handle, uint32_t handle = 7)
 	REQUIRE(ebpf_load(vm.get(), code, sizeof(code), &error) == 0);
 	return vm;
 }
+}
+
+TEST_CASE("Per-map JIT kind distinguishes single-CPU storage from ordinary arrays",
+          "[array-jit-poc][array-jit-default]")
+{
+	std::vector<uint64_t> ordinary(4,11),percpu(4,22);
+	vm_ptr vm(ebpf_create("llvm"),ebpf_destroy);
+	REQUIRE(ebpf_register(vm.get(),1,"bpftime_bound_array_lookup_v2",(void *)counted_lookup)==0);
+	REQUIRE(ebpf_register(vm.get(),8,"bpf_get_smp_processor_id",(void *)counted_cpu)==0);
+	// Equal strides do not imply equal map kinds.
+	REQUIRE(ebpf_register_array_map_kind(vm.get(),7,(uint64_t)ordinary.data(),4,8,8,4,false)==0);
+	REQUIRE(ebpf_register_array_map_kind(vm.get(),8,(uint64_t)percpu.data(),4,8,8,4,true)==0);
+	ebpf_inst code[]={
+		{0xbf,6,1,0,0},{0xbf,2,6,0,0},{0xb7,1,0,0,7},{0x85,0,0,0,1},
+		{0x7b,6,0,8,0},{0xbf,2,6,0,0},{0xb7,1,0,0,8},
+		{0x85,0,0,0,1},{0x95,0,0,0,0},
+	};
+	char *error=nullptr;
+	REQUIRE(ebpf_load(vm.get(),code,sizeof(code),&error)==0);
+	auto fn=ebpf_compile(vm.get(),&error);
+	REQUIRE(fn!=nullptr);
+	struct {uint32_t key,padding; uint64_t ordinary;} input{2,0,0};
+	advance_cpu=false;
+	for (uint64_t cpu : {uint64_t(0),uint64_t(1),UINT64_MAX}) {
+		selected_cpu=cpu; cpu_calls=helper_calls=0; errno=EDOM;
+		auto result=fn(&input,sizeof(input));
+		REQUIRE(input.ordinary==(uint64_t)&ordinary[2]);
+		REQUIRE(cpu_calls==1);
+		if (cpu==0) {
+			REQUIRE(result==(uint64_t)&percpu[2]);
+			REQUIRE(helper_calls==0); REQUIRE(errno==EDOM);
+		} else {
+			REQUIRE(result==0); REQUIRE(helper_calls==1);
+			REQUIRE(last_helper_map==UINT64_MAX); REQUIRE(errno==ENOENT);
+		}
+	}
 }
 
 TEST_CASE("Array JIT bridge preserves success, miss errno and live storage",
@@ -136,4 +184,102 @@ TEST_CASE("Array JIT leaves dynamic and unregistered handles on helper path",
 	REQUIRE(ebpf_register_array_map(llvm.get(),7,0,4,8,8,4)==-EINVAL);
 	REQUIRE(ebpf_register_array_map(llvm.get(),7,(uint64_t)storage,8,8,8,4)==-EINVAL);
 	REQUIRE(ebpf_register_array_map(llvm.get(),7,(uint64_t)storage,4,8,8,0)==-EINVAL);
+}
+
+TEST_CASE("Per-CPU array JIT selects CPU per lookup with bounds and arbitrary widths",
+          "[array-jit-poc][percpu-array-jit]")
+{
+	capacity = 4;
+	advance_cpu = false;
+	for (unsigned cpus : {1U,3U,12U}) {
+		for (unsigned bytes : {1U,3U,8U,24U,257U}) {
+			width = bytes;
+			std::vector<uint8_t> backing(capacity * cpus * width);
+			storage = backing.data();
+			vm_ptr vm(ebpf_create("llvm"), ebpf_destroy);
+			REQUIRE(ebpf_register(vm.get(),1,"bpftime_bound_percpu_array_lookup_v1",(void *)counted_lookup)==0);
+			REQUIRE(ebpf_register(vm.get(),8,"bpf_get_smp_processor_id",(void *)counted_cpu)==0);
+			ebpf_inst code[]={{0xbf,2,1,0,0},{0xb7,1,0,0,7},
+				{0x85,0,0,0,1},{0x95,0,0,0,0}};
+			char *error = nullptr;
+			REQUIRE(ebpf_load(vm.get(),code,sizeof(code),&error)==0);
+			REQUIRE(ebpf_register_array_map(vm.get(),7,(uint64_t)storage,4,width,width*cpus,capacity)==0);
+			auto fn=ebpf_compile(vm.get(),&error);
+			REQUIRE(fn!=nullptr);
+			for (uint64_t cpu : {uint64_t(0),uint64_t(cpus-1),uint64_t(cpus),UINT64_MAX}) {
+				selected_cpu=cpu;
+				for (uint32_t key : {0U,3U,4U,UINT32_MAX}) {
+					helper_calls=cpu_calls=0; errno=EDOM;
+					uint8_t input[8]{};
+					std::memcpy(input+1,&key,4);
+					auto result=fn(input+1,4);
+					REQUIRE(cpu_calls==(key<capacity ? 1U : 0U));
+					if (key<capacity && cpu<cpus) {
+						REQUIRE(result==(uint64_t)(storage+(key*cpus+cpu)*width));
+						REQUIRE(helper_calls==0);
+						REQUIRE(errno==EDOM);
+					} else {
+						REQUIRE(result==0);
+						REQUIRE(helper_calls==1);
+						REQUIRE(last_helper_map==UINT64_MAX);
+						REQUIRE(errno==ENOENT);
+					}
+				}
+			}
+			helper_calls=cpu_calls=0; errno=EDOM;
+			REQUIRE(fn(nullptr,0)==0);
+			REQUIRE(helper_calls==1);
+			REQUIRE(last_helper_map==UINT64_MAX);
+			REQUIRE(cpu_calls==0);
+			REQUIRE(errno==ENOENT);
+		}
+	}
+}
+
+TEST_CASE("Per-CPU array JIT does not hoist CPU selection within an invocation",
+          "[array-jit-poc][percpu-array-jit]")
+{
+	std::vector<uint64_t> backing{11,22,33};
+	storage=(uint8_t *)backing.data(); width=8; capacity=1;
+	vm_ptr vm(ebpf_create("llvm"),ebpf_destroy);
+	REQUIRE(ebpf_register(vm.get(),1,"bpftime_bound_percpu_array_lookup_v1",(void *)counted_lookup)==0);
+	REQUIRE(ebpf_register(vm.get(),8,"bpf_get_smp_processor_id",(void *)counted_cpu)==0);
+	// r6 keeps key, r7 keeps first value; the two calls must select different CPUs.
+	ebpf_inst code[]={{0xbf,6,1,0,0},{0xbf,2,6,0,0},{0xb7,1,0,0,7},
+		{0x85,0,0,0,1},{0x79,7,0,0,0},{0xbf,2,6,0,0},{0xb7,1,0,0,7},
+		{0x85,0,0,0,1},{0x79,0,0,0,0},{0x0f,0,7,0,0},{0x95,0,0,0,0}};
+	char *error=nullptr;
+	REQUIRE(ebpf_load(vm.get(),code,sizeof(code),&error)==0);
+	REQUIRE(ebpf_register_array_map(vm.get(),7,(uint64_t)storage,4,8,24,1)==0);
+	auto fn=ebpf_compile(vm.get(),&error);
+	REQUIRE(fn!=nullptr);
+	uint32_t key=0; selected_cpu=0; advance_cpu=true; cpu_calls=helper_calls=0;
+	auto result=fn(&key,4);
+	advance_cpu=false;
+	REQUIRE(result==33);
+	REQUIRE(cpu_calls==2);
+	REQUIRE(helper_calls==0);
+}
+
+TEST_CASE("Per-CPU array JIT requires the marked CPU helper contract",
+          "[array-jit-poc][percpu-array-jit]")
+{
+	std::vector<uint64_t> backing(12,42);
+	storage=(uint8_t *)backing.data(); width=8; capacity=4;
+	for (bool missing : {true,false}) {
+		vm_ptr vm(ebpf_create("llvm"),ebpf_destroy);
+		REQUIRE(ebpf_register(vm.get(),1,"bpftime_bound_percpu_array_lookup_v1",(void *)counted_lookup)==0);
+		if (!missing)
+			REQUIRE(ebpf_register(vm.get(),8,"custom_cpu",(void *)counted_cpu)==0);
+		ebpf_inst code[]={{0xbf,2,1,0,0},{0xb7,1,0,0,7},{0x85,0,0,0,1},{0x95,0,0,0,0}};
+		char *error=nullptr;
+		REQUIRE(ebpf_load(vm.get(),code,sizeof(code),&error)==0);
+		REQUIRE(ebpf_register_array_map(vm.get(),7,(uint64_t)storage,4,8,24,4)==0);
+		auto fn=ebpf_compile(vm.get(),&error);
+		REQUIRE(fn!=nullptr);
+		uint32_t key=1; helper_calls=cpu_calls=0;
+		REQUIRE(fn(&key,4)==(uint64_t)&backing[1]);
+		REQUIRE(helper_calls==1);
+		REQUIRE(cpu_calls==0);
+	}
 }

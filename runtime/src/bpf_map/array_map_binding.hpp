@@ -8,6 +8,7 @@
 #include <memory>
 #include <atomic>
 #include <cstdint>
+#include <optional>
 
 namespace bpftime {
 namespace detail {
@@ -42,7 +43,46 @@ public:
 	array_map_binding &operator=(const array_map_binding &) = delete;
 	static std::shared_ptr<array_map_binding> acquire(
 		std::shared_ptr<boost::interprocess::managed_shared_memory> memory,
-		const handler_manager *manager, int fd);
+		const handler_manager *manager, int fd, std::optional<bool> per_cpu = false);
+	bool is_per_cpu() const
+	{
+		return handler->type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY;
+	}
+	per_cpu_array_map_impl *percpu_implementation() const
+	{
+		return static_cast<per_cpu_array_map_impl *>(handler->map_impl_ptr.get());
+	}
+	uint32_t value_size() const
+	{
+		return is_per_cpu() ? percpu_implementation()->get_value_size() : implementation()->get_value_size();
+	}
+	uint32_t max_entries() const
+	{
+		return is_per_cpu() ? percpu_implementation()->get_max_entries() : implementation()->get_max_entries();
+	}
+	uint32_t cpu_count() const
+	{
+		return is_per_cpu() ? percpu_implementation()->get_cpu_count() : 1;
+	}
+	void *raw_data() const
+	{
+		return is_per_cpu() ? percpu_implementation()->get_raw_data() : implementation()->get_raw_data();
+	}
+	void *lookup(const void *key) const
+	{
+		return is_per_cpu() ? percpu_implementation()->lookup_bound(key) : implementation()->elem_lookup(key);
+	}
+	long update(const void *key, const void *value, uint64_t flags) const
+	{
+		return handler->map_update_elem(key, value, flags, false);
+	}
+	long erase(const void *key) const
+	{
+		// Bindings own only these array implementations. Keep their erase
+		// path independent of the generic all-map delete dispatcher.
+		return is_per_cpu() ? percpu_implementation()->elem_delete(key) :
+			implementation()->elem_delete(key);
+	}
 	array_map_impl *implementation() const
 	{
 		return *handler->try_get_array_map_impl();

@@ -85,7 +85,8 @@ class bpftime_vm_impl {
 	// storage alive until the compiled program is destroyed.
 	virtual int register_array_map(uint64_t handle, uint64_t value_base,
 				       uint32_t key_size, uint32_t value_size,
-				       uint32_t stride, uint32_t max_entries)
+				       uint32_t stride, uint32_t max_entries,
+				       bool per_cpu = false)
 	{
 		return -ENOTSUP;
 	}

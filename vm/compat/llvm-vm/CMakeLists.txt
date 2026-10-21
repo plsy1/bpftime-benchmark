@@ -43,3 +43,46 @@ endif()
 list(REMOVE_AT BPFTIME_LLVM_SOURCES ${BPFTIME_LLVM_SOURCE_INDEX})
 list(APPEND BPFTIME_LLVM_SOURCES "${BPFTIME_ARRAY_JIT_SOURCE}")
 set_property(TARGET llvmbpf_vm PROPERTY SOURCES "${BPFTIME_LLVM_SOURCES}")
+target_include_directories(llvmbpf_vm PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include")
+
+# Add explicit per-map kind without editing the upstream submodule. All
+# parent-linked native VM consumers must see the same descriptor definition.
+set(BPFTIME_ARRAY_DESCRIPTOR_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/array-map-descriptor.patch")
+set(BPFTIME_ARRAY_DESCRIPTOR_INCLUDE "${CMAKE_CURRENT_BINARY_DIR}/array-inline-include")
+file(MAKE_DIRECTORY "${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${BPFTIME_ARRAY_DESCRIPTOR_PATCH}" "${BPFTIME_LLVM_SOURCE_DIR}/include/llvmbpf.hpp")
+execute_process(
+  COMMAND "${BPFTIME_PATCH_EXECUTABLE}" --batch --fuzz=0
+    "--output=${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}/llvmbpf.hpp.tmp"
+    "${BPFTIME_LLVM_SOURCE_DIR}/include/llvmbpf.hpp" "${BPFTIME_ARRAY_DESCRIPTOR_PATCH}"
+  RESULT_VARIABLE BPFTIME_ARRAY_DESCRIPTOR_RESULT
+  OUTPUT_VARIABLE BPFTIME_ARRAY_DESCRIPTOR_OUTPUT
+  ERROR_VARIABLE BPFTIME_ARRAY_DESCRIPTOR_ERROR)
+if(NOT BPFTIME_ARRAY_DESCRIPTOR_RESULT EQUAL 0)
+  message(FATAL_ERROR "Array descriptor patch conflicts with upstream llvmbpf.\n${BPFTIME_ARRAY_DESCRIPTOR_OUTPUT}\n${BPFTIME_ARRAY_DESCRIPTOR_ERROR}")
+endif()
+configure_file("${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}/llvmbpf.hpp.tmp"
+  "${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}/llvmbpf.hpp" COPYONLY)
+file(REMOVE "${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}/llvmbpf.hpp.tmp")
+target_include_directories(llvmbpf_vm BEFORE PUBLIC "${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}")
+target_include_directories(bpftime_llvm_vm_obj BEFORE PRIVATE "${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}")
+
+# Native CLI/examples/tests can specify the upstream include directory before
+# transitive includes. Prepend explicitly for every native consumer as well;
+# otherwise an aggregate descriptor would have inconsistent sizes across TUs.
+function(bpftime_array_descriptor_includes directory)
+  get_property(array_targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+  foreach(array_target IN LISTS array_targets)
+    get_target_property(array_target_type "${array_target}" TYPE)
+    if(NOT array_target_type STREQUAL "UTILITY" AND
+       NOT array_target_type STREQUAL "INTERFACE_LIBRARY")
+      target_include_directories("${array_target}" BEFORE PRIVATE "${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}")
+    endif()
+  endforeach()
+  get_property(array_subdirs DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+  foreach(array_subdir IN LISTS array_subdirs)
+    bpftime_array_descriptor_includes("${array_subdir}")
+  endforeach()
+endfunction()
+bpftime_array_descriptor_includes("${BPFTIME_LLVM_SOURCE_DIR}")
