@@ -12,6 +12,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <set>
 #include <memory>
 #include <cerrno>
 #include <boost/interprocess/managed_shared_memory.hpp>
@@ -53,7 +54,7 @@ class bpftime_prog {
 			      uint64_t *return_val) const;
 
 	int bpftime_prog_register_raw_helper(struct bpftime_helper_info info);
-	// Requested by the runtime loader, never enabled globally or for AOT.
+	// Compatibility entry point; eligible LLVM JIT lookups are now automatic.
 	int request_array_map_inlining()
 	{
 		if (program_loaded || raw_helpers.contains(1))
@@ -95,13 +96,17 @@ class bpftime_prog {
     private:
 	friend struct array_jit_execution_scope;
 	int bind_array_maps(bpftime_shm &shm);
-	bool array_jit_requested = false;
+	bool array_jit_requested = true;
 	bool array_jit_failed = false;
 	std::map<uint64_t, std::shared_ptr<array_map_binding>> bound_arrays;
+	std::set<uint64_t> unbound_map_handles;
 	std::shared_ptr<boost::interprocess::managed_shared_memory> bound_mapping;
 	const handler_manager *bound_manager = nullptr;
 	std::map<unsigned, void *> raw_helpers;
 	void *pending_array_lookup = nullptr;
+	std::string pending_lookup_name;
+	std::map<unsigned, std::pair<std::string, void *>> pending_map_mutations;
+	int register_pending_map_helpers();
 	int bpftime_prog_set_insn(struct ebpf_inst *insn, size_t insn_cnt);
 	std::string name;
 	// vm at the first element
