@@ -1,23 +1,93 @@
 --- a/llvm_jit_context.cpp
 +++ b/llvm_jit_context.cpp
-@@ -403,6 +403,7 @@
+@@ -16,6 +16,23 @@
+ #include <iostream>
+ #include <sstream>
+ 
++#include "bpftime_array_cpu_query.hpp"
++#if defined(__GNUC__) || defined(__clang__)
++extern "C" bool bpftime_resolve_array_cpu_query_v1(
++	void *, bpftime_array_cpu_query_hooks *) __attribute__((weak));
++#endif
++static bpftime_array_cpu_query_hooks resolve_array_cpu_query(void *registered)
++{
++	bpftime_array_cpu_query_hooks hooks{};
++#if defined(__GNUC__) || defined(__clang__)
++	if (bpftime_resolve_array_cpu_query_v1 &&
++	    bpftime_resolve_array_cpu_query_v1(registered, &hooks) &&
++	    hooks.read_cpu && hooks.on_error)
++		return hooks;
++#endif
++	return {};
++}
++
+ #include <llvm/ExecutionEngine/MCJIT.h>
+ #include <llvm/ExecutionEngine/ObjectCache.h>
+ #include <llvm/IR/IRPrintingPasses.h>
+@@ -403,6 +420,30 @@
  	}
  
++	// Never mark this CPU call pure or cache it across lookups.
++	const bool legacy_per_cpu = vm.ext_funcs[1] &&
++		vm.ext_funcs[1]->name == "bpftime_bound_percpu_array_lookup_v1";
++	bool has_per_cpu = legacy_per_cpu;
++	for (const auto &entry : vm.array_maps)
++		has_per_cpu |= entry.second.per_cpu;
++	const bool cpu_contract = vm.ext_funcs[8] &&
++		vm.ext_funcs[8]->name == "bpf_get_smp_processor_id";
++	auto *cpu_helper = has_per_cpu && cpu_contract ? module.getFunction(ext_func_sym(8)) : nullptr;
++	if (has_per_cpu && cpu_contract && !cpu_helper)
++		cpu_helper = llvm::Function::Create(helperFunc->getFunctionType(),
++			llvm::Function::ExternalLinkage, ext_func_sym(8), module);
++	const auto cpu_hooks = has_per_cpu && cpu_contract ? resolve_array_cpu_query(vm.ext_funcs[8]->fn) :
++		bpftime_array_cpu_query_hooks{};
++	llvm::Function *raw_cpu = nullptr, *cpu_error = nullptr;
++	if (cpu_hooks.read_cpu) {
++		raw_cpu = llvm::Function::Create(llvm::FunctionType::get(
++			llvm::Type::getInt32Ty(module.getContext()), false),
++			llvm::Function::ExternalLinkage, "__bpftime_array_cpu_raw_v1", module);
++		cpu_error = llvm::Function::Create(llvm::FunctionType::get(
++			llvm::Type::getInt64Ty(module.getContext()), false),
++			llvm::Function::ExternalLinkage, "__bpftime_array_cpu_error_v1", module);
++	}
  	bool changed = false;
 +	size_t inlined_sites = 0;
  	for (auto *call : callSites) {
  		auto *mapHandle =
  			llvm::dyn_cast<llvm::ConstantInt>(call->getArgOperand(0));
-@@ -441,7 +442,7 @@
+@@ -422,6 +465,9 @@
+ 		}
+ 
+ 		const auto &map = mapIter->second;
++		const bool per_cpu = map.per_cpu || legacy_per_cpu;
++		if (per_cpu && !cpu_contract)
++			continue;
+ 		if (map.key_size != sizeof(uint32_t) || map.max_entries == 0) {
+ 			continue;
+ 		}
+@@ -437,4 +483,8 @@
+ 		llvm::IRBuilder<> builder(call);
++		auto *null_prefix = call->getParent();
++		null_prefix->splitBasicBlock(call, "array_lookup.key");
++		null_prefix->getTerminator()->eraseFromParent();
++		builder.SetInsertPoint(call);
+ 		auto *keyPtr = builder.CreateIntToPtr(
+ 			call->getArgOperand(1),
+ 			llvm::PointerType::getUnqual(builder.getInt32Ty()),
+@@ -441,10 +487,10 @@
  			"array_lookup.key_ptr");
  		auto *index = builder.CreateLoad(builder.getInt32Ty(), keyPtr,
  						 "array_lookup.index");
 -		index->setAlignment(llvm::Align(4));
 +		index->setAlignment(llvm::Align(1));
- 		auto *inRange = builder.CreateICmpULT(
+-		auto *inRange = builder.CreateICmpULT(
++		llvm::Value *inRange = builder.CreateICmpULT(
  			index, builder.getInt32(map.max_entries),
  			"array_lookup.in_range");
-@@ -461,17 +462,35 @@
+ 		llvm::Value *offset = builder.CreateZExt(
+ 			index, builder.getInt64Ty(), "array_lookup.index64");
+ 		if (is_power_of_two_u32(stride)) {
+@@ -461,17 +511,77 @@
  		}
  		auto *address = builder.CreateAdd(
  			builder.getInt64(valueBase), offset, "array_lookup.addr");
@@ -26,7 +96,9 @@
 +		// Only the pinned standard runtime helper promises this ENOENT path.
 +		// Leave standalone/custom helpers and their map arguments unchanged.
 +		if (vm.ext_funcs[1] &&
-+		    vm.ext_funcs[1]->name == "bpftime_bound_array_lookup_v1")
++		    (vm.ext_funcs[1]->name == "bpftime_bound_array_lookup_v1" ||
++		     vm.ext_funcs[1]->name == "bpftime_bound_array_lookup_v2" ||
++		     legacy_per_cpu))
 +			call->setArgOperand(0, builder.getInt64(UINT64_MAX));
 +		// Preserve the registered helper's failure behavior, including errno.
 +		// Only successful lookups use the inlined address computation.
@@ -36,9 +108,49 @@
 +		auto *fast = llvm::BasicBlock::Create(module.getContext(),
 +			"array_lookup.fast", prefix->getParent(), slow);
 +		prefix->getTerminator()->eraseFromParent();
++		if (null_prefix) {
++			llvm::IRBuilder<> key_check(null_prefix);
++			key_check.CreateCondBr(key_check.CreateICmpNE(call->getArgOperand(1),
++				key_check.getInt64(0)), prefix, slow);
++		}
 +		llvm::IRBuilder<> choose(prefix);
-+		choose.CreateCondBr(inRange, fast, slow);
++		auto *cpu_select = per_cpu ? llvm::BasicBlock::Create(module.getContext(),
++			"array_lookup.select_cpu", prefix->getParent(), fast) : fast;
++		choose.CreateCondBr(inRange, cpu_select, slow);
 +		llvm::IRBuilder<> fast_builder(fast);
++		if (per_cpu) {
++			if (!map.value_size || stride % map.value_size)
++				throw std::runtime_error("Invalid per-CPU array stride");
++			llvm::IRBuilder<> cpu_builder(cpu_select);
++			llvm::Value *cpu;
++			if (raw_cpu) {
++				auto *raw = cpu_builder.CreateCall(raw_cpu, {}, "array_lookup.raw_cpu");
++				auto *normal = cpu_builder.CreateSExt(raw, cpu_builder.getInt64Ty());
++				auto *failure = llvm::BasicBlock::Create(module.getContext(),
++					"array_lookup.cpu_error", prefix->getParent(), fast);
++				auto *checked = llvm::BasicBlock::Create(module.getContext(),
++					"array_lookup.cpu_checked", prefix->getParent(), fast);
++				cpu_builder.CreateCondBr(cpu_builder.CreateICmpEQ(raw,
++					cpu_builder.getInt32(-1)), failure, checked);
++				llvm::IRBuilder<> error_builder(failure);
++				auto *fallback = error_builder.CreateCall(cpu_error, {});
++				error_builder.CreateBr(checked);
++				cpu_builder.SetInsertPoint(checked);
++				auto *selected = cpu_builder.CreatePHI(cpu_builder.getInt64Ty(), 2);
++				selected->addIncoming(normal, cpu_select);
++				selected->addIncoming(fallback, failure);
++				cpu = selected;
++			} else {
++				auto *zero = cpu_builder.getInt64(0);
++				cpu = cpu_builder.CreateCall(cpu_helper, {zero,zero,zero,zero,zero},
++					"array_lookup.current_cpu");
++			}
++			auto *valid_cpu = cpu_builder.CreateICmpULT(cpu,
++				cpu_builder.getInt64(stride / map.value_size));
++			cpu_builder.CreateCondBr(valid_cpu, fast, slow);
++			auto *cpu_offset = fast_builder.CreateMul(cpu, fast_builder.getInt64(map.value_size));
++			address = fast_builder.CreateAdd(address, cpu_offset, "array_lookup.cpu_addr");
++		}
 +		fast_builder.CreateBr(merge);
 +		llvm::IRBuilder<> merge_builder(&*merge->begin());
 +		auto *result = merge_builder.CreatePHI(builder.getInt64Ty(), 2,
@@ -58,3 +170,31 @@
  	}
  	return changed;
  }
+@@ -791,5 +901,27 @@
+ 		}
+ 	}
++	if (vm.ext_funcs[1] &&
++	    (vm.ext_funcs[1]->name == "bpftime_bound_percpu_array_lookup_v1" ||
++	     vm.ext_funcs[1]->name == "bpftime_bound_array_lookup_v2") &&
++	    vm.ext_funcs[8] && vm.ext_funcs[8]->fn &&
++	    vm.ext_funcs[8]->name == "bpf_get_smp_processor_id") {
++		const auto hooks = resolve_array_cpu_query(vm.ext_funcs[8]->fn);
++		if (hooks.read_cpu) {
++			auto define_cpu_symbol = [&](const char *name, void *fn) {
++				auto symbol = JITEvaluatedSymbol::fromPointer(fn);
++				symbol.setFlags(JITSymbolFlags::Callable | JITSymbolFlags::Exported);
++				auto key = jit->getExecutionSession().intern(name);
++#if LLVM_VERSION_MAJOR < 17
++				extSymbols.try_emplace(key, symbol);
++#else
++				extSymbols.try_emplace(key, llvm::orc::ExecutorSymbolDef(
++					llvm::orc::ExecutorAddr(symbol.getAddress()), symbol.getFlags()));
++#endif
++			};
++			define_cpu_symbol("__bpftime_array_cpu_raw_v1", (void *)hooks.read_cpu);
++			define_cpu_symbol("__bpftime_array_cpu_error_v1", (void *)hooks.on_error);
++		}
++	}
+ #if defined(__arm__) || defined(_M_ARM)
+ 	SPDLOG_INFO("Defining __aeabi_unwind_cpp_pr1 on arm32");
+ 	extSymbols.try_emplace(

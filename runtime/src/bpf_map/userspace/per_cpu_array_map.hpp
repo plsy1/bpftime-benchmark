@@ -32,6 +32,26 @@ class per_cpu_array_map_impl {
 
     public:
 	const static bool should_lock = false;
+	uint8_t *get_raw_data() { return data.data(); }
+	uint32_t get_value_size() const { return value_size; }
+	uint32_t get_max_entries() const { return max_ent; }
+	uint32_t get_cpu_count() const { return ncpu > 0 ? ncpu : 0; }
+	// JIT bindings use the canonical implementation dimensions, not FD attrs.
+	void *lookup_bound(const void *key)
+	{
+		const int cpu = my_sched_getcpu();
+		uint32_t index;
+		if (!key || cpu < 0 || cpu >= ncpu) {
+			errno = ENOENT;
+			return nullptr;
+		}
+		__builtin_memcpy(&index, key, sizeof(index));
+		if (index >= max_ent) {
+			errno = ENOENT;
+			return nullptr;
+		}
+		return data_at(index, cpu);
+	}
 
 	per_cpu_array_map_impl(
 		boost::interprocess::managed_shared_memory &memory,
