@@ -1,9 +1,10 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-21 19:27 JST 左右。以下分支、进程和文件状态均为本机快照；
-后续模型行动前需重新核实。用户随后要求推送本轮优化，源码已提交并推送为
-`c0939bdf8e3ece38f56d964cac3d333468b8bf23`；每日自动化没有更新。
+最后核对：2026-10-21 20:30 JST 左右。以下分支、进程和文件状态均为本机快照；
+后续模型行动前需重新核实。本轮优化源码已推送为 `c0939bd`；随后修复一个被实验
+过滤器漏掉的测试（`2eea622`，只改测试），并把三者加入每日补丁栈（`a5a5235`），
+均已推送。详见第 7 节。
 
 ## 1. 先读结论
 
@@ -18,8 +19,11 @@
 - 默认化改动曾使 ordinary hash delete 从 37.06 升到 43.69 ns；根因已定位，
   修复已落在正式工作区，完整十轮恢复为 36.64 ns，没有发现其他明显回退。
 - 正确性、配对短测、完整十轮、默认内联生效审计均已结束并通过。
-  **本轮 per-CPU JIT、默认化/泛化及 delete 修复源码已提交并推送为 `c0939bd`，
-  但尚未加入每日补丁栈。**
+  但实验自选的测试过滤器比每日过滤器窄，漏跑了上游用例
+  `Hash maps with colliding public names remain independent`；集成每日补丁栈时
+  发现它在 JIT 代码上失败，已由只改测试的 `2eea622` 修复（见第 7 节）。
+  **本轮 per-CPU JIT、默认化/泛化及 delete 修复源码为 `c0939bd`，连同 `9ffbffb`、
+  `2eea622` 已加入每日补丁栈并推送。**
   接力文档发布在 `summry/jetson`，选定结果发布在 `benchmark-results/jetson`；
   本机完整源码归档、构建产物和中间实验不在本次发布范围。
 - 当前没有本轮 benchmark 在跑；tmux 中遗留的 shell / tail 窗口不代表实验仍在运行。
@@ -30,7 +34,8 @@
 |---|---|
 | 当前正式源码 | `/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate` |
 | 正式源码分支 | `codex/uprobe-official-8da867d541f8` |
-| 已提交并推送 HEAD | `c0939bdf8e3ece38f56d964cac3d333468b8bf23`，默认 ordinary/per-CPU array JIT + delete 修复 |
+| 已提交并推送 HEAD | `2eea622f97688b82a5c39402f631e79b5eb538f8`，map-name 用例适配 binding mutex（只改测试） |
+| 本轮实测源码提交 | `c0939bdf8e3ece38f56d964cac3d333468b8bf23`，默认 ordinary/per-CPU array JIT + delete 修复 |
 | 独立热构建源码 | `/home/jetson/src/bpftime-percpu-array-jit-20261020` |
 | 热构建目录 | 上述目录中的 `build-jit` |
 | 每日脚本工作区 | `/home/jetson/src/bpftime-jetson-daily`，`automation/jetson-daily` |
@@ -43,6 +48,8 @@
 `9ffbffb` 是本轮改动的父提交（ordinary opt-in JIT）。最新源码提交
 [`c0939bd`](https://github.com/plsy1/bpftime-benchmark/commit/c0939bdf8e3ece38f56d964cac3d333468b8bf23)
 已在 GitHub 的同名优化分支；其 35 个归档源码文件精确匹配实测版本。
+其后的 `2eea622` 只改 `runtime/unit-test/maps/test_shm_hash_maps.cpp`，
+不影响实测运行时源码和性能结果。
 工作区仍有无关 hash workload 诊断改动，未带入此提交，不是遗漏本轮优化。
 
 正式工作区、热构建源码的 35 个归档文件均已核对最新 `source-sha256.json`，无差异。
@@ -58,7 +65,7 @@ LLVM 子模块 `vm/llvm-jit` 干净，SHA 为
 | 检查 | 结果 / 证据 |
 |---|---|
 | 构建 | `build-exit-status.txt = 0` |
-| Map / JIT / lifetime 正确性 | `tests.log`：42 cases / 110422 assertions |
+| Map / JIT / lifetime 正确性 | `tests.log`：42 cases / 110422 assertions（过滤器未含 `[maps][map_name]`，见第 7 节） |
 | Host-process contract | `host-contract.log`：18 cases / 201 assertions |
 | 默认行为 | `default-tests.log`：5 cases / 138 assertions |
 | 原始完整 workload 短 A/B | 12 个 AB/BA 配对，24 个 fresh processes；`short-exit-status.txt = 0` |
@@ -165,7 +172,7 @@ GCC 13 + LTO 改变内联决策，使普通 hash delete 虽不走 array JIT 也�
 `hash-delete-investigation`，以及新 R 的 `native-comparison.json` 和反汇编。
 旧 default 目录冻结的 source/artifacts 是发生回退的版本，不能为“统一”而覆盖。
 
-## 7. 每日自动化：已搭建，但尚未包含最新 JIT
+## 7. 每日自动化：补丁栈已包含默认 array JIT
 
 入口是 `/home/jetson/src/bpftime-jetson-daily/tools/jetson-upstream/`，不是 automation/ 或 scripts/。
 维护 official-latest 镜像；SHA 变化后构建官方、跑十轮并归档，再在单独 worktree
@@ -173,8 +180,36 @@ GCC 13 + LTO 改变内联决策，使普通 hash delete 虽不走 array JIT 也�
 
 `official-latest` 只能跟踪官方，不加本地优化提交；`automation/jetson-daily` 保存脚本和配置；
 `codex/uprobe-official-<SHA>` 是对应上游快照的优化分支。
-当前 config 的补丁栈只到 `fefe2f6edf27`，连已提交 ordinary JIT `9ffbffb` 也尚未加入。
-**不能声称每日任务已经自动重放当前全部 JIT 功能。**
+
+2026-10-21 起 config（`automation/jetson-daily` 的 `a5a5235`，已推送）补丁栈共 41 个提交，
+即 `8da867d541f8..2eea622` 按序全部提交：在 `fefe2f6` 之后新增 `9ffbffb`（ordinary JIT）、
+`c0939bd`（默认 ordinary/per-CPU JIT + delete 修复）、`2eea622`（测试修复）。
+测试 filter 新增 `[array-jit-lifetime]`、`[array-jit-poc]`、`[array-offset-branch]`
+和 host-contract 一组（`[allocation]`、`[maps][map_in_map]`、runtime_config、external maps、
+Select Frida*）。README 已同步。
+
+集成验证（[结果目录](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/uprobe/daily-jit-stack-validation-20261021)）：在官方 `177a1dc` 的独立 detached worktree 中重放、
+用 `tracker.py build`（GCC 13 / LLVM 15 / LTO）构建并跑同一 filter：
+
+| 轮次 | 结果 |
+|---|---|
+| 第 1 轮（38 + 9ffbffb + c0939bd） | 40/40 无冲突；LLVM 15 构建成功、全部 JIT 用例通过；48 cases 中 1 个失败 |
+| 失败原因 | `9ffbffb` 令 `set_handler`/`clear_*` 取 `map_binding_mutex`，首次调用惰性创建一个 segment 级命名对象。`bpftime_shm` 构造时已创建，但上游用例 `Hash maps with colliding public names remain independent`（`[maps][map_name]`）直接构造裸 segment，命名对象数 1→2。JIT 前候选通过，LLVM 16 热构建同样失败，与 LLVM 版本无关 |
+| 修复 | `2eea622` 让用例在取基线前创建该 mutex，与生产初始化顺序一致；只改测试，不影响性能结果 |
+| 第 2 轮（41 个提交） | 41/41 无冲突，候选 `0fb1fd5`；候选 66 cases / 128293 assertions、官方 26 cases / 17913 assertions 全部通过 |
+
+**为何之前没发现**：各 JIT 实验的 `run-build.sh` 使用手选 filter，不含 `[maps][map_name]` 等每日 filter 用例；
+全量套件因官方 `Test attach replace with ebpf` 在本机 SIGSEGV 不可用；JIT 此前从未进入每日补丁栈。
+**今后对维护栈的实验至少跑完整每日 filter，再加实验专属标签。**
+
+注意：
+- 每日任务只在官方 SHA 变化时迁移；本地已有的 `codex/uprobe-official-177a1dc465ff`
+  （10-19 生成，37 个提交，不含 `fefe2f6` 和 JIT）不会自动更新，不能把它当作当前栈。
+  集成验证 worktree `worktrees/177a1dc465ff/jit-stack-validation{,-2}` 为 detached，未建分支、未推送。
+- 每日构建用 LLVM 15，JIT 性能实测是 LLVM 16 热构建；两者正确性已验证，但每日 candidate 不跑 benchmark，
+  不能拿每日结果代表 JIT 性能。
+- llvmbpf overlay patch 冲突会让 CMake 配置失败，需要人工处理，不能视作偶发失败。
+
 user timer 在每天 03:30 附近运行（有随机延迟、persistent）；最近 service Result=success、
 ExecMainStatus=0，查询时 inactive。后续希望迁到独立 Jetson，还没迁移。
 本机共享 CPU/SHM，跑手工实验前需检查是否与定时服务重叠，不要擅自停用或改动定时任务。
@@ -184,13 +219,15 @@ ExecMainStatus=0，查询时 inactive。后续希望迁到独立 Jetson，还没
 1. 先读本文件和正式源码 CLAUDE.md，核对 git status / HEAD、最新结果退出码和实际日志。
    本次测试已结束，不要无理由再跑 25 分钟。需要重新构建才生成新结果目录。
 2. 本轮源码已在 `c0939bd` 提交并推送，共 24 个变更文件，包括 per-CPU JIT、direct CPU query、
-   默认泛化、delete 修复、新 header/overlay 和正确性测试；不要把它重复当作待提交工作。
-   新机器复现应取此提交并初始化子模块，核对 source manifest 和原实验 toolchain。
+   默认泛化、delete 修复、新 header/overlay 和正确性测试；随后的 `2eea622` 为测试修复，同样已推送。
+   不要把它们重复当作待提交工作。新机器复现应取 `2eea622` 并初始化子模块，
+   核对 source manifest 和原实验 toolchain。
 3. 保留无关诊断修改：`benchmark/uprobe/Makefile`、`compare_runtime_builds.py`、
    `hash_workload_sweep.bpf.c`、未跟踪 `hash_candidate_screen.py` / `hash_distribution_validation.py`
    不能未经审查一并提交或清理。结果工作区也有大量历史未提交内容。
-4. 源码、接力文档和选定结果已同步；自动化没有改动。后续获得对应指令后，才更新补丁栈，
-   纳入 LLVM overlay、generated header、测试 filter 和 toolchain 兼容验证，再迁移到新上游。
+4. 源码、自动化补丁栈、接力文档和选定结果均已同步。补丁栈已在 177a1dc 上验证可重放；
+   下次官方 SHA 变化时由定时任务自动迁移。若 cherry-pick 或 overlay patch 冲突，
+   按 README 在保留的 candidate worktree 中人工解决，再更新补丁栈。
 5. 本轮性能目标已完成验证。若继续开发，先与用户确认是完善兼容边界、上游移植、独立测试机，
    还是新性能研究；不要擅自扩大为全 map JIT 或修改 map 数据结构/语义。
 
