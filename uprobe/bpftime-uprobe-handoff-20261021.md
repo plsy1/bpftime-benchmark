@@ -1,10 +1,60 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-21 23:50 JST 左右。以下分支、进程和文件状态均为本机快照；
-后续模型行动前需重新核实。本轮优化源码已推送为 `c0939bd`；随后修复一个被实验
-过滤器漏掉的测试（`2eea622`，只改测试），并把三者加入每日补丁栈（`a5a5235`），
-均已推送。详见第 7 节。
+最后核对：2026-10-22 00:15 JST 左右。以下分支、进程和文件状态均为本机快照；
+后续模型行动前需重新核实。**新会话先读第 0 节**，再按需读其余章节。
+
+## 0. 接力点（2026-10-22 00:15，新会话从这里继续）
+
+**当前任务**：修 hash lookup 在真实程序形态下的两处差距（第 2 条已修、第 1 条待做），
+然后正式验证并加入每日补丁栈。详细记录：本机
+`/home/jetson/src/results/uprobe/hash-helper-fixes-20261022/README.md`（含第 1 条的具体规则）。
+
+| 项 | 状态 |
+|---|---|
+| 开发 worktree | `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，分支 `codex/uprobe-official-177a1dc465ff`，工作区干净 |
+| 本地 HEAD | `baf0cc85`（第 2 条修复）——**只在本地，未推送、未正式验证** |
+| 远端 HEAD | `f24dc9bf`（`bdd9835` 全局变量支持 + `f24dc9b` hash 变体诊断） |
+| 每日补丁栈 | `automation/jetson-daily` `8cd91f4`，42 个提交，止于 `bdd9835`；`f24dc9b`、`baf0cc85` 未加入 |
+| 开发构建 | 开发 worktree 内 `build-jit`（LLVM 16，与基线同选项），增量构建可用 |
+| 最新基线 | `5466f0d`：`results/uprobe/baseline-177a1dc-jit-llvm16-20261021`；全局变量版 `bdd9835`：`array-jit-global-data-20261021`（已发布） |
+| 未发布结果 | `results/uprobe/hash-lookup-helper-gap-20261021`、`hash-helper-fixes-20261022`（本机） |
+| 运行中实验 | 无；tmux 里都是已结束的会话 |
+
+**hash 差距**（自设计 consuming hash workload：1024 项填满、随机 key；`run-gap.py`，6 轮交替，
+kernel 与 bpftime 同轮；ns/元素）：
+
+| 程序形态 | helper | 全命中 bpftime/kernel | 约半数 miss |
+|---|---|---:|---:|
+| 只有 hash | typed hash | 37.7/31.9 = 1.18x | 360/42 = 8.6x |
+| hash + 全局变量 | 通用 | 56.6 → 55.8（修 2 后） | 9.3x |
+| hash + array（被 JIT 绑定） | 通用 + 绑定作用域 | 76.8 → **61.1**（修 2 后，-20.5%） | 9.9x → 9.5x |
+
+1. **第 2 条（已修，`baf0cc85`）**：array JIT 绑定的程序里，每次未内联的 map 调用（hash 的
+   lookup/update/delete）原先要经过两次树查找和一次 helper 表查找（约 20 ns），源自
+   `9ffbffb`/`c0939bd`，`bdd9835` 让更多程序（如 libbpf-tools 的 hash + per-CPU array + 全局变量）
+   进入绑定状态，扩大了影响。改为按 FD 索引的平表 + 缓存原 helper；新增测试 `[array-jit-dispatch]`；
+   开发版完整每日 filter 70 cases / 128455 assertions 通过。剩约 5 ns（TLS 作用域 + 间接调用），
+   彻底去掉需改 llvmbpf overlay，属可选项。
+2. **第 1 条（下一步，未开始）**：`bpf_attach_ctx.cpp` 的 `uses_only_maps_of_type_for_helper`
+   只在所有 map 同类型且无全局变量时才选 typed helper，否则通用 helper，约 +19 ns。已核实所有 typed
+   helper 都会运行时检查类型并退回与通用路径相同的 `handler->map_lookup_elem/map_update_elem(...,false)`，
+   放宽选择不改变行为。计划规则见上述 README；保留现有日志字符串（`run-gap.py` 依赖），
+   并更新其 v2/v3 断言。预期 v2/v3 全命中接近 v1。
+3. **第 3 条（需用户决定，未动）**：`bpftime_hash_map` 是线性探测开放寻址，桶数仅
+   `next_prime(max_entries)`；表满时负载约 99%，miss 要探测到稀少的空桶，8.6–9.9x kernel；
+   全命中在满表下也 1.18x。官方同结构；修复属于改 map 数据结构，接力规则要求先与用户确认。
+
+**之后的步骤**：两条修完后按 `array-jit-global-data-20261021/formal` 的流程正式验证
+（干净 worktree、LLVM 16 基线选项、完整每日 filter、consuming standard+globals、hash gap、
+完整十轮，有异常再做 AB/BA 短测），再做 LLVM 15 每日栈重放（round 4），把 `f24dc9b`、
+`baf0cc85`、第 1 条提交加入 `config.json`，推送并发布结果、更新本文档。
+
+**本会话教训**（已体现在流程中）：
+- 实验自选测试过滤器会漏测；对维护栈的改动至少跑完整每日 filter。
+- 写脚本时 SHA 必须从 `git rev-parse` 取完整值，不要凭印象补全后缀（本会话两次因此出错）。
+- 原 benchmark 只测单一类型 map 和已存在的 key；评估新优化时要覆盖混合 map 类型、全局变量和 miss。
+- 正式构建期间不要编辑被构建的工作区；测量用冻结产物。
 
 ## 1. 先读结论
 
@@ -38,7 +88,7 @@
 | 用途 | 本机路径 / 分支 |
 |---|---|
 | **后续开发源码** | `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate` |
-| **后续开发分支** | `codex/uprobe-official-177a1dc465ff`，HEAD `f24dc9b`（官方 177a1dc + 补丁栈 42 个 + 诊断 `f24dc9b`，已推送）；`5466f0d` 为基线，`bdd9835` 为全局变量支持 |
+| **后续开发分支** | `codex/uprobe-official-177a1dc465ff`：远端 `f24dc9b`（官方 177a1dc + 补丁栈 42 个 + 诊断 `f24dc9b`）；本地多一个未推送的 `baf0cc85`（见第 0 节）；`5466f0d` 为基线，`bdd9835` 为全局变量支持 |
 | 本轮实测源码（冻结） | `/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate` |
 | 本轮实测分支（冻结） | `codex/uprobe-official-8da867d541f8` |
 | 已提交并推送 HEAD | `2eea622f97688b82a5c39402f631e79b5eb538f8`，map-name 用例适配 binding mutex（只改测试） |
@@ -322,9 +372,7 @@ ExecMainStatus=0，查询时 inactive。后续希望迁到独立 Jetson，还没
    per-CPU hit 5.18 ns 0.76x、mixed 10.65 ns 0.83x）。**以后“上次”对照用这个目录**，
    新实验可复用其 `run-build.sh` / `run-consuming.py` / `run-full.sh`（有防覆盖假设，需新目录）。
    8da 工作区的未提交 hash 诊断改动不随迁移。新提交验收后按序追加到 `config.json` 补丁栈。
-6. 若继续开发，先与用户确认方向。当前进行中：测量 hash lookup 在 typed helper（全 hash 程序）、
-   通用 helper（加全局变量）与绑定程序（hash + array 混合）三种情形下的差距
-   （`/home/jetson/src/results/uprobe/hash-lookup-helper-gap-20261021`）。普查显示真实程序 93% 是 hash，
+6. 当前进行中的工作见第 0 节（hash 差距第 2 条已修、第 1 条待做、第 3 条待用户决定）。普查显示真实程序 93% 是 hash，
    array miss 路径在真实程序中少见，优先级已下调。其他候选：扩大评估覆盖（大 map、多线程、真实应用）、
    上游提交、独立测试机迁移。不要擅自扩大为全 map JIT 或修改 map 数据结构/语义。
 
