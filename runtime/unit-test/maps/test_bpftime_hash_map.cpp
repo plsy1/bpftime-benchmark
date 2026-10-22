@@ -89,11 +89,13 @@ TEST_CASE("bpftime_hash_map basic operations", "[bpftime_hash_map]")
 
 	SECTION("Delete preserves a colliding probe chain")
 	{
-		// With the 11-bucket table used by this fixture, these integer keys
-		// hash to the same initial bucket on little-endian platforms.
+		// With the 23-bucket table used by this fixture (twice the
+		// capacity, next prime), these integer keys hash to the same initial
+		// bucket on little-endian platforms.
+		REQUIRE(map.bucket_count() == 23);
 		int key1 = 1;
-		int key2 = 12;
-		int key3 = 23;
+		int key2 = 24;
+		int key3 = 47;
 		int64_t value1 = 101;
 		int64_t value2 = 112;
 		int64_t value3 = 123;
@@ -186,4 +188,82 @@ TEST_CASE("bpftime_hash_map basic operations", "[bpftime_hash_map]")
 		REQUIRE(map.elem_lookup(&key2) != nullptr);
 		REQUIRE(*(int64_t *)map.elem_lookup(&key2) == value2);
 	}
+}
+
+TEST_CASE("bpftime_hash_map matches a reference map under churn",
+	  "[bpftime_hash_map]")
+{
+	shared_memory_object::remove("bpftime_hash_map_churn_test");
+	managed_shared_memory segment(create_only, "bpftime_hash_map_churn_test",
+				      1 << 20);
+	constexpr size_t capacity = 64;
+	bpftime_hash_map map(segment, capacity, sizeof(uint32_t), sizeof(uint64_t));
+	REQUIRE(map.bucket_count() == 131);
+	std::map<uint32_t, uint64_t> reference;
+	std::mt19937 rng(12345);
+	// Keys collide often (few distinct values) and the table stays near
+	// capacity, so deletes leave runs of deleted buckets behind.
+	std::uniform_int_distribution<uint32_t> pick_key(0, 255);
+	std::uniform_int_distribution<int> pick_op(0, 2);
+	for (int step = 0; step < 50000; ++step) {
+		uint32_t key = pick_key(rng);
+		uint64_t value = step;
+		switch (pick_op(rng)) {
+		case 0: {
+			const bool present = reference.count(key) != 0;
+			const bool inserted = map.elem_update(&key, &value);
+			REQUIRE(inserted == (present || reference.size() < capacity));
+			if (inserted)
+				reference[key] = value;
+			break;
+		}
+		case 1:
+			REQUIRE(map.elem_delete(&key) == (reference.erase(key) == 1));
+			break;
+		default: {
+			auto *found = static_cast<uint64_t *>(map.elem_lookup(&key));
+			auto it = reference.find(key);
+			REQUIRE((found != nullptr) == (it != reference.end()));
+			if (found)
+				REQUIRE(*found == it->second);
+		}
+		}
+		REQUIRE(map.get_elem_count() == reference.size());
+	}
+	for (uint32_t key = 0; key < 256; ++key) {
+		auto *found = static_cast<uint64_t *>(map.elem_lookup(&key));
+		REQUIRE((found != nullptr) == (reference.count(key) != 0));
+	}
+	shared_memory_object::remove("bpftime_hash_map_churn_test");
+}
+
+TEST_CASE("bpftime_hash_map keeps value pointers of live keys stable",
+	  "[bpftime_hash_map]")
+{
+	shared_memory_object::remove("bpftime_hash_map_pointer_test");
+	managed_shared_memory segment(create_only, "bpftime_hash_map_pointer_test",
+				      1 << 20);
+	bpftime_hash_map map(segment, 16, sizeof(uint32_t), sizeof(uint64_t));
+	uint32_t kept = 7;
+	uint64_t kept_value = 700;
+	REQUIRE(map.elem_update(&kept, &kept_value));
+	auto *pointer = map.elem_lookup(&kept);
+	REQUIRE(pointer != nullptr);
+	// Deleting other keys, including ones in the same probe run, must not
+	// move the live key: BPF programs keep using returned value pointers.
+	for (uint32_t round = 0; round < 200; ++round) {
+		for (uint32_t i = 0; i < 15; ++i) {
+			uint32_t key = 1000 + round * 15 + i;
+			uint64_t value = key;
+			REQUIRE(map.elem_update(&key, &value));
+		}
+		for (uint32_t i = 0; i < 15; ++i) {
+			uint32_t key = 1000 + round * 15 + i;
+			REQUIRE(map.elem_delete(&key));
+		}
+		REQUIRE(map.elem_lookup(&kept) == pointer);
+		REQUIRE(*static_cast<uint64_t *>(pointer) == kept_value);
+	}
+	REQUIRE(map.get_elem_count() == 1);
+	shared_memory_object::remove("bpftime_hash_map_pointer_test");
 }
