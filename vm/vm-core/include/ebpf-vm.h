@@ -129,6 +129,10 @@ int ebpf_register_array_map_kind(struct ebpf_vm *vm, uint64_t handle,
 	uint64_t value_base, uint32_t key_size, uint32_t value_size,
 	uint32_t stride, uint32_t max_entries, bool per_cpu);
 
+/* Optional: calls with this constant map handle use the original helpers
+ * registered at the private slots of bpftime_direct_map_helpers.hpp. */
+int ebpf_register_direct_map_handle(struct ebpf_vm *vm, uint64_t handle);
+
 /**
  * @brief Load code into a VM.
  * This must be done before calling ebpf_exec or ebpf_compile and after

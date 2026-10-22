@@ -67,6 +67,13 @@ extern "C" int ebpf_register_array_map_kind(struct ebpf_vm *vm, uint64_t handle,
 		value_size, stride, max_entries, per_cpu);
 }
 
+extern "C" int ebpf_register_direct_map_handle(struct ebpf_vm *vm, uint64_t handle)
+{
+	if (!vm || !vm->vm_instance)
+		return -EINVAL;
+	return vm->vm_instance->register_direct_map_handle(handle);
+}
+
 extern "C" void ebpf_unload_code(struct ebpf_vm *vm)
 {
 	vm->vm_instance->unload_code();
