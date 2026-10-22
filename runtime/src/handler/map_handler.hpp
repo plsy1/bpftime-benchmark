@@ -224,6 +224,7 @@ class bpf_map_handler {
 			     uint64_t flags) const;
 	long map_update_percpu_hash(const void *key, const void *value,
 				    uint64_t flags) const;
+	long map_delete_hash(const void *key) const;
 	// * BPF_MAP_DELETE_ELEM
 	// *	Description
 	// *		Look up and delete an element by key in a specified map.
