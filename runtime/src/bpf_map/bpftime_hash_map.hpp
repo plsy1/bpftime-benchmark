@@ -136,6 +136,37 @@ class bpftime_hash_map {
 		return nullptr;
 	}
 
+	void note_filled(size_t distance)
+	{
+		if (distance < TRACKED_DISPLACEMENTS) {
+			_displacement_counts[distance]++;
+		} else {
+			_far_count++;
+			if (distance > _far_max)
+				_far_max = distance;
+		}
+		if (distance > _max_displacement)
+			_max_displacement = distance;
+	}
+
+	void note_released(size_t distance)
+	{
+		if (distance < TRACKED_DISPLACEMENTS)
+			_displacement_counts[distance]--;
+		else if (--_far_count == 0)
+			_far_max = 0;
+		if (_far_count != 0) {
+			_max_displacement = _far_max;
+			return;
+		}
+		size_t bound = _max_displacement < TRACKED_DISPLACEMENTS ?
+				       _max_displacement :
+				       TRACKED_DISPLACEMENTS - 1;
+		while (bound > 0 && _displacement_counts[bound] == 0)
+			bound--;
+		_max_displacement = bound;
+	}
+
 	// A deleted bucket followed by an empty one lies on no filled bucket's
 	// probe sequence, so it and the deleted run before it become empty.
 	// Filled buckets never move: lookups hand out value pointers.
@@ -158,7 +189,15 @@ class bpftime_hash_map {
 				   // original num_buckets
 	size_t _count; // Current number of elements
 	size_t _max_displacement; // Largest distance of a filled bucket from
-				  // its home bucket since creation
+				  // its home bucket (see note_filled)
+	// Filled buckets per exact distance from the home bucket, so the probe
+	// bound shrinks again when far elements are deleted. Distances from
+	// TRACKED_DISPLACEMENTS on are only counted; while any remain, the bound
+	// stays at the largest such distance seen.
+	static constexpr size_t TRACKED_DISPLACEMENTS = 64;
+	uint32_t _displacement_counts[TRACKED_DISPLACEMENTS] = {};
+	size_t _far_count = 0;
+	size_t _far_max = 0;
 
 	// The data is stored in a contiguous memory region.
 	// The layout of elem is:
@@ -289,8 +328,7 @@ class bpftime_hash_map {
 		std::memcpy(get_value(free_slot), value, _value_size);
 		set_filled(free_slot);
 		_count++;
-		if (free_distance > _max_displacement)
-			_max_displacement = free_distance;
+		note_filled(free_distance);
 		return true;
 	}
 
@@ -307,6 +345,7 @@ class bpftime_hash_map {
 			    keys_equal(get_key(index), key)) {
 				set_deleted(index);
 				_count--;
+				note_released(probe);
 				release_deleted_run(index);
 				return true;
 			}
@@ -319,6 +358,11 @@ class bpftime_hash_map {
 	size_t bucket_count() const
 	{
 		return _num_buckets;
+	}
+
+	size_t max_displacement() const
+	{
+		return _max_displacement;
 	}
 
 	size_t get_elem_count() const
