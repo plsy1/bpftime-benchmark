@@ -10,6 +10,7 @@
 #include "bpftime_internal.h"
 #include "bpftime_vm_compat.hpp"
 #include "ebpf-vm.h"
+#include "bpftime_direct_map_helpers.hpp"
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
 #include "nvPTXCompiler.h"
 #endif
@@ -20,6 +21,7 @@
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <tuple>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include "bpftime_vm_compat.hpp"
@@ -345,6 +347,22 @@ int bpftime_prog::bind_array_maps(bpftime_shm &shm)
 	for (const auto &[index, slot] : original_helpers)
 		if (auto helper = raw_helpers.find(index); helper != raw_helpers.end())
 			*slot = helper->second;
+	// Constant handles of non-array maps call the original helpers directly
+	// from JIT code; array, dynamic and canonicalized handles keep the
+	// dispatcher. Same target as the dispatcher's fallback for these FDs.
+	const std::tuple<unsigned, void *, const char *> direct_helpers[] = {
+		{BPFTIME_DIRECT_MAP_LOOKUP_SLOT, raw_lookup, BPFTIME_DIRECT_MAP_LOOKUP_NAME},
+		{BPFTIME_DIRECT_MAP_UPDATE_SLOT, raw_update, BPFTIME_DIRECT_MAP_UPDATE_NAME},
+		{BPFTIME_DIRECT_MAP_DELETE_SLOT, raw_erase, BPFTIME_DIRECT_MAP_DELETE_NAME}};
+	if (!unbound_map_handles.empty()) {
+		for (const auto &[slot, fn, helper_name] : direct_helpers)
+			if (fn)
+				if (int result = ebpf_register(vm, slot, helper_name, fn); result < 0)
+					return result;
+		for (uint64_t fd : unbound_map_handles)
+			if (int result = ebpf_register_direct_map_handle(vm, fd); result < 0)
+				return result;
+	}
 	for (auto &[fd, binding] : values)
 		bound_values.push_back(std::move(binding));
 	bound_value_addresses = std::move(value_addresses);

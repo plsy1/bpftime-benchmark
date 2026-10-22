@@ -37,6 +37,12 @@ class bpftime_llvm_vm : public bpftime::llvmbpf_vm,
 			bpftime::array_map_descriptor{handle, value_base, key_size,
 				value_size, stride, max_entries, per_cpu});
 	}
+	int register_direct_map_handle(uint64_t handle) override
+	{
+		bpftime::array_map_descriptor map{handle, 0, sizeof(uint32_t), 1, 1, 1};
+		map.direct_helpers = true;
+		return bpftime::llvmbpf_vm::register_array_map(map);
+	}
 	void unload_code() override;
 	int exec(void *mem, size_t mem_len,
 		 uint64_t &bpf_return_value) override;
