@@ -151,17 +151,20 @@ class bpftime_hash_map {
 
 	void note_released(size_t distance)
 	{
-		if (distance < TRACKED_DISPLACEMENTS)
-			_displacement_counts[distance]--;
-		else if (--_far_count == 0)
+		size_t bound;
+		if (distance < TRACKED_DISPLACEMENTS) {
+			// Common case: the bound only changes when the last element
+			// at the current largest distance goes away.
+			if (--_displacement_counts[distance] != 0 ||
+			    distance != _max_displacement)
+				return;
+			bound = distance;
+		} else {
+			if (--_far_count != 0)
+				return; // The bound stays at _far_max.
 			_far_max = 0;
-		if (_far_count != 0) {
-			_max_displacement = _far_max;
-			return;
+			bound = TRACKED_DISPLACEMENTS - 1;
 		}
-		size_t bound = _max_displacement < TRACKED_DISPLACEMENTS ?
-				       _max_displacement :
-				       TRACKED_DISPLACEMENTS - 1;
 		while (bound > 0 && _displacement_counts[bound] == 0)
 			bound--;
 		_max_displacement = bound;
