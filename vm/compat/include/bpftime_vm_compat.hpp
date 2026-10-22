@@ -91,6 +91,14 @@ class bpftime_vm_impl {
 		return -ENOTSUP;
 	}
 
+	// Optional: helper calls with this constant handle may call the original
+	// helpers registered at the private slots of bpftime_direct_map_helpers.hpp
+	// instead of the helpers in slots 1-3.
+	virtual int register_direct_map_handle(uint64_t handle)
+	{
+		return -ENOTSUP;
+	}
+
 	/**
 	 * @brief Load code into the vm
 	 *
