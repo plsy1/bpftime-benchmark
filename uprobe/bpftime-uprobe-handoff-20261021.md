@@ -1,74 +1,59 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-22 15:55 JST 左右。以下分支、进程和文件状态均为本机快照；
+最后核对：2026-10-22 17:45 JST 左右。以下分支、进程和文件状态均为本机快照；
 后续模型行动前需重新核实。**新会话先读第 0 节**，再按需读其余章节。
 
-## 0. 现状一页（2026-10-22 15:55 JST，新会话从这里继续）
+## 0. 现状一页（2026-10-22 17:45 JST，新会话从这里继续）
 
 **目标**：继续优化 `codex/uprobe-official-177a1dc465ff`（开发 worktree
-`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`）。
-加入每日补丁栈先不做，攒几轮优化后再统一加入（用户决定）。下一步做什么由用户定，一次只做一件事。
+`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`）。补丁栈攒几轮再加；推送前问用户。
 
-### 0.1 改了什么（源码只有 2 个新提交，都只在本地、未推送）
+### 0.1 改了什么（源码 4 个新提交，已推送：远端 `f26cc335`）
 
-| 提交 | 改动位置 | 内容 |
+| 提交 | 改动 | 效果（相对同轮 kernel） |
 |---|---|---|
-| `baf0cc85` | `runtime/src/bpftime_prog.cpp` 等 | 被 array JIT 绑定的程序里，没被内联的 map 调用（hash lookup/update/delete、动态句柄）原先每次要查两棵树和 helper 表；改为按 FD 下标的平表并缓存原 helper。新测试 `[array-jit-dispatch]` |
-| `c3090b59` | `runtime/src/attach/bpf_attach_ctx.cpp` | 加载时选择专用（typed）lookup/update helper 的规则放宽：忽略全局变量和 prog/perf/stack/ringbuf map；单一 array/hash 类型，或若干 array + 恰好一种 hash，用专用 helper；其他情况仍用通用 helper。专用 helper 遇到别的 map 类型会退回通用路径，所以只影响速度。新测试 `[typed-helper-selection]` |
+| `baf0cc85` | 被 array JIT 绑定的程序里，非内联 map 调用改为按 FD 平表分派 | hash + array 程序 lookup 2.41x → 1.95x |
+| `c3090b59` | 放宽 typed helper 选择（全局变量、事件类 map、array + 一种 hash 都用专用 helper） | hash + 全局变量 1.78x → 1.19x |
+| `1cb20807` | **改 hash 数据结构**：桶数 `next_prime(2×max_entries)`（内存翻倍）、删除时回收以空桶结尾的墓碑段、按最大偏移距离限制探测；已有元素从不移动 | 满表 miss 19x → 0.94x；插删后半满表 miss 78x → 1.6x；随机命中 1.17x → 0.77x |
+| `f26cc335` | 绑定程序里常量非 array 句柄的 lookup/update/delete 直接调用原 helper（overlay + 私有 helper 槽 `bpftime_direct_map_helpers.hpp`） | hash + array 程序与只有 hash 的程序一样快（lookup 0.98x → 0.82x，update/delete 约 -16%） |
 
-分支其余状态：远端 `f24dc9bf`（含 hash 版诊断 workload），每日补丁栈停在 `bdd9835`。
-**没有改**：官方 benchmark、hash map 数据结构、补丁栈、`benchmark.py`。
+另：每日 `config.json` 已追加这 4 个提交和诊断提交 `f24dc9b`（共 47 个）并补 README，`automation/jetson-daily` `2f003c19` 已推送。
+LLVM 15 重放验证通过（`results/uprobe/daily-jit-stack-validation-20261021/round4-hash-fixes`：47/47 无冲突，树与 `f26cc335` 相同，候选 74 cases、官方 26 cases 通过）。
 
-### 0.2 测了什么
+### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`）
 
-| 测量 | 方法 | 结果目录（`/home/jetson/src/results/uprobe/`） |
-|---|---|---|
-| 回归测试 | 每日任务 `config.json` 的 `test_filter` 清单（全量套件因官方用例段错误不可用）+ 新测试 | `hash-helper-fixes-20261022/dev2-selection/tests.log`：72 cases / 128538 assertions 通过 |
-| 各版本 hash lookup 对比 | 自设计 consuming 测试的 hash 版：1024 项填满、随机 key、读出 value 校验；三种程序：只有 hash / hash + 全局变量 / hash + array 结果 map。kernel 与 6 个版本同轮交替 6 轮 | `hash-gap-history-20261022/README.md` |
-| 官方十项回归 | 完整十轮，只跑 bpftime（kernel 未改，不再跑；倍率借用 `5466f0d` 那轮 kernel） | `hash-helper-fixes-20261022/full10-c3090b59/full10/comparison.md` |
-| 异常项复核 | 基线 `5466f0d` 对 `c3090b59` 的 20 轮 AB/BA 配对短测，再比对机器码 | `hash-helper-fixes-20261022/full10-c3090b59/README.md` |
+| 目录 | 内容 |
+|---|---|
+| `hash-gap-history-20261022` | 6 个版本同轮：三种程序（只有 hash / + 全局变量 / + array）的 hash lookup |
+| `hash-shape-20261022` | 自写诊断 workload：顺序/随机 key、是否用返回值、填充 1024/1000/512、插删后；拆分官方 0.95x 与自设计 ~1.2x 的差别 |
+| `hash-mutate-20261022` | 三种程序里的 hash update、delete+insert，4 个版本同轮 |
+| `hash-helper-fixes-20261022`、`hash-probe-bound-20261022`、`direct-map-helpers-20261022` | 每个提交的回归测试、同轮 A/B、只跑 bpftime 的完整十轮（`full10-*`）、配对短测 |
+| `direct-map-helpers-20261022/layout-check` | 代码布局验证（全函数 64 字节对齐对照构建） |
 
 ### 0.3 结论
 
-hash lookup，相对同轮 kernel（全命中 / 约半数 key 不存在）：
+1. 官方 hash lookup 0.95x 与自设计 ~1.2x 的差别几乎全来自 **key 顺序**（顺序 27 ns、随机 37 ns）；是否使用返回值、1000/1024 填充对命中无影响。
+2. miss 慢是数据结构问题，`1cb20807` 后所有形态的 hash lookup（命中、约半数 miss、纯 miss）都低于或接近 kernel；只有插删后的半满表纯 miss 仍 1.6x（内部墓碑要等复用）。
+3. hash update/delete 在三种程序里都远低于 kernel（`f26cc335`：0.31–0.35x）。
+4. 官方十项（`f26cc335`，只跑 bpftime，对基线 `5466f0d`）：hash lookup -10%、hash update -14%、hash delete +1.5%（删除多检查一个桶）、其余 map 项 ±1%。
+5. **代码布局效应**：uprobe + uretprobe 在 `f26cc335` 慢 10.6%（20/20 配对），per-CPU array update 自 `c3090b59` 起 +1%，probe write 偶发 ~4850 ns 慢档。只改函数布局（同源码、全函数 64 字节对齐）这三项都消失，证实是布局而非逻辑；但全函数对齐让 uprobe 慢 6.5%，不采用。本机无 `perf`，热点未定位。
+6. 已知语义问题（官方即如此，未改）：`fix_size_hash_map_impl` 的 update 忽略 `BPF_NOEXIST/BPF_EXIST` 并在表满时仍返回 0，delete 对不存在的 key 也返回 0。
 
-| 版本 | 只有 hash | hash + 全局变量 | hash + array |
-|---|---:|---:|---:|
-| 官方原版 `177a1dc` | 2.06x / 22.7x | 2.06x / 22.6x | 2.06x / 22.5x |
-| C++ 优化、JIT 未开（`9ffbffb`） | 1.17x / 8.60x | 1.78x / 9.37x | 1.78x / 9.34x |
-| JIT 默认开启并允许混用（`5466f0d`） | 1.20x / 8.62x | 1.79x / 9.32x | **2.41x / 9.81x** |
-| 全局变量支持（`bdd9835`） | 1.19x / 8.62x | 1.80x / 9.38x | 2.41x / 9.83x |
-| 现在（`c3090b59`） | 1.20x / 8.60x | **1.20x / 8.57x** | **1.39x / 8.70x** |
+### 0.4 没做的事（候选）
 
-1. JIT 默认开启并允许混用 map（`c0939bd`）使 hash + array 程序的 hash lookup 变慢（1.78x → 2.41x）；
-   两个提交后降到 1.39x，好于回退前。剩余约 6 ns 是绑定程序的线程局部作用域 + 间接调用，去掉需改 llvmbpf overlay。
-2. 带全局变量的程序现在和只有 hash 的程序一样（1.20x）。
-3. 官方十项无回退：除下一条外均在基线 ±1% 内（hash update 的 33/36 ns 双峰是老现象）。
-   per-CPU array update 稳定慢 1.1%（20/20 配对），机器码逐条相同，只是函数起始地址从 64 字节对齐挪到偏移 48，
-   多跨一条 cache line，可以解释但未做强制对齐对照。probe write 偶发约 4800 ns 慢档（`c3090b59` 30 个样本中 5 个，
-   旧版 40 个中 0 个），helper 代码相同，原因未查明，与两个提交的逻辑无关。
-4. 约半数 miss 仍为 kernel 的约 8.6x，是最大差距。原因是数据结构：`bpftime_hash_map` 线性探测、桶数仅
-   `next_prime(max_entries)`，满表时 miss 要探测到稀少的空桶；删除只留墓碑，长期插删后空桶会更少（未测）。
-5. 自设计测试与官方的差别：官方顺序 key、1000/1024 项、不用返回值，hash lookup 0.95x；
-   自设计测试随机 key、填满、使用返回值，扣对照后 bpftime 约 36 ns、kernel 约 28 ns（约 1.3x）。
-   kernel 两种测法几乎相同，变化在 bpftime 一侧；三个因素中哪个为主未拆分测量。对外两者都要报。
-
-### 0.4 没做的事（候选，等用户选）
-
-- hash miss：先补测（满表 / 半满 / 大量插删后），再改数据结构（加大桶数、删除回移不留墓碑等）。改数据结构需用户确认。
-- 拆分测量：官方 0.95x 与自设计约 1.3x 的差别来自 key 顺序、填充量还是返回值使用。
-- 去掉绑定程序剩余约 6 ns（改 llvmbpf overlay）。
-- 混用 map 程序里 hash update/delete 的性能（两个提交改到了，只有单元测试，没测性能）。
-- per-CPU array update 的对齐假设验证、probe write 慢档原因。
-- 攒够几轮后：LLVM 15 补丁栈重放，把 `f24dc9b`、`baf0cc85`、`c3090b59` 等加入 `config.json`，推送并发布结果。
+- 发布选定结果到 `benchmark-results/jetson`（本次未发布，结果只在本机）。
+- 布局效应的热点定位（需要 profiler）或更稳妥的布局控制。
+- 插删后半满表 miss 1.6x：可考虑插入时顺带清理或周期性重建（会移动元素，需先解决返回指针稳定性）。
+- 上面第 6 条的 hash update/delete 返回值语义。
+- 更大 map、多线程、真实应用的评估。
 
 ### 0.5 用户定下的工作方式
 
-- 每次改动：增量构建 → 回归测试（上述清单）→ 同轮 kernel / 改动前 / 改动后的配对短测 → 完整十轮（不跑 kernel）。
-- 加入补丁栈攒几轮再做；推送前问用户。
-- 汇报用提交号和描述性名称，自起的标签（如 dev2、v3、`mixed`）首次出现要解释；一次只推进一件事。
-- 教训：自选测试过滤器会漏测；SHA 从 `git rev-parse` 取完整值；编辑前核对系统时间，不凭印象判断日期。
+- 每次改动：增量构建 → 回归测试（`config.json` 的 `test_filter` 清单）→ 同轮 kernel / 改动前 / 改动后的配对短测 → 完整十轮（不跑 kernel，倍率借用基线那轮 kernel 并注明）。
+- 补丁栈攒几轮再加；推送前问用户。
+- 汇报用提交号和描述性名称，自起的标签首次出现要解释。
+- 教训：自选测试过滤器会漏测；SHA 用 `git rev-parse` 完整值；核对系统时间；测量期间不要在其他核上跑 CPU 密集任务。
 
 ## 1. 先读结论
 
@@ -102,7 +87,7 @@ hash lookup，相对同轮 kernel（全命中 / 约半数 key 不存在）：
 | 用途 | 本机路径 / 分支 |
 |---|---|
 | **后续开发源码** | `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate` |
-| **后续开发分支** | `codex/uprobe-official-177a1dc465ff`：远端 `f24dc9b`（官方 177a1dc + 补丁栈 42 个 + 诊断 `f24dc9b`）；本地多两个未推送的 `baf0cc85`、`c3090b59`（见第 0 节）；`5466f0d` 为基线，`bdd9835` 为全局变量支持 |
+| **后续开发分支** | `codex/uprobe-official-177a1dc465ff`：远端 `f24dc9b`（官方 177a1dc + 补丁栈 42 个 + 诊断 `f24dc9b`）；新增 `baf0cc85`、`c3090b59`、`1cb20807`、`f26cc335`（已推送，见第 0 节）；`5466f0d` 为基线，`bdd9835` 为全局变量支持 |
 | 本轮实测源码（冻结） | `/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate` |
 | 本轮实测分支（冻结） | `codex/uprobe-official-8da867d541f8` |
 | 已提交并推送 HEAD | `2eea622f97688b82a5c39402f631e79b5eb538f8`，map-name 用例适配 binding mutex（只改测试） |
