@@ -267,3 +267,49 @@ TEST_CASE("bpftime_hash_map keeps value pointers of live keys stable",
 	REQUIRE(map.get_elem_count() == 1);
 	shared_memory_object::remove("bpftime_hash_map_pointer_test");
 }
+
+TEST_CASE("bpftime_hash_map probe bound shrinks after far elements are deleted",
+	  "[bpftime_hash_map]")
+{
+	shared_memory_object::remove("bpftime_hash_map_bound_test");
+	managed_shared_memory segment(create_only, "bpftime_hash_map_bound_test",
+				      1 << 20);
+	bpftime_hash_map map(segment, 128, sizeof(uint32_t), sizeof(uint64_t));
+	// Keys sharing one home bucket sit at displacements 0, 1, 2, ...
+	std::vector<uint32_t> keys;
+	uint32_t first = 1;
+	const size_t target = bpftime_hasher::hash_func(&first, sizeof(first)) %
+			      map.bucket_count();
+	for (uint32_t key = 1; keys.size() < 80 && key < (1u << 24); ++key)
+		if (bpftime_hasher::hash_func(&key, sizeof(key)) % map.bucket_count() ==
+		    target)
+			keys.push_back(key);
+	REQUIRE(keys.size() == 80);
+	for (uint32_t key : keys) {
+		uint64_t value = key;
+		REQUIRE(map.elem_update(&key, &value));
+	}
+	REQUIRE(map.max_displacement() == 79);
+	// While an element beyond the tracked range remains, the bound stays
+	// conservative; it becomes exact once all of them are gone.
+	for (size_t i = 79; i >= 65; --i)
+		REQUIRE(map.elem_delete(&keys[i]));
+	REQUIRE(map.max_displacement() == 79);
+	REQUIRE(map.elem_delete(&keys[64]));
+	REQUIRE(map.max_displacement() == 63);
+	for (size_t i = 63; i >= 1; --i)
+		REQUIRE(map.elem_delete(&keys[i]));
+	REQUIRE(map.max_displacement() == 0);
+	REQUIRE(*static_cast<uint64_t *>(map.elem_lookup(&keys[0])) == keys[0]);
+	for (size_t i = 1; i < keys.size(); ++i)
+		REQUIRE(map.elem_lookup(&keys[i]) == nullptr);
+	// A deleted middle element keeps the bound for the element after it.
+	uint64_t one = 1, two = 2;
+	REQUIRE(map.elem_update(&keys[1], &one));
+	REQUIRE(map.elem_update(&keys[2], &two));
+	REQUIRE(map.max_displacement() == 2);
+	REQUIRE(map.elem_delete(&keys[1]));
+	REQUIRE(map.max_displacement() == 2);
+	REQUIRE(*static_cast<uint64_t *>(map.elem_lookup(&keys[2])) == 2);
+	shared_memory_object::remove("bpftime_hash_map_bound_test");
+}
