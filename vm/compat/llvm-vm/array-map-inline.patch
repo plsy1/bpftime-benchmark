@@ -1,10 +1,11 @@
 --- a/llvm_jit_context.cpp
 +++ b/llvm_jit_context.cpp
-@@ -16,6 +16,23 @@
+@@ -14,6 +14,24 @@
  #include <iostream>
  #include <sstream>
  
 +#include "bpftime_array_cpu_query.hpp"
++#include "bpftime_direct_map_helpers.hpp"
 +#if defined(__GNUC__) || defined(__clang__)
 +extern "C" bool bpftime_resolve_array_cpu_query_v1(
 +	void *, bpftime_array_cpu_query_hooks *) __attribute__((weak));
@@ -24,9 +25,66 @@
  #include <llvm/ExecutionEngine/MCJIT.h>
  #include <llvm/ExecutionEngine/ObjectCache.h>
  #include <llvm/IR/IRPrintingPasses.h>
-@@ -403,6 +420,30 @@
+@@ -383,9 +401,53 @@
+ 		return false;
  	}
  
++	// Constant handles registered as direct (non-inlined maps of a bound
++	// program) call the exact original helper from its private slot instead
++	// of the dispatcher in slots 1-3. Other handles keep the dispatcher.
++	struct direct_helper {
++		size_t helper;
++		size_t slot;
++		const char *name;
++	};
++	static constexpr direct_helper direct_helpers[] = {
++		{ 1, BPFTIME_DIRECT_MAP_LOOKUP_SLOT, BPFTIME_DIRECT_MAP_LOOKUP_NAME },
++		{ 2, BPFTIME_DIRECT_MAP_UPDATE_SLOT, BPFTIME_DIRECT_MAP_UPDATE_NAME },
++		{ 3, BPFTIME_DIRECT_MAP_DELETE_SLOT, BPFTIME_DIRECT_MAP_DELETE_NAME },
++	};
++	size_t direct_calls = 0;
++	for (const auto &direct : direct_helpers) {
++		auto *dispatcher = module.getFunction(ext_func_sym(direct.helper));
++		if (!dispatcher || direct.slot >= vm.ext_funcs.size() ||
++		    !vm.ext_funcs[direct.slot] ||
++		    vm.ext_funcs[direct.slot]->name != direct.name)
++			continue;
++		auto *original = module.getFunction(ext_func_sym(direct.slot));
++		if (!original)
++			original = llvm::Function::Create(dispatcher->getFunctionType(),
++				llvm::Function::ExternalLinkage, ext_func_sym(direct.slot), module);
++		std::vector<llvm::CallInst *> calls;
++		for (auto *user : dispatcher->users()) {
++			auto *call = llvm::dyn_cast<llvm::CallInst>(user);
++			if (call && call->getCalledFunction() == dispatcher)
++				calls.push_back(call);
++		}
++		for (auto *call : calls) {
++			auto *handle = llvm::dyn_cast<llvm::ConstantInt>(call->getArgOperand(0));
++			if (!handle)
++				continue;
++			auto map = vm.array_maps.find(handle->getZExtValue());
++			if (map == vm.array_maps.end() || !map->second.direct_helpers)
++				continue;
++			call->setCalledFunction(original);
++			++direct_calls;
++		}
++	}
++	if (direct_calls)
++		SPDLOG_INFO("[array-jit-inline] {} map helper calls use the original helper directly", direct_calls);
++
+ 	auto *helperFunc = module.getFunction(ext_func_sym(1));
+ 	if (!helperFunc) {
+-		return false;
++		return direct_calls != 0;
+ 	}
+ 
+ 	std::vector<llvm::CallInst *> callSites;
+@@ -402,7 +464,31 @@
+ 		}
+ 	}
+ 
+-	bool changed = false;
 +	// Never mark this CPU call pure or cache it across lookups.
 +	const bool legacy_per_cpu = vm.ext_funcs[1] &&
 +		vm.ext_funcs[1]->name == "bpftime_bound_percpu_array_lookup_v1";
@@ -50,22 +108,26 @@
 +			llvm::Type::getInt64Ty(module.getContext()), false),
 +			llvm::Function::ExternalLinkage, "__bpftime_array_cpu_error_v1", module);
 +	}
- 	bool changed = false;
++	bool changed = direct_calls != 0;
 +	size_t inlined_sites = 0;
  	for (auto *call : callSites) {
  		auto *mapHandle =
  			llvm::dyn_cast<llvm::ConstantInt>(call->getArgOperand(0));
-@@ -422,6 +465,9 @@
+@@ -417,6 +503,11 @@
  		}
  
  		const auto &map = mapIter->second;
++		if (map.direct_helpers)
++			continue;
 +		const bool per_cpu = map.per_cpu || legacy_per_cpu;
 +		if (per_cpu && !cpu_contract)
 +			continue;
  		if (map.key_size != sizeof(uint32_t) || map.max_entries == 0) {
  			continue;
  		}
-@@ -437,4 +483,8 @@
+@@ -435,14 +526,18 @@
+ 		}
+ 
  		llvm::IRBuilder<> builder(call);
 +		auto *null_prefix = call->getParent();
 +		null_prefix->splitBasicBlock(call, "array_lookup.key");
@@ -74,20 +136,17 @@
  		auto *keyPtr = builder.CreateIntToPtr(
  			call->getArgOperand(1),
  			llvm::PointerType::getUnqual(builder.getInt32Ty()),
-@@ -441,10 +487,10 @@
  			"array_lookup.key_ptr");
  		auto *index = builder.CreateLoad(builder.getInt32Ty(), keyPtr,
  						 "array_lookup.index");
 -		index->setAlignment(llvm::Align(4));
-+		index->setAlignment(llvm::Align(1));
 -		auto *inRange = builder.CreateICmpULT(
++		index->setAlignment(llvm::Align(1));
 +		llvm::Value *inRange = builder.CreateICmpULT(
  			index, builder.getInt32(map.max_entries),
  			"array_lookup.in_range");
  		llvm::Value *offset = builder.CreateZExt(
- 			index, builder.getInt64Ty(), "array_lookup.index64");
- 		if (is_power_of_two_u32(stride)) {
-@@ -461,17 +511,77 @@
+@@ -461,17 +556,77 @@
  		}
  		auto *address = builder.CreateAdd(
  			builder.getInt64(valueBase), offset, "array_lookup.addr");
@@ -164,13 +223,15 @@
 +		++inlined_sites;
  	}
  
- 	if (changed) {
+-	if (changed) {
 -		SPDLOG_DEBUG("Inlined array map lookup helper calls");
++	if (inlined_sites) {
 +		SPDLOG_INFO("[array-jit-inline] inlined {} lookup sites; invalid keys retain helper fallback", inlined_sites);
  	}
  	return changed;
  }
-@@ -791,5 +901,27 @@
+@@ -790,6 +945,28 @@
+ #endif
  		}
  	}
 +	if (vm.ext_funcs[1] &&

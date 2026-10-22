@@ -1,12 +1,15 @@
 --- a/llvmbpf.hpp
 +++ b/llvmbpf.hpp
-@@ -33,6 +33,9 @@
+@@ -33,6 +33,12 @@
  	uint32_t value_size = 0;
  	uint32_t value_stride = 0;
  	uint32_t max_entries = 0;
 +	// Parent runtime metadata; not a shared-memory map layout or BPF ABI.
 +	// Explicit even for a single-CPU allocation whose stride == value_size.
 +	bool per_cpu = false;
++	// Parent runtime metadata: a constant handle of a map that is not
++	// inlined; its helper calls use the original helpers' private slots.
++	bool direct_helpers = false;
  };
  
  // BTF line info entry, decoded from BTF.ext section.
