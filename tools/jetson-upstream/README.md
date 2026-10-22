@@ -99,6 +99,19 @@ screen within +/-0.6%). Its tests are tagged `[array-jit-global]` and are
 already covered by `[array-jit-lifetime]`. Replayed onto official
 `177a1dc465ff` with LLVM 15: 69 cases / 128,422 assertions on the candidate.
 
+Five commits accepted 2026-10-22 follow: `f24dc9bf93f9` (hash variants of the
+consuming diagnostic), `baf0cc85eba4` (constant-time dispatch of non-inlined
+map calls in bound programs), `c3090b598241` (typed hash helpers next to arrays
+and global data), `1cb208076d74` (the ordinary hash map allocates twice
+`max_entries` buckets, releases deleted runs that end at an empty bucket and
+bounds probing by the largest displacement; the map's memory doubles) and
+`f26cc335f797` (bound programs call the original map helpers directly for
+constant non-array handles; overlay patches and a private helper slot header).
+Hash lookup misses drop from 8.6-19x to about 0.8-0.95x kernel on the
+consuming workloads; tests are covered by `[bpftime_hash_map]` and
+`[array-jit-lifetime]`. Replayed onto official `177a1dc465ff` with LLVM 15:
+74 cases / 239,322 assertions on the candidate, 26 cases on official.
+
 Before the JIT, the stack included all accepted optimizations through
 `fefe2f6edf27` (accepted 2026-10-19), including ordinary hash lookup key dispatch,
 per-CPU hash bucket-local iteration, per-CPU array production lookup leaf
