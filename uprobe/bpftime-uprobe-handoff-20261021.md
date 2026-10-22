@@ -21,7 +21,7 @@
 另：每日 `config.json` 已追加这 4 个提交和诊断提交 `f24dc9b`（共 47 个）并补 README，`automation/jetson-daily` `2f003c19` 已推送。
 LLVM 15 重放验证通过（`results/uprobe/daily-jit-stack-validation-20261021/round4-hash-fixes`：47/47 无冲突，树与 `f26cc335` 相同，候选 74 cases、官方 26 cases 通过）。
 
-### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`）
+### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`；选定文本已发布到 `benchmark-results/jetson` `a505fd8`）
 
 | 目录 | 内容 |
 |---|---|
@@ -42,7 +42,6 @@ LLVM 15 重放验证通过（`results/uprobe/daily-jit-stack-validation-20261021
 
 ### 0.4 没做的事（候选）
 
-- 发布选定结果到 `benchmark-results/jetson`（本次未发布，结果只在本机）。
 - 布局效应的热点定位（需要 profiler）或更稳妥的布局控制。
 - 插删后半满表 miss 1.6x：可考虑插入时顺带清理或周期性重建（会移动元素，需先解决返回指针稳定性）。
 - 上面第 6 条的 hash update/delete 返回值语义。
