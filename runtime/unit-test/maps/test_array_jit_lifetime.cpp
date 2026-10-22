@@ -901,6 +901,9 @@ TEST_CASE("Bound programs dispatch non-array and dynamic handles to their origin
 	REQUIRE(load_prog_and_helpers(&prog, config, nullptr, nullptr, nullptr) == 0);
 	REQUIRE(logs.messages.str().find("retained 1 maps") != std::string::npos);
 	REQUIRE(logs.messages.str().find("inlined 1 lookup sites") != std::string::npos);
+	// Constant hash handle: update, lookup and delete call the original
+	// helpers directly; the dynamic lookup keeps the dispatcher.
+	REQUIRE(logs.messages.str().find("3 map helper calls use the original helper directly") != std::string::npos);
 	struct {uint32_t key, pad; uint64_t dynamic_fd, value, update_status, delete_status;} input{};
 	auto run = [&](uint64_t dynamic_fd) {
 		input = {1, 0, dynamic_fd, 500, 99, 99};
