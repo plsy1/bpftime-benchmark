@@ -287,6 +287,12 @@ long bpf_map_handler::map_update_hash(const void *key, const void *value,
 		->elem_update(key, value, flags);
 }
 
+long bpf_map_handler::map_delete_hash(const void *key) const
+{
+	bpftime_lock_guard guard(map_lock);
+	return static_cast<hash_map_impl *>(map_impl_ptr.get())->elem_delete(key);
+}
+
 long bpf_map_handler::map_update_percpu_hash(const void *key,
 					     const void *value,
 					     uint64_t flags) const

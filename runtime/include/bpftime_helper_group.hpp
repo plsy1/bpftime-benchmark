@@ -51,7 +51,8 @@ class bpftime_helper_group {
 		bpftime_prog *prog,
 		const bpftime_helper_info *override_helper = nullptr,
 		const bpftime_helper_info *second_override_helper = nullptr,
-		const std::map<int, bpftime_helper_info> *custom_helpers = nullptr) const;
+		const std::map<int, bpftime_helper_info> *custom_helpers = nullptr,
+		const bpftime_helper_info *third_override_helper = nullptr) const;
 	// Get all helper ids of this helper group
 	std::vector<int32_t> get_helper_ids() const;
 
@@ -84,6 +85,8 @@ extern "C" uint64_t bpftime_percpu_array_map_update_elem_helper(
 	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
 extern "C" uint64_t bpftime_hash_map_update_elem_helper(
 	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
+extern "C" uint64_t bpftime_hash_map_delete_elem_helper(
+	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
 extern "C" uint64_t bpftime_percpu_hash_map_update_elem_helper(
 	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
 extern "C" uint64_t bpftime_percpu_hash_map_lookup_elem_helper(

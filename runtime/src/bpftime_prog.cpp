@@ -130,7 +130,8 @@ bool standard_lookup(void *fn)
 bool standard_mutation(unsigned index, void *fn)
 {
 	if (index == BPF_FUNC_map_delete_elem)
-		return fn == reinterpret_cast<void *>(bpftime_map_delete_elem_helper);
+		return fn == reinterpret_cast<void *>(bpftime_map_delete_elem_helper) ||
+		       fn == reinterpret_cast<void *>(bpftime_hash_map_delete_elem_helper);
 	return index == BPF_FUNC_map_update_elem &&
 	       (fn == reinterpret_cast<void *>(bpftime_map_update_elem_helper) ||
 	        fn == reinterpret_cast<void *>(bpftime_array_map_update_elem_helper) ||
