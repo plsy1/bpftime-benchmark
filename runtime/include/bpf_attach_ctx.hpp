@@ -263,7 +263,8 @@ int load_prog_and_helpers(
 	bpftime_prog *prog, const runtime_config &config,
 	const bpftime_helper_info *map_lookup_override = nullptr,
 	const bpftime_helper_info *map_update_override = nullptr,
-	const std::map<int, bpftime_helper_info> *custom_helpers = nullptr);
+	const std::map<int, bpftime_helper_info> *custom_helpers = nullptr,
+	const bpftime_helper_info *map_delete_override = nullptr);
 
 } // namespace bpftime
 
