@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""Hash lookup shape A/B: c3090b59 (old hash map) vs 1cb20807 (bounded probing).
+
+Copy of ../hash-shape-20261022/run-shape.py with a second build; workloads
+are read from that directory.
+
+Kernel and the c3090b59 build on the workloads in workloads/ (built by
+build-workloads.sh): full1024 (keys 0..1023), official1000 (0..999, like the
+official benchmark), half512 (0..511) and churn512 (0..511 after 64
+insert/delete cycles of 512 other keys). Cases, 1000 lookups per call:
+control (no map), seq_unused (keys in order, result unused, like the official
+benchmark), seq (in order, value used), rand_hit (random present keys),
+rand_miss (random absent keys). Arms alternate within each round (order
+reversed on odd rounds), fresh processes, CPU 5 at 1.728 GHz; checksums and
+hit/miss counts verified for every case except seq_unused.
+"""
+import argparse
+import csv
+import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import statistics
+import subprocess
+import time
+
+OUT = Path('/home/jetson/src/results/uprobe/hash-shape-20261022')
+HERE = Path(__file__).resolve().parent
+R = Path('/home/jetson/src/results/uprobe')
+BUILDS = {
+    'c3090b59': R / 'hash-helper-fixes-20261022/full10-c3090b59/artifacts',
+    '1cb20807': R / 'hash-probe-bound-20261022/artifacts',
+}
+FILL = {'full1024': 1024, 'official1000': 1000, 'half512': 512, 'churn512': 512}
+ENGINES = ('kernel', *BUILDS)
+VARIANTS = tuple(FILL)
+CASES = ('control', 'seq_unused', 'seq', 'rand_hit', 'rand_miss')
+TYPED = 'Using specialized hash lookup helper for program'
+
+
+def checksum(seed, fill, mode):
+    state = seed & 0xffffffff
+    total = hits = misses = 0
+    for i in range(1000):
+        state = (state * 1664525 + 1013904223) & 0xffffffff
+        if mode in ('seq_unused', 'seq'):
+            key = i if i < fill else i - fill
+        elif mode == 'rand_miss':
+            key = (state >> 16) | 0x80000000
+        else:
+            key = (state >> 16) % fill
+        if mode == 'seq_unused':
+            continue
+        if key < fill:
+            total += key * 17 + 5
+            hits += 1
+        else:
+            total += 0x9e3779b9
+            misses += 1
+    return total & 0xffffffffffffffff, hits, misses
+
+
+def digest(path):
+    with path.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def freq():
+    p = Path('/sys/devices/system/cpu/cpu5/cpufreq')
+    values = {k: int((p / f'scaling_{k}_freq').read_text()) for k in ('min', 'max', 'cur')}
+    assert values == dict(min=1728000, max=1728000, cur=1728000), values
+    return values
+
+
+def stop(proc):
+    if proc is None or proc.poll() is not None:
+        return
+    subprocess.run(['sudo', '-n', 'kill', '-TERM', '--', f'-{proc.pid}'], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        subprocess.run(['sudo', '-n', 'kill', '-KILL', '--', f'-{proc.pid}'], check=False)
+        proc.wait(timeout=10)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--output', type=Path, required=True)
+    ap.add_argument('--runs', type=int, default=6)
+    ap.add_argument('--iterations', type=int, default=50000)
+    args = ap.parse_args()
+    out = args.output.resolve()
+    out.mkdir(parents=True, exist_ok=False)
+    assert not Path('/dev/shm/bpftime_maps_shm').exists()
+    artifacts = [OUT / 'workloads' / v / n for v in VARIANTS for n in ('loader', 'victim', 'hash_shape.bpf.o')]
+    artifacts += [b / n for b in BUILDS.values() for n in ('runtime/agent/libbpftime-agent.so', 'runtime/syscall-server/libbpftime-syscall-server.so')]
+    hashes = {str(p): digest(p) for p in artifacts}
+    meta = dict(status='running', started=datetime.datetime.now().astimezone().isoformat(), runs=args.runs,
+                iterations=args.iterations, builds={k: str(v) for k, v in BUILDS.items()}, binary_sha256=hashes, cpu=5, frequency_samples=[])
+    (out / 'environment.json').write_text(json.dumps(meta, indent=2) + '\n')
+    base_env = {k: v for k, v in os.environ.items() if not k.startswith('BPFTIME_') and k != 'LD_PRELOAD'}
+    selected = dict(BPFTIME_VM_NAME='llvm', BPFTIME_LOG_OUTPUT='console', SPDLOG_LEVEL='info')
+    prefix = ['sudo', '-n', 'taskset', '-c', '5', 'env']
+    rows, evidence = [], {}
+
+    def command(env, path, *rest):
+        return prefix + [f'{k}={v}' for k, v in env.items()] + [str(path), *map(str, rest)]
+
+    def measure(engine, variant, round_no):
+        meta['frequency_samples'].append(freq())
+        wl = OUT / 'workloads' / variant
+        dest = out / f'{round_no:02d}-{engine}-{variant}'
+        dest.mkdir()
+        loader_env, victim_env = dict(selected), dict(selected)
+        BUILD = BUILDS.get(engine)
+        if engine != 'kernel':
+            loader_env['LD_PRELOAD'] = str(BUILD / 'runtime/syscall-server/libbpftime-syscall-server.so')
+            victim_env['LD_PRELOAD'] = str(BUILD / 'runtime/agent/libbpftime-agent.so')
+        proc = target = None
+        try:
+            with (dest / 'loader.log').open('w') as log:
+                proc = subprocess.Popen(command(loader_env if engine != 'kernel' else {}, wl / 'loader'),
+                                        cwd=OUT, env=base_env, stdout=log, stderr=subprocess.STDOUT,
+                                        start_new_session=True)
+                deadline = time.monotonic() + 40
+                while 'Successfully started!' not in (dest / 'loader.log').read_text():
+                    if proc.poll() is not None or time.monotonic() > deadline:
+                        raise RuntimeError(f'Loader startup failed: {dest}')
+                    time.sleep(.1)
+                time.sleep(1)
+                with (dest / 'victim.log').open('w') as tlog:
+                    target = subprocess.Popen(command(victim_env if engine != 'kernel' else {}, wl / 'victim',
+                                                      args.iterations, round_no % 5),
+                                              cwd=OUT, env=base_env, stdout=tlog, stderr=subprocess.STDOUT,
+                                              start_new_session=True)
+                    status = target.wait(timeout=180)
+                    assert status == 0, (dest, status)
+                assert proc.poll() is None, f'Loader exited during target: {dest}'
+                stop(proc)
+            text = (dest / 'victim.log').read_text()
+            if engine != 'kernel':
+                assert 'shm_open_type 1' in text, dest
+            times = {}
+            for line in text.splitlines():
+                fields = line.split(',')
+                if fields[0] in CASES and len(fields) == 5:
+                    assert fields[0] not in times and int(fields[1]) == args.iterations
+                    times[fields[0]] = (float(fields[3]), int(fields[4]))
+            assert set(times) == set(CASES), (dest, times)
+            expected_seed = (0x12345678 + (args.iterations - 1) * 0x9e3779b9) & 0xffffffff
+            assert all(seed == expected_seed for _, seed in times.values()), dest
+            observed = {}
+            for line in (dest / 'loader.log').read_text().splitlines():
+                m = re.fullmatch(r'RESULT slot=(\d+) seed=(\d+) checksum=(\d+) hits=(\d+) misses=(\d+)', line)
+                if m:
+                    slot, seed, total, hits, misses = map(int, m.groups())
+                    observed[slot] = (seed, total, hits, misses)
+            assert set(observed) == {0, 1, 2, 3, 4}, (dest, observed)
+            for slot, case in enumerate(CASES):
+                assert observed[slot] == (expected_seed, *checksum(expected_seed, FILL[variant], case)), (dest, slot)
+            for case, (ns, _) in times.items():
+                assert ns > 0
+                rows.append(dict(engine=engine, variant=variant, round=round_no, case=case, raw_ns_per_element=ns))
+            meta['frequency_samples'].append(freq())
+            print(f'Completed {engine} {variant} round {round_no}/{args.runs}; checksums passed', flush=True)
+        finally:
+            stop(target)
+            stop(proc)
+            if engine != 'kernel':
+                subprocess.run(['sudo', '-n', str(BUILD / 'tools/bpftimetool/bpftimetool'), 'remove'], cwd=OUT,
+                               env=base_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+    try:
+        arms = [(e, v) for v in VARIANTS for e in ENGINES]
+        for i in range(args.runs):
+            for engine, variant in (arms if i % 2 == 0 else list(reversed(arms))):
+                measure(engine, variant, i + 1)
+        assert hashes == {str(p): digest(p) for p in artifacts}, 'artifact changed'
+        with (out / 'raw.csv').open('w') as stream:
+            w = csv.DictWriter(stream, fieldnames=list(rows[0]))
+            w.writeheader()
+            w.writerows(rows)
+        summary = []
+        for variant in VARIANTS:
+            for case in CASES:
+                item = dict(variant=variant, case=case)
+                for engine in ENGINES:
+                    values = [r['raw_ns_per_element'] for r in rows
+                              if r['variant'] == variant and r['case'] == case and r['engine'] == engine]
+                    item[engine] = dict(median=statistics.median(values), mean=statistics.mean(values), raw_values=values)
+                item['vs_kernel'] = {e: item[e]['median'] / item['kernel']['median'] for e in BUILDS}
+                summary.append(item)
+        (out / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+        meta['status'] = 'success'
+    except BaseException as error:
+        meta.update(status='failed', error=repr(error))
+        raise
+    finally:
+        meta['finished'] = datetime.datetime.now().astimezone().isoformat()
+        (out / 'environment.json').write_text(json.dumps(meta, indent=2) + '\n')
+
+
+if __name__ == '__main__':
+    main()
