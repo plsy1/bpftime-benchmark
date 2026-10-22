@@ -1069,3 +1069,85 @@ TEST_CASE("Typed hash helpers match the generic helper for other handles",
 			static_cast<uint64_t>(-1));
 	}
 }
+
+namespace {
+// Stores the input value into hash[key], deletes it again, records the delete
+// status in input+16, and returns the lookup result after the delete (0 when
+// gone). With array_fd, the program first looks up array[key] so the array
+// JIT binds it. Input: {u32 key, pad, u64 value, u64 status}.
+std::vector<ebpf_inst> typed_delete_program(int hash_fd, int array_fd = -1)
+{
+	std::vector<ebpf_inst> code{
+		{0xbf,6,1,0,0},
+		{0x18,1,BPF_PSEUDO_MAP_FD,0,hash_fd}, {0,0,0,0,0}, {0xbf,2,6,0,0}, {0xbf,3,6,0,0},
+		{0x07,3,0,0,8}, {0xb7,4,0,0,BPF_ANY}, {0x85,0,0,0,BPF_FUNC_map_update_elem},
+		{0x18,1,BPF_PSEUDO_MAP_FD,0,hash_fd}, {0,0,0,0,0}, {0xbf,2,6,0,0},
+		{0x85,0,0,0,BPF_FUNC_map_delete_elem}, {0x7b,6,0,16,0},
+		{0x18,1,BPF_PSEUDO_MAP_FD,0,hash_fd}, {0,0,0,0,0}, {0xbf,2,6,0,0},
+		{0x85,0,0,0,BPF_FUNC_map_lookup_elem}, {0x95,0,0,0,0},
+	};
+	if (array_fd >= 0)
+		code.insert(code.begin() + 1, {{0x18,1,BPF_PSEUDO_MAP_FD,0,array_fd}, {0,0,0,0,0},
+			{0xbf,2,6,0,0}, {0x85,0,0,0,BPF_FUNC_map_lookup_elem}, {0x15,0,0,1,0},
+			{0x79,0,0,0,0}});
+	return code;
+}
+}
+
+TEST_CASE("Typed hash delete helper serves hash maps in plain and bound programs",
+	"[array-jit-lifetime][typed-helper-selection]")
+{
+	isolated_shm fixture;
+	create_hash(105);
+	struct {uint32_t key, pad; uint64_t value, status;} input{};
+	auto check = [&](typed_selection &selected, const char *name) {
+		REQUIRE(selected.logged(std::string("Using specialized hash delete helper for program ") + name));
+		for (uint32_t key : {1u, 2u, 3u}) {
+			input = {key, 0, 100 + key, 99};
+			uint64_t result = 99;
+			REQUIRE(selected.prog->bpftime_prog_exec(&input, sizeof(input), &result) == 0);
+			REQUIRE(result == 0); // Deleted again.
+			REQUIRE(input.status == 0);
+			REQUIRE(bpftime_map_lookup_elem(105, &key) == nullptr);
+		}
+	};
+	SECTION("hash only") {
+		typed_selection selected(typed_delete_program(105), "typed_delete_hash");
+		check(selected, "typed_delete_hash");
+	}
+	SECTION("hash next to an inlined array") {
+		create_array(40);
+		typed_selection selected(typed_delete_program(105, 100), "typed_delete_bound");
+		REQUIRE(selected.logged("[array-jit-inline] program=typed_delete_bound retained 1 maps"));
+		check(selected, "typed_delete_bound");
+	}
+}
+
+TEST_CASE("Typed hash delete helper matches the generic helper for other handles",
+	"[array-jit-lifetime][typed-helper-selection]")
+{
+	isolated_shm fixture;
+	create_array(40);
+	create_hash(105);
+	uint32_t key = 1;
+	uint64_t value = 7;
+	auto key_arg = reinterpret_cast<uint64_t>(&key);
+	// Array delete is unsupported; both helpers report the same result.
+	errno = 0;
+	const uint64_t typed = bpftime_hash_map_delete_elem_helper(100, key_arg, 0, 0, 0);
+	const int typed_errno = errno;
+	errno = 0;
+	REQUIRE(bpftime_map_delete_elem_helper(100, key_arg, 0, 0, 0) == typed);
+	REQUIRE(errno == typed_errno);
+	REQUIRE(bpftime_map_update_elem(105, &key, &value, BPF_ANY) == 0);
+	REQUIRE(bpftime_hash_map_delete_elem_helper(105, key_arg, 0, 0, 0) == 0);
+	REQUIRE(bpftime_map_lookup_elem(105, &key) == nullptr);
+	for (uint64_t fd : {uint64_t(99), uint64_t(1u << 30)}) {
+		errno = 0;
+		REQUIRE(bpftime_hash_map_delete_elem_helper(fd, key_arg, 0, 0, 0) == static_cast<uint64_t>(-1));
+		REQUIRE(errno == ENOENT);
+		errno = 0;
+		REQUIRE(bpftime_map_delete_elem_helper(fd, key_arg, 0, 0, 0) == static_cast<uint64_t>(-1));
+		REQUIRE(errno == ENOENT);
+	}
+}

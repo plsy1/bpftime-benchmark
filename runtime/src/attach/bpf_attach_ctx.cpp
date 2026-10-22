@@ -51,7 +51,8 @@ int load_prog_and_helpers(
 	bpftime_prog *prog, const runtime_config &config,
 	const bpftime_helper_info *map_lookup_override,
 	const bpftime_helper_info *map_update_override,
-	const std::map<int, bpftime_helper_info> *custom_helpers)
+	const std::map<int, bpftime_helper_info> *custom_helpers,
+	const bpftime_helper_info *map_delete_override)
 {
 	bpftime_helper_group merged;
 #if defined(__linux__)
@@ -66,7 +67,7 @@ int load_prog_and_helpers(
 		merged.append(bpftime_helper_group::get_shm_maps_helper_group());
 	}
 	if (int result = merged.add_helper_group_to_prog(prog, map_lookup_override,
-		map_update_override, custom_helpers); result < 0)
+		map_update_override, custom_helpers, map_delete_override); result < 0)
 		return result;
 	if (custom_helpers) {
 		const auto ids = merged.get_helper_ids();
@@ -455,9 +456,16 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 		.fn = reinterpret_cast<void *>(
 			bpftime_percpu_hash_map_update_elem_helper),
 	};
+	const bpftime_helper_info hash_delete{
+		.index = BPF_FUNC_map_delete_elem,
+		.name = "bpf_map_delete_elem",
+		.fn = reinterpret_cast<void *>(
+			bpftime_hash_map_delete_elem_helper),
+	};
 	const auto mode = get_map_production_ab_mode();
 	const bpftime_helper_info *map_lookup_override = nullptr;
 	const bpftime_helper_info *map_update_override = nullptr;
+	const bpftime_helper_info *map_delete_override = nullptr;
 	const auto lookup_type =
 		mode == map_production_ab_mode::base ?
 			typed_helper_map_type(manager, handler,
@@ -510,8 +518,19 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 			"Using specialized per-CPU hash update helper for program {}",
 			name);
 	}
+	// Only hash maps have a typed delete helper; array delete is
+	// unsupported and other kinds keep the generic helper.
+	if (mode == map_production_ab_mode::base &&
+	    typed_helper_map_type(manager, handler, BPF_FUNC_map_delete_elem) ==
+		    bpf_map_type::BPF_MAP_TYPE_HASH) {
+		map_delete_override = &hash_delete;
+		SPDLOG_INFO(
+			"Using specialized hash delete helper for program {}",
+			name);
+	}
 	if (int err = load_prog_and_helpers(prog, config, map_lookup_override,
-					    map_update_override, &helpers);
+					    map_update_override, &helpers,
+					    map_delete_override);
 	    err < 0) {
 		SPDLOG_ERROR(
 			"Failed to load program helpers for prog handler {}: {}",
