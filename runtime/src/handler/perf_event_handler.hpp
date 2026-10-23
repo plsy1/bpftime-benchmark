@@ -12,6 +12,7 @@
 #include <boost/interprocess/containers/vector.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <optional>
 #include <boost/interprocess/allocators/allocator.hpp>
 #include <boost/interprocess/smart_ptr/shared_ptr.hpp>
@@ -79,21 +80,36 @@ struct software_perf_event_buffer {
 	int pagesize;
 	bytes_vec mmap_buffer;
 	bytes_vec copy_buffer;
+	// Samples dropped because the ring was full and not yet reported by a
+	// PERF_RECORD_LOST. Only the single producer of this buffer touches it.
+	uint64_t lost_samples = 0;
 
 	software_perf_event_buffer(int pagesize, segment_manager *manager);
 	void *ensure_mmap_buffer(size_t buffer_size);
 	perf_event_mmap_page &get_header_ref();
 	const perf_event_mmap_page &get_header_ref_const() const;
-	int output_data(const void *buf, size_t size);
+	// When `wakeup_consumer` is given, it is set to whether a sleeping
+	// consumer should be woken: the sample was dropped, or the ring was at
+	// least half full right after it was published (the kernel's
+	// wakeup_watermark). Waking on every sample costs the producer a
+	// futex syscall per event.
+	int output_data(const void *buf, size_t size,
+			bool *wakeup_consumer = nullptr);
 	size_t mmap_size() const;
 	bool has_data() const;
 	bool copy_next_record_to(software_perf_event_buffer &dst);
 
     private:
+	struct record_part {
+		const void *data;
+		size_t size;
+	};
 	bool append_record(const void *record, size_t record_size);
-	bool append_record_parts(const void *first, size_t first_size,
-				 const void *second, size_t second_size,
-				 size_t padding_size = 0);
+	// Publishes all parts (plus unwritten padding) with a single head
+	// update, or nothing if they do not fit together.
+	bool append_record_parts(std::initializer_list<record_part> parts,
+				 size_t padding_size = 0,
+				 uint64_t *used_after = nullptr);
 	void write_wrapped(uint64_t offset, const void *src, size_t size);
 	void read_wrapped(uint64_t offset, void *dst, size_t size) const;
 };
@@ -140,7 +156,8 @@ struct software_perf_event_data {
 	void *ensure_mmap_buffer(size_t buffer_size);
 	perf_event_mmap_page &get_header_ref();
 	const perf_event_mmap_page &get_header_ref_const() const;
-	int output_data(const void *buf, size_t size);
+	int output_data(const void *buf, size_t size,
+			bool *wakeup_consumer = nullptr);
 	size_t mmap_size() const;
 	bool has_data();
 
