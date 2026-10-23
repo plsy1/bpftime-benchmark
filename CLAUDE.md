@@ -218,11 +218,16 @@ proven out-of-range lookup to FD -1, whose result is ENOENT/null without another
 FD-table or binding lookup. Custom helpers keep their original arguments.
 Management APIs still require their existing external serialization, and this
 feature does not add concurrent-detach/quiescence guarantees to attach backends.
-Fork children must reload rather than execute inherited bound programs. An
-atfork child marker makes those programs return ENOTSUP without touching the
-parent's references; inherited snapshot destruction must not decrement shared
-refcounts or free shared names. Do not claim support for fork from a signal
-handler interrupting an active JIT invocation.
+Fork children execute inherited bound programs (forking servers such as
+nginx attach in the master and run probes in workers). The atfork prepare
+handler takes one shared reference per live binding for the child before the
+fork, under a process-local lock that also serializes binding creation and
+release. The counter is shared, so the parent must not return them. The child
+owns its inherited copies and releases them normally. A failed fork, or a child
+that execs or _exits without destructors, strands those references, like
+abrupt termination; do not
+take the shared map-binding mutex in atfork handlers. Do not claim support for
+fork from a signal handler interrupting an active JIT invocation.
 
 Standard update/delete calls in bound programs must resolve the same owned
 array identity as lookup, including after FD reuse; other map kinds keep their
