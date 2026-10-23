@@ -1,0 +1,99 @@
+{
+ "started": "2026-10-23T15:47:00+0900",
+ "payload": 1024,
+ "legs": [
+  "baseline",
+  "opt-noaff-fork"
+ ],
+ "reps": 1,
+ "tailscale": "100.74.69.104  orin-nano-1        plsy1@  linux  -                                                              \n100.85.41.123  debian-ichi-nuc    plsy1@  linux  offline, last seen 1d ago                                      \n100.111.43.15  ip-172-26-44-86    plsy1@  linux  -                                                              \n100.77.83.2    y1s-macbook-pro-3  plsy1@  macOS  active; direct 124.37.208.138:41641, tx 143022724 rx 54952620  \n\n# Health check:\n#     - enabling connmark rules: adding [-m conntrack --ctstate ESTABLISHED,RELATED -m connmark ! --mark 0x0/0xff0000 -j CONNMARK --restore-mark --nfmask 0xff0000 --ctmask 0xff0000] in mangle/PREROUTING: running [/usr/sbin/iptables -t mangle -I PREROUTING 1 -m conntrack --ctstate ESTABLISHED,RELATED -m connmark ! --mark 0x0/0xff0000 -j CONNMARK --restore-mark --nfmask 0xff0000 --ctmask 0xff0000 --wait]: exit status 2: Warning: Extension connmark revision 0 not supported, missing kernel module?\nWarning: Extension CONNMARK revision 0 not supported, missing kernel module?\niptables v1.8.10 (nf_tables): unknown option \"--nfmask\"\nTry `iptables -h' or 'iptables --help' for more information.\n\n",
+ "input_rules": "-P INPUT ACCEPT\n-A INPUT -j ts-input\n",
+ "ts_input_rules": "-N ts-input\n-A ts-input -s 100.74.69.104/32 -i lo -j ACCEPT\n-A ts-input -i tailscale0 -j ACCEPT\n-A ts-input -p udp -m udp --dport 41641 -j ACCEPT\n-A ts-input -s 100.115.92.0/23 ! -i tailscale0 -j RETURN\n-A ts-input -s 100.64.0.0/10 ! -i tailscale0 -j DROP\n",
+ "samples": [
+  {
+   "netns": "private",
+   "leg": "baseline",
+   "rps": 16440.19,
+   "requests": 165421,
+   "wrk_errors": false,
+   "reader_cores": 0.0,
+   "nginx_cores": 0.861,
+   "input_pkts_per_request": 0.006311169682204799,
+   "ts_input_rule_deltas": [
+    0,
+    283,
+    289,
+    0,
+    0
+   ],
+   "foreign": [],
+   "rep": 1,
+   "attempt": 0,
+   "waited_s": 0.1
+  },
+  {
+   "netns": "host",
+   "leg": "baseline",
+   "rps": 15161.41,
+   "requests": 153043,
+   "wrk_errors": false,
+   "reader_cores": 0.0,
+   "nginx_cores": 0.843,
+   "input_pkts_per_request": 2.0360486921976175,
+   "ts_input_rule_deltas": [
+    0,
+    826,
+    830,
+    0,
+    0
+   ],
+   "foreign": [],
+   "rep": 1,
+   "attempt": 0,
+   "waited_s": 0.1
+  },
+  {
+   "netns": "host",
+   "leg": "opt-noaff-fork",
+   "rps": 10819.71,
+   "requests": 109211,
+   "wrk_errors": false,
+   "reader_cores": 0.057,
+   "nginx_cores": 0.871,
+   "input_pkts_per_request": 2.050754960580894,
+   "ts_input_rule_deltas": [
+    0,
+    759,
+    769,
+    0,
+    0
+   ],
+   "foreign": [],
+   "rep": 1,
+   "attempt": 0,
+   "waited_s": 0.1
+  },
+  {
+   "netns": "private",
+   "leg": "opt-noaff-fork",
+   "rps": 12517.49,
+   "requests": 126137,
+   "wrk_errors": false,
+   "reader_cores": 0.058,
+   "nginx_cores": 0.885,
+   "input_pkts_per_request": 0.0026796261208051563,
+   "ts_input_rule_deltas": [
+    0,
+    27,
+    34,
+    0,
+    0
+   ],
+   "foreign": [],
+   "rep": 1,
+   "attempt": 0,
+   "waited_s": 0.1
+  }
+ ],
+ "finished": "2026-10-23T15:47:52+0900"
+}
