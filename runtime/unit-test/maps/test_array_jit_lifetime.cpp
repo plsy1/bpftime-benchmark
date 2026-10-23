@@ -160,10 +160,12 @@ TEST_CASE("Per-CPU array JIT follows real affinity changes and retains map ident
 	const auto child=fork();
 	REQUIRE(child>=0);
 	if (child==0) {
-		uint32_t key=2; uint64_t result=99;
+		uint32_t key=2; uint64_t result=0;
 		int status=prog->bpftime_prog_exec(&key,4,&result);
+		bool ok=status==0 && result!=0 &&
+			*reinterpret_cast<uint64_t *>(result)==uint64_t(1000+sched_getcpu());
 		prog.reset();
-		_exit(status==-ENOTSUP && result==0 ? 0:1);
+		_exit(ok ? 0:1);
 	}
 	int status=0; REQUIRE(waitpid(child,&status,0)==child);
 	REQUIRE(WIFEXITED(status)); REQUIRE(WEXITSTATUS(status)==0);
@@ -516,11 +518,12 @@ TEST_CASE("Array JIT descriptor failure cannot execute stale code or retry",
 	REQUIRE(prog.load_aot_object({}) == -ENOTSUP);
 }
 
-TEST_CASE("Fork child cannot execute or release the parent's array binding",
+TEST_CASE("Fork child executes and releases its own array binding reference",
 	"[array-jit-lifetime]")
 {
 	isolated_shm fixture;
 	auto memory = shm_holder.global_shared_memory.retain_mapping();
+	(void)map_binding_mutex(*memory);
 	auto before = memory->get_free_memory();
 	int fd = create_array(64);
 	auto prog = make_program(fd);
@@ -530,19 +533,65 @@ TEST_CASE("Fork child cannot execute or release the parent's array binding",
 	REQUIRE(child >= 0);
 	if (child == 0) {
 		uint32_t key = 1;
-		uint64_t result = 123;
+		uint64_t result = 0;
 		int status = prog->bpftime_prog_exec(&key,sizeof(key),&result);
+		bool hit = status == 0 && result != 0 &&
+			*reinterpret_cast<uint64_t *>(result) == 64;
+		// The parent's reference keeps the map alive.
 		prog.reset();
 		bool unchanged = memory->get_free_memory() == child_before;
-		_exit(status == -ENOTSUP && result == 0 && unchanged ? 0 : 1);
+		_exit(hit && unchanged ? 0 : 1);
 	}
 	int status = -1;
 	REQUIRE(waitpid(child,&status,0) == child);
 	REQUIRE(WIFEXITED(status));
 	REQUIRE(WEXITSTATUS(status) == 0);
 	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(*prog,1)) == 64);
-	prog.reset();
+	prog.reset(); // Balanced counts: the last owner frees the map.
 	REQUIRE(memory->get_free_memory() == before);
+}
+
+TEST_CASE("Fork child keeps its binding after the parent releases the map",
+	"[array-jit-lifetime]")
+{
+	isolated_shm fixture;
+	auto memory = shm_holder.global_shared_memory.retain_mapping();
+	(void)map_binding_mutex(*memory);
+	auto before = memory->get_free_memory();
+	int fd = create_array(65);
+	auto prog = make_program(fd);
+	bpftime_close(fd);
+	int ready[2], go[2];
+	REQUIRE(pipe(ready) == 0);
+	REQUIRE(pipe(go) == 0);
+	pid_t child = fork();
+	REQUIRE(child >= 0);
+	if (child == 0) {
+		char byte = 0;
+		bool ok = write(ready[1], &byte, 1) == 1 &&
+			read(go[0], &byte, 1) == 1;
+		// The parent no longer owns the map; the child's reference does.
+		uint32_t key = 3;
+		uint64_t result = 0;
+		ok = ok && prog->bpftime_prog_exec(&key,sizeof(key),&result) == 0 &&
+			result != 0 && *reinterpret_cast<uint64_t *>(result) == 65;
+		prog.reset();
+		ok = ok && memory->get_free_memory() == before;
+		_exit(ok ? 0 : 1);
+	}
+	char byte = 0;
+	REQUIRE(read(ready[0], &byte, 1) == 1);
+	auto parent_before = memory->get_free_memory();
+	prog.reset();
+	REQUIRE(memory->get_free_memory() == parent_before);
+	REQUIRE(write(go[1], &byte, 1) == 1);
+	int status = -1;
+	REQUIRE(waitpid(child,&status,0) == child);
+	REQUIRE(WIFEXITED(status));
+	REQUIRE(WEXITSTATUS(status) == 0);
+	REQUIRE(memory->get_free_memory() == before);
+	for (int pipe_fd : {ready[0], ready[1], go[0], go[1]})
+		close(pipe_fd);
 }
 
 namespace {
