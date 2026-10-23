@@ -1,51 +1,59 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-22 17:45 JST 左右。以下分支、进程和文件状态均为本机快照；
+最后核对：2026-10-23 12:00 JST 左右。以下分支、进程和文件状态均为本机快照；
 后续模型行动前需重新核实。**新会话先读第 0 节**，再按需读其余章节。
 
-## 0. 现状一页（2026-10-22 17:45 JST，新会话从这里继续）
+## 0. 现状一页（2026-10-23 12:00 JST，新会话从这里继续）
 
 **目标**：继续优化 `codex/uprobe-official-177a1dc465ff`（开发 worktree
-`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`）。补丁栈攒几轮再加；推送前问用户。
+`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，远端 HEAD `72aebadd`）。
+下一阶段重点：扩大测试覆盖（见 0.4），hash map 重写暂缓。
 
-### 0.1 改了什么（源码 4 个新提交，已推送：远端 `f26cc335`）
+### 0.1 改了什么（7 个新提交，均已推送并加入每日补丁栈，共 50 个提交）
 
 | 提交 | 改动 | 效果（相对同轮 kernel） |
 |---|---|---|
 | `baf0cc85` | 被 array JIT 绑定的程序里，非内联 map 调用改为按 FD 平表分派 | hash + array 程序 lookup 2.41x → 1.95x |
 | `c3090b59` | 放宽 typed helper 选择（全局变量、事件类 map、array + 一种 hash 都用专用 helper） | hash + 全局变量 1.78x → 1.19x |
-| `1cb20807` | **改 hash 数据结构**：桶数 `next_prime(2×max_entries)`（内存翻倍）、删除时回收以空桶结尾的墓碑段、按最大偏移距离限制探测；已有元素从不移动 | 满表 miss 19x → 0.94x；插删后半满表 miss 78x → 1.6x；随机命中 1.17x → 0.77x |
-| `f26cc335` | 绑定程序里常量非 array 句柄的 lookup/update/delete 直接调用原 helper（overlay + 私有 helper 槽 `bpftime_direct_map_helpers.hpp`） | hash + array 程序与只有 hash 的程序一样快（lookup 0.98x → 0.82x，update/delete 约 -16%） |
+| `1cb20807` | **改 hash 数据结构**：桶数 `next_prime(2×max_entries)`（内存翻倍）、删除时回收以空桶结尾的墓碑段、按最大偏移距离限制探测；已有元素从不移动 | 满表 miss 19x → 0.94x；随机命中 1.17x → 0.77x |
+| `f26cc335` | 绑定程序里常量非 array 句柄的 lookup/update/delete 直接调用原 helper（overlay + 私有 helper 槽） | hash + array 程序与只有 hash 的一样快 |
+| `af10949b` | 探测上限按“每种距离的元素数”维护，最远元素删光后上限下降（每 map 多 256 字节） | 插删后半满表纯 miss 1.62x → 1.01x |
+| `dffb2fce` | 删除时只在最远一档被删空时才重算上限 | 无可测收益，逻辑保留 |
+| `72aebadd` | hash 专用 delete helper（加载时按类型选，与 lookup/update 同规则） | 官方 hash delete 36.9 → 28.2 ns（0.26x）；delete+insert -10% |
 
-另：每日 `config.json` 已追加这 4 个提交和诊断提交 `f24dc9b`（共 47 个）并补 README，`automation/jetson-daily` `2f003c19` 已推送。
-LLVM 15 重放验证通过（`results/uprobe/daily-jit-stack-validation-20261021/round4-hash-fixes`：47/47 无冲突，树与 `f26cc335` 相同，候选 74 cases、官方 26 cases 通过）。
+另：`ccb0ade1`（距离 0 不计数）使 hash delete 慢 17%，推送前已撤销。原因：hash 删除被内联进 ~9.7 KB 的通用
+delete 大函数，源码小改动就会重排整函数的代码生成；专用 delete helper 后不再受影响。
+每日补丁栈：LLVM 15 第 5 轮重放（`results/uprobe/daily-jit-stack-validation-20261021/round5-hash-bound-delete`）
+50/50 无冲突，树与 `72aebadd` 相同，候选 77 cases、官方 26 cases 通过。
 
-### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`；选定文本已发布到 `benchmark-results/jetson` `a505fd8`）
+### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`）
 
 | 目录 | 内容 |
 |---|---|
 | `hash-gap-history-20261022` | 6 个版本同轮：三种程序（只有 hash / + 全局变量 / + array）的 hash lookup |
-| `hash-shape-20261022` | 自写诊断 workload：顺序/随机 key、是否用返回值、填充 1024/1000/512、插删后；拆分官方 0.95x 与自设计 ~1.2x 的差别 |
-| `hash-mutate-20261022` | 三种程序里的 hash update、delete+insert，4 个版本同轮 |
-| `hash-helper-fixes-20261022`、`hash-probe-bound-20261022`、`direct-map-helpers-20261022` | 每个提交的回归测试、同轮 A/B、只跑 bpftime 的完整十轮（`full10-*`）、配对短测 |
+| `hash-shape-20261022` | 自写 workload：顺序/随机 key、是否用返回值、填充 1024/1000/512、插删后；纯 miss |
+| `hash-mutate-20261022` | 三种程序里的 hash update、delete+insert |
+| `hash-helper-fixes-…`、`hash-probe-bound-…`、`direct-map-helpers-…`、`hash-bound-shrink-20261022`、`hash-typed-delete-20261023` | 每个提交的回归测试、同轮 A/B、只跑 bpftime 的完整十轮（`full10-*`）、配对短测 |
 | `direct-map-helpers-20261022/layout-check` | 代码布局验证（全函数 64 字节对齐对照构建） |
 
 ### 0.3 结论
 
-1. 官方 hash lookup 0.95x 与自设计 ~1.2x 的差别几乎全来自 **key 顺序**（顺序 27 ns、随机 37 ns）；是否使用返回值、1000/1024 填充对命中无影响。
-2. miss 慢是数据结构问题，`1cb20807` 后所有形态的 hash lookup（命中、约半数 miss、纯 miss）都低于或接近 kernel；只有插删后的半满表纯 miss 仍 1.6x（内部墓碑要等复用）。
-3. hash update/delete 在三种程序里都远低于 kernel（`f26cc335`：0.31–0.35x）。
-4. 官方十项（`f26cc335`，只跑 bpftime，对基线 `5466f0d`）：hash lookup -10%、hash update -14%、hash delete +1.5%（删除多检查一个桶）、其余 map 项 ±1%。
-5. **代码布局效应**：uprobe + uretprobe 在 `f26cc335` 慢 10.6%（20/20 配对），per-CPU array update 自 `c3090b59` 起 +1%，probe write 偶发 ~4850 ns 慢档。只改函数布局（同源码、全函数 64 字节对齐）这三项都消失，证实是布局而非逻辑；但全函数对齐让 uprobe 慢 6.5%，不采用。本机无 `perf`，热点未定位。
-6. 已知语义问题（官方即如此，未改）：`fix_size_hash_map_impl` 的 update 忽略 `BPF_NOEXIST/BPF_EXIST` 并在表满时仍返回 0，delete 对不存在的 key 也返回 0。
+1. 官方 hash lookup 0.95x 与自设计 ~1.2x 的差别几乎全来自 key 顺序；是否使用返回值、1000/1024 填充对命中无影响。
+2. hash lookup 在所有测过的形态（命中、约半数 miss、满表纯 miss、插删后纯 miss）都低于或接近 kernel（0.77–1.01x）。
+3. hash update/delete 在三种程序里都远低于 kernel（0.31–0.34x）。
+4. 官方十项（`72aebadd`，只跑 bpftime，对基线 `5466f0d`）：hash lookup -10%（0.85x）、hash update -13%（0.32x）、hash delete -22%（0.26x）、其余 map 项 ±1%。
+5. 代码布局效应：uprobe、uprobe + uretprobe、per-CPU array update、probe write 会随构建在 1–10% 内波动，已证实是布局而非逻辑（同源码全函数对齐对照）；全函数对齐不采用。热点未定位。
+6. 已知语义问题（官方即如此，未改）：hash update 忽略 `BPF_NOEXIST/BPF_EXIST` 且表满时仍返回 0，delete 不存在的 key 也返回 0。
+7. 现有 hash map 仍是“打过补丁的线性探测”：内存翻倍、插删后表内无空桶（靠探测上限兜底）、整表一把锁、只对 4 字节 key 有快速路径。重写方案（元素池 + 带 hash 标签的紧凑索引表、只在索引上做回移删除、分段锁）已讨论，**等测试证明是瓶颈再做**。
 
-### 0.4 没做的事（候选）
+### 0.4 下一阶段：扩大测试覆盖（用户定的重点）
 
-- 布局效应的热点定位（需要 profiler）或更稳妥的布局控制。
-- 插删后半满表 miss 1.6x：可考虑插入时顺带清理或周期性重建（会移动元素，需先解决返回指针稳定性）。
-- 上面第 6 条的 hash update/delete 返回值语义。
-- 更大 map、多线程、真实应用的评估。
+官方 benchmark 太理想化，自设计的 consuming benchmark 也不够。两条线并行：
+1. **多维度、多参数的 benchmark**：key 大小（libbpf-tools 普通 hash 仅约 46% 是 4 字节 key，27% 是 8 字节，27% 是 12–192 字节）、value 大小（多为 16–144 字节）、操作语义（插入新 key、删除不存在的 key）、表的状态、并发（多线程/多进程；hash map 目前整表一把锁），每项与同轮 kernel 对比。
+2. **真实程序**：在 bpftime 上跑 uprobe 类工具（如 memleak、funclatency、bashreadline、sslsniff），统计实际 map 使用特征（操作次数、key/value 大小、miss 率、插删频率、并发度），从结果找问题；优化后回到真实程序验证。
+
+次要：布局效应热点定位（本机有 nsys，10/16 用过）、hash 返回值语义、上游 PR。
 
 ### 0.5 用户定下的工作方式
 
@@ -86,7 +94,7 @@ LLVM 15 重放验证通过（`results/uprobe/daily-jit-stack-validation-20261021
 | 用途 | 本机路径 / 分支 |
 |---|---|
 | **后续开发源码** | `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate` |
-| **后续开发分支** | `codex/uprobe-official-177a1dc465ff`：远端 `f24dc9b`（官方 177a1dc + 补丁栈 42 个 + 诊断 `f24dc9b`）；新增 `baf0cc85`、`c3090b59`、`1cb20807`、`f26cc335`（已推送，见第 0 节）；`5466f0d` 为基线，`bdd9835` 为全局变量支持 |
+| **后续开发分支** | `codex/uprobe-official-177a1dc465ff`：远端 `f24dc9b`（官方 177a1dc + 补丁栈 42 个 + 诊断 `f24dc9b`）；新增 `baf0cc85` … `72aebadd` 共 7 个（已推送，见第 0 节）；`5466f0d` 为基线，`bdd9835` 为全局变量支持 |
 | 本轮实测源码（冻结） | `/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate` |
 | 本轮实测分支（冻结） | `codex/uprobe-official-8da867d541f8` |
 | 已提交并推送 HEAD | `2eea622f97688b82a5c39402f631e79b5eb538f8`，map-name 用例适配 binding mutex（只改测试） |
