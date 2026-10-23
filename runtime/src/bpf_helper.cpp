@@ -1194,14 +1194,12 @@ uint64_t bpf_perf_event_output(uint64_t ctx, uint64_t map, uint64_t flags,
 			"Unable to get current cpu when running perf event output");
 		return (uint64_t)-1;
 	}
-	// Software perf events are sharded by (pid, tid) and the consumer polls
-	// every slot, so no per-cpu invariant has to be emulated in userspace.
-	// Pinning the thread to the current cpu around each output cost three
-	// scheduler syscalls (getaffinity + two setaffinity) and forced two
-	// migrations per event for no correctness benefit. The cpu index comes
-	// from the vDSO via my_sched_getcpu(); a thread migrating between calls
-	// only selects a different array slot, which the consumer already
-	// enumerates.
+	// current_cpu is only a snapshot used as the per-CPU map lookup key,
+	// and ring writes go to per-thread producer shards, so nothing below
+	// depends on staying on this CPU. Do not pin the thread here: the
+	// sched_getaffinity/sched_setaffinity pair costs microseconds per
+	// event on some platforms (e.g. ARM) and provides no exclusion or
+	// ownership guarantee.
 	int fd = (int)map;
 	// Check map type. userspace perf event array, or shared perf event
 	// array?
@@ -1237,65 +1235,10 @@ uint64_t bpf_perf_event_output(uint64_t ctx, uint64_t map, uint64_t flags,
 	else {
 		SPDLOG_ERROR(
 			"Attempting to run perf_output on a non-perf array map");
-		return (uint64_t)-1;
+		ret = -1;
 	}
-}
 
-// Tail-call targets always receive a 64-byte context buffer.
-//
-// The helper's ctx may be either host-owned memory from the region passed
-// to bpftime_prog::bpftime_prog_exec (whose pointer and size are published
-// per thread), or a replacement context the running BPF program built on
-// its own BPF stack and passed as r1. The BPF ABI carries no size for the
-// latter, so only pointers contained in the host entry region are bounded;
-// replacement contexts keep the historical full 64-byte copy.
-//
-// Safety of a replacement context (the pointer actually lands on the
-// program's BPF stack and 64 bytes are readable there) is a verifier/ABI
-// precondition this helper cannot enforce without BPF-stack metadata; a
-// malformed program pointing r1 outside its stack frame is tracked under
-// the verifier-bypass work (issue #699).
-static void bpftime_prepare_tail_call_context(char (&context)[64],
-					      uint64_t ctx)
-{
-	constexpr size_t tail_call_context_size = 64;
-	if (ctx == 0) {
-		memset(context, 0, tail_call_context_size);
-		return;
-	}
-	const uintptr_t ctx_addr = (uintptr_t)ctx;
-	size_t copy_size = tail_call_context_size;
-	if (bpftime::current_thread_exec_ctx.has_value()) {
-		const auto &entry = *bpftime::current_thread_exec_ctx;
-		const uintptr_t entry_begin =
-			reinterpret_cast<uintptr_t>(entry.ptr);
-		const uintptr_t entry_end = entry_begin + entry.size;
-		if (ctx_addr >= entry_begin && ctx_addr < entry_end) {
-			// Inside the host entry region (exact base or an
-			// interior alias such as entry + 4): only the bytes
-			// from the alias to the region end are known valid.
-			copy_size = std::min(
-				static_cast<size_t>(entry_end - ctx_addr),
-				tail_call_context_size);
-		}
-		// Fully outside the region: a program-owned replacement
-		// context; copy all 64 bytes as the ABI historically does.
-	} else {
-		// Helper reached without any published exec context: the
-		// real size is unknown, so keep the historical 64-byte copy
-		// (still capped to the destination buffer) and warn once.
-		static std::once_flag tail_call_ctx_info_warn_once;
-		std::call_once(tail_call_ctx_info_warn_once, [] {
-			SPDLOG_WARN(
-				"tail_call: exec context info is unavailable; copying the full 64-byte tail-call context");
-		});
-	}
-	memcpy(context, reinterpret_cast<const void *>(ctx_addr),
-	       copy_size);
-	if (copy_size < tail_call_context_size) {
-		memset(context + copy_size, 0,
-		       tail_call_context_size - copy_size);
-	}
+	return (uint64_t)ret;
 }
 
 uint64_t bpftime_tail_call(uint64_t ctx, uint64_t prog_array, uint64_t index)
