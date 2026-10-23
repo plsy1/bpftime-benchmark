@@ -270,3 +270,28 @@ optional resolver retains the original helper call. Do not introduce CPU
 caching, private TLS offsets, new BPF helper numbers, query purity attributes
 or weaker map-lifetime, null/key/CPU bounds, fork, AOT or signal restrictions.
 The sched_getcpu wrapper used to inject failures belongs only to unit tests.
+
+## Software Perf Event Output
+
+A sample that does not fit in its producer shard is dropped the kernel way:
+`bpf_perf_event_output` returns `-ENOSPC`, and the shard counts the drop.
+The count is reported by a 24-byte `PERF_RECORD_LOST` (no `sample_id`)
+published atomically with the next sample that fits, never on its own and
+never silently discarded. Output without a mapped ring also returns `-ENOSPC`
+(the kernel's behavior); it is not counted as lost. A pending count is lost
+with its shard only when the shard is reclaimed (dead thread or consumer
+remap), as kernel counts are lost with their ring.
+
+Consumers in `bpftime_epoll_wait` sleep on the shared futex word
+`bpftime_perf_wakeup_state` with a 1 ms timeout: register in `waiters`,
+fence, re-check, then `FUTEX_WAIT`. A producer asks for a wakeup only when
+its shard was at least half full right after publishing (measured from the
+tail read before publishing) or a sample was dropped, like the kernel's
+`wakeup_watermark`; smaller output is delivered by the timeout. Waking on
+every sample costs a futex syscall per event (measured -8% req/s on
+ssl-nginx with 16 B responses). The producer fences and issues `FUTEX_WAKE`
+only when `waiters` is non-zero; keep both fences, or a wakeup can be missed
+until the timeout. SIGINT/SIGTERM stay
+blocked while sleeping and are collected with a zero-timeout `sigtimedwait`
+afterwards. Ring buffers do not notify and are found by the timeout.
+Segments without the wakeup object (older servers) fall back to polling.
