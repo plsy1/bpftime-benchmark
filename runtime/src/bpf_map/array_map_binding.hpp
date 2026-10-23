@@ -12,8 +12,7 @@
 
 namespace bpftime {
 namespace detail {
-extern std::atomic<uint64_t> array_binding_generation;
-bool initialize_array_binding_fork_guard();
+bool initialize_array_binding_fork_handlers();
 }
 
 // A separately named object leaves all shared handler/map layouts unchanged.
@@ -33,7 +32,6 @@ class handler_manager;
 class array_map_binding {
 	std::shared_ptr<boost::interprocess::managed_shared_memory> memory;
 	std::unique_ptr<bpf_map_handler> handler;
-	const uint64_t owner_generation;
 
 	array_map_binding(std::shared_ptr<boost::interprocess::managed_shared_memory> mem,
 		const bpf_map_handler &source);
@@ -87,9 +85,10 @@ public:
 	{
 		return *handler->try_get_array_map_impl();
 	}
-	bool belongs_to_this_process() const
+	// fork() takes one more shared reference per live binding for the child.
+	void pin_for_fork() const
 	{
-		return owner_generation == detail::array_binding_generation.load(std::memory_order_relaxed);
+		handler->inc_map_refcount();
 	}
 };
 } // namespace bpftime
