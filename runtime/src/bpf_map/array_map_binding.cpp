@@ -2,25 +2,47 @@
 #include "array_map_binding.hpp"
 #include <handler/handler_manager.hpp>
 #include <mutex>
+#include <unordered_set>
 #include <pthread.h>
 #include <unistd.h>
 
 namespace bpftime {
 namespace detail {
-std::atomic<uint64_t> array_binding_generation{0};
-static_assert(std::atomic<uint64_t>::is_always_lock_free);
-bool initialize_array_binding_fork_guard()
+namespace {
+// Process-local list of live bindings. fork() holds the lock from prepare to
+// the parent/child handlers, so no binding is created or released meanwhile.
+pthread_mutex_t live_bindings_lock = PTHREAD_MUTEX_INITIALIZER;
+std::unordered_set<const array_map_binding *> &live_bindings()
+{
+	static auto *bindings = new std::unordered_set<const array_map_binding *>;
+	return *bindings;
+}
+struct live_bindings_guard {
+	live_bindings_guard() { pthread_mutex_lock(&live_bindings_lock); }
+	~live_bindings_guard() { pthread_mutex_unlock(&live_bindings_lock); }
+};
+}
+bool initialize_array_binding_fork_handlers()
 {
 	static std::once_flag once;
 	static int status = -1;
 	try {
 		std::call_once(once, [] {
-			status = pthread_atfork(nullptr, nullptr, [] {
-				// Only the child thread exists here; lock-free load/store
-				// needs no allocator, mutex, syscall or PID-namespace assumption.
-				auto generation = array_binding_generation.load(std::memory_order_relaxed);
-				array_binding_generation.store(generation + 1, std::memory_order_relaxed);
-			});
+			// The child inherits a copy of every binding and will release
+			// it, so it needs its own shared reference. Taking it before the
+			// fork leaves no window in which the parent could free the map.
+			// A failed fork, or a child that execs or _exits, leaks them.
+			status = pthread_atfork(
+				[] {
+					pthread_mutex_lock(&live_bindings_lock);
+					for (auto *binding : live_bindings())
+						binding->pin_for_fork();
+				},
+				[] { pthread_mutex_unlock(&live_bindings_lock); },
+				[] {
+					// Only this thread exists; the lock owner was the parent's.
+					pthread_mutex_init(&live_bindings_lock, nullptr);
+				});
 		});
 	} catch (...) {
 		return false;
@@ -31,8 +53,7 @@ bool initialize_array_binding_fork_guard()
 
 array_map_binding::array_map_binding(
 	std::shared_ptr<boost::interprocess::managed_shared_memory> mem,
-	const bpf_map_handler &source) : memory(std::move(mem)),
-	owner_generation(detail::array_binding_generation.load(std::memory_order_relaxed))
+	const bpf_map_handler &source) : memory(std::move(mem))
 {
 	bpf_map_attr attr{};
 	attr.type = static_cast<int>(source.type);
@@ -49,18 +70,16 @@ array_map_binding::array_map_binding(
 	handler = std::make_unique<bpf_map_handler>(0,
 		"", *memory, attr); // Empty snapshot name owns no shared allocation.
 	handler->share_map_impl_from(source);
+	detail::live_bindings_guard guard;
 	source.inc_map_refcount();
+	detail::live_bindings().insert(this);
 }
 
 array_map_binding::~array_map_binding()
 {
-	if (!belongs_to_this_process()) {
-		// fork copied this local ownership graph, not its shared refcount.
-		// Do not decrement/free the parent's implementation or name storage.
-		handler->map_impl_ptr = nullptr;
-		handler->map_refcnt_ptr = nullptr;
-		handler.reset();
-		return;
+	{
+		detail::live_bindings_guard guard;
+		detail::live_bindings().erase(this);
 	}
 	// There can be several bindings and duplicated descriptors. Existing map
 	// reference counting destroys the backing only after the last owner leaves.
@@ -75,7 +94,7 @@ std::shared_ptr<array_map_binding> array_map_binding::acquire(
 {
 	if (!memory || !manager)
 		return {};
-	if (!detail::initialize_array_binding_fork_guard())
+	if (!detail::initialize_array_binding_fork_handlers())
 		return {};
 	map_binding_guard guard(map_binding_mutex(*memory));
 	if (fd < 0 || static_cast<size_t>(fd) >= manager->size())
