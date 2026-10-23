@@ -1,0 +1,1005 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index c624c2ca..f6fe932c 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -270,3 +270,28 @@ optional resolver retains the original helper call. Do not introduce CPU
+ caching, private TLS offsets, new BPF helper numbers, query purity attributes
+ or weaker map-lifetime, null/key/CPU bounds, fork, AOT or signal restrictions.
+ The sched_getcpu wrapper used to inject failures belongs only to unit tests.
++
++## Software Perf Event Output
++
++A sample that does not fit in its producer shard is dropped the kernel way:
++`bpf_perf_event_output` returns `-ENOSPC`, and the shard counts the drop.
++The count is reported by a 24-byte `PERF_RECORD_LOST` (no `sample_id`)
++published atomically with the next sample that fits, never on its own and
++never silently discarded. Output without a mapped ring also returns `-ENOSPC`
++(the kernel's behavior); it is not counted as lost. A pending count is lost
++with its shard only when the shard is reclaimed (dead thread or consumer
++remap), as kernel counts are lost with their ring.
++
++Consumers in `bpftime_epoll_wait` sleep on the shared futex word
++`bpftime_perf_wakeup_state` with a 1 ms timeout: register in `waiters`,
++fence, re-check, then `FUTEX_WAIT`. A producer asks for a wakeup only when
++its shard was at least half full right after publishing (measured from the
++tail read before publishing) or a sample was dropped, like the kernel's
++`wakeup_watermark`; smaller output is delivered by the timeout. Waking on
++every sample costs a futex syscall per event (measured -8% req/s on
++ssl-nginx with 16 B responses). The producer fences and issues `FUTEX_WAKE`
++only when `waiters` is non-zero; keep both fences, or a wakeup can be missed
++until the timeout. SIGINT/SIGTERM stay
++blocked while sleeping and are collected with a zero-timeout `sigtimedwait`
++afterwards. Ring buffers do not notify and are found by the timeout.
++Segments without the wakeup object (older servers) fall back to polling.
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index 2d45c67f..22468ac7 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -758,6 +758,10 @@ uint64_t bpf_perf_event_output(uint64_t ctx, uint64_t map, uint64_t flags,
+ 		ret = bpftime_perf_event_output(perf_handler_fd,
+ 						(const void *)(uintptr_t)data,
+ 						(size_t)size);
++		// Report a dropped sample as the kernel does (-ENOSPC when
++		// the ring is full) instead of a bare -1.
++		if (ret < 0 && errno != 0)
++			ret = -errno;
+ 	}
+ #if __linux__ && BPFTIME_BUILD_WITH_LIBBPF
+ 	else if (map_ty == bpftime::bpf_map_type::
+diff --git a/runtime/src/bpftime_shm.cpp b/runtime/src/bpftime_shm.cpp
+index 91dc7a76..bcec765e 100644
+--- a/runtime/src/bpftime_shm.cpp
++++ b/runtime/src/bpftime_shm.cpp
+@@ -18,6 +18,9 @@
+ #include <bpftime_shm_internal.hpp>
+ #if __linux__
+ #include <sys/epoll.h>
++#include <linux/futex.h>
++#include <sys/syscall.h>
++#include <unistd.h>
+ #elif __APPLE__
+ #include "bpftime_epoll.h"
+ #endif
+@@ -454,14 +457,7 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
+ 	// timeout for waiting..
+ 	timespec ts{ .tv_sec = 0, .tv_nsec = 1000 * 1000 };
+ 	bool failed_with_intr = false;
+-	while (next_id < max_evt) {
+-		auto now_time = high_resolution_clock::now();
+-		auto elasped =
+-			duration_cast<milliseconds>(now_time - start_time);
+-		if (timeout > 0 && elasped.count() > timeout) {
+-			break;
+-		}
+-
++	auto collect_ready = [&]() {
+ 		for (const auto &p : epoll_inst.files) {
+ 			if (std::holds_alternative<software_perf_event_weak_ptr>(
+ 				    p.file)) {
+@@ -498,36 +494,84 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
+ 				}
+ 			}
+ 		}
++	};
++	auto run_signal_handler = [](int sig, siginfo_t *sig_info) {
++		SPDLOG_DEBUG("epoll_wait interrupted by signal {}", sig);
++		// Invoke the original signal handler
++		struct sigaction act;
++		sigaction(sig, nullptr, &act);
++		if ((act.sa_flags & SA_SIGINFO) && act.sa_sigaction) {
++			act.sa_sigaction(sig, sig_info, nullptr);
++		} else if (auto f = act.sa_handler) {
++			f(sig);
++		}
++	};
++#if __linux__
++	auto *wakeup = shm.get_perf_wakeup_state();
++#endif
++	while (next_id < max_evt) {
++		auto now_time = high_resolution_clock::now();
++		auto elasped =
++			duration_cast<milliseconds>(now_time - start_time);
++		if (timeout > 0 && elasped.count() > timeout) {
++			break;
++		}
++
++		collect_ready();
+ 		if (next_id > 0 || timeout == 0) {
+ 			break;
+-		} else {
+-			// Nothing has been received, so allow the interruption
+-			// of epoll_wait
+-			// First, unblock the signals
+-			sigprocmask(SIG_UNBLOCK, &to_block, nullptr);
++		}
++#if __linux__
++		if (wakeup) {
++			// Register before re-checking, so a perf output that
++			// asks for a wakeup after the re-check bumps the
++			// sequence and ends this futex wait (see
++			// notify_perf_event_consumers). Records below the
++			// wakeup watermark and ring buffers are found by the
++			// timeout.
++			uint32_t sequence = __atomic_load_n(&wakeup->sequence,
++							    __ATOMIC_ACQUIRE);
++			__atomic_add_fetch(&wakeup->waiters, 1,
++					   __ATOMIC_SEQ_CST);
++			__atomic_thread_fence(__ATOMIC_SEQ_CST);
++			collect_ready();
++			if (next_id == 0) {
++				syscall(SYS_futex, &wakeup->sequence,
++					FUTEX_WAIT, sequence, &ts, nullptr, 0);
++			}
++			__atomic_sub_fetch(&wakeup->waiters, 1,
++					   __ATOMIC_RELEASE);
++			if (next_id > 0) {
++				break;
++			}
++			// SIGINT and SIGTERM stayed blocked while sleeping;
++			// take one that arrived meanwhile.
++			timespec no_wait{};
+ 			siginfo_t sig_info;
+-			// Second, wait for interruptable signals
+-			if (int sig = sigtimedwait(&to_block, &sig_info, &ts);
++			if (int sig = sigtimedwait(&to_block, &sig_info,
++						   &no_wait);
+ 			    sig > 0) {
+-				SPDLOG_DEBUG(
+-					"epoll_wait interrupted by signal {}",
+-					sig);
+-				// Invoke the original signal handler
+-				struct sigaction act;
+-				sigaction(sig, nullptr, &act);
+-				if ((act.sa_flags & SA_SIGINFO) &&
+-				    act.sa_sigaction) {
+-					act.sa_sigaction(sig, &sig_info,
+-							 nullptr);
+-				} else if (auto f = act.sa_handler) {
+-					f(sig);
+-				}
++				run_signal_handler(sig, &sig_info);
+ 				failed_with_intr = true;
+ 				break;
+ 			}
+-			// If not catched, just block them again
+-			sigprocmask(SIG_BLOCK, &to_block, nullptr);
++			continue;
+ 		}
++#endif
++		// Nothing has been received, so allow the interruption
++		// of epoll_wait
++		// First, unblock the signals
++		sigprocmask(SIG_UNBLOCK, &to_block, nullptr);
++		siginfo_t sig_info;
++		// Second, wait for interruptable signals
++		if (int sig = sigtimedwait(&to_block, &sig_info, &ts);
++		    sig > 0) {
++			run_signal_handler(sig, &sig_info);
++			failed_with_intr = true;
++			break;
++		}
++		// If not catched, just block them again
++		sigprocmask(SIG_BLOCK, &to_block, nullptr);
+ 	}
+ 	// Restore the original sigmask
+ 	sigprocmask(SIG_SETMASK, &orig_sigset, nullptr);
+@@ -584,8 +628,15 @@ int bpftime_perf_event_output(int fd, const void *buf, size_t sz)
+ 	if (std::holds_alternative<software_perf_event_shared_ptr>(
+ 		    handler.data)) {
+ 		SPDLOG_DEBUG("Perf out value to fd {}, sz {}", fd, sz);
+-		return std::get<software_perf_event_shared_ptr>(handler.data)
+-			->output_data(buf, sz);
++		bool wakeup_consumer;
++		int ret = std::get<software_perf_event_shared_ptr>(handler.data)
++				  ->output_data(buf, sz, &wakeup_consumer);
++		if (wakeup_consumer) {
++			int saved_errno = errno;
++			shm.notify_perf_event_consumers();
++			errno = saved_errno;
++		}
++		return ret;
+ 	} else {
+ 		SPDLOG_ERROR(
+ 			"Expected perf event handler {} to be a software perf event handler",
+diff --git a/runtime/src/bpftime_shm_internal.cpp b/runtime/src/bpftime_shm_internal.cpp
+index ed3cfc40..c70455dd 100644
+--- a/runtime/src/bpftime_shm_internal.cpp
++++ b/runtime/src/bpftime_shm_internal.cpp
+@@ -29,6 +29,9 @@
+ #include <sys/file.h>
+ #include <sys/stat.h>
+ #include <sys/epoll.h>
++#include <climits>
++#include <linux/futex.h>
++#include <sys/syscall.h>
+ #ifdef BPFTIME_ENABLE_CUDA_ATTACH
+ #include <cuda_runtime.h>
+ #include <cuda_runtime_api.h>
+@@ -898,6 +901,10 @@ bpftime_shm::bpftime_shm(const char *shm_name, shm_open_type type)
+ 		epoch_state = segment.find<bpftime_global_epoch_state>(
+ 					     "bpftime_global_epoch_state")
+ 				      .first;
++		perf_wakeup_state =
++			segment.find<bpftime_perf_wakeup_state>(
++				       "bpftime_perf_wakeup_state")
++				.first;
+ 		SPDLOG_DEBUG("done: bpftime_shm for client setup");
+ 	} else if (type == shm_open_type::SHM_CREATE_OR_OPEN ||
+ 		   type == shm_open_type::SHM_CREATE_ONLY) {
+@@ -949,6 +956,9 @@ bpftime_shm::bpftime_shm(const char *shm_name, shm_open_type type)
+ 		epoch_state =
+ 			segment.find_or_construct<bpftime_global_epoch_state>(
+ 				"bpftime_global_epoch_state")();
++		perf_wakeup_state =
++			segment.find_or_construct<bpftime_perf_wakeup_state>(
++				"bpftime_perf_wakeup_state")();
+ 		SPDLOG_DEBUG("done: bpftime_shm for open_or_create setup");
+ 	} else if (type == shm_open_type::SHM_REMOVE_AND_CREATE) {
+ 		SPDLOG_DEBUG(
+@@ -999,6 +1009,8 @@ bpftime_shm::bpftime_shm(const char *shm_name, shm_open_type type)
+ 				bpftime::DEFAULT_PID_SET_LOCK_NAME)();
+ 		epoch_state = segment.construct<bpftime_global_epoch_state>(
+ 			"bpftime_global_epoch_state")();
++		perf_wakeup_state = segment.construct<bpftime_perf_wakeup_state>(
++			"bpftime_perf_wakeup_state")();
+ 		SPDLOG_DEBUG("done: bpftime_shm for server setup.");
+ 	} else if (type == shm_open_type::SHM_NO_CREATE) {
+ 		// not create any shm
+@@ -1088,6 +1100,24 @@ std::uint64_t bpftime_shm::read_stable_epoch_seq(int max_tries) const
+ 	return BPFTIME_EPOCH_SEQ_UNSTABLE;
+ }
+ 
++void bpftime_shm::notify_perf_event_consumers() const
++{
++#if __linux__
++	if (!perf_wakeup_state)
++		return;
++	// Pairs with the fence in bpftime_epoll_wait: either the consumer's
++	// re-check after registering sees the record just published, or this
++	// load sees the registration.
++	__atomic_thread_fence(__ATOMIC_SEQ_CST);
++	if (__atomic_load_n(&perf_wakeup_state->waiters, __ATOMIC_RELAXED) == 0)
++		return;
++	__atomic_add_fetch(&perf_wakeup_state->sequence, 1, __ATOMIC_RELEASE);
++	// Shared (non-private) futex: consumers are other processes.
++	syscall(SYS_futex, &perf_wakeup_state->sequence, FUTEX_WAKE, INT_MAX,
++		nullptr, nullptr, 0);
++#endif
++}
++
+ std::uint64_t bpftime_shm::begin_new_session()
+ {
+ 	map_binding_guard binding_guard(map_binding_mutex(segment));
+diff --git a/runtime/src/bpftime_shm_internal.hpp b/runtime/src/bpftime_shm_internal.hpp
+index 6b56c82c..a6598295 100644
+--- a/runtime/src/bpftime_shm_internal.hpp
++++ b/runtime/src/bpftime_shm_internal.hpp
+@@ -55,6 +55,16 @@ struct bpftime_global_epoch_state {
+ 	std::uint64_t epoch_seq = 0;
+ };
+ 
++// Lets producers wake a consumer sleeping in bpftime_epoll_wait once a
++// software perf event ring is half full or drops a sample (the kernel's
++// wakeup_watermark), instead of leaving a burst to the consumer's next 1 ms
++// poll. `sequence` is a shared futex word bumped on each wakeup; `waiters`
++// counts consumers that are about to sleep or sleeping on it.
++struct bpftime_perf_wakeup_state {
++	std::uint32_t sequence = 0;
++	std::uint32_t waiters = 0;
++};
++
+ using syscall_pid_set_allocator = boost::interprocess::allocator<
+ 	int, boost::interprocess::managed_shared_memory::segment_manager>;
+ using syscall_pid_set =
+@@ -105,6 +115,9 @@ class bpftime_shm {
+ 
+ 	bpftime_global_epoch_state *epoch_state = nullptr;
+ 
++	// Absent in segments created by older servers; consumers then poll.
++	bpftime_perf_wakeup_state *perf_wakeup_state = nullptr;
++
+ 	// local agent config can be used for test or local process
+ 	std::optional<struct runtime_config> local_runtime_config;
+ #ifdef BPFTIME_ENABLE_CUDA_ATTACH
+@@ -181,6 +194,14 @@ class bpftime_shm {
+ 	// Returns UINT64_MAX if the epoch couldn't be stabilized within max_tries.
+ 	std::uint64_t read_stable_epoch_seq(int max_tries = 200) const;
+ 
++	bpftime_perf_wakeup_state *get_perf_wakeup_state() const
++	{
++		return perf_wakeup_state;
++	}
++	// Called when a software perf event output asks for a wakeup. Costs a
++	// fence and a shared load unless a consumer is sleeping.
++	void notify_perf_event_consumers() const;
++
+ 	const handler_variant &get_handler(int fd) const;
+ 	bool is_epoll_fd(int fd) const;
+ 
+diff --git a/runtime/src/handler/perf_event_handler.cpp b/runtime/src/handler/perf_event_handler.cpp
+index 033c4e9c..743008a5 100644
+--- a/runtime/src/handler/perf_event_handler.cpp
++++ b/runtime/src/handler/perf_event_handler.cpp
+@@ -19,6 +19,7 @@
+ #include <spdlog/fmt/bin_to_hex.h>
+ #include <atomic>
+ #include <cerrno>
++#include <cstddef>
+ #include <exception>
+ #include <limits>
+ #include <unordered_map>
+@@ -312,21 +313,19 @@ size_t software_perf_event_buffer::mmap_size() const
+ bool software_perf_event_buffer::append_record(const void *record,
+ 					       size_t record_size)
+ {
+-	return append_record_parts(record, record_size, nullptr, 0);
++	return append_record_parts({ { record, record_size } });
+ }
+ 
+-bool software_perf_event_buffer::append_record_parts(const void *first,
+-						     size_t first_size,
+-						     const void *second,
+-						     size_t second_size,
+-						     size_t padding_size)
++bool software_perf_event_buffer::append_record_parts(
++	std::initializer_list<record_part> parts, size_t padding_size,
++	uint64_t *used_after)
+ {
+-	if (second_size > std::numeric_limits<size_t>::max() - first_size ||
+-	    padding_size > std::numeric_limits<size_t>::max() - first_size -
+-				   second_size) {
+-		return false;
++	size_t record_size = padding_size;
++	for (const auto &part : parts) {
++		if (part.size > std::numeric_limits<size_t>::max() - record_size)
++			return false;
++		record_size += part.size;
+ 	}
+-	const size_t record_size = first_size + second_size + padding_size;
+ 	if (mmap_size() == 0 || record_size > mmap_size()) {
+ 		return false;
+ 	}
+@@ -349,12 +348,17 @@ bool software_perf_event_buffer::append_record_parts(const void *first,
+ 		return false;
+ 	}
+ 
+-	write_wrapped(data_head, first, first_size);
+-	if (second_size > 0) {
+-		write_wrapped(data_head + first_size, second, second_size);
++	uint64_t offset = data_head;
++	for (const auto &part : parts) {
++		if (part.size > 0) {
++			write_wrapped(offset, part.data, part.size);
++		}
++		offset += part.size;
+ 	}
+ 	uint64_t new_head = data_head + record_size;
+ 	smp_store_release_u64(&header.data_head, new_head);
++	if (used_after)
++		*used_after = used_size + record_size;
+ 	SPDLOG_DEBUG(
+ 		"Perf record of size {} outputed at head {}; new_head={} addr={:x}; available_size={}",
+ 		record_size, data_head, new_head,
+@@ -364,15 +368,23 @@ bool software_perf_event_buffer::append_record_parts(const void *first,
+ 	return true;
+ }
+ 
+-int software_perf_event_buffer::output_data(const void *buf, size_t size)
++int software_perf_event_buffer::output_data(const void *buf, size_t size,
++					    bool *wakeup_consumer)
+ {
+ 	SPDLOG_DEBUG("Handling perf event output data with size {}", size);
++	if (wakeup_consumer)
++		*wakeup_consumer = false;
+ 	constexpr size_t alignment = sizeof(uint64_t);
+ 	if (size > std::numeric_limits<uint16_t>::max() -
+ 			   sizeof(perf_sample_raw) - (alignment - 1)) {
+ 		errno = E2BIG;
+ 		return -1;
+ 	}
++	// Like the kernel without a mapped ring buffer: nothing to drop into.
++	if (mmap_size() == 0) {
++		errno = ENOSPC;
++		return -1;
++	}
+ 	const size_t record_size =
+ 		(sizeof(perf_sample_raw) + size + alignment - 1) &
+ 		~(alignment - 1);
+@@ -382,8 +394,40 @@ int software_perf_event_buffer::output_data(const void *buf, size_t size)
+ 	header.header.misc = 0;
+ 	header.size = record_size - sizeof(header);
+ 
+-	append_record_parts(&header, sizeof(header), buf, size,
+-			    header.size - size);
++	bool written;
++	// Measured from the tail seen before publishing, so a concurrent
++	// drain cannot hide a burst from the watermark check.
++	uint64_t used_after = 0;
++	if (lost_samples == 0) {
++		written = append_record_parts(
++			{ { &header, sizeof(header) }, { buf, size } },
++			header.size - size, &used_after);
++	} else {
++		// As in the kernel's perf_output_begin(), earlier drops are
++		// reported by a PERF_RECORD_LOST that is published together
++		// with the next sample that fits, so the consumer sees the
++		// loss in order. sample_id_all is not supported, so the
++		// record ends after the lost count.
++		perf_sample_lost lost;
++		lost.header.type = PERF_RECORD_LOST;
++		lost.header.misc = 0;
++		lost.header.size = offsetof(perf_sample_lost, sample_id);
++		lost.id = 0;
++		lost.lost = lost_samples;
++		written = append_record_parts({ { &lost, lost.header.size },
++						{ &header, sizeof(header) },
++						{ buf, size } },
++					      header.size - size, &used_after);
++		if (written)
++			lost_samples = 0;
++	}
++	if (wakeup_consumer)
++		*wakeup_consumer = !written || used_after >= mmap_size() / 2;
++	if (!written) {
++		lost_samples++;
++		errno = ENOSPC;
++		return -1;
++	}
+ 	return 0;
+ }
+ 
+@@ -598,9 +642,11 @@ software_perf_event_data::get_header_ref_const() const
+ 	return consumer_buffer.get_header_ref_const();
+ }
+ 
+-int software_perf_event_data::output_data(const void *buf, size_t size)
++int software_perf_event_data::output_data(const void *buf, size_t size,
++					  bool *wakeup_consumer)
+ {
+-	return get_current_thread_shard().buffer.output_data(buf, size);
++	return get_current_thread_shard().buffer.output_data(buf, size,
++							      wakeup_consumer);
+ }
+ 
+ perf_event_mmap_page &software_perf_event_data::get_header_ref()
+diff --git a/runtime/src/handler/perf_event_handler.hpp b/runtime/src/handler/perf_event_handler.hpp
+index a494e9bb..c6928fec 100644
+--- a/runtime/src/handler/perf_event_handler.hpp
++++ b/runtime/src/handler/perf_event_handler.hpp
+@@ -12,6 +12,7 @@
+ #include <boost/interprocess/containers/vector.hpp>
+ #include <cstddef>
+ #include <cstdint>
++#include <initializer_list>
+ #include <optional>
+ #include <boost/interprocess/allocators/allocator.hpp>
+ #include <boost/interprocess/smart_ptr/shared_ptr.hpp>
+@@ -79,21 +80,36 @@ struct software_perf_event_buffer {
+ 	int pagesize;
+ 	bytes_vec mmap_buffer;
+ 	bytes_vec copy_buffer;
++	// Samples dropped because the ring was full and not yet reported by a
++	// PERF_RECORD_LOST. Only the single producer of this buffer touches it.
++	uint64_t lost_samples = 0;
+ 
+ 	software_perf_event_buffer(int pagesize, segment_manager *manager);
+ 	void *ensure_mmap_buffer(size_t buffer_size);
+ 	perf_event_mmap_page &get_header_ref();
+ 	const perf_event_mmap_page &get_header_ref_const() const;
+-	int output_data(const void *buf, size_t size);
++	// When `wakeup_consumer` is given, it is set to whether a sleeping
++	// consumer should be woken: the sample was dropped, or the ring was at
++	// least half full right after it was published (the kernel's
++	// wakeup_watermark). Waking on every sample costs the producer a
++	// futex syscall per event.
++	int output_data(const void *buf, size_t size,
++			bool *wakeup_consumer = nullptr);
+ 	size_t mmap_size() const;
+ 	bool has_data() const;
+ 	bool copy_next_record_to(software_perf_event_buffer &dst);
+ 
+     private:
++	struct record_part {
++		const void *data;
++		size_t size;
++	};
+ 	bool append_record(const void *record, size_t record_size);
+-	bool append_record_parts(const void *first, size_t first_size,
+-				 const void *second, size_t second_size,
+-				 size_t padding_size = 0);
++	// Publishes all parts (plus unwritten padding) with a single head
++	// update, or nothing if they do not fit together.
++	bool append_record_parts(std::initializer_list<record_part> parts,
++				 size_t padding_size = 0,
++				 uint64_t *used_after = nullptr);
+ 	void write_wrapped(uint64_t offset, const void *src, size_t size);
+ 	void read_wrapped(uint64_t offset, void *dst, size_t size) const;
+ };
+@@ -140,7 +156,8 @@ struct software_perf_event_data {
+ 	void *ensure_mmap_buffer(size_t buffer_size);
+ 	perf_event_mmap_page &get_header_ref();
+ 	const perf_event_mmap_page &get_header_ref_const() const;
+-	int output_data(const void *buf, size_t size);
++	int output_data(const void *buf, size_t size,
++			bool *wakeup_consumer = nullptr);
+ 	size_t mmap_size() const;
+ 	bool has_data();
+ 
+diff --git a/runtime/unit-test/test_epoll.cpp b/runtime/unit-test/test_epoll.cpp
+index b0c7caf3..65e97cf3 100644
+--- a/runtime/unit-test/test_epoll.cpp
++++ b/runtime/unit-test/test_epoll.cpp
+@@ -4,6 +4,7 @@
+ 
+ #if __linux__
+ #include "bpftime_shm.hpp"
++#include "bpftime_shm_internal.hpp"
+ #include "common_def.hpp"
+ #include <boost/scope_exit.hpp>
+ #include <array>
+@@ -12,6 +13,7 @@
+ #include <linux/bpf.h>
+ #include <pthread.h>
+ #include <string>
++#include <thread>
+ #include <unistd.h>
+ #include <vector>
+ 
+@@ -158,4 +160,169 @@ TEST_CASE("Epoll returns each ready registration once and restores signals",
+ 		}
+ 	}
+ }
++
++namespace
++{
++volatile sig_atomic_t perf_wakeup_sigint_count = 0;
++
++void count_perf_wakeup_sigint(int)
++{
++	perf_wakeup_sigint_count = perf_wakeup_sigint_count + 1;
++}
++
++uint32_t perf_wakeup_waiters()
++{
++	auto *state = bpftime::shm_holder.global_shared_memory
++			      .get_perf_wakeup_state();
++	return __atomic_load_n(&state->waiters, __ATOMIC_ACQUIRE);
++}
++
++uint32_t perf_wakeup_sequence()
++{
++	auto *state = bpftime::shm_holder.global_shared_memory
++			      .get_perf_wakeup_state();
++	return __atomic_load_n(&state->sequence, __ATOMIC_ACQUIRE);
++}
++
++bool wait_for_sleeping_consumer()
++{
++	for (int i = 0; i < 5000; i++) {
++		if (perf_wakeup_waiters() > 0)
++			return true;
++		usleep(1000);
++	}
++	return false;
++}
++} // namespace
++
++TEST_CASE("Perf output wakes a sleeping epoll consumer", "[epoll][perf-wakeup]")
++{
++	const char *old_name = getenv("BPFTIME_GLOBAL_SHM_NAME");
++	const bool had_name = old_name != nullptr;
++	const std::string previous_name = old_name ? old_name : "";
++	const std::string name =
++		"EpollPerfWakeupTestShm-" + std::to_string(getpid());
++	shm_remove remover{ std::string(name) };
++	std::vector<int> fds;
++	struct sigaction old_sigint;
++	REQUIRE(sigaction(SIGINT, nullptr, &old_sigint) == 0);
++	BOOST_SCOPE_EXIT_ALL(&)
++	{
++		sigaction(SIGINT, &old_sigint, nullptr);
++		for (int fd : fds) {
++			bpftime_close(fd);
++			close(fd);
++		}
++		bpftime_destroy_global_shm();
++		bpftime_initialize_global_shm(
++			bpftime::shm_open_type::SHM_NO_CREATE);
++		if (had_name)
++			setenv("BPFTIME_GLOBAL_SHM_NAME", previous_name.c_str(),
++			       1);
++		else
++			unsetenv("BPFTIME_GLOBAL_SHM_NAME");
++	};
++	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
++	bpftime_destroy_global_shm();
++	bpftime_initialize_global_shm(
++		bpftime::shm_open_type::SHM_REMOVE_AND_CREATE);
++	REQUIRE(bpftime::shm_holder.global_shared_memory
++			.get_perf_wakeup_state() != nullptr);
++
++	const int epoll_fd = bpftime_epoll_create();
++	REQUIRE(epoll_fd >= 0);
++	fds.push_back(epoll_fd);
++	const int perf_fd = bpftime_add_software_perf_event(0, 0, 0);
++	REQUIRE(perf_fd >= 0);
++	fds.push_back(perf_fd);
++	REQUIRE(bpftime_get_software_perf_event_raw_buffer(
++			perf_fd, 2 * getpagesize()) != nullptr);
++	REQUIRE(bpftime_add_software_perf_event_fd_to_epoll(
++			perf_fd, epoll_fd, { .u64 = 7 }) == 0);
++
++	int wait_result = 0;
++	int wait_errno = 0;
++	epoll_event event{};
++	auto start_consumer = [&]() {
++		return std::thread([&]() {
++			errno = 0;
++			wait_result = bpftime_epoll_wait(epoll_fd, &event, 1,
++							 10000);
++			wait_errno = errno;
++		});
++	};
++
++	auto *header = (perf_event_mmap_page *)
++		bpftime_get_software_perf_event_raw_buffer(perf_fd,
++							   2 * getpagesize());
++	auto consume_all = [&]() {
++		while (bpftime_epoll_wait(epoll_fd, &event, 1, 0) == 1)
++			header->data_tail = header->data_head;
++	};
++	// Returns whether the output went through the futex (the sequence
++	// moved) and whether the consumer saw the record.
++	auto output_to_sleeping_consumer = [&](const void *data, size_t size) {
++		consume_all();
++		auto consumer = start_consumer();
++		const bool slept = wait_for_sleeping_consumer();
++		const uint32_t sequence = perf_wakeup_sequence();
++		const int ret = bpftime_perf_event_output(perf_fd, data, size);
++		consumer.join();
++		REQUIRE(slept);
++		REQUIRE(ret == 0);
++		CHECK(wait_result == 1);
++		CHECK(event.events == EPOLLIN);
++		CHECK(event.data.u64 == 7);
++		CHECK(perf_wakeup_waiters() == 0);
++		return perf_wakeup_sequence() != sequence;
++	};
++
++	SECTION("Output at the wakeup watermark wakes the consumer")
++	{
++		// Nobody is waiting yet: publishing costs no wakeup.
++		std::vector<uint8_t> half_ring(getpagesize() / 2);
++		const uint32_t idle_sequence = perf_wakeup_sequence();
++		REQUIRE(bpftime_perf_event_output(perf_fd, half_ring.data(),
++						  half_ring.size()) == 0);
++		CHECK(perf_wakeup_sequence() == idle_sequence);
++
++		// The consumer can briefly deregister between 1 ms timeouts;
++		// an output landing exactly there is found by the re-check
++		// without a wakeup, so allow a few attempts.
++		bool woke = false;
++		for (int attempt = 0; attempt < 5 && !woke; attempt++)
++			woke = output_to_sleeping_consumer(half_ring.data(),
++							   half_ring.size());
++		CHECK(woke);
++	}
++	SECTION("Small output is delivered without a wakeup")
++	{
++		const uint64_t payload = 42;
++		CHECK_FALSE(output_to_sleeping_consumer(&payload,
++							sizeof(payload)));
++	}
++	SECTION("SIGINT interrupts a sleeping consumer")
++	{
++		struct sigaction act {};
++		act.sa_handler = count_perf_wakeup_sigint;
++		sigemptyset(&act.sa_mask);
++		REQUIRE(sigaction(SIGINT, &act, nullptr) == 0);
++		perf_wakeup_sigint_count = 0;
++		auto consumer = start_consumer();
++		const auto handle = consumer.native_handle();
++		const bool slept = wait_for_sleeping_consumer();
++		if (slept)
++			pthread_kill(handle, SIGINT);
++		else
++			// Unblock the consumer before failing.
++			bpftime_perf_event_output(perf_fd, &slept,
++						  sizeof(slept));
++		consumer.join();
++		REQUIRE(slept);
++		CHECK(wait_result == -1);
++		CHECK(wait_errno == EINTR);
++		CHECK(perf_wakeup_sigint_count == 1);
++		CHECK(perf_wakeup_waiters() == 0);
++	}
++}
+ #endif
+diff --git a/runtime/unit-test/test_software_perf_event.cpp b/runtime/unit-test/test_software_perf_event.cpp
+index 488383ed..45e83b46 100644
+--- a/runtime/unit-test/test_software_perf_event.cpp
++++ b/runtime/unit-test/test_software_perf_event.cpp
+@@ -6,10 +6,12 @@
+ #include <atomic>
+ #include <boost/interprocess/managed_shared_memory.hpp>
+ #include <cerrno>
++#include <cstddef>
+ #include <cstring>
+ #include <limits>
+ #include <string>
+ #include <thread>
++#include <utility>
+ #include <unistd.h>
+ #include <vector>
+ 
+@@ -279,9 +281,13 @@ TEST_CASE("Software perf event records wrap on aligned boundaries after resize",
+ 		"perf")(0, 0, 0, shm);
+ 	REQUIRE(perf != nullptr);
+ 
++	// Without a mapped ring the sample is dropped and, as in the kernel,
++	// the output reports -ENOSPC.
+ 	event_payload dropped_before_mmap{ 0, 0 };
++	errno = 0;
+ 	REQUIRE(perf->output_data(&dropped_before_mmap,
+-				  sizeof(dropped_before_mmap)) == 0);
++				  sizeof(dropped_before_mmap)) == -1);
++	REQUIRE(errno == ENOSPC);
+ 	REQUIRE_FALSE(perf->has_data());
+ 
+ 	const size_t ring_size = 64;
+@@ -342,3 +348,255 @@ TEST_CASE("Software perf event mmap reports shared memory exhaustion",
+ 	REQUIRE(perf->ensure_mmap_buffer(getpagesize() + ring_size) == nullptr);
+ 	REQUIRE(errno == ENOMEM);
+ }
++
++namespace
++{
++struct large_payload {
++	int sequence;
++	uint8_t filler[1000];
++};
++
++std::pair<uint32_t, uint64_t> perf_record(uint32_t type, uint64_t value)
++{
++	return { type, value };
++}
++
++// Reads every record between tail and head and marks the ring consumed.
++std::vector<std::pair<uint32_t, uint64_t>>
++consume_perf_records(void *raw_buffer, size_t ring_size)
++{
++	auto *header = (perf_event_mmap_page *)raw_buffer;
++	auto *base = (uint8_t *)raw_buffer + getpagesize();
++	std::vector<std::pair<uint32_t, uint64_t>> records;
++	uint64_t tail = header->data_tail;
++	const uint64_t head = header->data_head;
++	while (tail < head) {
++		perf_event_header record_header;
++		copy_from_perf_ring(base, ring_size, tail, &record_header,
++				    sizeof(record_header));
++		REQUIRE(record_header.size >= sizeof(record_header));
++		REQUIRE(record_header.size % sizeof(uint64_t) == 0);
++		if (record_header.type == PERF_RECORD_LOST) {
++			// libbpf reads {header, id, lost} without sample_id.
++			REQUIRE(record_header.size ==
++				offsetof(bpftime::perf_sample_lost, sample_id));
++			bpftime::perf_sample_lost lost;
++			copy_from_perf_ring(base, ring_size, tail, &lost,
++					    record_header.size);
++			records.emplace_back(PERF_RECORD_LOST, lost.lost);
++		} else {
++			REQUIRE(record_header.type == PERF_RECORD_SAMPLE);
++			REQUIRE(record_header.size ==
++				aligned_perf_record_size(
++					sizeof(large_payload)));
++			int sequence;
++			copy_from_perf_ring(
++				base, ring_size,
++				tail + sizeof(bpftime::perf_sample_raw),
++				&sequence, sizeof(sequence));
++			records.emplace_back(PERF_RECORD_SAMPLE, sequence);
++		}
++		tail += record_header.size;
++	}
++	REQUIRE(tail == head);
++	header->data_tail = head;
++	return records;
++}
++} // namespace
++
++TEST_CASE("Software perf event reports dropped samples with PERF_RECORD_LOST",
++	  "[perf_event][software_perf_event][perf-lost]")
++{
++	const std::string shared_memory_name =
++		"SoftwarePerfEventLostTestShm-" + std::to_string(getpid());
++	shm_remove remover{ std::string(shared_memory_name) };
++	boost::interprocess::managed_shared_memory shm(
++		boost::interprocess::create_only, shared_memory_name.c_str(),
++		16 * 1024 * 1024);
++	auto *perf = shm.construct<bpftime::software_perf_event_data>(
++		"perf")(0, 0, 0, shm);
++	REQUIRE(perf != nullptr);
++
++	const size_t ring_size = 4096;
++	void *raw_buffer = perf->ensure_mmap_buffer(getpagesize() + ring_size);
++	REQUIRE(raw_buffer != nullptr);
++	constexpr size_t record_size =
++		aligned_perf_record_size(sizeof(large_payload));
++	const int capacity = (ring_size - 1) / record_size;
++	REQUIRE(capacity == 4);
++	// The space left after a full ring holds a LOST record but not a
++	// sample, so a LOST record must never be published on its own.
++	REQUIRE(ring_size - capacity * record_size >
++		offsetof(bpftime::perf_sample_lost, sample_id));
++
++	large_payload payload{};
++	int sequence = 0;
++	auto output = [&]() {
++		payload.sequence = sequence++;
++		errno = 0;
++		return perf->output_data(&payload, sizeof(payload));
++	};
++	for (int i = 0; i < capacity; i++)
++		REQUIRE(output() == 0);
++	REQUIRE(perf->producer_shards.size() == 1);
++	auto &shard_buffer = perf->producer_shards.front().buffer;
++	const uint64_t full_head = shard_buffer.get_header_ref().data_head;
++	constexpr int dropped = 3;
++	for (int i = 0; i < dropped; i++) {
++		REQUIRE(output() == -1);
++		REQUIRE(errno == ENOSPC);
++	}
++	CHECK(shard_buffer.get_header_ref().data_head == full_head);
++	CHECK(shard_buffer.lost_samples == dropped);
++
++	REQUIRE(perf->has_data());
++	auto records = consume_perf_records(raw_buffer, ring_size);
++	REQUIRE(records.size() == (size_t)capacity);
++	for (int i = 0; i < capacity; i++)
++		CHECK(records[i] == perf_record(
++					    PERF_RECORD_SAMPLE, i));
++
++	// The next sample that fits carries the loss in front of it.
++	REQUIRE(output() == 0);
++	REQUIRE(output() == 0);
++	CHECK(shard_buffer.lost_samples == 0);
++	REQUIRE(perf->has_data());
++	records = consume_perf_records(raw_buffer, ring_size);
++	REQUIRE(records.size() == 3);
++	CHECK(records[0] == perf_record(
++				    PERF_RECORD_LOST, dropped));
++	CHECK(records[1] == perf_record(
++				    PERF_RECORD_SAMPLE, capacity + dropped));
++	CHECK(records[2] == perf_record(
++				    PERF_RECORD_SAMPLE, capacity + dropped + 1));
++	REQUIRE_FALSE(perf->has_data());
++
++	// A sample that can never fit is also counted as lost.
++	std::vector<uint8_t> oversized(ring_size);
++	errno = 0;
++	REQUIRE(perf->output_data(oversized.data(), oversized.size()) == -1);
++	CHECK(errno == ENOSPC);
++	CHECK(shard_buffer.lost_samples == 1);
++	REQUIRE(output() == 0);
++	REQUIRE(perf->has_data());
++	records = consume_perf_records(raw_buffer, ring_size);
++	REQUIRE(records.size() == 2);
++	CHECK(records[0] ==
++	      perf_record(PERF_RECORD_LOST, 1));
++	CHECK(records[1].first == PERF_RECORD_SAMPLE);
++}
++
++#if __linux__
++TEST_CASE("bpf_perf_event_output returns -ENOSPC when the ring is full",
++	  "[perf_event][perf-lost]")
++{
++	cpu_set_t allowed;
++	REQUIRE(sched_getaffinity(0, sizeof(allowed), &allowed) == 0);
++	const char *old_name = getenv("BPFTIME_GLOBAL_SHM_NAME");
++	struct cleanup {
++		bool had_name;
++		std::string old_name;
++		int map_fd = -1;
++		int perf_fd = -1;
++		~cleanup()
++		{
++			for (int fd : { map_fd, perf_fd }) {
++				if (fd >= 0) {
++					bpftime_close(fd);
++					close(fd);
++				}
++			}
++			bpftime_destroy_global_shm();
++			bpftime_initialize_global_shm(
++				bpftime::shm_open_type::SHM_NO_CREATE);
++			if (had_name)
++				setenv("BPFTIME_GLOBAL_SHM_NAME",
++				       old_name.c_str(), 1);
++			else
++				unsetenv("BPFTIME_GLOBAL_SHM_NAME");
++		}
++	} cleanup{ old_name != nullptr, old_name ? old_name : "" };
++	const std::string name =
++		"PerfOutputEnospcTestShm-" + std::to_string(getpid());
++	shm_remove remover{ std::string(name) };
++	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
++	bpftime_destroy_global_shm();
++	bpftime_initialize_global_shm(
++		bpftime::shm_open_type::SHM_REMOVE_AND_CREATE);
++
++	cleanup.map_fd = bpftime_maps_create(
++		-1, "perf_array",
++		{ .type = BPF_MAP_TYPE_PERF_EVENT_ARRAY,
++		  .key_size = 4,
++		  .value_size = 4,
++		  .max_ents = CPU_SETSIZE });
++	REQUIRE(cleanup.map_fd >= 0);
++	cleanup.perf_fd = bpftime_add_software_perf_event(0, 0, 0);
++	REQUIRE(cleanup.perf_fd >= 0);
++	REQUIRE(bpftime_get_software_perf_event_raw_buffer(
++			cleanup.perf_fd, 2 * getpagesize()) != nullptr);
++	for (int cpu = 0; cpu < CPU_SETSIZE; cpu++) {
++		if (CPU_ISSET(cpu, &allowed))
++			REQUIRE(bpftime_map_update_elem(cleanup.map_fd, &cpu,
++							&cleanup.perf_fd,
++							0) == 0);
++	}
++
++	std::vector<uint8_t> payload(getpagesize() / 4);
++	int accepted = 0;
++	uint64_t ret = 0;
++	while (accepted < 16) {
++		ret = bpf_perf_event_output(
++			0, cleanup.map_fd, BPF_F_CURRENT_CPU,
++			reinterpret_cast<uint64_t>(payload.data()),
++			payload.size());
++		if (ret != 0)
++			break;
++		accepted++;
++	}
++	CHECK(accepted == 3);
++	CHECK((int64_t)ret == -ENOSPC);
++}
++#endif
++
++TEST_CASE("Software perf event asks for a wakeup at half a ring or on a drop",
++	  "[perf_event][software_perf_event][perf-wakeup]")
++{
++	const std::string shared_memory_name =
++		"SoftwarePerfEventWatermarkTestShm-" + std::to_string(getpid());
++	shm_remove remover{ std::string(shared_memory_name) };
++	boost::interprocess::managed_shared_memory shm(
++		boost::interprocess::create_only, shared_memory_name.c_str(),
++		16 * 1024 * 1024);
++	auto *perf = shm.construct<bpftime::software_perf_event_data>(
++		"perf")(0, 0, 0, shm);
++	REQUIRE(perf != nullptr);
++
++	large_payload payload{};
++	bool wakeup = true;
++	REQUIRE(perf->output_data(&payload, sizeof(payload), &wakeup) == -1);
++	CHECK_FALSE(wakeup); // No ring: nobody to wake.
++
++	const size_t ring_size = 4096;
++	void *raw_buffer = perf->ensure_mmap_buffer(getpagesize() + ring_size);
++	REQUIRE(raw_buffer != nullptr);
++	constexpr size_t record_size =
++		aligned_perf_record_size(sizeof(large_payload));
++	// 1016-byte records: half of the ring is reached by the third one.
++	const bool expected[] = { false, false, true, true };
++	for (bool expect : expected) {
++		REQUIRE(perf->output_data(&payload, sizeof(payload), &wakeup) ==
++			0);
++		CHECK(wakeup == expect);
++	}
++	REQUIRE(perf->output_data(&payload, sizeof(payload), &wakeup) == -1);
++	CHECK(wakeup);
++
++	// Draining resets the fill level; the LOST record counts toward it.
++	REQUIRE(perf->has_data());
++	consume_perf_records(raw_buffer, ring_size);
++	REQUIRE(perf->output_data(&payload, sizeof(payload), &wakeup) == 0);
++	CHECK_FALSE(wakeup);
++	REQUIRE(record_size + offsetof(bpftime::perf_sample_lost, sample_id) <
++		ring_size / 2);
++}
