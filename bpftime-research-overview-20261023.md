@@ -76,7 +76,9 @@
 - **map 优化对端到端吞吐没有可测影响**（+0.2% / +0.4%）：sslsniff 每个事件只有几次 map 操作，bpftime 每个事件约 10 µs
   的开销主要在 uprobe 进出和 perf 输出路径。去绑核仍是主要收益（+21.6% / +19.4%），开发分支比 kernel 快 7.2% / 10.8%。
 - 顺带发现并修复一个正确性回归：默认 array JIT 后，程序在 fork 子进程里不执行，nginx worker 的事件全部丢失（`a90fa447`）。
-- 新发现（官方也有）：大响应（256 KB）时 bpftime 的 perf 缓冲区满了会静默丢掉约一半事件，消费者不知道。
+- 又发现并修复（官方也有）：大响应（256 KB）时 bpftime 的 perf 缓冲区满了会静默丢掉约一半事件（`db3d475f`）。
+  修复后在 7 种 payload（16 B–256 KB）上都快于 kernel：+3.4% 到 +7.6%；官方 177a1dc 为 −7.3% 到 −11.8%。
+- 复核 7 月的 Tailscale/host netns 结论：共享的环境开销成立，“bpftime 额外受损”在当前版本不成立。
 - 详见 `benchmark-results/jetson` 分支 `uprobe/ssl-nginx-2x2-20261023/README.md`。
 
 ## 7. 总体结果：最初 vs 现在（官方 10 项，相对 kernel）
@@ -109,5 +111,5 @@ kernel）。两项 array lookup 内联后官方测法测不准，用 consuming �
   - 评估仍限于微基准：单线程、小 map；
   - hash map 仍是打过补丁的线性探测，内存翻倍、整表一把锁；
   - 代码布局效应：uprobe 等路径会随构建在 1–10% 内波动。
-  - 端到端的 tracing 开销不在 map 操作上（见 6.1）；bpftime 的 perf 输出满时静默丢事件。
+  - 端到端的 tracing 开销不在 map 操作上（见 6.1）。
 - **下一步**：扩大测试覆盖（多维度 benchmark + 真实程序），之后视结果重写 hash map，并考虑整理成上游 PR。
