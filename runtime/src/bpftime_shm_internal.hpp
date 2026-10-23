@@ -55,6 +55,16 @@ struct bpftime_global_epoch_state {
 	std::uint64_t epoch_seq = 0;
 };
 
+// Lets producers wake a consumer sleeping in bpftime_epoll_wait once a
+// software perf event ring is half full or drops a sample (the kernel's
+// wakeup_watermark), instead of leaving a burst to the consumer's next 1 ms
+// poll. `sequence` is a shared futex word bumped on each wakeup; `waiters`
+// counts consumers that are about to sleep or sleeping on it.
+struct bpftime_perf_wakeup_state {
+	std::uint32_t sequence = 0;
+	std::uint32_t waiters = 0;
+};
+
 using syscall_pid_set_allocator = boost::interprocess::allocator<
 	int, boost::interprocess::managed_shared_memory::segment_manager>;
 using syscall_pid_set =
@@ -104,6 +114,9 @@ class bpftime_shm {
 	boost::interprocess::interprocess_mutex *pid_set_lock = nullptr;
 
 	bpftime_global_epoch_state *epoch_state = nullptr;
+
+	// Absent in segments created by older servers; consumers then poll.
+	bpftime_perf_wakeup_state *perf_wakeup_state = nullptr;
 
 	// local agent config can be used for test or local process
 	std::optional<struct runtime_config> local_runtime_config;
@@ -180,6 +193,14 @@ class bpftime_shm {
 	// Returns 0 if the epoch object isn't available.
 	// Returns UINT64_MAX if the epoch couldn't be stabilized within max_tries.
 	std::uint64_t read_stable_epoch_seq(int max_tries = 200) const;
+
+	bpftime_perf_wakeup_state *get_perf_wakeup_state() const
+	{
+		return perf_wakeup_state;
+	}
+	// Called when a software perf event output asks for a wakeup. Costs a
+	// fence and a shared load unless a consumer is sleeping.
+	void notify_perf_event_consumers() const;
 
 	const handler_variant &get_handler(int fd) const;
 	bool is_epoll_fd(int fd) const;
