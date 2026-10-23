@@ -130,6 +130,14 @@ events; the atfork prepare handler now takes a shared map reference per live
 binding for the child. Replayed onto official `177a1dc465ff` with LLVM 15
 (round 6).
 
+`db3d475f329d` (accepted 2026-10-23) makes bpftime's software perf buffer
+report dropped samples kernel-style (`PERF_RECORD_LOST`, `-ENOSPC`) and wakes
+the emulated `epoll_wait` consumer once a producer shard is half full. Before
+it, sslsniff on ssl-nginx with 256 KB responses silently lost about half the
+events. The focused filter now also runs `[perf_event],[epoll]` (present in the
+official tree as well). Replayed onto official `177a1dc465ff` with LLVM 15
+(round 7).
+
 Before the JIT, the stack included all accepted optimizations through
 `fefe2f6edf27` (accepted 2026-10-19), including ordinary hash lookup key dispatch,
 per-CPU hash bucket-local iteration, per-CPU array production lookup leaf
