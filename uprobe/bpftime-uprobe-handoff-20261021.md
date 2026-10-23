@@ -1,13 +1,13 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-23 12:00 JST 左右。以下分支、进程和文件状态均为本机快照；
+最后核对：2026-10-23 15:40 JST 左右。以下分支、进程和文件状态均为本机快照；
 后续模型行动前需重新核实。**新会话先读第 0 节**，再按需读其余章节。
 
-## 0. 现状一页（2026-10-23 12:00 JST，新会话从这里继续）
+## 0. 现状一页（2026-10-23 15:40 JST，新会话从这里继续）
 
 **目标**：继续优化 `codex/uprobe-official-177a1dc465ff`（开发 worktree
-`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，远端 HEAD `72aebadd`）。
+`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，本地 HEAD `a90fa447`，远端 HEAD `72aebadd`）。
 下一阶段重点：扩大测试覆盖（见 0.4），hash map 重写暂缓。
 
 ### 0.1 改了什么（7 个新提交，均已推送并加入每日补丁栈，共 50 个提交）
@@ -21,6 +21,13 @@
 | `af10949b` | 探测上限按“每种距离的元素数”维护，最远元素删光后上限下降（每 map 多 256 字节） | 插删后半满表纯 miss 1.62x → 1.01x |
 | `dffb2fce` | 删除时只在最远一档被删空时才重算上限 | 无可测收益，逻辑保留 |
 | `72aebadd` | hash 专用 delete helper（加载时按类型选，与 lookup/update 同规则） | 官方 hash delete 36.9 → 28.2 ns（0.26x）；delete+insert -10% |
+
+10/23 下午又加 2 个提交（**均未推送**；已加入本地 `config.json`，补丁栈共 52 个提交；LLVM 15 第 6 轮重放见 `round6-affinity-fork`）：
+
+| 提交 | 改动 | 效果 |
+|---|---|---|
+| `20870a03` | 去掉 `bpf_perf_event_output` 每个事件的 CPU 亲和性绑核（7 月 ssl-nginx 修复，官方至今没有） | ssl-nginx 吞吐 +21.6%（16 B）/ +19.4%（256 KB），相对官方 177a1dc |
+| `a90fa447` | **正确性修复**：fork 子进程可以执行继承的 array JIT 程序。atfork prepare 为子进程给每个绑定多拿一份共享引用 | 修复前 nginx worker 里 sslsniff 一个事件都收不到（见 0.3 第 8 条） |
 
 另：`ccb0ade1`（距离 0 不计数）使 hash delete 慢 17%，推送前已撤销。原因：hash 删除被内联进 ~9.7 KB 的通用
 delete 大函数，源码小改动就会重排整函数的代码生成；专用 delete helper 后不再受影响。
@@ -36,6 +43,8 @@ delete 大函数，源码小改动就会重排整函数的代码生成；专用 
 | `hash-mutate-20261022` | 三种程序里的 hash update、delete+insert |
 | `hash-helper-fixes-…`、`hash-probe-bound-…`、`direct-map-helpers-…`、`hash-bound-shrink-20261022`、`hash-typed-delete-20261023` | 每个提交的回归测试、同轮 A/B、只跑 bpftime 的完整十轮（`full10-*`）、配对短测 |
 | `direct-map-helpers-20261022/layout-check` | 代码布局验证（全函数 64 字节对齐对照构建） |
+| `perf-output-no-affinity-20261023`、`fork-child-binding-20261023` | `20870a03`、`a90fa447` 的回归测试、完整十轮；后者另有 AB/BA 短测 `screen/` |
+| `ssl-nginx-2x2-20261023` | ssl-nginx 同轮对照：无追踪 / kernel / 官方 / 官方 + 去绑核 / 开发分支；16 B 和 256 KB，各 2 轮 × 10 次（`README.md`） |
 
 ### 0.3 结论
 
@@ -46,6 +55,16 @@ delete 大函数，源码小改动就会重排整函数的代码生成；专用 
 5. 代码布局效应：uprobe、uprobe + uretprobe、per-CPU array update、probe write 会随构建在 1–10% 内波动，已证实是布局而非逻辑（同源码全函数对齐对照）；全函数对齐不采用。热点未定位。
 6. 已知语义问题（官方即如此，未改）：hash update 忽略 `BPF_NOEXIST/BPF_EXIST` 且表满时仍返回 0，delete 不存在的 key 也返回 0。
 7. 现有 hash map 仍是“打过补丁的线性探测”：内存翻倍、插删后表内无空桶（靠探测上限兜底）、整表一把锁、只对 4 字节 key 有快速路径。重写方案（元素池 + 带 hash 标签的紧凑索引表、只在索引上做回移删除、分段锁）已讨论，**等测试证明是瓶颈再做**。
+8. **ssl-nginx 端到端（`ssl-nginx-2x2-20261023`）**：
+   - map 优化对端到端吞吐没有可测影响（开发分支对“官方 + 去绑核”：+0.2% / +0.4%，噪声内）。sslsniff 每个事件只有几次 map 操作，
+     而 bpftime 每个事件的开销约 10 µs，省下的几十 ns 不到 1%；开销在 uprobe 进出和 perf 输出路径。
+   - 去绑核仍是主要收益：+21.6%（16 B）/ +19.4%（256 KB）；开发分支比 kernel 快 7.2% / 10.8%。
+   - 发现并修复默认 array JIT 引入的正确性回归（`c0939bd` 起）：绑定程序在 fork 子进程里返回 ENOTSUP，
+     nginx 这种 master 加载、worker 处理请求的程序静默丢掉全部事件。修复为 `a90fa447`。
+   - 新发现（官方也有，未修）：256 KB 时 kernel 每请求 17 个 SSL_write 事件，bpftime 只有约 8 个。bpftime 的软件
+     perf 缓冲区满了直接丢记录，`output_data` 仍返回 0，也不发 PERF_RECORD_LOST，消费者无从得知。所以 256 KB 的吞吐对比不对等。
+9. `a90fa447` 完整十轮：除 hash lookup / update 外都在 ±1%；AB/BA 短测 hash update +2.5%、hash lookup +1.2%、uprobe +1.2%。
+   hash 相关函数指令完全相同，只是地址移动（hash update helper 从 64 字节边界移到偏移 48），属代码布局效应。
 
 ### 0.4 下一阶段：扩大测试覆盖（用户定的重点）
 
