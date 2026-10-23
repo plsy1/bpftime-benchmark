@@ -120,6 +120,16 @@ after long insert/delete churn: 1.62x -> 1.01x kernel on the churn workload),
 typed lookup/update helpers; official ordinary hash delete 36.9 -> 28.2 ns).
 Replayed onto official `177a1dc465ff` with LLVM 15 (round 5).
 
+Two commits accepted 2026-10-23 follow: `20870a03f73a` removes the per-event
+CPU affinity pinning from `bpf_perf_event_output` (the July ssl-nginx fix, which
+the official tree still lacks: +21.6% ssl-nginx throughput at 16 B over official
+177a1dc) and `a90fa447abf3` lets fork children execute inherited array JIT
+programs. Since `c0939bdf8e3e` a program bound to arrays returned ENOTSUP in
+fork children, so forking servers (nginx master/worker) silently recorded no
+events; the atfork prepare handler now takes a shared map reference per live
+binding for the child. Replayed onto official `177a1dc465ff` with LLVM 15
+(round 6).
+
 Before the JIT, the stack included all accepted optimizations through
 `fefe2f6edf27` (accepted 2026-10-19), including ordinary hash lookup key dispatch,
 per-CPU hash bucket-local iteration, per-CPU array production lookup leaf
