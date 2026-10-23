@@ -112,6 +112,14 @@ consuming workloads; tests are covered by `[bpftime_hash_map]` and
 `[array-jit-lifetime]`. Replayed onto official `177a1dc465ff` with LLVM 15:
 74 cases / 239,322 assertions on the candidate, 26 cases on official.
 
+Three commits accepted 2026-10-23 follow: `af10949b47a2` (the hash map probe
+bound shrinks when the farthest elements are deleted, so misses stay fast
+after long insert/delete churn: 1.62x -> 1.01x kernel on the churn workload),
+`dffb2fce8064` (skip the bound recomputation in the common delete case) and
+`72aebadd6d51` (typed hash delete helper selected at load time like the
+typed lookup/update helpers; official ordinary hash delete 36.9 -> 28.2 ns).
+Replayed onto official `177a1dc465ff` with LLVM 15 (round 5).
+
 Before the JIT, the stack included all accepted optimizations through
 `fefe2f6edf27` (accepted 2026-10-19), including ordinary hash lookup key dispatch,
 per-CPU hash bucket-local iteration, per-CPU array production lookup leaf
