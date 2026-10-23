@@ -30,6 +30,9 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/epoll.h>
+#include <climits>
+#include <linux/futex.h>
+#include <sys/syscall.h>
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
 #include <cuda_runtime.h>
 #include <cuda_runtime_api.h>
@@ -1024,16 +1027,9 @@ bpftime_shm::bpftime_shm(const char *shm_name, shm_open_type type)
 		epoch_state = segment.find<bpftime_global_epoch_state>(
 					     "bpftime_global_epoch_state")
 				      .first;
-		cpu_exec_locks = segment.find<bpftime_cpu_exec_locks>(
-					 "bpftime_cpu_exec_locks")
-				  .first;
-		map_prog_refs =
-			segment.find<map_prog_ref_count_map>(
-				bpftime::DEFAULT_MAP_PROG_REFS_NAME)
-				.first;
-		map_prog_refs_lock =
-			segment.find<boost::interprocess::interprocess_mutex>(
-				bpftime::DEFAULT_MAP_PROG_REFS_LOCK_NAME)
+		perf_wakeup_state =
+			segment.find<bpftime_perf_wakeup_state>(
+				       "bpftime_perf_wakeup_state")
 				.first;
 		SPDLOG_DEBUG("done: bpftime_shm for client setup");
 	} else if (type == shm_open_type::SHM_CREATE_OR_OPEN ||
@@ -1086,17 +1082,9 @@ bpftime_shm::bpftime_shm(const char *shm_name, shm_open_type type)
 		epoch_state =
 			segment.find_or_construct<bpftime_global_epoch_state>(
 				"bpftime_global_epoch_state")();
-		cpu_exec_locks =
-			segment.find_or_construct<bpftime_cpu_exec_locks>(
-				"bpftime_cpu_exec_locks")();
-		map_prog_refs = segment.find_or_construct<map_prog_ref_count_map>(
-			bpftime::DEFAULT_MAP_PROG_REFS_NAME)(
-			std::less<int>(),
-			map_prog_ref_allocator(segment.get_segment_manager()));
-		map_prog_refs_lock =
-			segment.find_or_construct<
-				boost::interprocess::interprocess_mutex>(
-				bpftime::DEFAULT_MAP_PROG_REFS_LOCK_NAME)();
+		perf_wakeup_state =
+			segment.find_or_construct<bpftime_perf_wakeup_state>(
+				"bpftime_perf_wakeup_state")();
 		SPDLOG_DEBUG("done: bpftime_shm for open_or_create setup");
 	} else if (type == shm_open_type::SHM_REMOVE_AND_CREATE) {
 		SPDLOG_DEBUG(
@@ -1147,16 +1135,8 @@ bpftime_shm::bpftime_shm(const char *shm_name, shm_open_type type)
 				bpftime::DEFAULT_PID_SET_LOCK_NAME)();
 		epoch_state = segment.construct<bpftime_global_epoch_state>(
 			"bpftime_global_epoch_state")();
-		cpu_exec_locks = segment.construct<bpftime_cpu_exec_locks>(
-			"bpftime_cpu_exec_locks")();
-		map_prog_refs = segment.construct<map_prog_ref_count_map>(
-			bpftime::DEFAULT_MAP_PROG_REFS_NAME)(
-			std::less<int>(),
-			map_prog_ref_allocator(segment.get_segment_manager()));
-		map_prog_refs_lock =
-			segment.construct<
-				boost::interprocess::interprocess_mutex>(
-				bpftime::DEFAULT_MAP_PROG_REFS_LOCK_NAME)();
+		perf_wakeup_state = segment.construct<bpftime_perf_wakeup_state>(
+			"bpftime_perf_wakeup_state")();
 		SPDLOG_DEBUG("done: bpftime_shm for server setup.");
 	} else if (type == shm_open_type::SHM_NO_CREATE) {
 		// not create any shm
@@ -1291,6 +1271,24 @@ std::uint64_t bpftime_shm::read_stable_epoch_seq(int max_tries) const
 			return a;
 	}
 	return BPFTIME_EPOCH_SEQ_UNSTABLE;
+}
+
+void bpftime_shm::notify_perf_event_consumers() const
+{
+#if __linux__
+	if (!perf_wakeup_state)
+		return;
+	// Pairs with the fence in bpftime_epoll_wait: either the consumer's
+	// re-check after registering sees the record just published, or this
+	// load sees the registration.
+	__atomic_thread_fence(__ATOMIC_SEQ_CST);
+	if (__atomic_load_n(&perf_wakeup_state->waiters, __ATOMIC_RELAXED) == 0)
+		return;
+	__atomic_add_fetch(&perf_wakeup_state->sequence, 1, __ATOMIC_RELEASE);
+	// Shared (non-private) futex: consumers are other processes.
+	syscall(SYS_futex, &perf_wakeup_state->sequence, FUTEX_WAKE, INT_MAX,
+		nullptr, nullptr, 0);
+#endif
 }
 
 std::uint64_t bpftime_shm::begin_new_session()

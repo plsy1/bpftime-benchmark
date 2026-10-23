@@ -4,6 +4,7 @@
 
 #if __linux__
 #include "bpftime_shm.hpp"
+#include "bpftime_shm_internal.hpp"
 #include "common_def.hpp"
 #include <boost/scope_exit.hpp>
 #include <array>
@@ -14,6 +15,7 @@
 #include <linux/bpf.h>
 #include <pthread.h>
 #include <string>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -161,112 +163,168 @@ TEST_CASE("Epoll returns each ready registration once and restores signals",
 	}
 }
 
-static volatile std::sig_atomic_t epoll_signal_test_seen = 0;
-static void epoll_signal_test_handler(int)
+namespace
 {
-	epoll_signal_test_seen = 1;
+volatile sig_atomic_t perf_wakeup_sigint_count = 0;
+
+void count_perf_wakeup_sigint(int)
+{
+	perf_wakeup_sigint_count = perf_wakeup_sigint_count + 1;
 }
 
-TEST_CASE("Epoll honors a blocked pending signal while a source stays ready",
-	  "[epoll]")
+uint32_t perf_wakeup_waiters()
 {
-	sigset_t original;
-	REQUIRE(pthread_sigmask(SIG_SETMASK, nullptr, &original) == 0);
+	auto *state = bpftime::shm_holder.global_shared_memory
+			      .get_perf_wakeup_state();
+	return __atomic_load_n(&state->waiters, __ATOMIC_ACQUIRE);
+}
+
+uint32_t perf_wakeup_sequence()
+{
+	auto *state = bpftime::shm_holder.global_shared_memory
+			      .get_perf_wakeup_state();
+	return __atomic_load_n(&state->sequence, __ATOMIC_ACQUIRE);
+}
+
+bool wait_for_sleeping_consumer()
+{
+	for (int i = 0; i < 5000; i++) {
+		if (perf_wakeup_waiters() > 0)
+			return true;
+		usleep(1000);
+	}
+	return false;
+}
+} // namespace
+
+TEST_CASE("Perf output wakes a sleeping epoll consumer", "[epoll][perf-wakeup]")
+{
 	const char *old_name = getenv("BPFTIME_GLOBAL_SHM_NAME");
 	const bool had_name = old_name != nullptr;
 	const std::string previous_name = old_name ? old_name : "";
-	const std::string name = "EpollSignalShm-" + std::to_string(getpid());
+	const std::string name =
+		"EpollPerfWakeupTestShm-" + std::to_string(getpid());
 	shm_remove remover{ std::string(name) };
 	std::vector<int> fds;
-	bool initialized = false;
+	struct sigaction old_sigint;
+	REQUIRE(sigaction(SIGINT, nullptr, &old_sigint) == 0);
 	BOOST_SCOPE_EXIT_ALL(&)
 	{
-		// Drain while the signal is still blocked so a leftover pending
-		// SIGINT (e.g. from the pre-fix implementation) cannot fire and
-		// terminate the test process on the next unblock.
-		sigset_t drain;
-		sigemptyset(&drain);
-		sigaddset(&drain, SIGINT);
-		const timespec zero{ .tv_sec = 0, .tv_nsec = 0 };
-		siginfo_t drained;
-		while (sigtimedwait(&drain, &drained, &zero) >= 0) {
+		sigaction(SIGINT, &old_sigint, nullptr);
+		for (int fd : fds) {
+			bpftime_close(fd);
+			close(fd);
 		}
-		pthread_sigmask(SIG_SETMASK, &original, nullptr);
-		struct sigaction reset;
-		std::memset(&reset, 0, sizeof(reset));
-		reset.sa_handler = SIG_DFL;
-		sigaction(SIGINT, &reset, nullptr);
-		if (initialized) {
-			for (int fd : fds) {
-				if (fd >= 0) {
-					bpftime_close(fd);
-					close(fd);
-				}
-			}
-			bpftime_destroy_global_shm();
-			bpftime_initialize_global_shm(
-				bpftime::shm_open_type::SHM_NO_CREATE);
-		}
+		bpftime_destroy_global_shm();
+		bpftime_initialize_global_shm(
+			bpftime::shm_open_type::SHM_NO_CREATE);
 		if (had_name)
 			setenv("BPFTIME_GLOBAL_SHM_NAME", previous_name.c_str(),
 			       1);
 		else
 			unsetenv("BPFTIME_GLOBAL_SHM_NAME");
 	};
-
 	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
 	bpftime_destroy_global_shm();
 	bpftime_initialize_global_shm(
 		bpftime::shm_open_type::SHM_REMOVE_AND_CREATE);
-	initialized = true;
+	REQUIRE(bpftime::shm_holder.global_shared_memory
+			.get_perf_wakeup_state() != nullptr);
 
 	const int epoll_fd = bpftime_epoll_create();
-	fds.push_back(epoll_fd);
 	REQUIRE(epoll_fd >= 0);
-
-	// A software perf event that always has data forces the ready
-	// (next_id > 0) path on every iteration, mirroring the high-frequency
-	// tracepoint that previously starved signal delivery.
-	const int evt_fd = bpftime_add_software_perf_event(0, 0, 0);
-	fds.push_back(evt_fd);
-	REQUIRE(evt_fd >= 0);
+	fds.push_back(epoll_fd);
+	const int perf_fd = bpftime_add_software_perf_event(0, 0, 0);
+	REQUIRE(perf_fd >= 0);
+	fds.push_back(perf_fd);
 	REQUIRE(bpftime_get_software_perf_event_raw_buffer(
-			evt_fd, 2 * getpagesize()) != nullptr);
-	const epoll_data_t data{ .u64 = 1 };
-	REQUIRE(bpftime_add_software_perf_event_fd_to_epoll(evt_fd, epoll_fd,
-							    data) == 0);
-	const uint64_t payload = 42;
-	REQUIRE(bpftime_perf_event_output(evt_fd, &payload,
-					  sizeof(payload)) == 0);
+			perf_fd, 2 * getpagesize()) != nullptr);
+	REQUIRE(bpftime_add_software_perf_event_fd_to_epoll(
+			perf_fd, epoll_fd, { .u64 = 7 }) == 0);
 
-	// Block SIGINT, install an observable handler, then make SIGINT
-	// pending so it stays queued instead of being delivered immediately.
-	sigset_t block;
-	sigemptyset(&block);
-	sigaddset(&block, SIGINT);
-	REQUIRE(pthread_sigmask(SIG_BLOCK, &block, nullptr) == 0);
-	struct sigaction sa;
-	std::memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = epoll_signal_test_handler;
-	REQUIRE(sigaction(SIGINT, &sa, nullptr) == 0);
-	epoll_signal_test_seen = 0;
-	REQUIRE(raise(SIGINT) == 0);
-	sigset_t pending;
-	REQUIRE(sigpending(&pending) == 0);
-	REQUIRE(sigismember(&pending, SIGINT) == 1);
+	int wait_result = 0;
+	int wait_errno = 0;
+	epoll_event event{};
+	auto start_consumer = [&]() {
+		return std::thread([&]() {
+			errno = 0;
+			wait_result = bpftime_epoll_wait(epoll_fd, &event, 1,
+							 10000);
+			wait_errno = errno;
+		});
+	};
 
-	// The wait must be interrupted by the pending signal even though a
-	// source is ready: return EINTR, run the handler, and consume the
-	// signal rather than silently handing back events.
-	errno = 0;
-	std::array<epoll_event, 4> events;
-	const int count = bpftime_epoll_wait(epoll_fd, events.data(),
-					     events.size(), 1000);
-	CHECK(count == -1);
-	CHECK(errno == EINTR);
-	CHECK(epoll_signal_test_seen == 1);
-	sigset_t after;
-	REQUIRE(sigpending(&after) == 0);
-	CHECK(sigismember(&after, SIGINT) == 0);
+	auto *header = (perf_event_mmap_page *)
+		bpftime_get_software_perf_event_raw_buffer(perf_fd,
+							   2 * getpagesize());
+	auto consume_all = [&]() {
+		while (bpftime_epoll_wait(epoll_fd, &event, 1, 0) == 1)
+			header->data_tail = header->data_head;
+	};
+	// Returns whether the output went through the futex (the sequence
+	// moved) and whether the consumer saw the record.
+	auto output_to_sleeping_consumer = [&](const void *data, size_t size) {
+		consume_all();
+		auto consumer = start_consumer();
+		const bool slept = wait_for_sleeping_consumer();
+		const uint32_t sequence = perf_wakeup_sequence();
+		const int ret = bpftime_perf_event_output(perf_fd, data, size);
+		consumer.join();
+		REQUIRE(slept);
+		REQUIRE(ret == 0);
+		CHECK(wait_result == 1);
+		CHECK(event.events == EPOLLIN);
+		CHECK(event.data.u64 == 7);
+		CHECK(perf_wakeup_waiters() == 0);
+		return perf_wakeup_sequence() != sequence;
+	};
+
+	SECTION("Output at the wakeup watermark wakes the consumer")
+	{
+		// Nobody is waiting yet: publishing costs no wakeup.
+		std::vector<uint8_t> half_ring(getpagesize() / 2);
+		const uint32_t idle_sequence = perf_wakeup_sequence();
+		REQUIRE(bpftime_perf_event_output(perf_fd, half_ring.data(),
+						  half_ring.size()) == 0);
+		CHECK(perf_wakeup_sequence() == idle_sequence);
+
+		// The consumer can briefly deregister between 1 ms timeouts;
+		// an output landing exactly there is found by the re-check
+		// without a wakeup, so allow a few attempts.
+		bool woke = false;
+		for (int attempt = 0; attempt < 5 && !woke; attempt++)
+			woke = output_to_sleeping_consumer(half_ring.data(),
+							   half_ring.size());
+		CHECK(woke);
+	}
+	SECTION("Small output is delivered without a wakeup")
+	{
+		const uint64_t payload = 42;
+		CHECK_FALSE(output_to_sleeping_consumer(&payload,
+							sizeof(payload)));
+	}
+	SECTION("SIGINT interrupts a sleeping consumer")
+	{
+		struct sigaction act {};
+		act.sa_handler = count_perf_wakeup_sigint;
+		sigemptyset(&act.sa_mask);
+		REQUIRE(sigaction(SIGINT, &act, nullptr) == 0);
+		perf_wakeup_sigint_count = 0;
+		auto consumer = start_consumer();
+		const auto handle = consumer.native_handle();
+		const bool slept = wait_for_sleeping_consumer();
+		if (slept)
+			pthread_kill(handle, SIGINT);
+		else
+			// Unblock the consumer before failing.
+			bpftime_perf_event_output(perf_fd, &slept,
+						  sizeof(slept));
+		consumer.join();
+		REQUIRE(slept);
+		CHECK(wait_result == -1);
+		CHECK(wait_errno == EINTR);
+		CHECK(perf_wakeup_sigint_count == 1);
+		CHECK(perf_wakeup_waiters() == 0);
+	}
 }
 #endif

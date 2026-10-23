@@ -18,6 +18,9 @@
 #include <bpftime_shm_internal.hpp>
 #if __linux__
 #include <sys/epoll.h>
+#include <linux/futex.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 #elif __APPLE__
 #include "bpftime_epoll.h"
 #endif
@@ -483,55 +486,7 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 	// timeout for waiting..
 	timespec ts{ .tv_sec = 0, .tv_nsec = 1000 * 1000 };
 	bool failed_with_intr = false;
-	while (next_id < max_evt) {
-		auto now_time = high_resolution_clock::now();
-		auto elasped =
-			duration_cast<milliseconds>(now_time - start_time);
-		if (timeout > 0 && elasped.count() > timeout) {
-			break;
-		}
-
-		// A perpetually ready source must not starve signal delivery.
-		// The no-data branch below was previously the only place that
-		// consumed a blocked SIGINT/SIGTERM; under a high-frequency
-		// tracepoint the ready path (next_id > 0) is taken every
-		// iteration, so the signal stayed pending and was never
-		// delivered, leaving the process unresponsive to SIGINT/SIGTERM.
-		// Poll for a pending blocked signal here so it is honored
-		// regardless of event readiness. sigpending is a cheap
-		// non-consuming probe; only when it reports a pending SIGINT/
-		// SIGTERM do we take the heavier sigtimedwait path to dequeue and
-		// dispatch it, keeping the common no-signal ready path inexpensive.
-		{
-			sigset_t pending_now;
-			if (sigpending(&pending_now) == 0 &&
-			    (sigismember(&pending_now, SIGINT) ||
-			     sigismember(&pending_now, SIGTERM))) {
-				siginfo_t sig_info;
-				const timespec nonblock{ .tv_sec = 0,
-							 .tv_nsec = 0 };
-				if (int sig = sigtimedwait(&to_block, &sig_info,
-							   &nonblock);
-				    sig > 0) {
-					SPDLOG_DEBUG(
-						"epoll_wait interrupted by pending signal {}",
-						sig);
-					// Invoke the original signal handler
-					struct sigaction act;
-					sigaction(sig, nullptr, &act);
-					if ((act.sa_flags & SA_SIGINFO) &&
-					    act.sa_sigaction) {
-						act.sa_sigaction(sig, &sig_info,
-								 nullptr);
-					} else if (auto f = act.sa_handler) {
-						f(sig);
-					}
-					failed_with_intr = true;
-					break;
-				}
-			}
-		}
-
+	auto collect_ready = [&]() {
 		for (const auto &p : epoll_inst.files) {
 			if (std::holds_alternative<software_perf_event_weak_ptr>(
 				    p.file)) {
@@ -568,36 +523,84 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 				}
 			}
 		}
+	};
+	auto run_signal_handler = [](int sig, siginfo_t *sig_info) {
+		SPDLOG_DEBUG("epoll_wait interrupted by signal {}", sig);
+		// Invoke the original signal handler
+		struct sigaction act;
+		sigaction(sig, nullptr, &act);
+		if ((act.sa_flags & SA_SIGINFO) && act.sa_sigaction) {
+			act.sa_sigaction(sig, sig_info, nullptr);
+		} else if (auto f = act.sa_handler) {
+			f(sig);
+		}
+	};
+#if __linux__
+	auto *wakeup = shm.get_perf_wakeup_state();
+#endif
+	while (next_id < max_evt) {
+		auto now_time = high_resolution_clock::now();
+		auto elasped =
+			duration_cast<milliseconds>(now_time - start_time);
+		if (timeout > 0 && elasped.count() > timeout) {
+			break;
+		}
+
+		collect_ready();
 		if (next_id > 0 || timeout == 0) {
 			break;
-		} else {
-			// Nothing has been received, so allow the interruption
-			// of epoll_wait
-			// First, unblock the signals
-			sigprocmask(SIG_UNBLOCK, &to_block, nullptr);
+		}
+#if __linux__
+		if (wakeup) {
+			// Register before re-checking, so a perf output that
+			// asks for a wakeup after the re-check bumps the
+			// sequence and ends this futex wait (see
+			// notify_perf_event_consumers). Records below the
+			// wakeup watermark and ring buffers are found by the
+			// timeout.
+			uint32_t sequence = __atomic_load_n(&wakeup->sequence,
+							    __ATOMIC_ACQUIRE);
+			__atomic_add_fetch(&wakeup->waiters, 1,
+					   __ATOMIC_SEQ_CST);
+			__atomic_thread_fence(__ATOMIC_SEQ_CST);
+			collect_ready();
+			if (next_id == 0) {
+				syscall(SYS_futex, &wakeup->sequence,
+					FUTEX_WAIT, sequence, &ts, nullptr, 0);
+			}
+			__atomic_sub_fetch(&wakeup->waiters, 1,
+					   __ATOMIC_RELEASE);
+			if (next_id > 0) {
+				break;
+			}
+			// SIGINT and SIGTERM stayed blocked while sleeping;
+			// take one that arrived meanwhile.
+			timespec no_wait{};
 			siginfo_t sig_info;
-			// Second, wait for interruptable signals
-			if (int sig = sigtimedwait(&to_block, &sig_info, &ts);
+			if (int sig = sigtimedwait(&to_block, &sig_info,
+						   &no_wait);
 			    sig > 0) {
-				SPDLOG_DEBUG(
-					"epoll_wait interrupted by signal {}",
-					sig);
-				// Invoke the original signal handler
-				struct sigaction act;
-				sigaction(sig, nullptr, &act);
-				if ((act.sa_flags & SA_SIGINFO) &&
-				    act.sa_sigaction) {
-					act.sa_sigaction(sig, &sig_info,
-							 nullptr);
-				} else if (auto f = act.sa_handler) {
-					f(sig);
-				}
+				run_signal_handler(sig, &sig_info);
 				failed_with_intr = true;
 				break;
 			}
-			// If not catched, just block them again
-			sigprocmask(SIG_BLOCK, &to_block, nullptr);
+			continue;
 		}
+#endif
+		// Nothing has been received, so allow the interruption
+		// of epoll_wait
+		// First, unblock the signals
+		sigprocmask(SIG_UNBLOCK, &to_block, nullptr);
+		siginfo_t sig_info;
+		// Second, wait for interruptable signals
+		if (int sig = sigtimedwait(&to_block, &sig_info, &ts);
+		    sig > 0) {
+			run_signal_handler(sig, &sig_info);
+			failed_with_intr = true;
+			break;
+		}
+		// If not catched, just block them again
+		sigprocmask(SIG_BLOCK, &to_block, nullptr);
 	}
 	// Restore the original sigmask
 	sigprocmask(SIG_SETMASK, &orig_sigset, nullptr);
@@ -661,8 +664,15 @@ int bpftime_perf_event_output(int fd, const void *buf, size_t sz)
 	if (std::holds_alternative<software_perf_event_shared_ptr>(
 		    handler.data)) {
 		SPDLOG_DEBUG("Perf out value to fd {}, sz {}", fd, sz);
-		return std::get<software_perf_event_shared_ptr>(handler.data)
-			->output_data(buf, sz);
+		bool wakeup_consumer;
+		int ret = std::get<software_perf_event_shared_ptr>(handler.data)
+				  ->output_data(buf, sz, &wakeup_consumer);
+		if (wakeup_consumer) {
+			int saved_errno = errno;
+			shm.notify_perf_event_consumers();
+			errno = saved_errno;
+		}
+		return ret;
 	} else {
 		SPDLOG_ERROR(
 			"Expected perf event handler {} to be a software perf event handler",
