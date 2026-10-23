@@ -5,6 +5,9 @@
 
 ## 建议阅读顺序
 
+**课题全貌：[阶段总结（截至 2026-10-23）](bpftime-research-overview-20261023.md)**，
+按时间整理从基础设施、ssl-nginx 调查、map 诊断到 C++ 优化、array JIT 和 hash map 优化的全部工作。
+
 **当前接力入口：[Uprobe 研究进度与工程接力（2026-10-21）](uprobe/bpftime-uprobe-handoff-20261021.md)。**
 包含正式工作区/分支、已推送的 JIT 提交、最新十轮与 kernel 对比、array consuming
 测试口径、delete 回退修复、JIT 加入每日补丁栈的集成验证，以及接手后的行动顺序。
