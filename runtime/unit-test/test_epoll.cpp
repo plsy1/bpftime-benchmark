@@ -4,6 +4,7 @@
 
 #if __linux__
 #include "bpftime_shm.hpp"
+#include "bpftime_shm_internal.hpp"
 #include "common_def.hpp"
 #include <boost/scope_exit.hpp>
 #include <array>
@@ -12,6 +13,7 @@
 #include <linux/bpf.h>
 #include <pthread.h>
 #include <string>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -156,6 +158,171 @@ TEST_CASE("Epoll returns each ready registration once and restores signals",
 			CHECK(events[i].events == EPOLLOUT);
 			CHECK(events[i].data.u64 == 99);
 		}
+	}
+}
+
+namespace
+{
+volatile sig_atomic_t perf_wakeup_sigint_count = 0;
+
+void count_perf_wakeup_sigint(int)
+{
+	perf_wakeup_sigint_count = perf_wakeup_sigint_count + 1;
+}
+
+uint32_t perf_wakeup_waiters()
+{
+	auto *state = bpftime::shm_holder.global_shared_memory
+			      .get_perf_wakeup_state();
+	return __atomic_load_n(&state->waiters, __ATOMIC_ACQUIRE);
+}
+
+uint32_t perf_wakeup_sequence()
+{
+	auto *state = bpftime::shm_holder.global_shared_memory
+			      .get_perf_wakeup_state();
+	return __atomic_load_n(&state->sequence, __ATOMIC_ACQUIRE);
+}
+
+bool wait_for_sleeping_consumer()
+{
+	for (int i = 0; i < 5000; i++) {
+		if (perf_wakeup_waiters() > 0)
+			return true;
+		usleep(1000);
+	}
+	return false;
+}
+} // namespace
+
+TEST_CASE("Perf output wakes a sleeping epoll consumer", "[epoll][perf-wakeup]")
+{
+	const char *old_name = getenv("BPFTIME_GLOBAL_SHM_NAME");
+	const bool had_name = old_name != nullptr;
+	const std::string previous_name = old_name ? old_name : "";
+	const std::string name =
+		"EpollPerfWakeupTestShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(name) };
+	std::vector<int> fds;
+	struct sigaction old_sigint;
+	REQUIRE(sigaction(SIGINT, nullptr, &old_sigint) == 0);
+	BOOST_SCOPE_EXIT_ALL(&)
+	{
+		sigaction(SIGINT, &old_sigint, nullptr);
+		for (int fd : fds) {
+			bpftime_close(fd);
+			close(fd);
+		}
+		bpftime_destroy_global_shm();
+		bpftime_initialize_global_shm(
+			bpftime::shm_open_type::SHM_NO_CREATE);
+		if (had_name)
+			setenv("BPFTIME_GLOBAL_SHM_NAME", previous_name.c_str(),
+			       1);
+		else
+			unsetenv("BPFTIME_GLOBAL_SHM_NAME");
+	};
+	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+	bpftime_destroy_global_shm();
+	bpftime_initialize_global_shm(
+		bpftime::shm_open_type::SHM_REMOVE_AND_CREATE);
+	REQUIRE(bpftime::shm_holder.global_shared_memory
+			.get_perf_wakeup_state() != nullptr);
+
+	const int epoll_fd = bpftime_epoll_create();
+	REQUIRE(epoll_fd >= 0);
+	fds.push_back(epoll_fd);
+	const int perf_fd = bpftime_add_software_perf_event(0, 0, 0);
+	REQUIRE(perf_fd >= 0);
+	fds.push_back(perf_fd);
+	REQUIRE(bpftime_get_software_perf_event_raw_buffer(
+			perf_fd, 2 * getpagesize()) != nullptr);
+	REQUIRE(bpftime_add_software_perf_event_fd_to_epoll(
+			perf_fd, epoll_fd, { .u64 = 7 }) == 0);
+
+	int wait_result = 0;
+	int wait_errno = 0;
+	epoll_event event{};
+	auto start_consumer = [&]() {
+		return std::thread([&]() {
+			errno = 0;
+			wait_result = bpftime_epoll_wait(epoll_fd, &event, 1,
+							 10000);
+			wait_errno = errno;
+		});
+	};
+
+	auto *header = (perf_event_mmap_page *)
+		bpftime_get_software_perf_event_raw_buffer(perf_fd,
+							   2 * getpagesize());
+	auto consume_all = [&]() {
+		while (bpftime_epoll_wait(epoll_fd, &event, 1, 0) == 1)
+			header->data_tail = header->data_head;
+	};
+	// Returns whether the output went through the futex (the sequence
+	// moved) and whether the consumer saw the record.
+	auto output_to_sleeping_consumer = [&](const void *data, size_t size) {
+		consume_all();
+		auto consumer = start_consumer();
+		const bool slept = wait_for_sleeping_consumer();
+		const uint32_t sequence = perf_wakeup_sequence();
+		const int ret = bpftime_perf_event_output(perf_fd, data, size);
+		consumer.join();
+		REQUIRE(slept);
+		REQUIRE(ret == 0);
+		CHECK(wait_result == 1);
+		CHECK(event.events == EPOLLIN);
+		CHECK(event.data.u64 == 7);
+		CHECK(perf_wakeup_waiters() == 0);
+		return perf_wakeup_sequence() != sequence;
+	};
+
+	SECTION("Output at the wakeup watermark wakes the consumer")
+	{
+		// Nobody is waiting yet: publishing costs no wakeup.
+		std::vector<uint8_t> half_ring(getpagesize() / 2);
+		const uint32_t idle_sequence = perf_wakeup_sequence();
+		REQUIRE(bpftime_perf_event_output(perf_fd, half_ring.data(),
+						  half_ring.size()) == 0);
+		CHECK(perf_wakeup_sequence() == idle_sequence);
+
+		// The consumer can briefly deregister between 1 ms timeouts;
+		// an output landing exactly there is found by the re-check
+		// without a wakeup, so allow a few attempts.
+		bool woke = false;
+		for (int attempt = 0; attempt < 5 && !woke; attempt++)
+			woke = output_to_sleeping_consumer(half_ring.data(),
+							   half_ring.size());
+		CHECK(woke);
+	}
+	SECTION("Small output is delivered without a wakeup")
+	{
+		const uint64_t payload = 42;
+		CHECK_FALSE(output_to_sleeping_consumer(&payload,
+							sizeof(payload)));
+	}
+	SECTION("SIGINT interrupts a sleeping consumer")
+	{
+		struct sigaction act {};
+		act.sa_handler = count_perf_wakeup_sigint;
+		sigemptyset(&act.sa_mask);
+		REQUIRE(sigaction(SIGINT, &act, nullptr) == 0);
+		perf_wakeup_sigint_count = 0;
+		auto consumer = start_consumer();
+		const auto handle = consumer.native_handle();
+		const bool slept = wait_for_sleeping_consumer();
+		if (slept)
+			pthread_kill(handle, SIGINT);
+		else
+			// Unblock the consumer before failing.
+			bpftime_perf_event_output(perf_fd, &slept,
+						  sizeof(slept));
+		consumer.join();
+		REQUIRE(slept);
+		CHECK(wait_result == -1);
+		CHECK(wait_errno == EINTR);
+		CHECK(perf_wakeup_sigint_count == 1);
+		CHECK(perf_wakeup_waiters() == 0);
 	}
 }
 #endif

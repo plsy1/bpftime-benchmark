@@ -19,6 +19,7 @@
 #include <spdlog/fmt/bin_to_hex.h>
 #include <atomic>
 #include <cerrno>
+#include <cstddef>
 #include <exception>
 #include <limits>
 #include <unordered_map>
@@ -312,21 +313,19 @@ size_t software_perf_event_buffer::mmap_size() const
 bool software_perf_event_buffer::append_record(const void *record,
 					       size_t record_size)
 {
-	return append_record_parts(record, record_size, nullptr, 0);
+	return append_record_parts({ { record, record_size } });
 }
 
-bool software_perf_event_buffer::append_record_parts(const void *first,
-						     size_t first_size,
-						     const void *second,
-						     size_t second_size,
-						     size_t padding_size)
+bool software_perf_event_buffer::append_record_parts(
+	std::initializer_list<record_part> parts, size_t padding_size,
+	uint64_t *used_after)
 {
-	if (second_size > std::numeric_limits<size_t>::max() - first_size ||
-	    padding_size > std::numeric_limits<size_t>::max() - first_size -
-				   second_size) {
-		return false;
+	size_t record_size = padding_size;
+	for (const auto &part : parts) {
+		if (part.size > std::numeric_limits<size_t>::max() - record_size)
+			return false;
+		record_size += part.size;
 	}
-	const size_t record_size = first_size + second_size + padding_size;
 	if (mmap_size() == 0 || record_size > mmap_size()) {
 		return false;
 	}
@@ -349,12 +348,17 @@ bool software_perf_event_buffer::append_record_parts(const void *first,
 		return false;
 	}
 
-	write_wrapped(data_head, first, first_size);
-	if (second_size > 0) {
-		write_wrapped(data_head + first_size, second, second_size);
+	uint64_t offset = data_head;
+	for (const auto &part : parts) {
+		if (part.size > 0) {
+			write_wrapped(offset, part.data, part.size);
+		}
+		offset += part.size;
 	}
 	uint64_t new_head = data_head + record_size;
 	smp_store_release_u64(&header.data_head, new_head);
+	if (used_after)
+		*used_after = used_size + record_size;
 	SPDLOG_DEBUG(
 		"Perf record of size {} outputed at head {}; new_head={} addr={:x}; available_size={}",
 		record_size, data_head, new_head,
@@ -364,13 +368,21 @@ bool software_perf_event_buffer::append_record_parts(const void *first,
 	return true;
 }
 
-int software_perf_event_buffer::output_data(const void *buf, size_t size)
+int software_perf_event_buffer::output_data(const void *buf, size_t size,
+					    bool *wakeup_consumer)
 {
 	SPDLOG_DEBUG("Handling perf event output data with size {}", size);
+	if (wakeup_consumer)
+		*wakeup_consumer = false;
 	constexpr size_t alignment = sizeof(uint64_t);
 	if (size > std::numeric_limits<uint16_t>::max() -
 			   sizeof(perf_sample_raw) - (alignment - 1)) {
 		errno = E2BIG;
+		return -1;
+	}
+	// Like the kernel without a mapped ring buffer: nothing to drop into.
+	if (mmap_size() == 0) {
+		errno = ENOSPC;
 		return -1;
 	}
 	const size_t record_size =
@@ -382,8 +394,40 @@ int software_perf_event_buffer::output_data(const void *buf, size_t size)
 	header.header.misc = 0;
 	header.size = record_size - sizeof(header);
 
-	append_record_parts(&header, sizeof(header), buf, size,
-			    header.size - size);
+	bool written;
+	// Measured from the tail seen before publishing, so a concurrent
+	// drain cannot hide a burst from the watermark check.
+	uint64_t used_after = 0;
+	if (lost_samples == 0) {
+		written = append_record_parts(
+			{ { &header, sizeof(header) }, { buf, size } },
+			header.size - size, &used_after);
+	} else {
+		// As in the kernel's perf_output_begin(), earlier drops are
+		// reported by a PERF_RECORD_LOST that is published together
+		// with the next sample that fits, so the consumer sees the
+		// loss in order. sample_id_all is not supported, so the
+		// record ends after the lost count.
+		perf_sample_lost lost;
+		lost.header.type = PERF_RECORD_LOST;
+		lost.header.misc = 0;
+		lost.header.size = offsetof(perf_sample_lost, sample_id);
+		lost.id = 0;
+		lost.lost = lost_samples;
+		written = append_record_parts({ { &lost, lost.header.size },
+						{ &header, sizeof(header) },
+						{ buf, size } },
+					      header.size - size, &used_after);
+		if (written)
+			lost_samples = 0;
+	}
+	if (wakeup_consumer)
+		*wakeup_consumer = !written || used_after >= mmap_size() / 2;
+	if (!written) {
+		lost_samples++;
+		errno = ENOSPC;
+		return -1;
+	}
 	return 0;
 }
 
@@ -598,9 +642,11 @@ software_perf_event_data::get_header_ref_const() const
 	return consumer_buffer.get_header_ref_const();
 }
 
-int software_perf_event_data::output_data(const void *buf, size_t size)
+int software_perf_event_data::output_data(const void *buf, size_t size,
+					  bool *wakeup_consumer)
 {
-	return get_current_thread_shard().buffer.output_data(buf, size);
+	return get_current_thread_shard().buffer.output_data(buf, size,
+							      wakeup_consumer);
 }
 
 perf_event_mmap_page &software_perf_event_data::get_header_ref()

@@ -758,6 +758,10 @@ uint64_t bpf_perf_event_output(uint64_t ctx, uint64_t map, uint64_t flags,
 		ret = bpftime_perf_event_output(perf_handler_fd,
 						(const void *)(uintptr_t)data,
 						(size_t)size);
+		// Report a dropped sample as the kernel does (-ENOSPC when
+		// the ring is full) instead of a bare -1.
+		if (ret < 0 && errno != 0)
+			ret = -errno;
 	}
 #if __linux__ && BPFTIME_BUILD_WITH_LIBBPF
 	else if (map_ty == bpftime::bpf_map_type::
