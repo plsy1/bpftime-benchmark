@@ -92,7 +92,7 @@ array/hash helper，后者包含 CPU 选择和 per-CPU 数据布局，不应把�
 | [perf-event-output affinity 冗余](archive/bpftime-perf-event-output-affinity-redundancy-20260727.md) | 临时绑核成本及冗余条件的代码级分析 |
 | [software perf record 对齐修复](archive/bpftime-software-perf-record-alignment-fix-20260722.md) | 8 字节对齐 bug、隐藏丢事件与方差下降 |
 | [latest bridge 路径分析](archive/bpftime-latest-jetson-ssl-nginx-bridge-path-analysis-20260721.md) | 早期 Docker bridge/host 网络环境调查 |
-| [v0.2.0 host 网络验证](archive/bpftime-v020-jetson-host-network-validation.md) | v0.2.0、Tailscale/netfilter 和 network namespace 对照 |
+| [v0.2.0 host 网络验证](archive/bpftime-v020-jetson-host-network-validation.md) | v0.2.0、Tailscale/netfilter 和 network namespace 对照；10/23 复核：bpftime 额外损失在当前版本不成立，见文首 |
 
 `archive/` 中的材料保留调查过程和历史口径；需要引用当前结论时，优先使用顶层的
 系统报告或根因总览。

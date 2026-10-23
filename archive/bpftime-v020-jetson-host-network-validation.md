@@ -5,6 +5,12 @@
 **主要对象：** `bpftime-v020-no-btf` 与 `bpftime-offical-no-btf`  
 **Benchmark：** `benchmark/ssl-nginx`，指标为 Requests/sec，数值越高越好
 
+> **2026-10-23 复核**（`benchmark-results/jetson` 分支 `uprobe/ssl-nginx-netns-recheck-20261023/README.md`）：
+> host netns 让所有模式都下降约 7–9%，这一点仍然成立，属于共享的环境开销；但“bpftime 额外多损失几个百分点”在当前版本上不成立。
+> 交互项：官方 177a1dc +2.6pp [-0.1, +5.3]，开发分支 +1.0pp [-0.9, +2.8]（7 月为 -3.5～-4.3pp）。
+> 本文依赖的机制“bpftime reader 占约一个核”，是第二天发现的 software perf record 8 字节对齐 bug（消费者空转）。
+> 现在 reader 只占 0.05–0.06 核。v0.2.0 本身没有重跑；Tailscale 无法单独关闭验证（用户经 Tailscale 远程连接）。
+
 ## 技术总结
 
 Jetson 上 bpftime v0.2.0 的 host 负结果不是加载失败造成。第一阶段进程级采集同时发现原 benchmark 不验证 tracer liveness，偶发 `sslsniff` SIGSEGV 样本也会被记录为吞吐结果；本文新增有效性检查后将此类样本排除。最终确认的现象是：
