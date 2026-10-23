@@ -595,12 +595,6 @@ int bpftime_prog::bpftime_prog_exec(void *memory, size_t memory_size,
 			*return_val = 0;
 		return -EINVAL;
 	}
-	if (!bound_arrays.empty() &&
-	    !bound_arrays.begin()->second->belongs_to_this_process()) {
-		if (return_val)
-			*return_val = 0;
-		return -ENOTSUP; // Reload in the child; inherited references are borrowed.
-	}
 	if (attach::current_signal_callback) {
 		if (!signal_ready || !jitted || !return_val || !bound_arrays.empty())
 			return -ENOTSUP;
