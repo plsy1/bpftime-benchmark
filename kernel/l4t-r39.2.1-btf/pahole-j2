@@ -1,0 +1,9 @@
+#!/bin/sh
+# pahole with at most 2 encoding threads: the kernel passes a bare -j (all CPUs),
+# which exhausts the Jetson's 8 GB when encoding BTF for a full-debug vmlinux.
+args=""
+for a in "$@"; do
+    [ "$a" = "-j" ] && a="-j2"
+    args="$args $(printf '%s' "$a" | sed "s/'/'\\\\''/g; s/^/'/; s/\$/'/")"
+done
+eval exec /usr/bin/pahole $args
