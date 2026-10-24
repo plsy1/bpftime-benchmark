@@ -1,0 +1,15 @@
+--- ../sslsniff-ablation-base/sslsniff.bpf.c	2026-10-24 09:29:29.668877786 +0900
++++ sslsniff.bpf.c	2026-10-24 21:08:47.361163940 +0900
+@@ -117,7 +117,11 @@
+     data->buf_filled = 0;
+     data->rw = rw;
+     data->is_handshake = false;
+-    u32 buf_copy_size = min((size_t)MAX_BUF_SIZE, (size_t)len);
++    /* Copy-size experiment: cap the bytes read and output per event. */
++#ifndef SSLSNIFF_COPY_CAP
++#define SSLSNIFF_COPY_CAP MAX_BUF_SIZE
++#endif
++    u32 buf_copy_size = min((size_t)SSLSNIFF_COPY_CAP, (size_t)len);
+ 
+     bpf_get_current_comm(&data->comm, sizeof(data->comm));
+ 
