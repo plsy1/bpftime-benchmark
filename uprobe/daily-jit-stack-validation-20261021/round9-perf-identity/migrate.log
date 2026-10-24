@@ -1,0 +1,278 @@
+Preparing worktree (detached HEAD 177a1dc4)
+HEAD is now at 177a1dc4 fix(ringbuf): keep a record's header and payload contiguous across the ring tail (#706)
+== cherry-pick 70f27510ffa2e33cac79d1f9518aeaab15387715
+[detached HEAD ebd86ed2] benchmark: fix hash delete state and add map diagnostics
+ Date: Sat Aug 1 14:49:14 2026 +0900
+ 12 files changed, 1958 insertions(+), 2 deletions(-)
+ create mode 100644 benchmark/uprobe/diagnostics/array_helper_jit.bpf.c
+ create mode 100644 benchmark/uprobe/diagnostics/array_helper_jit_layers.cpp
+ create mode 100644 benchmark/uprobe/diagnostics/array_map_path_layers.cpp
+ create mode 100644 benchmark/uprobe/diagnostics/hash_helper_jit_layers.cpp
+ create mode 100644 benchmark/uprobe/diagnostics/hash_map_path_layers.cpp
+ create mode 100644 benchmark/uprobe/diagnostics/kernel_map_runtime.bpf.c
+ create mode 100644 benchmark/uprobe/diagnostics/kernel_map_runtime.c
+ create mode 100644 benchmark/uprobe/diagnostics/kernel_map_runtime_victim.c
+== cherry-pick b32b464afa162458d13538b8ea0d9f3d10183c50
+[detached HEAD ea3467ef] benchmark: add kernel array value-size diagnostic
+ Date: Mon Aug 3 08:52:49 2026 +0900
+ 4 files changed, 430 insertions(+)
+ create mode 100644 benchmark/uprobe/diagnostics/kernel_array_update_sizes.bpf.c
+ create mode 100644 benchmark/uprobe/diagnostics/kernel_array_update_sizes.c
+ create mode 100644 benchmark/uprobe/diagnostics/kernel_array_update_sizes_victim.c
+== cherry-pick c60f412d12f6abd41e8de55ca00b6697f85e2998
+[detached HEAD a4772eb9] benchmark: add matched top hash residual diagnostic
+ Date: Mon Aug 3 11:10:39 2026 +0900
+ 4 files changed, 266 insertions(+)
+ create mode 100644 benchmark/uprobe/diagnostics/top_hash_residual.bpf.c
+ create mode 100644 benchmark/uprobe/diagnostics/top_hash_residual.c
+ create mode 100644 benchmark/uprobe/diagnostics/top_hash_residual_victim.c
+== cherry-pick a50df0aea63c8998a86ea895949f04673e304bea
+[detached HEAD 11e401f0] benchmark: add matched helper map ladder diagnostic
+ Date: Tue Aug 4 16:56:38 2026 +0900
+ 4 files changed, 306 insertions(+)
+ create mode 100644 benchmark/uprobe/diagnostics/helper_map_ladder.bpf.c
+ create mode 100644 benchmark/uprobe/diagnostics/helper_map_ladder.c
+ create mode 100644 benchmark/uprobe/diagnostics/helper_map_ladder_victim.c
+== cherry-pick 719cfd68fd7ed0d170b5b6f0659514e25ed110e2
+[detached HEAD 72476a06] runtime: fix per-cpu hash helper delete semantics
+ Date: Tue Aug 4 22:53:56 2026 +0900
+ 2 files changed, 22 insertions(+), 3 deletions(-)
+== cherry-pick a96eb88c97a3e030f99151d35ff3d76dc8c848f6
+[detached HEAD b85cacf4] benchmark: add per-cpu array path diagnostics
+ Date: Tue Aug 4 23:58:35 2026 +0900
+ 2 files changed, 493 insertions(+)
+ create mode 100644 benchmark/uprobe/diagnostics/per_cpu_array_path_layers.cpp
+== cherry-pick 336afc35ca5bb6617afe2115fd41b4e98ab94d16
+[detached HEAD ea11e205] benchmark: add per-cpu hash path diagnostics
+ Date: Wed Aug 5 00:19:57 2026 +0900
+ 2 files changed, 653 insertions(+)
+ create mode 100644 benchmark/uprobe/diagnostics/per_cpu_hash_path_layers.cpp
+== cherry-pick a8d0a68985a7e64b9d7b5554d03a59b46dddffaf
+[detached HEAD 9ed8da1d] benchmark: add matched per-cpu map path diagnostics
+ Date: Wed Aug 5 10:00:16 2026 +0900
+ 6 files changed, 782 insertions(+)
+ create mode 100644 benchmark/uprobe/diagnostics/kernel_percpu_map_runtime.bpf.c
+ create mode 100644 benchmark/uprobe/diagnostics/kernel_percpu_map_runtime.c
+ create mode 100644 benchmark/uprobe/diagnostics/kernel_percpu_map_runtime_victim.c
+ create mode 100644 benchmark/uprobe/diagnostics/per_cpu_helper_jit_layers.cpp
+== cherry-pick 45408c4bc4d2021ea5b6db2b4a202aa9eebe97c9
+[detached HEAD 996f9496] benchmark: diagnose per-cpu hash delete reclamation
+ Date: Wed Aug 5 11:28:24 2026 +0900
+ 6 files changed, 863 insertions(+)
+ create mode 100644 benchmark/uprobe/diagnostics/kernel_percpu_hash_delete_runtime.bpf.c
+ create mode 100644 benchmark/uprobe/diagnostics/kernel_percpu_hash_delete_runtime.c
+ create mode 100644 benchmark/uprobe/diagnostics/kernel_percpu_hash_delete_runtime_victim.c
+ create mode 100644 benchmark/uprobe/diagnostics/per_cpu_hash_delete_layers.cpp
+== cherry-pick 0cb109caef6cf7768596c5a7de4f3594a5a37815
+[detached HEAD bfa64474] runtime: add production map path A/B diagnostics
+ Date: Thu Aug 13 11:49:25 2026 +0900
+ 7 files changed, 245 insertions(+), 3 deletions(-)
+ create mode 100644 runtime/src/bpf_map/map_production_ab.hpp
+== cherry-pick b55dbf624b549da640963f868d1dc554213dcb5e
+[detached HEAD b3fd169e] benchmark: add matched map helper closure diagnostics
+ Date: Thu Aug 13 11:49:31 2026 +0900
+ 7 files changed, 577 insertions(+)
+ create mode 100644 benchmark/uprobe/diagnostics/helper_hash_closure.bpf.c
+ create mode 100644 benchmark/uprobe/diagnostics/helper_hash_closure.c
+ create mode 100644 benchmark/uprobe/diagnostics/helper_hash_closure_victim.c
+ create mode 100644 benchmark/uprobe/diagnostics/helper_map_closure.bpf.c
+ create mode 100644 benchmark/uprobe/diagnostics/helper_map_closure.c
+ create mode 100644 benchmark/uprobe/diagnostics/helper_map_closure_victim.c
+== cherry-pick f5596926d779e0589f083b082a557c08bbe26262
+[detached HEAD e2454734] diagnose per-cpu hash lookup leaf costs
+ Date: Thu Aug 13 12:37:41 2026 +0900
+ 4 files changed, 138 insertions(+), 6 deletions(-)
+== cherry-pick 04220ac2458d9a0d13577d34c6153600d4bfd019
+[detached HEAD 63de219e] diagnose remaining map operation leaf costs
+ Date: Thu Aug 13 13:26:27 2026 +0900
+ 4 files changed, 122 insertions(+), 10 deletions(-)
+== cherry-pick 81a6e6eccf1a926b3f8774638d2b0c9bf563c1b2
+[detached HEAD bbe7c9e7] diagnose hash workload sensitivity
+ Date: Sun Aug 16 21:47:55 2026 +0900
+ 4 files changed, 365 insertions(+)
+ create mode 100644 benchmark/uprobe/diagnostics/hash_workload_sweep.bpf.c
+ create mode 100644 benchmark/uprobe/diagnostics/hash_workload_sweep.c
+ create mode 100644 benchmark/uprobe/diagnostics/hash_workload_sweep_victim.c
+== cherry-pick ce7635de6ed5ca7d67968e60d7e7f270970cd5ac
+[detached HEAD 23dc6552] optimize per-cpu array callable dispatch
+ Date: Mon Oct 12 00:10:49 2026 +0900
+ 3 files changed, 367 insertions(+), 3 deletions(-)
+ create mode 100644 benchmark/uprobe/diagnostics/compare_runtime_builds.py
+== cherry-pick 1e9fcc9ce32983f998d9fc96f382d4d9a66a9d0c
+[detached HEAD 503cd689] optimize per-cpu hash copy paths
+ Date: Mon Oct 12 22:39:49 2026 +0900
+ 3 files changed, 123 insertions(+), 37 deletions(-)
+== cherry-pick d2b78ce70610d2f749d1f17641cf3ee56b60f16d
+[detached HEAD c295f135] optimize shared-memory key equality
+ Date: Tue Oct 13 13:29:58 2026 +0900
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+== cherry-pick e8c55e4fe2329cb7d888817316d9e0420e6f84b9
+[detached HEAD 21f61ffc] optimize four-byte shared-memory key hashing
+ Date: Tue Oct 13 17:32:51 2026 +0900
+ 2 files changed, 34 insertions(+), 1 deletion(-)
+== cherry-pick 37b41e7576cbfe88d832fcf08cb3fe782df84a69
+[detached HEAD 0dcb5166] optimize four-byte per-cpu hash node keys
+ Date: Wed Oct 14 09:31:03 2026 +0900
+ 5 files changed, 305 insertions(+), 55 deletions(-)
+== cherry-pick 42f79c75d1227c901ba9a1339218b62fd2095cdf
+[detached HEAD 109262d9] reuse four-byte per-cpu hash value storage
+ Date: Wed Oct 14 11:44:38 2026 +0900
+ 3 files changed, 224 insertions(+), 30 deletions(-)
+== cherry-pick 56147012f9311b4332d6f2a9503fa4eb81c927bf
+[detached HEAD b39d99c4] reuse four-byte per-cpu hash nodes
+ Date: Wed Oct 14 14:09:52 2026 +0900
+ 3 files changed, 51 insertions(+), 9 deletions(-)
+== cherry-pick d330894031a7c72c046400f985240f9b9bff87db
+[detached HEAD 410b6ac1] specialize per-cpu array lookup helper at load time
+ Date: Wed Oct 14 17:45:23 2026 +0900
+ 5 files changed, 110 insertions(+), 10 deletions(-)
+== cherry-pick 05eac852dc7b61bd4d8b041eaa737375dcf57dc7
+[detached HEAD 6aa61834] optimize per-cpu array production lookup leaf
+ Date: Thu Oct 15 18:21:24 2026 +0900
+ 4 files changed, 14 insertions(+), 2 deletions(-)
+== cherry-pick bc5150e5fed5e7903f276025577c644534de2e86
+[detached HEAD 84bd0c2c] Specialize ordinary array lookup helper at load time
+ Date: Thu Oct 15 20:53:35 2026 +0900
+ 4 files changed, 57 insertions(+), 12 deletions(-)
+== cherry-pick 509b064043552080132c8dd3893811846aaa7b7c
+[detached HEAD 6ef95947] Compile map diagnostics out of production paths
+ Date: Fri Oct 16 14:28:56 2026 +0900
+ 5 files changed, 111 insertions(+), 60 deletions(-)
+== cherry-pick 256405906fd285f8f0a186b50bf6f840db04f08a
+[detached HEAD 575d11c7] Specialize ordinary map helpers at load time
+ Date: Fri Oct 16 14:29:06 2026 +0900
+ 6 files changed, 130 insertions(+), 23 deletions(-)
+== cherry-pick 954d652e7192fbbdb05f09fa810d9bd8c520b281
+[detached HEAD 9b69db7a] Fix per-CPU hash fast-hash test
+ Date: Fri Oct 16 17:52:28 2026 +0900
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+== cherry-pick 610810ce8d2d68e0d12607b0586d08f56f407f70
+[detached HEAD 624718ed] Specialize per-CPU hash lookup helpers at load time
+ Date: Fri Oct 16 17:52:37 2026 +0900
+ 5 files changed, 50 insertions(+)
+== cherry-pick 6496267005eb3bab81290d8ccdd1d2e64bd0922d
+[detached HEAD 3152bbb8] Optimize fixed hash calculation and probing
+ Date: Fri Oct 16 23:16:16 2026 +0900
+ 2 files changed, 97 insertions(+), 3 deletions(-)
+== cherry-pick fd99bfecd290ec5d29b1f6091cf079a4df807514
+[detached HEAD c95239ab] Inline validated map handler access in specialized helpers
+ Date: Sat Oct 17 17:58:15 2026 +0900
+ 2 files changed, 11 insertions(+), 5 deletions(-)
+== cherry-pick e43af4b8ea101894a0b9c6f885a51bc21cb9b326
+[detached HEAD 7f805a6f] Optimize fixed-size hash key comparisons
+ Date: Sat Oct 17 21:54:39 2026 +0900
+ 2 files changed, 40 insertions(+), 4 deletions(-)
+== cherry-pick 1c79ddeb128b70b1ed9fc1d141b38f31eb13918b
+[detached HEAD 7debd66a] Specialize map update helpers by map type
+ Date: Sat Oct 17 23:41:30 2026 +0900
+ 7 files changed, 175 insertions(+)
+== cherry-pick d12c2d5f3c4d2d6f879b1a18974c93bb97125bb4
+[detached HEAD 3623639e] Optimize fixed hash bucket reduction
+ Date: Sun Oct 18 01:18:11 2026 +0900
+ 2 files changed, 77 insertions(+), 3 deletions(-)
+== cherry-pick 09e1576e9eb3ca7feca0c555cf7e5c85d5caf690
+[detached HEAD 5277fab7] Flatten per-CPU hash lookup hot path
+ Date: Sun Oct 18 14:34:30 2026 +0900
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+== cherry-pick a1ef4a7e69b3cf17b120a3148a3a4ba1d580a8b9
+[detached HEAD 28034f22] Hoist fixed hash lookup key dispatch out of probe loop
+ Date: Sun Oct 18 21:55:32 2026 +0900
+ 2 files changed, 104 insertions(+), 15 deletions(-)
+== cherry-pick df934cd13027a2d14acec3e7fbfa87b144adab1e
+[detached HEAD c1a84df3] Use bucket-local iterators for per-CPU hash lookup
+ Date: Sun Oct 18 21:55:32 2026 +0900
+ 2 files changed, 76 insertions(+), 3 deletions(-)
+== cherry-pick eb09b972d59ca7845e3e1251a2ad96845b93feaf
+[detached HEAD 337874eb] Inline per-CPU array production lookup leaf
+ Date: Mon Oct 19 00:14:56 2026 +0900
+ 3 files changed, 75 insertions(+), 17 deletions(-)
+== cherry-pick fefe2f6edf276e1b2957711203b5022dd1be8d7c
+[detached HEAD d52cb6b2] Outline ordinary array lookup error handling
+ Date: Mon Oct 19 11:48:56 2026 +0900
+ 4 files changed, 54 insertions(+), 6 deletions(-)
+== cherry-pick 9ffbffba8325b92eaa0771345c4054ee82121ca6
+Auto-merging runtime/unit-test/CMakeLists.txt
+[detached HEAD 1377967f] Add opt-in owned ordinary array lookup JIT specialization
+ Date: Tue Oct 20 16:17:23 2026 +0900
+ 27 files changed, 1261 insertions(+), 5 deletions(-)
+ create mode 100644 benchmark/uprobe/diagnostics/array_jit_poc.bpf.c
+ create mode 100644 benchmark/uprobe/diagnostics/array_jit_poc_loader.c
+ create mode 100644 benchmark/uprobe/diagnostics/array_jit_poc_victim.c
+ create mode 100644 runtime/src/bpf_map/array_map_binding.cpp
+ create mode 100644 runtime/src/bpf_map/array_map_binding.hpp
+ create mode 100644 runtime/src/bpf_map/offset_ptr_access.hpp
+ create mode 100644 runtime/unit-test/maps/test_array_jit_lifetime.cpp
+ create mode 100644 runtime/unit-test/maps/test_array_jit_poc.cpp
+ create mode 100644 vm/compat/llvm-vm/array-map-inline.patch
+== cherry-pick c0939bdf8e3ece38f56d964cac3d333468b8bf23
+Auto-merging runtime/unit-test/CMakeLists.txt
+[detached HEAD 2a460bb0] Enable default ordinary and per-CPU array lookup JIT
+ Date: Wed Oct 21 19:26:40 2026 +0900
+ 24 files changed, 1163 insertions(+), 114 deletions(-)
+ create mode 100644 benchmark/uprobe/diagnostics/percpu_array_jit.bpf.c
+ create mode 100644 benchmark/uprobe/diagnostics/percpu_array_jit_loader.c
+ create mode 100644 vm/compat/include/bpftime_array_cpu_query.hpp
+ create mode 100644 vm/compat/llvm-vm/array-map-descriptor.patch
+== cherry-pick 2eea622f97688b82a5c39402f631e79b5eb538f8
+[detached HEAD 1d4534be] Account for map-binding mutex in map-name collision test
+ Date: Wed Oct 21 20:09:40 2026 +0900
+ 1 file changed, 4 insertions(+)
+== cherry-pick bdd98355868bc8a76aad1158af1582de19b98ec6
+[detached HEAD da8d7687] Bind libbpf global data in array lookup JIT programs
+ Date: Wed Oct 21 22:21:26 2026 +0900
+ 5 files changed, 256 insertions(+), 10 deletions(-)
+== cherry-pick f24dc9bf93f960df0b7cf25b232c41ae1fc84b5d
+[detached HEAD 658a1291] Allow hash variants of the consuming array diagnostic
+ Date: Wed Oct 21 23:34:09 2026 +0900
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+== cherry-pick baf0cc85eba4fac6410a09902df411c27b30b7d7
+[detached HEAD 3c8b8984] Dispatch non-inlined map calls of bound programs in constant time
+ Date: Thu Oct 22 00:14:27 2026 +0900
+ 3 files changed, 106 insertions(+), 6 deletions(-)
+== cherry-pick c3090b598241f2b97dc09a38e96708db04b56330
+[detached HEAD 4378e14c] Select typed map helpers for hash maps next to arrays and global data
+ Date: Thu Oct 22 00:31:49 2026 +0900
+ 2 files changed, 221 insertions(+), 53 deletions(-)
+== cherry-pick 1cb208076d743e422205e97f781da03530b09e50
+[detached HEAD 945927a2] Bound hash map probing for misses and deleted buckets
+ Date: Thu Oct 22 16:12:46 2026 +0900
+ 3 files changed, 155 insertions(+), 62 deletions(-)
+== cherry-pick f26cc335f79725a926ee0bf057dc5996e97c63d4
+[detached HEAD fba3caaa] Call original map helpers directly for constant non-array handles
+ Date: Thu Oct 22 16:57:35 2026 +0900
+ 9 files changed, 138 insertions(+), 13 deletions(-)
+ create mode 100644 vm/compat/include/bpftime_direct_map_helpers.hpp
+== cherry-pick af10949b47a2ae51b2c89b370d9754fb056ecaf8
+[detached HEAD 2052a7a5] Let the hash map probe bound shrink after deletes
+ Date: Thu Oct 22 22:31:30 2026 +0900
+ 2 files changed, 93 insertions(+), 3 deletions(-)
+== cherry-pick dffb2fce8064a9c664af7b5134c3edd0ef17dfa6
+[detached HEAD cb7ef529] Skip probe bound recomputation in the common delete case
+ Date: Thu Oct 22 22:54:36 2026 +0900
+ 1 file changed, 12 insertions(+), 9 deletions(-)
+== cherry-pick 72aebadd6d51134434ffd14a66a5b5cfc8535ca6
+[detached HEAD d6a43ecb] Select a typed delete helper for hash maps
+ Date: Thu Oct 22 23:37:47 2026 +0900
+ 8 files changed, 148 insertions(+), 7 deletions(-)
+== cherry-pick 20870a03f73ad408aacbb34017cba28ed4058969
+[detached HEAD 0e29d609] Remove per-event CPU affinity pinning from bpf_perf_event_output
+ Date: Fri Oct 23 13:49:02 2026 +0900
+ 1 file changed, 8 insertions(+), 19 deletions(-)
+== cherry-pick a90fa447abf3bc1e3251bf6ea102cc73eed0b8a4
+[detached HEAD 8740a1be] Let fork children execute inherited array JIT programs
+ Date: Fri Oct 23 14:18:34 2026 +0900
+ 5 files changed, 106 insertions(+), 40 deletions(-)
+== cherry-pick db3d475f329d8fe5389a2c3ec5370098ab05cc22
+[detached HEAD 255027b7] Report dropped perf samples and wake the consumer before the ring fills
+ Date: Fri Oct 23 16:45:55 2026 +0900
+ 9 files changed, 676 insertions(+), 57 deletions(-)
+== cherry-pick 7ed339addf49d910f82eacc76a53869c3db47b87
+[detached HEAD 525d598d] Cache bpf_get_current_uid_gid and invalidate it on credential changes
+ Date: Sat Oct 24 15:48:21 2026 +0900
+ 9 files changed, 285 insertions(+), 4 deletions(-)
+ create mode 100644 runtime/agent/credential_hooks.cpp
+ create mode 100644 runtime/include/bpftime_credential_cache.hpp
+== cherry-pick bca2ebcec061a1e18357eb762603f387e893a715
+[detached HEAD 1d754f72] Cache the producer pid and tid in software perf output
+ Date: Sat Oct 24 19:00:12 2026 +0900
+ 3 files changed, 92 insertions(+), 2 deletions(-)

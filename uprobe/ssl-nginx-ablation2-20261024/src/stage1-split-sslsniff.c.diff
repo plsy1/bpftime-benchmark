@@ -1,0 +1,27 @@
+--- ../sslsniff-ablation-base/sslsniff.c	2026-10-23 14:05:57.044180415 +0900
++++ sslsniff.c	2026-10-24 17:41:06.554451729 +0900
+@@ -239,11 +239,20 @@
+ 	return true;
+ }
+ 
++/* Path ablation of stage 1: 1 = entry uprobes only, 2 = uretprobes only, 3 = both. */
++#ifndef SSLSNIFF_PROBES
++#define SSLSNIFF_PROBES 3
++#endif
++
+ int attach_openssl(struct sslsniff_bpf *skel, const char *lib) {
+-	ATTACH_UPROBE_CHECKED(skel, lib, SSL_write, probe_SSL_rw_enter);
+-	ATTACH_URETPROBE_CHECKED(skel, lib, SSL_write, probe_SSL_write_exit);
+-	ATTACH_UPROBE_CHECKED(skel, lib, SSL_read, probe_SSL_rw_enter);
+-	ATTACH_URETPROBE_CHECKED(skel, lib, SSL_read, probe_SSL_read_exit);
++	if (SSLSNIFF_PROBES & 1)
++		ATTACH_UPROBE_CHECKED(skel, lib, SSL_write, probe_SSL_rw_enter);
++	if (SSLSNIFF_PROBES & 2)
++		ATTACH_URETPROBE_CHECKED(skel, lib, SSL_write, probe_SSL_write_exit);
++	if (SSLSNIFF_PROBES & 1)
++		ATTACH_UPROBE_CHECKED(skel, lib, SSL_read, probe_SSL_rw_enter);
++	if (SSLSNIFF_PROBES & 2)
++		ATTACH_URETPROBE_CHECKED(skel, lib, SSL_read, probe_SSL_read_exit);
+ 
+ 	if (env.latency && env.handshake) {
+ 		ATTACH_UPROBE_CHECKED(skel, lib, SSL_do_handshake,
