@@ -82,6 +82,8 @@
 - 10/24 在修复后的版本上重做四段路径消融：开销最大且输给 kernel 的是 helper/map/元数据一段，其中一半来自
   `bpf_get_current_uid_gid` 每次两个系统调用；加缓存后（`7ed339ad`）ssl-nginx 16 B 相对 kernel 从 +8.0% 提高到 +16.5%，
   相对不追踪的损失从 25.7% 降到 19.9%（官方论文在 x86 上为 7.41%）。
+- 用 perf 继续定位：perf 输出每次调 `getpid`/`gettid` 两个系统调用，缓存后（`bca2ebce`）16 B 相对 kernel +17.4%，
+  相对不追踪 −19.2%。剩余开销分散在 Frida 拦截器、hash map、时钟读取和通用分发，没有单项突出。
 - 详见 `benchmark-results/jetson` 分支 `uprobe/ssl-nginx-2x2-20261023/README.md`。
 
 ## 7. 总体结果：最初 vs 现在（官方 10 项，相对 kernel）

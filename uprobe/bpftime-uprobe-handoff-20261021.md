@@ -1,13 +1,13 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-24 17:00 JST 左右。以下分支、进程和文件状态均为本机快照；
+最后核对：2026-10-24 20:00 JST 左右。以下分支、进程和文件状态均为本机快照；
 后续模型行动前需重新核实。**新会话先读第 0 节**，再按需读其余章节。
 
-## 0. 现状一页（2026-10-24 17:00 JST，新会话从这里继续）
+## 0. 现状一页（2026-10-24 20:00 JST，新会话从这里继续）
 
 **目标**：继续优化 `codex/uprobe-official-177a1dc465ff`（开发 worktree
-`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `7ed339ad`，已推送）。
+`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `bca2ebce`）。
 下一阶段重点：扩大测试覆盖（见 0.4），hash map 重写暂缓。
 
 ### 0.1 改了什么（7 个新提交，均已推送并加入每日补丁栈，共 50 个提交）
@@ -22,12 +22,13 @@
 | `dffb2fce` | 删除时只在最远一档被删空时才重算上限 | 无可测收益，逻辑保留 |
 | `72aebadd` | hash 专用 delete helper（加载时按类型选，与 lookup/update 同规则） | 官方 hash delete 36.9 → 28.2 ns（0.26x）；delete+insert -10% |
 
-10/23 下午到晚上又加 3 个提交（均已推送；已加入 `config.json`）。10/24 又加 `7ed339ad`，补丁栈共 54 个提交；LLVM 15 重放第 6、7、8 轮见 `round6-affinity-fork`、`round7-perf-lost`、`round8-uid-gid`：
+10/23 下午到晚上又加 3 个提交（均已推送；已加入 `config.json`）。10/24 又加 `7ed339ad`、`bca2ebce`，补丁栈共 55 个提交；LLVM 15 重放第 6–9 轮见 `round6-affinity-fork`、`round7-perf-lost`、`round8-uid-gid`、`round9-perf-identity`：
 
 | 提交 | 改动 | 效果 |
 |---|---|---|
 | `20870a03` | 去掉 `bpf_perf_event_output` 每个事件的 CPU 亲和性绑核（7 月 ssl-nginx 修复，官方至今没有） | ssl-nginx 吞吐 +21.6%（16 B）/ +19.4%（256 KB），相对官方 177a1dc |
 | `a90fa447` | **正确性修复**：fork 子进程可以执行继承的 array JIT 程序。atfork prepare 为子进程给每个绑定多拿一份共享引用 | 修复前 nginx worker 里 sslsniff 一个事件都收不到（见 0.3 第 8 条） |
+| `bca2ebce` | 缓存 perf 输出用来找分片的 pid/tid（原来每次输出都调 `getpid` 和 `gettid` 两个系统调用，用 perf 找到）；fork 子进程重置 | ssl-nginx 16 B 相对 kernel +14.8% → +17.4%，256 KB +9.1% → +11.7% |
 | `7ed339ad` | 缓存 `bpf_get_current_uid_gid`：agent 挂上 libc 的 8 个 set*id 函数，调用后让缓存失效；只有 8 个挂钩都生效（LD_PRELOAD）才启用；fork 子进程失效。每日过滤器加 `[uid_gid]` | ssl-nginx 16 B 相对 kernel +8.0% → +16.5%，256 KB +6.8% → +12.9% |
 | `db3d475f` | **正确性修复**：perf 输出丢事件时按 kernel 方式报告（`PERF_RECORD_LOST`、`-ENOSPC`）；生产者写到缓冲区半满时用 futex 叫醒消费者（模拟的 `epoll_wait` 原来固定每 1 ms 轮询一次）。每日过滤器加 `[perf_event],[epoll]` | 256 KB 时每请求送到事件 9.5 → 18（kernel 17.9）；ssl-nginx 256 KB 相对 kernel +6.7%（同样的事件数） |
 
@@ -49,6 +50,8 @@ delete 大函数，源码小改动就会重排整函数的代码生成；专用 
 | `ssl-nginx-2x2-20261023` | ssl-nginx 同轮对照：无追踪 / kernel / 官方 / 官方 + 去绑核 / 开发分支；16 B 和 256 KB，各 2 轮 × 10 次；`db3d475f` 的 2 × 10 对照和 7 种 payload 扫测（含图 `bench/absolute_performance.png`、`bench/relative_to_kernel.png`）（`README.md`、`README-perf-lost.md`） |
 | `perf-lost-wakeup-20261023` | `db3d475f` 的测试汇总和完整十轮 |
 | `ssl-nginx-ablation-20261024` | 在 `db3d475f` 上重做四段路径消融（16 B、256 KB）和第 2 段的逐项拆分；含论文数据对照。注意：这两次是在动态调频下跑的（机器 10/24 05:54 重启后没执行 `jetson_clocks`） |
+| `ssl-nginx-ablation2-20261024` | 在 `7ed339ad` 上锁频重做四段消融、拆第 1 段（只挂入口/只挂返回）、perf record/stat（`perf/`） |
+| `perf-output-identity-20261024` | `bca2ebce` 的测试、完整十轮、ssl-nginx 2 × 10 |
 | `uid-gid-cache-20261024` | `7ed339ad` 的测试、UID 审计、完整十轮、ssl-nginx 2 × 10 |
 | `ssl-nginx-netns-recheck-20261023` | 复核 7 月 Tailscale/host netns 结论：共享的约 8% 环境开销成立，“bpftime 额外损失”在当前版本不成立 |
 
@@ -79,6 +82,10 @@ delete 大函数，源码小改动就会重排整函数的代码生成；专用 
    bpftime 的 hash map 操作比 kernel 便宜。所有构建都是 `ENABLE_PROBE_READ_CHECK=OFF`（probe_read 是 memcpy）。
 11. 官方论文（OSDI'25）：x86 48 线程机器上 bpftime 比不追踪低 7.41%、kernel 低 28.06%；没有任何 ARM 数据。我们 kernel −31%，bpftime 现为 −20%（16 B）。
 12. **机器重启后要先执行 `sudo jetson_clocks`**：10/24 05:54 重启后频率没有锁定，完整十轮的频率检查会拦下，但 ssl-nginx 的 runner 不检查。
+13. **perf 定位（本机已装 perf：`/usr/lib/linux-tools/6.8.0-1020-nvidia-tegra/perf`）**：挂空 probe 时 IPC 不变（0.76），每次命中多执行约 1.2–1.5 千条指令，
+   开销是 Frida 拦截器 + 分发的指令本身，不是缓存失效；微基准 IPC 高所以看起来便宜十倍。修掉 perf 输出里的两个系统调用（`bca2ebce`）后，
+   agent + JIT + vDSO 约占 worker 周期的 9%（约 6.7 µs/请求），分散在 Frida 拦截器、hash map、clock_gettime、perf 输出通用查表、分发，没有单项突出。
+   当前 16 B：bpftime 每请求多 13.8 µs（相对不追踪 −19.2%），kernel 26.3 µs（−31.1%）。
 
 ### 0.4 下一阶段：扩大测试覆盖（用户定的重点）
 
