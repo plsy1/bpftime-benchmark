@@ -1,10 +1,10 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-24 20:00 JST 左右。以下分支、进程和文件状态均为本机快照；
+最后核对：2026-10-25 00:00 JST 左右。以下分支、进程和文件状态均为本机快照；
 后续模型行动前需重新核实。**新会话先读第 0 节**，再按需读其余章节。
 
-## 0. 现状一页（2026-10-24 20:00 JST，新会话从这里继续）
+## 0. 现状一页（2026-10-25 00:00 JST，新会话从这里继续）
 
 **目标**：继续优化 `codex/uprobe-official-177a1dc465ff`（开发 worktree
 `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `bca2ebce`）。
@@ -86,6 +86,11 @@ delete 大函数，源码小改动就会重排整函数的代码生成；专用 
    开销是 Frida 拦截器 + 分发的指令本身，不是缓存失效；微基准 IPC 高所以看起来便宜十倍。修掉 perf 输出里的两个系统调用（`bca2ebce`）后，
    agent + JIT + vDSO 约占 worker 周期的 9%（约 6.7 µs/请求），分散在 Frida 拦截器、hash map、clock_gettime、perf 输出通用查表、分发，没有单项突出。
    当前 16 B：bpftime 每请求多 13.8 µs（相对不追踪 −19.2%），kernel 26.3 µs（−31.1%）。
+14. **7 种 payload 公平扫测（`bca2ebce`，`ssl-nginx-sweep-bca2ebce-20261024`）**：相对不追踪 bpftime −17.4%～−22.7%，kernel −27.6%～−30.3%，
+   官方 177a1dc −34.7%～−40.0%；相对 kernel 从 16 B 的 +16.7% 收窄到 128–256 KB 的 +11–12%（早在 7 月 host 测试中就有此趋势，这次在修完全部问题后复现）。
+15. **收窄原因（`ssl-nginx-copysize-20261024`）**：固定 256 KB 只改每事件复制量，kernel 每 KB 的成本（+0.33 µs/KB）不低于 bpftime（+0.22），
+   每事件绝对优势一直约 4.5–6 µs；百分比收窄是因为大 payload 时每事件附带的 TLS 工作和两边都要付的复制成本把分母变大。
+   bpftime 自己多出来的只有大事件触发的“半满唤醒” futex（每请求约 4 次，共享内存上的 futex 每次约 2 µs，约 0.5 µs/事件）。暂不优化。
 
 ### 0.4 下一阶段：扩大测试覆盖（用户定的重点）
 
@@ -108,6 +113,11 @@ ssl-nginx 能跑并已分析。其余各项的现状（10/24 读源码核对，�
 | `trap-uprobe` | 不适用：针对 riscv64（9/8 新增） | — |
 
 任何一项跑起来后，先审计 bpftime 那一组确实收到了事件，再采信吞吐数字。
+
+**新内核（10/24 A 段已完成，B 段待本人在场）**：已编好 L4T R39.2.1 内核 `6.8.12-1021-tegra-btf`（BTF、`FTRACE_SYSCALLS`、`KPROBES`、
+`FUNCTION_TRACER`，全部 NVIDIA 树外驱动重编），作为 extlinux 非默认启动项 `btf` 装好，默认仍为原内核、尚未启动验证。
+操作指南、检查脚本、配置和构建日志在 `benchmark-results/jetson` 分支 `kernel/l4t-r39.2.1-btf/`（本机 `/home/jetson/src/l4t-r39.2.1/`）。
+它能解锁 deepflow 与 `bpftime_daemon`；切换后需重测 kernel 侧基线。arm64 6.8 上 `FPROBE`（kprobe_multi）开不了，属架构限制。
 
 ### 0.5 用户定下的工作方式
 
