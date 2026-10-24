@@ -7,7 +7,7 @@
 ## 0. 现状一页（2026-10-23 19:40 JST，新会话从这里继续）
 
 **目标**：继续优化 `codex/uprobe-official-177a1dc465ff`（开发 worktree
-`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，本地 HEAD `db3d475f`，远端 HEAD `72aebadd`）。
+`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `db3d475f`，已推送）。
 下一阶段重点：扩大测试覆盖（见 0.4），hash map 重写暂缓。
 
 ### 0.1 改了什么（7 个新提交，均已推送并加入每日补丁栈，共 50 个提交）
@@ -22,7 +22,7 @@
 | `dffb2fce` | 删除时只在最远一档被删空时才重算上限 | 无可测收益，逻辑保留 |
 | `72aebadd` | hash 专用 delete helper（加载时按类型选，与 lookup/update 同规则） | 官方 hash delete 36.9 → 28.2 ns（0.26x）；delete+insert -10% |
 
-10/23 下午到晚上又加 3 个提交（**均未推送**；已加入本地 `config.json`，补丁栈共 53 个提交；LLVM 15 重放第 6、7 轮见 `round6-affinity-fork`、`round7-perf-lost`）：
+10/23 下午到晚上又加 3 个提交（均已推送；已加入 `config.json`，补丁栈共 53 个提交；LLVM 15 重放第 6、7 轮见 `round6-affinity-fork`、`round7-perf-lost`）：
 
 | 提交 | 改动 | 效果 |
 |---|---|---|
