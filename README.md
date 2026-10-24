@@ -30,6 +30,10 @@
 
 | 目录 | 内容 |
 |---|---|
+| [uprobe-top-arm64-20261007-strict-repro-official-no-btf](uprobe/uprobe-top-arm64-20261007-strict-repro-official-no-btf/) | Jetson MAXN_SUPER、CPU5 固定 1.728 GHz、GCC 13 + LLVM 15、LTO ON、checks OFF，2026-10-07 完整 10 轮复现结果 |
+| [uprobe-top-arm64-20260910-strict-repro-official-no-btf](uprobe/uprobe-top-arm64-20260910-strict-repro-official-no-btf/) | Jetson MAXN_SUPER、CPU5 固定 1.728 GHz、GCC 13 + LLVM 15、LTO ON、checks OFF，10 轮 official no-BTF uprobe 严格复现结果 |
+| [uprobe-top-arm64-20260909-maxn-super-official-no-btf](uprobe/uprobe-top-arm64-20260909-maxn-super-official-no-btf/) | Jetson MAXN_SUPER、`jetson_clocks`、1.728 GHz CPU、10 轮 official no-BTF uprobe 完整结果 |
+| [uprobe-top-arm64-20260909-official-no-btf](uprobe/uprobe-top-arm64-20260909-official-no-btf/) | Jetson 25W、`jetson_clocks`、10 轮 official no-BTF uprobe 完整结果 |
 | [uprobe-top-arm64-20260803](uprobe/uprobe-top-arm64-20260803/) | Jetson CPU5、5 个独立 victim 的完整官方 uprobe 顶层结果 |
 | [uprobe-top-x64-20260803-fixedfreq](uprobe/uprobe-top-x64-20260803-fixedfreq/) | 固定频率 x64 的对应顶层结果 |
 | [uprobe-top-cross-arch-20260803](uprobe/uprobe-top-cross-arch-20260803/) | 两个平台统一口径的 raw、net helper 与比较表 |
@@ -39,6 +43,7 @@
 
 | 目录 | 内容 |
 |---|---|
+| [percpu-array-optimization-arm64-20261011](uprobe/percpu-array-optimization-arm64-20261011/) | 第一项正式优化：移除 per-CPU array 的 std::function 包装；独立构建、正确性测试、原版/优化版 matched A/B 和完整回归状态 |
 | [helper-map-ladder-arm64-20260804](uprobe/helper-map-ladder-arm64-20260804/) | Jetson matched helper ladder、direct L0–L3 与 PMU |
 | [array-path-arm-diagnosis-20260801](uprobe/array-path-arm-diagnosis-20260801/) | Jetson array map userspace 路径分解 |
 | [hash-path-arm-diagnosis-20260801](uprobe/hash-path-arm-diagnosis-20260801/) | Jetson hash map userspace 路径分解 |

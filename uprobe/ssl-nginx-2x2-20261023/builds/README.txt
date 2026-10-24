@@ -8,3 +8,5 @@ lost-wakeup   a90fa447 + kernel-style PERF_RECORD_LOST/-ENOSPC + futex consumer 
 lost-report   lost-wakeup with notify_perf_event_consumers() stubbed out: losses reported, consumer still polls every 1 ms (candidate.diff)
 lost-watermark lost-wakeup but the producer wakes the consumer only when its shard is >= half full after publishing or a sample was dropped (candidate.diff)
 db3d475f      a90fa447 + perf loss reporting and half-full consumer wakeup (hard links to lost-watermark, same files)
+7ed339ad      db3d475f + cached bpf_get_current_uid_gid with set*id interposers (candidate build-jit, LLVM 16)
+bca2ebce      7ed339ad + cached producer pid/tid in software perf output (candidate build-jit, LLVM 16)
