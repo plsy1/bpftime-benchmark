@@ -827,9 +827,16 @@ extern "C" void **__cudaRegisterFatBinary(void *fatbin)
 	return nullptr;
 }
 #endif
+extern "C" bool bpftime_agent_setup_credential_cache();
+
 extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 {
 	install_agent_bootstrap_logger();
+	// Only effective when this agent's set*id interposers are bound.
+	static const bool credential_cache_enabled =
+		bpftime_agent_setup_credential_cache();
+	SPDLOG_DEBUG("Credential cache for bpf_get_current_uid_gid: {}",
+		     credential_cache_enabled ? "enabled" : "disabled");
 	bool force_reinit = false;
 	bool recorded_alive_pid = false;
 	bool ctx_constructed = false;
