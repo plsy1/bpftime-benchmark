@@ -95,6 +95,20 @@ delete 大函数，源码小改动就会重排整函数的代码生成；专用 
 
 次要：布局效应热点定位（本机有 nsys，10/16 用过）、hash 返回值语义、上游 PR。
 
+**扩大支持（10/24 确认在计划内，ssl-nginx 优化告一段落后做）**：官方 `benchmark/` 10 项中，ARM64 上目前只有 uprobe 和
+ssl-nginx 能跑并已分析。其余各项的现状（10/24 读源码核对，未改系统）：
+
+| benchmark | 现状 | 解锁条件 |
+|---|---|---|
+| `syscall`、`syscount-nginx`、`fuse` | 跑不了：bpftime 拦截系统调用靠 `attach/text_segment_transformer`，aarch64 分支只有 `// TODO: implement syscall trace trampoline`，capstone 写死 x86。7 月 ARM64 CI 上 syscount-nginx 的“成功”并没有真正拦截到系统调用（日志已过期） | 实现 aarch64 系统调用改写跳板（`svc #0` 改写 + 指令重定位） |
+| `deepflow` | 跑不了，连 kernel 那一组都不行：Jetson 内核没开 `CONFIG_FTRACE_SYSCALLS`（只有 `raw_syscalls`），DeepFlow v6.1.1 的 socket 追踪器（`TPPROG(sys_enter_read)` 等）和 `bpftime_daemon`（`tracepoint/syscalls/sys_enter_bpf` 等）都依赖按调用名的系统调用 tracepoint；另需在 ARM64 上装 Rust/Go 重编 agent 和服务 | 重编 Jetson 内核打开 `CONFIG_FTRACE_SYSCALLS`（需本人在场、有恢复手段），或把 DeepFlow 与 daemon 改用 `raw_syscalls` 加调用号过滤 |
+| `redis-durability-tuning` | 未试：uprobe 加 io_uring 扩展，BPF 程序里写死了 x86 路径 | 移植路径，验证 io_uring 扩展在 ARM64 上可用 |
+| `gpu` | 未试：CUDA 挂钩，与 CPU 侧 uprobe 研究关系远 | 暂不考虑 |
+| `mpk` | 不适用：MPK 是 x86 专有 | — |
+| `trap-uprobe` | 不适用：针对 riscv64（9/8 新增） | — |
+
+任何一项跑起来后，先审计 bpftime 那一组确实收到了事件，再采信吞吐数字。
+
 ### 0.5 用户定下的工作方式
 
 - 每次改动：增量构建 → 回归测试（`config.json` 的 `test_filter` 清单）→ 同轮 kernel / 改动前 / 改动后的配对短测 → 完整十轮（不跑 kernel，倍率借用基线那轮 kernel 并注明）。
