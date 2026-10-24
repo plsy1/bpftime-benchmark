@@ -10,6 +10,7 @@
 #include "handler/map_handler.hpp"
 #include "linux/bpf.h"
 #include <algorithm>
+#include <atomic>
 #include <stdexcept>
 #include <system_error>
 #if __APPLE__
@@ -28,6 +29,7 @@
 #include "bpf/libbpf_common.h"
 #endif
 #include "bpftime_helper_group.hpp"
+#include "bpftime_credential_cache.hpp"
 #include "bpftime_array_cpu_query.hpp"
 #include <cerrno>
 #ifdef ENABLE_BPFTIME_VERIFIER
@@ -221,6 +223,7 @@ static thread_local uint64_t bpftime_cached_tid = UINT64_MAX;
 static void bpftime_refresh_cached_identity_in_child()
 {
 	bpftime_cached_tgid = getpid();
+	bpftime_invalidate_credential_cache();
 	// tid is meaningless in the child; the next helper call refills it.
 #if __linux__
 	bpftime_cached_tid = -1;
@@ -260,12 +263,55 @@ uint64_t bpftime_get_current_pid_tgid(uint64_t, uint64_t, uint64_t, uint64_t,
 	return ((uint64_t)bpftime_cached_tgid << 32) | bpftime_cached_tid;
 }
 
+// Credentials can change after startup. Without the agent's set*id
+// interposers they are queried on every call (two system calls). With them,
+// every libc credential change and every fork child invalidates the cache.
+// (uid_t)-1 and (gid_t)-1 are never valid ids, so all ones marks "empty".
+namespace
+{
+constexpr uint64_t credentials_unknown = UINT64_MAX;
+std::atomic<bool> credential_cache_enabled{ false };
+std::atomic<uint64_t> credential_generation{ 0 };
+std::atomic<uint64_t> cached_credentials{ credentials_unknown };
+
+uint64_t query_credentials()
+{
+	return (static_cast<uint64_t>(getgid()) << 32) |
+	       static_cast<uint32_t>(getuid());
+}
+} // namespace
+
+extern "C" void bpftime_set_credential_cache_enabled(bool enabled)
+{
+	bpftime_invalidate_credential_cache();
+	credential_cache_enabled.store(enabled, std::memory_order_release);
+}
+
+extern "C" void bpftime_invalidate_credential_cache()
+{
+	credential_generation.fetch_add(1, std::memory_order_acq_rel);
+	cached_credentials.store(credentials_unknown, std::memory_order_release);
+}
+
 uint64_t bpf_get_current_uid_gid(uint64_t, uint64_t, uint64_t, uint64_t,
 				 uint64_t)
 {
-	// Credentials can change after startup, so query them on every call.
-	return (static_cast<uint64_t>(getgid()) << 32) |
-	       static_cast<uint32_t>(getuid());
+	if (!credential_cache_enabled.load(std::memory_order_acquire))
+		return query_credentials();
+	auto value = cached_credentials.load(std::memory_order_acquire);
+	if (value != credentials_unknown)
+		return value;
+	auto generation = credential_generation.load(std::memory_order_acquire);
+	value = query_credentials();
+	auto empty = credentials_unknown;
+	cached_credentials.compare_exchange_strong(empty, value,
+						   std::memory_order_acq_rel);
+	// An invalidation that raced with the query may have run before the
+	// store above; drop what was stored rather than keep a stale value.
+	if (credential_generation.load(std::memory_order_acquire) != generation)
+		cached_credentials.store(credentials_unknown,
+					 std::memory_order_release);
+	return value;
 }
 
 uint64_t bpftime_ktime_get_ns(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
