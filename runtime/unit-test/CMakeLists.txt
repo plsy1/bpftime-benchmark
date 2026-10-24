@@ -106,19 +106,8 @@ set_property(TARGET bpftime_config_header_test PROPERTY CXX_STANDARD 20)
 add_dependencies(bpftime_runtime_tests bpftime_config_header_test)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_sources(bpftime_runtime_tests PRIVATE
-        ../syscall-server/syscall_server_utils.cpp
-        ../syscall-server/syscall_context.cpp)
-    target_include_directories(bpftime_runtime_tests PRIVATE ../syscall-server)
-    target_link_libraries(bpftime_runtime_tests PRIVATE bpftime_syscall_trace_attach_impl ${CMAKE_DL_LIBS})
-    target_link_options(bpftime_runtime_tests PRIVATE -Wl,--wrap=dlsym)
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
-        target_sources(bpftime_runtime_tests PRIVATE
-            test_rootless_seccomp_constructor.cpp)
-    endif()
-    target_sources(bpftime_runtime_tests PRIVATE
-        test_get_current_uid_gid.cpp
-        test_get_current_comm.cpp)
+    target_sources(bpftime_runtime_tests PRIVATE test_get_current_uid_gid.cpp
+        ${CMAKE_SOURCE_DIR}/runtime/agent/credential_hooks.cpp)
     target_link_options(bpftime_runtime_tests PRIVATE
         -Wl,--wrap=getuid -Wl,--wrap=getgid -Wl,--wrap=sched_getcpu)
 endif()
