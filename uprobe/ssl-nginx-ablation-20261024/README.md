@@ -39,8 +39,10 @@ on the current dev branch `db3d475f` (map optimizations, no affinity pinning, fo
    at parity (+1.0 pp); perf output was the worst stage then (+8.4 pp vs kernel).
 2. Perf output is now cheaper than kernel (-4 pp), after removing affinity pinning and with the
    loss fix. Probe dispatch keeps its structural advantage (-6 to -9 pp).
-3. `bpf_probe_read_user` (now a `process_vm_readv` syscall since upstream f311de23) costs only
-   1.5-2 pp, the same order as kernel; not the main gap.
+3. `bpf_probe_read_user` costs only 1.5-2 pp, the same order as kernel; not the main gap. All builds
+   here use `ENABLE_PROBE_READ_CHECK=OFF` (checked in each `CMakeCache.txt`), so it is a plain
+   `memcpy`; the `process_vm_readv` path added upstream in f311de23 (2026-08-13) is only used with
+   the check ON, which is the CMake default but not the benchmark Makefile target's setting.
 4. Every stage costs far more per hit than the microbenchmarks suggest: stage 1 is 6.2 us per
    16 B request for 4 probe hits (~1.6 us/hit) against ~160 ns/hit in the uprobe microbenchmark;
    kernel stage 2 (~5.8 us for ~14 map operations and a few helpers) inflates similarly. Inside
@@ -49,3 +51,21 @@ on the current dev branch `db3d475f` (map optimizations, no affinity pinning, fo
    calls `getgid()` and `getuid()` on every call (4 calls, 8 syscalls per 16 B request), and the
    per-CPU array lookup asks for the current CPU. `get_current_comm` and `pid_tgid` are cached and
    `ktime_get_ns` is a vDSO read. Splitting stage 2 further would show which of these dominates.
+
+## Comparison with published bpftime numbers
+
+A literature check (OSDI '25 "Extending Applications Safely and Efficiently", arXiv 2311.07923,
+LPC 2023 slides, later GPU/NCCL/uXDP papers) found no ARM results anywhere. Published sslsniff + nginx:
+
+| Source | Machine | Load | kernel vs native | bpftime vs native |
+|---|---|---|---:|---:|
+| LPC 2023 slides | x86, Linux 6.2 (i7-11800H per repo README) | wrk -c 100, ~13 B page | -57.98% | -12.35% |
+| OSDI '25 Fig. 9 | 2 x Xeon E5-2697 v2 (24 cores / 48 threads) | wrk 4 threads, 512 connections, 1-256 KB | up to -28.06% | at most -7.41% |
+| this run (db3d475f) | Jetson Orin, 6 x A78AE 1.728 GHz | wrk -c 100, 16 B / 256 KB | -30.7% / -31.9% | -27.1% / -26.2% |
+
+Notes: the paper does not state nginx worker count, kernel version or build options; the repo
+README of that era says the sslsniff consumer was modified not to print and bpftime was built
+with LTO and lock-free maps. The microbenchmark table of the paper (Table 3) matches a 2025-04-30
+run on a 4-core Core Ultra 7 258V laptop in the repo; its "user memory read 1.5 ns" is a 5-byte
+read amortized over a 1000-iteration loop with checks off. Kernel cost here is similar to the
+paper's; the gap is in bpftime's per-event cost on this machine, mainly stage 2.
