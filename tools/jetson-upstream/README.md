@@ -146,6 +146,12 @@ helper/map stage in the sslsniff ablation; ssl-nginx 16 B goes from +8.0% to
 +16.5% over kernel. The focused filter adds `[uid_gid]`. Replayed onto official
 `177a1dc465ff` with LLVM 15 (round 8).
 
+`bca2ebce` (accepted 2026-10-24) caches the producer pid and tid that every
+software `bpf_perf_event_output` used to fetch with `getpid()` and `gettid`
+(two system calls per sample, found with perf in the nginx worker); an
+atfork child handler clears the cache. ssl-nginx 16 B: +14.8% -> +17.4% over
+kernel. Replayed onto official `177a1dc465ff` with LLVM 15 (round 9).
+
 Before the JIT, the stack included all accepted optimizations through
 `fefe2f6edf27` (accepted 2026-10-19), including ordinary hash lookup key dispatch,
 per-CPU hash bucket-local iteration, per-CPU array production lookup leaf
