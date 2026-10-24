@@ -11,6 +11,8 @@
 #include <limits>
 #include <string>
 #include <thread>
+#include <sys/wait.h>
+#include <sys/syscall.h>
 #include <utility>
 #include <unistd.h>
 #include <vector>
@@ -263,6 +265,61 @@ TEST_CASE("Software perf event buffers shard concurrent producers by thread",
 	REQUIRE(perf->output_data(boundary_payload.data(),
 				  boundary_payload.size()) == -1);
 	REQUIRE(errno == E2BIG);
+}
+
+TEST_CASE("Software perf event fork child writes to its own producer shard",
+	  "[perf_event][software_perf_event]")
+{
+	const std::string shared_memory_name =
+		"SoftwarePerfEventForkShardTestShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(shared_memory_name) };
+	boost::interprocess::managed_shared_memory shm(
+		boost::interprocess::create_only, shared_memory_name.c_str(),
+		16 * 1024 * 1024);
+	auto *perf = shm.construct<bpftime::software_perf_event_data>(
+		"perf")(0, 0, 0, shm);
+	REQUIRE(perf != nullptr);
+	REQUIRE(perf->ensure_mmap_buffer(getpagesize() + 1024 * 1024) !=
+		nullptr);
+
+	// The parent's first sample caches its (pid, tid) for this thread.
+	event_payload parent_payload{ 1, 0 };
+	REQUIRE(perf->output_data(&parent_payload, sizeof(parent_payload)) ==
+		0);
+	const pid_t parent = getpid();
+	pid_t child = fork();
+	REQUIRE(child >= 0);
+	if (child == 0) {
+		event_payload child_payload{ 2, 0 };
+		bool ok = perf->output_data(&child_payload,
+					    sizeof(child_payload)) == 0;
+		const auto self_tid = (int64_t)syscall(SYS_gettid);
+		// With the parent's cached identity the sample would have
+		// gone to the parent's shard and no child shard would exist.
+		bool own_shard = false;
+		for (auto &shard : perf->producer_shards)
+			own_shard |= shard.pid == getpid() &&
+				     shard.tid == self_tid;
+		_exit(ok && own_shard ? 0 : 1);
+	}
+	int status = -1;
+	REQUIRE(waitpid(child, &status, 0) == child);
+	REQUIRE(WIFEXITED(status));
+	REQUIRE(WEXITSTATUS(status) == 0);
+	size_t parent_shards = 0, child_shards = 0;
+	for (auto &shard : perf->producer_shards) {
+		parent_shards += shard.pid == parent;
+		child_shards += shard.pid == child;
+	}
+	CHECK(parent_shards == 1);
+	CHECK(child_shards == 1);
+	// The parent keeps using its own cached identity and shard.
+	REQUIRE(perf->output_data(&parent_payload, sizeof(parent_payload)) ==
+		0);
+	parent_shards = 0;
+	for (auto &shard : perf->producer_shards)
+		parent_shards += shard.pid == parent;
+	CHECK(parent_shards == 1);
 }
 
 TEST_CASE("Software perf event records wrap on aligned boundaries after resize",
