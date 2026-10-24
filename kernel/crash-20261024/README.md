@@ -16,6 +16,9 @@ The Jetson rebooted at 05:54 after a kernel panic; logs saved by ramoops/systemd
 - Earlier in the same boot: two `nvme nvme0: I/O tag ... timeout, completion polled` warnings
   (2026-10-23 ~14:12 and ~14:21).
 - Effects: `jetson_clocks` was not re-applied after the reboot (see summry handoff item 12).
+- NVMe health (2026-10-25): 37-38 C, never above warning temperature, no thermal throttling,
+  0 media errors, 0% wear; 51 power cycles with 32 unsafe shutdowns. The user often unplugs the
+  board without shutting down, which explains most unsafe shutdowns; pstore holds only this crash.
 
 If it happens again, compare the call trace; repeated memcg/slab traces would point to a kernel
 bug to report to NVIDIA (L4T R39.2.1), random traces to hardware (memory) problems.
