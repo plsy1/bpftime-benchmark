@@ -79,6 +79,9 @@
 - 又发现并修复（官方也有）：大响应（256 KB）时 bpftime 的 perf 缓冲区满了会静默丢掉约一半事件（`db3d475f`）。
   修复后在 7 种 payload（16 B–256 KB）上都快于 kernel：+3.4% 到 +7.6%；官方 177a1dc 为 −7.3% 到 −11.8%。
 - 复核 7 月的 Tailscale/host netns 结论：共享的环境开销成立，“bpftime 额外受损”在当前版本不成立。
+- 10/24 在修复后的版本上重做四段路径消融：开销最大且输给 kernel 的是 helper/map/元数据一段，其中一半来自
+  `bpf_get_current_uid_gid` 每次两个系统调用；加缓存后（`7ed339ad`）ssl-nginx 16 B 相对 kernel 从 +8.0% 提高到 +16.5%，
+  相对不追踪的损失从 25.7% 降到 19.9%（官方论文在 x86 上为 7.41%）。
 - 详见 `benchmark-results/jetson` 分支 `uprobe/ssl-nginx-2x2-20261023/README.md`。
 
 ## 7. 总体结果：最初 vs 现在（官方 10 项，相对 kernel）
