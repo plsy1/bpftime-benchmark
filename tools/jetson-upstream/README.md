@@ -138,6 +138,14 @@ events. The focused filter now also runs `[perf_event],[epoll]` (present in the
 official tree as well). Replayed onto official `177a1dc465ff` with LLVM 15
 (round 7).
 
+`7ed339ad` (accepted 2026-10-24) caches `bpf_get_current_uid_gid`: the agent
+interposes libc's eight uid/gid setters, each invalidating the cache, and the
+cache is enabled only when all eight are bound (LD_PRELOAD); fork children
+invalidate. The helper's two system calls per call were half of bpftime's
+helper/map stage in the sslsniff ablation; ssl-nginx 16 B goes from +8.0% to
++16.5% over kernel. The focused filter adds `[uid_gid]`. Replayed onto official
+`177a1dc465ff` with LLVM 15 (round 8).
+
 Before the JIT, the stack included all accepted optimizations through
 `fefe2f6edf27` (accepted 2026-10-19), including ordinary hash lookup key dispatch,
 per-CPU hash bucket-local iteration, per-CPU array production lookup leaf
