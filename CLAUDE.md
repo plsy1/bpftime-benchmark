@@ -295,3 +295,21 @@ until the timeout. SIGINT/SIGTERM stay
 blocked while sleeping and are collected with a zero-timeout `sigtimedwait`
 afterwards. Ring buffers do not notify and are found by the timeout.
 Segments without the wakeup object (older servers) fall back to polling.
+
+## Credential Cache
+
+`bpf_get_current_uid_gid` may cache the real uid/gid only while every change of
+them invalidates the cache. The agent exports interposers for `setuid`,
+`setgid`, `seteuid`, `setegid`, `setreuid`, `setregid`, `setresuid` and
+`setresgid` (`runtime/agent/credential_hooks.cpp`, listed in `agent.version`);
+each calls the real libc function, keeps its return value and errno, then
+invalidates. The cache is enabled only if `dlsym(RTLD_DEFAULT, name)` resolves
+all eight to the agent's own hooks (the agent was LD_PRELOADed); a late dlopen
+or another interposer leaves the helper querying `getuid`/`getgid` on every
+call. Fork children invalidate in the existing atfork child handler. The fast
+path is one atomic load; a filler re-checks the invalidation generation after
+storing so a racing change cannot leave a stale value. Credentials changed by
+raw system calls that bypass libc are not observed; do not claim otherwise,
+and do not add the helper to the async-signal-safe list for this reason alone.
+Forking servers such as nginx change uid in the worker after fork, so keep
+both invalidation paths.
