@@ -3,6 +3,12 @@
 Redo of the July V1-V4 ablation (`summry/archive/bpftime-official-no-btf-ssl-nginx-path-ablation-20260726.md`)
 on the current dev branch `db3d475f` (map optimizations, no affinity pinning, fork fix, perf loss fix).
 
+> **Clock note (found 2026-10-24 15:49):** the Jetson rebooted at 05:54 on 10-24 and `jetson_clocks`
+> was not re-applied, so both runs in this directory (09:34-10:14 and 15:02-15:31) ran with the
+> schedutil governor (0.73-1.73 GHz) instead of a fixed 1.728 GHz. All legs of a run share the
+> condition, so the same-run stage comparisons stand, but absolute req/s are lower (baseline 16.3k
+> vs 17.2k on 10-23) and noise is higher. Later runs re-apply `jetson_clocks`.
+
 - sslsniff stages from one source with `SSLSNIFF_STAGE` (`sslsniff-src/ablation.diff`, no-BTF build as
   in `../ssl-nginx-2x2-20261023`): 1 = every probe returns at once; 2 = + pid/uid/ktime/comm helpers,
   hash map update/lookup/delete, per-CPU array lookup, event metadata; 3 = + `bpf_probe_read_user`;
