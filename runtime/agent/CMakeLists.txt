@@ -1,5 +1,6 @@
 add_library(bpftime-agent SHARED
   agent.cpp
+  credential_hooks.cpp
 )
 
 set(AGENT_DEPS spdlog::spdlog)

@@ -77,7 +77,8 @@ if(BPFTIME_UBPF_JIT)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_sources(bpftime_runtime_tests PRIVATE test_get_current_uid_gid.cpp)
+    target_sources(bpftime_runtime_tests PRIVATE test_get_current_uid_gid.cpp
+        ${CMAKE_SOURCE_DIR}/runtime/agent/credential_hooks.cpp)
     target_link_options(bpftime_runtime_tests PRIVATE
         -Wl,--wrap=getuid -Wl,--wrap=getgid -Wl,--wrap=sched_getcpu)
 endif()
