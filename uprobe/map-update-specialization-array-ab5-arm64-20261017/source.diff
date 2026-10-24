@@ -1,0 +1,266 @@
+diff --git a/runtime/include/bpftime_helper_group.hpp b/runtime/include/bpftime_helper_group.hpp
+index 9e27060..ded0007 100644
+--- a/runtime/include/bpftime_helper_group.hpp
++++ b/runtime/include/bpftime_helper_group.hpp
+@@ -72,6 +72,12 @@ extern "C" uint64_t bpftime_array_map_update_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
+ extern "C" uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
++extern "C" uint64_t bpftime_percpu_array_map_update_elem_helper(
++	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
++extern "C" uint64_t bpftime_hash_map_update_elem_helper(
++	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
++extern "C" uint64_t bpftime_percpu_hash_map_update_elem_helper(
++	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
+ extern "C" uint64_t bpftime_percpu_hash_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+ #endif
+diff --git a/runtime/src/attach/bpf_attach_ctx.cpp b/runtime/src/attach/bpf_attach_ctx.cpp
+index b2ac279..74268d8 100644
+--- a/runtime/src/attach/bpf_attach_ctx.cpp
++++ b/runtime/src/attach/bpf_attach_ctx.cpp
+@@ -372,6 +372,24 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
+ 		.fn = reinterpret_cast<void *>(
+ 			bpftime_array_map_update_elem_helper),
+ 	};
++	const bpftime_helper_info percpu_array_update{
++		.index = BPF_FUNC_map_update_elem,
++		.name = "bpf_map_update_elem",
++		.fn = reinterpret_cast<void *>(
++			bpftime_percpu_array_map_update_elem_helper),
++	};
++	const bpftime_helper_info hash_update{
++		.index = BPF_FUNC_map_update_elem,
++		.name = "bpf_map_update_elem",
++		.fn = reinterpret_cast<void *>(
++			bpftime_hash_map_update_elem_helper),
++	};
++	const bpftime_helper_info percpu_hash_update{
++		.index = BPF_FUNC_map_update_elem,
++		.name = "bpf_map_update_elem",
++		.fn = reinterpret_cast<void *>(
++			bpftime_percpu_hash_map_update_elem_helper),
++	};
+ 	const auto mode = get_map_production_ab_mode();
+ 	const bpftime_helper_info *map_lookup_override = nullptr;
+ 	const bpftime_helper_info *map_update_override = nullptr;
+@@ -418,6 +436,32 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
+ 		SPDLOG_INFO(
+ 			"Using specialized array update helper for program {}",
+ 			name);
++	} else if (mode == map_production_ab_mode::base &&
++		   uses_only_maps_of_type_for_helper(
++			   manager, handler,
++			   bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY,
++			   BPF_FUNC_map_update_elem)) {
++		map_update_override = &percpu_array_update;
++		SPDLOG_INFO(
++			"Using specialized per-CPU array update helper for program {}",
++			name);
++	} else if (mode == map_production_ab_mode::base &&
++		   uses_only_maps_of_type_for_helper(
++			   manager, handler, bpf_map_type::BPF_MAP_TYPE_HASH,
++			   BPF_FUNC_map_update_elem)) {
++		map_update_override = &hash_update;
++		SPDLOG_INFO(
++			"Using specialized hash update helper for program {}",
++			name);
++	} else if (mode == map_production_ab_mode::base &&
++		   uses_only_maps_of_type_for_helper(
++			   manager, handler,
++			   bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH,
++			   BPF_FUNC_map_update_elem)) {
++		map_update_override = &percpu_hash_update;
++		SPDLOG_INFO(
++			"Using specialized per-CPU hash update helper for program {}",
++			name);
+ 	}
+ 	if (int err = load_prog_and_helpers(prog, config, map_lookup_override,
+ 					    map_update_override);
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index 483ef1d..901b184 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -442,6 +442,86 @@ uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+ 		handler->map_lookup_percpu_array(reinterpret_cast<void *>(key)));
+ }
+ 
++uint64_t bpftime_percpu_array_map_update_elem_helper(
++	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t)
++{
++	auto &shm = bpftime::shm_holder.global_shared_memory;
++	const int fd = static_cast<int>(map);
++	const auto *manager = shm.get_manager();
++	if (manager == nullptr || fd < 0 ||
++	    static_cast<std::size_t>(fd) >= manager->size()) {
++		errno = ENOENT;
++		return static_cast<uint64_t>(-1);
++	}
++	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
++		&manager->get_handler_at_valid_fd(fd));
++	if (handler == nullptr) {
++		errno = ENOENT;
++		return static_cast<uint64_t>(-1);
++	}
++	if (handler->type !=
++	    bpftime::bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)
++		return static_cast<uint64_t>(handler->map_update_elem(
++			reinterpret_cast<void *>(key),
++			reinterpret_cast<void *>(value), flags, false));
++	return static_cast<uint64_t>(handler->map_update_percpu_array(
++		reinterpret_cast<void *>(key), reinterpret_cast<void *>(value),
++		flags));
++}
++
++uint64_t bpftime_hash_map_update_elem_helper(
++	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t)
++{
++	auto &shm = bpftime::shm_holder.global_shared_memory;
++	const int fd = static_cast<int>(map);
++	const auto *manager = shm.get_manager();
++	if (manager == nullptr || fd < 0 ||
++	    static_cast<std::size_t>(fd) >= manager->size()) {
++		errno = ENOENT;
++		return static_cast<uint64_t>(-1);
++	}
++	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
++		&manager->get_handler_at_valid_fd(fd));
++	if (handler == nullptr) {
++		errno = ENOENT;
++		return static_cast<uint64_t>(-1);
++	}
++	if (handler->type != bpftime::bpf_map_type::BPF_MAP_TYPE_HASH)
++		return static_cast<uint64_t>(handler->map_update_elem(
++			reinterpret_cast<void *>(key),
++			reinterpret_cast<void *>(value), flags, false));
++	return static_cast<uint64_t>(handler->map_update_hash(
++		reinterpret_cast<void *>(key), reinterpret_cast<void *>(value),
++		flags));
++}
++
++uint64_t bpftime_percpu_hash_map_update_elem_helper(
++	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t)
++{
++	auto &shm = bpftime::shm_holder.global_shared_memory;
++	const int fd = static_cast<int>(map);
++	const auto *manager = shm.get_manager();
++	if (manager == nullptr || fd < 0 ||
++	    static_cast<std::size_t>(fd) >= manager->size()) {
++		errno = ENOENT;
++		return static_cast<uint64_t>(-1);
++	}
++	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
++		&manager->get_handler_at_valid_fd(fd));
++	if (handler == nullptr) {
++		errno = ENOENT;
++		return static_cast<uint64_t>(-1);
++	}
++	if (handler->type !=
++	    bpftime::bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH)
++		return static_cast<uint64_t>(handler->map_update_elem(
++			reinterpret_cast<void *>(key),
++			reinterpret_cast<void *>(value), flags, false));
++	return static_cast<uint64_t>(handler->map_update_percpu_hash(
++		reinterpret_cast<void *>(key), reinterpret_cast<void *>(value),
++		flags));
++}
++
+ uint64_t bpftime_percpu_hash_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t)
+ {
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp b/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
+index 643d3fc..50014b2 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
+@@ -129,6 +129,20 @@ long per_cpu_array_map_impl::elem_update(const void *key, const void *value,
+ 				  destination);
+ 		return 0;
+ 	}
++	return elem_update_checked(key, value, flags);
++}
++
++long per_cpu_array_map_impl::elem_update_base(const void *key,
++					       const void *value, uint64_t flags)
++{
++	if (!check_update_flags(flags))
++		return -1;
++	return elem_update_checked(key, value, flags);
++}
++
++long per_cpu_array_map_impl::elem_update_checked(const void *key,
++					  const void *value, uint64_t flags)
++{
+ 	return ensure_on_current_cpu<long>([&](int cpu) -> long {
+ 		// return impl[cpu].elem_update(key, value, flags);
+ 		if (key == nullptr) {
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp b/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
+index 9451e12..3fcc6c4 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
+@@ -26,6 +26,8 @@ class per_cpu_array_map_impl {
+ 	{
+ 		return data.data() + idx * value_size * ncpu + cpu * value_size;
+ 	}
++	long elem_update_checked(const void *key, const void *value,
++				 uint64_t flags);
+ 
+     public:
+ 	const static bool should_lock = false;
+@@ -43,6 +45,9 @@ class per_cpu_array_map_impl {
+ 	void *elem_lookup_base(const void *key);
+ 
+ 	long elem_update(const void *key, const void *value, uint64_t flags);
++	// Production update path without diagnostic A/B mode dispatch. Callers
++	// must select this path only when the runtime is in the base mode.
++	long elem_update_base(const void *key, const void *value, uint64_t flags);
+ 
+ 	long elem_delete(const void *key);
+ 
+diff --git a/runtime/src/handler/map_handler.cpp b/runtime/src/handler/map_handler.cpp
+index 2623244..57eaa7b 100644
+--- a/runtime/src/handler/map_handler.cpp
++++ b/runtime/src/handler/map_handler.cpp
+@@ -279,6 +279,22 @@ const void *bpf_map_handler::map_lookup_percpu_hash(const void *key) const
+ 		->elem_lookup(key);
+ }
+ 
++long bpf_map_handler::map_update_hash(const void *key, const void *value,
++				      uint64_t flags) const
++{
++	bpftime_lock_guard guard(map_lock);
++	return static_cast<hash_map_impl *>(map_impl_ptr.get())
++		->elem_update(key, value, flags);
++}
++
++long bpf_map_handler::map_update_percpu_hash(const void *key,
++					     const void *value,
++					     uint64_t flags) const
++{
++	return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
++		->elem_update(key, value, flags);
++}
++
+ const void *bpf_map_handler::diagnostic_direct_lookup(const void *key) const
+ {
+ 	if (type == bpf_map_type::BPF_MAP_TYPE_ARRAY)
+diff --git a/runtime/src/handler/map_handler.hpp b/runtime/src/handler/map_handler.hpp
+index 4070d3a..1d47b4d 100644
+--- a/runtime/src/handler/map_handler.hpp
++++ b/runtime/src/handler/map_handler.hpp
+@@ -211,6 +211,16 @@ class bpf_map_handler {
+ 		return static_cast<array_map_impl *>(map_impl_ptr.get())
+ 			->elem_update(key, value, flags);
+ 	}
++	long map_update_percpu_array(const void *key, const void *value,
++				     uint64_t flags) const
++	{
++		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
++			->elem_update_base(key, value, flags);
++	}
++	long map_update_hash(const void *key, const void *value,
++			     uint64_t flags) const;
++	long map_update_percpu_hash(const void *key, const void *value,
++				    uint64_t flags) const;
+ 	// * BPF_MAP_DELETE_ELEM
+ 	// *	Description
+ 	// *		Look up and delete an element by key in a specified map.

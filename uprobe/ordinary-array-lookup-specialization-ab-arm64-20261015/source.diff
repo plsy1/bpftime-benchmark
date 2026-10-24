@@ -1,0 +1,136 @@
+diff --git a/runtime/include/bpftime_helper_group.hpp b/runtime/include/bpftime_helper_group.hpp
+index dfb659d..ad489b2 100644
+--- a/runtime/include/bpftime_helper_group.hpp
++++ b/runtime/include/bpftime_helper_group.hpp
+@@ -63,6 +63,8 @@ get_ufunc_helper_protos();
+ #endif
+ } // namespace bpftime
+ 
++extern "C" uint64_t bpftime_array_map_lookup_elem_helper(
++	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+ extern "C" uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+ #endif
+diff --git a/runtime/src/attach/bpf_attach_ctx.cpp b/runtime/src/attach/bpf_attach_ctx.cpp
+index 1259c2e..1221536 100644
+--- a/runtime/src/attach/bpf_attach_ctx.cpp
++++ b/runtime/src/attach/bpf_attach_ctx.cpp
+@@ -63,8 +63,9 @@ int load_prog_and_helpers(
+ 	return prog->bpftime_prog_load(config.jit_enabled);
+ }
+ 
+-static bool uses_only_percpu_array_maps_for_lookup(
+-	const handler_manager *manager, const bpf_prog_handler &prog)
++static bool uses_only_maps_of_type_for_lookup(
++	const handler_manager *manager, const bpf_prog_handler &prog,
++	bpf_map_type expected_type)
+ {
+ 	bool has_map = false;
+ 	bool has_lookup = false;
+@@ -87,8 +88,7 @@ static bool uses_only_percpu_array_maps_for_lookup(
+ 			return false;
+ 		const auto *map = std::get_if<bpf_map_handler>(
+ 			&manager->get_handler(fd));
+-		if (map == nullptr ||
+-		    map->type != bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)
++		if (map == nullptr || map->type != expected_type)
+ 			return false;
+ 		// LDDW occupies two instructions.
+ 		if (i + 1 < prog.insns.size())
+@@ -341,23 +341,36 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
+ 	instantiated_progs[id] =
+ 		std::make_unique<bpftime_prog>(insns, cnt, name);
+ 	bpftime_prog *prog = instantiated_progs[id].get();
++	const bpftime_helper_info array_lookup{
++		.index = BPF_FUNC_map_lookup_elem,
++		.name = "bpf_map_lookup_elem",
++		.fn = reinterpret_cast<void *>(
++			bpftime_array_map_lookup_elem_helper),
++	};
+ 	const bpftime_helper_info percpu_array_lookup{
+ 		.index = BPF_FUNC_map_lookup_elem,
+ 		.name = "bpf_map_lookup_elem",
+ 		.fn = reinterpret_cast<void *>(
+ 			bpftime_percpu_array_map_lookup_elem_helper),
+ 	};
+-	const bool use_specialized_percpu_array_lookup =
+-		get_map_production_ab_mode() == map_production_ab_mode::base &&
+-		uses_only_percpu_array_maps_for_lookup(manager, handler);
+-	const auto *map_lookup_override =
+-		use_specialized_percpu_array_lookup ?
+-			&percpu_array_lookup :
+-			nullptr;
+-	if (map_lookup_override != nullptr)
++	const auto mode = get_map_production_ab_mode();
++	const bpftime_helper_info *map_lookup_override = nullptr;
++	if (mode == map_production_ab_mode::base &&
++	    uses_only_maps_of_type_for_lookup(
++		    manager, handler, bpf_map_type::BPF_MAP_TYPE_ARRAY)) {
++		map_lookup_override = &array_lookup;
++		SPDLOG_INFO(
++			"Using specialized array lookup helper for program {}",
++			name);
++	} else if (mode == map_production_ab_mode::base &&
++		   uses_only_maps_of_type_for_lookup(
++			   manager, handler,
++			   bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)) {
++		map_lookup_override = &percpu_array_lookup;
+ 		SPDLOG_INFO(
+ 			"Using specialized per-CPU array lookup helper for program {}",
+ 			name);
++	}
+ 	if (int err = load_prog_and_helpers(prog, config, map_lookup_override);
+ 	    err < 0) {
+ 		SPDLOG_ERROR(
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index 3b292e7..31828cd 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -340,6 +340,31 @@ uint64_t bpftime_map_peek_elem_helper(uint64_t map, uint64_t value, uint64_t,
+ 		.bpf_map_peek_elem((int)map, (void *)value, false);
+ }
+ 
++uint64_t bpftime_array_map_lookup_elem_helper(
++	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t)
++{
++	auto &shm = bpftime::shm_holder.global_shared_memory;
++	const int fd = static_cast<int>(map);
++	const auto *manager = shm.get_manager();
++	if (manager == nullptr || fd < 0 ||
++	    static_cast<std::size_t>(fd) >= manager->size()) {
++		errno = ENOENT;
++		return 0;
++	}
++	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
++		&manager->get_handler(fd));
++	if (handler == nullptr) {
++		errno = ENOENT;
++		return 0;
++	}
++	if (handler->type != bpftime::bpf_map_type::BPF_MAP_TYPE_ARRAY)
++		return reinterpret_cast<uint64_t>(
++			handler->map_lookup_elem(reinterpret_cast<void *>(key),
++						 false));
++	return reinterpret_cast<uint64_t>(
++		handler->map_lookup_array(reinterpret_cast<void *>(key)));
++}
++
+ uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t)
+ {
+diff --git a/runtime/src/handler/map_handler.hpp b/runtime/src/handler/map_handler.hpp
+index 45871e5..6e18008 100644
+--- a/runtime/src/handler/map_handler.hpp
++++ b/runtime/src/handler/map_handler.hpp
+@@ -160,6 +160,11 @@ class bpf_map_handler {
+ 	// *
+ 	const void *map_lookup_elem(const void *key,
+ 				    bool from_syscall = false) const;
++	const void *map_lookup_array(const void *key) const
++	{
++		return static_cast<array_map_impl *>(map_impl_ptr.get())
++			->elem_lookup(key);
++	}
+ 	const void *map_lookup_percpu_array(const void *key) const
+ 	{
+ 		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())

@@ -1,0 +1,382 @@
+/* SPDX-License-Identifier: MIT
+ *
+ * Copyright (c) 2022, eunomia-bpf org
+ * All rights reserved.
+ */
+#include "bpftime.hpp"
+#include "base_attach_impl.hpp"
+#include "bpftime_config.hpp"
+#include "bpftime_helper_group.hpp"
+#include "bpftime_internal.h"
+#include "bpftime_vm_compat.hpp"
+#include "ebpf-vm.h"
+#ifdef BPFTIME_ENABLE_CUDA_ATTACH
+#include "nvPTXCompiler.h"
+#endif
+#include <cstring>
+#include <cstdlib>
+#include <cstdint>
+#include <cstddef>
+#include <iterator>
+#include <memory>
+#include <optional>
+#include <spdlog/spdlog.h>
+#include <stdexcept>
+#include "bpftime_vm_compat.hpp"
+#include <cstdio>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+
+#define NVPTXCOMPILER_SAFE_CALL(x)                                             \
+	do {                                                                   \
+		nvPTXCompileResult result = x;                                 \
+		if (result != NVPTXCOMPILE_SUCCESS) {                          \
+			SPDLOG_ERROR("error: {} failed with error code {}",    \
+				     #x, (int)result);                         \
+			return {};                                             \
+		}                                                              \
+	} while (0)
+
+using namespace std;
+namespace bpftime
+{
+#ifdef BPFTIME_ENABLE_CUDA_ATTACH
+std::optional<std::vector<char>> compile_ptx_to_elf(const std::string &ptx_code,
+						    const char *cpu_target)
+{
+	unsigned int minor_version, major_version;
+	NVPTXCOMPILER_SAFE_CALL(
+		nvPTXCompilerGetVersion(&major_version, &minor_version));
+	SPDLOG_INFO("ptx compiler version: {}.{}", major_version,
+		    minor_version);
+	SPDLOG_DEBUG("Starting compiling with ptx code: \n{}", ptx_code);
+	nvPTXCompilerHandle handle = nullptr;
+	NVPTXCOMPILER_SAFE_CALL(nvPTXCompilerCreate(
+		&handle, (size_t)ptx_code.size(), ptx_code.c_str()));
+	const auto deleter = [](struct nvPTXCompiler *ptr) {
+		if (auto err = nvPTXCompilerDestroy(&ptr);
+		    err != NVPTXCOMPILE_SUCCESS) {
+			SPDLOG_ERROR("Unable to destroy compiler: {}",
+				     (int)err);
+		}
+	};
+	std::unique_ptr<struct nvPTXCompiler, decltype(deleter)> compiler(
+		handle, deleter);
+	std::string opt1 = "--gpu-name=";
+	opt1 += cpu_target;
+	const char *compile_options[] = { opt1.c_str(), "--verbose" };
+
+	if (auto result = nvPTXCompilerCompile(compiler.get(),
+					       std::size(compile_options),
+					       compile_options);
+	    result != NVPTXCOMPILE_SUCCESS) {
+		size_t sz;
+		NVPTXCOMPILER_SAFE_CALL(
+			nvPTXCompilerGetErrorLogSize(compiler.get(), &sz));
+		std::string error(sz, 0);
+		if (sz != 0) {
+			NVPTXCOMPILER_SAFE_CALL(nvPTXCompilerGetErrorLog(
+				compiler.get(), (char *)error.c_str()));
+			SPDLOG_ERROR("Unable to compile ptx: {}", error);
+			return {};
+		}
+	}
+	size_t elf_size;
+	NVPTXCOMPILER_SAFE_CALL(
+		nvPTXCompilerGetCompiledProgramSize(compiler.get(), &elf_size));
+	std::vector<char> elf_binary(elf_size, 0);
+	NVPTXCOMPILER_SAFE_CALL(nvPTXCompilerGetCompiledProgram(
+		compiler.get(), (void *)elf_binary.data()));
+
+	{
+		size_t info_size;
+
+		NVPTXCOMPILER_SAFE_CALL(nvPTXCompilerGetInfoLogSize(
+			compiler.get(), &info_size));
+		std::string info(info_size, 0);
+		if (info_size != 0) {
+			NVPTXCOMPILER_SAFE_CALL(nvPTXCompilerGetInfoLog(
+				compiler.get(), (char *)info.c_str()));
+			SPDLOG_INFO("Compiler log: {}", info);
+		}
+	}
+
+	return elf_binary;
+}
+#endif
+thread_local std::optional<uint64_t> current_thread_bpf_cookie;
+thread_local std::optional<uint64_t> current_thread_tail_call_ret;
+
+bpftime_prog::bpftime_prog(const struct ebpf_inst *insn, size_t insn_cnt,
+			   const char *name)
+	: name(name)
+{
+	SPDLOG_DEBUG("Creating bpftime_prog with name {}", name);
+	insns.assign(insn, insn + insn_cnt);
+	const char *vm_name = bpftime::bpftime_get_runtime_config().get_vm_name();
+	std::string vm_name_str = (std::string)vm_name;
+
+	if (vm_name_str == "llvm") {
+		SPDLOG_DEBUG("Creating vm with name {}", vm_name_str);
+	} else if (vm_name_str == "ubpf") {
+		SPDLOG_DEBUG("Creating vm with name {}", vm_name_str);
+	} else {
+		SPDLOG_DEBUG("Trying enabling non-builtin vm {}", vm_name_str);
+	}
+
+	vm = ebpf_create(vm_name);
+	// Disable bounds check because we have no implementation yet
+	// ebpf_toggle_bounds_check(vm, false);
+	ebpf_set_lddw_helpers(vm, map_ptr_by_fd, nullptr, map_val, nullptr,
+			      nullptr);
+}
+
+bpftime_prog::bpftime_prog(const struct ebpf_inst *insn, size_t insn_cnt,
+			   const char *name, runtime_config config)
+	: name(name)
+{
+	// BPFtime_prog relies on the global shared memory being properly
+	// initialized to function.
+	SPDLOG_DEBUG("Creating bpftime_prog with name {}", name);
+	insns.assign(insn, insn + insn_cnt);
+	bpftime::bpftime_set_runtime_config(std::move(config));
+	const char *vm_name = bpftime::bpftime_get_runtime_config().get_vm_name();
+	std::string vm_name_str = (std::string)vm_name;
+
+	if (vm_name_str == "llvm") {
+		SPDLOG_DEBUG("Creating vm with name {}", vm_name_str);
+	} else if (vm_name_str == "ubpf") {
+		SPDLOG_DEBUG("Creating vm with name {}", vm_name_str);
+	} else {
+		SPDLOG_DEBUG("Trying enabling non-builtin vm {}", vm_name_str);
+	}
+
+	vm = ebpf_create(vm_name);
+	// Disable bounds check because we have no implementation yet
+	// ebpf_toggle_bounds_check(vm, false);
+	if (!is_cuda()) {
+		ebpf_set_lddw_helpers(vm, map_ptr_by_fd, nullptr, map_val,
+				      nullptr, nullptr);
+	} else {
+		SPDLOG_INFO("Do not set lddw helpers due to cuda program");
+		ebpf_set_lddw_helpers(vm, map_ptr_by_fd, nullptr, map_val,
+				      nullptr, nullptr);
+	}
+}
+
+bpftime_prog::~bpftime_prog()
+{
+	ebpf_unload_code(vm);
+	ebpf_destroy(vm);
+}
+
+int bpftime_prog::bpftime_prog_load(bool jit)
+{
+	signal_ready = false;
+	loaded_from_aot = false;
+	program_loaded = false;
+	int res = -1;
+
+	SPDLOG_DEBUG("Load insn cnt {}", insns.size());
+	res = ebpf_load(vm, insns.data(),
+			insns.size() * sizeof(struct ebpf_inst), &errmsg);
+	if (res < 0) {
+		SPDLOG_ERROR("Failed to load insn: {}", errmsg);
+		return res;
+	}
+	if (is_cuda()) {
+		// SPDLOG_INFO("Compiling CUDA program");
+
+		// this->bpftime_prog_register_raw_helper(bpftime_helper_info{
+		// 	.index = 501,
+		// 	.name = "puts",
+		// 	.fn = (void *)&puts,
+		// });
+
+		// ptx_code = ((struct ebpf_vm *)vm)
+		// 		   ->vm_instance->generate_ptx("sm_60");
+
+		// if (!ptx_code.has_value()) {
+		// 	throw std::runtime_error("Failed to generate ptx code");
+		// }
+		// *ptx_code =
+		// 	wrap_ptx_with_trampoline(patch_helper_names_and_header(
+		// 		patch_main_from_func_to_entry(*ptx_code)));
+		// cuda_elf_binary = compile_ptx_to_elf(*ptx_code, "sm_60");
+		// if (!cuda_elf_binary.has_value()) {
+		// 	throw std::runtime_error("unable to compile ptx code");
+		// }
+	} else {
+		if (jit) {
+			ebpf_jit_fn jit_fn = ebpf_compile(vm, &errmsg);
+			if (jit_fn == NULL) {
+				SPDLOG_WARN("JIT compilation failed ({}), falling back to interpreter", errmsg);
+				jitted = false;
+			} else {
+				jitted = true;
+				fn = jit_fn;
+				// POC-only diagnostic: dump a readable executable mapping
+				// window beginning at the ACTUAL JIT entry, not an AOT size.
+				// The window can include padding/other functions after ours.
+				if (const char *dir = std::getenv("BPFTIME_ARRAY_JIT_POC_DUMP_DIR")) {
+					const auto address = reinterpret_cast<uintptr_t>(fn);
+					std::ifstream maps("/proc/self/maps");
+					std::string line;
+					while (std::getline(maps, line)) {
+						unsigned long begin = 0, end = 0;
+						char perms[5] = {};
+						if (std::sscanf(line.c_str(), "%lx-%lx %4s", &begin, &end, perms) == 3 &&
+						    begin <= address && address < end && perms[0] == 'r' && perms[2] == 'x') {
+							auto length = std::min<size_t>(4096, end - address);
+							std::string label = name;
+							std::replace(label.begin(), label.end(), '/', '_');
+							std::string path = std::string(dir) + "/" + label + ".bin";
+							std::ofstream file(path, std::ios::binary);
+							file.write(reinterpret_cast<const char *>(address), length);
+							SPDLOG_INFO("[array-jit-poc] dump={} address={:x} readable_window_bytes={}", path, address, length);
+							break;
+						}
+					}
+				}
+			}
+		} else {
+			jitted = false;
+		}
+	}
+
+	program_loaded = true;
+	return 0;
+}
+
+int bpftime_prog::bpftime_prog_unload()
+{
+	signal_ready = false;
+	program_loaded = false;
+	if (jitted) {
+		// ignore for jit
+		return 0;
+	}
+	ebpf_unload_code(vm);
+	return 0;
+}
+
+int bpftime_prog::bpftime_prog_exec(void *memory, size_t memory_size,
+				    uint64_t *return_val) const
+{
+	if (attach::current_signal_callback) {
+		if (!signal_ready || !jitted || !return_val)
+			return -ENOTSUP;
+		// No VM dispatcher, lazy compilation, logging, dynamic TLS or
+		// shared-memory protection helpers may run from SIGTRAP.
+		*return_val = fn(memory, memory_size);
+		return 0;
+	}
+	if (is_cuda()) {
+		throw std::runtime_error("Unable to execute CUDA program");
+	}
+	uint64_t val = 0;
+	int res = 0;
+	// set share memory read and write able
+	bpftime_protect_disable();
+	SPDLOG_DEBUG(
+		"Calling bpftime_prog::bpftime_prog_exec, memory={:x}, memory_size={}, return_val={:x}, prog_name={}",
+		(uintptr_t)memory, memory_size, (uintptr_t)return_val,
+		this->name);
+	if (jitted) {
+		SPDLOG_DEBUG("Directly call jitted function at {:x}",
+			     (uintptr_t)fn);
+		val = fn(memory, memory_size);
+	} else {
+		SPDLOG_DEBUG("Running using ebpf_exec");
+		res = ebpf_exec(vm, memory, memory_size, &val);
+		if (res < 0) {
+			SPDLOG_ERROR("ebpf_exec returned error: {}", res);
+		}
+	}
+	*return_val = current_thread_tail_call_ret.value_or(val);
+	current_thread_tail_call_ret.reset();
+	// set share memory read only
+	bpftime_protect_enable();
+	return res;
+}
+
+int bpftime_prog::bpftime_prog_register_raw_helper(
+	struct bpftime_helper_info info)
+{
+	int result = ebpf_register(vm, info.index, info.name.c_str(), info.fn);
+	if (result == 0) {
+		signal_ready = false;
+		signal_safe_helpers[info.index] = helper_is_async_signal_safe(info.index, info.fn);
+	}
+	return result;
+}
+
+int bpftime_prog::prepare_for_signal_execution()
+{
+	// A program can be linked to several live sites. Once prepared, adding
+	// another link must not mutate state read by an existing signal callback.
+	if (signal_ready)
+		return 0;
+	if (!program_loaded)
+		return -EINVAL;
+#if BPFTIME_ENABLE_MPK
+	// The MPK access transition has not been audited for signal callbacks.
+	return -ENOTSUP;
+#endif
+	if (is_cuda() || loaded_from_aot)
+		return -ENOTSUP;
+	const char *backend = ebpf_get_vm_name(vm);
+	if (strcmp(backend, "llvm") != 0 && strcmp(backend, "ubpf") != 0)
+		return -ENOTSUP;
+	for (size_t i = 0; i < insns.size(); ++i) {
+		const auto &inst = insns[i];
+		if (inst.code == 0x18) { // LDDW's second word is data.
+			++i;
+			continue;
+		}
+		if (inst.code == 0x8d) // Indirect CALLX cannot be audited here.
+			return -ENOTSUP;
+		if (inst.code != 0x85)
+			continue;
+		if (inst.src_reg == 1) {
+			// Only LLVM's compatibility layer distinguishes local calls
+			// from helper calls when loading bytecode.
+			if (strcmp(backend, "llvm") == 0)
+				continue;
+			return -ENOTSUP;
+		}
+		auto helper = signal_safe_helpers.find((unsigned)inst.imm);
+		if (inst.src_reg != 0 || helper == signal_safe_helpers.end() ||
+		    !helper->second) {
+			SPDLOG_ERROR("Trap attach rejected for {}: helper {} is not async-signal-safe",
+				     name, inst.imm);
+			return -ENOTSUP;
+		}
+	}
+	if (!jitted) {
+		auto compiled = ebpf_compile(vm, &errmsg);
+		if (!compiled)
+			return -ENOTSUP;
+		fn = compiled;
+		jitted = true;
+	}
+	signal_ready = true;
+	return 0;
+}
+
+int bpftime_prog::load_aot_object(const std::vector<uint8_t> &buf)
+{
+	signal_ready = false;
+	loaded_from_aot = true;
+	ebpf_jit_fn res = ebpf_load_aot_object(vm, buf.data(), buf.size());
+	if (res == nullptr) {
+		SPDLOG_ERROR("Failed to load aot object");
+		return -1;
+	}
+	fn = res;
+	jitted = true;
+	return 0;
+}
+
+} // namespace bpftime

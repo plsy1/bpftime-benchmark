@@ -1,0 +1,236 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+bpftime is a high-performance userspace eBPF runtime and general extension framework. It enables running eBPF programs in userspace for observability, networking, GPU, and other use cases, achieving up to 10x better performance than kernel eBPF for certain operations.
+
+## Common Development Commands
+
+### Build Commands
+
+```bash
+# Build with tests and all components (Debug mode)
+make build
+
+# Build release version
+make release
+
+# Build with LLVM JIT support
+make release-with-llvm-jit
+
+# Build with static library
+make release-with-static-lib
+
+# Clean build artifacts
+make clean
+
+# Build specific components
+cmake --build build --target <target_name>
+```
+
+### Testing Commands
+
+```bash
+# Run all unit tests
+make unit-test
+
+# Run runtime tests only
+make unit-test-runtime
+
+# Run daemon tests only
+make unit-test-daemon
+
+# Build eBPF test programs (from runtime/test/bpf)
+make -C runtime/test/bpf
+
+# Run specific test binary
+./build/runtime/unit-test/bpftime_runtime_tests
+./build/daemon/test/bpftime_daemon_tests
+```
+
+### Running Examples
+
+```bash
+# Build example programs
+make -C example/malloc
+
+# Load and run eBPF program
+export PATH=$PATH:~/.bpftime/
+bpftime load ./example/malloc/malloc
+bpftime start ./example/malloc/victim
+
+# Attach to running process (requires sudo)
+sudo bpftime attach <pid>
+```
+
+### Development Tools
+
+```bash
+# Install to system (after build)
+sudo cmake --install build
+
+# Build with specific features
+cmake -Bbuild -DBPFTIME_ENABLE_IOURING_EXT=1  # IO uring support
+cmake -Bbuild -DBPFTIME_LLVM_JIT=1           # LLVM JIT backend
+cmake -Bbuild -DBPFTIME_ENABLE_MPK=1         # Memory Protection Keys
+```
+
+## Architecture & Code Structure
+
+### Component Organization
+
+The codebase is organized into distinct components that interact through well-defined interfaces:
+
+1. **`vm/`** - Virtual Machine implementations
+   - `vm-core/`: Core VM interface and abstractions
+   - `llvm-jit/`: LLVM-based JIT/AOT compiler (high performance)
+   - Supports multiple backends (LLVM JIT, ubpf)
+
+2. **`runtime/`** - Core runtime functionality
+   - `include/`: Public APIs and interfaces
+   - `src/handler/`: Handler pattern for managing eBPF objects (programs, maps, links)
+   - `src/bpf_map/`: Map implementations (hash, array, ringbuf, etc.)
+   - `syscall-server/`: Intercepts eBPF syscalls for compatibility
+   - `agent/`: Library injected into target processes
+
+3. **`attach/`** - Event attachment mechanisms
+   - `base_attach_impl/`: Abstract interface for all attach types
+   - `frida_uprobe_attach_impl/`: Dynamic instrumentation via Frida
+   - `syscall_trace_attach_impl/`: Syscall interception
+   - `nv_attach_impl/`: CUDA/GPU event attachment
+
+4. **`daemon/`** - System monitoring and kernel interaction
+   - Monitors kernel eBPF operations
+   - Can redirect to userspace runtime
+
+5. **`bpftime-verifier/`** - Safety verification
+   - Wraps PREVAIL verifier for userspace
+   - Optional kernel verifier integration
+
+### Key Architectural Patterns
+
+1. **Shared Memory Architecture**: Uses boost::interprocess for zero-copy IPC between processes
+   - Central `handler_manager` registry in shared memory
+   - File descriptor abstraction for kernel compatibility
+
+2. **Handler Pattern**: All eBPF objects (programs, maps, links) managed through handlers
+   - Consistent interface for create/destroy/access
+   - Enables cross-process object sharing
+
+3. **Modular Attach System**: New event sources added by implementing `base_attach_impl`
+   - Each attach type provides its own helpers
+   - Supports custom context preparation
+
+4. **VM Abstraction**: Multiple VM backends through common interface
+   - Switch between interpreter/JIT/AOT transparently
+   - Extensible helper function registration
+
+### Important Files and Interfaces
+
+- `runtime/include/bpftime.hpp`: Main runtime API
+- `runtime/include/bpftime_shm.hpp`: Shared memory management
+- `vm/vm-core/include/ebpf-vm.h`: VM interface
+- `attach/base_attach_impl/base_attach_impl.hpp`: Attach interface
+- `runtime/src/handler/handler_manager.hpp`: Central object registry
+
+### Development Workflow
+
+1. **Adding new functionality**: Check existing patterns in similar components
+2. **Testing**: Add unit tests in component's test directory
+3. **eBPF programs**: Use standard clang/libbpf toolchain, test with both userspace and kernel
+4. **Performance**: Consider shared memory overhead, prefer batch operations
+
+The architecture prioritizes performance (bypassing kernel), compatibility (same APIs as kernel eBPF), and extensibility (modular design for new features).
+
+## Injected Agent Host-Process Contract
+
+Code loaded into a third-party process through `LD_PRELOAD` or runtime injection
+must remain a guest of that process:
+
+- Do not call `exit`, `_exit`, `abort`, `terminate`, or otherwise end the host
+  because bpftime initialization, configuration, allocation, or execution fails.
+  Return or record the error and disable only the affected bpftime operation.
+- Do not write to, close, redirect, or flush the host's stdin, stdout, or stderr
+  unless the user explicitly selected that behavior. Route diagnostics and
+  `bpf_trace_printk` output through an explicitly configured bpftime sink.
+- Do not replace host signal behavior without restoring or correctly chaining
+  the previous handler.
+- Add regression coverage for failure paths and for the default absence of host
+  termination and stdio side effects.
+
+## Repository Documentation
+
+Trap callbacks execute inside SIGTRAP. Runtime-managed BPF links must reject
+programs whose concrete helper implementations have not been audited as
+async-signal-safe, and must finish JIT compilation before arming a probe.
+Other attach backends retain their existing helper support. Never replace a
+rejected helper with a silent no-op. Native/opaque callbacks are responsible
+for satisfying the same signal-safety contract themselves.
+
+RISC-V trap validation must include a real 4-byte instruction at an address
+congruent to 2 modulo 4, with assertions on both instruction width and the
+three-phase write counter. Test late dlopen after worker threads already exist,
+and permission failures during arm, disarm and rollback. QEMU results do not
+establish native concurrent patch/restore behavior.
+
+Do not create a root `docs/` directory or commit pull-request review artifacts.
+Keep repository maintenance and design constraints in this file.
+
+## Ordinary Array JIT Specialization
+
+`BPFTIME_ARRAY_JIT_INLINE=1` opts the runtime loader into LLVM ordinary-array
+lookup specialization. Keep it off by default. Eligibility is deliberately
+conservative: known standard helper, ordinary-array-only, lookup-only programs,
+and no direct map-value relocations, CUDA or MPK. Do not silently bypass custom
+or diagnostic helpers or enable it for signal callbacks or AOT.
+
+Generated addresses must be owned, not cached from a reusable FD. Program
+bindings share the existing implementation reference count and retain the
+exact local shared-memory mapping. Miss fallbacks must resolve the same pinned
+map as inlined hits. Handler mutation and reference acquisition use the named
+map-binding mutex. No mutex or reference increment belongs in the inlined hit
+path. Abrupt process termination can strand shared references until the shared
+segment is removed, as with the existing shared-reference machinery; do not
+claim crash-recovery or mix incompatible runtime versions in one segment.
+The private helper name `bpftime_bound_array_lookup_v1` is reserved for this
+standard-helper contract. Only for that helper may the JIT canonicalize a
+proven out-of-range lookup to FD -1, whose result is ENOENT/null without another
+FD-table or binding lookup. Custom helpers keep their original arguments.
+Management APIs still require their existing external serialization, and this
+feature does not add concurrent-detach/quiescence guarantees to attach backends.
+Fork children must reload rather than execute inherited bound programs. An
+atfork child marker makes those programs return ENOTSUP without touching the
+parent's references; inherited snapshot destruction must not decrement shared
+refcounts or free shared names. Do not claim support for fork from a signal
+handler interrupting an active JIT invocation.
+
+The llvmbpf safety changes are a parent-owned patch applied to a generated
+translation unit in the build directory, not an uncommitted submodule edit.
+Patch conflicts on upstream updates must fail configuration for explicit review.
+
+Use workloads that consume lookup values and check results when measuring JIT
+specialization. An unused lookup result can simplify after inlining; those
+timings must not replace or be compared directly with the historical C++ map
+operation table. Test close/reuse/reset, mapping replacement, duplicate handles,
+last-reference reclamation and concurrent/cross-process lifetimes.
+
+The experimental per-CPU extension uses the same opt-in only for homogeneous
+per-CPU-array, lookup-only programs. Its descriptor stride is value_size times
+the implementation CPU count. JIT code must call the known standard helper 8
+once per in-range lookup, including within a single invocation; never cache its result,
+mark it pure, or assume benchmark affinity is an execution guarantee. A custom
+or missing CPU helper disables specialization. Check the CPU against the bound
+allocation's CPU count before forming a usable result. This preserves existing
+userspace selection-at-lookup behavior; it does not provide kernel-style
+preemption disabling or make per-CPU values safe against thread migration while
+the caller subsequently uses a returned pointer. CPU topology/hotplug support
+is not added by this experiment.
+
+The per-CPU JIT query may use the private ORC symbol
+`__bpftime_array_cpu_query_v1`, with the native `uint64_t(void)` ABI, as an alias
+to the exact registered standard CPU helper. Keep helper 8's public BPF call
+ABI and registration intact. Do not replace the CPU function, bypass its error
+handling, add pure/readonly attributes, hoist the query or introduce a private
+glibc TLS-offset dependency as part of this calling-convention optimization.

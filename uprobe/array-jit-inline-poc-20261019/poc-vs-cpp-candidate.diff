@@ -1,0 +1,539 @@
+--- a/vm/compat/include/bpftime_vm_compat.hpp
++++ b/vm/compat/include/bpftime_vm_compat.hpp
+@@ -8,6 +8,7 @@
+ #include <optional>
+ #include <string>
+ #include <map>
++#include <cerrno>
+ #include <iostream>
+ 
+ #ifndef EBPF_STACK_SIZE
+@@ -78,6 +79,15 @@
+ 		SPDLOG_CRITICAL(
+ 			"Not implemented yet: register_external_function");
+ 		return -1;
++	}
++
++	// Optional JIT specialization. The caller owns and keeps the backing
++	// storage alive until the compiled program is destroyed.
++	virtual int register_array_map(uint64_t handle, uint64_t value_base,
++				       uint32_t key_size, uint32_t value_size,
++				       uint32_t stride, uint32_t max_entries)
++	{
++		return -ENOTSUP;
+ 	}
+ 
+ 	/**
+--- a/vm/compat/llvm-vm/compat_llvm.hpp
++++ b/vm/compat/llvm-vm/compat_llvm.hpp
+@@ -29,6 +29,14 @@
+ 	}
+ 	int register_external_function(size_t index, const std::string &name,
+ 				       void *fn) override;
++	int register_array_map(uint64_t handle, uint64_t value_base,
++		uint32_t key_size, uint32_t value_size, uint32_t stride,
++		uint32_t max_entries) override
++	{
++		return bpftime::llvmbpf_vm::register_array_map(
++			bpftime::array_map_descriptor{handle, value_base, key_size,
++				value_size, stride, max_entries});
++	}
+ 	void unload_code() override;
+ 	int exec(void *mem, size_t mem_len,
+ 		 uint64_t &bpf_return_value) override;
+--- a/vm/vm-core/include/ebpf-vm.h
++++ b/vm/vm-core/include/ebpf-vm.h
+@@ -116,6 +116,12 @@
+  */
+ int ebpf_register(struct ebpf_vm *vm, unsigned int index, const char *name,
+ 		  void *fn);
++
++/* Optional array JIT specialization. Returns -ENOTSUP for other backends.
++ * Backing storage must outlive the VM and must not be remapped or resized. */
++int ebpf_register_array_map(struct ebpf_vm *vm, uint64_t handle,
++	uint64_t value_base, uint32_t key_size, uint32_t value_size,
++	uint32_t stride, uint32_t max_entries);
+ 
+ /**
+  * @brief Load code into a VM.
+--- a/vm/vm-core/src/ebpf-vm.cpp
++++ b/vm/vm-core/src/ebpf-vm.cpp
+@@ -49,6 +49,16 @@
+ 	return err;
+ }
+ 
++extern "C" int ebpf_register_array_map(struct ebpf_vm *vm, uint64_t handle,
++	uint64_t value_base, uint32_t key_size, uint32_t value_size,
++	uint32_t stride, uint32_t max_entries)
++{
++	if (!vm || !vm->vm_instance || value_base == 0)
++		return -EINVAL;
++	return vm->vm_instance->register_array_map(handle, value_base, key_size,
++		value_size, stride, max_entries);
++}
++
+ extern "C" void ebpf_unload_code(struct ebpf_vm *vm)
+ {
+ 	vm->vm_instance->unload_code();
+--- a/vm/llvm-jit/src/llvm_jit_context.cpp
++++ b/vm/llvm-jit/src/llvm_jit_context.cpp
+@@ -403,6 +403,7 @@
+ 	}
+ 
+ 	bool changed = false;
++	size_t inlined_sites = 0;
+ 	for (auto *call : callSites) {
+ 		auto *mapHandle =
+ 			llvm::dyn_cast<llvm::ConstantInt>(call->getArgOperand(0));
+@@ -441,7 +442,7 @@
+ 			"array_lookup.key_ptr");
+ 		auto *index = builder.CreateLoad(builder.getInt32Ty(), keyPtr,
+ 						 "array_lookup.index");
+-		index->setAlignment(llvm::Align(4));
++		index->setAlignment(llvm::Align(1));
+ 		auto *inRange = builder.CreateICmpULT(
+ 			index, builder.getInt32(map.max_entries),
+ 			"array_lookup.in_range");
+@@ -461,17 +462,30 @@
+ 		}
+ 		auto *address = builder.CreateAdd(
+ 			builder.getInt64(valueBase), offset, "array_lookup.addr");
+-		auto *result = builder.CreateSelect(
+-			inRange, address, builder.getInt64(0),
++		// Preserve the registered helper's failure behavior, including errno.
++		// Only successful lookups use the inlined address computation.
++		auto *prefix = call->getParent();
++		auto *slow = prefix->splitBasicBlock(call, "array_lookup.slow");
++		auto *merge = slow->splitBasicBlock(call->getNextNode(), "array_lookup.merge");
++		auto *fast = llvm::BasicBlock::Create(module.getContext(),
++			"array_lookup.fast", prefix->getParent(), slow);
++		prefix->getTerminator()->eraseFromParent();
++		llvm::IRBuilder<> choose(prefix);
++		choose.CreateCondBr(inRange, fast, slow);
++		llvm::IRBuilder<> fast_builder(fast);
++		fast_builder.CreateBr(merge);
++		llvm::IRBuilder<> merge_builder(&*merge->begin());
++		auto *result = merge_builder.CreatePHI(builder.getInt64Ty(), 2,
+ 			"array_lookup.result");
+-
+ 		call->replaceAllUsesWith(result);
+-		call->eraseFromParent();
++		result->addIncoming(address, fast);
++		result->addIncoming(call, slow);
+ 		changed = true;
++		++inlined_sites;
+ 	}
+ 
+ 	if (changed) {
+-		SPDLOG_DEBUG("Inlined array map lookup helper calls");
++		SPDLOG_INFO("[array-jit-poc] inlined {} lookup sites; invalid keys retain helper fallback", inlined_sites);
+ 	}
+ 	return changed;
+ }
+--- a/runtime/include/bpftime_prog.hpp
++++ b/runtime/include/bpftime_prog.hpp
+@@ -46,6 +46,16 @@
+ 			      uint64_t *return_val) const;
+ 
+ 	int bpftime_prog_register_raw_helper(struct bpftime_helper_info info);
++	// POC only: caller guarantees stable storage until this program is gone.
++	int register_array_map_poc(uint64_t handle, void *base, uint32_t key_size,
++		uint32_t value_size, uint32_t capacity)
++	{
++		if (program_loaded || loaded_from_aot)
++			return -1;
++		return ebpf_register_array_map(vm, handle,
++			reinterpret_cast<uint64_t>(base), key_size, value_size,
++			value_size, capacity);
++	}
+ 	const std::vector<ebpf_inst> &get_insns() const
+ 	{
+ 		return insns;
+@@ -54,6 +64,7 @@
+ 	{
+ 		return vm;
+ 	}
++	const char *vm_backend_name() const { return ebpf_get_vm_name(vm); }
+ 	int load_aot_object(const std::vector<uint8_t> &buf);
+ #ifdef BPFTIME_ENABLE_CUDA_ATTACH
+ 	bool is_cuda() const
+--- a/runtime/src/bpftime_prog.cpp
++++ b/runtime/src/bpftime_prog.cpp
+@@ -24,6 +24,9 @@
+ #include <stdexcept>
+ #include "bpftime_vm_compat.hpp"
+ #include <cstdio>
++#include <fstream>
++#include <sstream>
++#include <algorithm>
+ 
+ #define NVPTXCOMPILER_SAFE_CALL(x)                                             \
+ 	do {                                                                   \
+@@ -213,6 +216,29 @@
+ 			} else {
+ 				jitted = true;
+ 				fn = jit_fn;
++				// POC-only diagnostic: dump a readable executable mapping
++				// window beginning at the ACTUAL JIT entry, not an AOT size.
++				// The window can include padding/other functions after ours.
++				if (const char *dir = std::getenv("BPFTIME_ARRAY_JIT_POC_DUMP_DIR")) {
++					const auto address = reinterpret_cast<uintptr_t>(fn);
++					std::ifstream maps("/proc/self/maps");
++					std::string line;
++					while (std::getline(maps, line)) {
++						unsigned long begin = 0, end = 0;
++						char perms[5] = {};
++						if (std::sscanf(line.c_str(), "%lx-%lx %4s", &begin, &end, perms) == 3 &&
++						    begin <= address && address < end && perms[0] == 'r' && perms[2] == 'x') {
++							auto length = std::min<size_t>(4096, end - address);
++							std::string label = name;
++							std::replace(label.begin(), label.end(), '/', '_');
++							std::string path = std::string(dir) + "/" + label + ".bin";
++							std::ofstream file(path, std::ios::binary);
++							file.write(reinterpret_cast<const char *>(address), length);
++							SPDLOG_INFO("[array-jit-poc] dump={} address={:x} readable_window_bytes={}", path, address, length);
++							break;
++						}
++					}
++				}
+ 			}
+ 		} else {
+ 			jitted = false;
+--- a/runtime/src/attach/bpf_attach_ctx.cpp
++++ b/runtime/src/attach/bpf_attach_ctx.cpp
+@@ -19,6 +19,8 @@
+ #include <cerrno>
+ #include <cstdint>
+ #include <map>
++#include <set>
++#include <cstdlib>
+ #include <memory>
+ #include <syscall_table.hpp>
+ #include <bpf_attach_ctx.hpp>
+@@ -463,6 +465,44 @@
+ 			"Using specialized per-CPU hash update helper for program {}",
+ 			name);
+ 	}
++	// Experimental opt-in only. The POC harness keeps the loader, map objects
++	// and shared-memory mapping alive until every victim has exited. This is
++	// NOT a general lifetime/invalidation implementation and is off by default.
++	const char *array_poc = std::getenv("BPFTIME_ARRAY_JIT_POC");
++	if (array_poc && std::string_view(array_poc) == "1" &&
++	    config.jit_enabled && config.enable_shm_maps_helper_group &&
++	    !prog->is_cuda() &&
++	    std::string_view(prog->vm_backend_name()) == "llvm") {
++		std::set<int> registered;
++		for (size_t i = 0; i < handler.insns.size(); ++i) {
++			const auto &insn = handler.insns[i];
++			if (insn.code != EBPF_OP_LDDW ||
++			    insn.src_reg != BPF_PSEUDO_MAP_FD)
++				continue;
++			const int map_fd = insn.imm;
++			if (map_fd >= 0 && size_t(map_fd) < manager->size() &&
++			    registered.insert(map_fd).second) {
++				const auto *map = std::get_if<bpf_map_handler>(
++					&manager->get_handler(map_fd));
++				if (map && map->type == bpf_map_type::BPF_MAP_TYPE_ARRAY &&
++				    map->get_key_size() == sizeof(uint32_t)) {
++					auto impl = map->try_get_array_map_impl();
++					if (impl && *impl && (*impl)->get_value_size() != 0 &&
++					    uint64_t((*impl)->get_value_size()) *
++					        (*impl)->get_max_entries() <= UINT32_MAX) {
++						int result = prog->register_array_map_poc(map_fd,
++							(*impl)->get_raw_data(), sizeof(uint32_t),
++							(*impl)->get_value_size(),
++							(*impl)->get_max_entries());
++						SPDLOG_INFO("[array-jit-poc] program={} map={} registration={}",
++							name, map_fd, result);
++					}
++				}
++			}
++			if (i + 1 < handler.insns.size())
++				++i;
++		}
++	}
+ 	if (int err = load_prog_and_helpers(prog, config, map_lookup_override,
+ 					    map_update_override);
+ 	    err < 0) {
+--- a/runtime/src/bpf_map/userspace/array_map.hpp
++++ b/runtime/src/bpf_map/userspace/array_map.hpp
+@@ -37,6 +37,8 @@
+ 	int map_get_next_key(const void *key, void *next_key);
+ 
+ 	void *get_raw_data() const;
++	uint32_t get_value_size() const { return _value_size; }
++	uint32_t get_max_entries() const { return _max_entries; }
+ 	friend class stack_trace_map_impl;
+ };
+ 
+--- a/runtime/unit-test/CMakeLists.txt
++++ b/runtime/unit-test/CMakeLists.txt
+@@ -14,6 +14,7 @@
+ find_package(Boost REQUIRED)
+ 
+ set(TEST_SOURCES
++    maps/test_array_jit_poc.cpp
+     maps/test_per_cpu_array.cpp
+     maps/test_per_cpu_hash.cpp
+     maps/test_shm_hash_maps.cpp
+@@ -64,6 +65,14 @@
+ endif()
+ option(TEST_LCOV "option for lcov" OFF)
+ add_executable(bpftime_runtime_tests ${TEST_SOURCES})
++if(BPFTIME_LLVM_JIT)
++    target_sources(bpftime_runtime_tests PRIVATE $<TARGET_OBJECTS:bpftime_llvm_vm_obj>)
++endif()
++if(BPFTIME_UBPF_JIT)
++    # Keep the uBPF factory constructor when linking the static VM archive,
++    # so the optional-specialization fallback is actually exercised.
++    target_sources(bpftime_runtime_tests PRIVATE $<TARGET_OBJECTS:bpftime_ubpf_vm_obj>)
++endif()
+ 
+ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+     target_sources(bpftime_runtime_tests PRIVATE test_get_current_uid_gid.cpp)
+--- /dev/null
++++ b/runtime/unit-test/maps/test_array_jit_poc.cpp
+@@ -0,0 +1,105 @@
++#include <catch2/catch_test_macros.hpp>
++#include <ebpf-vm.h>
++#include <cerrno>
++#include <cstdint>
++#include <cstring>
++#include <memory>
++#include <vector>
++
++namespace {
++uint8_t *storage;
++uint32_t width;
++uint32_t capacity;
++unsigned helper_calls;
++uint64_t counted_lookup(uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t)
++{
++	++helper_calls;
++	uint32_t index;
++	std::memcpy(&index, reinterpret_cast<void *>(key), sizeof(index));
++	if (map != 7 || index >= capacity) {
++		errno = ENOENT;
++		return 0;
++	}
++	return reinterpret_cast<uint64_t>(storage + index * width);
++}
++using vm_ptr = std::unique_ptr<ebpf_vm, decltype(&ebpf_destroy)>;
++vm_ptr make_vm(bool dynamic_handle, uint32_t handle = 7)
++{
++	vm_ptr vm(ebpf_create("llvm"), ebpf_destroy);
++	REQUIRE(vm != nullptr);
++	REQUIRE(ebpf_register(vm.get(), 1, "bpf_map_lookup_elem", (void *)counted_lookup) == 0);
++	ebpf_inst code[] = {
++		{0xbf, 2, 1, 0, 0}, // key = context address
++		{0xb7, 1, 0, 0, static_cast<int32_t>(handle)},
++		{0x85, 0, 0, 0, 1},
++		{0x95, 0, 0, 0, 0},
++	};
++	if (dynamic_handle)
++		code[1] = {0x79, 1, 1, 8, 0}; // runtime map handle in context
++	char *error = nullptr;
++	REQUIRE(ebpf_load(vm.get(), code, sizeof(code), &error) == 0);
++	return vm;
++}
++}
++
++TEST_CASE("Array JIT bridge preserves success, miss errno and live storage",
++          "[array-jit-poc]")
++{
++	capacity = 4;
++	for (auto bytes : {1U,3U,8U,24U,257U}) {
++		width = bytes;
++		std::vector<uint8_t> backing(width * capacity);
++		storage = backing.data();
++		auto vm = make_vm(false);
++		REQUIRE(ebpf_register_array_map(vm.get(), 7, (uint64_t)storage,
++			4, width, width, capacity) == 0);
++		char *error = nullptr;
++		auto fn = ebpf_compile(vm.get(), &error);
++		REQUIRE(fn != nullptr);
++		REQUIRE(ebpf_register_array_map(vm.get(), 8, (uint64_t)storage,
++			4, width, width, capacity) == -EBUSY);
++		for (uint32_t key : {0U,1U,3U,4U,UINT32_MAX}) {
++			helper_calls = 0;
++			errno = EDOM;
++			uint8_t key_bytes[8] = {};
++			std::memcpy(key_bytes + 1, &key, sizeof(key));
++			auto actual = fn(key_bytes + 1, sizeof(key));
++			if (key < capacity) {
++				REQUIRE(actual == (uint64_t)(storage + key * width));
++				REQUIRE(helper_calls == 0);
++				REQUIRE(errno == EDOM);
++				storage[key * width] = uint8_t(key + 91);
++				REQUIRE(*(uint8_t *)actual == uint8_t(key + 91));
++			} else {
++				REQUIRE(actual == 0);
++				REQUIRE(helper_calls == 1);
++				REQUIRE(errno == ENOENT);
++			}
++		}
++	}
++}
++
++TEST_CASE("Array JIT leaves dynamic and unregistered handles on helper path",
++          "[array-jit-poc]")
++{
++	std::vector<uint64_t> backing(4, 99);
++	storage = (uint8_t *)backing.data(); width = 8; capacity = 4;
++	for (bool dynamic : {false,true}) {
++		auto vm = make_vm(dynamic, 8);
++		REQUIRE(ebpf_register_array_map(vm.get(), 7, (uint64_t)storage,4,8,8,4)==0);
++		char *error = nullptr;
++		auto fn = ebpf_compile(vm.get(), &error);
++		REQUIRE(fn != nullptr);
++		struct {uint32_t key; uint32_t pad; uint64_t handle;} input{2,0,7};
++		helper_calls = 0;
++		auto actual = fn(&input,sizeof(input));
++		REQUIRE(helper_calls == 1);
++		REQUIRE(actual == (dynamic ? (uint64_t)&backing[2] : 0));
++	}
++	vm_ptr ubpf(ebpf_create("ubpf"), ebpf_destroy);
++	REQUIRE(ebpf_register_array_map(ubpf.get(),7,(uint64_t)storage,4,8,8,4)==-ENOTSUP);
++	auto llvm = make_vm(false);
++	REQUIRE(ebpf_register_array_map(llvm.get(),7,0,4,8,8,4)==-EINVAL);
++	REQUIRE(ebpf_register_array_map(llvm.get(),7,(uint64_t)storage,8,8,8,4)==-EINVAL);
++	REQUIRE(ebpf_register_array_map(llvm.get(),7,(uint64_t)storage,4,8,8,0)==-EINVAL);
++}
+--- /dev/null
++++ b/benchmark/uprobe/diagnostics/array_jit_poc.bpf.c
+@@ -0,0 +1,51 @@
++// SPDX-License-Identifier: GPL-2.0
++#define BPF_NO_GLOBAL_DATA
++#define BPF_NO_PRESERVE_ACCESS_INDEX
++#include <vmlinux.h>
++#include <bpf/bpf_helpers.h>
++#include <bpf/bpf_tracing.h>
++
++struct outcome { u64 seed; u64 checksum; u64 hits; u64 misses; };
++struct { __uint(type,BPF_MAP_TYPE_ARRAY); __uint(max_entries,1024);
++    __type(key,u32); __type(value,u64); } data_map SEC(".maps");
++struct { __uint(type,BPF_MAP_TYPE_ARRAY); __uint(max_entries,4);
++    __type(key,u32); __type(value,struct outcome); } result_map SEC(".maps");
++
++#define PATH "uprobe/benchmark/uprobe/.output/array-jit-poc/victim:"
++static __always_inline int run(struct pt_regs *ctx, u32 slot, u32 mask, int control)
++{
++    u64 seed = PT_REGS_PARM1(ctx);
++    u32 state = seed;
++    u64 sum=0, hits=0, misses=0;
++#pragma clang loop unroll(disable)
++    for (u32 i=0; i<1000; ++i) {
++        state = state * 1664525u + 1013904223u;
++        u32 key = (state >> 16) & mask;
++        if (control) {
++            if (key < 1024) { sum += key * 17u + 5u; ++hits; }
++            else { sum += 0x9e3779b9u; ++misses; }
++        } else {
++            u64 *value = bpf_map_lookup_elem(&data_map,&key);
++            if (value) { sum += *value; ++hits; }
++            else { sum += 0x9e3779b9u; ++misses; }
++        }
++    }
++    struct outcome *out = bpf_map_lookup_elem(&result_map,&slot);
++    if (out) {
++        out->seed=seed; out->checksum=sum; out->hits=hits; out->misses=misses;
++    }
++    return sum;
++}
++SEC(PATH "__poc_control_hit") int control_hit(struct pt_regs *ctx) {return run(ctx,0,1023,1);}
++SEC(PATH "__poc_hit") int hit(struct pt_regs *ctx) {return run(ctx,1,1023,0);}
++SEC(PATH "__poc_control_mixed") int control_mixed(struct pt_regs *ctx) {return run(ctx,2,2047,1);}
++SEC(PATH "__poc_mixed") int mixed(struct pt_regs *ctx) {return run(ctx,3,2047,0);}
++// Demonstration only: this matches the original unused-result workload and
++// is expected to disappear under successful JIT inlining. NOT a gain metric.
++SEC(PATH "__poc_unused") int unused(struct pt_regs *ctx)
++{
++#pragma clang loop unroll(disable)
++    for(u32 i=0;i<1000;++i) {u32 key=i; bpf_map_lookup_elem(&data_map,&key);}
++    return 0;
++}
++char LICENSE[] SEC("license")="GPL";
+--- /dev/null
++++ b/benchmark/uprobe/diagnostics/array_jit_poc_loader.c
+@@ -0,0 +1,36 @@
++#include <bpf/bpf.h>
++#include <bpf/libbpf.h>
++#include <signal.h>
++#include <stdio.h>
++#include <unistd.h>
++#include "array_jit_poc.skel.h"
++static volatile sig_atomic_t exiting;
++static void stop(int sig){(void)sig;exiting=1;}
++struct outcome {unsigned long long seed,checksum,hits,misses;};
++int main(void)
++{
++    signal(SIGTERM,stop);signal(SIGINT,stop);
++    struct array_jit_poc_bpf *skel=array_jit_poc_bpf__open();
++    if(!skel)return 1;
++    int err=array_jit_poc_bpf__load(skel);
++    if(err)goto done;
++    for(unsigned key=0;key<1024;++key){
++        unsigned long long value=key*17u+5u;
++        err=bpf_map_update_elem(bpf_map__fd(skel->maps.data_map),&key,&value,BPF_ANY);
++        if(err)goto done;
++    }
++    err=array_jit_poc_bpf__attach(skel);
++    if(err)goto done;
++    puts("Successfully started!");fflush(stdout);
++    while(!exiting)sleep(1);
++    for(unsigned key=0;key<4;++key){
++        struct outcome value={0};
++        err=bpf_map_lookup_elem(bpf_map__fd(skel->maps.result_map),&key,&value);
++        if(err)goto done;
++        printf("RESULT slot=%u seed=%llu checksum=%llu hits=%llu misses=%llu\n",
++            key,value.seed,value.checksum,value.hits,value.misses);
++    }
++done:
++    array_jit_poc_bpf__destroy(skel);
++    return err?1:0;
++}
+--- /dev/null
++++ b/benchmark/uprobe/diagnostics/array_jit_poc_victim.c
+@@ -0,0 +1,42 @@
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <time.h>
++#define TARGET(name) __attribute__((noinline,noclone)) uint64_t name(uint64_t seed){return seed+1;}
++TARGET(__poc_control_hit)
++TARGET(__poc_hit)
++TARGET(__poc_control_mixed)
++TARGET(__poc_mixed)
++TARGET(__poc_unused)
++typedef uint64_t(*target)(uint64_t);
++static uint32_t seed_at(uint64_t i){return (uint32_t)(0x12345678u+i*0x9e3779b9u);}
++static uint64_t invoke(target fn,uint64_t count)
++{
++    volatile uint64_t sink=0;
++    for(uint64_t i=0;i<count;++i) sink+=fn(seed_at(i));
++    return sink;
++}
++int main(int argc,char**argv)
++{
++    uint64_t count=argc>1?strtoull(argv[1],0,10):100000;
++    unsigned order=argc>2?strtoul(argv[2],0,10):0;
++    struct {const char*name;target fn;} cases[]={
++        {"control_hit",__poc_control_hit},{"hit",__poc_hit},
++        {"control_mixed",__poc_control_mixed},{"mixed",__poc_mixed},
++        {"unused",__poc_unused}};
++    if(!count)return 2;
++    for(unsigned i=0;i<5;++i)invoke(cases[i].fn,3000);
++    puts("case,iterations,total_ns,raw_ns_per_element,last_seed");
++    for(unsigned i=0;i<5;++i){
++        unsigned j=(i+order)%5;
++        struct timespec begin,end;
++        clock_gettime(CLOCK_MONOTONIC_RAW,&begin);
++        uint64_t sink=invoke(cases[j].fn,count);
++        clock_gettime(CLOCK_MONOTONIC_RAW,&end);
++        uint64_t elapsed=(uint64_t)(end.tv_sec-begin.tv_sec)*1000000000ull+end.tv_nsec-begin.tv_nsec;
++        printf("%s,%llu,%llu,%.9f,%u\n",cases[j].name,(unsigned long long)count,
++            (unsigned long long)elapsed,(double)elapsed/count/1000,seed_at(count-1));
++        if(!sink)return 3;
++    }
++    return 0;
++}

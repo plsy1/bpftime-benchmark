@@ -1,0 +1,58 @@
+{
+  "baseline": {
+    "ordinary": {
+      "static_instruction_count": 47,
+      "stack_references": [],
+      "calls": [],
+      "slot_tail_branch": false
+    },
+    "percpu": {
+      "static_instruction_count": 69,
+      "stack_references": [
+        "  4e5730:\tstp\tx29, x30, [sp, #-32]!",
+        "  4e575c:\tldp\tx29, x30, [sp], #32",
+        "  4e57b0:\tldp\tx29, x30, [sp], #32",
+        "  4e57bc:\tstp\tx19, x20, [sp, #16]",
+        "  4e5820:\tldp\tx19, x20, [sp, #16]",
+        "  4e5830:\tldp\tx19, x20, [sp, #16]"
+      ],
+      "calls": [
+        "  4e574c:\tbl\t48ab80 <__errno_location@plt>",
+        "  4e57dc:\tbl\t48a680 <sched_getcpu@plt>",
+        "  4e582c:\tbl\t48ab80 <__errno_location@plt>"
+      ],
+      "slot_tail_branch": false
+    }
+  },
+  "frameless-slot": {
+    "ordinary": {
+      "static_instruction_count": 47,
+      "stack_references": [],
+      "calls": [],
+      "slot_tail_branch": false
+    },
+    "percpu": {
+      "static_instruction_count": 52,
+      "stack_references": [],
+      "calls": [],
+      "slot_tail_branch": true
+    },
+    "cpu-slot": {
+      "static_instruction_count": 11,
+      "calls": [
+        "  4ef2d4:\tbl\t48a680 <sched_getcpu@plt>"
+      ],
+      "callee_saved_registers": [
+        19,
+        20
+      ],
+      "after_cpu_query": [
+        "  4ef2d8:\tsxtw\tx0, w0",
+        "  4ef2dc:\tmadd\tx0, x0, x20, x19",
+        "  4ef2e0:\tldp\tx19, x20, [sp, #16]",
+        "  4ef2e4:\tldp\tx29, x30, [sp], #32",
+        "  4ef2e8:\tret"
+      ]
+    }
+  }
+}

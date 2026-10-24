@@ -1,0 +1,310 @@
+diff --git a/benchmark/uprobe/Makefile b/benchmark/uprobe/Makefile
+index 1626e7d..6c868a4 100644
+--- a/benchmark/uprobe/Makefile
++++ b/benchmark/uprobe/Makefile
+@@ -206,6 +206,9 @@ HWS_ACTIVE_KEYS ?= 1000
+ HWS_MAX_ENTRIES ?= 1024
+ HWS_KEY_SIZE ?= 4
+ HWS_VALUE_SIZE ?= 8
++HWS_KEY_STRIDE ?= 1
++HWS_KEY_OFFSET ?= 0
++HWS_LOOKUP_MISS ?= 0
+ HWS_OUTPUT := $(OUTPUT)/hash-workload-sweep-$(HWS_TAG)
+ HWS_BPF_OBJ := $(HWS_OUTPUT)/hash_workload_sweep.bpf.o
+ HWS_SKEL := $(HWS_OUTPUT)/hash_workload_sweep.skel.h
+@@ -450,6 +453,9 @@ $(HWS_BPF_OBJ): diagnostics/hash_workload_sweep.bpf.c $(VMLINUX) | $(HWS_OUTPUT)
+ 		     -DHWS_MAX_ENTRIES=$(HWS_MAX_ENTRIES) \
+ 		     -DHWS_KEY_SIZE=$(HWS_KEY_SIZE) \
+ 		     -DHWS_VALUE_SIZE=$(HWS_VALUE_SIZE) \
++		     -DHWS_KEY_STRIDE=$(HWS_KEY_STRIDE) \
++		     -DHWS_KEY_OFFSET=$(HWS_KEY_OFFSET) \
++		     -DHWS_LOOKUP_MISS=$(HWS_LOOKUP_MISS) \
+ 		     -DHWS_VICTIM_PATH=\"benchmark/uprobe/.output/hash-workload-sweep-$(HWS_TAG)/hash-workload-sweep-victim\" \
+ 		     $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
+ 		     -c $< -o $(HWS_OUTPUT)/hash_workload_sweep.tmp.bpf.o
+diff --git a/benchmark/uprobe/diagnostics/compare_runtime_builds.py b/benchmark/uprobe/diagnostics/compare_runtime_builds.py
+index 6ffada3..4433c11 100644
+--- a/benchmark/uprobe/diagnostics/compare_runtime_builds.py
++++ b/benchmark/uprobe/diagnostics/compare_runtime_builds.py
+@@ -39,6 +39,24 @@ SUITES = {
+         "summary": ("hash_lookup", "hash_update", "percpu_hash_lookup",
+                     "percpu_hash_update"),
+     },
++    "hash-stride-miss": {
++        "directory": "hash-workload-sweep-stride4096-miss",
++        "binary": "hash-workload-sweep",
++        "victim": "hash-workload-sweep-victim",
++        "object": "hash_workload_sweep.bpf.o",
++        "cases": ("empty", "lookup_control", "update_control", "hash_lookup",
++                  "hash_update", "percpu_hash_lookup", "percpu_hash_update"),
++        "summary": ("hash_lookup", "percpu_hash_lookup"),
++    },
++    "hash-stride-miss97": {
++        "directory": "hash-workload-sweep-stride4096-miss97",
++        "binary": "hash-workload-sweep",
++        "victim": "hash-workload-sweep-victim",
++        "object": "hash_workload_sweep.bpf.o",
++        "cases": ("empty", "lookup_control", "update_control", "hash_lookup",
++                  "hash_update", "percpu_hash_lookup", "percpu_hash_update"),
++        "summary": ("hash_lookup", "percpu_hash_lookup"),
++    },
+ }
+ 
+ 
+@@ -73,8 +91,8 @@ def main():
+     output = args.output.resolve()
+     output.mkdir(parents=True, exist_ok=False)
+     diag = ROOT / "benchmark/uprobe/.output" / suite["directory"]
+-    loader = diag / suite["directory"]
+-    victim = diag / f"{suite['directory']}-victim"
++    loader = diag / suite.get("binary", suite["directory"])
++    victim = diag / suite.get("victim", f"{suite['directory']}-victim")
+     # Cleanup must understand the candidate's shared-memory object layout.
+     # This also lets a previously archived baseline remain immutable even if
+     # it was built without the optional command-line tools target.
+diff --git a/benchmark/uprobe/diagnostics/hash_workload_sweep.bpf.c b/benchmark/uprobe/diagnostics/hash_workload_sweep.bpf.c
+index 87b278a..ff900ae 100644
+--- a/benchmark/uprobe/diagnostics/hash_workload_sweep.bpf.c
++++ b/benchmark/uprobe/diagnostics/hash_workload_sweep.bpf.c
+@@ -17,6 +17,15 @@
+ #ifndef HWS_VALUE_SIZE
+ #define HWS_VALUE_SIZE 8
+ #endif
++#ifndef HWS_KEY_STRIDE
++#define HWS_KEY_STRIDE 1
++#endif
++#ifndef HWS_KEY_OFFSET
++#define HWS_KEY_OFFSET 0
++#endif
++#ifndef HWS_LOOKUP_MISS
++#define HWS_LOOKUP_MISS 0
++#endif
+ #ifndef HWS_VICTIM_PATH
+ #define HWS_VICTIM_PATH "benchmark/uprobe/.output/hash-workload-sweep-baseline/hash-workload-sweep-victim"
+ #endif
+@@ -69,6 +78,29 @@ static __always_inline void init_value(struct hws_value *value, u64 id)
+ 	value->id = id;
+ }
+ 
++static __always_inline u32 mix32(u32 value)
++{
++	value ^= value >> 16;
++	value *= 0x7feb352dU;
++	value ^= value >> 15;
++	value *= 0x846ca68bU;
++	return value ^ (value >> 16);
++}
++
++static __always_inline void init_setup_key(struct hws_key *key, u32 index)
++{
++	init_key(key, index * HWS_KEY_STRIDE + HWS_KEY_OFFSET);
++}
++
++static __always_inline void init_lookup_key(struct hws_key *key, u32 index)
++{
++#if HWS_LOOKUP_MISS
++	init_key(key, mix32(index + 0x13579bdfU));
++#else
++	init_setup_key(key, index % HWS_ACTIVE_KEYS);
++#endif
++}
++
+ HWS_SEC(__hws_setup)
+ int hws_setup(struct pt_regs *ctx)
+ {
+@@ -76,7 +108,7 @@ int hws_setup(struct pt_regs *ctx)
+ 	for (int i = 0; i < HWS_ACTIVE_KEYS; ++i) {
+ 		struct hws_key key;
+ 		struct hws_value value;
+-		init_key(&key, i);
++		init_setup_key(&key, i);
+ 		init_value(&value, i);
+ 		bpf_map_update_elem(&hws_hash, &key, &value, BPF_ANY);
+ 		bpf_map_update_elem(&hws_percpu_hash, &key, &value, BPF_ANY);
+@@ -97,7 +129,7 @@ int hws_lookup_control(struct pt_regs *ctx)
+ 	for (int i = 0; i < 1000; ++i) {
+ 		struct hws_key key;
+ 		void *key_pointer;
+-		init_key(&key, i % HWS_ACTIVE_KEYS);
++		init_lookup_key(&key, i % HWS_ACTIVE_KEYS);
+ 		key_pointer = &key;
+ 		barrier_var(key_pointer);
+ 		barrier();
+@@ -114,7 +146,7 @@ int hws_update_control(struct pt_regs *ctx)
+ 		struct hws_value value;
+ 		void *key_pointer;
+ 		void *value_pointer;
+-		init_key(&key, i % HWS_ACTIVE_KEYS);
++		init_setup_key(&key, i % HWS_ACTIVE_KEYS);
+ 		init_value(&value, i);
+ 		key_pointer = &key;
+ 		value_pointer = &value;
+@@ -132,7 +164,7 @@ int hws_update_control(struct pt_regs *ctx)
+ 	_Pragma("clang loop unroll(disable)")                                \
+ 		for (int i = 0; i < 1000; ++i) {                             \
+ 			struct hws_key key;                                      \
+-			init_key(&key, i % HWS_ACTIVE_KEYS);                     \
++			init_lookup_key(&key, i % HWS_ACTIVE_KEYS);              \
+ 			bpf_map_lookup_elem(&map, &key);                         \
+ 		}                                                              \
+ 		return 0;                                                      \
+@@ -146,7 +178,7 @@ int hws_update_control(struct pt_regs *ctx)
+ 		for (int i = 0; i < 1000; ++i) {                             \
+ 			struct hws_key key;                                      \
+ 			struct hws_value value;                                  \
+-			init_key(&key, i % HWS_ACTIVE_KEYS);                     \
++			init_setup_key(&key, i % HWS_ACTIVE_KEYS);                \
+ 			init_value(&value, i);                                   \
+ 			bpf_map_update_elem(&map, &key, &value, BPF_ANY);        \
+ 		}                                                              \
+diff --git a/runtime/src/bpf_map/bpftime_hash_map.hpp b/runtime/src/bpf_map/bpftime_hash_map.hpp
+index 2f05e07..49298f1 100644
+--- a/runtime/src/bpf_map/bpftime_hash_map.hpp
++++ b/runtime/src/bpf_map/bpftime_hash_map.hpp
+@@ -39,6 +39,12 @@ public:
+ 
+ 	static size_t hash_func(const void *key, size_t key_size)
+ 	{
++		if (key_size == sizeof(uint32_t)) {
++			const auto *bytes = static_cast<const uint8_t *>(key);
++			return size_t{ bytes[0] } * 29791 +
++			       size_t{ bytes[1] } * 961 +
++			       size_t{ bytes[2] } * 31 + bytes[3];
++		}
+ 		size_t hash = 0;
+ 		for (size_t i = 0; i < key_size; i++) {
+ 			hash = hash * 31 + ((uint8_t *)key)[i];
+@@ -152,7 +158,8 @@ class bpftime_hash_map {
+ 			    std::memcmp(get_key(index), key, _key_size) == 0) {
+ 				return get_value(index);
+ 			}
+-			index = (index + 1) % _num_buckets;
++			if (++index == _num_buckets)
++				index = 0;
+ 		} while (index != start_index);
+ 		return nullptr;
+ 	}
+@@ -196,7 +203,8 @@ class bpftime_hash_map {
+ 			}
+ 
+ 			// Move to the next bucket
+-			index = (index + 1) % _num_buckets;
++			if (++index == _num_buckets)
++				index = 0;
+ 		} while (index != start_index);
+ 
+ 		if (first_deleted != _num_buckets &&
+@@ -228,7 +236,8 @@ class bpftime_hash_map {
+ 				_count--;
+ 				return true;
+ 			}
+-			index = (index + 1) % _num_buckets;
++			if (++index == _num_buckets)
++				index = 0;
+ 		} while (index != start_index);
+ 		return false; // Key not found
+ 	}
+diff --git a/runtime/unit-test/maps/test_fix_hash_map.cpp b/runtime/unit-test/maps/test_fix_hash_map.cpp
+index 12155f2..8d16cd5 100644
+--- a/runtime/unit-test/maps/test_fix_hash_map.cpp
++++ b/runtime/unit-test/maps/test_fix_hash_map.cpp
+@@ -3,7 +3,10 @@
+ #include <boost/interprocess/managed_shared_memory.hpp>
+ #include <boost/interprocess/shared_memory_object.hpp>
+ #include <catch2/catch_test_macros.hpp>
++#include <algorithm>
++#include <array>
+ #include <cstdint>
++#include <vector>
+ 
+ using namespace boost::interprocess;
+ using namespace bpftime;
+@@ -23,6 +26,88 @@ struct shm_cleanup {
+ };
+ } // namespace
+ 
++TEST_CASE("Four-byte fixed hash preserves the upstream byte hash",
++	  "[maps][hash][hash-fast4]")
++{
++	const std::array<std::array<uint8_t, 4>, 5> cases = { {
++		{ 0x00, 0x00, 0x00, 0x00 },
++		{ 0x01, 0x00, 0x00, 0x00 },
++		{ 0xff, 0xff, 0xff, 0xff },
++		{ 0x12, 0x34, 0x56, 0x78 },
++		{ 0x78, 0x56, 0x34, 0x12 },
++	} };
++
++	for (const auto &bytes : cases) {
++		size_t expected = 0;
++		for (uint8_t byte : bytes)
++			expected = expected * 31 + byte;
++		REQUIRE(bpftime_hasher::hash_func(bytes.data(), bytes.size()) ==
++			expected);
++	}
++}
++
++TEST_CASE("Fixed hash preserves uint32 keys across delete and reinsert cycles",
++	  "[maps][hash][hash-key-patterns]")
++{
++	static const char *shm_name = "bpftime_fix_hash_key_patterns_test";
++	shm_cleanup cleanup(shm_name);
++	managed_shared_memory segment(create_only, shm_name, 4 * 1024 * 1024);
++
++	constexpr size_t capacity = 256;
++	constexpr size_t entry_count = 230;
++	constexpr size_t cycles = 3;
++
++	const std::array<std::vector<uint32_t>, 4> patterns = { [&] {
++		std::vector<uint32_t> keys;
++		for (uint32_t i = 0; i < entry_count; ++i)
++			keys.push_back(i);
++		return keys;
++	}(), [&] {
++		std::vector<uint32_t> keys;
++		for (uint32_t i = 0; i < entry_count; ++i)
++			keys.push_back(i * 4096U + 7U);
++		return keys;
++	}(), [&] {
++		std::vector<uint32_t> keys;
++		for (uint32_t i = 0; i < entry_count; ++i)
++			keys.push_back((i << 16U) | 0x55aaU);
++		return keys;
++	}(), [&] {
++		std::vector<uint32_t> keys;
++		for (uint32_t i = 0; i < entry_count; ++i)
++			keys.push_back(i * 1664525U + 1013904223U);
++		return keys;
++	}() };
++
++	for (const auto &keys : patterns) {
++		auto sorted_keys = keys;
++		std::sort(sorted_keys.begin(), sorted_keys.end());
++		REQUIRE(std::adjacent_find(sorted_keys.begin(), sorted_keys.end()) ==
++			sorted_keys.end());
++
++		bpftime_hash_map map(segment, capacity, sizeof(uint32_t),
++				     sizeof(uint64_t));
++		for (uint64_t cycle = 0; cycle < cycles; ++cycle) {
++			for (uint32_t key : keys) {
++				const uint64_t value =
++					(static_cast<uint64_t>(key) << 32U) ^ cycle;
++				REQUIRE(map.elem_update(&key, &value));
++			}
++			for (uint32_t key : keys) {
++				const auto *value = static_cast<const uint64_t *>(
++					map.elem_lookup(&key));
++				REQUIRE(value != nullptr);
++				REQUIRE(*value ==
++					((static_cast<uint64_t>(key) << 32U) ^ cycle));
++			}
++			for (uint32_t key : keys)
++				REQUIRE(map.elem_delete(&key));
++			for (uint32_t key : keys)
++				REQUIRE(map.elem_lookup(&key) == nullptr);
++		}
++	}
++}
++
+ TEST_CASE("Fixed hash iteration scans adjusted bucket count",
+ 	  "[maps][hash][iteration]")
+ {

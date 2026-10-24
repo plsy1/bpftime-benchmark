@@ -1,0 +1,151 @@
+diff --git a/runtime/src/bpf_map/map_common_def.hpp b/runtime/src/bpf_map/map_common_def.hpp
+index 1398bdd..367ecab 100644
+--- a/runtime/src/bpf_map/map_common_def.hpp
++++ b/runtime/src/bpf_map/map_common_def.hpp
+@@ -15,6 +15,7 @@
+ #include <array>
+ #include <cstring>
+ #include <functional>
++#include <utility>
+ #include "platform_utils.hpp"
+ 
+ namespace bpftime
+@@ -27,10 +28,12 @@ using uint64_vec_allocator = boost::interprocess::allocator<
+ 	uint64_t, boost::interprocess::managed_shared_memory::segment_manager>;
+ using uint64_vec = boost::interprocess::vector<uint64_t, uint64_vec_allocator>;
+ 
+-template <class T>
+-static inline T ensure_on_current_cpu(std::function<T(int cpu)> func)
++template <class T, class Func>
++static inline T ensure_on_current_cpu(Func &&func)
+ {
+-	return func(my_sched_getcpu());
++	// Preserve the callable's concrete type so map helpers can inline it
++	// without constructing std::function or allocating for large captures.
++	return std::forward<Func>(func)(my_sched_getcpu());
+ }
+ 
+ template <class T>
+diff --git a/runtime/unit-test/maps/test_per_cpu_array.cpp b/runtime/unit-test/maps/test_per_cpu_array.cpp
+index 20868b8..61daa1b 100644
+--- a/runtime/unit-test/maps/test_per_cpu_array.cpp
++++ b/runtime/unit-test/maps/test_per_cpu_array.cpp
+@@ -4,6 +4,12 @@
+ #include <bpf_map/userspace/per_cpu_array_map.hpp>
+ #include <catch2/catch_test_macros.hpp>
+ #include <cstdint>
++#include <algorithm>
++#include <atomic>
++#include <cerrno>
++#include <linux/bpf.h>
++#include <string>
++#include <thread>
+ #include <sched.h>
+ #include <unistd.h>
+ #include <vector>
+@@ -15,6 +21,105 @@ using namespace bpftime;
+ 
+ static const char *SHM_NAME = "_PER_CPU_ARRAY_SHM";
+ 
++TEST_CASE("Per-CPU array helper errors preserve stored values", "[percpu-array]")
++{
++	const auto name = "_PER_CPU_ARRAY_ERRORS_" + std::to_string(getpid());
++	shm_remove remover(name.c_str());
++	managed_shared_memory mem(create_only, name.c_str(), 1 << 20);
++	per_cpu_array_map_impl map(mem, sizeof(uint64_t), 2);
++	const uint32_t key = 1, invalid_key = 2;
++	const uint64_t value = 99;
++	std::vector<uint64_t> initial(sysconf(_SC_NPROCESSORS_ONLN), 42);
++	REQUIRE(map.elem_update_userspace(&key, initial.data(), BPF_ANY) == 0);
++
++	REQUIRE(map.elem_lookup(nullptr) == nullptr);
++	REQUIRE(errno == ENOENT);
++	REQUIRE(map.elem_lookup(&invalid_key) == nullptr);
++	REQUIRE(errno == ENOENT);
++	REQUIRE(map.elem_update(nullptr, &value, BPF_ANY) == -1);
++	REQUIRE(errno == ENOENT);
++	REQUIRE(map.elem_update(&invalid_key, &value, BPF_ANY) == -1);
++	REQUIRE(errno == E2BIG);
++	REQUIRE(map.elem_update(&key, &value, BPF_NOEXIST) == -1);
++	REQUIRE(errno == EEXIST);
++	REQUIRE(map.elem_update(&key, &value, 3) == -1);
++	REQUIRE(errno == EINVAL);
++	REQUIRE(map.elem_delete(&key) == -1);
++	REQUIRE(errno == EINVAL);
++	const auto *actual = static_cast<const uint64_t *>(
++		map.elem_lookup_userspace(&key));
++	REQUIRE(actual != nullptr);
++	REQUIRE(std::equal(initial.begin(), initial.end(), actual));
++	REQUIRE(map.elem_update(&key, &value, BPF_EXIST) == 0);
++	REQUIRE(map.elem_update(&key, &value, BPF_ANY) == 0);
++}
++
++TEST_CASE("Per-CPU array helpers preserve CPU slots under concurrent writes",
++	  "[percpu-array]")
++{
++	cpu_set_t allowed;
++	REQUIRE(sched_getaffinity(0, sizeof(allowed), &allowed) == 0);
++	std::vector<int> cpus;
++	for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu)
++		if (CPU_ISSET(cpu, &allowed))
++			cpus.push_back(cpu);
++	REQUIRE_FALSE(cpus.empty());
++	const uint32_t ncpu = cpus.back() + 1;
++	const auto name = "_PER_CPU_ARRAY_THREADS_" + std::to_string(getpid());
++	shm_remove remover(name.c_str());
++	managed_shared_memory mem(create_only, name.c_str(), 4 << 20);
++
++	for (const uint32_t value_size : {8u, 24u, 256u}) {
++		INFO("value_size=" << value_size);
++		per_cpu_array_map_impl map(mem, value_size, 2, ncpu);
++		std::atomic<bool> ok{true};
++		std::vector<std::thread> workers;
++		for (const int cpu : cpus) {
++			workers.emplace_back([&, cpu] {
++				cpu_set_t mask;
++				CPU_ZERO(&mask);
++				CPU_SET(cpu, &mask);
++				if (sched_setaffinity(0, sizeof(mask), &mask) != 0) {
++					ok.store(false);
++					return;
++				}
++				std::vector<uint8_t> value(value_size);
++				const uint32_t key = 1;
++				for (unsigned iter = 0; iter < 1000; ++iter) {
++					std::fill(value.begin(), value.end(),
++						  static_cast<uint8_t>(cpu + iter));
++					if (map.elem_update(&key, value.data(), BPF_ANY) != 0) {
++						ok.store(false);
++						return;
++					}
++					const auto *actual = static_cast<const uint8_t *>(
++						map.elem_lookup(&key));
++					if (!actual || !std::equal(value.begin(), value.end(), actual)) {
++						ok.store(false);
++						return;
++					}
++				}
++			});
++		}
++		for (auto &worker : workers)
++			worker.join();
++		REQUIRE(ok.load());
++		const uint32_t key = 1, untouched_key = 0;
++		const auto *actual = static_cast<const uint8_t *>(
++			map.elem_lookup_userspace(&key));
++		REQUIRE(actual != nullptr);
++		for (const int cpu : cpus)
++			for (uint32_t byte = 0; byte < value_size; ++byte)
++				REQUIRE(actual[cpu * value_size + byte] ==
++					static_cast<uint8_t>(cpu + 999));
++		const auto *untouched = static_cast<const uint8_t *>(
++			map.elem_lookup_userspace(&untouched_key));
++		REQUIRE(untouched != nullptr);
++		REQUIRE(std::all_of(untouched, untouched + ncpu * value_size,
++				    [](uint8_t byte) { return byte == 0; }));
++	}
++}
++
+ TEST_CASE("Test basic operations of array map")
+ {
+ 	shm_remove remover(SHM_NAME);

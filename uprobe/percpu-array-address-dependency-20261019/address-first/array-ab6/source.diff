@@ -1,0 +1,66 @@
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp b/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
+index 1468401..c142733 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
+@@ -45,18 +45,27 @@ class per_cpu_array_map_impl {
+ 	// must select this path only when the runtime is in the base mode.
+ 	__attribute__((always_inline)) void *elem_lookup_base(const void *key)
+ 	{
+-		return ensure_on_current_cpu<void *>([&](int cpu) -> void * {
+-			if (key == nullptr) {
++		if (key == nullptr) {
++			return ensure_on_current_cpu<void *>([](int) -> void * {
+ 				errno = ENOENT;
+ 				return nullptr;
+-			}
+-			uint32_t key_val = *(uint32_t *)key;
+-			if (key_val >= max_ent) {
++			});
++		}
++		const uint32_t key_val = *(const uint32_t *)key;
++		if (key_val >= max_ent) {
++			return ensure_on_current_cpu<void *>([](int) -> void * {
+ 				errno = ENOENT;
+ 				return nullptr;
+-			}
+-			return data_at(key_val, cpu);
+-		});
++			});
++		}
++		// Keep only the selected entry's base and value width live across
++		// the CPU query, rather than the map and key plus later loads.
++		auto *entry_base = data_at(key_val, 0);
++		const size_t cpu_stride = value_size;
++		return ensure_on_current_cpu<void *>(
++			[entry_base, cpu_stride](int cpu) -> void * {
++				return entry_base + static_cast<size_t>(cpu) * cpu_stride;
++			});
+ 	}
+ 
+ 	long elem_update(const void *key, const void *value, uint64_t flags);
+diff --git a/runtime/unit-test/maps/test_per_cpu_array.cpp b/runtime/unit-test/maps/test_per_cpu_array.cpp
+index c082f49..ea0eb09 100644
+--- a/runtime/unit-test/maps/test_per_cpu_array.cpp
++++ b/runtime/unit-test/maps/test_per_cpu_array.cpp
+@@ -163,17 +163,21 @@ TEST_CASE("Per-CPU array production lookup follows CPU affinity changes",
+ 			CPU_SET(cpu, &selected);
+ 			REQUIRE(sched_setaffinity(0, sizeof(selected), &selected) == 0);
+ 			for (uint32_t key : { 0U, 3U }) {
++				errno = EDOM;
+ 				const auto *value = static_cast<const uint8_t *>(
+ 					map.elem_lookup_base(&key));
+ 				REQUIRE(value != nullptr);
++				REQUIRE(errno == EDOM);
+ 				for (uint32_t byte = 0; byte < value_size; ++byte)
+ 					REQUIRE(value[byte] ==
+ 						static_cast<uint8_t>(key * 17 + cpu * 29 + byte));
+ 			}
+ 			for (uint32_t key : { 4U, std::numeric_limits<uint32_t>::max() }) {
++				errno = EDOM;
+ 				REQUIRE(map.elem_lookup_base(&key) == nullptr);
+ 				REQUIRE(errno == ENOENT);
+ 			}
++			errno = EDOM;
+ 			REQUIRE(map.elem_lookup_base(nullptr) == nullptr);
+ 			REQUIRE(errno == ENOENT);
+ 		}

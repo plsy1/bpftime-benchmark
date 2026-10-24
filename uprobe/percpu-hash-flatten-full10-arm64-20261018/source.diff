@@ -1,0 +1,14 @@
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp b/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp
+index 3704189..db34ea3 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp
+@@ -159,7 +159,8 @@ void per_cpu_hash_map_impl::recycle_uint32_node(
+ 	uint32_recycled_nodes.push_back(uint32_impl.extract(itr));
+ }
+ 
+-void *per_cpu_hash_map_impl::elem_lookup(const void *key)
++__attribute__((flatten)) void *
++per_cpu_hash_map_impl::elem_lookup(const void *key)
+ {
+ 	int cpu = my_sched_getcpu();
+ 	SPDLOG_DEBUG("Run per cpu hash lookup at cpu {}", cpu);

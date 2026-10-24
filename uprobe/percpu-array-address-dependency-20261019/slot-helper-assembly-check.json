@@ -1,0 +1,66 @@
+{
+  "baseline": {
+    "ordinary": {
+      "static_instruction_count": 47,
+      "stack_references": [],
+      "calls": [],
+      "slot_tail_branch": false
+    },
+    "percpu": {
+      "static_instruction_count": 69,
+      "stack_references": [
+        "  4e5730:\tstp\tx29, x30, [sp, #-32]!",
+        "  4e575c:\tldp\tx29, x30, [sp], #32",
+        "  4e57b0:\tldp\tx29, x30, [sp], #32",
+        "  4e57bc:\tstp\tx19, x20, [sp, #16]",
+        "  4e5820:\tldp\tx19, x20, [sp, #16]",
+        "  4e5830:\tldp\tx19, x20, [sp, #16]"
+      ],
+      "calls": [
+        "  4e574c:\tbl\t48ab80 <__errno_location@plt>",
+        "  4e57dc:\tbl\t48a680 <sched_getcpu@plt>",
+        "  4e582c:\tbl\t48ab80 <__errno_location@plt>"
+      ],
+      "slot_tail_branch": false
+    }
+  },
+  "slot-helper": {
+    "ordinary": {
+      "static_instruction_count": 47,
+      "stack_references": [],
+      "calls": [],
+      "slot_tail_branch": false
+    },
+    "percpu": {
+      "static_instruction_count": 62,
+      "stack_references": [
+        "  4e6900:\tstp\tx29, x30, [sp, #-16]!",
+        "  4e692c:\tldp\tx29, x30, [sp], #16",
+        "  4e6980:\tldp\tx29, x30, [sp], #16",
+        "  4e69e0:\tldp\tx29, x30, [sp], #16"
+      ],
+      "calls": [
+        "  4e691c:\tbl\t48ab80 <__errno_location@plt>",
+        "  4e69f0:\tbl\t48a680 <sched_getcpu@plt>"
+      ],
+      "slot_tail_branch": true
+    },
+    "cpu-slot": {
+      "static_instruction_count": 11,
+      "calls": [
+        "  4f02c4:\tbl\t48a680 <sched_getcpu@plt>"
+      ],
+      "callee_saved_registers": [
+        19,
+        20
+      ],
+      "after_cpu_query": [
+        "  4f02c8:\tsxtw\tx0, w0",
+        "  4f02cc:\tmadd\tx0, x0, x20, x19",
+        "  4f02d0:\tldp\tx19, x20, [sp, #16]",
+        "  4f02d4:\tldp\tx29, x30, [sp], #32",
+        "  4f02d8:\tret"
+      ]
+    }
+  }
+}

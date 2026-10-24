@@ -1,0 +1,51 @@
+diff --git a/runtime/src/bpftime_shm_internal.cpp b/runtime/src/bpftime_shm_internal.cpp
+index e14c114..f078467 100644
+--- a/runtime/src/bpftime_shm_internal.cpp
++++ b/runtime/src/bpftime_shm_internal.cpp
+@@ -163,7 +163,12 @@ const void *bpftime_shm::bpf_map_lookup_elem(int fd, const void *key,
+ 			       handler->map_lookup_elem(key, false);
+ 	}
+ 	auto *handler = try_get_map_handler(fd);
+-	return handler ? handler->map_lookup_elem(key, from_syscall) : nullptr;
++	if (handler == nullptr)
++		return nullptr;
++	if (!from_syscall &&
++	    handler->type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)
++		return handler->map_lookup_percpu_array(key);
++	return handler->map_lookup_elem(key, from_syscall);
+ }
+ 
+ long bpftime_shm::bpf_map_update_elem(int fd, const void *key,
+diff --git a/runtime/src/handler/map_handler.cpp b/runtime/src/handler/map_handler.cpp
+index 1e3068b..b9939d6 100644
+--- a/runtime/src/handler/map_handler.cpp
++++ b/runtime/src/handler/map_handler.cpp
+@@ -272,6 +272,13 @@ const void *bpf_map_handler::map_lookup_elem(const void *key,
+ 	return 0;
+ }
+ 
++const void *
++bpf_map_handler::map_lookup_percpu_array(const void *key) const
++{
++	return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
++		->elem_lookup(key);
++}
++
+ const void *bpf_map_handler::diagnostic_direct_lookup(const void *key) const
+ {
+ 	if (type == bpf_map_type::BPF_MAP_TYPE_ARRAY)
+diff --git a/runtime/src/handler/map_handler.hpp b/runtime/src/handler/map_handler.hpp
+index 9af1105..59784e4 100644
+--- a/runtime/src/handler/map_handler.hpp
++++ b/runtime/src/handler/map_handler.hpp
+@@ -159,6 +159,10 @@ class bpf_map_handler {
+ 	// *
+ 	const void *map_lookup_elem(const void *key,
+ 				    bool from_syscall = false) const;
++	// Fast helper path for a map whose type has already been checked by the
++	// caller. Syscall lookups must continue through map_lookup_elem() because
++	// per-CPU userspace values have different copy semantics.
++	const void *map_lookup_percpu_array(const void *key) const;
+ 	// * BPF_MAP_UPDATE_ELEM
+ 	// *	Description
+ 	// *		Create or update an element (key/value pair) in a

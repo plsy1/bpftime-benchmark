@@ -1,0 +1,151 @@
+diff --git a/runtime/src/bpf_map/bpftime_hash_map.hpp b/runtime/src/bpf_map/bpftime_hash_map.hpp
+index 2f05e07..49298f1 100644
+--- a/runtime/src/bpf_map/bpftime_hash_map.hpp
++++ b/runtime/src/bpf_map/bpftime_hash_map.hpp
+@@ -39,6 +39,12 @@ public:
+ 
+ 	static size_t hash_func(const void *key, size_t key_size)
+ 	{
++		if (key_size == sizeof(uint32_t)) {
++			const auto *bytes = static_cast<const uint8_t *>(key);
++			return size_t{ bytes[0] } * 29791 +
++			       size_t{ bytes[1] } * 961 +
++			       size_t{ bytes[2] } * 31 + bytes[3];
++		}
+ 		size_t hash = 0;
+ 		for (size_t i = 0; i < key_size; i++) {
+ 			hash = hash * 31 + ((uint8_t *)key)[i];
+@@ -152,7 +158,8 @@ class bpftime_hash_map {
+ 			    std::memcmp(get_key(index), key, _key_size) == 0) {
+ 				return get_value(index);
+ 			}
+-			index = (index + 1) % _num_buckets;
++			if (++index == _num_buckets)
++				index = 0;
+ 		} while (index != start_index);
+ 		return nullptr;
+ 	}
+@@ -196,7 +203,8 @@ class bpftime_hash_map {
+ 			}
+ 
+ 			// Move to the next bucket
+-			index = (index + 1) % _num_buckets;
++			if (++index == _num_buckets)
++				index = 0;
+ 		} while (index != start_index);
+ 
+ 		if (first_deleted != _num_buckets &&
+@@ -228,7 +236,8 @@ class bpftime_hash_map {
+ 				_count--;
+ 				return true;
+ 			}
+-			index = (index + 1) % _num_buckets;
++			if (++index == _num_buckets)
++				index = 0;
+ 		} while (index != start_index);
+ 		return false; // Key not found
+ 	}
+diff --git a/runtime/unit-test/maps/test_fix_hash_map.cpp b/runtime/unit-test/maps/test_fix_hash_map.cpp
+index 12155f2..8d16cd5 100644
+--- a/runtime/unit-test/maps/test_fix_hash_map.cpp
++++ b/runtime/unit-test/maps/test_fix_hash_map.cpp
+@@ -3,7 +3,10 @@
+ #include <boost/interprocess/managed_shared_memory.hpp>
+ #include <boost/interprocess/shared_memory_object.hpp>
+ #include <catch2/catch_test_macros.hpp>
++#include <algorithm>
++#include <array>
+ #include <cstdint>
++#include <vector>
+ 
+ using namespace boost::interprocess;
+ using namespace bpftime;
+@@ -23,6 +26,88 @@ struct shm_cleanup {
+ };
+ } // namespace
+ 
++TEST_CASE("Four-byte fixed hash preserves the upstream byte hash",
++	  "[maps][hash][hash-fast4]")
++{
++	const std::array<std::array<uint8_t, 4>, 5> cases = { {
++		{ 0x00, 0x00, 0x00, 0x00 },
++		{ 0x01, 0x00, 0x00, 0x00 },
++		{ 0xff, 0xff, 0xff, 0xff },
++		{ 0x12, 0x34, 0x56, 0x78 },
++		{ 0x78, 0x56, 0x34, 0x12 },
++	} };
++
++	for (const auto &bytes : cases) {
++		size_t expected = 0;
++		for (uint8_t byte : bytes)
++			expected = expected * 31 + byte;
++		REQUIRE(bpftime_hasher::hash_func(bytes.data(), bytes.size()) ==
++			expected);
++	}
++}
++
++TEST_CASE("Fixed hash preserves uint32 keys across delete and reinsert cycles",
++	  "[maps][hash][hash-key-patterns]")
++{
++	static const char *shm_name = "bpftime_fix_hash_key_patterns_test";
++	shm_cleanup cleanup(shm_name);
++	managed_shared_memory segment(create_only, shm_name, 4 * 1024 * 1024);
++
++	constexpr size_t capacity = 256;
++	constexpr size_t entry_count = 230;
++	constexpr size_t cycles = 3;
++
++	const std::array<std::vector<uint32_t>, 4> patterns = { [&] {
++		std::vector<uint32_t> keys;
++		for (uint32_t i = 0; i < entry_count; ++i)
++			keys.push_back(i);
++		return keys;
++	}(), [&] {
++		std::vector<uint32_t> keys;
++		for (uint32_t i = 0; i < entry_count; ++i)
++			keys.push_back(i * 4096U + 7U);
++		return keys;
++	}(), [&] {
++		std::vector<uint32_t> keys;
++		for (uint32_t i = 0; i < entry_count; ++i)
++			keys.push_back((i << 16U) | 0x55aaU);
++		return keys;
++	}(), [&] {
++		std::vector<uint32_t> keys;
++		for (uint32_t i = 0; i < entry_count; ++i)
++			keys.push_back(i * 1664525U + 1013904223U);
++		return keys;
++	}() };
++
++	for (const auto &keys : patterns) {
++		auto sorted_keys = keys;
++		std::sort(sorted_keys.begin(), sorted_keys.end());
++		REQUIRE(std::adjacent_find(sorted_keys.begin(), sorted_keys.end()) ==
++			sorted_keys.end());
++
++		bpftime_hash_map map(segment, capacity, sizeof(uint32_t),
++				     sizeof(uint64_t));
++		for (uint64_t cycle = 0; cycle < cycles; ++cycle) {
++			for (uint32_t key : keys) {
++				const uint64_t value =
++					(static_cast<uint64_t>(key) << 32U) ^ cycle;
++				REQUIRE(map.elem_update(&key, &value));
++			}
++			for (uint32_t key : keys) {
++				const auto *value = static_cast<const uint64_t *>(
++					map.elem_lookup(&key));
++				REQUIRE(value != nullptr);
++				REQUIRE(*value ==
++					((static_cast<uint64_t>(key) << 32U) ^ cycle));
++			}
++			for (uint32_t key : keys)
++				REQUIRE(map.elem_delete(&key));
++			for (uint32_t key : keys)
++				REQUIRE(map.elem_lookup(&key) == nullptr);
++		}
++	}
++}
++
+ TEST_CASE("Fixed hash iteration scans adjusted bucket count",
+ 	  "[maps][hash][iteration]")
+ {

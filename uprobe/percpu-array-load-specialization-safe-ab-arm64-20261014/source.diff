@@ -1,0 +1,240 @@
+diff --git a/runtime/include/bpf_attach_ctx.hpp b/runtime/include/bpf_attach_ctx.hpp
+index 3ead02e..5771501 100644
+--- a/runtime/include/bpf_attach_ctx.hpp
++++ b/runtime/include/bpf_attach_ctx.hpp
+@@ -243,7 +243,8 @@ private:
+ 				   std::set<int> &stk,
+ 				   const agent_config &config,
+ 				   bool handle_nv_attach_impl);
+-	int instantiate_prog_handler_at(int id, const bpf_prog_handler &handler,
++	int instantiate_prog_handler_at(const handler_manager *manager, int id,
++					const bpf_prog_handler &handler,
+ 					const agent_config &config);
+ 	int instantiate_bpf_link_handler_at(int id,
+ 					    const bpf_link_handler &handler,
+diff --git a/runtime/include/bpftime_helper_group.hpp b/runtime/include/bpftime_helper_group.hpp
+index 3839787..055101c 100644
+--- a/runtime/include/bpftime_helper_group.hpp
++++ b/runtime/include/bpftime_helper_group.hpp
+@@ -44,7 +44,9 @@ class bpftime_helper_group {
+ 	static const bpftime_helper_group &get_shm_maps_helper_group();
+ 
+ 	// Add the helper group to the program
+-	int add_helper_group_to_prog(bpftime_prog *prog) const;
++	int add_helper_group_to_prog(
++		bpftime_prog *prog,
++		const bpftime_helper_info *override_helper = nullptr) const;
+ 	// Get all helper ids of this helper group
+ 	std::vector<int32_t> get_helper_ids() const;
+ 
+@@ -57,4 +59,7 @@ std::map<int32_t, bpftime::verifier::BpftimeHelperProrotype>
+ get_ufunc_helper_protos();
+ #endif
+ } // namespace bpftime
++
++extern "C" uint64_t bpftime_percpu_array_map_lookup_elem_helper(
++	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+ #endif
+diff --git a/runtime/src/attach/bpf_attach_ctx.cpp b/runtime/src/attach/bpf_attach_ctx.cpp
+index 3501515..c3348ad 100644
+--- a/runtime/src/attach/bpf_attach_ctx.cpp
++++ b/runtime/src/attach/bpf_attach_ctx.cpp
+@@ -26,6 +26,7 @@
+ #include <handler/perf_event_handler.hpp>
+ #include <bpftime_helper_group.hpp>
+ #include <handler/handler_manager.hpp>
++#include <linux/bpf.h>
+ #include <utility>
+ #include <variant>
+ #include <sys/resource.h>
+@@ -37,7 +38,9 @@ extern "C" uint64_t bpftime_set_retval(uint64_t value);
+ namespace bpftime
+ {
+ 
+-static int load_prog_and_helpers(bpftime_prog *prog, const agent_config &config)
++static int load_prog_and_helpers(
++	bpftime_prog *prog, const agent_config &config,
++	const bpftime_helper_info *map_lookup_override = nullptr)
+ {
+ #if defined(__linux__)
+ 	if (config.enable_kernel_helper_group) {
+@@ -51,11 +54,45 @@ static int load_prog_and_helpers(bpftime_prog *prog, const agent_config &config)
+ 	}
+ 	if (config.enable_shm_maps_helper_group) {
+ 		bpftime_helper_group::get_shm_maps_helper_group()
+-			.add_helper_group_to_prog(prog);
++			.add_helper_group_to_prog(prog, map_lookup_override);
+ 	}
+ 	return prog->bpftime_prog_load(config.jit_enabled);
+ }
+ 
++static bool uses_only_percpu_array_maps_for_lookup(
++	const handler_manager *manager, const bpf_prog_handler &prog)
++{
++	bool has_map = false;
++	bool has_lookup = false;
++	for (std::size_t i = 0; i < prog.insns.size(); ++i) {
++		const auto &insn = prog.insns[i];
++		if (insn.code == EBPF_OP_CALL &&
++		    insn.imm == BPF_FUNC_map_lookup_elem)
++			has_lookup = true;
++		if (insn.code != EBPF_OP_LDDW)
++			continue;
++		// A MAP_VALUE relocation is a direct value pointer, not an
++		// opaque map argument. Keep such programs on the generic helper.
++		if (insn.src_reg == BPF_PSEUDO_MAP_VALUE)
++			return false;
++		if (insn.src_reg != BPF_PSEUDO_MAP_FD)
++			continue;
++		has_map = true;
++		const int fd = insn.imm;
++		if (fd < 0 || static_cast<std::size_t>(fd) >= manager->size())
++			return false;
++		const auto *map = std::get_if<bpf_map_handler>(
++			&manager->get_handler(fd));
++		if (map == nullptr ||
++		    map->type != bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)
++			return false;
++		// LDDW occupies two instructions.
++		if (i + 1 < prog.insns.size())
++			++i;
++	}
++	return has_map && has_lookup;
++}
++
+ int bpf_attach_ctx::init_attach_ctx_from_handlers(const agent_config &config)
+ {
+ 	const handler_manager *manager =
+@@ -203,7 +240,8 @@ int bpf_attach_ctx::instantiate_handler_at(const handler_manager *manager,
+ 	auto &handler = manager->get_handler(id);
+ 	if (std::holds_alternative<bpf_prog_handler>(handler)) {
+ 		if (int err = instantiate_prog_handler_at(
+-			    id, std::get<bpf_prog_handler>(handler), config);
++			    manager, id, std::get<bpf_prog_handler>(handler),
++			    config);
+ 		    err < 0) {
+ 			SPDLOG_ERROR(
+ 				"Unable to instantiate bpf prog handler {}: {}",
+@@ -281,7 +319,8 @@ void bpf_attach_ctx::register_attach_impl(
+ 			std::make_pair(impl_ptr, private_data_creator);
+ 	}
+ }
+-int bpf_attach_ctx::instantiate_prog_handler_at(int id,
++int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
++						int id,
+ 						const bpf_prog_handler &handler,
+ 						const agent_config &config)
+ {
+@@ -291,7 +330,22 @@ int bpf_attach_ctx::instantiate_prog_handler_at(int id,
+ 	instantiated_progs[id] =
+ 		std::make_unique<bpftime_prog>(insns, cnt, name);
+ 	bpftime_prog *prog = instantiated_progs[id].get();
+-	if (int err = load_prog_and_helpers(prog, config); err < 0) {
++	const bpftime_helper_info percpu_array_lookup{
++		.index = BPF_FUNC_map_lookup_elem,
++		.name = "bpf_map_lookup_elem",
++		.fn = reinterpret_cast<void *>(
++			bpftime_percpu_array_map_lookup_elem_helper),
++	};
++	const auto *map_lookup_override =
++		uses_only_percpu_array_maps_for_lookup(manager, handler) ?
++			&percpu_array_lookup :
++			nullptr;
++	if (map_lookup_override != nullptr)
++		SPDLOG_INFO(
++			"Using specialized per-CPU array lookup helper for program {}",
++			name);
++	if (int err = load_prog_and_helpers(prog, config, map_lookup_override);
++	    err < 0) {
+ 		SPDLOG_ERROR(
+ 			"Failed to load program helpers for prog handler {}: {}",
+ 			id, err);
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index 809b8b3..8408320 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -385,6 +385,32 @@ uint64_t bpftime_map_lookup_elem_helper(uint64_t map, uint64_t key, uint64_t,
+ 		.bpf_map_lookup_elem((int)map, (void *)key, false);
+ }
+ 
++uint64_t bpftime_percpu_array_map_lookup_elem_helper(
++	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t)
++{
++	auto &shm = bpftime::shm_holder.global_shared_memory;
++	const int fd = static_cast<int>(map);
++	const auto *manager = shm.get_manager();
++	if (manager == nullptr || fd < 0 ||
++	    static_cast<std::size_t>(fd) >= manager->size()) {
++		errno = ENOENT;
++		return 0;
++	}
++	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
++		&manager->get_handler(fd));
++	if (handler == nullptr) {
++		errno = ENOENT;
++		return 0;
++	}
++	if (handler->type !=
++	    bpftime::bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)
++		return reinterpret_cast<uint64_t>(
++			handler->map_lookup_elem(reinterpret_cast<void *>(key),
++						 false));
++	return reinterpret_cast<uint64_t>(
++		handler->map_lookup_percpu_array(reinterpret_cast<void *>(key)));
++}
++
+ uint64_t bpftime_map_update_elem_helper(uint64_t map, uint64_t key,
+ 					uint64_t value, uint64_t flags,
+ 					uint64_t)
+@@ -1132,10 +1158,16 @@ int bpftime_helper_group::append(const bpftime_helper_group &another_group)
+ 	return 0;
+ }
+ 
+-int bpftime_helper_group::add_helper_group_to_prog(bpftime_prog *prog) const
++int bpftime_helper_group::add_helper_group_to_prog(
++	bpftime_prog *prog, const bpftime_helper_info *override_helper) const
+ {
+ 	for (auto it : helper_map) {
+-		prog->bpftime_prog_register_raw_helper(it.second);
++		const auto &helper =
++			override_helper != nullptr &&
++					override_helper->index == it.first ?
++				*override_helper :
++				it.second;
++		prog->bpftime_prog_register_raw_helper(helper);
+ 	}
+ 	return 0;
+ }
+diff --git a/runtime/src/handler/map_handler.cpp b/runtime/src/handler/map_handler.cpp
+index 1e3068b..b9939d6 100644
+--- a/runtime/src/handler/map_handler.cpp
++++ b/runtime/src/handler/map_handler.cpp
+@@ -272,6 +272,13 @@ const void *bpf_map_handler::map_lookup_elem(const void *key,
+ 	return 0;
+ }
+ 
++const void *
++bpf_map_handler::map_lookup_percpu_array(const void *key) const
++{
++	return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
++		->elem_lookup(key);
++}
++
+ const void *bpf_map_handler::diagnostic_direct_lookup(const void *key) const
+ {
+ 	if (type == bpf_map_type::BPF_MAP_TYPE_ARRAY)
+diff --git a/runtime/src/handler/map_handler.hpp b/runtime/src/handler/map_handler.hpp
+index 9af1105..59784e4 100644
+--- a/runtime/src/handler/map_handler.hpp
++++ b/runtime/src/handler/map_handler.hpp
+@@ -159,6 +159,10 @@ class bpf_map_handler {
+ 	// *
+ 	const void *map_lookup_elem(const void *key,
+ 				    bool from_syscall = false) const;
++	// Fast helper path for a map whose type has already been checked by the
++	// caller. Syscall lookups must continue through map_lookup_elem() because
++	// per-CPU userspace values have different copy semantics.
++	const void *map_lookup_percpu_array(const void *key) const;
+ 	// * BPF_MAP_UPDATE_ELEM
+ 	// *	Description
+ 	// *		Create or update an element (key/value pair) in a

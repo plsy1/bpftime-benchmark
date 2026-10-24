@@ -1,0 +1,196 @@
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp b/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
+index 4c70700..f8f35e4 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
+@@ -5,6 +5,7 @@
+  */
+ #include "bpf_map/map_common_def.hpp"
+ #include "bpf_map/map_production_ab.hpp"
++#include "bpftime_internal.h"
+ #include "linux/bpf.h"
+ #include "spdlog/spdlog.h"
+ #include <algorithm>
+@@ -35,6 +36,26 @@ per_cpu_array_map_impl::per_cpu_array_map_impl(
+ void *per_cpu_array_map_impl::elem_lookup(const void *key)
+ {
+ 	const auto mode = get_map_production_ab_mode();
++	if (unlikely(mode != map_production_ab_mode::base))
++		return elem_lookup_diagnostic(key, mode);
++
++	const int cpu = my_sched_getcpu();
++	if (unlikely(key == nullptr)) {
++		errno = ENOENT;
++		return nullptr;
++	}
++	const uint32_t key_val = *(const uint32_t *)key;
++	if (unlikely(key_val >= max_ent)) {
++		errno = ENOENT;
++		return nullptr;
++	}
++	return data_at(key_val, cpu);
++}
++
++__attribute__((noinline)) void *
++per_cpu_array_map_impl::elem_lookup_diagnostic(
++	const void *key, map_production_ab_mode mode)
++{
+ 	if (mode == map_production_ab_mode::percpu_array_lookup_no_body)
+ 		return const_cast<void *>(key);
+ 	if (mode == map_production_ab_mode::percpu_array_direct ||
+@@ -61,18 +82,17 @@ void *per_cpu_array_map_impl::elem_lookup(const void *key)
+ 			return const_cast<void *>(key);
+ 		return data_at(key_val, cpu);
+ 	}
+-	return ensure_on_current_cpu<void *>([&](int cpu) -> void * {
+-		if (key == nullptr) {
+-			errno = ENOENT;
+-			return nullptr;
+-		}
+-		uint32_t key_val = *(uint32_t *)key;
+-		if (key_val >= max_ent) {
+-			errno = ENOENT;
+-			return nullptr;
+-		}
+-		return data_at(key_val, cpu);
+-	});
++	const int cpu = my_sched_getcpu();
++	if (key == nullptr) {
++		errno = ENOENT;
++		return nullptr;
++	}
++	const uint32_t key_val = *(const uint32_t *)key;
++	if (key_val >= max_ent) {
++		errno = ENOENT;
++		return nullptr;
++	}
++	return data_at(key_val, cpu);
+ }
+ 
+ long per_cpu_array_map_impl::elem_update(const void *key, const void *value,
+@@ -81,6 +101,34 @@ long per_cpu_array_map_impl::elem_update(const void *key, const void *value,
+ 	if (!check_update_flags(flags))
+ 		return -1;
+ 	const auto mode = get_map_production_ab_mode();
++	if (unlikely(mode != map_production_ab_mode::base))
++		return elem_update_diagnostic(key, value, flags, mode);
++
++	const int cpu = my_sched_getcpu();
++	if (unlikely(key == nullptr)) {
++		errno = ENOENT;
++		return -1;
++	}
++	const uint32_t key_val = *(const uint32_t *)key;
++	if (unlikely(key_val < max_ent && flags == BPF_NOEXIST)) {
++		errno = EEXIST;
++		return -1;
++	}
++	if (unlikely(key_val >= max_ent)) {
++		errno = E2BIG;
++		return -1;
++	}
++	std::copy((const uint8_t *)value,
++		  (const uint8_t *)value + value_size,
++		  data_at(key_val, cpu));
++	return 0;
++}
++
++__attribute__((noinline)) long
++per_cpu_array_map_impl::elem_update_diagnostic(
++	const void *key, const void *value, uint64_t flags,
++	map_production_ab_mode mode)
++{
+ 	if (mode == map_production_ab_mode::percpu_array_update_no_body)
+ 		return 0;
+ 	if (mode == map_production_ab_mode::percpu_array_direct ||
+@@ -124,25 +172,24 @@ long per_cpu_array_map_impl::elem_update(const void *key, const void *value,
+ 				  destination);
+ 		return 0;
+ 	}
+-	return ensure_on_current_cpu<long>([&](int cpu) -> long {
+-		// return impl[cpu].elem_update(key, value, flags);
+-		if (key == nullptr) {
+-			errno = ENOENT;
+-			return -1;
+-		}
+-		uint32_t key_val = *(uint32_t *)key;
+-		if (key_val < max_ent && flags == BPF_NOEXIST) {
+-			errno = EEXIST;
+-			return -1;
+-		}
+-		if (key_val >= max_ent) {
+-			errno = E2BIG;
+-			return -1;
+-		}
+-		std::copy((uint8_t *)value, (uint8_t *)value + value_size,
+-			  data_at(key_val, cpu));
+-		return 0;
+-	});
++	const int cpu = my_sched_getcpu();
++	if (key == nullptr) {
++		errno = ENOENT;
++		return -1;
++	}
++	const uint32_t key_val = *(const uint32_t *)key;
++	if (key_val < max_ent && flags == BPF_NOEXIST) {
++		errno = EEXIST;
++		return -1;
++	}
++	if (key_val >= max_ent) {
++		errno = E2BIG;
++		return -1;
++	}
++	std::copy((const uint8_t *)value,
++		  (const uint8_t *)value + value_size,
++		  data_at(key_val, cpu));
++	return 0;
+ }
+ 
+ long per_cpu_array_map_impl::elem_delete(const void *key)
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp b/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
+index 931f8c6..61a49a0 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
+@@ -16,6 +16,8 @@
+ namespace bpftime
+ {
+ 
++enum class map_production_ab_mode;
++
+ class per_cpu_array_map_impl {
+ 	bytes_vec data;
+ 
+@@ -26,6 +28,11 @@ class per_cpu_array_map_impl {
+ 	{
+ 		return data.data() + idx * value_size * ncpu + cpu * value_size;
+ 	}
++	void *elem_lookup_diagnostic(const void *key,
++				     map_production_ab_mode mode);
++	long elem_update_diagnostic(const void *key, const void *value,
++				    uint64_t flags,
++				    map_production_ab_mode mode);
+ 
+     public:
+ 	const static bool should_lock = false;
+diff --git a/runtime/src/bpftime_shm_internal.cpp b/runtime/src/bpftime_shm_internal.cpp
+index e14c114..0966199 100644
+--- a/runtime/src/bpftime_shm_internal.cpp
++++ b/runtime/src/bpftime_shm_internal.cpp
+@@ -123,11 +123,16 @@ void bpftime_shm::set_syscall_trace_setup(int pid, bool whether)
+ 
+ const bpf_map_handler *bpftime_shm::try_get_map_handler(int fd) const
+ {
+-	if (!is_map_fd(fd)) {
++	if (manager == nullptr || fd < 0 ||
++	    (std::size_t)fd >= manager->size()) {
+ 		errno = ENOENT;
+ 		return nullptr;
+ 	}
+-	return &std::get<bpftime::bpf_map_handler>(manager->get_handler(fd));
++	const auto &entry = manager->get_handler(fd);
++	const auto *handler = std::get_if<bpftime::bpf_map_handler>(&entry);
++	if (handler == nullptr)
++		errno = ENOENT;
++	return handler;
+ }
+ 
+ uint32_t bpftime_shm::bpf_map_value_size(int fd) const

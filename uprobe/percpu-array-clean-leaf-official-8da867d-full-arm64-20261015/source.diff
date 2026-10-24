@@ -1,0 +1,68 @@
+diff --git a/runtime/src/attach/bpf_attach_ctx.cpp b/runtime/src/attach/bpf_attach_ctx.cpp
+index f474b62..1259c2e 100644
+--- a/runtime/src/attach/bpf_attach_ctx.cpp
++++ b/runtime/src/attach/bpf_attach_ctx.cpp
+@@ -28,6 +28,7 @@
+ #include <spdlog/spdlog.h>
+ #include <handler/perf_event_handler.hpp>
+ #include <bpftime_helper_group.hpp>
++#include <bpf_map/map_production_ab.hpp>
+ #include <handler/handler_manager.hpp>
+ #include <linux/bpf.h>
+ #include <utility>
+@@ -346,8 +347,11 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
+ 		.fn = reinterpret_cast<void *>(
+ 			bpftime_percpu_array_map_lookup_elem_helper),
+ 	};
++	const bool use_specialized_percpu_array_lookup =
++		get_map_production_ab_mode() == map_production_ab_mode::base &&
++		uses_only_percpu_array_maps_for_lookup(manager, handler);
+ 	const auto *map_lookup_override =
+-		uses_only_percpu_array_maps_for_lookup(manager, handler) ?
++		use_specialized_percpu_array_lookup ?
+ 			&percpu_array_lookup :
+ 			nullptr;
+ 	if (map_lookup_override != nullptr)
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp b/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
+index 4c70700..643d3fc 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
+@@ -61,6 +61,11 @@ void *per_cpu_array_map_impl::elem_lookup(const void *key)
+ 			return const_cast<void *>(key);
+ 		return data_at(key_val, cpu);
+ 	}
++	return elem_lookup_base(key);
++}
++
++void *per_cpu_array_map_impl::elem_lookup_base(const void *key)
++{
+ 	return ensure_on_current_cpu<void *>([&](int cpu) -> void * {
+ 		if (key == nullptr) {
+ 			errno = ENOENT;
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp b/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
+index 931f8c6..9451e12 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
+@@ -38,6 +38,9 @@ class per_cpu_array_map_impl {
+ 		uint32_t value_size, uint32_t max_entries);
+ 
+ 	void *elem_lookup(const void *key);
++	// Production lookup path without diagnostic A/B mode dispatch. Callers
++	// must select this path only when the runtime is in the base mode.
++	void *elem_lookup_base(const void *key);
+ 
+ 	long elem_update(const void *key, const void *value, uint64_t flags);
+ 
+diff --git a/runtime/src/handler/map_handler.hpp b/runtime/src/handler/map_handler.hpp
+index 3427bf5..45871e5 100644
+--- a/runtime/src/handler/map_handler.hpp
++++ b/runtime/src/handler/map_handler.hpp
+@@ -163,7 +163,7 @@ class bpf_map_handler {
+ 	const void *map_lookup_percpu_array(const void *key) const
+ 	{
+ 		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
+-			->elem_lookup(key);
++			->elem_lookup_base(key);
+ 	}
+ 	// * BPF_MAP_UPDATE_ELEM
+ 	// *	Description

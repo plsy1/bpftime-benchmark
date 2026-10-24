@@ -1,0 +1,163 @@
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp b/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp
+index 0a7deb8..3704189 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp
+@@ -25,6 +25,7 @@ constexpr uint32_t invalid_uint32_value_slot =
+ 	std::numeric_limits<uint32_t>::max();
+ constexpr uint64_t target_uint32_value_chunk_bytes = 64ULL << 10;
+ constexpr uint32_t max_uint32_value_slots_per_chunk = 256;
++constexpr uint32_t eager_uint32_node_pool_capacity = 1024;
+ 
+ uint32_t choose_uint32_value_slots_per_chunk(uint64_t value_stride)
+ {
+@@ -74,6 +75,7 @@ per_cpu_hash_map_impl::per_cpu_hash_map_impl(
+ 	  single_value_templates(memory.get_segment_manager()),
+ 	  uint32_value_chunks(memory.get_segment_manager()),
+ 	  uint32_free_next(memory.get_segment_manager()),
++	  uint32_recycled_nodes(memory.get_segment_manager()),
+ 	  uint32_free_head(invalid_uint32_value_slot), uint32_slot_count(0),
+ 	  uint32_slots_per_chunk(choose_uint32_value_slots_per_chunk(
+ 		  static_cast<uint64_t>(value_size) * ncpu))
+@@ -81,6 +83,9 @@ per_cpu_hash_map_impl::per_cpu_hash_map_impl(
+ 	SPDLOG_DEBUG(
+ 		"Initializing per cpu hash, key size {}, value size {}, ncpu {}",
+ 		key_size, value_size, ncpu);
++	if (uses_uint32_keys())
++		uint32_recycled_nodes.reserve(
++			std::min(max_entries, eager_uint32_node_pool_capacity));
+ 	for (int i = 0; i < ncpu; i++) {
+ 		if (!uses_uint32_keys()) {
+ 			bytes_vec key_vec(key_size, memory.get_segment_manager());
+@@ -130,6 +135,30 @@ void per_cpu_hash_map_impl::release_uint32_value(uint32_t slot)
+ 	uint32_free_head = slot;
+ }
+ 
++bool per_cpu_hash_map_impl::insert_uint32_value(uint32_t key,
++						 uint32_value_ref value)
++{
++	if (uint32_recycled_nodes.empty())
++		return uint32_impl
++			.insert(bi_uint32_map_value_ty(key, value))
++			.second;
++
++	auto node = std::move(uint32_recycled_nodes.back());
++	uint32_recycled_nodes.pop_back();
++	node.key() = key;
++	node.mapped() = value;
++	auto result = uint32_impl.insert(std::move(node));
++	if (!result.inserted)
++		uint32_recycled_nodes.push_back(std::move(result.node));
++	return result.inserted;
++}
++
++void per_cpu_hash_map_impl::recycle_uint32_node(
++	shm_uint32_hash_map::iterator itr)
++{
++	uint32_recycled_nodes.push_back(uint32_impl.extract(itr));
++}
++
+ void *per_cpu_hash_map_impl::elem_lookup(const void *key)
+ {
+ 	int cpu = my_sched_getcpu();
+@@ -244,9 +273,7 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
+ 				return -1;
+ 			std::memcpy(value_ref.data.get() + cpu * value_size,
+ 				    value, value_size);
+-			const auto result = uint32_impl.insert(
+-				bi_uint32_map_value_ty(key_value, value_ref));
+-			if (!result.second)
++			if (!insert_uint32_value(key_value, value_ref))
+ 				release_uint32_value(value_ref.slot);
+ 		} else {
+ 			bytes_vec full_value_vec = this->value_template;
+@@ -279,7 +306,7 @@ long per_cpu_hash_map_impl::elem_delete(const void *key)
+ 			diagnostic_deferred_uint32_nodes().push_back(
+ 				std::move(node));
+ 		} else {
+-			uint32_impl.erase(itr);
++			recycle_uint32_node(itr);
+ 		}
+ 		release_uint32_value(slot);
+ 	} else {
+@@ -431,9 +458,7 @@ long per_cpu_hash_map_impl::elem_update_userspace(const void *key,
+ 				return -1;
+ 			std::memcpy(value_ref.data.get(), value,
+ 				    static_cast<size_t>(value_size) * ncpu);
+-			const auto result = uint32_impl.insert(
+-				bi_uint32_map_value_ty(key_value, value_ref));
+-			if (!result.second) {
++			if (!insert_uint32_value(key_value, value_ref)) {
+ 				release_uint32_value(value_ref.slot);
+ 				errno = EEXIST;
+ 				return -1;
+@@ -461,7 +486,7 @@ long per_cpu_hash_map_impl::elem_delete_userspace(const void *key)
+ 			return -1;
+ 		}
+ 		const uint32_t slot = itr->second.slot;
+-		uint32_impl.erase(itr);
++		recycle_uint32_node(itr);
+ 		release_uint32_value(slot);
+ 	} else {
+ 		bytes_vec &key_vec = this->key_templates[0];
+@@ -489,7 +514,7 @@ long per_cpu_hash_map_impl::lookup_and_delete_userspace(const void *key,
+ 		}
+ 		memcpy(value, itr->second.data.get(), ncpu * value_size);
+ 		const uint32_t slot = itr->second.slot;
+-		uint32_impl.erase(itr);
++		recycle_uint32_node(itr);
+ 		release_uint32_value(slot);
+ 	} else {
+ 		bytes_vec &key_vec = this->key_templates[0];
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp b/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp
+index ce5b751..fe24faf 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp
+@@ -77,6 +77,11 @@ class per_cpu_hash_map_impl {
+ 		boost::interprocess::vector<uint32_t, uint32_vec_allocator>;
+ 	using node_type = shm_hash_map::node_type;
+ 	using uint32_node_type = shm_uint32_hash_map::node_type;
++	using uint32_node_vec_allocator = boost::interprocess::allocator<
++		uint32_node_type,
++		boost::interprocess::managed_shared_memory::segment_manager>;
++	using uint32_node_vec = boost::interprocess::vector<
++		uint32_node_type, uint32_node_vec_allocator>;
+ 
+ 	shm_hash_map impl;
+ 	// Four-byte BPF keys are stored inline in the node. The generic map remains
+@@ -94,6 +99,11 @@ class per_cpu_hash_map_impl {
+ 	// destroy and deallocate a separately owned bytes_vec.
+ 	bytes_vec_vec uint32_value_chunks;
+ 	uint32_vec uint32_free_next;
++	// Keep extracted nodes alive so a later insertion can relink them without
++	// returning to the managed shared-memory allocator. This mirrors the
++	// preallocated/free-list behavior of kernel hash maps while preserving
++	// normal map size and iteration semantics.
++	uint32_node_vec uint32_recycled_nodes;
+ 	uint32_t uint32_free_head;
+ 	uint32_t uint32_slot_count;
+ 	uint32_t uint32_slots_per_chunk;
+@@ -106,6 +116,8 @@ class per_cpu_hash_map_impl {
+ 	}
+ 	uint32_value_ref acquire_uint32_value();
+ 	void release_uint32_value(uint32_t slot);
++	bool insert_uint32_value(uint32_t key, uint32_value_ref value);
++	void recycle_uint32_node(shm_uint32_hash_map::iterator itr);
+ 
+     public:
+ 	const static bool should_lock = false;
+diff --git a/runtime/unit-test/maps/test_shm_hash_maps.cpp b/runtime/unit-test/maps/test_shm_hash_maps.cpp
+index 1ffafc8..2a44051 100644
+--- a/runtime/unit-test/maps/test_shm_hash_maps.cpp
++++ b/runtime/unit-test/maps/test_shm_hash_maps.cpp
+@@ -95,6 +95,11 @@ static void handle_sub_process()
+ 	test_delete_map(1, manager_ref, segment);
+ 	test_delete_map(3, manager_ref, segment);
+ 	test_delete_map(4, manager_ref, segment);
++	// Reinsert the per-CPU entries from a process with a different shared
++	// memory mapping. This exercises recycled node handles across processes.
++	test_insert_percpu_map(4, manager_ref);
++	test_lookup_map(4, manager_ref, segment);
++	test_delete_map(4, manager_ref, segment);
+ 	manager->clear_all(segment);
+ 	spdlog::info("Print maps value finished");
+ 	segment.destroy_ptr(manager);

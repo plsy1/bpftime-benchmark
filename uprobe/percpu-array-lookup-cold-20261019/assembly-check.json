@@ -1,0 +1,50 @@
+{
+  "baseline": {
+    "ordinary": {
+      "static_instruction_count": 47,
+      "stack_references": [],
+      "calls": [],
+      "errno_call": false
+    },
+    "percpu": {
+      "static_instruction_count": 69,
+      "stack_references": [
+        "  4e5730:\tstp\tx29, x30, [sp, #-32]!",
+        "  4e575c:\tldp\tx29, x30, [sp], #32",
+        "  4e57b0:\tldp\tx29, x30, [sp], #32",
+        "  4e57bc:\tstp\tx19, x20, [sp, #16]",
+        "  4e5820:\tldp\tx19, x20, [sp, #16]",
+        "  4e5830:\tldp\tx19, x20, [sp, #16]"
+      ],
+      "calls": [
+        "  4e574c:\tbl\t48ab80 <__errno_location@plt>",
+        "  4e57dc:\tbl\t48a680 <sched_getcpu@plt>",
+        "  4e582c:\tbl\t48ab80 <__errno_location@plt>"
+      ],
+      "errno_call": true
+    }
+  },
+  "cold-errors": {
+    "ordinary": {
+      "static_instruction_count": 47,
+      "stack_references": [],
+      "calls": [],
+      "errno_call": false
+    },
+    "percpu": {
+      "static_instruction_count": 60,
+      "stack_references": [
+        "  4e781c:\tstp\tx29, x30, [sp, #-32]!",
+        "  4e7828:\tstp\tx19, x20, [sp, #16]",
+        "  4e7888:\tldp\tx19, x20, [sp, #16]",
+        "  4e788c:\tldp\tx29, x30, [sp], #32",
+        "  4e7898:\tldp\tx19, x20, [sp, #16]",
+        "  4e789c:\tldp\tx29, x30, [sp], #32"
+      ],
+      "calls": [
+        "  4e7844:\tbl\t48a680 <sched_getcpu@plt>"
+      ],
+      "errno_call": false
+    }
+  }
+}

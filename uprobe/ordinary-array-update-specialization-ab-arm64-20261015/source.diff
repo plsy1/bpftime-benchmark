@@ -1,0 +1,220 @@
+diff --git a/runtime/include/bpf_attach_ctx.hpp b/runtime/include/bpf_attach_ctx.hpp
+index decb40a..e1aa03f 100644
+--- a/runtime/include/bpf_attach_ctx.hpp
++++ b/runtime/include/bpf_attach_ctx.hpp
+@@ -261,7 +261,8 @@ private:
+ 
+ int load_prog_and_helpers(
+ 	bpftime_prog *prog, const runtime_config &config,
+-	const bpftime_helper_info *map_lookup_override = nullptr);
++	const bpftime_helper_info *map_lookup_override = nullptr,
++	const bpftime_helper_info *map_update_override = nullptr);
+ 
+ } // namespace bpftime
+ 
+diff --git a/runtime/include/bpftime_helper_group.hpp b/runtime/include/bpftime_helper_group.hpp
+index ad489b2..cbd3c1a 100644
+--- a/runtime/include/bpftime_helper_group.hpp
++++ b/runtime/include/bpftime_helper_group.hpp
+@@ -49,7 +49,8 @@ class bpftime_helper_group {
+ 	// Add the helper group to the program
+ 	int add_helper_group_to_prog(
+ 		bpftime_prog *prog,
+-		const bpftime_helper_info *override_helper = nullptr) const;
++		const bpftime_helper_info *override_helper = nullptr,
++		const bpftime_helper_info *second_override_helper = nullptr) const;
+ 	// Get all helper ids of this helper group
+ 	std::vector<int32_t> get_helper_ids() const;
+ 
+@@ -65,6 +66,8 @@ get_ufunc_helper_protos();
+ 
+ extern "C" uint64_t bpftime_array_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
++extern "C" uint64_t bpftime_array_map_update_elem_helper(
++	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
+ extern "C" uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+ #endif
+diff --git a/runtime/src/attach/bpf_attach_ctx.cpp b/runtime/src/attach/bpf_attach_ctx.cpp
+index 1221536..46e3398 100644
+--- a/runtime/src/attach/bpf_attach_ctx.cpp
++++ b/runtime/src/attach/bpf_attach_ctx.cpp
+@@ -44,7 +44,8 @@ namespace bpftime
+ 
+ int load_prog_and_helpers(
+ 	bpftime_prog *prog, const runtime_config &config,
+-	const bpftime_helper_info *map_lookup_override)
++	const bpftime_helper_info *map_lookup_override,
++	const bpftime_helper_info *map_update_override)
+ {
+ #if defined(__linux__)
+ 	if (config.enable_kernel_helper_group) {
+@@ -58,22 +59,22 @@ int load_prog_and_helpers(
+ 	}
+ 	if (config.enable_shm_maps_helper_group) {
+ 		bpftime_helper_group::get_shm_maps_helper_group()
+-			.add_helper_group_to_prog(prog, map_lookup_override);
++			.add_helper_group_to_prog(prog, map_lookup_override,
++						  map_update_override);
+ 	}
+ 	return prog->bpftime_prog_load(config.jit_enabled);
+ }
+ 
+-static bool uses_only_maps_of_type_for_lookup(
++static bool uses_only_maps_of_type_for_helper(
+ 	const handler_manager *manager, const bpf_prog_handler &prog,
+-	bpf_map_type expected_type)
++	bpf_map_type expected_type, unsigned int helper_id)
+ {
+ 	bool has_map = false;
+-	bool has_lookup = false;
++	bool has_helper = false;
+ 	for (std::size_t i = 0; i < prog.insns.size(); ++i) {
+ 		const auto &insn = prog.insns[i];
+-		if (insn.code == EBPF_OP_CALL &&
+-		    insn.imm == BPF_FUNC_map_lookup_elem)
+-			has_lookup = true;
++		if (insn.code == EBPF_OP_CALL && insn.imm == helper_id)
++			has_helper = true;
+ 		if (insn.code != EBPF_OP_LDDW)
+ 			continue;
+ 		// A MAP_VALUE relocation is a direct value pointer, not an
+@@ -94,7 +95,7 @@ static bool uses_only_maps_of_type_for_lookup(
+ 		if (i + 1 < prog.insns.size())
+ 			++i;
+ 	}
+-	return has_map && has_lookup;
++	return has_map && has_helper;
+ }
+ 
+ int bpf_attach_ctx::init_attach_ctx_from_handlers(const runtime_config &config)
+@@ -353,25 +354,44 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
+ 		.fn = reinterpret_cast<void *>(
+ 			bpftime_percpu_array_map_lookup_elem_helper),
+ 	};
++	const bpftime_helper_info array_update{
++		.index = BPF_FUNC_map_update_elem,
++		.name = "bpf_map_update_elem",
++		.fn = reinterpret_cast<void *>(
++			bpftime_array_map_update_elem_helper),
++	};
+ 	const auto mode = get_map_production_ab_mode();
+ 	const bpftime_helper_info *map_lookup_override = nullptr;
++	const bpftime_helper_info *map_update_override = nullptr;
+ 	if (mode == map_production_ab_mode::base &&
+-	    uses_only_maps_of_type_for_lookup(
+-		    manager, handler, bpf_map_type::BPF_MAP_TYPE_ARRAY)) {
++	    uses_only_maps_of_type_for_helper(
++		    manager, handler, bpf_map_type::BPF_MAP_TYPE_ARRAY,
++		    BPF_FUNC_map_lookup_elem)) {
+ 		map_lookup_override = &array_lookup;
+ 		SPDLOG_INFO(
+ 			"Using specialized array lookup helper for program {}",
+ 			name);
+ 	} else if (mode == map_production_ab_mode::base &&
+-		   uses_only_maps_of_type_for_lookup(
++		   uses_only_maps_of_type_for_helper(
+ 			   manager, handler,
+-			   bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)) {
++			   bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY,
++			   BPF_FUNC_map_lookup_elem)) {
+ 		map_lookup_override = &percpu_array_lookup;
+ 		SPDLOG_INFO(
+ 			"Using specialized per-CPU array lookup helper for program {}",
+ 			name);
+ 	}
+-	if (int err = load_prog_and_helpers(prog, config, map_lookup_override);
++	if (mode == map_production_ab_mode::base &&
++	    uses_only_maps_of_type_for_helper(
++		    manager, handler, bpf_map_type::BPF_MAP_TYPE_ARRAY,
++		    BPF_FUNC_map_update_elem)) {
++		map_update_override = &array_update;
++		SPDLOG_INFO(
++			"Using specialized array update helper for program {}",
++			name);
++	}
++	if (int err = load_prog_and_helpers(prog, config, map_lookup_override,
++					    map_update_override);
+ 	    err < 0) {
+ 		SPDLOG_ERROR(
+ 			"Failed to load program helpers for prog handler {}: {}",
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index 31828cd..b403d9b 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -365,6 +365,32 @@ uint64_t bpftime_array_map_lookup_elem_helper(
+ 		handler->map_lookup_array(reinterpret_cast<void *>(key)));
+ }
+ 
++uint64_t bpftime_array_map_update_elem_helper(
++	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t)
++{
++	auto &shm = bpftime::shm_holder.global_shared_memory;
++	const int fd = static_cast<int>(map);
++	const auto *manager = shm.get_manager();
++	if (manager == nullptr || fd < 0 ||
++	    static_cast<std::size_t>(fd) >= manager->size()) {
++		errno = ENOENT;
++		return static_cast<uint64_t>(-1);
++	}
++	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
++		&manager->get_handler(fd));
++	if (handler == nullptr) {
++		errno = ENOENT;
++		return static_cast<uint64_t>(-1);
++	}
++	if (handler->type != bpftime::bpf_map_type::BPF_MAP_TYPE_ARRAY)
++		return static_cast<uint64_t>(handler->map_update_elem(
++			reinterpret_cast<void *>(key),
++			reinterpret_cast<void *>(value), flags, false));
++	return static_cast<uint64_t>(handler->map_update_array(
++		reinterpret_cast<void *>(key), reinterpret_cast<void *>(value),
++		flags));
++}
++
+ uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t)
+ {
+@@ -1212,15 +1238,18 @@ int bpftime_helper_group::append(const bpftime_helper_group &another_group)
+ }
+ 
+ int bpftime_helper_group::add_helper_group_to_prog(
+-	bpftime_prog *prog, const bpftime_helper_info *override_helper) const
++	bpftime_prog *prog, const bpftime_helper_info *override_helper,
++	const bpftime_helper_info *second_override_helper) const
+ {
+ 	for (auto it : helper_map) {
+-		const auto &helper =
+-			override_helper != nullptr &&
+-					override_helper->index == it.first ?
+-				*override_helper :
+-				it.second;
+-		prog->bpftime_prog_register_raw_helper(helper);
++		const bpftime_helper_info *helper = &it.second;
++		if (override_helper != nullptr &&
++		    override_helper->index == it.first)
++			helper = override_helper;
++		else if (second_override_helper != nullptr &&
++			 second_override_helper->index == it.first)
++			helper = second_override_helper;
++		prog->bpftime_prog_register_raw_helper(*helper);
+ 	}
+ 	return 0;
+ }
+diff --git a/runtime/src/handler/map_handler.hpp b/runtime/src/handler/map_handler.hpp
+index 6e18008..2981c3b 100644
+--- a/runtime/src/handler/map_handler.hpp
++++ b/runtime/src/handler/map_handler.hpp
+@@ -203,6 +203,12 @@ class bpf_map_handler {
+ 	// *
+ 	long map_update_elem(const void *key, const void *value, uint64_t flags,
+ 			     bool from_syscall = false) const;
++	long map_update_array(const void *key, const void *value,
++			      uint64_t flags) const
++	{
++		return static_cast<array_map_impl *>(map_impl_ptr.get())
++			->elem_update(key, value, flags);
++	}
+ 	// * BPF_MAP_DELETE_ELEM
+ 	// *	Description
+ 	// *		Look up and delete an element by key in a specified map.

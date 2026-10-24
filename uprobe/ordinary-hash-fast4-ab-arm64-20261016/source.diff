@@ -1,0 +1,63 @@
+diff --git a/runtime/src/bpf_map/bpftime_hash_map.hpp b/runtime/src/bpf_map/bpftime_hash_map.hpp
+index 2f05e07..af35e03 100644
+--- a/runtime/src/bpf_map/bpftime_hash_map.hpp
++++ b/runtime/src/bpf_map/bpftime_hash_map.hpp
+@@ -3,6 +3,7 @@
+ 
+ #include "map_common_def.hpp"
+ #include <cassert>
++#include <cstring>
+ 
+ namespace bpftime
+ {
+@@ -39,6 +40,11 @@ public:
+ 
+ 	static size_t hash_func(const void *key, size_t key_size)
+ 	{
++		if (key_size == sizeof(uint32_t)) {
++			uint32_t value;
++			std::memcpy(&value, key, sizeof(value));
++			return value;
++		}
+ 		size_t hash = 0;
+ 		for (size_t i = 0; i < key_size; i++) {
+ 			hash = hash * 31 + ((uint8_t *)key)[i];
+diff --git a/runtime/unit-test/maps/test_fix_hash_map.cpp b/runtime/unit-test/maps/test_fix_hash_map.cpp
+index 12155f2..1576f44 100644
+--- a/runtime/unit-test/maps/test_fix_hash_map.cpp
++++ b/runtime/unit-test/maps/test_fix_hash_map.cpp
+@@ -3,6 +3,8 @@
+ #include <boost/interprocess/managed_shared_memory.hpp>
+ #include <boost/interprocess/shared_memory_object.hpp>
+ #include <catch2/catch_test_macros.hpp>
++#include <array>
++#include <cstring>
+ #include <cstdint>
+ 
+ using namespace boost::interprocess;
+@@ -23,6 +25,25 @@ struct shm_cleanup {
+ };
+ } // namespace
+ 
++TEST_CASE("Four-byte fixed hash uses the direct integer value",
++	  "[maps][hash][hash-fast4]")
++{
++	const std::array<std::array<uint8_t, 4>, 5> cases = { {
++		{ 0x00, 0x00, 0x00, 0x00 },
++		{ 0x01, 0x00, 0x00, 0x00 },
++		{ 0xff, 0xff, 0xff, 0xff },
++		{ 0x12, 0x34, 0x56, 0x78 },
++		{ 0x78, 0x56, 0x34, 0x12 },
++	} };
++
++	for (const auto &bytes : cases) {
++		uint32_t expected;
++		std::memcpy(&expected, bytes.data(), sizeof(expected));
++		REQUIRE(bpftime_hasher::hash_func(bytes.data(), bytes.size()) ==
++			expected);
++	}
++}
++
+ TEST_CASE("Fixed hash iteration scans adjusted bucket count",
+ 	  "[maps][hash][iteration]")
+ {

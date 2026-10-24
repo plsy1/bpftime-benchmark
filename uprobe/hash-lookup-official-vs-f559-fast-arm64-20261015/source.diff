@@ -1,0 +1,114 @@
+diff --git a/runtime/src/bpf_map/map_production_ab.hpp b/runtime/src/bpf_map/map_production_ab.hpp
+index 75b7cab..b2f06eb 100644
+--- a/runtime/src/bpf_map/map_production_ab.hpp
++++ b/runtime/src/bpf_map/map_production_ab.hpp
+@@ -43,101 +43,24 @@ enum class map_production_ab_mode {
+ 	percpu_hash_delete_defer_reclaim,
+ };
+ 
+-inline map_production_ab_mode get_map_production_ab_mode()
++inline constexpr map_production_ab_mode get_map_production_ab_mode()
+ {
+-	static const map_production_ab_mode mode = [] {
+-		const char *raw = std::getenv("BPFTIME_MAP_PRODUCTION_AB");
+-		const std::string_view value = raw ? raw : "base";
+-		if (value == "cache_control")
+-			return map_production_ab_mode::cache_control;
+-		if (value == "cached_handler")
+-			return map_production_ab_mode::cached_handler;
+-		if (value == "direct_map")
+-			return map_production_ab_mode::direct_map;
+-		if (value == "percpu_array_direct")
+-			return map_production_ab_mode::percpu_array_direct;
+-		if (value == "percpu_array_fixed_cpu")
+-			return map_production_ab_mode::percpu_array_fixed_cpu;
+-		if (value == "percpu_array_no_copy")
+-			return map_production_ab_mode::percpu_array_no_copy;
+-		if (value == "percpu_array_lookup_no_address")
+-			return map_production_ab_mode::percpu_array_lookup_no_address;
+-		if (value == "percpu_array_lookup_fixed_cpu_no_address")
+-			return map_production_ab_mode::percpu_array_lookup_fixed_cpu_no_address;
+-		if (value == "percpu_array_lookup_no_body")
+-			return map_production_ab_mode::percpu_array_lookup_no_body;
+-		if (value == "percpu_array_update_address_only")
+-			return map_production_ab_mode::percpu_array_update_address_only;
+-		if (value == "percpu_array_update_fixed_cpu_address_only")
+-			return map_production_ab_mode::percpu_array_update_fixed_cpu_address_only;
+-		if (value == "percpu_array_update_no_address")
+-			return map_production_ab_mode::percpu_array_update_no_address;
+-		if (value == "percpu_array_update_fixed_cpu_no_address")
+-			return map_production_ab_mode::percpu_array_update_fixed_cpu_no_address;
+-		if (value == "percpu_array_update_no_body")
+-			return map_production_ab_mode::percpu_array_update_no_body;
+-		if (value == "array_update_address_only")
+-			return map_production_ab_mode::array_update_address_only;
+-		if (value == "array_update_no_address")
+-			return map_production_ab_mode::array_update_no_address;
+-		if (value == "array_update_no_body")
+-			return map_production_ab_mode::array_update_no_body;
+-		if (value == "percpu_hash_lookup_no_find")
+-			return map_production_ab_mode::percpu_hash_lookup_no_find;
+-		if (value == "percpu_hash_lookup_raw_key_copy")
+-			return map_production_ab_mode::percpu_hash_lookup_raw_key_copy;
+-		if (value == "percpu_hash_lookup_cached_hash")
+-			return map_production_ab_mode::percpu_hash_lookup_cached_hash;
+-		if (value == "percpu_hash_lookup_fixed4_equal")
+-			return map_production_ab_mode::percpu_hash_lookup_fixed4_equal;
+-		if (value == "percpu_hash_lookup_cached_hash_fixed4_equal")
+-			return map_production_ab_mode::percpu_hash_lookup_cached_hash_fixed4_equal;
+-		if (value == "percpu_hash_update_no_find")
+-			return map_production_ab_mode::percpu_hash_update_no_find;
+-		if (value == "percpu_hash_update_no_copy")
+-			return map_production_ab_mode::percpu_hash_update_no_copy;
+-		if (value == "percpu_hash_update_raw_key_copy")
+-			return map_production_ab_mode::percpu_hash_update_raw_key_copy;
+-		if (value == "percpu_hash_update_raw_value_copy")
+-			return map_production_ab_mode::percpu_hash_update_raw_value_copy;
+-		if (value == "percpu_hash_update_cached_hash")
+-			return map_production_ab_mode::percpu_hash_update_cached_hash;
+-		if (value == "percpu_hash_update_fixed4_equal")
+-			return map_production_ab_mode::percpu_hash_update_fixed4_equal;
+-		if (value == "percpu_hash_update_cached_hash_fixed4_equal")
+-			return map_production_ab_mode::percpu_hash_update_cached_hash_fixed4_equal;
+-		if (value == "percpu_hash_delete_defer_reclaim")
+-			return map_production_ab_mode::percpu_hash_delete_defer_reclaim;
+-		return map_production_ab_mode::base;
+-	}();
+-	return mode;
++	return map_production_ab_mode::base;
+ }
+ 
+-inline bool map_production_ab_cached_hash()
++inline constexpr bool map_production_ab_cached_hash()
+ {
+-	const auto mode = get_map_production_ab_mode();
+-	return mode == map_production_ab_mode::percpu_hash_lookup_cached_hash ||
+-	       mode == map_production_ab_mode::percpu_hash_lookup_cached_hash_fixed4_equal ||
+-	       mode == map_production_ab_mode::percpu_hash_update_cached_hash ||
+-	       mode == map_production_ab_mode::percpu_hash_update_cached_hash_fixed4_equal;
++	return false;
+ }
+ 
+-inline bool map_production_ab_fixed4_equal()
++inline constexpr bool map_production_ab_fixed4_equal()
+ {
+-	const auto mode = get_map_production_ab_mode();
+-	return mode == map_production_ab_mode::percpu_hash_lookup_fixed4_equal ||
+-	       mode == map_production_ab_mode::percpu_hash_lookup_cached_hash_fixed4_equal ||
+-	       mode == map_production_ab_mode::percpu_hash_update_fixed4_equal ||
+-	       mode == map_production_ab_mode::percpu_hash_update_cached_hash_fixed4_equal;
++	return false;
+ }
+ 
+-inline bool map_production_ab_stats_enabled()
++inline constexpr bool map_production_ab_stats_enabled()
+ {
+-	static const bool enabled = [] {
+-		const char *raw = std::getenv("BPFTIME_MAP_PRODUCTION_AB_STATS");
+-		return raw && std::string_view(raw) == "1";
+-	}();
+-	return enabled;
++	return false;
+ }
+ 
+ struct map_production_ab_lookup_stats {

@@ -1,0 +1,65 @@
+diff --git a/runtime/src/bpf_map/userspace/array_map.cpp b/runtime/src/bpf_map/userspace/array_map.cpp
+index 36543b4..3165b8d 100644
+--- a/runtime/src/bpf_map/userspace/array_map.cpp
++++ b/runtime/src/bpf_map/userspace/array_map.cpp
+@@ -34,10 +34,14 @@ array_map_impl::array_map_impl(
+ void *array_map_impl::elem_lookup(const void *key)
+ {
+ 	auto key_val = *(uint32_t *)key;
++	// Obtain independent metadata before the bounds-dependent result. Do not
++	// form the indexed pointer until key_val has passed the original check.
++	auto *const values = data.data();
++	const auto value_size = _value_size;
+ 	if (key_val >= _max_entries) {
+ 		return detail::array_lookup_enoent();
+ 	}
+-	return &data[key_val * _value_size];
++	return values + key_val * value_size;
+ }
+ 
+ long array_map_impl::elem_update(const void *key, const void *value,
+diff --git a/runtime/unit-test/maps/test_per_cpu_array.cpp b/runtime/unit-test/maps/test_per_cpu_array.cpp
+index c082f49..2f8d5d0 100644
+--- a/runtime/unit-test/maps/test_per_cpu_array.cpp
++++ b/runtime/unit-test/maps/test_per_cpu_array.cpp
+@@ -215,6 +215,40 @@ TEST_CASE("Ordinary array lookup preserves bounds and errno on its cold path",
+ 	}
+ }
+ 
++TEST_CASE("Ordinary array address preparation preserves bounds and byte strides",
++	  "[array-lookup-cold][array-load-order]")
++{
++	const auto name = "_ARRAY_LOAD_ORDER_" + std::to_string(getpid());
++	shm_remove remover(name.c_str());
++	managed_shared_memory mem(create_only, name.c_str(), 4 << 20);
++	for (uint32_t value_size : { 1U, 3U, 8U, 24U, 257U }) {
++		for (uint32_t capacity : { 1U, 7U, 65U, 1024U }) {
++			CAPTURE(value_size, capacity);
++			array_map_impl map(mem, value_size, capacity);
++			uint32_t first = 0;
++			auto *base = static_cast<uint8_t *>(map.elem_lookup(&first));
++			REQUIRE(base != nullptr);
++			for (uint32_t key : { 0U, capacity / 2, capacity - 1 }) {
++				std::vector<uint8_t> expected(value_size);
++				for (uint32_t byte = 0; byte < value_size; ++byte)
++					expected[byte] = static_cast<uint8_t>(key * 17 + byte);
++				REQUIRE(map.elem_update(&key, expected.data(), BPF_ANY) == 0);
++				errno = EDOM;
++				auto *value = static_cast<uint8_t *>(map.elem_lookup(&key));
++				REQUIRE(value == base + key * value_size);
++				REQUIRE(errno == EDOM);
++				REQUIRE(std::equal(expected.begin(), expected.end(), value));
++			}
++			for (uint32_t key : { capacity, capacity + 1,
++					     std::numeric_limits<uint32_t>::max() }) {
++				errno = EDOM;
++				REQUIRE(map.elem_lookup(&key) == nullptr);
++				REQUIRE(errno == ENOENT);
++			}
++		}
++	}
++}
++
+ TEST_CASE("Test basic operations of array map")
+ {
+ 	shm_remove remover(SHM_NAME);

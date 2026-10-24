@@ -1,0 +1,57 @@
+[2026-10-14 23:16:11] Starting uprobe benchmark suite
+[2026-10-14 23:16:11] Project root: /home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/official
+[2026-10-14 23:16:11] Benchmark directory: /home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/official/bpftime/benchmark
+[2026-10-14 23:16:11] Uprobe directory: /home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/official/bpftime/benchmark/uprobe
+[2026-10-14 23:16:11] === Uprobe Benchmark Suite ===
+[2026-10-14 23:16:11] Note: Kernel eBPF tests require sudo privileges.
+[2026-10-14 23:16:11] 
+[2026-10-14 23:16:11] Will run each benchmark 10 times
+[2026-10-14 23:16:11] Starting kernel uprobe tests
+[2026-10-14 23:16:11] Starting kernel uprobe test with 10 runs
+[2026-10-14 23:16:11] Launching kernel uprobe server: /home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/official/bpftime/benchmark/uprobe/uprobe
+[2026-10-14 23:16:11] ERROR: Benchmark failed with exception: [Errno 2] No such file or directory: '/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/official/bpftime/benchmark/uprobe/uprobe'
+Traceback (most recent call last):
+  File "/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/official/benchmark/uprobe/benchmark.py", line 540, in main
+    k = await run_kernel_uprobe_test(num_runs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/official/benchmark/uprobe/benchmark.py", line 190, in run_kernel_uprobe_test
+    server = await asyncio.subprocess.create_subprocess_exec(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/subprocess.py", line 224, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 1744, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/unix_events.py", line 211, in _make_subprocess_transport
+    transp = _UnixSubprocessTransport(self, protocol, args, shell,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_subprocess.py", line 36, in __init__
+    self._start(args=args, shell=shell, stdin=stdin, stdout=stdout,
+  File "/usr/lib/python3.12/asyncio/unix_events.py", line 820, in _start
+    self._proc = subprocess.Popen(
+                 ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: '/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/official/bpftime/benchmark/uprobe/uprobe'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/official/benchmark/uprobe/benchmark.py", line 603, in <module>
+    asyncio.run(main())
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/official/benchmark/uprobe/benchmark.py", line 596, in main
+    with open(log_output_path, "w") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/official/bpftime/benchmark/uprobe/benchmark-logs-error.txt'

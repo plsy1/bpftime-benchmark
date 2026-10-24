@@ -1,0 +1,100 @@
+{
+  "official": {
+    "url": "https://github.com/eunomia-bpf/bpftime.git",
+    "remote": "official",
+    "branch": "master",
+    "mirror_branch": "official-latest",
+    "push_remote": "origin",
+    "push_mirror": true
+  },
+  "paths": {
+    "state_root": "{repo_parent}/bpftime-daily-state",
+    "results_root": "{repo_parent}/results/uprobe/official-daily"
+  },
+  "candidate": {
+    "branch_prefix": "codex/uprobe-official",
+    "build_and_test": true,
+    "push_remote": "origin",
+    "push_after_test": true,
+    "commits": [
+      {"sha": "70f27510ffa2e33cac79d1f9518aeaab15387715", "kind": "benchmark", "subject": "Fix hash delete state and add map diagnostics"},
+      {"sha": "b32b464afa162458d13538b8ea0d9f3d10183c50", "kind": "benchmark", "subject": "Add kernel array value-size diagnostic"},
+      {"sha": "c60f412d12f6abd41e8de55ca00b6697f85e2998", "kind": "benchmark", "subject": "Add matched top hash residual diagnostic"},
+      {"sha": "a50df0aea63c8998a86ea895949f04673e304bea", "kind": "benchmark", "subject": "Add matched helper map ladder diagnostic"},
+      {"sha": "719cfd68fd7ed0d170b5b6f0659514e25ed110e2", "kind": "runtime-fix", "subject": "Fix per-CPU hash helper delete semantics"},
+      {"sha": "a96eb88c97a3e030f99151d35ff3d76dc8c848f6", "kind": "benchmark", "subject": "Add per-CPU array path diagnostics"},
+      {"sha": "336afc35ca5bb6617afe2115fd41b4e98ab94d16", "kind": "benchmark", "subject": "Add per-CPU hash path diagnostics"},
+      {"sha": "a8d0a68985a7e64b9d7b5554d03a59b46dddffaf", "kind": "benchmark", "subject": "Add matched per-CPU map path diagnostics"},
+      {"sha": "45408c4bc4d2021ea5b6db2b4a202aa9eebe97c9", "kind": "benchmark", "subject": "Diagnose per-CPU hash delete reclamation"},
+      {"sha": "0cb109caef6cf7768596c5a7de4f3594a5a37815", "kind": "diagnostic-runtime", "subject": "Add production map path A/B diagnostics"},
+      {"sha": "b55dbf624b549da640963f868d1dc554213dcb5e", "kind": "benchmark", "subject": "Add matched map helper closure diagnostics"},
+      {"sha": "f5596926d779e0589f083b082a557c08bbe26262", "kind": "benchmark", "subject": "Diagnose per-CPU hash lookup leaf costs"},
+      {"sha": "04220ac2458d9a0d13577d34c6153600d4bfd019", "kind": "benchmark", "subject": "Diagnose remaining map operation leaf costs"},
+      {"sha": "81a6e6eccf1a926b3f8774638d2b0c9bf563c1b2", "kind": "benchmark", "subject": "Diagnose hash workload sensitivity"},
+      {"sha": "ce7635de6ed5ca7d67968e60d7e7f270970cd5ac", "kind": "optimization", "subject": "Optimize per-CPU array callable dispatch"},
+      {"sha": "1e9fcc9ce32983f998d9fc96f382d4d9a66a9d0c", "kind": "optimization", "subject": "Optimize per-CPU hash copy paths"},
+      {"sha": "d2b78ce70610d2f749d1f17641cf3ee56b60f16d", "kind": "optimization", "subject": "Optimize shared-memory key equality"},
+      {"sha": "e8c55e4fe2329cb7d888817316d9e0420e6f84b9", "kind": "optimization", "subject": "Optimize four-byte shared-memory key hashing"},
+      {"sha": "37b41e7576cbfe88d832fcf08cb3fe782df84a69", "kind": "optimization", "subject": "Optimize four-byte per-CPU hash node keys"},
+      {"sha": "42f79c75d1227c901ba9a1339218b62fd2095cdf", "kind": "optimization", "subject": "Reuse four-byte per-CPU hash value storage"},
+      {"sha": "56147012f9311b4332d6f2a9503fa4eb81c927bf", "kind": "optimization", "subject": "Reuse four-byte per-CPU hash nodes"},
+      {"sha": "d330894031a7c72c046400f985240f9b9bff87db", "kind": "optimization", "subject": "Specialize per-CPU array lookup helper at load time"},
+      {"sha": "05eac852dc7b61bd4d8b041eaa737375dcf57dc7", "kind": "optimization", "subject": "Optimize per-CPU array production lookup leaf"},
+      {"sha": "bc5150e5fed5e7903f276025577c644534de2e86", "kind": "optimization", "subject": "Specialize ordinary array lookup helper at load time"},
+      {"sha": "509b064043552080132c8dd3893811846aaa7b7c", "kind": "optimization", "subject": "Compile map diagnostics out of production paths"},
+      {"sha": "256405906fd285f8f0a186b50bf6f840db04f08a", "kind": "optimization", "subject": "Specialize ordinary map helpers at load time"},
+      {"sha": "954d652e7192fbbdb05f09fa810d9bd8c520b281", "kind": "test-fix", "subject": "Fix per-CPU hash fast-hash test"},
+      {"sha": "610810ce8d2d68e0d12607b0586d08f56f407f70", "kind": "optimization", "subject": "Specialize per-CPU hash lookup helpers at load time"},
+      {"sha": "6496267005eb3bab81290d8ccdd1d2e64bd0922d", "kind": "optimization", "subject": "Optimize fixed hash calculation and probing"},
+      {"sha": "fd99bfecd290ec5d29b1f6091cf079a4df807514", "kind": "optimization", "subject": "Inline validated map handler access in specialized helpers"},
+      {"sha": "e43af4b8ea101894a0b9c6f885a51bc21cb9b326", "kind": "optimization", "subject": "Optimize fixed-size hash key comparisons"},
+      {"sha": "1c79ddeb128b70b1ed9fc1d141b38f31eb13918b", "kind": "optimization", "subject": "Specialize map update helpers by map type"},
+      {"sha": "d12c2d5f3c4d2d6f879b1a18974c93bb97125bb4", "kind": "optimization", "subject": "Optimize fixed hash bucket reduction"},
+      {"sha": "09e1576e9eb3ca7feca0c555cf7e5c85d5caf690", "kind": "optimization", "subject": "Flatten per-CPU hash lookup hot path"},
+      {"sha": "a1ef4a7e69b3cf17b120a3148a3a4ba1d580a8b9", "kind": "optimization", "subject": "Hoist fixed hash lookup key dispatch out of probe loop"},
+      {"sha": "df934cd13027a2d14acec3e7fbfa87b144adab1e", "kind": "optimization", "subject": "Use bucket-local iterators for per-CPU hash lookup"},
+      {"sha": "eb09b972d59ca7845e3e1251a2ad96845b93feaf", "kind": "optimization", "subject": "Inline per-CPU array production lookup leaf"},
+      {"sha": "fefe2f6edf276e1b2957711203b5022dd1be8d7c", "kind": "optimization", "subject": "Outline ordinary array lookup error handling"},
+      {"sha": "9ffbffba8325b92eaa0771345c4054ee82121ca6", "kind": "optimization", "subject": "Add opt-in owned ordinary array lookup JIT specialization"},
+      {"sha": "c0939bdf8e3ece38f56d964cac3d333468b8bf23", "kind": "optimization", "subject": "Enable default ordinary and per-CPU array lookup JIT"},
+      {"sha": "2eea622f97688b82a5c39402f631e79b5eb538f8", "kind": "test-fix", "subject": "Account for map-binding mutex in map-name collision test"},
+      {"sha": "bdd98355868bc8a76aad1158af1582de19b98ec6", "kind": "optimization", "subject": "Bind libbpf global data in array lookup JIT programs"},
+      {"sha": "f24dc9bf93f960df0b7cf25b232c41ae1fc84b5d", "kind": "benchmark", "subject": "Allow hash variants of the consuming array diagnostic"},
+      {"sha": "baf0cc85eba4fac6410a09902df411c27b30b7d7", "kind": "optimization", "subject": "Dispatch non-inlined map calls of bound programs in constant time"},
+      {"sha": "c3090b598241f2b97dc09a38e96708db04b56330", "kind": "optimization", "subject": "Select typed map helpers for hash maps next to arrays and global data"},
+      {"sha": "1cb208076d743e422205e97f781da03530b09e50", "kind": "optimization", "subject": "Bound hash map probing for misses and deleted buckets"},
+      {"sha": "f26cc335f79725a926ee0bf057dc5996e97c63d4", "kind": "optimization", "subject": "Call original map helpers directly for constant non-array handles"}
+    ]
+  },
+  "build": {
+    "jobs": 6,
+    "cmake_args": [
+      "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
+      "-DCMAKE_C_COMPILER=/usr/bin/gcc-13",
+      "-DCMAKE_CXX_COMPILER=/usr/bin/g++-13",
+      "-DBPFTIME_BPF_CLANG=/usr/bin/clang-15",
+      "-DLLVM_DIR=/usr/lib/llvm-15/lib/cmake/llvm",
+      "-DBPFTIME_ENABLE_LTO=ON",
+      "-DBPFTIME_ENABLE_UNIT_TESTING=ON",
+      "-DBPFTIME_ENABLE_CUDA_ATTACH=OFF",
+      "-DENABLE_EBPF_VERIFIER=OFF",
+      "-DENABLE_PROBE_READ_CHECK=OFF",
+      "-DENABLE_PROBE_WRITE_CHECK=OFF",
+      "-DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO"
+    ],
+    "targets": [
+      "bpftime-agent",
+      "bpftime-syscall-server",
+      "simple-benchmark-with-embed-ebpf-calling",
+      "bpftime_runtime_tests"
+    ],
+    "test_filter": "[array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent,[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps][map_in_map],Test bpftime runtime_config,Allow external maps from the environment,Select Frida*,Test basic operations of external hash map ops"
+  },
+  "benchmark": {
+    "cpu": 5,
+    "runs": 10,
+    "disable_core_relocations": true,
+    "skip_unchanged_sha": true,
+    "regression_threshold_percent": 5.0
+  }
+}

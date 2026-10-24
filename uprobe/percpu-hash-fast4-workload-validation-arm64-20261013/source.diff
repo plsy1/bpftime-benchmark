@@ -1,0 +1,71 @@
+diff --git a/runtime/src/bpf_map/map_common_def.hpp b/runtime/src/bpf_map/map_common_def.hpp
+index b0d6ace..43f8cfa 100644
+--- a/runtime/src/bpf_map/map_common_def.hpp
++++ b/runtime/src/bpf_map/map_common_def.hpp
+@@ -71,6 +71,14 @@ struct bytes_vec_hasher {
+ 	static size_t normal_hash(const uint8_t *data, size_t size)
+ 	{
+ 		using boost::hash_combine;
++		if (size == sizeof(uint32_t)) {
++			// Match the existing uint32_hasher fast path used by fixed-key
++			// maps. The integer itself is a complete hash for a four-byte
++			// key and avoids five serial boost::hash_combine operations.
++			uint32_t key;
++			std::memcpy(&key, data, sizeof(key));
++			return key;
++		}
+ 		size_t seed = 0;
+ 		hash_combine(seed, size);
+ 		for (size_t i = 0; i < size; ++i)
+diff --git a/runtime/unit-test/maps/test_per_cpu_hash.cpp b/runtime/unit-test/maps/test_per_cpu_hash.cpp
+index 930092d..09244b4 100644
+--- a/runtime/unit-test/maps/test_per_cpu_hash.cpp
++++ b/runtime/unit-test/maps/test_per_cpu_hash.cpp
+@@ -16,6 +16,7 @@
+ #include <bpf_map/map_common_def.hpp>
+ #include "catch2/internal/catch_run_context.hpp"
+ #include <algorithm>
++#include <array>
+ #include <random>
+ 
+ using namespace boost::interprocess;
+@@ -23,6 +24,30 @@ using namespace bpftime;
+ 
+ static const char *SHM_NAME = "BPFTIME_PER_CPU_HASH_SHM";
+ 
++TEST_CASE("four-byte key hash uses the direct integer value",
++	  "[percpu-hash][hash-fast4]")
++{
++	const std::string shm_name =
++		"BPFTIME_PER_CPU_HASH_COMPAT_SHM_" + std::to_string(getpid());
++	shm_remove remover(shm_name.c_str());
++	managed_shared_memory mem(create_only, shm_name.c_str(), 1 << 20);
++	bytes_vec key(sizeof(uint32_t), mem.get_segment_manager());
++	const std::array<std::array<uint8_t, 4>, 5> cases = { {
++		{ 0x00, 0x00, 0x00, 0x00 },
++		{ 0x01, 0x00, 0x00, 0x00 },
++		{ 0xff, 0xff, 0xff, 0xff },
++		{ 0x12, 0x34, 0x56, 0x78 },
++		{ 0x78, 0x56, 0x34, 0x12 },
++	} };
++
++	for (const auto &bytes : cases) {
++		std::copy(bytes.begin(), bytes.end(), key.begin());
++		uint32_t expected;
++		std::memcpy(&expected, bytes.data(), sizeof(expected));
++		REQUIRE(bytes_vec_hasher{}(key) == expected);
++	}
++}
++
+ TEST_CASE("Test basic operations of hash map")
+ {
+ 	shm_remove remover(SHM_NAME);
+@@ -129,7 +154,7 @@ TEST_CASE("per-cpu hash preserves arbitrary key and value bytes",
+ 	const int ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+ 	const int cpu = sched_getcpu();
+ 
+-	for (uint32_t key_size : { 1U, 4U, 17U }) {
++	for (uint32_t key_size : { 1U, 4U, 16U, 17U, 64U }) {
+ 		for (uint32_t value_size : { 1U, 8U, 24U, 257U }) {
+ 			CAPTURE(key_size, value_size, cpu, ncpu);
+ 			per_cpu_hash_map_impl map(mem, key_size, value_size, 16,

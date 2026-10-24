@@ -1,0 +1,33 @@
+--- baseline
+
++++ candidate
+
+@@ -31,17 +31,17 @@
+
+ add	x0, x0, x1
+ csetm	x1, ne	// ne = any
+ and	x1, x1, x0
+-ldr	w0, [x1, #36]
+-cmp	w2, w0
++add	x3, x1, #0x8
++ldr	x0, [x1, #8]
++ldr	w4, [x1, #36]
++cmp	x0, #0x1
++add	x3, x3, x0
++csetm	x0, ne	// ne = any
++ldr	w1, [x1, #32]
++and	x0, x0, x3
++cmp	w2, w4
+ b.cs	ADDR <bpftime_array_map_lookup_elem_helper+0xb8>  // b.hs, b.nlast
+-ldr	x3, [x1, #8]
+-add	x0, x1, #0x8
+-ldr	w4, [x1, #32]
+-cmp	x3, #0x1
+-add	x1, x0, x3
+-csetm	x0, ne	// ne = any
+-and	x0, x0, x1
+-mul	w2, w2, w4
++mul	w2, w2, w1
+ add	x0, x0, x2
+ ret
+ b	ADDR <bpftime::detail::array_lookup_enoent()>

@@ -1,0 +1,571 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a708e6c..99a7a6c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -170,6 +170,10 @@ if(BPFTIME_ENABLE_CUDA_ATTACH)
+   add_compile_definitions(BPFTIME_ENABLE_CUDA_ATTACH=1)
+ endif()
+ 
++if(BPFTIME_ENABLE_MAP_PRODUCTION_AB)
++  add_compile_definitions(BPFTIME_ENABLE_MAP_PRODUCTION_AB=1)
++endif()
++
+ if(BPFTIME_ENABLE_GDRCOPY)
+   add_compile_definitions(BPFTIME_ENABLE_GDRCOPY=1)
+   message(STATUS "Building with optional GDRCopy support (BPFTIME_ENABLE_GDRCOPY=1)")
+diff --git a/cmake/StandardSettings.cmake b/cmake/StandardSettings.cmake
+index 85548da..57177bf 100644
+--- a/cmake/StandardSettings.cmake
++++ b/cmake/StandardSettings.cmake
+@@ -33,6 +33,11 @@ option(BPFTIME_ENABLE_UNIT_TESTING "Enable unit tests for the projects (from the
+ 
+ option(BPFTIME_USE_CATCH2 "Use the Catch2 project for creating unit tests." OFF)
+ 
++# Enable environment-controlled map hot-path A/B diagnostics. Keep this off in
++# production builds so the compiler can remove all diagnostic branches and
++# counters from lookup/update/delete paths.
++option(BPFTIME_ENABLE_MAP_PRODUCTION_AB "Enable map hot-path A/B diagnostics" OFF)
++
+ #
+ # Miscelanious options
+ #
+diff --git a/runtime/include/bpf_attach_ctx.hpp b/runtime/include/bpf_attach_ctx.hpp
+index decb40a..e1aa03f 100644
+--- a/runtime/include/bpf_attach_ctx.hpp
++++ b/runtime/include/bpf_attach_ctx.hpp
+@@ -261,7 +261,8 @@ private:
+ 
+ int load_prog_and_helpers(
+ 	bpftime_prog *prog, const runtime_config &config,
+-	const bpftime_helper_info *map_lookup_override = nullptr);
++	const bpftime_helper_info *map_lookup_override = nullptr,
++	const bpftime_helper_info *map_update_override = nullptr);
+ 
+ } // namespace bpftime
+ 
+diff --git a/runtime/include/bpftime_helper_group.hpp b/runtime/include/bpftime_helper_group.hpp
+index ad489b2..6eccb3f 100644
+--- a/runtime/include/bpftime_helper_group.hpp
++++ b/runtime/include/bpftime_helper_group.hpp
+@@ -49,7 +49,8 @@ class bpftime_helper_group {
+ 	// Add the helper group to the program
+ 	int add_helper_group_to_prog(
+ 		bpftime_prog *prog,
+-		const bpftime_helper_info *override_helper = nullptr) const;
++		const bpftime_helper_info *override_helper = nullptr,
++		const bpftime_helper_info *second_override_helper = nullptr) const;
+ 	// Get all helper ids of this helper group
+ 	std::vector<int32_t> get_helper_ids() const;
+ 
+@@ -65,6 +66,10 @@ get_ufunc_helper_protos();
+ 
+ extern "C" uint64_t bpftime_array_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
++extern "C" uint64_t bpftime_hash_map_lookup_elem_helper(
++	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
++extern "C" uint64_t bpftime_array_map_update_elem_helper(
++	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
+ extern "C" uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+ #endif
+diff --git a/runtime/src/attach/bpf_attach_ctx.cpp b/runtime/src/attach/bpf_attach_ctx.cpp
+index 1221536..bfad764 100644
+--- a/runtime/src/attach/bpf_attach_ctx.cpp
++++ b/runtime/src/attach/bpf_attach_ctx.cpp
+@@ -44,7 +44,8 @@ namespace bpftime
+ 
+ int load_prog_and_helpers(
+ 	bpftime_prog *prog, const runtime_config &config,
+-	const bpftime_helper_info *map_lookup_override)
++	const bpftime_helper_info *map_lookup_override,
++	const bpftime_helper_info *map_update_override)
+ {
+ #if defined(__linux__)
+ 	if (config.enable_kernel_helper_group) {
+@@ -58,22 +59,22 @@ int load_prog_and_helpers(
+ 	}
+ 	if (config.enable_shm_maps_helper_group) {
+ 		bpftime_helper_group::get_shm_maps_helper_group()
+-			.add_helper_group_to_prog(prog, map_lookup_override);
++			.add_helper_group_to_prog(prog, map_lookup_override,
++						  map_update_override);
+ 	}
+ 	return prog->bpftime_prog_load(config.jit_enabled);
+ }
+ 
+-static bool uses_only_maps_of_type_for_lookup(
++static bool uses_only_maps_of_type_for_helper(
+ 	const handler_manager *manager, const bpf_prog_handler &prog,
+-	bpf_map_type expected_type)
++	bpf_map_type expected_type, unsigned int helper_id)
+ {
+ 	bool has_map = false;
+-	bool has_lookup = false;
++	bool has_helper = false;
+ 	for (std::size_t i = 0; i < prog.insns.size(); ++i) {
+ 		const auto &insn = prog.insns[i];
+-		if (insn.code == EBPF_OP_CALL &&
+-		    insn.imm == BPF_FUNC_map_lookup_elem)
+-			has_lookup = true;
++		if (insn.code == EBPF_OP_CALL && insn.imm == helper_id)
++			has_helper = true;
+ 		if (insn.code != EBPF_OP_LDDW)
+ 			continue;
+ 		// A MAP_VALUE relocation is a direct value pointer, not an
+@@ -94,7 +95,7 @@ static bool uses_only_maps_of_type_for_lookup(
+ 		if (i + 1 < prog.insns.size())
+ 			++i;
+ 	}
+-	return has_map && has_lookup;
++	return has_map && has_helper;
+ }
+ 
+ int bpf_attach_ctx::init_attach_ctx_from_handlers(const runtime_config &config)
+@@ -347,31 +348,64 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
+ 		.fn = reinterpret_cast<void *>(
+ 			bpftime_array_map_lookup_elem_helper),
+ 	};
++	const bpftime_helper_info hash_lookup{
++		.index = BPF_FUNC_map_lookup_elem,
++		.name = "bpf_map_lookup_elem",
++		.fn = reinterpret_cast<void *>(
++			bpftime_hash_map_lookup_elem_helper),
++	};
+ 	const bpftime_helper_info percpu_array_lookup{
+ 		.index = BPF_FUNC_map_lookup_elem,
+ 		.name = "bpf_map_lookup_elem",
+ 		.fn = reinterpret_cast<void *>(
+ 			bpftime_percpu_array_map_lookup_elem_helper),
+ 	};
++	const bpftime_helper_info array_update{
++		.index = BPF_FUNC_map_update_elem,
++		.name = "bpf_map_update_elem",
++		.fn = reinterpret_cast<void *>(
++			bpftime_array_map_update_elem_helper),
++	};
+ 	const auto mode = get_map_production_ab_mode();
+ 	const bpftime_helper_info *map_lookup_override = nullptr;
++	const bpftime_helper_info *map_update_override = nullptr;
+ 	if (mode == map_production_ab_mode::base &&
+-	    uses_only_maps_of_type_for_lookup(
+-		    manager, handler, bpf_map_type::BPF_MAP_TYPE_ARRAY)) {
++	    uses_only_maps_of_type_for_helper(
++		    manager, handler, bpf_map_type::BPF_MAP_TYPE_ARRAY,
++		    BPF_FUNC_map_lookup_elem)) {
+ 		map_lookup_override = &array_lookup;
+ 		SPDLOG_INFO(
+ 			"Using specialized array lookup helper for program {}",
+ 			name);
+ 	} else if (mode == map_production_ab_mode::base &&
+-		   uses_only_maps_of_type_for_lookup(
++		   uses_only_maps_of_type_for_helper(
++			   manager, handler, bpf_map_type::BPF_MAP_TYPE_HASH,
++			   BPF_FUNC_map_lookup_elem)) {
++		map_lookup_override = &hash_lookup;
++		SPDLOG_INFO(
++			"Using specialized hash lookup helper for program {}",
++			name);
++	} else if (mode == map_production_ab_mode::base &&
++		   uses_only_maps_of_type_for_helper(
+ 			   manager, handler,
+-			   bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)) {
++			   bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY,
++			   BPF_FUNC_map_lookup_elem)) {
+ 		map_lookup_override = &percpu_array_lookup;
+ 		SPDLOG_INFO(
+ 			"Using specialized per-CPU array lookup helper for program {}",
+ 			name);
+ 	}
+-	if (int err = load_prog_and_helpers(prog, config, map_lookup_override);
++	if (mode == map_production_ab_mode::base &&
++	    uses_only_maps_of_type_for_helper(
++		    manager, handler, bpf_map_type::BPF_MAP_TYPE_ARRAY,
++		    BPF_FUNC_map_update_elem)) {
++		map_update_override = &array_update;
++		SPDLOG_INFO(
++			"Using specialized array update helper for program {}",
++			name);
++	}
++	if (int err = load_prog_and_helpers(prog, config, map_lookup_override,
++					    map_update_override);
+ 	    err < 0) {
+ 		SPDLOG_ERROR(
+ 			"Failed to load program helpers for prog handler {}: {}",
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index 31828cd..addbd45 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -365,6 +365,57 @@ uint64_t bpftime_array_map_lookup_elem_helper(
+ 		handler->map_lookup_array(reinterpret_cast<void *>(key)));
+ }
+ 
++uint64_t bpftime_hash_map_lookup_elem_helper(
++	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t)
++{
++	auto &shm = bpftime::shm_holder.global_shared_memory;
++	const int fd = static_cast<int>(map);
++	const auto *manager = shm.get_manager();
++	if (manager == nullptr || fd < 0 ||
++	    static_cast<std::size_t>(fd) >= manager->size()) {
++		errno = ENOENT;
++		return 0;
++	}
++	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
++		&manager->get_handler(fd));
++	if (handler == nullptr) {
++		errno = ENOENT;
++		return 0;
++	}
++	if (handler->type != bpftime::bpf_map_type::BPF_MAP_TYPE_HASH)
++		return reinterpret_cast<uint64_t>(
++			handler->map_lookup_elem(reinterpret_cast<void *>(key),
++						 false));
++	return reinterpret_cast<uint64_t>(
++		handler->map_lookup_hash(reinterpret_cast<void *>(key)));
++}
++
++uint64_t bpftime_array_map_update_elem_helper(
++	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t)
++{
++	auto &shm = bpftime::shm_holder.global_shared_memory;
++	const int fd = static_cast<int>(map);
++	const auto *manager = shm.get_manager();
++	if (manager == nullptr || fd < 0 ||
++	    static_cast<std::size_t>(fd) >= manager->size()) {
++		errno = ENOENT;
++		return static_cast<uint64_t>(-1);
++	}
++	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
++		&manager->get_handler(fd));
++	if (handler == nullptr) {
++		errno = ENOENT;
++		return static_cast<uint64_t>(-1);
++	}
++	if (handler->type != bpftime::bpf_map_type::BPF_MAP_TYPE_ARRAY)
++		return static_cast<uint64_t>(handler->map_update_elem(
++			reinterpret_cast<void *>(key),
++			reinterpret_cast<void *>(value), flags, false));
++	return static_cast<uint64_t>(handler->map_update_array(
++		reinterpret_cast<void *>(key), reinterpret_cast<void *>(value),
++		flags));
++}
++
+ uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t)
+ {
+@@ -1212,15 +1263,18 @@ int bpftime_helper_group::append(const bpftime_helper_group &another_group)
+ }
+ 
+ int bpftime_helper_group::add_helper_group_to_prog(
+-	bpftime_prog *prog, const bpftime_helper_info *override_helper) const
++	bpftime_prog *prog, const bpftime_helper_info *override_helper,
++	const bpftime_helper_info *second_override_helper) const
+ {
+ 	for (auto it : helper_map) {
+-		const auto &helper =
+-			override_helper != nullptr &&
+-					override_helper->index == it.first ?
+-				*override_helper :
+-				it.second;
+-		prog->bpftime_prog_register_raw_helper(helper);
++		const bpftime_helper_info *helper = &it.second;
++		if (override_helper != nullptr &&
++		    override_helper->index == it.first)
++			helper = override_helper;
++		else if (second_override_helper != nullptr &&
++			 second_override_helper->index == it.first)
++			helper = second_override_helper;
++		prog->bpftime_prog_register_raw_helper(*helper);
+ 	}
+ 	return 0;
+ }
+diff --git a/runtime/src/bpf_map/map_common_def.hpp b/runtime/src/bpf_map/map_common_def.hpp
+index 43f8cfa..df00929 100644
+--- a/runtime/src/bpf_map/map_common_def.hpp
++++ b/runtime/src/bpf_map/map_common_def.hpp
+@@ -5,15 +5,12 @@
+  */
+ #ifndef _MAP_COMMON_DEF_HPP
+ #define _MAP_COMMON_DEF_HPP
+-#include "bpf_map/map_production_ab.hpp"
+ #include "spdlog/spdlog.h"
+ #include <boost/container_hash/hash.hpp>
+ #include <cinttypes>
+ #include <boost/interprocess/managed_shared_memory.hpp>
+ #include <boost/interprocess/containers/vector.hpp>
+ #include <cstdint>
+-#include <array>
+-#include <cstring>
+ #include <functional>
+ #include <utility>
+ #include "platform_utils.hpp"
+@@ -68,66 +65,15 @@ inline void ensure_on_certain_cpu(int cpu, std::function<void()> func)
+ }
+ 
+ struct bytes_vec_hasher {
+-	static size_t normal_hash(const uint8_t *data, size_t size)
++	size_t operator()(bytes_vec const &vec) const
+ 	{
+ 		using boost::hash_combine;
+-		if (size == sizeof(uint32_t)) {
+-			// Match the existing uint32_hasher fast path used by fixed-key
+-			// maps. The integer itself is a complete hash for a four-byte
+-			// key and avoids five serial boost::hash_combine operations.
+-			uint32_t key;
+-			std::memcpy(&key, data, sizeof(key));
+-			return key;
+-		}
+ 		size_t seed = 0;
+-		hash_combine(seed, size);
+-		for (size_t i = 0; i < size; ++i)
+-			hash_combine(seed, data[i]);
++		hash_combine(seed, vec.size());
++		for (auto x : vec)
++			hash_combine(seed, x);
+ 		return seed;
+ 	}
+-
+-	size_t operator()(bytes_vec const &vec) const
+-	{
+-		if (map_production_ab_stats_enabled() &&
+-		    map_production_ab_lookup_active())
+-			++map_production_ab_stats().hash_calls;
+-		if (map_production_ab_cached_hash() && vec.size() == 4) {
+-			uint32_t key;
+-			std::memcpy(&key, vec.data(), sizeof(key));
+-			if (key < 1024) {
+-				static const std::array<size_t, 1024> hashes = [] {
+-					std::array<size_t, 1024> result{};
+-					for (uint32_t value = 0; value < result.size(); ++value) {
+-						uint8_t bytes[sizeof(value)];
+-						std::memcpy(bytes, &value, sizeof(value));
+-						result[value] = normal_hash(bytes, sizeof(bytes));
+-					}
+-					return result;
+-				}();
+-				return hashes[key];
+-			}
+-		}
+-		return normal_hash(vec.data(), vec.size());
+-	}
+-};
+-
+-struct bytes_vec_equal {
+-	bool operator()(bytes_vec const &lhs, bytes_vec const &rhs) const
+-	{
+-		if (map_production_ab_stats_enabled() &&
+-		    map_production_ab_lookup_active())
+-			++map_production_ab_stats().equal_calls;
+-		if (lhs.size() != rhs.size())
+-			return false;
+-		if (lhs.size() == sizeof(uint32_t)) {
+-			uint32_t left, right;
+-			std::memcpy(&left, lhs.data(), sizeof(left));
+-			std::memcpy(&right, rhs.data(), sizeof(right));
+-			return left == right;
+-		}
+-		return lhs.empty() ||
+-		       std::memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+-	}
+ };
+ 
+ struct uint32_hasher {
+diff --git a/runtime/src/bpf_map/map_production_ab.hpp b/runtime/src/bpf_map/map_production_ab.hpp
+index 75b7cab..c4c38ee 100644
+--- a/runtime/src/bpf_map/map_production_ab.hpp
++++ b/runtime/src/bpf_map/map_production_ab.hpp
+@@ -43,6 +43,7 @@ enum class map_production_ab_mode {
+ 	percpu_hash_delete_defer_reclaim,
+ };
+ 
++#if defined(BPFTIME_ENABLE_MAP_PRODUCTION_AB)
+ inline map_production_ab_mode get_map_production_ab_mode()
+ {
+ 	static const map_production_ab_mode mode = [] {
+@@ -139,6 +140,27 @@ inline bool map_production_ab_stats_enabled()
+ 	}();
+ 	return enabled;
+ }
++#else
++inline constexpr map_production_ab_mode get_map_production_ab_mode()
++{
++	return map_production_ab_mode::base;
++}
++
++inline constexpr bool map_production_ab_cached_hash()
++{
++	return false;
++}
++
++inline constexpr bool map_production_ab_fixed4_equal()
++{
++	return false;
++}
++
++inline constexpr bool map_production_ab_stats_enabled()
++{
++	return false;
++}
++#endif
+ 
+ struct map_production_ab_lookup_stats {
+ 	uint64_t lookups = 0;
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp b/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp
+index fe24faf..5a032dd 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp
+@@ -12,36 +12,110 @@
+ #include <boost/interprocess/smart_ptr/unique_ptr.hpp>
+ #include <boost/interprocess/containers/vector.hpp>
+ #include <bpf_map/map_common_def.hpp>
++#if defined(BPFTIME_ENABLE_MAP_PRODUCTION_AB)
++#include <bpf_map/map_production_ab.hpp>
++#endif
+ #include <boost/unordered/unordered_map.hpp>
++#include <array>
+ #include <cstdint>
++#include <cstring>
+ #include <vector>
+ 
+ namespace bpftime
+ {
+ 
++struct per_cpu_bytes_vec_hasher {
++	static size_t normal_hash(const uint8_t *data, size_t size)
++	{
++		using boost::hash_combine;
++		if (size == sizeof(uint32_t)) {
++			uint32_t key;
++			std::memcpy(&key, data, sizeof(key));
++			return key;
++		}
++		size_t seed = 0;
++		hash_combine(seed, size);
++		for (size_t i = 0; i < size; ++i)
++			hash_combine(seed, data[i]);
++		return seed;
++	}
++
++	size_t operator()(bytes_vec const &vec) const
++	{
++#if defined(BPFTIME_ENABLE_MAP_PRODUCTION_AB)
++		if (map_production_ab_stats_enabled() &&
++		    map_production_ab_lookup_active())
++			++map_production_ab_stats().hash_calls;
++		if (map_production_ab_cached_hash() && vec.size() == 4) {
++			uint32_t key;
++			std::memcpy(&key, vec.data(), sizeof(key));
++			if (key < 1024) {
++				static const std::array<size_t, 1024> hashes = [] {
++					std::array<size_t, 1024> result{};
++					for (uint32_t value = 0; value < result.size(); ++value) {
++						uint8_t bytes[sizeof(value)];
++						std::memcpy(bytes, &value, sizeof(value));
++						result[value] = normal_hash(bytes, sizeof(bytes));
++					}
++					return result;
++				}();
++				return hashes[key];
++			}
++		}
++#endif
++		return normal_hash(vec.data(), vec.size());
++	}
++};
++
++struct per_cpu_bytes_vec_equal {
++	bool operator()(bytes_vec const &lhs, bytes_vec const &rhs) const
++	{
++#if defined(BPFTIME_ENABLE_MAP_PRODUCTION_AB)
++		if (map_production_ab_stats_enabled() &&
++		    map_production_ab_lookup_active())
++			++map_production_ab_stats().equal_calls;
++#endif
++		if (lhs.size() != rhs.size())
++			return false;
++		if (lhs.size() == sizeof(uint32_t)) {
++			uint32_t left, right;
++			std::memcpy(&left, lhs.data(), sizeof(left));
++			std::memcpy(&right, rhs.data(), sizeof(right));
++			return left == right;
++		}
++		return lhs.empty() ||
++		       std::memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
++	}
++};
++
+ class per_cpu_hash_map_impl {
+ 	using bi_map_value_ty = std::pair<const bytes_vec, bytes_vec>;
+ 	using bi_map_allocator = boost::interprocess::allocator<
+ 		bi_map_value_ty,
+ 		boost::interprocess::managed_shared_memory::segment_manager>;
+ 	using shm_hash_map =
+-		boost::unordered_map<bytes_vec, bytes_vec, bytes_vec_hasher,
+-				     bytes_vec_equal, bi_map_allocator>;
++		boost::unordered_map<bytes_vec, bytes_vec,
++				     per_cpu_bytes_vec_hasher,
++				     per_cpu_bytes_vec_equal, bi_map_allocator>;
+ 	struct uint32_key_hasher {
+ 		size_t operator()(uint32_t key) const
+ 		{
++#if defined(BPFTIME_ENABLE_MAP_PRODUCTION_AB)
+ 			if (map_production_ab_stats_enabled() &&
+ 			    map_production_ab_lookup_active())
+ 				++map_production_ab_stats().hash_calls;
++#endif
+ 			return key;
+ 		}
+ 	};
+ 	struct uint32_key_equal {
+ 		bool operator()(uint32_t lhs, uint32_t rhs) const
+ 		{
++#if defined(BPFTIME_ENABLE_MAP_PRODUCTION_AB)
+ 			if (map_production_ab_stats_enabled() &&
+ 			    map_production_ab_lookup_active())
+ 				++map_production_ab_stats().equal_calls;
++#endif
+ 			return lhs == rhs;
+ 		}
+ 	};
+diff --git a/runtime/src/handler/map_handler.cpp b/runtime/src/handler/map_handler.cpp
+index 56c1395..a69178a 100644
+--- a/runtime/src/handler/map_handler.cpp
++++ b/runtime/src/handler/map_handler.cpp
+@@ -267,6 +267,12 @@ const void *bpf_map_handler::map_lookup_elem(const void *key,
+ 	return 0;
+ }
+ 
++const void *bpf_map_handler::map_lookup_hash(const void *key) const
++{
++	bpftime_lock_guard guard(map_lock);
++	return static_cast<hash_map_impl *>(map_impl_ptr.get())->elem_lookup(key);
++}
++
+ const void *bpf_map_handler::diagnostic_direct_lookup(const void *key) const
+ {
+ 	if (type == bpf_map_type::BPF_MAP_TYPE_ARRAY)
+diff --git a/runtime/src/handler/map_handler.hpp b/runtime/src/handler/map_handler.hpp
+index 6e18008..220e471 100644
+--- a/runtime/src/handler/map_handler.hpp
++++ b/runtime/src/handler/map_handler.hpp
+@@ -160,6 +160,7 @@ class bpf_map_handler {
+ 	// *
+ 	const void *map_lookup_elem(const void *key,
+ 				    bool from_syscall = false) const;
++	const void *map_lookup_hash(const void *key) const;
+ 	const void *map_lookup_array(const void *key) const
+ 	{
+ 		return static_cast<array_map_impl *>(map_impl_ptr.get())
+@@ -203,6 +204,12 @@ class bpf_map_handler {
+ 	// *
+ 	long map_update_elem(const void *key, const void *value, uint64_t flags,
+ 			     bool from_syscall = false) const;
++	long map_update_array(const void *key, const void *value,
++			      uint64_t flags) const
++	{
++		return static_cast<array_map_impl *>(map_impl_ptr.get())
++			->elem_update(key, value, flags);
++	}
+ 	// * BPF_MAP_DELETE_ELEM
+ 	// *	Description
+ 	// *		Look up and delete an element by key in a specified map.

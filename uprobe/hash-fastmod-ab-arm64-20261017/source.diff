@@ -1,0 +1,144 @@
+diff --git a/runtime/src/bpf_map/bpftime_hash_map.hpp b/runtime/src/bpf_map/bpftime_hash_map.hpp
+index 3325e7d..a5d2e5c 100644
+--- a/runtime/src/bpf_map/bpftime_hash_map.hpp
++++ b/runtime/src/bpf_map/bpftime_hash_map.hpp
+@@ -29,6 +29,33 @@ private:
+ 	}
+ 
+ public:
++	static inline size_t modulo_reciprocal(size_t divisor)
++	{
++#if SIZE_MAX == UINT64_MAX && defined(__SIZEOF_INT128__)
++		return static_cast<size_t>(
++			(static_cast<unsigned __int128>(1) << 64) / divisor);
++#else
++		(void)divisor;
++		return 0;
++#endif
++	}
++
++	static inline size_t fast_modulo(size_t value, size_t divisor,
++					 size_t reciprocal)
++	{
++#if SIZE_MAX == UINT64_MAX && defined(__SIZEOF_INT128__)
++		const size_t quotient = static_cast<size_t>(
++			(static_cast<unsigned __int128>(value) * reciprocal) >> 64);
++		size_t remainder = value - quotient * divisor;
++		if (remainder >= divisor)
++			remainder -= divisor;
++		return remainder;
++#else
++		(void)reciprocal;
++		return value % divisor;
++#endif
++	}
++
+ 	static inline size_t next_prime(size_t n)
+ 	{
+ 		while (!is_prime(n)) {
+@@ -81,6 +108,7 @@ class bpftime_hash_map {
+ 	size_t _key_size;
+ 	size_t _value_size;
+ 	size_t _num_buckets; // Adjusted number of buckets (prime)
++	size_t _bucket_reciprocal; // Precomputed for fast initial bucket mapping
+ 	size_t _max_element_count; // Maximum number of elements based on the
+ 				   // original num_buckets
+ 	size_t _count; // Current number of elements
+@@ -99,6 +127,8 @@ class bpftime_hash_map {
+ 		: _key_size(key_size), _value_size(value_size),
+ 		  // Use nearest prime  number
+ 		  _num_buckets(bpftime_hasher::next_prime(num_buckets)),
++		  _bucket_reciprocal(
++			  bpftime_hasher::modulo_reciprocal(_num_buckets)),
+ 		  // Use the original bucket count
+ 		  _max_element_count(num_buckets),
+ 		  // Initialize count to 0
+@@ -159,7 +189,9 @@ class bpftime_hash_map {
+ 
+ 	void *elem_lookup(const void *key)
+ 	{
+-		size_t index = bpftime_hasher::hash_func(key, _key_size) % _num_buckets;
++		size_t index = bpftime_hasher::fast_modulo(
++			bpftime_hasher::hash_func(key, _key_size), _num_buckets,
++			_bucket_reciprocal);
+ 		size_t start_index = index;
+ 		do {
+ 			const auto state = get_bucket_state(index);
+@@ -178,7 +210,9 @@ class bpftime_hash_map {
+ 
+ 	bool elem_update(const void *key, const void *value)
+ 	{
+-		size_t index = bpftime_hasher::hash_func(key, _key_size) % _num_buckets;
++		size_t index = bpftime_hasher::fast_modulo(
++			bpftime_hasher::hash_func(key, _key_size), _num_buckets,
++			_bucket_reciprocal);
+ 		size_t start_index = index;
+ 		size_t first_deleted = _num_buckets;
+ 
+@@ -233,7 +267,9 @@ class bpftime_hash_map {
+ 
+ 	bool elem_delete(const void *key)
+ 	{
+-		size_t index = bpftime_hasher::hash_func(key, _key_size) % _num_buckets;
++		size_t index = bpftime_hasher::fast_modulo(
++			bpftime_hasher::hash_func(key, _key_size), _num_buckets,
++			_bucket_reciprocal);
+ 		size_t start_index = index;
+ 		do {
+ 			const auto state = get_bucket_state(index);
+diff --git a/runtime/unit-test/maps/test_fix_hash_map.cpp b/runtime/unit-test/maps/test_fix_hash_map.cpp
+index ee2f5b7..bd6a0e8 100644
+--- a/runtime/unit-test/maps/test_fix_hash_map.cpp
++++ b/runtime/unit-test/maps/test_fix_hash_map.cpp
+@@ -6,6 +6,7 @@
+ #include <algorithm>
+ #include <array>
+ #include <cstdint>
++#include <limits>
+ #include <vector>
+ 
+ using namespace boost::interprocess;
+@@ -26,6 +27,43 @@ struct shm_cleanup {
+ };
+ } // namespace
+ 
++TEST_CASE("Fast modulo preserves the remainder",
++	  "[maps][hash][fast-modulo]")
++{
++	const std::array<size_t, 8> divisors = {
++		2, 3, 11, 257, 1031, 65537, 1000003,
++		std::numeric_limits<uint32_t>::max()
++	};
++	const std::array<size_t, 8> edge_values = {
++		0,
++		1,
++		2,
++		std::numeric_limits<uint32_t>::max(),
++		static_cast<size_t>(std::numeric_limits<uint32_t>::max()) + 1,
++		std::numeric_limits<size_t>::max() / 2,
++		std::numeric_limits<size_t>::max() - 1,
++		std::numeric_limits<size_t>::max(),
++	};
++
++	for (size_t divisor : divisors) {
++		const size_t reciprocal =
++			bpftime_hasher::modulo_reciprocal(divisor);
++		for (size_t value : edge_values) {
++			REQUIRE(bpftime_hasher::fast_modulo(
++					value, divisor, reciprocal) ==
++				value % divisor);
++		}
++
++		size_t value = 0x9e3779b97f4a7c15ULL;
++		for (size_t i = 0; i < 10000; ++i) {
++			value = value * 6364136223846793005ULL + 1;
++			REQUIRE(bpftime_hasher::fast_modulo(
++					value, divisor, reciprocal) ==
++				value % divisor);
++		}
++	}
++}
++
+ TEST_CASE("Four-byte fixed hash preserves the upstream byte hash",
+ 	  "[maps][hash][hash-fast4]")
+ {

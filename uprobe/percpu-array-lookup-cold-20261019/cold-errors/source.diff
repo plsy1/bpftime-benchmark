@@ -1,0 +1,99 @@
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index 3614c85..742ba56 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -424,14 +424,14 @@ uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+ 	const auto *manager = shm.get_manager();
+ 	if (manager == nullptr || fd < 0 ||
+ 	    static_cast<std::size_t>(fd) >= manager->size()) {
+-		errno = ENOENT;
+-		return 0;
++		return reinterpret_cast<uint64_t>(
++			bpftime::detail::percpu_array_lookup_enoent());
+ 	}
+ 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
+ 		&manager->get_handler_at_valid_fd(fd));
+ 	if (handler == nullptr) {
+-		errno = ENOENT;
+-		return 0;
++		return reinterpret_cast<uint64_t>(
++			bpftime::detail::percpu_array_lookup_enoent());
+ 	}
+ 	if (handler->type !=
+ 	    bpftime::bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp b/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
+index 5dbf25d..4bb2e83 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_array_map.cpp
+@@ -15,6 +15,12 @@
+ namespace bpftime
+ {
+ 
++void *detail::percpu_array_lookup_enoent()
++{
++	errno = ENOENT;
++	return nullptr;
++}
++
+ per_cpu_array_map_impl::per_cpu_array_map_impl(
+ 	boost::interprocess::managed_shared_memory &memory, uint32_t value_size,
+ 	uint32_t max_entries, uint32_t ncpu)
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp b/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
+index 1468401..cca7006 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
+@@ -17,6 +17,12 @@
+ namespace bpftime
+ {
+ 
++namespace detail
++{
++// Keep errno access in a cold function while retaining one CPU query per lookup.
++__attribute__((cold, noinline)) void *percpu_array_lookup_enoent();
++} // namespace detail
++
+ class per_cpu_array_map_impl {
+ 	bytes_vec data;
+ 
+@@ -47,13 +53,11 @@ class per_cpu_array_map_impl {
+ 	{
+ 		return ensure_on_current_cpu<void *>([&](int cpu) -> void * {
+ 			if (key == nullptr) {
+-				errno = ENOENT;
+-				return nullptr;
++				return detail::percpu_array_lookup_enoent();
+ 			}
+ 			uint32_t key_val = *(uint32_t *)key;
+ 			if (key_val >= max_ent) {
+-				errno = ENOENT;
+-				return nullptr;
++				return detail::percpu_array_lookup_enoent();
+ 			}
+ 			return data_at(key_val, cpu);
+ 		});
+diff --git a/runtime/unit-test/maps/test_per_cpu_array.cpp b/runtime/unit-test/maps/test_per_cpu_array.cpp
+index c082f49..ea0eb09 100644
+--- a/runtime/unit-test/maps/test_per_cpu_array.cpp
++++ b/runtime/unit-test/maps/test_per_cpu_array.cpp
+@@ -163,17 +163,21 @@ TEST_CASE("Per-CPU array production lookup follows CPU affinity changes",
+ 			CPU_SET(cpu, &selected);
+ 			REQUIRE(sched_setaffinity(0, sizeof(selected), &selected) == 0);
+ 			for (uint32_t key : { 0U, 3U }) {
++				errno = EDOM;
+ 				const auto *value = static_cast<const uint8_t *>(
+ 					map.elem_lookup_base(&key));
+ 				REQUIRE(value != nullptr);
++				REQUIRE(errno == EDOM);
+ 				for (uint32_t byte = 0; byte < value_size; ++byte)
+ 					REQUIRE(value[byte] ==
+ 						static_cast<uint8_t>(key * 17 + cpu * 29 + byte));
+ 			}
+ 			for (uint32_t key : { 4U, std::numeric_limits<uint32_t>::max() }) {
++				errno = EDOM;
+ 				REQUIRE(map.elem_lookup_base(&key) == nullptr);
+ 				REQUIRE(errno == ENOENT);
+ 			}
++			errno = EDOM;
+ 			REQUIRE(map.elem_lookup_base(nullptr) == nullptr);
+ 			REQUIRE(errno == ENOENT);
+ 		}

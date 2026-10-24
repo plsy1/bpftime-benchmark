@@ -1,0 +1,66 @@
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index 2b56dd6..483ef1d 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -352,7 +352,7 @@ uint64_t bpftime_array_map_lookup_elem_helper(
+ 		return 0;
+ 	}
+ 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
+-		&manager->get_handler(fd));
++		&manager->get_handler_at_valid_fd(fd));
+ 	if (handler == nullptr) {
+ 		errno = ENOENT;
+ 		return 0;
+@@ -377,7 +377,7 @@ uint64_t bpftime_hash_map_lookup_elem_helper(
+ 		return 0;
+ 	}
+ 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
+-		&manager->get_handler(fd));
++		&manager->get_handler_at_valid_fd(fd));
+ 	if (handler == nullptr) {
+ 		errno = ENOENT;
+ 		return 0;
+@@ -402,7 +402,7 @@ uint64_t bpftime_array_map_update_elem_helper(
+ 		return static_cast<uint64_t>(-1);
+ 	}
+ 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
+-		&manager->get_handler(fd));
++		&manager->get_handler_at_valid_fd(fd));
+ 	if (handler == nullptr) {
+ 		errno = ENOENT;
+ 		return static_cast<uint64_t>(-1);
+@@ -428,7 +428,7 @@ uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+ 		return 0;
+ 	}
+ 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
+-		&manager->get_handler(fd));
++		&manager->get_handler_at_valid_fd(fd));
+ 	if (handler == nullptr) {
+ 		errno = ENOENT;
+ 		return 0;
+@@ -454,7 +454,7 @@ uint64_t bpftime_percpu_hash_map_lookup_elem_helper(
+ 		return 0;
+ 	}
+ 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
+-		&manager->get_handler(fd));
++		&manager->get_handler_at_valid_fd(fd));
+ 	if (handler == nullptr) {
+ 		errno = ENOENT;
+ 		return 0;
+diff --git a/runtime/src/handler/handler_manager.hpp b/runtime/src/handler/handler_manager.hpp
+index 98b4674..805b53c 100644
+--- a/runtime/src/handler/handler_manager.hpp
++++ b/runtime/src/handler/handler_manager.hpp
+@@ -104,6 +104,12 @@ class handler_manager {
+ 	~handler_manager();
+ 
+ 	const handler_variant &get_handler(int fd) const;
++	// The caller must validate fd against size() first. Keeping this accessor
++	// inline avoids repeating the bounds check in specialized helper paths.
++	const handler_variant &get_handler_at_valid_fd(int fd) const
++	{
++		return handlers[static_cast<std::size_t>(fd)];
++	}
+ 
+ 	const handler_variant &operator[](int idx) const;
+ 	std::size_t size() const;

@@ -1,0 +1,35 @@
+[2026-10-19 23:48:04.239] [info] [bpf_attach_ctx.cpp:219] bpf_attach_ctx constructed
+Filters: [array-jit-poc],[array-offset-branch],[array-lookup-cold],[percpu-array],[percpu-hash],[maps] [hash],[hash-fast4],"Test basic operations of array map"
+Randomness seeded to: 3540505972
+[2026-10-19 23:48:04.288] [error] [bpftime_vm_compat.hpp:249] No VM factory registered for name: llvm
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_runtime_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+Array JIT bridge preserves success, miss errno and live storage
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-array-jit-poc-20261019/runtime/unit-test/maps/test_array_jit_poc.cpp:45
+...............................................................................
+
+/home/jetson/src/bpftime-array-jit-poc-20261019/runtime/unit-test/maps/test_array_jit_poc.cpp:45: FAILED:
+due to unexpected exception with message:
+  Unknown VM type requested: llvm
+
+[2026-10-19 23:48:04.288] [error] [bpftime_vm_compat.hpp:249] No VM factory registered for name: llvm
+-------------------------------------------------------------------------------
+Array JIT leaves dynamic and unregistered handles on helper path
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-array-jit-poc-20261019/runtime/unit-test/maps/test_array_jit_poc.cpp:82
+...............................................................................
+
+/home/jetson/src/bpftime-array-jit-poc-20261019/runtime/unit-test/maps/test_array_jit_poc.cpp:82: FAILED:
+due to unexpected exception with message:
+  Unknown VM type requested: llvm
+
+===============================================================================
+test cases:     20 |     18 passed | 2 failed
+assertions: 106594 | 106592 passed | 2 failed
+
+[2026-10-19 23:48:04.288] [info] [bpf_attach_ctx.cpp:207] Destructor: bpf_attach_ctx

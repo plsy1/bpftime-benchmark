@@ -1,0 +1,211 @@
+Building production agent for assembly inspection.
+Production ordinary-array helper changed: True
+Building other artifacts and correctness tests.
+[2026-10-19 17:34:43.708] [info] [bpf_attach_ctx.cpp:217] bpf_attach_ctx constructed
+Filters: [array-lookup-cold],[percpu-array],[percpu-hash],[maps] [hash],[hash-fast4],"Test basic operations of array map"
+Randomness seeded to: 2661601519
+===============================================================================
+All tests passed (106942 assertions in 18 test cases)
+
+[2026-10-19 17:34:43.763] [info] [bpf_attach_ctx.cpp:205] Destructor: bpf_attach_ctx
+benchmark/uprobe/Makefile: OK
+benchmark/uprobe/diagnostics/compare_runtime_builds.py: OK
+benchmark/uprobe/diagnostics/hash_workload_sweep.bpf.c: OK
+benchmark/uprobe/diagnostics/hash_candidate_screen.py: OK
+benchmark/uprobe/diagnostics/hash_distribution_validation.py: OK
+Running six-round balanced array A/B.
+Completed kernel round 1/6
+Completed baseline round 1/6
+Completed candidate round 1/6
+Completed candidate round 2/6
+Completed baseline round 2/6
+Completed kernel round 2/6
+Completed kernel round 3/6
+Completed baseline round 3/6
+Completed candidate round 3/6
+Completed candidate round 4/6
+Completed baseline round 4/6
+Completed kernel round 4/6
+Completed kernel round 5/6
+Completed baseline round 5/6
+Completed candidate round 5/6
+Completed candidate round 6/6
+Completed baseline round 6/6
+Completed kernel round 6/6
+[
+  {
+    "case": "array_lookup",
+    "kernel": {
+      "median": 1.3676364800000003,
+      "mean": 1.3429425066666667,
+      "stdev": 0.05593334727427606,
+      "raw_values": [
+        1.35399296,
+        1.2517971199999998,
+        1.3885728,
+        1.3812800000000003,
+        1.2982643199999997,
+        1.38374784
+      ]
+    },
+    "baseline": {
+      "median": 6.48735104,
+      "mean": 6.480408639999999,
+      "stdev": 0.01577282910705391,
+      "raw_values": [
+        6.4844192,
+        6.4647103999999995,
+        6.456778239999999,
+        6.49028288,
+        6.49218176,
+        6.49407936
+      ]
+    },
+    "candidate": {
+      "median": 6.4146633600000005,
+      "mean": 6.41440672,
+      "stdev": 0.004196604508752451,
+      "raw_values": [
+        6.41357568,
+        6.414053119999999,
+        6.407367679999999,
+        6.4158624,
+        6.4203078399999995,
+        6.415273600000001
+      ]
+    },
+    "reduction_percent": 1.1204523934625787
+  },
+  {
+    "case": "array_update",
+    "kernel": {
+      "median": 10.961198399999999,
+      "mean": 10.94171424,
+      "stdev": 0.13964600174071712,
+      "raw_values": [
+        11.05764288,
+        10.941442559999999,
+        10.980954239999999,
+        10.90245824,
+        10.69115264,
+        11.076634880000002
+      ]
+    },
+    "baseline": {
+      "median": 11.3269392,
+      "mean": 11.328301653333334,
+      "stdev": 0.024846278054883167,
+      "raw_values": [
+        11.31903104,
+        11.29233664,
+        11.367591039999999,
+        11.320431359999999,
+        11.3369728,
+        11.333447040000001
+      ]
+    },
+    "candidate": {
+      "median": 11.34117504,
+      "mean": 11.369709653333333,
+      "stdev": 0.09648285388286791,
+      "raw_values": [
+        11.35400576,
+        11.37773248,
+        11.55677824,
+        11.301906559999999,
+        11.32834432,
+        11.29949056
+      ]
+    },
+    "reduction_percent": -0.12568126082992404
+  },
+  {
+    "case": "percpu_array_lookup",
+    "kernel": {
+      "median": 1.9746083200000002,
+      "mean": 1.94681056,
+      "stdev": 0.07135162726845128,
+      "raw_values": [
+        1.9723161600000003,
+        1.9769004800000003,
+        1.99006976,
+        1.9785830400000004,
+        1.9605119999999998,
+        1.8024819200000002
+      ]
+    },
+    "baseline": {
+      "median": 9.695119040000002,
+      "mean": 9.69544768,
+      "stdev": 0.01884097696795985,
+      "raw_values": [
+        9.68861888,
+        9.71546624,
+        9.664348799999999,
+        9.692337920000002,
+        9.714014079999998,
+        9.69790016
+      ]
+    },
+    "candidate": {
+      "median": 9.67364032,
+      "mean": 9.684800213333332,
+      "stdev": 0.03646784969567488,
+      "raw_values": [
+        9.64279616,
+        9.68133888,
+        9.665941759999999,
+        9.7204576,
+        9.661482240000002,
+        9.73678464
+      ]
+    },
+    "reduction_percent": 0.22154158098920407
+  },
+  {
+    "case": "percpu_array_update",
+    "kernel": {
+      "median": 14.442225279999999,
+      "mean": 14.427032426666665,
+      "stdev": 0.0954920079222496,
+      "raw_values": [
+        14.434,
+        14.472136319999997,
+        14.450450559999997,
+        14.42957632,
+        14.246751360000001,
+        14.52928
+      ]
+    },
+    "baseline": {
+      "median": 14.127539520000001,
+      "mean": 14.130250986666667,
+      "stdev": 0.0363951638576745,
+      "raw_values": [
+        14.10890496,
+        14.146174080000002,
+        14.178490239999999,
+        14.096049919999999,
+        14.16043968,
+        14.09144704
+      ]
+    },
+    "candidate": {
+      "median": 14.227084480000002,
+      "mean": 14.241928426666666,
+      "stdev": 0.14762859991179705,
+      "raw_values": [
+        14.239872000000002,
+        14.21429696,
+        14.3411136,
+        14.059336319999998,
+        14.4696928,
+        14.12725888
+      ]
+    },
+    "reduction_percent": -0.7046163973498665
+  }
+]
+Traceback (most recent call last):
+  File "<stdin>", line 5, in <module>
+AssertionError: Insufficient stable target benefit; stop for review

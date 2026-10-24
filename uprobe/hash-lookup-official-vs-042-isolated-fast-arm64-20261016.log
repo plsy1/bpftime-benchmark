@@ -1,0 +1,192 @@
+[ 10%] Performing build step for 'libbpf'
+[ 17%] Built target ubpf
+[ 21%] Built target FridaGum
+[ 25%] Built target bpftime_syscall_trace_syscall_id_table
+make[4]: warning: -j0 forced in submake: resetting jobserver mode.
+[ 32%] Built target spdlog
+  INSTALL  bpf.h libbpf.h btf.h libbpf_common.h libbpf_legacy.h bpf_helpers.h bpf_helper_defs.h bpf_tracing.h bpf_endian.h bpf_core_read.h skel_internal.h libbpf_version.h usdt.bpf.h
+  INSTALL  /home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/hash-bisect-81a6e6e/build-hash-bisect/libbpf/libbpf/libbpf.pc
+  INSTALL  /home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/hash-bisect-81a6e6e/build-hash-bisect/libbpf/libbpf/libbpf.a /home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/hash-bisect-81a6e6e/build-hash-bisect/libbpf/libbpf/libbpf.so /home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/hash-bisect-81a6e6e/build-hash-bisect/libbpf/libbpf/libbpf.so.1 /home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/hash-bisect-81a6e6e/build-hash-bisect/libbpf/libbpf/libbpf.so.1.7.0
+[ 32%] Built target bpftime_ubpf_vm_obj
+[ 39%] Built target bpftime_syscall_trace_attach_impl
+[ 50%] Built target llvmbpf_vm
+[ 50%] No install step for 'libbpf'
+[ 57%] Built target bpftime_frida_uprobe_attach_impl
+[ 57%] Completed 'libbpf'
+[ 57%] Built target bpftime_ubpf_vm
+[ 57%] Built target bpftime_llvm_vm_obj
+[ 60%] Built target bpftime_llvm_vm
+[ 60%] Built target libbpf
+[ 64%] Built target bpftime_vm
+[ 67%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_helper.cpp.o
+[ 67%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpftime_shm_internal.cpp.o
+[ 71%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/userspace/array_map.cpp.o
+[ 71%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/userspace/per_cpu_array_map.cpp.o
+[ 71%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/userspace/per_cpu_hash_map.cpp.o
+[ 71%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/array_map_kernel_user.cpp.o
+[ 71%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/hash_map_kernel_user.cpp.o
+[ 75%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/percpu_array_map_kernel_user.cpp.o
+[ 75%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/perf_event_array_kernel_user.cpp.o
+[ 75%] Linking CXX static library libruntime.a
+[100%] Built target runtime
+[100%] Linking CXX shared library libbpftime-agent.so
+/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/hash-bisect-81a6e6e/vm/compat/ubpf-vm/../include/ebpf_inst.h:22:8: warning: type ‘struct ebpf_inst’ violates the C++ One Definition Rule [-Wodr]
+   22 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/hash-bisect-81a6e6e/vm/llvm-jit/src/ebpf_inst.h:27:8: note: a different type is defined in another translation unit
+   27 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/hash-bisect-81a6e6e/vm/compat/ubpf-vm/../include/ebpf_inst.h:23:17: note: the first difference of corresponding definitions is field ‘code’
+   23 |         uint8_t code; /* opcode */
+      |                 ^
+/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/hash-bisect-81a6e6e/vm/llvm-jit/src/ebpf_inst.h:28:17: note: a field with different name is defined in another translation unit
+   28 |         uint8_t opcode;
+      |                 ^
+[100%] Built target bpftime-agent
+Completed kernel round 1/3
+Completed baseline round 1/3
+Completed candidate round 1/3
+Completed candidate round 2/3
+Completed baseline round 2/3
+Completed kernel round 2/3
+Completed kernel round 3/3
+Completed baseline round 3/3
+Completed candidate round 3/3
+[
+  {
+    "case": "hash_lookup",
+    "kernel": {
+      "median": 25.5887968,
+      "mean": 25.748357333333335,
+      "stdev": 0.6575350471188987,
+      "raw_values": [
+        26.4709888,
+        25.185286400000003,
+        25.5887968
+      ]
+    },
+    "baseline": {
+      "median": 51.571816,
+      "mean": 51.42340853333333,
+      "stdev": 0.4073707484845373,
+      "raw_values": [
+        51.7357696,
+        51.571816,
+        50.96264
+      ]
+    },
+    "candidate": {
+      "median": 51.5605936,
+      "mean": 51.373672533333334,
+      "stdev": 0.434849796008752,
+      "raw_values": [
+        51.683808,
+        51.5605936,
+        50.876616
+      ]
+    },
+    "reduction_percent": 0.021760722949915046
+  },
+  {
+    "case": "hash_update",
+    "kernel": {
+      "median": 91.4975872,
+      "mean": 91.60058719999999,
+      "stdev": 0.22663106343693745,
+      "raw_values": [
+        91.86042559999999,
+        91.4975872,
+        91.4437488
+      ]
+    },
+    "baseline": {
+      "median": 61.905688000000005,
+      "mean": 61.873339200000004,
+      "stdev": 0.22185431208935502,
+      "raw_values": [
+        61.905688000000005,
+        61.6370864,
+        62.077243200000005
+      ]
+    },
+    "candidate": {
+      "median": 65.54540000000001,
+      "mean": 65.7303664,
+      "stdev": 0.4343332701483459,
+      "raw_values": [
+        65.54540000000001,
+        65.41913439999999,
+        66.22656479999999
+      ]
+    },
+    "reduction_percent": -5.879446812706468
+  },
+  {
+    "case": "percpu_hash_lookup",
+    "kernel": {
+      "median": 27.109193599999998,
+      "mean": 26.969922133333334,
+      "stdev": 0.267772407515736,
+      "raw_values": [
+        26.661216,
+        27.1393568,
+        27.109193599999998
+      ]
+    },
+    "baseline": {
+      "median": 124.10176320000001,
+      "mean": 124.13377973333334,
+      "stdev": 0.1528597356435523,
+      "raw_values": [
+        124.10176320000001,
+        124.30011200000001,
+        123.99946399999999
+      ]
+    },
+    "candidate": {
+      "median": 124.179744,
+      "mean": 124.34242453333333,
+      "stdev": 0.29147940185950466,
+      "raw_values": [
+        124.179744,
+        124.6789344,
+        124.1685952
+      ]
+    },
+    "reduction_percent": -0.06283617411166897
+  },
+  {
+    "case": "percpu_hash_update",
+    "kernel": {
+      "median": 65.672136,
+      "mean": 65.68866613333333,
+      "stdev": 0.0693903312196493,
+      "raw_values": [
+        65.76482879999999,
+        65.6290336,
+        65.672136
+      ]
+    },
+    "baseline": {
+      "median": 212.03978400000003,
+      "mean": 212.03475626666668,
+      "stdev": 0.3535492128100633,
+      "raw_values": [
+        212.3857648,
+        212.03978400000003,
+        211.67872
+      ]
+    },
+    "candidate": {
+      "median": 213.10732320000002,
+      "mean": 213.0975232,
+      "stdev": 0.4549311727107482,
+      "raw_values": [
+        212.63777120000003,
+        213.54747519999998,
+        213.10732320000002
+      ]
+    },
+    "reduction_percent": -0.5034617465937474
+  }
+]

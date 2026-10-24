@@ -1,0 +1,229 @@
+
+build-uprobe-strict-20260910/runtime/agent/libbpftime-agent.so:     file format elf64-littleaarch64
+
+
+Disassembly of section .text:
+
+0000000000ae5c70 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)>:
+  ae5c70:	d10203ff 	sub	sp, sp, #0x80
+  ae5c74:	d002c644 	adrp	x4, 63af000 <_GLOBAL_OFFSET_TABLE_+0x5b48>
+  ae5c78:	f9449084 	ldr	x4, [x4, #2336]
+  ae5c7c:	a9057bfd 	stp	x29, x30, [sp, #80]
+  ae5c80:	910143fd 	add	x29, sp, #0x50
+  ae5c84:	a9008be3 	stp	x3, x2, [sp, #8]
+  ae5c88:	f9000fe1 	str	x1, [sp, #24]
+  ae5c8c:	a90653f3 	stp	x19, x20, [sp, #96]
+  ae5c90:	aa0003f3 	mov	x19, x0
+  ae5c94:	f9400080 	ldr	x0, [x4]
+  ae5c98:	f90027e0 	str	x0, [sp, #72]
+  ae5c9c:	d2800000 	mov	x0, #0x0                   	// #0
+  ae5ca0:	7100087f 	cmp	w3, #0x2
+  ae5ca4:	540009e8 	b.hi	ae5de0 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x170>  // b.pmore
+  ae5ca8:	f002c6b4 	adrp	x20, 63bc000 <_frida_g_io_watch_funcs+0x20>
+  ae5cac:	91286294 	add	x20, x20, #0xa18
+  ae5cb0:	f9003bf5 	str	x21, [sp, #112]
+  ae5cb4:	c8dffe80 	ldar	x0, [x20]
+  ae5cb8:	f002c6b5 	adrp	x21, 63bc000 <_frida_g_io_watch_funcs+0x20>
+  ae5cbc:	36000dc0 	tbz	w0, #0, ae5e74 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x204>
+  ae5cc0:	b94a22b4 	ldr	w20, [x21, #2592]
+  ae5cc4:	71003a9f 	cmp	w20, #0xe
+  ae5cc8:	54000d00 	b.eq	ae5e68 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x1f8>  // b.none
+  ae5ccc:	51001280 	sub	w0, w20, #0x4
+  ae5cd0:	7100081f 	cmp	w0, #0x2
+  ae5cd4:	7a4a8a84 	ccmp	w20, #0xa, #0x4, hi	// hi = pmore
+  ae5cd8:	54000241 	b.ne	ae5d20 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0xb0>  // b.any
+  ae5cdc:	d2850401 	mov	x1, #0x2820                	// #10272
+  ae5ce0:	528000a0 	mov	w0, #0x5                   	// #5
+  ae5ce4:	9ad42421 	lsr	x1, x1, x20
+  ae5ce8:	37000041 	tbnz	w1, #0, ae5cf0 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x80>
+  ae5cec:	97fe24f5 	bl	a6f0c0 <sched_getcpu@plt>
+  ae5cf0:	f9400fe1 	ldr	x1, [sp, #24]
+  ae5cf4:	b4000de1 	cbz	x1, ae5eb0 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x240>
+  ae5cf8:	b9400021 	ldr	w1, [x1]
+  ae5cfc:	b9402a62 	ldr	w2, [x19, #40]
+  ae5d00:	6b01005f 	cmp	w2, w1
+  ae5d04:	54000788 	b.hi	ae5df4 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x184>  // b.pmore
+  ae5d08:	97fe210a 	bl	a6e130 <__errno_location@plt>
+  ae5d0c:	92800013 	mov	x19, #0xffffffffffffffff    	// #-1
+  ae5d10:	f9403bf5 	ldr	x21, [sp, #112]
+  ae5d14:	528000e1 	mov	w1, #0x7                   	// #7
+  ae5d18:	b9000001 	str	w1, [x0]
+  ae5d1c:	14000025 	b	ae5db0 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x140>
+  ae5d20:	51002e80 	sub	w0, w20, #0xb
+  ae5d24:	7100041f 	cmp	w0, #0x1
+  ae5d28:	54fffda9 	b.ls	ae5cdc <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x6c>  // b.plast
+  ae5d2c:	528000a0 	mov	w0, #0x5                   	// #5
+  ae5d30:	7100369f 	cmp	w20, #0xd
+  ae5d34:	54fffde0 	b.eq	ae5cf0 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x80>  // b.none
+  ae5d38:	d2800400 	mov	x0, #0x20                  	// #32
+  ae5d3c:	a902ffff 	stp	xzr, xzr, [sp, #40]
+  ae5d40:	a903ffff 	stp	xzr, xzr, [sp, #56]
+  ae5d44:	97fe2407 	bl	a6ed60 <operator new(unsigned long)@plt>
+  ae5d48:	910063e3 	add	x3, sp, #0x18
+  ae5d4c:	910023e2 	add	x2, sp, #0x8
+  ae5d50:	910043e1 	add	x1, sp, #0x10
+  ae5d54:	f0ffffe4 	adrp	x4, ae4000 <bpftime_tail_call+0x320>
+  ae5d58:	f0ffffe5 	adrp	x5, ae4000 <bpftime_tail_call+0x320>
+  ae5d5c:	913f4084 	add	x4, x4, #0xfd0
+  ae5d60:	913b00a5 	add	x5, x5, #0xec0
+  ae5d64:	a9004c03 	stp	x3, x19, [x0]
+  ae5d68:	a9010402 	stp	x2, x1, [x0, #16]
+  ae5d6c:	f90017e0 	str	x0, [sp, #40]
+  ae5d70:	a90393e5 	stp	x5, x4, [sp, #56]
+  ae5d74:	97fe24d3 	bl	a6f0c0 <sched_getcpu@plt>
+  ae5d78:	b90027e0 	str	w0, [sp, #36]
+  ae5d7c:	f9401fe0 	ldr	x0, [sp, #56]
+  ae5d80:	b4000b40 	cbz	x0, ae5ee8 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x278>
+  ae5d84:	f94023e2 	ldr	x2, [sp, #64]
+  ae5d88:	9100a3f4 	add	x20, sp, #0x28
+  ae5d8c:	d002c653 	adrp	x19, 63af000 <_GLOBAL_OFFSET_TABLE_+0x5b48>
+  ae5d90:	f9449273 	ldr	x19, [x19, #2336]
+  ae5d94:	aa1403e0 	mov	x0, x20
+  ae5d98:	910093e1 	add	x1, sp, #0x24
+  ae5d9c:	d63f0040 	blr	x2
+  ae5da0:	aa0003f3 	mov	x19, x0
+  ae5da4:	aa1403e0 	mov	x0, x20
+  ae5da8:	97ff1dca 	bl	aad4d0 <std::_Function_base::~_Function_base()>
+  ae5dac:	f9403bf5 	ldr	x21, [sp, #112]
+  ae5db0:	d002c641 	adrp	x1, 63af000 <_GLOBAL_OFFSET_TABLE_+0x5b48>
+  ae5db4:	f9449021 	ldr	x1, [x1, #2336]
+  ae5db8:	f94027e0 	ldr	x0, [sp, #72]
+  ae5dbc:	f9400022 	ldr	x2, [x1]
+  ae5dc0:	eb020000 	subs	x0, x0, x2
+  ae5dc4:	d2800002 	mov	x2, #0x0                   	// #0
+  ae5dc8:	540008c1 	b.ne	ae5ee0 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x270>  // b.any
+  ae5dcc:	a9457bfd 	ldp	x29, x30, [sp, #80]
+  ae5dd0:	aa1303e0 	mov	x0, x19
+  ae5dd4:	a94653f3 	ldp	x19, x20, [sp, #96]
+  ae5dd8:	910203ff 	add	sp, sp, #0x80
+  ae5ddc:	d65f03c0 	ret
+  ae5de0:	97fe20d4 	bl	a6e130 <__errno_location@plt>
+  ae5de4:	92800013 	mov	x19, #0xffffffffffffffff    	// #-1
+  ae5de8:	528002c1 	mov	w1, #0x16                  	// #22
+  ae5dec:	b9000001 	str	w1, [x0]
+  ae5df0:	17fffff0 	b	ae5db0 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x140>
+  ae5df4:	f94007e2 	ldr	x2, [sp, #8]
+  ae5df8:	f100045f 	cmp	x2, #0x1
+  ae5dfc:	54000660 	b.eq	ae5ec8 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x258>  // b.none
+  ae5e00:	51003282 	sub	w2, w20, #0xc
+  ae5e04:	7100045f 	cmp	w2, #0x1
+  ae5e08:	54000309 	b.ls	ae5e68 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x1f8>  // b.plast
+  ae5e0c:	b9802263 	ldrsw	x3, [x19, #32]
+  ae5e10:	2a0103e1 	mov	w1, w1
+  ae5e14:	93407c00 	sxtw	x0, w0
+  ae5e18:	b9402662 	ldr	w2, [x19, #36]
+  ae5e1c:	f9400664 	ldr	x4, [x19, #8]
+  ae5e20:	91002273 	add	x19, x19, #0x8
+  ae5e24:	9b010063 	madd	x3, x3, x1, x0
+  ae5e28:	51002a81 	sub	w1, w20, #0xa
+  ae5e2c:	f100049f 	cmp	x4, #0x1
+  ae5e30:	8b040273 	add	x19, x19, x4
+  ae5e34:	da9f03e4 	csetm	x4, ne	// ne = any
+  ae5e38:	8a130084 	and	x4, x4, x19
+  ae5e3c:	9b027c63 	mul	x3, x3, x2
+  ae5e40:	8b030080 	add	x0, x4, x3
+  ae5e44:	7100043f 	cmp	w1, #0x1
+  ae5e48:	540002a9 	b.ls	ae5e9c <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x22c>  // b.plast
+  ae5e4c:	71001a9f 	cmp	w20, #0x6
+  ae5e50:	540000c0 	b.eq	ae5e68 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x1f8>  // b.none
+  ae5e54:	f9400be1 	ldr	x1, [sp, #16]
+  ae5e58:	f100045f 	cmp	x2, #0x1
+  ae5e5c:	5400022d 	b.le	ae5ea0 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x230>
+  ae5e60:	97fe1f60 	bl	a6dbe0 <memmove@plt>
+  ae5e64:	d503201f 	nop
+  ae5e68:	f9403bf5 	ldr	x21, [sp, #112]
+  ae5e6c:	d2800013 	mov	x19, #0x0                   	// #0
+  ae5e70:	17ffffd0 	b	ae5db0 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x140>
+  ae5e74:	aa1403e0 	mov	x0, x20
+  ae5e78:	f002c6b5 	adrp	x21, 63bc000 <_frida_g_io_watch_funcs+0x20>
+  ae5e7c:	97fe2481 	bl	a6f080 <__cxa_guard_acquire@plt>
+  ae5e80:	34fff200 	cbz	w0, ae5cc0 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x50>
+  ae5e84:	9401090f 	bl	b282c0 <bpftime::get_map_production_ab_mode()::{lambda()#1}::operator()() const [clone .isra.0]>
+  ae5e88:	2a0003e1 	mov	w1, w0
+  ae5e8c:	aa1403e0 	mov	x0, x20
+  ae5e90:	b90a22a1 	str	w1, [x21, #2592]
+  ae5e94:	97fe257f 	bl	a6f490 <__cxa_guard_release@plt>
+  ae5e98:	17ffff8a 	b	ae5cc0 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x50>
+  ae5e9c:	17fffff3 	b	ae5e68 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x1f8>
+  ae5ea0:	54fffe41 	b.ne	ae5e68 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x1f8>  // b.any
+  ae5ea4:	39400020 	ldrb	w0, [x1]
+  ae5ea8:	38236880 	strb	w0, [x4, x3]
+  ae5eac:	17ffffef 	b	ae5e68 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x1f8>
+  ae5eb0:	97fe20a0 	bl	a6e130 <__errno_location@plt>
+  ae5eb4:	92800013 	mov	x19, #0xffffffffffffffff    	// #-1
+  ae5eb8:	f9403bf5 	ldr	x21, [sp, #112]
+  ae5ebc:	52800041 	mov	w1, #0x2                   	// #2
+  ae5ec0:	b9000001 	str	w1, [x0]
+  ae5ec4:	17ffffbb 	b	ae5db0 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x140>
+  ae5ec8:	97fe209a 	bl	a6e130 <__errno_location@plt>
+  ae5ecc:	92800013 	mov	x19, #0xffffffffffffffff    	// #-1
+  ae5ed0:	f9403bf5 	ldr	x21, [sp, #112]
+  ae5ed4:	52800221 	mov	w1, #0x11                  	// #17
+  ae5ed8:	b9000001 	str	w1, [x0]
+  ae5edc:	17ffffb5 	b	ae5db0 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x140>
+  ae5ee0:	f9003bf5 	str	x21, [sp, #112]
+  ae5ee4:	97fe27c7 	bl	a6fe00 <__stack_chk_fail@plt>
+  ae5ee8:	d002c653 	adrp	x19, 63af000 <_GLOBAL_OFFSET_TABLE_+0x5b48>
+  ae5eec:	f9449273 	ldr	x19, [x19, #2336]
+  ae5ef0:	f94027e0 	ldr	x0, [sp, #72]
+  ae5ef4:	f9400261 	ldr	x1, [x19]
+  ae5ef8:	eb010000 	subs	x0, x0, x1
+  ae5efc:	d2800001 	mov	x1, #0x0                   	// #0
+  ae5f00:	54ffff21 	b.ne	ae5ee4 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x274>  // b.any
+  ae5f04:	9100a3f4 	add	x20, sp, #0x28
+  ae5f08:	97fe22ee 	bl	a6eac0 <std::__throw_bad_function_call()@plt>
+  ae5f0c:	aa0003e1 	mov	x1, x0
+  ae5f10:	aa1403e0 	mov	x0, x20
+  ae5f14:	aa0103f4 	mov	x20, x1
+  ae5f18:	97ff1d6e 	bl	aad4d0 <std::_Function_base::~_Function_base()>
+  ae5f1c:	f94027e0 	ldr	x0, [sp, #72]
+  ae5f20:	f9400261 	ldr	x1, [x19]
+  ae5f24:	eb010000 	subs	x0, x0, x1
+  ae5f28:	d2800001 	mov	x1, #0x0                   	// #0
+  ae5f2c:	54fffdc1 	b.ne	ae5ee4 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x274>  // b.any
+  ae5f30:	aa1403e0 	mov	x0, x20
+  ae5f34:	97fe2137 	bl	a6e410 <_Unwind_Resume@plt>
+  ae5f38:	aa0003f3 	mov	x19, x0
+  ae5f3c:	9100a3e0 	add	x0, sp, #0x28
+  ae5f40:	97ff1d64 	bl	aad4d0 <std::_Function_base::~_Function_base()>
+  ae5f44:	d002c640 	adrp	x0, 63af000 <_GLOBAL_OFFSET_TABLE_+0x5b48>
+  ae5f48:	f9449000 	ldr	x0, [x0, #2336]
+  ae5f4c:	f94027e2 	ldr	x2, [sp, #72]
+  ae5f50:	f9400001 	ldr	x1, [x0]
+  ae5f54:	eb010042 	subs	x2, x2, x1
+  ae5f58:	d2800001 	mov	x1, #0x0                   	// #0
+  ae5f5c:	54fffc41 	b.ne	ae5ee4 <bpftime::per_cpu_array_map_impl::elem_update(void const*, void const*, unsigned long)+0x274>  // b.any
+  ae5f60:	aa1303e0 	mov	x0, x19
+  ae5f64:	97fe212b 	bl	a6e410 <_Unwind_Resume@plt>
+  ae5f68:	d503201f 	nop
+  ae5f6c:	d503201f 	nop
+
+0000000000ae5f70 <bpftime::per_cpu_hash_map_impl::elem_lookup(void const*)>:
+  ae5f70:	d10243ff 	sub	sp, sp, #0x90
+  ae5f74:	d002c642 	adrp	x2, 63af000 <_GLOBAL_OFFSET_TABLE_+0x5b48>
+  ae5f78:	f9449042 	ldr	x2, [x2, #2336]
+  ae5f7c:	a9057bfd 	stp	x29, x30, [sp, #80]
+  ae5f80:	910143fd 	add	x29, sp, #0x50
+  ae5f84:	a90653f3 	stp	x19, x20, [sp, #96]
+  ae5f88:	aa0003f3 	mov	x19, x0
+  ae5f8c:	a9075bf5 	stp	x21, x22, [sp, #112]
+  ae5f90:	aa0103f5 	mov	x21, x1
+  ae5f94:	f9400040 	ldr	x0, [x2]
+  ae5f98:	f90027e0 	str	x0, [sp, #72]
+  ae5f9c:	d2800000 	mov	x0, #0x0                   	// #0
+  ae5fa0:	97fe2448 	bl	a6f0c0 <sched_getcpu@plt>
+  ae5fa4:	b4001015 	cbz	x21, ae61a4 <bpftime::per_cpu_hash_map_impl::elem_lookup(void const*)+0x234>
+  ae5fa8:	f9404262 	ldr	x2, [x19, #128]
+  ae5fac:	2a0003f6 	mov	w22, w0
+  ae5fb0:	91020260 	add	x0, x19, #0x80
+  ae5fb4:	f100045f 	cmp	x2, #0x1
+  ae5fb8:	937b7ec1 	sbfiz	x1, x22, #5, #32
+  ae5fbc:	8b020000 	add	x0, x0, x2
+  ae5fc0:	da9f03f4 	csetm	x20, ne	// ne = any
+  ae5fc4:	8a000294 	and	x20, x20, x0
+  ae5fc8:	8b010294 	add	x20, x20, x1
+  ae5fcc:	97ffdd09 	bl	add3f0 <bpftime::get_map_production_ab_mode()>
+  ae5fd0:	71004c1f 	cmp	w0, #0x13
+  ae5fd4:	54000ba0 	b.eq	ae6148 <bpftime::per_cpu_hash_map_impl::elem_lookup(void const*)+0x1d8>  // b.none
+  ae5fd8:	b9404a62 	ldr	w2, [x19, #72]
+  ae5fdc:	aa1503e1 	mov	x1, x21

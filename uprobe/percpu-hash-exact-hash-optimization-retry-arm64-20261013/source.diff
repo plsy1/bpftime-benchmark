@@ -1,0 +1,66 @@
+diff --git a/runtime/src/bpf_map/map_common_def.hpp b/runtime/src/bpf_map/map_common_def.hpp
+index b0d6ace..8b24428 100644
+--- a/runtime/src/bpf_map/map_common_def.hpp
++++ b/runtime/src/bpf_map/map_common_def.hpp
+@@ -73,6 +73,16 @@ struct bytes_vec_hasher {
+ 		using boost::hash_combine;
+ 		size_t seed = 0;
+ 		hash_combine(seed, size);
++		if (size == sizeof(uint32_t)) {
++			// Four-byte keys are the common BPF map case. Spell out the
++			// combines so the compiler does not need a counted byte loop,
++			// while preserving the existing hash value exactly.
++			hash_combine(seed, data[0]);
++			hash_combine(seed, data[1]);
++			hash_combine(seed, data[2]);
++			hash_combine(seed, data[3]);
++			return seed;
++		}
+ 		for (size_t i = 0; i < size; ++i)
+ 			hash_combine(seed, data[i]);
+ 		return seed;
+diff --git a/runtime/unit-test/maps/test_per_cpu_hash.cpp b/runtime/unit-test/maps/test_per_cpu_hash.cpp
+index 930092d..1840ebf 100644
+--- a/runtime/unit-test/maps/test_per_cpu_hash.cpp
++++ b/runtime/unit-test/maps/test_per_cpu_hash.cpp
+@@ -16,6 +16,7 @@
+ #include <bpf_map/map_common_def.hpp>
+ #include "catch2/internal/catch_run_context.hpp"
+ #include <algorithm>
++#include <array>
+ #include <random>
+ 
+ using namespace boost::interprocess;
+@@ -23,6 +24,32 @@ using namespace bpftime;
+ 
+ static const char *SHM_NAME = "BPFTIME_PER_CPU_HASH_SHM";
+ 
++TEST_CASE("four-byte key hash remains byte-loop compatible",
++	  "[percpu-hash][hash-compat]")
++{
++	const std::string shm_name =
++		"BPFTIME_PER_CPU_HASH_COMPAT_SHM_" + std::to_string(getpid());
++	shm_remove remover(shm_name.c_str());
++	managed_shared_memory mem(create_only, shm_name.c_str(), 1 << 20);
++	bytes_vec key(sizeof(uint32_t), mem.get_segment_manager());
++	const std::array<std::array<uint8_t, 4>, 5> cases = { {
++		{ 0x00, 0x00, 0x00, 0x00 },
++		{ 0x01, 0x00, 0x00, 0x00 },
++		{ 0xff, 0xff, 0xff, 0xff },
++		{ 0x12, 0x34, 0x56, 0x78 },
++		{ 0x78, 0x56, 0x34, 0x12 },
++	} };
++
++	for (const auto &bytes : cases) {
++		std::copy(bytes.begin(), bytes.end(), key.begin());
++		size_t legacy_hash = 0;
++		boost::hash_combine(legacy_hash, key.size());
++		for (uint8_t byte : key)
++			boost::hash_combine(legacy_hash, byte);
++		REQUIRE(bytes_vec_hasher{}(key) == legacy_hash);
++	}
++}
++
+ TEST_CASE("Test basic operations of hash map")
+ {
+ 	shm_remove remover(SHM_NAME);

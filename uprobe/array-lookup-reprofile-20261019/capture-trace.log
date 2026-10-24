@@ -1,0 +1,72 @@
++ set -euo pipefail
++ ROOT=/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate
++ BUILD=/tmp/bpftime-array-lookup-cold-20261019.8N6hqp/cold-errors
++ RESULTS=/home/jetson/src/results/uprobe/array-lookup-reprofile-20261019
++ CASE=percpu_array_lookup
++ ROUND=1
++ PERIOD=1728000
++ case "$CASE" in
++ OUT=/home/jetson/src/results/uprobe/array-lookup-reprofile-20261019/profiles/percpu_array_lookup-1
++ LOADER=/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate/benchmark/uprobe/.output/helper-map-closure/helper-map-closure
++ VICTIM=/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate/benchmark/uprobe/.output/helper-map-closure/helper-map-closure-victim
++ mkdir /home/jetson/src/results/uprobe/array-lookup-reprofile-20261019/profiles/percpu_array_lookup-1
++ test '!' -e /dev/shm/bpftime_maps_shm
++ loader_pid=
++ profile_pid=
++ trap finish EXIT
++ cd /home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate
++ date --iso-8601=seconds
++ printf '%s\n' 1728000
++ loader_pid=493144
+++ seq 1 300
++ for attempt in $(seq 1 300)
++ rg -q 'Successfully started' /home/jetson/src/results/uprobe/array-lookup-reprofile-20261019/profiles/percpu_array_lookup-1/loader.log
++ sudo -n kill -0 493144
++ sleep 0.1
++ for attempt in $(seq 1 300)
++ rg -q 'Successfully started' /home/jetson/src/results/uprobe/array-lookup-reprofile-20261019/profiles/percpu_array_lookup-1/loader.log
++ break
++ rg -q 'Successfully started' /home/jetson/src/results/uprobe/array-lookup-reprofile-20261019/profiles/percpu_array_lookup-1/loader.log
++ sleep 1
++ profile_pid=493162
++ maps_saved=false
+++ seq 1 300
++ for attempt in $(seq 1 300)
+++ sudo -n pgrep -f '^/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate/benchmark/uprobe/.output/helper-map-closure/helper-map-closure-victim 2000000 0 3000 percpu_array_lookup$'
++ victim_pid=
++ kill -0 493162
++ sleep 0.1
++ for attempt in $(seq 1 300)
+++ sudo -n pgrep -f '^/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate/benchmark/uprobe/.output/helper-map-closure/helper-map-closure-victim 2000000 0 3000 percpu_array_lookup$'
++ victim_pid=
++ kill -0 493162
++ sleep 0.1
++ for attempt in $(seq 1 300)
+++ sudo -n pgrep -f '^/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate/benchmark/uprobe/.output/helper-map-closure/helper-map-closure-victim 2000000 0 3000 percpu_array_lookup$'
++ victim_pid=493199
++ [[ 493199 =~ ^[0-9]+$ ]]
++ sudo -n cat /proc/493199/maps
++ rg -q libbpftime-agent.so /home/jetson/src/results/uprobe/array-lookup-reprofile-20261019/profiles/percpu_array_lookup-1/proc-maps.txt
++ printf '%s\n' 493199
++ maps_saved=true
++ break
++ test true = true
++ profile_status=0
++ wait 493162
++ printf '%s\n' 0
++ profile_pid=
++ test 0 -eq 0
++ rg -q 'shm_open_type 1' /home/jetson/src/results/uprobe/array-lookup-reprofile-20261019/profiles/percpu_array_lookup-1/victim.log /home/jetson/src/results/uprobe/array-lookup-reprofile-20261019/profiles/percpu_array_lookup-1/nsys.log
++ rg -q '^percpu_array_lookup,' /home/jetson/src/results/uprobe/array-lookup-reprofile-20261019/profiles/percpu_array_lookup-1/victim.log
++ finish
++ status=1
++ trap - EXIT
++ set +e
++ [[ -n '' ]]
++ [[ -n 493144 ]]
++ sudo -n kill -TERM 493144
++ wait 493144
++ sudo -n /tmp/bpftime-array-lookup-cold-20261019.8N6hqp/cold-errors/tools/bpftimetool/bpftimetool remove
++ printf '%s\n' 1
++ date --iso-8601=seconds
++ exit 1

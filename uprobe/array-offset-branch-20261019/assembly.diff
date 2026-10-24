@@ -1,0 +1,74 @@
+--- baseline
+
++++ candidate
+
+@@ -1,11 +1,12 @@
+
+ adrp	x2, ADDR <trace_init_lock+0x28>
++mov	x5, x1
+ ldr	x2, [x2, #2184]
+ cmp	x2, #0x0
+ ccmp	w0, #0x0, #0x1, ne	// ne = any
+-b.lt	ADDR <bpftime_array_map_lookup_elem_helper+0xb8>  // b.tstop
++b.lt	ADDR <bpftime_array_map_lookup_elem_helper+0xc4>  // b.tstop
+ ldr	x3, [x2, #16]
+ cmp	x3, w0, sxtw
+-b.ls	ADDR <bpftime_array_map_lookup_elem_helper+0xb8>  // b.plast
++b.ls	ADDR <bpftime_array_map_lookup_elem_helper+0xc4>  // b.plast
+ ldr	x3, [x2, #8]
+ mov	w6, #0xa8                  	// #168
+ add	x2, x2, #0x8
+@@ -15,33 +16,35 @@
+
+ csetm	x2, ne	// ne = any
+ and	x0, x2, x4
+ adds	x0, x0, x3
+-b.eq	ADDR <bpftime_array_map_lookup_elem_helper+0xb8>  // b.none
++b.eq	ADDR <bpftime_array_map_lookup_elem_helper+0xc4>  // b.none
+ ldrb	w2, [x0, #160]
+ cmp	w2, #0x1
+-b.ne	ADDR <bpftime_array_map_lookup_elem_helper+0xb8>  // b.any
++b.ne	ADDR <bpftime_array_map_lookup_elem_helper+0xc4>  // b.any
+ ldr	w2, [x0, #72]
+ cmp	w2, #0x2
+-b.eq	ADDR <bpftime_array_map_lookup_elem_helper+0x68>  // b.none
++b.eq	ADDR <bpftime_array_map_lookup_elem_helper+0x6c>  // b.none
+ mov	w2, #0x0                   	// #0
+ b	ADDR <bpftime::bpf_map_handler::map_lookup_elem(void const*, bool) const>
+-ldr	w2, [x1]
++ldr	x1, [x0, #120]
+ add	x0, x0, #0x78
+-ldr	x1, [x0]
+ cmp	x1, #0x1
++b.eq	ADDR <bpftime_array_map_lookup_elem_helper+0xb8>  // b.none
+ add	x0, x0, x1
+-csetm	x1, ne	// ne = any
+-and	x1, x1, x0
+-ldr	w0, [x1, #36]
+-cmp	w2, w0
+-b.cs	ADDR <bpftime_array_map_lookup_elem_helper+0xb8>  // b.hs, b.nlast
+-ldr	x3, [x1, #8]
+-add	x0, x1, #0x8
+-ldr	w4, [x1, #32]
++ldr	w1, [x5]
++ldr	w2, [x0, #36]
++cmp	w1, w2
++b.cs	ADDR <bpftime_array_map_lookup_elem_helper+0xc4>  // b.hs, b.nlast
++ldr	x3, [x0, #8]
++add	x2, x0, #0x8
++ldr	w4, [x0, #32]
+ cmp	x3, #0x1
+-add	x1, x0, x3
++add	x2, x2, x3
+ csetm	x0, ne	// ne = any
+-and	x0, x0, x1
+-mul	w2, w2, w4
+-add	x0, x0, x2
++and	x0, x0, x2
++mul	w1, w1, w4
++add	x0, x0, x1
+ ret
++mov	x0, #0x0                   	// #0
++ldr	w0, [x0, #36]
++brk	#0x3e8
+ b	ADDR <bpftime::detail::array_lookup_enoent()>

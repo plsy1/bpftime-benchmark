@@ -1,0 +1,91 @@
+#ifndef _BPFTIME_HELPER_GROUP_HPP
+#define _BPFTIME_HELPER_GROUP_HPP
+#include <string>
+#include <map>
+#include <cinttypes>
+#include <vector>
+#include "bpftime_prog.hpp"
+
+#ifdef ENABLE_BPFTIME_VERIFIER
+#include <bpftime-verifier.hpp>
+#endif
+
+namespace bpftime
+{
+struct bpftime_helper_info {
+	unsigned int index;
+	std::string name;
+	void *fn;
+};
+
+// Checks the concrete implementation as well as the BPF helper number.
+bool helper_is_async_signal_safe(unsigned index, void *fn);
+
+class bpftime_helper_group {
+    public:
+	bpftime_helper_group() = default;
+	bpftime_helper_group(
+		std::map<unsigned int, bpftime_helper_info> helper_map)
+		: helper_map(helper_map)
+	{
+	}
+	~bpftime_helper_group() = default;
+
+	// Register a helper
+	int register_helper(const bpftime_helper_info &info);
+
+	// Append another group to the current one
+	int append(const bpftime_helper_group &another_group);
+
+	// Utility function to get the UFUNC helper group
+	static const bpftime_helper_group &get_ufunc_helper_group();
+
+	// Utility function to get the kernel utilities helper group
+	static const bpftime_helper_group &get_kernel_utils_helper_group();
+
+	// Function to register and create a local hash map helper group
+	static const bpftime_helper_group &get_shm_maps_helper_group();
+
+	// Add the helper group to the program
+	int add_helper_group_to_prog(
+		bpftime_prog *prog,
+		const bpftime_helper_info *override_helper = nullptr,
+		const bpftime_helper_info *second_override_helper = nullptr,
+		const std::map<int, bpftime_helper_info> *custom_helpers = nullptr) const;
+	// Get all helper ids of this helper group
+	std::vector<int32_t> get_helper_ids() const;
+
+    private:
+	// Map to store helpers indexed by their unique ID
+	std::map<unsigned int, bpftime_helper_info> helper_map;
+};
+#ifdef ENABLE_BPFTIME_VERIFIER
+std::map<int32_t, bpftime::verifier::BpftimeHelperProrotype>
+get_ufunc_helper_protos();
+#endif
+} // namespace bpftime
+
+extern "C" uint64_t bpftime_map_lookup_elem_helper(
+	uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+extern "C" uint64_t bpftime_map_update_elem_helper(
+	uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+extern "C" uint64_t bpftime_map_delete_elem_helper(
+	uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+extern "C" uint64_t bpftime_array_map_lookup_elem_helper(
+	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+extern "C" uint64_t bpftime_get_smp_processor_id();
+extern "C" uint64_t bpftime_hash_map_lookup_elem_helper(
+	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+extern "C" uint64_t bpftime_array_map_update_elem_helper(
+	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
+extern "C" uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+extern "C" uint64_t bpftime_percpu_array_map_update_elem_helper(
+	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
+extern "C" uint64_t bpftime_hash_map_update_elem_helper(
+	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
+extern "C" uint64_t bpftime_percpu_hash_map_update_elem_helper(
+	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
+extern "C" uint64_t bpftime_percpu_hash_map_lookup_elem_helper(
+	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+#endif

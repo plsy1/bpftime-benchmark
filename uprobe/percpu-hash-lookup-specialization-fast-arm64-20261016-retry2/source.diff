@@ -1,0 +1,123 @@
+diff --git a/runtime/include/bpftime_helper_group.hpp b/runtime/include/bpftime_helper_group.hpp
+index 6eccb3f..9e27060 100644
+--- a/runtime/include/bpftime_helper_group.hpp
++++ b/runtime/include/bpftime_helper_group.hpp
+@@ -72,4 +72,6 @@ extern "C" uint64_t bpftime_array_map_update_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t);
+ extern "C" uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
++extern "C" uint64_t bpftime_percpu_hash_map_lookup_elem_helper(
++	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+ #endif
+diff --git a/runtime/src/attach/bpf_attach_ctx.cpp b/runtime/src/attach/bpf_attach_ctx.cpp
+index bfad764..b2ac279 100644
+--- a/runtime/src/attach/bpf_attach_ctx.cpp
++++ b/runtime/src/attach/bpf_attach_ctx.cpp
+@@ -360,6 +360,12 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
+ 		.fn = reinterpret_cast<void *>(
+ 			bpftime_percpu_array_map_lookup_elem_helper),
+ 	};
++	const bpftime_helper_info percpu_hash_lookup{
++		.index = BPF_FUNC_map_lookup_elem,
++		.name = "bpf_map_lookup_elem",
++		.fn = reinterpret_cast<void *>(
++			bpftime_percpu_hash_map_lookup_elem_helper),
++	};
+ 	const bpftime_helper_info array_update{
+ 		.index = BPF_FUNC_map_update_elem,
+ 		.name = "bpf_map_update_elem",
+@@ -394,6 +400,15 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
+ 		SPDLOG_INFO(
+ 			"Using specialized per-CPU array lookup helper for program {}",
+ 			name);
++	} else if (mode == map_production_ab_mode::base &&
++		   uses_only_maps_of_type_for_helper(
++			   manager, handler,
++			   bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH,
++			   BPF_FUNC_map_lookup_elem)) {
++		map_lookup_override = &percpu_hash_lookup;
++		SPDLOG_INFO(
++			"Using specialized per-CPU hash lookup helper for program {}",
++			name);
+ 	}
+ 	if (mode == map_production_ab_mode::base &&
+ 	    uses_only_maps_of_type_for_helper(
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index addbd45..2b56dd6 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -442,6 +442,32 @@ uint64_t bpftime_percpu_array_map_lookup_elem_helper(
+ 		handler->map_lookup_percpu_array(reinterpret_cast<void *>(key)));
+ }
+ 
++uint64_t bpftime_percpu_hash_map_lookup_elem_helper(
++	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t)
++{
++	auto &shm = bpftime::shm_holder.global_shared_memory;
++	const int fd = static_cast<int>(map);
++	const auto *manager = shm.get_manager();
++	if (manager == nullptr || fd < 0 ||
++	    static_cast<std::size_t>(fd) >= manager->size()) {
++		errno = ENOENT;
++		return 0;
++	}
++	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
++		&manager->get_handler(fd));
++	if (handler == nullptr) {
++		errno = ENOENT;
++		return 0;
++	}
++	if (handler->type !=
++	    bpftime::bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH)
++		return reinterpret_cast<uint64_t>(
++			handler->map_lookup_elem(reinterpret_cast<void *>(key),
++						 false));
++	return reinterpret_cast<uint64_t>(
++		handler->map_lookup_percpu_hash(reinterpret_cast<void *>(key)));
++}
++
+ #ifdef ENABLE_PROBE_READ_CHECK
+ static size_t probe_page_remaining(const void *address)
+ {
+diff --git a/runtime/src/handler/map_handler.cpp b/runtime/src/handler/map_handler.cpp
+index a69178a..2623244 100644
+--- a/runtime/src/handler/map_handler.cpp
++++ b/runtime/src/handler/map_handler.cpp
+@@ -273,6 +273,12 @@ const void *bpf_map_handler::map_lookup_hash(const void *key) const
+ 	return static_cast<hash_map_impl *>(map_impl_ptr.get())->elem_lookup(key);
+ }
+ 
++const void *bpf_map_handler::map_lookup_percpu_hash(const void *key) const
++{
++	return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
++		->elem_lookup(key);
++}
++
+ const void *bpf_map_handler::diagnostic_direct_lookup(const void *key) const
+ {
+ 	if (type == bpf_map_type::BPF_MAP_TYPE_ARRAY)
+diff --git a/runtime/src/handler/map_handler.hpp b/runtime/src/handler/map_handler.hpp
+index 220e471..4070d3a 100644
+--- a/runtime/src/handler/map_handler.hpp
++++ b/runtime/src/handler/map_handler.hpp
+@@ -171,6 +171,7 @@ class bpf_map_handler {
+ 		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
+ 			->elem_lookup_base(key);
+ 	}
++	const void *map_lookup_percpu_hash(const void *key) const;
+ 	// * BPF_MAP_UPDATE_ELEM
+ 	// *	Description
+ 	// *		Create or update an element (key/value pair) in a
+diff --git a/runtime/unit-test/maps/test_per_cpu_hash.cpp b/runtime/unit-test/maps/test_per_cpu_hash.cpp
+index 7811f04..ba7a9b0 100644
+--- a/runtime/unit-test/maps/test_per_cpu_hash.cpp
++++ b/runtime/unit-test/maps/test_per_cpu_hash.cpp
+@@ -44,7 +44,7 @@ TEST_CASE("four-byte key hash uses the direct integer value",
+ 		std::copy(bytes.begin(), bytes.end(), key.begin());
+ 		uint32_t expected;
+ 		std::memcpy(&expected, bytes.data(), sizeof(expected));
+-		REQUIRE(bytes_vec_hasher{}(key) == expected);
++		REQUIRE(per_cpu_bytes_vec_hasher{}(key) == expected);
+ 	}
+ }
+ 

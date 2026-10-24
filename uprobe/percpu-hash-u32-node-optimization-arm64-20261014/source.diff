@@ -1,0 +1,575 @@
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp b/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp
+index 1495ee1..273ce21 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp
+@@ -27,6 +27,15 @@ per_cpu_hash_map_impl::diagnostic_deferred_nodes()
+ 	return nodes;
+ }
+ 
++std::vector<per_cpu_hash_map_impl::uint32_node_type> &
++per_cpu_hash_map_impl::diagnostic_deferred_uint32_nodes()
++{
++	static thread_local std::vector<uint32_node_type> nodes;
++	if (nodes.capacity() < 1024)
++		nodes.reserve(1024);
++	return nodes;
++}
++
+ per_cpu_hash_map_impl::per_cpu_hash_map_impl(
+ 	boost::interprocess::managed_shared_memory &memory, uint32_t key_size,
+ 	uint32_t value_size, uint32_t max_entries)
+@@ -38,7 +47,8 @@ per_cpu_hash_map_impl::per_cpu_hash_map_impl(
+ per_cpu_hash_map_impl::per_cpu_hash_map_impl(
+ 	boost::interprocess::managed_shared_memory &memory, uint32_t key_size,
+ 	uint32_t value_size, uint32_t max_entries, int ncpu)
+-	: impl(memory.get_segment_manager()), key_size(key_size),
++	: impl(memory.get_segment_manager()),
++	  uint32_impl(memory.get_segment_manager()), key_size(key_size),
+ 	  value_size(value_size), ncpu(ncpu), _max_entries(max_entries),
+ 	  value_template(value_size * ncpu, memory.get_segment_manager()),
+ 	  key_templates(memory.get_segment_manager()),
+@@ -48,8 +58,10 @@ per_cpu_hash_map_impl::per_cpu_hash_map_impl(
+ 		"Initializing per cpu hash, key size {}, value size {}, ncpu {}",
+ 		key_size, value_size, ncpu);
+ 	for (int i = 0; i < ncpu; i++) {
+-		bytes_vec key_vec(key_size, memory.get_segment_manager());
+-		key_templates.push_back(key_vec);
++		if (!uses_uint32_keys()) {
++			bytes_vec key_vec(key_size, memory.get_segment_manager());
++			key_templates.push_back(key_vec);
++		}
+ 		bytes_vec value_vec(value_size, memory.get_segment_manager());
+ 		single_value_templates.push_back(value_vec);
+ 	}
+@@ -63,10 +75,6 @@ void *per_cpu_hash_map_impl::elem_lookup(const void *key)
+ 		errno = ENOENT;
+ 		return nullptr;
+ 	}
+-	bytes_vec &key_vec = this->key_templates[cpu];
+-	// key_vec is pre-sized in the constructor. Reusing its storage avoids the
+-	// iterator/range machinery in vector::assign on every helper invocation.
+-	std::memcpy(key_vec.data(), key, key_size);
+ 	if (get_map_production_ab_mode() ==
+ 	    map_production_ab_mode::percpu_hash_lookup_no_find)
+ 		return &value_template[value_size * cpu];
+@@ -75,13 +83,29 @@ void *per_cpu_hash_map_impl::elem_lookup(const void *key)
+ 		map_production_ab_lookup_active() = true;
+ 		++map_production_ab_stats().lookups;
+ 	}
+-	if (auto itr = impl.find(key_vec); itr != impl.end()) {
++	void *result = nullptr;
++	if (uses_uint32_keys()) {
++		uint32_t key_value;
++		std::memcpy(&key_value, key, sizeof(key_value));
++		auto itr = uint32_impl.find(key_value);
++		if (itr != uint32_impl.end())
++			result = itr->second.data() + value_size * cpu;
++	} else {
++		bytes_vec &key_vec = this->key_templates[cpu];
++		// key_vec is pre-sized in the constructor. Reusing its storage avoids
++		// the iterator/range machinery in vector::assign on every helper call.
++		std::memcpy(key_vec.data(), key, key_size);
++		auto itr = impl.find(key_vec);
++		if (itr != impl.end())
++			result = itr->second.data() + value_size * cpu;
++	}
++	if (result != nullptr) {
+ 		if (collect_stats) {
+ 			++map_production_ab_stats().hits;
+ 			map_production_ab_lookup_active() = false;
+ 		}
+ 		SPDLOG_TRACE("Exit elem lookup of hash map");
+-		return &itr->second[value_size * cpu];
++		return result;
+ 	} else {
+ 		if (collect_stats) {
+ 			++map_production_ab_stats().misses;
+@@ -97,8 +121,10 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
+ 					uint64_t flags)
+ {
+ 	if (get_map_production_ab_mode() ==
+-	    map_production_ab_mode::percpu_hash_delete_defer_reclaim)
++	    map_production_ab_mode::percpu_hash_delete_defer_reclaim) {
+ 		diagnostic_deferred_nodes().clear();
++		diagnostic_deferred_uint32_nodes().clear();
++	}
+ 	if (!check_update_flags(flags))
+ 		return -1;
+ 	int cpu = my_sched_getcpu();
+@@ -106,9 +132,7 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
+ 		     *(long *)value);
+ 
+ 	SPDLOG_DEBUG("Run per cpu hash update at cpu {}", cpu);
+-	bytes_vec &key_vec = this->key_templates[cpu];
+ 	const auto mode = get_map_production_ab_mode();
+-	std::memcpy(key_vec.data(), key, key_size);
+ 	if (mode == map_production_ab_mode::percpu_hash_update_no_find) {
+ 		// Keep this diagnostic mode measuring both input copies while avoiding
+ 		// any map lookup.
+@@ -121,13 +145,27 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
+ 		map_production_ab_lookup_active() = true;
+ 		++map_production_ab_stats().lookups;
+ 	}
+-	if (auto itr = impl.find(key_vec); itr != impl.end()) {
++	bytes_vec *existing_value = nullptr;
++	if (uses_uint32_keys()) {
++		uint32_t key_value;
++		std::memcpy(&key_value, key, sizeof(key_value));
++		auto itr = uint32_impl.find(key_value);
++		if (itr != uint32_impl.end())
++			existing_value = &itr->second;
++	} else {
++		bytes_vec &key_vec = this->key_templates[cpu];
++		std::memcpy(key_vec.data(), key, key_size);
++		auto itr = impl.find(key_vec);
++		if (itr != impl.end())
++			existing_value = &itr->second;
++	}
++	if (existing_value != nullptr) {
+ 		if (collect_stats) {
+ 			++map_production_ab_stats().hits;
+ 			map_production_ab_lookup_active() = false;
+ 		}
+ 		if (mode != map_production_ab_mode::percpu_hash_update_no_copy) {
+-			std::memcpy(itr->second.data() + cpu * value_size, value,
++			std::memcpy(existing_value->data() + cpu * value_size, value,
+ 				    value_size);
+ 		}
+ 	} else {
+@@ -139,7 +177,15 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
+ 		std::memcpy(full_value_vec.data() + cpu * value_size, value,
+ 			    value_size);
+ 
+-		impl.insert(bi_map_value_ty(key_vec, full_value_vec));
++		if (uses_uint32_keys()) {
++			uint32_t key_value;
++			std::memcpy(&key_value, key, sizeof(key_value));
++			uint32_impl.insert(bi_uint32_map_value_ty(key_value,
++							       full_value_vec));
++		} else {
++			impl.insert(bi_map_value_ty(key_templates[cpu],
++						    full_value_vec));
++		}
+ 	}
+ 
+ 	return 0;
+@@ -149,25 +195,66 @@ long per_cpu_hash_map_impl::elem_delete(const void *key)
+ {
+ 	int cpu = my_sched_getcpu();
+ 	SPDLOG_DEBUG("Run per cpu hash delete at cpu {}", cpu);
+-	bytes_vec &key_vec = this->key_templates[cpu];
+-	key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
+-	auto itr = impl.find(key_vec);
+-	if (itr == impl.end()) {
+-		errno = ENOENT;
+-		return -1;
+-	}
+-	if (get_map_production_ab_mode() ==
+-	    map_production_ab_mode::percpu_hash_delete_defer_reclaim) {
+-		auto node = impl.extract(itr);
+-		diagnostic_deferred_nodes().push_back(std::move(node));
++	if (uses_uint32_keys()) {
++		uint32_t key_value;
++		std::memcpy(&key_value, key, sizeof(key_value));
++		auto itr = uint32_impl.find(key_value);
++		if (itr == uint32_impl.end()) {
++			errno = ENOENT;
++			return -1;
++		}
++		if (get_map_production_ab_mode() ==
++		    map_production_ab_mode::percpu_hash_delete_defer_reclaim) {
++			auto node = uint32_impl.extract(itr);
++			diagnostic_deferred_uint32_nodes().push_back(
++				std::move(node));
++		} else {
++			uint32_impl.erase(itr);
++		}
+ 	} else {
+-		impl.erase(itr);
++		bytes_vec &key_vec = this->key_templates[cpu];
++		std::memcpy(key_vec.data(), key, key_size);
++		auto itr = impl.find(key_vec);
++		if (itr == impl.end()) {
++			errno = ENOENT;
++			return -1;
++		}
++		if (get_map_production_ab_mode() ==
++		    map_production_ab_mode::percpu_hash_delete_defer_reclaim) {
++			auto node = impl.extract(itr);
++			diagnostic_deferred_nodes().push_back(std::move(node));
++		} else {
++			impl.erase(itr);
++		}
+ 	}
+ 	return 0;
+ }
+ 
+ int per_cpu_hash_map_impl::map_get_next_key(const void *key, void *next_key)
+ {
++	if (uses_uint32_keys()) {
++		if (key == nullptr) {
++			auto itr = uint32_impl.begin();
++			if (itr == uint32_impl.end()) {
++				errno = ENOENT;
++				return -1;
++			}
++			std::memcpy(next_key, &itr->first, sizeof(itr->first));
++			return 0;
++		}
++		uint32_t key_value;
++		std::memcpy(&key_value, key, sizeof(key_value));
++		auto itr = uint32_impl.find(key_value);
++		if (itr == uint32_impl.end())
++			return map_get_next_key(nullptr, next_key);
++		++itr;
++		if (itr == uint32_impl.end()) {
++			errno = ENOENT;
++			return -1;
++		}
++		std::memcpy(next_key, &itr->first, sizeof(itr->first));
++		return 0;
++	}
+ 	if (key == nullptr) {
+ 		// nullptr means the first key
+ 		auto itr = impl.begin();
+@@ -182,7 +269,7 @@ int per_cpu_hash_map_impl::map_get_next_key(const void *key, void *next_key)
+ 	// No need to be allocated at shm. Allocate as a local variable to make
+ 	// it thread safe, since we use sharable lock
+ 	bytes_vec &key_vec = this->key_templates[0];
+-	key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
++	std::memcpy(key_vec.data(), key, key_size);
+ 
+ 	auto itr = impl.find(key_vec);
+ 	if (itr == impl.end()) {
+@@ -205,13 +292,24 @@ void *per_cpu_hash_map_impl::elem_lookup_userspace(const void *key)
+ 		errno = ENOENT;
+ 		return nullptr;
+ 	}
+-	bytes_vec &key_vec = this->key_templates[0];
+-	key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
+-	if (auto itr = impl.find(key_vec); itr != impl.end()) {
++	bytes_vec *result = nullptr;
++	if (uses_uint32_keys()) {
++		uint32_t key_value;
++		std::memcpy(&key_value, key, sizeof(key_value));
++		auto itr = uint32_impl.find(key_value);
++		if (itr != uint32_impl.end())
++			result = &itr->second;
++	} else {
++		bytes_vec &key_vec = this->key_templates[0];
++		std::memcpy(key_vec.data(), key, key_size);
++		auto itr = impl.find(key_vec);
++		if (itr != impl.end())
++			result = &itr->second;
++	}
++	if (result != nullptr) {
+ 		SPDLOG_TRACE("Exit elem lookup of hash map: {}",
+-			     spdlog::to_hex(itr->second.begin(),
+-					    itr->second.end()));
+-		return &itr->second[0];
++			     spdlog::to_hex(result->begin(), result->end()));
++		return result->data();
+ 	} else {
+ 		SPDLOG_TRACE("Exit elem lookup of hash map");
+ 		errno = ENOENT;
+@@ -225,12 +323,19 @@ long per_cpu_hash_map_impl::elem_update_userspace(const void *key,
+ {
+ 	if (!check_update_flags(flags))
+ 		return -1;
+-	bytes_vec &key_vec = this->key_templates[0];
+ 	bytes_vec value_vec = this->value_template;
+-	key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
+ 	value_vec.assign((uint8_t *)value,
+ 			 (uint8_t *)value + value_size * ncpu);
+-	bool elem_exists = impl.find(key_vec) != impl.end();
++	bool elem_exists;
++	uint32_t key_value = 0;
++	if (uses_uint32_keys()) {
++		std::memcpy(&key_value, key, sizeof(key_value));
++		elem_exists = uint32_impl.find(key_value) != uint32_impl.end();
++	} else {
++		bytes_vec &key_vec = this->key_templates[0];
++		std::memcpy(key_vec.data(), key, key_size);
++		elem_exists = impl.find(key_vec) != impl.end();
++	}
+ 	if (flags == BPF_NOEXIST && elem_exists) {
+ 		errno = EEXIST;
+ 		return -1;
+@@ -239,38 +344,66 @@ long per_cpu_hash_map_impl::elem_update_userspace(const void *key,
+ 		errno = ENOENT;
+ 		return -1;
+ 	}
+-	if (elem_exists == false && impl.size() == _max_entries) {
++	const size_t map_size = uses_uint32_keys() ? uint32_impl.size() :
++						    impl.size();
++	if (elem_exists == false && map_size == _max_entries) {
+ 		errno = E2BIG;
+ 		return -1;
+ 	}
+-	impl.insert_or_assign(key_vec, value_vec);
++	if (uses_uint32_keys())
++		uint32_impl.insert_or_assign(key_value, value_vec);
++	else
++		impl.insert_or_assign(key_templates[0], value_vec);
+ 	return 0;
+ }
+ long per_cpu_hash_map_impl::elem_delete_userspace(const void *key)
+ {
+-	bytes_vec &key_vec = this->key_templates[0];
+-	key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
+-	auto itr = impl.find(key_vec);
+-	if (itr == impl.end()) {
+-		errno = ENOENT;
+-		return -1;
++	if (uses_uint32_keys()) {
++		uint32_t key_value;
++		std::memcpy(&key_value, key, sizeof(key_value));
++		auto itr = uint32_impl.find(key_value);
++		if (itr == uint32_impl.end()) {
++			errno = ENOENT;
++			return -1;
++		}
++		uint32_impl.erase(itr);
++	} else {
++		bytes_vec &key_vec = this->key_templates[0];
++		std::memcpy(key_vec.data(), key, key_size);
++		auto itr = impl.find(key_vec);
++		if (itr == impl.end()) {
++			errno = ENOENT;
++			return -1;
++		}
++		impl.erase(itr);
+ 	}
+-	impl.erase(itr);
+ 	return 0;
+ }
+ 
+ long per_cpu_hash_map_impl::lookup_and_delete_userspace(const void *key,
+ 							void *value)
+ {
+-	bytes_vec &key_vec = this->key_templates[0];
+-	key_vec.assign((uint8_t *)key, (uint8_t *)key + key_size);
+-	auto itr = this->impl.find(key_vec);
+-	if (itr == impl.end()) {
+-		errno = ENOENT;
+-		return -1;
++	if (uses_uint32_keys()) {
++		uint32_t key_value;
++		std::memcpy(&key_value, key, sizeof(key_value));
++		auto itr = uint32_impl.find(key_value);
++		if (itr == uint32_impl.end()) {
++			errno = ENOENT;
++			return -1;
++		}
++		memcpy(value, itr->second.data(), ncpu * value_size);
++		uint32_impl.erase(itr);
++	} else {
++		bytes_vec &key_vec = this->key_templates[0];
++		std::memcpy(key_vec.data(), key, key_size);
++		auto itr = this->impl.find(key_vec);
++		if (itr == impl.end()) {
++			errno = ENOENT;
++			return -1;
++		}
++		memcpy(value, itr->second.data(), ncpu * value_size);
++		impl.erase(itr);
+ 	}
+-	memcpy(value, itr->second.data(), ncpu * value_size);
+-	impl.erase(itr);
+ 	return 0;
+ }
+ } // namespace bpftime
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp b/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp
+index e39d0ef..32c00db 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp
+@@ -26,6 +26,31 @@ class per_cpu_hash_map_impl {
+ 	using shm_hash_map =
+ 		boost::unordered_map<bytes_vec, bytes_vec, bytes_vec_hasher,
+ 				     bytes_vec_equal, bi_map_allocator>;
++	struct uint32_key_hasher {
++		size_t operator()(uint32_t key) const
++		{
++			if (map_production_ab_stats_enabled() &&
++			    map_production_ab_lookup_active())
++				++map_production_ab_stats().hash_calls;
++			return key;
++		}
++	};
++	struct uint32_key_equal {
++		bool operator()(uint32_t lhs, uint32_t rhs) const
++		{
++			if (map_production_ab_stats_enabled() &&
++			    map_production_ab_lookup_active())
++				++map_production_ab_stats().equal_calls;
++			return lhs == rhs;
++		}
++	};
++	using bi_uint32_map_value_ty = std::pair<const uint32_t, bytes_vec>;
++	using bi_uint32_map_allocator = boost::interprocess::allocator<
++		bi_uint32_map_value_ty,
++		boost::interprocess::managed_shared_memory::segment_manager>;
++	using shm_uint32_hash_map = boost::unordered_map<
++		uint32_t, bytes_vec, uint32_key_hasher, uint32_key_equal,
++		bi_uint32_map_allocator>;
+ 
+ 	using shm_hash_map_vec_allocator = boost::interprocess::allocator<
+ 		shm_hash_map,
+@@ -40,8 +65,12 @@ class per_cpu_hash_map_impl {
+ 	using bytes_vec_vec =
+ 		boost::interprocess::vector<bytes_vec, bytes_vec_vec_allocator>;
+ 	using node_type = shm_hash_map::node_type;
++	using uint32_node_type = shm_uint32_hash_map::node_type;
+ 
+ 	shm_hash_map impl;
++	// Four-byte BPF keys are stored inline in the node. The generic map remains
++	// the fallback for every other key size.
++	shm_uint32_hash_map uint32_impl;
+ 	uint32_t key_size;
+ 	uint32_t value_size;
+ 	int ncpu;
+@@ -50,6 +79,12 @@ class per_cpu_hash_map_impl {
+ 	bytes_vec value_template;
+ 	bytes_vec_vec key_templates, single_value_templates;
+ 	static std::vector<node_type> &diagnostic_deferred_nodes();
++	static std::vector<uint32_node_type> &
++	diagnostic_deferred_uint32_nodes();
++	bool uses_uint32_keys() const
++	{
++		return key_size == sizeof(uint32_t);
++	}
+ 
+     public:
+ 	const static bool should_lock = false;
+diff --git a/runtime/unit-test/maps/test_per_cpu_hash.cpp b/runtime/unit-test/maps/test_per_cpu_hash.cpp
+index 09244b4..4c93425 100644
+--- a/runtime/unit-test/maps/test_per_cpu_hash.cpp
++++ b/runtime/unit-test/maps/test_per_cpu_hash.cpp
+@@ -213,3 +213,57 @@ TEST_CASE("per-cpu hash preserves arbitrary key and value bytes",
+ 		}
+ 	}
+ }
++
++TEST_CASE("four-byte per-cpu hash preserves userspace map semantics",
++	  "[percpu-hash][uint32-key]")
++{
++	const std::string shm_name =
++		"BPFTIME_PER_CPU_HASH_UINT32_SHM_" + std::to_string(getpid());
++	shm_remove remover(shm_name.c_str());
++	managed_shared_memory mem(create_only, shm_name.c_str(), 4 << 20);
++	const int ncpu = sysconf(_SC_NPROCESSORS_ONLN);
++	per_cpu_hash_map_impl map(mem, sizeof(uint32_t), sizeof(uint64_t), 2,
++				       ncpu);
++	std::vector<uint64_t> values(ncpu);
++	for (int cpu = 0; cpu < ncpu; ++cpu)
++		values[cpu] = 1000 + cpu;
++
++	uint32_t key1 = 0x12345678;
++	uint32_t key2 = 0xabcdef01;
++	uint32_t missing = 0xfeedface;
++	REQUIRE(map.elem_update_userspace(&key1, values.data(), BPF_NOEXIST) ==
++		0);
++	REQUIRE(map.elem_update_userspace(&key1, values.data(), BPF_NOEXIST) ==
++		-1);
++	REQUIRE(errno == EEXIST);
++	REQUIRE(map.elem_update_userspace(&missing, values.data(), BPF_EXIST) ==
++		-1);
++	REQUIRE(errno == ENOENT);
++	REQUIRE(map.elem_update_userspace(&key2, values.data(), BPF_NOEXIST) ==
++		0);
++	REQUIRE(map.elem_update_userspace(&missing, values.data(), BPF_NOEXIST) ==
++		-1);
++	REQUIRE(errno == E2BIG);
++
++	std::vector<uint32_t> iterated;
++	uint32_t current;
++	REQUIRE(map.map_get_next_key(nullptr, &current) == 0);
++	iterated.push_back(current);
++	while (map.map_get_next_key(&current, &current) == 0)
++		iterated.push_back(current);
++	REQUIRE(errno == ENOENT);
++	std::sort(iterated.begin(), iterated.end());
++	std::array<uint32_t, 2> expected{ key1, key2 };
++	std::sort(expected.begin(), expected.end());
++	REQUIRE(iterated == std::vector<uint32_t>(expected.begin(),
++						  expected.end()));
++
++	std::vector<uint64_t> copied(ncpu);
++	REQUIRE(map.lookup_and_delete_userspace(&key1, copied.data()) == 0);
++	REQUIRE(copied == values);
++	REQUIRE(map.elem_lookup_userspace(&key1) == nullptr);
++	REQUIRE(errno == ENOENT);
++	REQUIRE(map.elem_delete_userspace(&key2) == 0);
++	REQUIRE(map.map_get_next_key(nullptr, &current) == -1);
++	REQUIRE(errno == ENOENT);
++}
+diff --git a/runtime/unit-test/maps/test_shm_hash_maps.cpp b/runtime/unit-test/maps/test_shm_hash_maps.cpp
+index e45b34d..1ffafc8 100644
+--- a/runtime/unit-test/maps/test_shm_hash_maps.cpp
++++ b/runtime/unit-test/maps/test_shm_hash_maps.cpp
+@@ -11,6 +11,7 @@
+ #include <linux/bpf.h>
+ #include <sys/wait.h>
+ #include <unistd.h>
++#include <vector>
+ 
+ static const char *SHM_NAME = "my_shm_maps_test";
+ static const char *HANDLER_NAME = "my_handler";
+@@ -29,6 +30,20 @@ static void test_insert_map(int fd, bpftime::handler_manager &manager_ref,
+ 	}
+ }
+ 
++static void test_insert_percpu_map(int fd,
++				    bpftime::handler_manager &manager_ref)
++{
++	auto &map_handler = std::get<bpf_map_handler>(manager_ref[fd]);
++	const int ncpu = sysconf(_SC_NPROCESSORS_ONLN);
++	for (int i = 0; i < 100; i++) {
++		uint32_t key = i;
++		const uint64_t expected =
++			(static_cast<uint64_t>(key) << 32) | 0xffffffff;
++		std::vector<uint64_t> values(ncpu, expected);
++		map_handler.map_update_elem(&key, values.data(), 0, true);
++	}
++}
++
+ static void test_lookup_map(int fd, bpftime::handler_manager &manager_ref,
+ 			    managed_shared_memory &segment)
+ {
+@@ -73,10 +88,13 @@ static void handle_sub_process()
+ 	manager_ref.clear_id_at(2, segment);
+ 	test_lookup_map(1, manager_ref, segment);
+ 	test_lookup_map(3, manager_ref, segment);
++	test_lookup_map(4, manager_ref, segment);
+ 	test_get_next_element(1, manager_ref, segment);
+ 	test_get_next_element(3, manager_ref, segment);
++	test_get_next_element(4, manager_ref, segment);
+ 	test_delete_map(1, manager_ref, segment);
+ 	test_delete_map(3, manager_ref, segment);
++	test_delete_map(4, manager_ref, segment);
+ 	manager->clear_all(segment);
+ 	spdlog::info("Print maps value finished");
+ 	segment.destroy_ptr(manager);
+@@ -110,15 +128,22 @@ TEST_CASE("Test shm hash maps with sub process")
+ 				bpf_map_handler(3, BPF_MAP_TYPE_ARRAY, 4, 8,
+ 						1024, 0, "array1", segment),
+ 				segment);
++	manager_ref.set_handler(4,
++				bpf_map_handler(4, BPF_MAP_TYPE_PERCPU_HASH, 4, 8,
++						1024, 0, "percpu_hash1", segment),
++				segment);
+ 
+ 	// test insert
+ 	test_insert_map(1, manager_ref, segment);
+ 	test_insert_map(3, manager_ref, segment);
++	test_insert_percpu_map(4, manager_ref);
+ 	test_get_next_element(1, manager_ref, segment);
+ 	test_get_next_element(3, manager_ref, segment);
++	test_get_next_element(4, manager_ref, segment);
+ 	// test lookup
+ 	test_lookup_map(1, manager_ref, segment);
+ 	test_lookup_map(3, manager_ref, segment);
++	test_lookup_map(4, manager_ref, segment);
+ 	spdlog::info("Starting subprocess");
+ 	int pid = fork();
+ 	if (pid == 0) {

@@ -1,0 +1,135 @@
+[2026-10-20 00:19:00.890] [info] [bpf_attach_ctx.cpp:226] bpf_attach_ctx constructed
+Filters: [array-jit-lifetime],[array-jit-poc],[array-offset-branch],[array-lookup-cold],[percpu-array],[percpu-hash],[maps] [hash],[hash-fast4],"Test basic operations of array map"
+Randomness seeded to: 2057666827
+[2026-10-20 00:19:00.949] [info] [llvm_jit_context.cpp:488] [array-jit-poc] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-10-20 00:19:00.960] [info] [llvm_jit_context.cpp:488] [array-jit-poc] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-10-20 00:19:00.968] [info] [llvm_jit_context.cpp:488] [array-jit-poc] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-10-20 00:19:00.976] [info] [llvm_jit_context.cpp:488] [array-jit-poc] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-10-20 00:19:00.984] [info] [llvm_jit_context.cpp:488] [array-jit-poc] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-10-20 00:19:01.013] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.013] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_runtime_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+Array JIT owns map identity after close, reuse and server reset
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:93
+...............................................................................
+
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:75: FAILED:
+  REQUIRE( prog->bpftime_prog_load(true) == 0 )
+with expansion:
+  -17 == 0
+
+[2026-10-20 00:19:01.020] [warning] [bpftime_shm_internal.cpp:1005] NOT creating global shm. This is only for testing purpose.
+[2026-10-20 00:19:01.020] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.020] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+[2026-10-20 00:19:01.031] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.031] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+-------------------------------------------------------------------------------
+Array JIT retains exact mapping across unmap, unlink and recreate
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:116
+...............................................................................
+
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:75: FAILED:
+  REQUIRE( prog->bpftime_prog_load(true) == 0 )
+with expansion:
+  -17 == 0
+
+[2026-10-20 00:19:01.037] [warning] [bpftime_shm_internal.cpp:1005] NOT creating global shm. This is only for testing purpose.
+[2026-10-20 00:19:01.037] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.037] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+[2026-10-20 00:19:01.048] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.048] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+-------------------------------------------------------------------------------
+Array JIT shares backing with dup and releases last reference
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:133
+...............................................................................
+
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:75: FAILED:
+  REQUIRE( prog->bpftime_prog_load(true) == 0 )
+with expansion:
+  -17 == 0
+
+[2026-10-20 00:19:01.055] [warning] [bpftime_shm_internal.cpp:1005] NOT creating global shm. This is only for testing purpose.
+[2026-10-20 00:19:01.055] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.055] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+[2026-10-20 00:19:01.065] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.065] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+-------------------------------------------------------------------------------
+Array JIT execution tolerates concurrent close and FD replacement
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:155
+...............................................................................
+
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:75: FAILED:
+  REQUIRE( prog->bpftime_prog_load(true) == 0 )
+with expansion:
+  -17 == 0
+
+[2026-10-20 00:19:01.072] [warning] [bpftime_shm_internal.cpp:1005] NOT creating global shm. This is only for testing purpose.
+[2026-10-20 00:19:01.072] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.072] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+[2026-10-20 00:19:01.083] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.083] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+-------------------------------------------------------------------------------
+Array JIT references survive another process closing the FD
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:182
+...............................................................................
+
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:75: FAILED:
+  REQUIRE( prog->bpftime_prog_load(true) == 0 )
+with expansion:
+  -17 == 0
+
+[2026-10-20 00:19:01.092] [warning] [bpftime_shm_internal.cpp:1005] NOT creating global shm. This is only for testing purpose.
+[2026-10-20 00:19:01.092] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.092] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+[2026-10-20 00:19:01.103] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.103] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+-------------------------------------------------------------------------------
+Array JIT request leaves interpreter and uBPF on original path
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:202
+...............................................................................
+
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:84: FAILED:
+  REQUIRE( (*__errno_location ()) == expected_errno )
+with expansion:
+  0 == 33
+
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:220: FAILED:
+  REQUIRE( *reinterpret_cast<uint64_t *>(lookup(prog,1)) == 31 )
+due to unexpected exception with message:
+  Exception translation was disabled by CATCH_CONFIG_FAST_COMPILE
+
+[2026-10-20 00:19:01.116] [warning] [bpftime_shm_internal.cpp:1005] NOT creating global shm. This is only for testing purpose.
+[2026-10-20 00:19:01.116] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.116] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+[2026-10-20 00:19:01.126] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.126] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+-------------------------------------------------------------------------------
+Array JIT keeps custom helpers and dynamic lookup fallback
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:225
+...............................................................................
+
+/home/jetson/src/bpftime-array-jit-integrated-20261020/runtime/unit-test/maps/test_array_jit_lifetime.cpp:75: FAILED:
+  REQUIRE( prog->bpftime_prog_load(true) == 0 )
+with expansion:
+  -17 == 0
+
+[2026-10-20 00:19:01.140] [warning] [bpftime_shm_internal.cpp:1005] NOT creating global shm. This is only for testing purpose.
+[2026-10-20 00:19:01.140] [info] [bpftime_shm_internal.cpp:1109] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-528603
+[2026-10-20 00:19:01.140] [info] [bpftime_shm_internal.cpp:58] Global shm initialized
+===============================================================================
+test cases:     27 |     20 passed | 7 failed
+assertions: 106797 | 106789 passed | 8 failed
+
+[2026-10-20 00:19:01.140] [info] [bpf_attach_ctx.cpp:214] Destructor: bpf_attach_ctx

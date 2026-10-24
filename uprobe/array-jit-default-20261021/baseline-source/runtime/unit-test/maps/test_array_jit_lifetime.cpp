@@ -1,0 +1,490 @@
+/* SPDX-License-Identifier: MIT */
+#include <catch2/catch_test_macros.hpp>
+#include <bpftime_prog.hpp>
+#include <bpftime_shm_internal.hpp>
+#include <bpftime_helper_group.hpp>
+#include <bpf_map/array_map_binding.hpp>
+#include <linux/bpf.h>
+#include <atomic>
+#include <cerrno>
+#include <cstdlib>
+#include <memory>
+#include <thread>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <sched.h>
+#include <sstream>
+#include <spdlog/sinks/ostream_sink.h>
+
+#if defined(__linux__)
+namespace {
+thread_local bool cpu_query_injected = false;
+thread_local int cpu_query_result = 0;
+thread_local unsigned cpu_query_reads = 0;
+}
+extern "C" int __real_sched_getcpu();
+extern "C" int __wrap_sched_getcpu()
+{
+	if (!cpu_query_injected)
+		return __real_sched_getcpu();
+	++cpu_query_reads;
+	if (cpu_query_result == -1)
+		errno = EIO;
+	return cpu_query_result;
+}
+#endif
+
+namespace {
+using namespace bpftime;
+struct isolated_shm {
+	std::string name = "bpftime-array-jit-lifetime-" + std::to_string(getpid());
+	bool had_name = getenv("BPFTIME_GLOBAL_SHM_NAME") != nullptr;
+	std::string previous = had_name ? getenv("BPFTIME_GLOBAL_SHM_NAME") : "";
+	isolated_shm()
+	{
+		bpftime_destroy_global_shm();
+		REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+		bpftime_initialize_global_shm(shm_open_type::SHM_REMOVE_AND_CREATE);
+		runtime_config config;
+		config.set_vm_name("llvm");
+		shm_holder.global_shared_memory.set_runtime_config(std::move(config));
+	}
+	~isolated_shm()
+	{
+		shm_holder.global_shared_memory.reset_server_state();
+		bpftime_destroy_global_shm();
+		boost::interprocess::shared_memory_object::remove(name.c_str());
+		bpftime_initialize_global_shm(shm_open_type::SHM_NO_CREATE);
+		if (had_name)
+			setenv("BPFTIME_GLOBAL_SHM_NAME", previous.c_str(), 1);
+		else
+			unsetenv("BPFTIME_GLOBAL_SHM_NAME");
+	}
+};
+
+int create_array(uint64_t value, uint32_t capacity = 4)
+{
+	constexpr int fd = 100;
+	REQUIRE(bpftime_maps_create(fd, "array_jit_lifetime", {
+		.type = BPF_MAP_TYPE_ARRAY, .key_size = 4, .value_size = 8,
+		.max_ents = capacity}) == fd);
+	for (uint32_t key = 0; key < capacity; ++key)
+		REQUIRE(bpftime_map_update_elem(fd, &key, &value, BPF_ANY) == 0);
+	return fd;
+}
+
+std::unique_ptr<bpftime_prog> make_program(int fd, bool request = true,
+	void *helper = reinterpret_cast<void *>(bpftime_array_map_lookup_elem_helper),
+	bool dynamic = false, void *cpu_helper = reinterpret_cast<void *>(bpftime_get_smp_processor_id))
+{
+	std::vector<ebpf_inst> code = {
+		{0xbf, 2, 1, 0, 0},
+		{0x18, 1, BPF_PSEUDO_MAP_FD, 0, fd},
+		{0x00, 0, 0, 0, 0},
+		{0x85, 0, 0, 0, BPF_FUNC_map_lookup_elem},
+		{0x95, 0, 0, 0, 0},
+	};
+	if (dynamic) {
+		// Keep a declared map to specialize, but select the actual handle at
+		// runtime. The helper must retain a transient map through execution.
+		code.insert(code.begin() + 3, ebpf_inst{0x79, 1, 2, 8, 0});
+	}
+	auto prog = std::make_unique<bpftime_prog>(code.data(), code.size(), "array_jit_lifetime");
+	if (request)
+		REQUIRE(prog->request_array_map_inlining() == 0);
+	if (helper == reinterpret_cast<void *>(bpftime_percpu_array_map_lookup_elem_helper))
+		REQUIRE(prog->bpftime_prog_register_raw_helper({8, "bpf_get_smp_processor_id", cpu_helper}) == 0);
+	REQUIRE(prog->bpftime_prog_register_raw_helper({1, "bpf_map_lookup_elem", helper}) == 0);
+	REQUIRE(prog->bpftime_prog_load(true) == 0);
+	return prog;
+}
+
+uint64_t lookup(bpftime_prog &prog, uint32_t key, int expected_errno = EDOM);
+uint64_t custom_lookup(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+
+TEST_CASE("Per-CPU array JIT follows real affinity changes and retains map identity",
+	"[array-jit-lifetime][percpu-array-jit]")
+{
+	isolated_shm fixture;
+	cpu_set_t original;
+	REQUIRE(sched_getaffinity(0,sizeof(original),&original)==0);
+	struct restore_affinity {
+		cpu_set_t mask;
+		~restore_affinity() { sched_setaffinity(0,sizeof(mask),&mask); }
+	} restore{original};
+	const int cpus=sysconf(_SC_NPROCESSORS_ONLN);
+	REQUIRE(cpus>0);
+	auto memory=shm_holder.global_shared_memory.retain_mapping();
+	(void)map_binding_mutex(*memory);
+	const auto free_before=memory->get_free_memory();
+	constexpr int fd=100;
+	REQUIRE(bpftime_maps_create(fd,"percpu_jit",{
+		.type=BPF_MAP_TYPE_PERCPU_ARRAY,.key_size=4,.value_size=8,.max_ents=4})==fd);
+	std::vector<uint64_t> values(cpus);
+	for (int i=0;i<cpus;++i) values[i]=1000+i;
+	for (uint32_t key=0;key<4;++key)
+		REQUIRE(bpftime_map_update_elem(fd,&key,values.data(),BPF_ANY)==0);
+	auto prog=make_program(fd,true,(void *)bpftime_percpu_array_map_lookup_elem_helper);
+	std::vector<uint64_t> addresses(cpus);
+	for (int pass=0;pass<2;++pass) {
+		for (int cpu=0;cpu<cpus;++cpu) {
+			if (!CPU_ISSET(cpu,&original)) continue;
+			cpu_set_t mask; CPU_ZERO(&mask); CPU_SET(cpu,&mask);
+			REQUIRE(sched_setaffinity(0,sizeof(mask),&mask)==0);
+			REQUIRE(sched_getcpu()==cpu);
+			if (pass==0) addresses[cpu]=lookup(*prog,2);
+			else REQUIRE(lookup(*prog,2)==addresses[cpu]);
+			REQUIRE(*reinterpret_cast<uint64_t *>(addresses[cpu])==uint64_t(1000+cpu));
+			REQUIRE(lookup(*prog,4,ENOENT)==0);
+		}
+		bpftime_close(fd);
+		create_array(9999,8); // Same FD, different map type and capacity.
+	}
+	shm_holder.global_shared_memory.begin_new_session();
+	REQUIRE(lookup(*prog,UINT32_MAX,ENOENT)==0);
+	const auto child=fork();
+	REQUIRE(child>=0);
+	if (child==0) {
+		uint32_t key=2; uint64_t result=99;
+		int status=prog->bpftime_prog_exec(&key,4,&result);
+		prog.reset();
+		_exit(status==-ENOTSUP && result==0 ? 0:1);
+	}
+	int status=0; REQUIRE(waitpid(child,&status,0)==child);
+	REQUIRE(WIFEXITED(status)); REQUIRE(WEXITSTATUS(status)==0);
+	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(*prog,2))==uint64_t(1000+sched_getcpu()));
+	prog.reset();
+	REQUIRE(memory->get_free_memory()==free_before);
+}
+
+TEST_CASE("Per-CPU array JIT does not introduce custom CPU helper calls",
+	"[array-jit-lifetime][percpu-array-jit]")
+{
+	isolated_shm fixture;
+	const int cpus=sysconf(_SC_NPROCESSORS_ONLN);
+	REQUIRE(bpftime_maps_create(100,"percpu_custom_cpu",{
+		.type=BPF_MAP_TYPE_PERCPU_ARRAY,.key_size=4,.value_size=8,.max_ents=4})==100);
+	std::vector<uint64_t> values(cpus,42);
+	uint32_t key=1;
+	REQUIRE(bpftime_map_update_elem(100,&key,values.data(),BPF_ANY)==0);
+	auto prog=make_program(100,true,(void *)bpftime_percpu_array_map_lookup_elem_helper,false,(void *)custom_lookup);
+	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(*prog,1))==42);
+	bpftime_close(100);
+	create_array(88);
+	// Not bound: a replaced FD must not retain the per-CPU map.
+	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(*prog,1))==88);
+}
+
+uint64_t lookup(bpftime_prog &prog, uint32_t key, int expected_errno)
+{
+	errno = EDOM;
+	uint64_t result = 0;
+	REQUIRE(prog.bpftime_prog_exec(&key, sizeof(key), &result) == 0);
+	REQUIRE(errno == expected_errno);
+	return result;
+}
+uint64_t custom_lookup(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
+{
+	return 12345;
+}
+}
+
+#if defined(__linux__)
+TEST_CASE("Direct per-CPU JIT query preserves success and exact CPU failure behavior",
+	"[array-jit-lifetime][percpu-array-jit]")
+{
+	isolated_shm fixture;
+	const int cpus=sysconf(_SC_NPROCESSORS_ONLN);
+	REQUIRE(cpus>0);
+	REQUIRE(bpftime_maps_create(100,"percpu_cpu_query",{
+		.type=BPF_MAP_TYPE_PERCPU_ARRAY,.key_size=4,.value_size=8,.max_ents=4})==100);
+	std::vector<uint64_t> values(cpus);
+	for (int i=0;i<cpus;++i) values[i]=2000+i;
+	uint32_t key=1;
+	REQUIRE(bpftime_map_update_elem(100,&key,values.data(),BPF_ANY)==0);
+	auto prog=make_program(100,true,(void *)bpftime_percpu_array_map_lookup_elem_helper);
+	std::ostringstream messages;
+	auto old_logger=spdlog::default_logger();
+	auto sink=std::make_shared<spdlog::sinks::ostream_sink_mt>(messages);
+	spdlog::set_default_logger(std::make_shared<spdlog::logger>("cpu-query-test",sink));
+	struct restore_query {
+		std::shared_ptr<spdlog::logger> logger;
+		~restore_query() { cpu_query_injected=false; spdlog::set_default_logger(logger); }
+	} restore{old_logger};
+	cpu_query_injected=true;
+	for (int cpu : {0,cpus-1}) {
+		cpu_query_result=cpu; cpu_query_reads=0;
+		auto address=lookup(*prog,1);
+		REQUIRE(cpu_query_reads==1);
+		REQUIRE(*reinterpret_cast<uint64_t *>(address)==uint64_t(2000+cpu));
+	}
+	// Raw -1 must preserve the SAME log-once/CPU-0 behavior as helper 8.
+	cpu_query_result=-1; cpu_query_reads=0; errno=EDOM;
+	REQUIRE(bpftime_get_smp_processor_id()==0);
+	REQUIRE(cpu_query_reads==1);
+	const int expected_errno=errno;
+	REQUIRE(messages.str().find("sched_getcpu error")!=std::string::npos);
+	messages.str(""); messages.clear();
+	cpu_query_reads=0; errno=EDOM;
+	uint64_t result=0;
+	REQUIRE(prog->bpftime_prog_exec(&key,4,&result)==0);
+	REQUIRE(cpu_query_reads==1);
+	REQUIRE(errno==expected_errno);
+	REQUIRE(result!=0);
+	REQUIRE(*reinterpret_cast<uint64_t *>(result)==2000);
+	auto text=messages.str();
+	auto pos=text.find("sched_getcpu error");
+	REQUIRE(pos!=std::string::npos);
+	REQUIRE(text.find("sched_getcpu error",pos+1)==std::string::npos);
+	for (int invalid_cpu : {-2,cpus}) {
+		cpu_query_result=invalid_cpu; cpu_query_reads=0;
+		REQUIRE(lookup(*prog,1,ENOENT)==0);
+		REQUIRE(cpu_query_reads==1);
+	}
+	cpu_query_result=-1; cpu_query_reads=0;
+	REQUIRE(lookup(*prog,4,ENOENT)==0);
+	REQUIRE(cpu_query_reads==0); // A proven miss must not query/log CPU.
+	cpu_query_reads=0; result=99; errno=EDOM;
+	REQUIRE(prog->bpftime_prog_exec(nullptr,0,&result)==0);
+	REQUIRE(result==0);
+	REQUIRE(errno==ENOENT);
+	REQUIRE(cpu_query_reads==0);
+}
+#endif
+
+TEST_CASE("Array JIT owns map identity after close, reuse and server reset",
+	"[array-jit-lifetime]")
+{
+	isolated_shm fixture;
+	int fd = create_array(42);
+	auto prog = make_program(fd);
+	auto address = lookup(*prog, 2);
+	REQUIRE(*reinterpret_cast<uint64_t *>(address) == 42);
+	bpftime_close(fd);
+	create_array(99, 8);
+	REQUIRE(lookup(*prog, 2) == address);
+	REQUIRE(*reinterpret_cast<uint64_t *>(address) == 42);
+	// A new map at the same FD accepts key 6, but the pinned original must not.
+	REQUIRE(lookup(*prog, 6, ENOENT) == 0);
+	shm_holder.global_shared_memory.begin_new_session();
+	REQUIRE(lookup(*prog, 2) == address);
+	REQUIRE(lookup(*prog, UINT32_MAX, ENOENT) == 0);
+	REQUIRE(prog->bpftime_prog_register_raw_helper({1,"custom",(void *)custom_lookup}) == -EBUSY);
+	REQUIRE(prog->prepare_for_signal_execution() == -ENOTSUP);
+	REQUIRE(prog->load_aot_object({}) == -ENOTSUP);
+	REQUIRE(prog->bpftime_prog_load(true) == -EBUSY);
+}
+
+TEST_CASE("Array JIT retains exact mapping across unmap, unlink and recreate",
+	"[array-jit-lifetime]")
+{
+	isolated_shm fixture;
+	int fd = create_array(123);
+	auto prog = make_program(fd);
+	auto address = lookup(*prog, 1);
+	shm_holder.global_shared_memory.reset_server_state();
+	bpftime_destroy_global_shm();
+	bpftime_initialize_global_shm(shm_open_type::SHM_REMOVE_AND_CREATE);
+	create_array(777, 8);
+	REQUIRE(lookup(*prog, 1) == address);
+	REQUIRE(*reinterpret_cast<uint64_t *>(address) == 123);
+	REQUIRE(lookup(*prog, 6, ENOENT) == 0);
+	prog.reset(); // Must free through the old retained allocator, not the new one.
+}
+
+TEST_CASE("Array JIT shares backing with dup and releases last reference",
+	"[array-jit-lifetime]")
+{
+	isolated_shm fixture;
+	auto memory = shm_holder.global_shared_memory.retain_mapping();
+	(void)map_binding_mutex(*memory); // Exclude the persistent mutex allocation.
+	auto before = memory->get_free_memory();
+	int fd = create_array(5);
+	auto prog = make_program(fd);
+	REQUIRE(shm_holder.global_shared_memory.dup_bpf_map(fd, fd) == fd);
+	REQUIRE(shm_holder.global_shared_memory.dup_bpf_map(fd, 101) == 101);
+	bpftime_close(fd);
+	uint32_t key = 1;
+	uint64_t changed = 987;
+	REQUIRE(bpftime_map_update_elem(101, &key, &changed, BPF_ANY) == 0);
+	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(*prog, key)) == changed);
+	bpftime_close(101);
+	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(*prog, key)) == changed);
+	prog.reset();
+	REQUIRE(memory->get_free_memory() == before);
+}
+
+TEST_CASE("Array JIT execution tolerates concurrent close and FD replacement",
+	"[array-jit-lifetime]")
+{
+	isolated_shm fixture;
+	int fd = create_array(456);
+	auto prog = make_program(fd);
+	std::atomic<bool> start{false};
+	std::atomic<unsigned> failures{0};
+	std::thread reader([&] {
+		while (!start.load(std::memory_order_acquire)) {}
+		for (unsigned i = 0; i < 20000; ++i) {
+			uint32_t key = i % 4;
+			uint64_t result = 0;
+			if (prog->bpftime_prog_exec(&key, sizeof(key), &result) != 0 ||
+			    result == 0 || *reinterpret_cast<uint64_t *>(result) != 456)
+				++failures;
+		}
+	});
+	start.store(true, std::memory_order_release);
+	for (unsigned i = 0; i < 200; ++i) {
+		bpftime_close(fd);
+		create_array(i + 1000, 8);
+	}
+	reader.join();
+	REQUIRE(failures == 0);
+}
+
+TEST_CASE("Array JIT references survive another process closing the FD",
+	"[array-jit-lifetime]")
+{
+	isolated_shm fixture;
+	int fd = create_array(73);
+	auto prog = make_program(fd);
+	pid_t child = fork();
+	REQUIRE(child >= 0);
+	if (child == 0) {
+		bpftime_close(fd);
+		_exit(0); // Do not destruct the parent's inherited C++ ownership graph.
+	}
+	int status = -1;
+	REQUIRE(waitpid(child, &status, 0) == child);
+	REQUIRE(WIFEXITED(status));
+	REQUIRE(WEXITSTATUS(status) == 0);
+	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(*prog, 0)) == 73);
+	REQUIRE(lookup(*prog, 4, ENOENT) == 0);
+}
+
+TEST_CASE("Array JIT request leaves interpreter and uBPF on original path",
+	"[array-jit-lifetime]")
+{
+	isolated_shm fixture;
+	int fd = create_array(31);
+	for (const char *backend : {"llvm", "ubpf"}) {
+		runtime_config config;
+		config.set_vm_name(backend);
+		shm_holder.global_shared_memory.set_runtime_config(std::move(config));
+		ebpf_inst code[] = {
+			{0xbf,2,1,0,0}, {0x18,1,BPF_PSEUDO_MAP_FD,0,fd},
+			{0,0,0,0,0}, {0x85,0,0,0,1}, {0x95,0,0,0,0},
+		};
+		bpftime_prog prog(code,5,"array_jit_interpreter_fallback");
+		REQUIRE(prog.request_array_map_inlining() == 0);
+		REQUIRE(prog.bpftime_prog_register_raw_helper({1,"bpf_map_lookup_elem",
+			(void *)bpftime_array_map_lookup_elem_helper}) == 0);
+		REQUIRE(prog.bpftime_prog_load(false) == 0);
+		uint32_t key = 1;
+		uint64_t result = 0;
+		REQUIRE(prog.bpftime_prog_exec(&key,sizeof(key),&result) == 0);
+		REQUIRE(result != 0);
+		REQUIRE(*reinterpret_cast<uint64_t *>(result) == 31);
+		int expected = std::string(backend) == "ubpf" ? 0 : -EEXIST;
+		REQUIRE(prog.bpftime_prog_register_raw_helper({1,"custom",(void *)custom_lookup}) == expected);
+		if (std::string(backend) == "llvm") {
+			REQUIRE(prog.bpftime_prog_load(true) == 0);
+			REQUIRE(*reinterpret_cast<uint64_t *>(lookup(prog,1)) == 31);
+		}
+	}
+}
+
+TEST_CASE("Array JIT keeps custom helpers and dynamic lookup fallback",
+	"[array-jit-lifetime]")
+{
+	isolated_shm fixture;
+	int fd = create_array(17);
+	auto custom = make_program(fd, true, (void *)custom_lookup);
+	REQUIRE(lookup(*custom, 0) == 12345);
+	auto dynamic = make_program(fd, true, (void *)bpftime_array_map_lookup_elem_helper, true);
+	struct {uint32_t key, padding; uint64_t fd;} input{2,0,100};
+	uint64_t result = 0;
+	REQUIRE(dynamic->bpftime_prog_exec(&input,sizeof(input),&result) == 0);
+	REQUIRE(*reinterpret_cast<uint64_t *>(result) == 17);
+	// A different, runtime-selected array is pinned by the slow helper too.
+	REQUIRE(bpftime_maps_create(102,"dynamic_array",{.type=BPF_MAP_TYPE_ARRAY,
+		.key_size=4,.value_size=8,.max_ents=4}) == 102);
+	uint64_t value = 91;
+	REQUIRE(bpftime_map_update_elem(102,&input.key,&value,BPF_ANY) == 0);
+	input.fd = 102;
+	auto memory = shm_holder.global_shared_memory.retain_mapping();
+	auto before = memory->get_free_memory();
+	REQUIRE(dynamic->bpftime_prog_exec(&input,sizeof(input),&result) == 0);
+	REQUIRE(*reinterpret_cast<uint64_t *>(result) == 91);
+	REQUIRE(memory->get_free_memory() == before);
+}
+
+TEST_CASE("Array JIT binds implementation metadata, not duplicate attributes",
+	"[array-jit-lifetime]")
+{
+	isolated_shm fixture;
+	int fd = create_array(88);
+	const auto *manager = shm_holder.global_shared_memory.get_manager();
+	// The legacy explicit-field handler constructor does not populate attr.
+	// Public metadata can also be changed independently of the implementation.
+	auto &map = const_cast<bpf_map_handler &>(std::get<bpf_map_handler>(manager->get_handler(fd)));
+	map.attr = {};
+	auto prog = make_program(fd);
+	bpftime_close(fd);
+	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(*prog, 3)) == 88);
+	REQUIRE(lookup(*prog, 4, ENOENT) == 0);
+}
+
+TEST_CASE("Array JIT descriptor failure cannot execute stale code or retry",
+	"[array-jit-lifetime]")
+{
+	isolated_shm fixture;
+	int fd = create_array(19);
+	ebpf_inst code[] = {{0xbf,2,1,0,0},{0x18,1,BPF_PSEUDO_MAP_FD,0,fd},
+		{0,0,0,0,0},{0x85,0,0,0,1},{0x95,0,0,0,0}};
+	bpftime_prog prog(code,5,"array_jit_failed_registration");
+	REQUIRE(prog.request_array_map_inlining() == 0);
+	REQUIRE(prog.bpftime_prog_register_raw_helper({1,"bpf_map_lookup_elem",
+		(void *)bpftime_array_map_lookup_elem_helper}) == 0);
+	auto impl = shm_holder.global_shared_memory.try_get_array_map_impl(fd);
+	REQUIRE(impl.has_value());
+	// Simulate a partially preconfigured VM whose descriptor slot is occupied.
+	REQUIRE(ebpf_register_array_map(const_cast<ebpf_vm *>(prog.get_vm()),fd,
+		(uint64_t)(*impl)->get_raw_data(),4,8,8,4) == 0);
+	REQUIRE(prog.bpftime_prog_load(true) == -EEXIST);
+	bpftime_close(fd);
+	uint32_t key = 0;
+	uint64_t result = 123;
+	REQUIRE(prog.bpftime_prog_exec(&key,sizeof(key),&result) == -EINVAL);
+	REQUIRE(result == 0);
+	REQUIRE(prog.bpftime_prog_load(true) == -EINVAL);
+	REQUIRE(prog.load_aot_object({}) == -ENOTSUP);
+}
+
+TEST_CASE("Fork child cannot execute or release the parent's array binding",
+	"[array-jit-lifetime]")
+{
+	isolated_shm fixture;
+	auto memory = shm_holder.global_shared_memory.retain_mapping();
+	auto before = memory->get_free_memory();
+	int fd = create_array(64);
+	auto prog = make_program(fd);
+	bpftime_close(fd); // The program is now the last real shared-map owner.
+	auto child_before = memory->get_free_memory();
+	pid_t child = fork();
+	REQUIRE(child >= 0);
+	if (child == 0) {
+		uint32_t key = 1;
+		uint64_t result = 123;
+		int status = prog->bpftime_prog_exec(&key,sizeof(key),&result);
+		prog.reset();
+		bool unchanged = memory->get_free_memory() == child_before;
+		_exit(status == -ENOTSUP && result == 0 && unchanged ? 0 : 1);
+	}
+	int status = -1;
+	REQUIRE(waitpid(child,&status,0) == child);
+	REQUIRE(WIFEXITED(status));
+	REQUIRE(WEXITSTATUS(status) == 0);
+	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(*prog,1)) == 64);
+	prog.reset();
+	REQUIRE(memory->get_free_memory() == before);
+}

@@ -1,0 +1,1763 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 358280b..5b2f92d 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -180,11 +180,15 @@ Keep repository maintenance and design constraints in this file.
+ 
+ ## Ordinary Array JIT Specialization
+ 
+-`BPFTIME_ARRAY_JIT_INLINE=1` opts the runtime loader into LLVM ordinary-array
+-lookup specialization. Keep it off by default. Eligibility is deliberately
+-conservative: known standard helper, ordinary-array-only, lookup-only programs,
+-and no direct map-value relocations, CUDA or MPK. Do not silently bypass custom
+-or diagnostic helpers or enable it for signal callbacks or AOT.
++Array lookup specialization is automatic for eligible LLVM JIT programs; the
++`BPFTIME_ARRAY_JIT_INLINE` enable switch is obsolete and not read. Descriptor
++kind is per map (explicit even when a per-CPU allocation has one CPU), and LLVM
++selects individual constant-handle lookup sites. Mixed ordinary/per-CPU arrays,
++hash maps, updates and unrelated helpers may coexist. Unknown handles and
++non-array calls retain the exact original helper. Never bypass custom or
++diagnostic helpers. Programs with direct map-value/unsupported relocations,
++CUDA, MPK or indirect helper calls remain on the original path. Interpreter
++and AOT do not acquire JIT bindings; bound programs still reject signal use.
+ 
+ Generated addresses must be owned, not cached from a reusable FD. Program
+ bindings share the existing implementation reference count and retain the
+@@ -194,8 +198,9 @@ map-binding mutex. No mutex or reference increment belongs in the inlined hit
+ path. Abrupt process termination can strand shared references until the shared
+ segment is removed, as with the existing shared-reference machinery; do not
+ claim crash-recovery or mix incompatible runtime versions in one segment.
+-The private helper name `bpftime_bound_array_lookup_v1` is reserved for this
+-standard-helper contract. Only for that helper may the JIT canonicalize a
++The private helper names `bpftime_bound_array_lookup_v1`,
++`bpftime_bound_percpu_array_lookup_v1` and `bpftime_bound_array_lookup_v2` are
++reserved for this standard-helper contract. Only for these may the JIT canonicalize a
+ proven out-of-range lookup to FD -1, whose result is ENOENT/null without another
+ FD-table or binding lookup. Custom helpers keep their original arguments.
+ Management APIs still require their existing external serialization, and this
+@@ -206,8 +211,16 @@ parent's references; inherited snapshot destruction must not decrement shared
+ refcounts or free shared names. Do not claim support for fork from a signal
+ handler interrupting an active JIT invocation.
+ 
+-The llvmbpf safety changes are a parent-owned patch applied to a generated
+-translation unit in the build directory, not an uncommitted submodule edit.
++Standard update/delete calls in bound programs must resolve the same owned
++array identity as lookup, including after FD reuse; other map kinds keep their
++original helper. Custom helper pointers are selected BEFORE compilation and
++never overridden by this optimization. Dynamic array bindings are retained
++for an invocation; this does not extend non-array map lifetime guarantees.
++
++The llvmbpf safety changes are parent-owned patches applied to a generated
++translation unit and descriptor header in the build directory, not an
++uncommitted submodule edit. All native VM consumers must use the same generated
++descriptor header; do not mix objects built with different definitions.
+ Patch conflicts on upstream updates must fail configuration for explicit review.
+ 
+ Use workloads that consume lookup values and check results when measuring JIT
+@@ -215,3 +228,27 @@ specialization. An unused lookup result can simplify after inlining; those
+ timings must not replace or be compared directly with the historical C++ map
+ operation table. Test close/reuse/reset, mapping replacement, duplicate handles,
+ last-reference reclamation and concurrent/cross-process lifetimes.
++
++The per-CPU extension is selected per eligible map. Its descriptor stride is value_size times
++the implementation CPU count. JIT code must call the known standard helper 8
++once per in-range lookup, including within a single invocation; never cache its result,
++mark it pure, or assume benchmark affinity is an execution guarantee. A custom
++or missing CPU helper disables per-CPU specialization, not ordinary arrays in
++the same program. Check the CPU against the bound
++allocation's CPU count before forming a usable result. This preserves existing
++userspace selection-at-lookup behavior; it does not provide kernel-style
++preemption disabling or make per-CPU values safe against thread migration while
++the caller subsequently uses a returned pointer. CPU topology/hotplug support
++is not added by this experiment.
++
++The LLVM overlay may weakly resolve `bpftime_resolve_array_cpu_query_v1` at
++compile time. The runtime supplies callbacks only for its exact standard CPU
++helper pointer. The direct query uses the existing public CPU API once per
++in-range lookup. On raw return -1, invoke the same cold error handler as helper
++8 (log once through the selected sink, return CPU 0), then apply the same CPU
++bounds check. Other negative values retain signed extension and fail bounds.
++Keep legacy helper 8 and custom/helper-only VM behavior intact; absence of the
++optional resolver retains the original helper call. Do not introduce CPU
++caching, private TLS offsets, new BPF helper numbers, query purity attributes
++or weaker map-lifetime, null/key/CPU bounds, fork, AOT or signal restrictions.
++The sched_getcpu wrapper used to inject failures belongs only to unit tests.
+diff --git a/benchmark/uprobe/diagnostics/array_jit_poc.bpf.c b/benchmark/uprobe/diagnostics/array_jit_poc.bpf.c
+index d35fcf8..8cc1104 100644
+--- a/benchmark/uprobe/diagnostics/array_jit_poc.bpf.c
++++ b/benchmark/uprobe/diagnostics/array_jit_poc.bpf.c
+@@ -6,12 +6,18 @@
+ #include <bpf/bpf_tracing.h>
+ 
+ struct outcome { u64 seed; u64 checksum; u64 hits; u64 misses; };
+-struct { __uint(type,BPF_MAP_TYPE_ARRAY); __uint(max_entries,1024);
++#ifndef BPFTIME_ARRAY_JIT_MAP_TYPE
++#define BPFTIME_ARRAY_JIT_MAP_TYPE BPF_MAP_TYPE_ARRAY
++#endif
++#ifndef BPFTIME_ARRAY_JIT_PATH
++#define BPFTIME_ARRAY_JIT_PATH "uprobe/benchmark/uprobe/.output/array-jit-poc/victim:"
++#endif
++struct { __uint(type,BPFTIME_ARRAY_JIT_MAP_TYPE); __uint(max_entries,1024);
+     __type(key,u32); __type(value,u64); } data_map SEC(".maps");
+-struct { __uint(type,BPF_MAP_TYPE_ARRAY); __uint(max_entries,4);
++struct { __uint(type,BPFTIME_ARRAY_JIT_MAP_TYPE); __uint(max_entries,4);
+     __type(key,u32); __type(value,struct outcome); } result_map SEC(".maps");
+ 
+-#define PATH "uprobe/benchmark/uprobe/.output/array-jit-poc/victim:"
++#define PATH BPFTIME_ARRAY_JIT_PATH
+ static __always_inline int run(struct pt_regs *ctx, u32 slot, u32 mask, int control)
+ {
+     u64 seed = PT_REGS_PARM1(ctx);
+diff --git a/runtime/include/bpf_attach_ctx.hpp b/runtime/include/bpf_attach_ctx.hpp
+index e1aa03f..629431c 100644
+--- a/runtime/include/bpf_attach_ctx.hpp
++++ b/runtime/include/bpf_attach_ctx.hpp
+@@ -262,7 +262,8 @@ private:
+ int load_prog_and_helpers(
+ 	bpftime_prog *prog, const runtime_config &config,
+ 	const bpftime_helper_info *map_lookup_override = nullptr,
+-	const bpftime_helper_info *map_update_override = nullptr);
++	const bpftime_helper_info *map_update_override = nullptr,
++	const std::map<int, bpftime_helper_info> *custom_helpers = nullptr);
+ 
+ } // namespace bpftime
+ 
+diff --git a/runtime/include/bpftime_helper_group.hpp b/runtime/include/bpftime_helper_group.hpp
+index ded0007..3e376c9 100644
+--- a/runtime/include/bpftime_helper_group.hpp
++++ b/runtime/include/bpftime_helper_group.hpp
+@@ -50,7 +50,8 @@ class bpftime_helper_group {
+ 	int add_helper_group_to_prog(
+ 		bpftime_prog *prog,
+ 		const bpftime_helper_info *override_helper = nullptr,
+-		const bpftime_helper_info *second_override_helper = nullptr) const;
++		const bpftime_helper_info *second_override_helper = nullptr,
++		const std::map<int, bpftime_helper_info> *custom_helpers = nullptr) const;
+ 	// Get all helper ids of this helper group
+ 	std::vector<int32_t> get_helper_ids() const;
+ 
+@@ -64,8 +65,15 @@ get_ufunc_helper_protos();
+ #endif
+ } // namespace bpftime
+ 
++extern "C" uint64_t bpftime_map_lookup_elem_helper(
++	uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
++extern "C" uint64_t bpftime_map_update_elem_helper(
++	uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
++extern "C" uint64_t bpftime_map_delete_elem_helper(
++	uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+ extern "C" uint64_t bpftime_array_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
++extern "C" uint64_t bpftime_get_smp_processor_id();
+ extern "C" uint64_t bpftime_hash_map_lookup_elem_helper(
+ 	uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t);
+ extern "C" uint64_t bpftime_array_map_update_elem_helper(
+diff --git a/runtime/include/bpftime_prog.hpp b/runtime/include/bpftime_prog.hpp
+index 09b6371..bad6b5b 100644
+--- a/runtime/include/bpftime_prog.hpp
++++ b/runtime/include/bpftime_prog.hpp
+@@ -12,6 +12,7 @@
+ #include <vector>
+ #include <string>
+ #include <map>
++#include <set>
+ #include <memory>
+ #include <cerrno>
+ #include <boost/interprocess/managed_shared_memory.hpp>
+@@ -53,7 +54,7 @@ class bpftime_prog {
+ 			      uint64_t *return_val) const;
+ 
+ 	int bpftime_prog_register_raw_helper(struct bpftime_helper_info info);
+-	// Requested by the runtime loader, never enabled globally or for AOT.
++	// Compatibility entry point; eligible LLVM JIT lookups are now automatic.
+ 	int request_array_map_inlining()
+ 	{
+ 		if (program_loaded || raw_helpers.contains(1))
+@@ -95,13 +96,17 @@ class bpftime_prog {
+     private:
+ 	friend struct array_jit_execution_scope;
+ 	int bind_array_maps(bpftime_shm &shm);
+-	bool array_jit_requested = false;
++	bool array_jit_requested = true;
+ 	bool array_jit_failed = false;
+ 	std::map<uint64_t, std::shared_ptr<array_map_binding>> bound_arrays;
++	std::set<uint64_t> unbound_map_handles;
+ 	std::shared_ptr<boost::interprocess::managed_shared_memory> bound_mapping;
+ 	const handler_manager *bound_manager = nullptr;
+ 	std::map<unsigned, void *> raw_helpers;
+ 	void *pending_array_lookup = nullptr;
++	std::string pending_lookup_name;
++	std::map<unsigned, std::pair<std::string, void *>> pending_map_mutations;
++	int register_pending_map_helpers();
+ 	int bpftime_prog_set_insn(struct ebpf_inst *insn, size_t insn_cnt);
+ 	std::string name;
+ 	// vm at the first element
+diff --git a/runtime/src/attach/bpf_attach_ctx.cpp b/runtime/src/attach/bpf_attach_ctx.cpp
+index 280cc8a..afc8788 100644
+--- a/runtime/src/attach/bpf_attach_ctx.cpp
++++ b/runtime/src/attach/bpf_attach_ctx.cpp
+@@ -35,6 +35,7 @@
+ #include <bpf_map/array_map_binding.hpp>
+ #include <linux/bpf.h>
+ #include <utility>
++#include <algorithm>
+ #include <variant>
+ #include <sys/resource.h>
+ #ifdef BPFTIME_ENABLE_CUDA_ATTACH
+@@ -48,22 +49,32 @@ namespace bpftime
+ int load_prog_and_helpers(
+ 	bpftime_prog *prog, const runtime_config &config,
+ 	const bpftime_helper_info *map_lookup_override,
+-	const bpftime_helper_info *map_update_override)
++	const bpftime_helper_info *map_update_override,
++	const std::map<int, bpftime_helper_info> *custom_helpers)
+ {
++	bpftime_helper_group merged;
+ #if defined(__linux__)
+ 	if (config.enable_kernel_helper_group) {
+-		bpftime_helper_group::get_kernel_utils_helper_group()
+-			.add_helper_group_to_prog(prog);
++		merged.append(bpftime_helper_group::get_kernel_utils_helper_group());
+ 	}
+ #endif
+ 	if (config.enable_ufunc_helper_group) {
+-		bpftime_helper_group::get_ufunc_helper_group()
+-			.add_helper_group_to_prog(prog);
++		merged.append(bpftime_helper_group::get_ufunc_helper_group());
+ 	}
+ 	if (config.enable_shm_maps_helper_group) {
+-		bpftime_helper_group::get_shm_maps_helper_group()
+-			.add_helper_group_to_prog(prog, map_lookup_override,
+-						  map_update_override);
++		merged.append(bpftime_helper_group::get_shm_maps_helper_group());
++	}
++	if (int result = merged.add_helper_group_to_prog(prog, map_lookup_override,
++		map_update_override, custom_helpers); result < 0)
++		return result;
++	if (custom_helpers) {
++		const auto ids = merged.get_helper_ids();
++		for (const auto &[index, helper] : *custom_helpers) {
++			if (std::find(ids.begin(), ids.end(), index) == ids.end()) {
++				if (int result = prog->bpftime_prog_register_raw_helper(helper); result < 0)
++					return result;
++			}
++		}
+ 	}
+ 	return prog->bpftime_prog_load(config.jit_enabled);
+ }
+@@ -472,25 +483,14 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
+ 			"Using specialized per-CPU hash update helper for program {}",
+ 			name);
+ 	}
+-	const char *array_inline = std::getenv("BPFTIME_ARRAY_JIT_INLINE");
+-	if (array_inline && std::string_view(array_inline) == "1" &&
+-	    config.jit_enabled && config.enable_shm_maps_helper_group &&
+-	    mode == map_production_ab_mode::base &&
+-	    manager == shm_holder.global_shared_memory.get_manager() &&
+-	    !helpers.contains(BPF_FUNC_map_lookup_elem))
+-		prog->request_array_map_inlining();
+ 	if (int err = load_prog_and_helpers(prog, config, map_lookup_override,
+-					    map_update_override);
++					    map_update_override, &helpers);
+ 	    err < 0) {
+ 		SPDLOG_ERROR(
+ 			"Failed to load program helpers for prog handler {}: {}",
+ 			id, err);
+ 		return err;
+ 	}
+-	for (const auto &item : helpers) {
+-		if (int err = prog->bpftime_prog_register_raw_helper(item.second); err < 0)
+-			return err;
+-	}
+ 	instantiated_handlers.insert(id);
+ 	return 0;
+ }
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index 3614c85..469e292 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -19,6 +19,7 @@
+ #include <pthread.h>
+ #elif __linux__
+ #include <pthread.h>
++#include <sched.h>
+ #include <sys/syscall.h>
+ #include <sys/uio.h>
+ #endif
+@@ -27,6 +28,7 @@
+ #include "bpf/libbpf_common.h"
+ #endif
+ #include "bpftime_helper_group.hpp"
++#include "bpftime_array_cpu_query.hpp"
+ #include <cerrno>
+ #ifdef ENABLE_BPFTIME_VERIFIER
+ #include "bpftime-verifier.hpp"
+@@ -889,16 +891,37 @@ uint64_t bpftime_get_func_ip(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
+ 	return bpftime::attach::current_thread_attach_func_ip;
+ }
+ 
++static __attribute__((cold, noinline)) uint64_t cpu_query_error()
++{
++	SPDLOG_ERROR("sched_getcpu error");
++	return 0;
++}
++
+ uint64_t bpftime_get_smp_processor_id()
+ {
+ 	int cpu = my_sched_getcpu();
+-	if (cpu == -1) {
+-		SPDLOG_ERROR("sched_getcpu error");
+-		return 0; // unlikely
+-	}
++	if (cpu == -1)
++		return cpu_query_error();
+ 	return (uint64_t)cpu;
+ }
+ 
++bool bpftime_resolve_array_cpu_query_v1(void *registered_helper,
++				     bpftime_array_cpu_query_hooks *hooks)
++{
++	if (!hooks)
++		return false;
++	*hooks = {};
++	if (registered_helper != reinterpret_cast<void *>(bpftime_get_smp_processor_id))
++		return false; // A matching name alone must never bypass a custom helper.
++#if __linux__
++	hooks->read_cpu = ::sched_getcpu;
++#else
++	hooks->read_cpu = my_sched_getcpu;
++#endif
++	hooks->on_error = cpu_query_error;
++	return true;
++}
++
+ // From https://github.com/microsoft/ebpf-for-windows
+ int64_t bpftime_csum_diff(const void *from, int from_size, const void *to,
+ 			  int to_size, int seed)
+@@ -1370,7 +1393,8 @@ int bpftime_helper_group::append(const bpftime_helper_group &another_group)
+ 
+ int bpftime_helper_group::add_helper_group_to_prog(
+ 	bpftime_prog *prog, const bpftime_helper_info *override_helper,
+-	const bpftime_helper_info *second_override_helper) const
++	const bpftime_helper_info *second_override_helper,
++	const std::map<int, bpftime_helper_info> *custom_helpers) const
+ {
+ 	for (auto it : helper_map) {
+ 		const bpftime_helper_info *helper = &it.second;
+@@ -1380,7 +1404,13 @@ int bpftime_helper_group::add_helper_group_to_prog(
+ 		else if (second_override_helper != nullptr &&
+ 			 second_override_helper->index == it.first)
+ 			helper = second_override_helper;
+-		prog->bpftime_prog_register_raw_helper(*helper);
++		if (custom_helpers) {
++			auto custom = custom_helpers->find(it.first);
++			if (custom != custom_helpers->end())
++				helper = &custom->second;
++		}
++		if (int result = prog->bpftime_prog_register_raw_helper(*helper); result < 0)
++			return result;
+ 	}
+ 	return 0;
+ }
+diff --git a/runtime/src/bpf_map/array_map_binding.cpp b/runtime/src/bpf_map/array_map_binding.cpp
+index 4139338..d7034f7 100644
+--- a/runtime/src/bpf_map/array_map_binding.cpp
++++ b/runtime/src/bpf_map/array_map_binding.cpp
+@@ -34,12 +34,18 @@ array_map_binding::array_map_binding(
+ 	const bpf_map_handler &source) : memory(std::move(mem)),
+ 	owner_generation(detail::array_binding_generation.load(std::memory_order_relaxed))
+ {
+-	auto *impl = *source.try_get_array_map_impl();
+ 	bpf_map_attr attr{};
+-	attr.type = static_cast<int>(bpf_map_type::BPF_MAP_TYPE_ARRAY);
++	attr.type = static_cast<int>(source.type);
+ 	attr.key_size = sizeof(uint32_t);
+-	attr.value_size = impl->get_value_size();
+-	attr.max_ents = impl->get_max_entries();
++	if (source.type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY) {
++		auto *impl = static_cast<per_cpu_array_map_impl *>(source.map_impl_ptr.get());
++		attr.value_size = impl->get_value_size();
++		attr.max_ents = impl->get_max_entries();
++	} else {
++		auto *impl = *source.try_get_array_map_impl();
++		attr.value_size = impl->get_value_size();
++		attr.max_ents = impl->get_max_entries();
++	}
+ 	handler = std::make_unique<bpf_map_handler>(0,
+ 		"", *memory, attr); // Empty snapshot name owns no shared allocation.
+ 	handler->share_map_impl_from(source);
+@@ -65,7 +71,7 @@ array_map_binding::~array_map_binding()
+ 
+ std::shared_ptr<array_map_binding> array_map_binding::acquire(
+ 	std::shared_ptr<boost::interprocess::managed_shared_memory> memory,
+-	const handler_manager *manager, int fd)
++	const handler_manager *manager, int fd, std::optional<bool> per_cpu)
+ {
+ 	if (!memory || !manager)
+ 		return {};
+@@ -75,7 +81,9 @@ std::shared_ptr<array_map_binding> array_map_binding::acquire(
+ 	if (fd < 0 || static_cast<size_t>(fd) >= manager->size())
+ 		return {};
+ 	const auto *map = std::get_if<bpf_map_handler>(&manager->get_handler(fd));
+-	if (!map || map->type != bpf_map_type::BPF_MAP_TYPE_ARRAY ||
++	if (!map || (map->type != bpf_map_type::BPF_MAP_TYPE_ARRAY &&
++	             map->type != bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY) ||
++	    (per_cpu && (*per_cpu != (map->type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY))) ||
+ 	    map->get_key_size() != sizeof(uint32_t) || !map->can_share_map_impl())
+ 		return {};
+ 	return std::shared_ptr<array_map_binding>(new array_map_binding(
+diff --git a/runtime/src/bpf_map/array_map_binding.hpp b/runtime/src/bpf_map/array_map_binding.hpp
+index 5083a69..c88779c 100644
+--- a/runtime/src/bpf_map/array_map_binding.hpp
++++ b/runtime/src/bpf_map/array_map_binding.hpp
+@@ -8,6 +8,7 @@
+ #include <memory>
+ #include <atomic>
+ #include <cstdint>
++#include <optional>
+ 
+ namespace bpftime {
+ namespace detail {
+@@ -42,7 +43,43 @@ public:
+ 	array_map_binding &operator=(const array_map_binding &) = delete;
+ 	static std::shared_ptr<array_map_binding> acquire(
+ 		std::shared_ptr<boost::interprocess::managed_shared_memory> memory,
+-		const handler_manager *manager, int fd);
++		const handler_manager *manager, int fd, std::optional<bool> per_cpu = false);
++	bool is_per_cpu() const
++	{
++		return handler->type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY;
++	}
++	per_cpu_array_map_impl *percpu_implementation() const
++	{
++		return static_cast<per_cpu_array_map_impl *>(handler->map_impl_ptr.get());
++	}
++	uint32_t value_size() const
++	{
++		return is_per_cpu() ? percpu_implementation()->get_value_size() : implementation()->get_value_size();
++	}
++	uint32_t max_entries() const
++	{
++		return is_per_cpu() ? percpu_implementation()->get_max_entries() : implementation()->get_max_entries();
++	}
++	uint32_t cpu_count() const
++	{
++		return is_per_cpu() ? percpu_implementation()->get_cpu_count() : 1;
++	}
++	void *raw_data() const
++	{
++		return is_per_cpu() ? percpu_implementation()->get_raw_data() : implementation()->get_raw_data();
++	}
++	void *lookup(const void *key) const
++	{
++		return is_per_cpu() ? percpu_implementation()->lookup_bound(key) : implementation()->elem_lookup(key);
++	}
++	long update(const void *key, const void *value, uint64_t flags) const
++	{
++		return handler->map_update_elem(key, value, flags, false);
++	}
++	long erase(const void *key) const
++	{
++		return handler->map_delete_elem(key, false);
++	}
+ 	array_map_impl *implementation() const
+ 	{
+ 		return *handler->try_get_array_map_impl();
+diff --git a/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp b/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
+index 1468401..36251e0 100644
+--- a/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
++++ b/runtime/src/bpf_map/userspace/per_cpu_array_map.hpp
+@@ -32,6 +32,26 @@ class per_cpu_array_map_impl {
+ 
+     public:
+ 	const static bool should_lock = false;
++	uint8_t *get_raw_data() { return data.data(); }
++	uint32_t get_value_size() const { return value_size; }
++	uint32_t get_max_entries() const { return max_ent; }
++	uint32_t get_cpu_count() const { return ncpu > 0 ? ncpu : 0; }
++	// JIT bindings use the canonical implementation dimensions, not FD attrs.
++	void *lookup_bound(const void *key)
++	{
++		const int cpu = my_sched_getcpu();
++		uint32_t index;
++		if (!key || cpu < 0 || cpu >= ncpu) {
++			errno = ENOENT;
++			return nullptr;
++		}
++		__builtin_memcpy(&index, key, sizeof(index));
++		if (index >= max_ent) {
++			errno = ENOENT;
++			return nullptr;
++		}
++		return data_at(index, cpu);
++	}
+ 
+ 	per_cpu_array_map_impl(
+ 		boost::interprocess::managed_shared_memory &memory,
+diff --git a/runtime/src/bpftime_prog.cpp b/runtime/src/bpftime_prog.cpp
+index 17b7c45..d85b947 100644
+--- a/runtime/src/bpftime_prog.cpp
++++ b/runtime/src/bpftime_prog.cpp
+@@ -32,6 +32,7 @@
+ #include <linux/bpf.h>
+ #include <bpftime_shm_internal.hpp>
+ #include <bpf_map/array_map_binding.hpp>
++#include <bpf_map/map_production_ab.hpp>
+ 
+ #define NVPTXCOMPILER_SAFE_CALL(x)                                             \
+ 	do {                                                                   \
+@@ -115,6 +116,26 @@ thread_local std::optional<uint64_t> current_thread_tail_call_ret;
+ 
+ namespace {
+ thread_local array_jit_execution_scope *active_array_scope = nullptr;
++using map_helper_fn = uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
++bool standard_lookup(void *fn)
++{
++	return fn == reinterpret_cast<void *>(bpftime_map_lookup_elem_helper) ||
++	       fn == reinterpret_cast<void *>(bpftime_array_map_lookup_elem_helper) ||
++	       fn == reinterpret_cast<void *>(bpftime_percpu_array_map_lookup_elem_helper) ||
++	       fn == reinterpret_cast<void *>(bpftime_hash_map_lookup_elem_helper) ||
++	       fn == reinterpret_cast<void *>(bpftime_percpu_hash_map_lookup_elem_helper);
++}
++bool standard_mutation(unsigned index, void *fn)
++{
++	if (index == BPF_FUNC_map_delete_elem)
++		return fn == reinterpret_cast<void *>(bpftime_map_delete_elem_helper);
++	return index == BPF_FUNC_map_update_elem &&
++	       (fn == reinterpret_cast<void *>(bpftime_map_update_elem_helper) ||
++	        fn == reinterpret_cast<void *>(bpftime_array_map_update_elem_helper) ||
++	        fn == reinterpret_cast<void *>(bpftime_percpu_array_map_update_elem_helper) ||
++	        fn == reinterpret_cast<void *>(bpftime_hash_map_update_elem_helper) ||
++	        fn == reinterpret_cast<void *>(bpftime_percpu_hash_map_update_elem_helper));
++}
+ }
+ 
+ // Only bound programs enter this scope. Native code has no per-lookup guard.
+@@ -129,43 +150,66 @@ struct array_jit_execution_scope {
+ 		active_array_scope = this;
+ 	}
+ 	~array_jit_execution_scope() { active_array_scope = previous; }
+-	static uint64_t lookup(uint64_t fd, uint64_t key, uint64_t, uint64_t, uint64_t)
++	array_map_binding *find_array(uint64_t handle)
+ 	{
+-		// The JIT uses the already-invalid FD -1 only after proving that a
+-		// registered ordinary-array index is out of range. Its standard
+-		// outcome is ENOENT/null, without consulting any mutable FD table.
+-		if (fd == UINT64_MAX)
+-			return reinterpret_cast<uint64_t>(detail::array_lookup_enoent());
+-		auto *scope = active_array_scope;
+-		if (!scope) {
+-			errno = ENOENT;
+-			return 0;
+-		}
+-		const auto &bindings = scope->prog.bound_arrays;
++		const int native_fd = static_cast<int>(handle);
++		if (native_fd < 0)
++			return nullptr;
++		const uint64_t fd = native_fd;
++		const auto &bindings = prog.bound_arrays;
+ 		auto found = bindings.find(fd);
+ 		array_map_binding *binding = nullptr;
+ 		if (found != bindings.end()) {
+ 			binding = found->second.get(); // The executing program owns it.
+ 		} else {
++			if (prog.unbound_map_handles.contains(fd))
++				return nullptr; // Known non-specialized calls go straight to the original helper.
+ 			// Dynamic handles are not inlined. Keep a temporary reference
+ 			// through the entire invocation, including uses of its result.
+-			auto &dynamic = scope->dynamic_arrays;
++			auto &dynamic = dynamic_arrays;
+ 			auto it = dynamic.find(fd);
+ 			if (it == dynamic.end() && fd <= INT_MAX) {
+-				auto acquired = array_map_binding::acquire(scope->prog.bound_mapping,
+-					scope->prog.bound_manager, static_cast<int>(fd));
++				auto acquired = array_map_binding::acquire(prog.bound_mapping,
++					prog.bound_manager, native_fd, std::nullopt);
+ 				if (acquired)
+ 					it = dynamic.emplace(fd, std::move(acquired)).first;
+ 			}
+ 			if (it != dynamic.end())
+ 				binding = it->second.get();
+ 		}
+-		if (!binding) {
+-			errno = ENOENT;
+-			return 0;
++		return binding;
++	}
++	static uint64_t lookup(uint64_t fd, uint64_t key, uint64_t a3, uint64_t a4, uint64_t a5)
++	{
++		if (fd == UINT64_MAX)
++			return reinterpret_cast<uint64_t>(detail::array_lookup_enoent());
++		auto *scope = active_array_scope;
++		if (!scope)
++			return reinterpret_cast<uint64_t>(detail::array_lookup_enoent());
++		if (auto *binding = scope->find_array(fd)) {
++			if (!key)
++				return reinterpret_cast<uint64_t>(detail::array_lookup_enoent());
++			return reinterpret_cast<uint64_t>(binding->lookup(reinterpret_cast<const void *>(key)));
+ 		}
+-		return reinterpret_cast<uint64_t>(binding->implementation()->elem_lookup(
+-			reinterpret_cast<const void *>(key)));
++		// Hash/unknown handles keep the exact original helper and arguments.
++		return reinterpret_cast<map_helper_fn>(scope->prog.raw_helpers.at(1))(fd, key, a3, a4, a5);
++	}
++	static uint64_t update(uint64_t fd, uint64_t key, uint64_t value, uint64_t flags, uint64_t a5)
++	{
++		auto *scope = active_array_scope;
++		if (!scope) { errno = ENOENT; return uint64_t(-1); }
++		if (auto *binding = scope->find_array(fd))
++			return static_cast<uint64_t>(binding->update(reinterpret_cast<const void *>(key),
++				reinterpret_cast<const void *>(value), flags));
++		return reinterpret_cast<map_helper_fn>(scope->prog.raw_helpers.at(2))(fd, key, value, flags, a5);
++	}
++	static uint64_t erase(uint64_t fd, uint64_t key, uint64_t a3, uint64_t a4, uint64_t a5)
++	{
++		auto *scope = active_array_scope;
++		if (!scope) { errno = ENOENT; return uint64_t(-1); }
++		if (auto *binding = scope->find_array(fd))
++			return static_cast<uint64_t>(binding->erase(reinterpret_cast<const void *>(key)));
++		return reinterpret_cast<map_helper_fn>(scope->prog.raw_helpers.at(3))(fd, key, a3, a4, a5);
+ 	}
+ };
+ 
+@@ -174,12 +218,17 @@ int bpftime_prog::bind_array_maps(bpftime_shm &shm)
+ #if BPFTIME_ENABLE_MPK
+ 	return 0; // Retained mappings have not been audited with MPK transitions.
+ #endif
+-	if (is_cuda() || std::string_view(vm_backend_name()) != "llvm")
++	if (is_cuda() || loaded_from_aot || std::string_view(vm_backend_name()) != "llvm" ||
++	    get_map_production_ab_mode() != map_production_ab_mode::base)
+ 		return 0;
+ 	auto helper = raw_helpers.find(BPF_FUNC_map_lookup_elem);
+-	if (helper == raw_helpers.end() || helper->second !=
+-	    reinterpret_cast<void *>(bpftime_array_map_lookup_elem_helper))
+-		return 0; // Never bypass a generic/custom/diagnostic helper.
++	if (helper == raw_helpers.end())
++		return 0;
++	if (!standard_lookup(helper->second))
++		return 0; // Never bypass a custom/diagnostic implementation.
++	auto cpu = raw_helpers.find(BPF_FUNC_get_smp_processor_id);
++	const bool standard_cpu = cpu != raw_helpers.end() &&
++		cpu->second == reinterpret_cast<void *>(bpftime_get_smp_processor_id);
+ 	std::set<int> fds;
+ 	bool has_lookup = false;
+ 	for (size_t i = 0; i < insns.size(); ++i) {
+@@ -197,37 +246,45 @@ int bpftime_prog::bind_array_maps(bpftime_shm &shm)
+ 		} else if (inst.code == 0x85) {
+ 			if (inst.src_reg == 1)
+ 				continue; // BPF-to-BPF call within the same program.
+-			if (inst.src_reg != 0 || inst.imm != BPF_FUNC_map_lookup_elem)
+-				return 0; // Other map operations/backends retain their path.
+-			has_lookup = true;
++			if (inst.src_reg != 0)
++				return 0;
++			has_lookup |= inst.imm == BPF_FUNC_map_lookup_elem;
+ 		}
+ 	}
+ 	if (!has_lookup || fds.empty())
+ 		return 0;
+ 	auto memory = shm.retain_mapping();
+-	if (!memory->find<boost::interprocess::interprocess_recursive_mutex>(
++	if (!memory || !shm.get_manager() ||
++	    !memory->find<boost::interprocess::interprocess_recursive_mutex>(
+ 		"bpftime_map_binding_mutex_v1").first)
+ 		return 0; // Legacy segments do not advertise synchronized lifetime support.
+ 	map_binding_guard guard(map_binding_mutex(*memory));
+ 	std::map<uint64_t, std::shared_ptr<array_map_binding>> bindings;
+ 	for (int fd : fds) {
+-		auto binding = array_map_binding::acquire(memory, shm.get_manager(), fd);
++		auto binding = array_map_binding::acquire(memory, shm.get_manager(), fd, std::nullopt);
+ 		if (!binding)
+-			return 0;
+-		auto *impl = binding->implementation();
+-		if (!impl->get_value_size() || !impl->get_max_entries() ||
+-		    uint64_t(impl->get_value_size()) * impl->get_max_entries() > UINT32_MAX)
+-			return 0; // The existing array implementation uses 32-bit offsets.
++			continue; // Hash/non-array maps are not descriptors for this pass.
++		if (binding->is_per_cpu() && !standard_cpu)
++			continue; // Ordinary arrays can still inline with a custom CPU helper.
++		const uint64_t stride = uint64_t(binding->value_size()) * binding->cpu_count();
++		if (!binding->value_size() || !binding->max_entries() || !binding->cpu_count() ||
++		    stride > UINT32_MAX / binding->max_entries())
++			continue; // The existing array implementation uses 32-bit offsets.
+ 		bindings.emplace(fd, std::move(binding));
+ 	}
+ 	for (const auto &[fd, binding] : bindings) {
+-		auto *impl = binding->implementation();
+-		int result = ebpf_register_array_map(vm, fd,
+-			reinterpret_cast<uint64_t>(impl->get_raw_data()), sizeof(uint32_t),
+-			impl->get_value_size(), impl->get_value_size(), impl->get_max_entries());
++		int result = ebpf_register_array_map_kind(vm, fd,
++			reinterpret_cast<uint64_t>(binding->raw_data()), sizeof(uint32_t),
++			binding->value_size(), binding->value_size() * binding->cpu_count(), binding->max_entries(),
++			binding->is_per_cpu());
+ 		if (result < 0)
+ 			return result; // Abort this program load, never use a partial binding.
+ 	}
++	if (bindings.empty())
++		return 0;
++	for (int fd : fds)
++		if (!bindings.contains(fd))
++			unbound_map_handles.insert(fd);
+ 	bound_arrays = std::move(bindings);
+ 	bound_mapping = std::move(memory);
+ 	bound_manager = shm.get_manager();
+@@ -298,6 +355,32 @@ bpftime_prog::~bpftime_prog()
+ 	ebpf_destroy(vm);
+ }
+ 
++int bpftime_prog::register_pending_map_helpers()
++{
++	if (pending_array_lookup) {
++		void *helper = bound_arrays.empty() ? pending_array_lookup :
++			reinterpret_cast<void *>(array_jit_execution_scope::lookup);
++		const char *helper_name = bound_arrays.empty() ? pending_lookup_name.c_str() :
++			"bpftime_bound_array_lookup_v2";
++		int result = ebpf_register(vm, 1, helper_name, helper);
++		if (result < 0)
++			return result;
++		pending_array_lookup = nullptr;
++	}
++	for (const auto &[index, info] : pending_map_mutations) {
++		void *helper = info.second;
++		if (!bound_arrays.empty())
++			helper = index == BPF_FUNC_map_update_elem ?
++				reinterpret_cast<void *>(array_jit_execution_scope::update) :
++				reinterpret_cast<void *>(array_jit_execution_scope::erase);
++		int result = ebpf_register(vm, index, info.first.c_str(), helper);
++		if (result < 0)
++			return result;
++	}
++	pending_map_mutations.clear();
++	return 0;
++}
++
+ int bpftime_prog::bpftime_prog_load(bool jit)
+ {
+ 	if (array_jit_failed)
+@@ -317,17 +400,10 @@ int bpftime_prog::bpftime_prog_load(bool jit)
+ 			return res;
+ 		}
+ 	}
+-	if (pending_array_lookup) {
+-		void *helper = bound_arrays.empty() ? pending_array_lookup :
+-			reinterpret_cast<void *>(array_jit_execution_scope::lookup);
+-		const char *helper_name = bound_arrays.empty() ? "bpf_map_lookup_elem" :
+-			"bpftime_bound_array_lookup_v1";
+-		res = ebpf_register(vm, BPF_FUNC_map_lookup_elem, helper_name, helper);
+-		if (res < 0) {
+-			array_jit_failed = true;
+-			return res;
+-		}
+-		pending_array_lookup = nullptr;
++	res = register_pending_map_helpers();
++	if (res < 0) {
++		array_jit_failed = true;
++		return res;
+ 	}
+ 
+ 	SPDLOG_DEBUG("Load insn cnt {}", insns.size());
+@@ -470,15 +546,18 @@ int bpftime_prog::bpftime_prog_exec(void *memory, size_t memory_size,
+ int bpftime_prog::bpftime_prog_register_raw_helper(
+ 	struct bpftime_helper_info info)
+ {
+-	if (!bound_arrays.empty() && info.index == BPF_FUNC_map_lookup_elem)
++	if (!bound_arrays.empty() && (info.index == BPF_FUNC_map_lookup_elem ||
++	    info.index == BPF_FUNC_map_update_elem || info.index == BPF_FUNC_map_delete_elem ||
++	    info.index == BPF_FUNC_get_smp_processor_id))
+ 		return -EBUSY;
+ 	if (array_jit_requested && info.index == BPF_FUNC_map_lookup_elem &&
+-	    info.fn == reinterpret_cast<void *>(bpftime_array_map_lookup_elem_helper)) {
++	    standard_lookup(info.fn)) {
+ 		if (pending_array_lookup || raw_helpers.contains(info.index))
+ 			return -EEXIST;
+ 		// LLVM helper slots are immutable once registered. Select exactly once
+ 		// at load time, after eligibility and map ownership are established.
+ 		pending_array_lookup = info.fn;
++		pending_lookup_name = info.name;
+ 		raw_helpers[info.index] = info.fn;
+ 		signal_ready = false;
+ 		signal_safe_helpers[info.index] = helper_is_async_signal_safe(info.index, info.fn);
+@@ -486,6 +565,17 @@ int bpftime_prog::bpftime_prog_register_raw_helper(
+ 	}
+ 	if (pending_array_lookup && info.index == BPF_FUNC_map_lookup_elem)
+ 		return -EEXIST;
++	if (pending_map_mutations.contains(info.index))
++		return -EEXIST;
++	if (array_jit_requested && !program_loaded && standard_mutation(info.index, info.fn)) {
++		if (raw_helpers.contains(info.index))
++			return -EEXIST;
++		pending_map_mutations.emplace(info.index, std::make_pair(info.name, info.fn));
++		raw_helpers[info.index] = info.fn;
++		signal_ready = false;
++		signal_safe_helpers[info.index] = helper_is_async_signal_safe(info.index, info.fn);
++		return 0;
++	}
+ 	int result = ebpf_register(vm, info.index, info.name.c_str(), info.fn);
+ 	if (result == 0) {
+ 		raw_helpers[info.index] = info.fn;
+@@ -555,7 +645,14 @@ int bpftime_prog::load_aot_object(const std::vector<uint8_t> &buf)
+ 	if (!bound_arrays.empty() || array_jit_failed)
+ 		return -ENOTSUP; // Absolute process-local bindings cannot be serialized.
+ 	signal_ready = false;
++	program_loaded = false;
++	jitted = false;
++	fn = nullptr;
+ 	loaded_from_aot = true;
++	// AOT cannot embed retained process-local addresses. Materialize the
++	// original helper registrations without attempting any array binding.
++	if (int result = register_pending_map_helpers(); result < 0)
++		return result;
+ 	ebpf_jit_fn res = ebpf_load_aot_object(vm, buf.data(), buf.size());
+ 	if (res == nullptr) {
+ 		SPDLOG_ERROR("Failed to load aot object");
+@@ -563,6 +660,7 @@ int bpftime_prog::load_aot_object(const std::vector<uint8_t> &buf)
+ 	}
+ 	fn = res;
+ 	jitted = true;
++	program_loaded = true;
+ 	return 0;
+ }
+ 
+diff --git a/runtime/unit-test/CMakeLists.txt b/runtime/unit-test/CMakeLists.txt
+index 2f4536e..839eadb 100644
+--- a/runtime/unit-test/CMakeLists.txt
++++ b/runtime/unit-test/CMakeLists.txt
+@@ -78,7 +78,7 @@ endif()
+ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+     target_sources(bpftime_runtime_tests PRIVATE test_get_current_uid_gid.cpp)
+     target_link_options(bpftime_runtime_tests PRIVATE
+-        -Wl,--wrap=getuid -Wl,--wrap=getgid)
++        -Wl,--wrap=getuid -Wl,--wrap=getgid -Wl,--wrap=sched_getcpu)
+ endif()
+ 
+ if(ENABLE_PROBE_READ_CHECK)
+diff --git a/runtime/unit-test/maps/test_array_jit_lifetime.cpp b/runtime/unit-test/maps/test_array_jit_lifetime.cpp
+index b08186a..8921ae9 100644
+--- a/runtime/unit-test/maps/test_array_jit_lifetime.cpp
++++ b/runtime/unit-test/maps/test_array_jit_lifetime.cpp
+@@ -3,6 +3,9 @@
+ #include <bpftime_prog.hpp>
+ #include <bpftime_shm_internal.hpp>
+ #include <bpftime_helper_group.hpp>
++#include <bpf_attach_ctx.hpp>
++#include <bpftime_vm_compat.hpp>
++#include <bpftime_internal.h>
+ #include <bpf_map/array_map_binding.hpp>
+ #include <linux/bpf.h>
+ #include <atomic>
+@@ -12,9 +15,42 @@
+ #include <thread>
+ #include <sys/wait.h>
+ #include <unistd.h>
++#include <sched.h>
++#include <sstream>
++#include <spdlog/sinks/ostream_sink.h>
++
++#if defined(__linux__)
++namespace {
++thread_local bool cpu_query_injected = false;
++thread_local int cpu_query_result = 0;
++thread_local unsigned cpu_query_reads = 0;
++}
++extern "C" int __real_sched_getcpu();
++extern "C" int __wrap_sched_getcpu()
++{
++	if (!cpu_query_injected)
++		return __real_sched_getcpu();
++	++cpu_query_reads;
++	if (cpu_query_result == -1)
++		errno = EIO;
++	return cpu_query_result;
++}
++#endif
+ 
+ namespace {
+ using namespace bpftime;
++struct captured_array_log {
++	std::ostringstream messages;
++	std::shared_ptr<spdlog::logger> old = spdlog::default_logger();
++	captured_array_log()
++	{
++		auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(messages);
++		auto logger = std::make_shared<spdlog::logger>("array-default",sink);
++		logger->set_level(spdlog::level::info);
++		spdlog::set_default_logger(logger);
++	}
++	~captured_array_log() { spdlog::set_default_logger(old); }
++};
+ struct isolated_shm {
+ 	std::string name = "bpftime-array-jit-lifetime-" + std::to_string(getpid());
+ 	bool had_name = getenv("BPFTIME_GLOBAL_SHM_NAME") != nullptr;
+@@ -54,7 +90,7 @@ int create_array(uint64_t value, uint32_t capacity = 4)
+ 
+ std::unique_ptr<bpftime_prog> make_program(int fd, bool request = true,
+ 	void *helper = reinterpret_cast<void *>(bpftime_array_map_lookup_elem_helper),
+-	bool dynamic = false)
++	bool dynamic = false, void *cpu_helper = reinterpret_cast<void *>(bpftime_get_smp_processor_id))
+ {
+ 	std::vector<ebpf_inst> code = {
+ 		{0xbf, 2, 1, 0, 0},
+@@ -71,12 +107,90 @@ std::unique_ptr<bpftime_prog> make_program(int fd, bool request = true,
+ 	auto prog = std::make_unique<bpftime_prog>(code.data(), code.size(), "array_jit_lifetime");
+ 	if (request)
+ 		REQUIRE(prog->request_array_map_inlining() == 0);
++	if (helper == reinterpret_cast<void *>(bpftime_percpu_array_map_lookup_elem_helper))
++		REQUIRE(prog->bpftime_prog_register_raw_helper({8, "bpf_get_smp_processor_id", cpu_helper}) == 0);
+ 	REQUIRE(prog->bpftime_prog_register_raw_helper({1, "bpf_map_lookup_elem", helper}) == 0);
+ 	REQUIRE(prog->bpftime_prog_load(true) == 0);
+ 	return prog;
+ }
+ 
+-uint64_t lookup(bpftime_prog &prog, uint32_t key, int expected_errno = EDOM)
++uint64_t lookup(bpftime_prog &prog, uint32_t key, int expected_errno = EDOM);
++uint64_t custom_lookup(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
++
++TEST_CASE("Per-CPU array JIT follows real affinity changes and retains map identity",
++	"[array-jit-lifetime][percpu-array-jit]")
++{
++	isolated_shm fixture;
++	cpu_set_t original;
++	REQUIRE(sched_getaffinity(0,sizeof(original),&original)==0);
++	struct restore_affinity {
++		cpu_set_t mask;
++		~restore_affinity() { sched_setaffinity(0,sizeof(mask),&mask); }
++	} restore{original};
++	const int cpus=sysconf(_SC_NPROCESSORS_ONLN);
++	REQUIRE(cpus>0);
++	auto memory=shm_holder.global_shared_memory.retain_mapping();
++	(void)map_binding_mutex(*memory);
++	const auto free_before=memory->get_free_memory();
++	constexpr int fd=100;
++	REQUIRE(bpftime_maps_create(fd,"percpu_jit",{
++		.type=BPF_MAP_TYPE_PERCPU_ARRAY,.key_size=4,.value_size=8,.max_ents=4})==fd);
++	std::vector<uint64_t> values(cpus);
++	for (int i=0;i<cpus;++i) values[i]=1000+i;
++	for (uint32_t key=0;key<4;++key)
++		REQUIRE(bpftime_map_update_elem(fd,&key,values.data(),BPF_ANY)==0);
++	auto prog=make_program(fd,true,(void *)bpftime_percpu_array_map_lookup_elem_helper);
++	std::vector<uint64_t> addresses(cpus);
++	for (int pass=0;pass<2;++pass) {
++		for (int cpu=0;cpu<cpus;++cpu) {
++			if (!CPU_ISSET(cpu,&original)) continue;
++			cpu_set_t mask; CPU_ZERO(&mask); CPU_SET(cpu,&mask);
++			REQUIRE(sched_setaffinity(0,sizeof(mask),&mask)==0);
++			REQUIRE(sched_getcpu()==cpu);
++			if (pass==0) addresses[cpu]=lookup(*prog,2);
++			else REQUIRE(lookup(*prog,2)==addresses[cpu]);
++			REQUIRE(*reinterpret_cast<uint64_t *>(addresses[cpu])==uint64_t(1000+cpu));
++			REQUIRE(lookup(*prog,4,ENOENT)==0);
++		}
++		bpftime_close(fd);
++		create_array(9999,8); // Same FD, different map type and capacity.
++	}
++	shm_holder.global_shared_memory.begin_new_session();
++	REQUIRE(lookup(*prog,UINT32_MAX,ENOENT)==0);
++	const auto child=fork();
++	REQUIRE(child>=0);
++	if (child==0) {
++		uint32_t key=2; uint64_t result=99;
++		int status=prog->bpftime_prog_exec(&key,4,&result);
++		prog.reset();
++		_exit(status==-ENOTSUP && result==0 ? 0:1);
++	}
++	int status=0; REQUIRE(waitpid(child,&status,0)==child);
++	REQUIRE(WIFEXITED(status)); REQUIRE(WEXITSTATUS(status)==0);
++	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(*prog,2))==uint64_t(1000+sched_getcpu()));
++	prog.reset();
++	REQUIRE(memory->get_free_memory()==free_before);
++}
++
++TEST_CASE("Per-CPU array JIT does not introduce custom CPU helper calls",
++	"[array-jit-lifetime][percpu-array-jit]")
++{
++	isolated_shm fixture;
++	const int cpus=sysconf(_SC_NPROCESSORS_ONLN);
++	REQUIRE(bpftime_maps_create(100,"percpu_custom_cpu",{
++		.type=BPF_MAP_TYPE_PERCPU_ARRAY,.key_size=4,.value_size=8,.max_ents=4})==100);
++	std::vector<uint64_t> values(cpus,42);
++	uint32_t key=1;
++	REQUIRE(bpftime_map_update_elem(100,&key,values.data(),BPF_ANY)==0);
++	auto prog=make_program(100,true,(void *)bpftime_percpu_array_map_lookup_elem_helper,false,(void *)custom_lookup);
++	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(*prog,1))==42);
++	bpftime_close(100);
++	create_array(88);
++	// Not bound: a replaced FD must not retain the per-CPU map.
++	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(*prog,1))==88);
++}
++
++uint64_t lookup(bpftime_prog &prog, uint32_t key, int expected_errno)
+ {
+ 	errno = EDOM;
+ 	uint64_t result = 0;
+@@ -90,6 +204,69 @@ uint64_t custom_lookup(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
+ }
+ }
+ 
++#if defined(__linux__)
++TEST_CASE("Direct per-CPU JIT query preserves success and exact CPU failure behavior",
++	"[array-jit-lifetime][percpu-array-jit]")
++{
++	isolated_shm fixture;
++	const int cpus=sysconf(_SC_NPROCESSORS_ONLN);
++	REQUIRE(cpus>0);
++	REQUIRE(bpftime_maps_create(100,"percpu_cpu_query",{
++		.type=BPF_MAP_TYPE_PERCPU_ARRAY,.key_size=4,.value_size=8,.max_ents=4})==100);
++	std::vector<uint64_t> values(cpus);
++	for (int i=0;i<cpus;++i) values[i]=2000+i;
++	uint32_t key=1;
++	REQUIRE(bpftime_map_update_elem(100,&key,values.data(),BPF_ANY)==0);
++	auto prog=make_program(100,true,(void *)bpftime_percpu_array_map_lookup_elem_helper);
++	std::ostringstream messages;
++	auto old_logger=spdlog::default_logger();
++	auto sink=std::make_shared<spdlog::sinks::ostream_sink_mt>(messages);
++	spdlog::set_default_logger(std::make_shared<spdlog::logger>("cpu-query-test",sink));
++	struct restore_query {
++		std::shared_ptr<spdlog::logger> logger;
++		~restore_query() { cpu_query_injected=false; spdlog::set_default_logger(logger); }
++	} restore{old_logger};
++	cpu_query_injected=true;
++	for (int cpu : {0,cpus-1}) {
++		cpu_query_result=cpu; cpu_query_reads=0;
++		auto address=lookup(*prog,1);
++		REQUIRE(cpu_query_reads==1);
++		REQUIRE(*reinterpret_cast<uint64_t *>(address)==uint64_t(2000+cpu));
++	}
++	// Raw -1 must preserve the SAME log-once/CPU-0 behavior as helper 8.
++	cpu_query_result=-1; cpu_query_reads=0; errno=EDOM;
++	REQUIRE(bpftime_get_smp_processor_id()==0);
++	REQUIRE(cpu_query_reads==1);
++	const int expected_errno=errno;
++	REQUIRE(messages.str().find("sched_getcpu error")!=std::string::npos);
++	messages.str(""); messages.clear();
++	cpu_query_reads=0; errno=EDOM;
++	uint64_t result=0;
++	REQUIRE(prog->bpftime_prog_exec(&key,4,&result)==0);
++	REQUIRE(cpu_query_reads==1);
++	REQUIRE(errno==expected_errno);
++	REQUIRE(result!=0);
++	REQUIRE(*reinterpret_cast<uint64_t *>(result)==2000);
++	auto text=messages.str();
++	auto pos=text.find("sched_getcpu error");
++	REQUIRE(pos!=std::string::npos);
++	REQUIRE(text.find("sched_getcpu error",pos+1)==std::string::npos);
++	for (int invalid_cpu : {-2,cpus}) {
++		cpu_query_result=invalid_cpu; cpu_query_reads=0;
++		REQUIRE(lookup(*prog,1,ENOENT)==0);
++		REQUIRE(cpu_query_reads==1);
++	}
++	cpu_query_result=-1; cpu_query_reads=0;
++	REQUIRE(lookup(*prog,4,ENOENT)==0);
++	REQUIRE(cpu_query_reads==0); // A proven miss must not query/log CPU.
++	cpu_query_reads=0; result=99; errno=EDOM;
++	REQUIRE(prog->bpftime_prog_exec(nullptr,0,&result)==0);
++	REQUIRE(result==0);
++	REQUIRE(errno==ENOENT);
++	REQUIRE(cpu_query_reads==0);
++}
++#endif
++
+ TEST_CASE("Array JIT owns map identity after close, reuse and server reset",
+ 	"[array-jit-lifetime]")
+ {
+@@ -272,6 +449,47 @@ TEST_CASE("Array JIT binds implementation metadata, not duplicate attributes",
+ 	REQUIRE(lookup(*prog, 4, ENOENT) == 0);
+ }
+ 
++TEST_CASE("Default array JIT preserves standard mutations on retained per-CPU arrays",
++	"[array-jit-default][array-jit-lifetime]")
++{
++	isolated_shm fixture;
++	cpu_set_t original,one;
++	REQUIRE(sched_getaffinity(0,sizeof(original),&original)==0);
++	struct affinity_restore {cpu_set_t mask; ~affinity_restore(){sched_setaffinity(0,sizeof(mask),&mask);}} restore{original};
++	CPU_ZERO(&one); CPU_SET(sched_getcpu(),&one);
++	REQUIRE(sched_setaffinity(0,sizeof(one),&one)==0);
++	constexpr int fd=100;
++	REQUIRE(bpftime_maps_create(fd,"percpu_mutations",{.type=BPF_MAP_TYPE_PERCPU_ARRAY,
++		.key_size=4,.value_size=8,.max_ents=4})==fd);
++	std::vector<uint64_t> values(sysconf(_SC_NPROCESSORS_ONLN),12);
++	uint32_t key=1;
++	REQUIRE(bpftime_map_update_elem(fd,&key,values.data(),BPF_ANY)==0);
++	ebpf_inst code[]={
++		{0xbf,6,1,0,0},
++		{0x18,1,BPF_PSEUDO_MAP_FD,0,fd},{0,0,0,0,0},
++		{0xbf,2,6,0,0},{0xbf,3,6,0,0},{0x07,3,0,0,8},{0xb7,4,0,0,BPF_ANY},
++		{0x85,0,0,0,2},{0x7b,6,0,16,0},
++		{0x18,1,BPF_PSEUDO_MAP_FD,0,fd},{0,0,0,0,0},
++		{0xbf,2,6,0,0},{0x85,0,0,0,1},{0x79,7,0,0,0},
++		{0x18,1,BPF_PSEUDO_MAP_FD,0,fd},{0,0,0,0,0},
++		{0xbf,2,6,0,0},{0x85,0,0,0,3},{0x7b,6,0,24,0},
++		{0xbf,0,7,0,0},{0x95,0,0,0,0},
++	};
++	bpftime_prog prog(code,sizeof(code)/sizeof(code[0]),"default_percpu_mutations");
++	runtime_config config; config.set_vm_name("llvm"); config.jit_enabled=true;
++	config.enable_shm_maps_helper_group=true; config.enable_kernel_helper_group=true;
++	captured_array_log logs;
++	REQUIRE(load_prog_and_helpers(&prog,config)==0);
++	REQUIRE(logs.messages.str().find("inlined 1 lookup sites")!=std::string::npos);
++	struct {uint32_t key,pad;uint64_t value,update_status,delete_status;} input{1,0,37,99,99};
++	bpftime_close(fd); create_array(999,8);
++	uint64_t result=0; errno=EDOM;
++	REQUIRE(prog.bpftime_prog_exec(&input,sizeof(input),&result)==0);
++	REQUIRE(result==37); REQUIRE(input.update_status==0);
++	REQUIRE(input.delete_status==UINT64_MAX); REQUIRE(errno==EINVAL);
++	REQUIRE(*static_cast<const uint64_t *>(bpftime_map_lookup_elem(fd,&key))==999);
++}
++
+ TEST_CASE("Array JIT descriptor failure cannot execute stale code or retry",
+ 	"[array-jit-lifetime]")
+ {
+@@ -326,3 +544,154 @@ TEST_CASE("Fork child cannot execute or release the parent's array binding",
+ 	prog.reset();
+ 	REQUIRE(memory->get_free_memory() == before);
+ }
++
++namespace {
++std::vector<ebpf_inst> consuming_mixed_program()
++{
++	std::vector<ebpf_inst> code{{0xbf,6,1,0,0}, {0xb7,7,0,0,0}};
++	for (int fd : {100,101,102}) {
++		code.insert(code.end(), {
++			{0x18,1,BPF_PSEUDO_MAP_FD,0,fd}, {0,0,0,0,0},
++			{0xbf,2,6,0,0}, {0x85,0,0,0,1},
++			{0x15,0,0,2,0}, {0x79,0,0,0,0}, {0x0f,7,0,0,0},
++		});
++	}
++	code.insert(code.end(), {
++		// Ordinary array update, followed by a consuming lookup.
++		{0x18,1,BPF_PSEUDO_MAP_FD,0,100}, {0,0,0,0,0},
++		{0xbf,2,6,0,0}, {0xbf,3,6,0,0}, {0x07,3,0,0,8},
++		{0xb7,4,0,0,BPF_ANY}, {0x85,0,0,0,2}, {0x7b,6,0,16,0},
++		{0x18,1,BPF_PSEUDO_MAP_FD,0,100}, {0,0,0,0,0},
++		{0xbf,2,6,0,0}, {0x85,0,0,0,1},
++		{0x15,0,0,2,0}, {0x79,0,0,0,0}, {0x0f,7,0,0,0},
++		// A custom unrelated helper must execute, not disqualify lookup.
++		{0x85,0,0,0,999}, {0x0f,7,0,0,0},
++		{0xbf,0,7,0,0}, {0x95,0,0,0,0},
++	});
++	return code;
++}
++unsigned unrelated_calls;
++uint64_t unrelated_helper(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
++{
++	++unrelated_calls;
++	return 9;
++}
++}
++
++TEST_CASE("Default array JIT specializes mixed maps with update and unrelated helpers",
++	"[array-jit-default][array-jit-lifetime]")
++{
++	isolated_shm fixture;
++	// Neither environment opt-in nor request_array_map_inlining is used.
++	create_array(11);
++	REQUIRE(bpftime_maps_create(101,"mixed_percpu",{.type=BPF_MAP_TYPE_PERCPU_ARRAY,
++		.key_size=4,.value_size=8,.max_ents=4})==101);
++	REQUIRE(bpftime_maps_create(102,"mixed_hash",{.type=BPF_MAP_TYPE_HASH,
++		.key_size=4,.value_size=8,.max_ents=4})==102);
++	std::vector<uint64_t> values(sysconf(_SC_NPROCESSORS_ONLN));
++	for (auto &value : values) value=100;
++	uint32_t key=1; uint64_t hash=7;
++	REQUIRE(bpftime_map_update_elem(101,&key,values.data(),BPF_ANY)==0);
++	REQUIRE(bpftime_map_update_elem(102,&key,&hash,BPF_ANY)==0);
++	auto code=consuming_mixed_program();
++	bpftime_prog prog(code.data(),code.size(),"mixed_default");
++	runtime_config config;
++	config.set_vm_name("llvm"); config.jit_enabled=true;
++	config.enable_shm_maps_helper_group=true; config.enable_kernel_helper_group=true;
++	std::map<int,bpftime_helper_info> custom{{999,{999,"unrelated",(void *)unrelated_helper}}};
++	captured_array_log logs;
++	REQUIRE(load_prog_and_helpers(&prog,config,nullptr,nullptr,&custom)==0);
++	REQUIRE(logs.messages.str().find("retained 2 maps")!=std::string::npos);
++	REQUIRE(logs.messages.str().find("inlined 3 lookup sites")!=std::string::npos);
++	struct {uint32_t key,pad; uint64_t value,update_status;} input{1,0,23,99};
++	uint64_t result=0; unrelated_calls=0;
++	REQUIRE(prog.bpftime_prog_exec(&input,sizeof(input),&result)==0);
++	REQUIRE(input.update_status==0);
++	REQUIRE(result==11+100+7+23+9);
++	REQUIRE(unrelated_calls==1);
++	// Both inlined lookup and non-inlined standard update use the old map.
++	bpftime_close(100); create_array(999,8);
++	input.value=31;
++	REQUIRE(prog.bpftime_prog_exec(&input,sizeof(input),&result)==0);
++	REQUIRE(input.update_status==0);
++	REQUIRE(result==23+100+7+31+9);
++	REQUIRE(unrelated_calls==2);
++	REQUIRE(*static_cast<const uint64_t *>(bpftime_map_lookup_elem(100,&key))==999);
++}
++
++TEST_CASE("Default array JIT preserves custom lookup and CPU helpers before compilation",
++	"[array-jit-default][array-jit-lifetime]")
++{
++	isolated_shm fixture;
++	create_array(17);
++	ebpf_inst code[]={{0xbf,2,1,0,0},{0x18,1,BPF_PSEUDO_MAP_FD,0,100},
++		{0,0,0,0,0},{0x85,0,0,0,1},{0x95,0,0,0,0}};
++	runtime_config config; config.set_vm_name("llvm"); config.jit_enabled=true;
++	config.enable_shm_maps_helper_group=true; config.enable_kernel_helper_group=true;
++	SECTION("custom lookup is not replaced") {
++		bpftime_prog prog(code,5,"custom_lookup_default");
++		std::map<int,bpftime_helper_info> custom{{1,{1,"custom",(void *)custom_lookup}}};
++		captured_array_log logs;
++		REQUIRE(load_prog_and_helpers(&prog,config,nullptr,nullptr,&custom)==0);
++		REQUIRE(logs.messages.str().find("[array-jit-inline]")==std::string::npos);
++		REQUIRE(lookup(prog,1)==12345);
++	}
++	SECTION("custom CPU does not disable ordinary array inline or get called implicitly") {
++		bpftime_prog prog(code,5,"custom_cpu_default");
++		std::map<int,bpftime_helper_info> custom{{8,{8,"custom_cpu",(void *)unrelated_helper}}};
++		captured_array_log logs;
++		REQUIRE(load_prog_and_helpers(&prog,config,nullptr,nullptr,&custom)==0);
++		REQUIRE(logs.messages.str().find("inlined 1 lookup sites")!=std::string::npos);
++		unrelated_calls=0;
++		REQUIRE(*reinterpret_cast<uint64_t *>(lookup(prog,1))==17);
++		REQUIRE(unrelated_calls==0);
++	}
++	SECTION("custom CPU leaves per-CPU calls on original path in a mixed program") {
++		REQUIRE(bpftime_maps_create(101,"mixed_custom_cpu",{.type=BPF_MAP_TYPE_PERCPU_ARRAY,
++			.key_size=4,.value_size=8,.max_ents=4})==101);
++		REQUIRE(bpftime_maps_create(102,"mixed_custom_hash",{.type=BPF_MAP_TYPE_HASH,
++			.key_size=4,.value_size=8,.max_ents=4})==102);
++		uint32_t key=1; uint64_t hash=7;
++		std::vector<uint64_t> values(sysconf(_SC_NPROCESSORS_ONLN),100);
++		REQUIRE(bpftime_map_update_elem(101,&key,values.data(),BPF_ANY)==0);
++		REQUIRE(bpftime_map_update_elem(102,&key,&hash,BPF_ANY)==0);
++		auto mixed=consuming_mixed_program();
++		bpftime_prog prog(mixed.data(),mixed.size(),"mixed_custom_cpu_default");
++		std::map<int,bpftime_helper_info> custom{
++			{8,{8,"custom_cpu",(void *)custom_lookup}},
++			{999,{999,"unrelated",(void *)unrelated_helper}}};
++		captured_array_log logs;
++		REQUIRE(load_prog_and_helpers(&prog,config,nullptr,nullptr,&custom)==0);
++		REQUIRE(logs.messages.str().find("retained 1 maps")!=std::string::npos);
++		REQUIRE(logs.messages.str().find("inlined 2 lookup sites")!=std::string::npos);
++		struct {uint32_t key,pad;uint64_t value,status;} input{1,0,23,99};
++		uint64_t result=0;
++		REQUIRE(prog.bpftime_prog_exec(&input,sizeof(input),&result)==0);
++		REQUIRE(result==17+100+7+23+9); REQUIRE(input.status==0);
++	}
++}
++
++TEST_CASE("Default array JIT keeps AOT on original helper registrations",
++	"[array-jit-default][array-jit-lifetime]")
++{
++	isolated_shm fixture;
++	create_array(71);
++	ebpf_inst code[]={{0xbf,2,1,0,0},{0x18,1,BPF_PSEUDO_MAP_FD,0,100},
++		{0,0,0,0,0},{0x85,0,0,0,1},{0x95,0,0,0,0}};
++	auto *vm=ebpf_create("llvm");
++	struct vm_owner {ebpf_vm *vm; ~vm_owner(){ebpf_destroy(vm);}} owner{vm};
++	REQUIRE(ebpf_register(vm,1,"bpf_map_lookup_elem",(void *)bpftime_map_lookup_elem_helper)==0);
++	ebpf_set_lddw_helpers(vm,map_ptr_by_fd,nullptr,map_val,nullptr,nullptr);
++	char *error=nullptr;
++	REQUIRE(ebpf_load(vm,code,sizeof(code),&error)==0);
++	auto object=vm->vm_instance->do_aot_compile(false);
++	REQUIRE(!object.empty());
++	bpftime_prog prog(code,5,"default_aot");
++	REQUIRE(prog.bpftime_prog_register_raw_helper({1,"bpf_map_lookup_elem",(void *)bpftime_map_lookup_elem_helper})==0);
++	captured_array_log logs;
++	REQUIRE(prog.load_aot_object(object)==0);
++	REQUIRE(logs.messages.str().find("[array-jit-inline]")==std::string::npos);
++	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(prog,1))==71);
++	bpftime_close(100); create_array(72);
++	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(prog,1))==72);
++}
+diff --git a/runtime/unit-test/maps/test_array_jit_poc.cpp b/runtime/unit-test/maps/test_array_jit_poc.cpp
+index 993717f..610df11 100644
+--- a/runtime/unit-test/maps/test_array_jit_poc.cpp
++++ b/runtime/unit-test/maps/test_array_jit_poc.cpp
+@@ -11,14 +11,26 @@ uint8_t *storage;
+ uint32_t width;
+ uint32_t capacity;
+ unsigned helper_calls;
++uint64_t selected_cpu;
++unsigned cpu_calls;
++bool advance_cpu;
++uint64_t counted_cpu(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
++{
++	++cpu_calls;
++	return advance_cpu ? selected_cpu++ : selected_cpu;
++}
+ uint64_t last_helper_map;
+ uint64_t counted_lookup(uint64_t map, uint64_t key, uint64_t, uint64_t, uint64_t)
+ {
+ 	++helper_calls;
+ 	last_helper_map = map;
++	if (map != 7) {
++		errno = ENOENT;
++		return 0;
++	}
+ 	uint32_t index;
+ 	std::memcpy(&index, reinterpret_cast<void *>(key), sizeof(index));
+-	if (map != 7 || index >= capacity) {
++	if (index >= capacity) {
+ 		errno = ENOENT;
+ 		return 0;
+ 	}
+@@ -44,6 +56,42 @@ vm_ptr make_vm(bool dynamic_handle, uint32_t handle = 7)
+ }
+ }
+ 
++TEST_CASE("Per-map JIT kind distinguishes single-CPU storage from ordinary arrays",
++          "[array-jit-poc][array-jit-default]")
++{
++	std::vector<uint64_t> ordinary(4,11),percpu(4,22);
++	vm_ptr vm(ebpf_create("llvm"),ebpf_destroy);
++	REQUIRE(ebpf_register(vm.get(),1,"bpftime_bound_array_lookup_v2",(void *)counted_lookup)==0);
++	REQUIRE(ebpf_register(vm.get(),8,"bpf_get_smp_processor_id",(void *)counted_cpu)==0);
++	// Equal strides do not imply equal map kinds.
++	REQUIRE(ebpf_register_array_map_kind(vm.get(),7,(uint64_t)ordinary.data(),4,8,8,4,false)==0);
++	REQUIRE(ebpf_register_array_map_kind(vm.get(),8,(uint64_t)percpu.data(),4,8,8,4,true)==0);
++	ebpf_inst code[]={
++		{0xbf,6,1,0,0},{0xbf,2,6,0,0},{0xb7,1,0,0,7},{0x85,0,0,0,1},
++		{0x7b,6,0,8,0},{0xbf,2,6,0,0},{0xb7,1,0,0,8},
++		{0x85,0,0,0,1},{0x95,0,0,0,0},
++	};
++	char *error=nullptr;
++	REQUIRE(ebpf_load(vm.get(),code,sizeof(code),&error)==0);
++	auto fn=ebpf_compile(vm.get(),&error);
++	REQUIRE(fn!=nullptr);
++	struct {uint32_t key,padding; uint64_t ordinary;} input{2,0,0};
++	advance_cpu=false;
++	for (uint64_t cpu : {uint64_t(0),uint64_t(1),UINT64_MAX}) {
++		selected_cpu=cpu; cpu_calls=helper_calls=0; errno=EDOM;
++		auto result=fn(&input,sizeof(input));
++		REQUIRE(input.ordinary==(uint64_t)&ordinary[2]);
++		REQUIRE(cpu_calls==1);
++		if (cpu==0) {
++			REQUIRE(result==(uint64_t)&percpu[2]);
++			REQUIRE(helper_calls==0); REQUIRE(errno==EDOM);
++		} else {
++			REQUIRE(result==0); REQUIRE(helper_calls==1);
++			REQUIRE(last_helper_map==UINT64_MAX); REQUIRE(errno==ENOENT);
++		}
++	}
++}
++
+ TEST_CASE("Array JIT bridge preserves success, miss errno and live storage",
+           "[array-jit-poc]")
+ {
+@@ -137,3 +185,101 @@ TEST_CASE("Array JIT leaves dynamic and unregistered handles on helper path",
+ 	REQUIRE(ebpf_register_array_map(llvm.get(),7,(uint64_t)storage,8,8,8,4)==-EINVAL);
+ 	REQUIRE(ebpf_register_array_map(llvm.get(),7,(uint64_t)storage,4,8,8,0)==-EINVAL);
+ }
++
++TEST_CASE("Per-CPU array JIT selects CPU per lookup with bounds and arbitrary widths",
++          "[array-jit-poc][percpu-array-jit]")
++{
++	capacity = 4;
++	advance_cpu = false;
++	for (unsigned cpus : {1U,3U,12U}) {
++		for (unsigned bytes : {1U,3U,8U,24U,257U}) {
++			width = bytes;
++			std::vector<uint8_t> backing(capacity * cpus * width);
++			storage = backing.data();
++			vm_ptr vm(ebpf_create("llvm"), ebpf_destroy);
++			REQUIRE(ebpf_register(vm.get(),1,"bpftime_bound_percpu_array_lookup_v1",(void *)counted_lookup)==0);
++			REQUIRE(ebpf_register(vm.get(),8,"bpf_get_smp_processor_id",(void *)counted_cpu)==0);
++			ebpf_inst code[]={{0xbf,2,1,0,0},{0xb7,1,0,0,7},
++				{0x85,0,0,0,1},{0x95,0,0,0,0}};
++			char *error = nullptr;
++			REQUIRE(ebpf_load(vm.get(),code,sizeof(code),&error)==0);
++			REQUIRE(ebpf_register_array_map(vm.get(),7,(uint64_t)storage,4,width,width*cpus,capacity)==0);
++			auto fn=ebpf_compile(vm.get(),&error);
++			REQUIRE(fn!=nullptr);
++			for (uint64_t cpu : {uint64_t(0),uint64_t(cpus-1),uint64_t(cpus),UINT64_MAX}) {
++				selected_cpu=cpu;
++				for (uint32_t key : {0U,3U,4U,UINT32_MAX}) {
++					helper_calls=cpu_calls=0; errno=EDOM;
++					uint8_t input[8]{};
++					std::memcpy(input+1,&key,4);
++					auto result=fn(input+1,4);
++					REQUIRE(cpu_calls==(key<capacity ? 1U : 0U));
++					if (key<capacity && cpu<cpus) {
++						REQUIRE(result==(uint64_t)(storage+(key*cpus+cpu)*width));
++						REQUIRE(helper_calls==0);
++						REQUIRE(errno==EDOM);
++					} else {
++						REQUIRE(result==0);
++						REQUIRE(helper_calls==1);
++						REQUIRE(last_helper_map==UINT64_MAX);
++						REQUIRE(errno==ENOENT);
++					}
++				}
++			}
++			helper_calls=cpu_calls=0; errno=EDOM;
++			REQUIRE(fn(nullptr,0)==0);
++			REQUIRE(helper_calls==1);
++			REQUIRE(last_helper_map==UINT64_MAX);
++			REQUIRE(cpu_calls==0);
++			REQUIRE(errno==ENOENT);
++		}
++	}
++}
++
++TEST_CASE("Per-CPU array JIT does not hoist CPU selection within an invocation",
++          "[array-jit-poc][percpu-array-jit]")
++{
++	std::vector<uint64_t> backing{11,22,33};
++	storage=(uint8_t *)backing.data(); width=8; capacity=1;
++	vm_ptr vm(ebpf_create("llvm"),ebpf_destroy);
++	REQUIRE(ebpf_register(vm.get(),1,"bpftime_bound_percpu_array_lookup_v1",(void *)counted_lookup)==0);
++	REQUIRE(ebpf_register(vm.get(),8,"bpf_get_smp_processor_id",(void *)counted_cpu)==0);
++	// r6 keeps key, r7 keeps first value; the two calls must select different CPUs.
++	ebpf_inst code[]={{0xbf,6,1,0,0},{0xbf,2,6,0,0},{0xb7,1,0,0,7},
++		{0x85,0,0,0,1},{0x79,7,0,0,0},{0xbf,2,6,0,0},{0xb7,1,0,0,7},
++		{0x85,0,0,0,1},{0x79,0,0,0,0},{0x0f,0,7,0,0},{0x95,0,0,0,0}};
++	char *error=nullptr;
++	REQUIRE(ebpf_load(vm.get(),code,sizeof(code),&error)==0);
++	REQUIRE(ebpf_register_array_map(vm.get(),7,(uint64_t)storage,4,8,24,1)==0);
++	auto fn=ebpf_compile(vm.get(),&error);
++	REQUIRE(fn!=nullptr);
++	uint32_t key=0; selected_cpu=0; advance_cpu=true; cpu_calls=helper_calls=0;
++	auto result=fn(&key,4);
++	advance_cpu=false;
++	REQUIRE(result==33);
++	REQUIRE(cpu_calls==2);
++	REQUIRE(helper_calls==0);
++}
++
++TEST_CASE("Per-CPU array JIT requires the marked CPU helper contract",
++          "[array-jit-poc][percpu-array-jit]")
++{
++	std::vector<uint64_t> backing(12,42);
++	storage=(uint8_t *)backing.data(); width=8; capacity=4;
++	for (bool missing : {true,false}) {
++		vm_ptr vm(ebpf_create("llvm"),ebpf_destroy);
++		REQUIRE(ebpf_register(vm.get(),1,"bpftime_bound_percpu_array_lookup_v1",(void *)counted_lookup)==0);
++		if (!missing)
++			REQUIRE(ebpf_register(vm.get(),8,"custom_cpu",(void *)counted_cpu)==0);
++		ebpf_inst code[]={{0xbf,2,1,0,0},{0xb7,1,0,0,7},{0x85,0,0,0,1},{0x95,0,0,0,0}};
++		char *error=nullptr;
++		REQUIRE(ebpf_load(vm.get(),code,sizeof(code),&error)==0);
++		REQUIRE(ebpf_register_array_map(vm.get(),7,(uint64_t)storage,4,8,24,4)==0);
++		auto fn=ebpf_compile(vm.get(),&error);
++		REQUIRE(fn!=nullptr);
++		uint32_t key=1; helper_calls=cpu_calls=0;
++		REQUIRE(fn(&key,4)==(uint64_t)&backing[1]);
++		REQUIRE(helper_calls==1);
++		REQUIRE(cpu_calls==0);
++	}
++}
+diff --git a/vm/compat/include/bpftime_vm_compat.hpp b/vm/compat/include/bpftime_vm_compat.hpp
+index 303b055..63c38bc 100644
+--- a/vm/compat/include/bpftime_vm_compat.hpp
++++ b/vm/compat/include/bpftime_vm_compat.hpp
+@@ -85,7 +85,8 @@ class bpftime_vm_impl {
+ 	// storage alive until the compiled program is destroyed.
+ 	virtual int register_array_map(uint64_t handle, uint64_t value_base,
+ 				       uint32_t key_size, uint32_t value_size,
+-				       uint32_t stride, uint32_t max_entries)
++				       uint32_t stride, uint32_t max_entries,
++				       bool per_cpu = false)
+ 	{
+ 		return -ENOTSUP;
+ 	}
+diff --git a/vm/compat/llvm-vm/CMakeLists.txt b/vm/compat/llvm-vm/CMakeLists.txt
+index dfbef45..8c93006 100644
+--- a/vm/compat/llvm-vm/CMakeLists.txt
++++ b/vm/compat/llvm-vm/CMakeLists.txt
+@@ -43,3 +43,46 @@ endif()
+ list(REMOVE_AT BPFTIME_LLVM_SOURCES ${BPFTIME_LLVM_SOURCE_INDEX})
+ list(APPEND BPFTIME_LLVM_SOURCES "${BPFTIME_ARRAY_JIT_SOURCE}")
+ set_property(TARGET llvmbpf_vm PROPERTY SOURCES "${BPFTIME_LLVM_SOURCES}")
++target_include_directories(llvmbpf_vm PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include")
++
++# Add explicit per-map kind without editing the upstream submodule. All
++# parent-linked native VM consumers must see the same descriptor definition.
++set(BPFTIME_ARRAY_DESCRIPTOR_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/array-map-descriptor.patch")
++set(BPFTIME_ARRAY_DESCRIPTOR_INCLUDE "${CMAKE_CURRENT_BINARY_DIR}/array-inline-include")
++file(MAKE_DIRECTORY "${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}")
++set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
++  "${BPFTIME_ARRAY_DESCRIPTOR_PATCH}" "${BPFTIME_LLVM_SOURCE_DIR}/include/llvmbpf.hpp")
++execute_process(
++  COMMAND "${BPFTIME_PATCH_EXECUTABLE}" --batch --fuzz=0
++    "--output=${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}/llvmbpf.hpp.tmp"
++    "${BPFTIME_LLVM_SOURCE_DIR}/include/llvmbpf.hpp" "${BPFTIME_ARRAY_DESCRIPTOR_PATCH}"
++  RESULT_VARIABLE BPFTIME_ARRAY_DESCRIPTOR_RESULT
++  OUTPUT_VARIABLE BPFTIME_ARRAY_DESCRIPTOR_OUTPUT
++  ERROR_VARIABLE BPFTIME_ARRAY_DESCRIPTOR_ERROR)
++if(NOT BPFTIME_ARRAY_DESCRIPTOR_RESULT EQUAL 0)
++  message(FATAL_ERROR "Array descriptor patch conflicts with upstream llvmbpf.\n${BPFTIME_ARRAY_DESCRIPTOR_OUTPUT}\n${BPFTIME_ARRAY_DESCRIPTOR_ERROR}")
++endif()
++configure_file("${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}/llvmbpf.hpp.tmp"
++  "${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}/llvmbpf.hpp" COPYONLY)
++file(REMOVE "${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}/llvmbpf.hpp.tmp")
++target_include_directories(llvmbpf_vm BEFORE PUBLIC "${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}")
++target_include_directories(bpftime_llvm_vm_obj BEFORE PRIVATE "${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}")
++
++# Native CLI/examples/tests can specify the upstream include directory before
++# transitive includes. Prepend explicitly for every native consumer as well;
++# otherwise an aggregate descriptor would have inconsistent sizes across TUs.
++function(bpftime_array_descriptor_includes directory)
++  get_property(array_targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
++  foreach(array_target IN LISTS array_targets)
++    get_target_property(array_target_type "${array_target}" TYPE)
++    if(NOT array_target_type STREQUAL "UTILITY" AND
++       NOT array_target_type STREQUAL "INTERFACE_LIBRARY")
++      target_include_directories("${array_target}" BEFORE PRIVATE "${BPFTIME_ARRAY_DESCRIPTOR_INCLUDE}")
++    endif()
++  endforeach()
++  get_property(array_subdirs DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
++  foreach(array_subdir IN LISTS array_subdirs)
++    bpftime_array_descriptor_includes("${array_subdir}")
++  endforeach()
++endfunction()
++bpftime_array_descriptor_includes("${BPFTIME_LLVM_SOURCE_DIR}")
+diff --git a/vm/compat/llvm-vm/array-map-inline.patch b/vm/compat/llvm-vm/array-map-inline.patch
+index 78f9d13..8f61f4d 100644
+--- a/vm/compat/llvm-vm/array-map-inline.patch
++++ b/vm/compat/llvm-vm/array-map-inline.patch
+@@ -1,23 +1,93 @@
+ --- a/llvm_jit_context.cpp
+ +++ b/llvm_jit_context.cpp
+-@@ -403,6 +403,7 @@
++@@ -16,6 +16,23 @@
++ #include <iostream>
++ #include <sstream>
++ 
+++#include "bpftime_array_cpu_query.hpp"
+++#if defined(__GNUC__) || defined(__clang__)
+++extern "C" bool bpftime_resolve_array_cpu_query_v1(
+++	void *, bpftime_array_cpu_query_hooks *) __attribute__((weak));
+++#endif
+++static bpftime_array_cpu_query_hooks resolve_array_cpu_query(void *registered)
+++{
+++	bpftime_array_cpu_query_hooks hooks{};
+++#if defined(__GNUC__) || defined(__clang__)
+++	if (bpftime_resolve_array_cpu_query_v1 &&
+++	    bpftime_resolve_array_cpu_query_v1(registered, &hooks) &&
+++	    hooks.read_cpu && hooks.on_error)
+++		return hooks;
+++#endif
+++	return {};
+++}
+++
++ #include <llvm/ExecutionEngine/MCJIT.h>
++ #include <llvm/ExecutionEngine/ObjectCache.h>
++ #include <llvm/IR/IRPrintingPasses.h>
++@@ -403,6 +420,30 @@
+  	}
+  
+++	// Never mark this CPU call pure or cache it across lookups.
+++	const bool legacy_per_cpu = vm.ext_funcs[1] &&
+++		vm.ext_funcs[1]->name == "bpftime_bound_percpu_array_lookup_v1";
+++	bool has_per_cpu = legacy_per_cpu;
+++	for (const auto &entry : vm.array_maps)
+++		has_per_cpu |= entry.second.per_cpu;
+++	const bool cpu_contract = vm.ext_funcs[8] &&
+++		vm.ext_funcs[8]->name == "bpf_get_smp_processor_id";
+++	auto *cpu_helper = has_per_cpu && cpu_contract ? module.getFunction(ext_func_sym(8)) : nullptr;
+++	if (has_per_cpu && cpu_contract && !cpu_helper)
+++		cpu_helper = llvm::Function::Create(helperFunc->getFunctionType(),
+++			llvm::Function::ExternalLinkage, ext_func_sym(8), module);
+++	const auto cpu_hooks = has_per_cpu && cpu_contract ? resolve_array_cpu_query(vm.ext_funcs[8]->fn) :
+++		bpftime_array_cpu_query_hooks{};
+++	llvm::Function *raw_cpu = nullptr, *cpu_error = nullptr;
+++	if (cpu_hooks.read_cpu) {
+++		raw_cpu = llvm::Function::Create(llvm::FunctionType::get(
+++			llvm::Type::getInt32Ty(module.getContext()), false),
+++			llvm::Function::ExternalLinkage, "__bpftime_array_cpu_raw_v1", module);
+++		cpu_error = llvm::Function::Create(llvm::FunctionType::get(
+++			llvm::Type::getInt64Ty(module.getContext()), false),
+++			llvm::Function::ExternalLinkage, "__bpftime_array_cpu_error_v1", module);
+++	}
+  	bool changed = false;
+ +	size_t inlined_sites = 0;
+  	for (auto *call : callSites) {
+  		auto *mapHandle =
+  			llvm::dyn_cast<llvm::ConstantInt>(call->getArgOperand(0));
+-@@ -441,7 +442,7 @@
++@@ -422,6 +465,9 @@
++ 		}
++ 
++ 		const auto &map = mapIter->second;
+++		const bool per_cpu = map.per_cpu || legacy_per_cpu;
+++		if (per_cpu && !cpu_contract)
+++			continue;
++ 		if (map.key_size != sizeof(uint32_t) || map.max_entries == 0) {
++ 			continue;
++ 		}
++@@ -437,4 +483,8 @@
++ 		llvm::IRBuilder<> builder(call);
+++		auto *null_prefix = call->getParent();
+++		null_prefix->splitBasicBlock(call, "array_lookup.key");
+++		null_prefix->getTerminator()->eraseFromParent();
+++		builder.SetInsertPoint(call);
++ 		auto *keyPtr = builder.CreateIntToPtr(
++ 			call->getArgOperand(1),
++ 			llvm::PointerType::getUnqual(builder.getInt32Ty()),
++@@ -441,10 +487,10 @@
+  			"array_lookup.key_ptr");
+  		auto *index = builder.CreateLoad(builder.getInt32Ty(), keyPtr,
+  						 "array_lookup.index");
+ -		index->setAlignment(llvm::Align(4));
+ +		index->setAlignment(llvm::Align(1));
+- 		auto *inRange = builder.CreateICmpULT(
++-		auto *inRange = builder.CreateICmpULT(
+++		llvm::Value *inRange = builder.CreateICmpULT(
+  			index, builder.getInt32(map.max_entries),
+  			"array_lookup.in_range");
+-@@ -461,17 +462,35 @@
++ 		llvm::Value *offset = builder.CreateZExt(
++ 			index, builder.getInt64Ty(), "array_lookup.index64");
++ 		if (is_power_of_two_u32(stride)) {
++@@ -461,17 +511,77 @@
+  		}
+  		auto *address = builder.CreateAdd(
+  			builder.getInt64(valueBase), offset, "array_lookup.addr");
+@@ -26,7 +96,9 @@
+ +		// Only the pinned standard runtime helper promises this ENOENT path.
+ +		// Leave standalone/custom helpers and their map arguments unchanged.
+ +		if (vm.ext_funcs[1] &&
+-+		    vm.ext_funcs[1]->name == "bpftime_bound_array_lookup_v1")
+++		    (vm.ext_funcs[1]->name == "bpftime_bound_array_lookup_v1" ||
+++		     vm.ext_funcs[1]->name == "bpftime_bound_array_lookup_v2" ||
+++		     legacy_per_cpu))
+ +			call->setArgOperand(0, builder.getInt64(UINT64_MAX));
+ +		// Preserve the registered helper's failure behavior, including errno.
+ +		// Only successful lookups use the inlined address computation.
+@@ -36,9 +108,49 @@
+ +		auto *fast = llvm::BasicBlock::Create(module.getContext(),
+ +			"array_lookup.fast", prefix->getParent(), slow);
+ +		prefix->getTerminator()->eraseFromParent();
+++		if (null_prefix) {
+++			llvm::IRBuilder<> key_check(null_prefix);
+++			key_check.CreateCondBr(key_check.CreateICmpNE(call->getArgOperand(1),
+++				key_check.getInt64(0)), prefix, slow);
+++		}
+ +		llvm::IRBuilder<> choose(prefix);
+-+		choose.CreateCondBr(inRange, fast, slow);
+++		auto *cpu_select = per_cpu ? llvm::BasicBlock::Create(module.getContext(),
+++			"array_lookup.select_cpu", prefix->getParent(), fast) : fast;
+++		choose.CreateCondBr(inRange, cpu_select, slow);
+ +		llvm::IRBuilder<> fast_builder(fast);
+++		if (per_cpu) {
+++			if (!map.value_size || stride % map.value_size)
+++				throw std::runtime_error("Invalid per-CPU array stride");
+++			llvm::IRBuilder<> cpu_builder(cpu_select);
+++			llvm::Value *cpu;
+++			if (raw_cpu) {
+++				auto *raw = cpu_builder.CreateCall(raw_cpu, {}, "array_lookup.raw_cpu");
+++				auto *normal = cpu_builder.CreateSExt(raw, cpu_builder.getInt64Ty());
+++				auto *failure = llvm::BasicBlock::Create(module.getContext(),
+++					"array_lookup.cpu_error", prefix->getParent(), fast);
+++				auto *checked = llvm::BasicBlock::Create(module.getContext(),
+++					"array_lookup.cpu_checked", prefix->getParent(), fast);
+++				cpu_builder.CreateCondBr(cpu_builder.CreateICmpEQ(raw,
+++					cpu_builder.getInt32(-1)), failure, checked);
+++				llvm::IRBuilder<> error_builder(failure);
+++				auto *fallback = error_builder.CreateCall(cpu_error, {});
+++				error_builder.CreateBr(checked);
+++				cpu_builder.SetInsertPoint(checked);
+++				auto *selected = cpu_builder.CreatePHI(cpu_builder.getInt64Ty(), 2);
+++				selected->addIncoming(normal, cpu_select);
+++				selected->addIncoming(fallback, failure);
+++				cpu = selected;
+++			} else {
+++				auto *zero = cpu_builder.getInt64(0);
+++				cpu = cpu_builder.CreateCall(cpu_helper, {zero,zero,zero,zero,zero},
+++					"array_lookup.current_cpu");
+++			}
+++			auto *valid_cpu = cpu_builder.CreateICmpULT(cpu,
+++				cpu_builder.getInt64(stride / map.value_size));
+++			cpu_builder.CreateCondBr(valid_cpu, fast, slow);
+++			auto *cpu_offset = fast_builder.CreateMul(cpu, fast_builder.getInt64(map.value_size));
+++			address = fast_builder.CreateAdd(address, cpu_offset, "array_lookup.cpu_addr");
+++		}
+ +		fast_builder.CreateBr(merge);
+ +		llvm::IRBuilder<> merge_builder(&*merge->begin());
+ +		auto *result = merge_builder.CreatePHI(builder.getInt64Ty(), 2,
+@@ -58,3 +170,31 @@
+  	}
+  	return changed;
+  }
++@@ -791,5 +901,27 @@
++ 		}
++ 	}
+++	if (vm.ext_funcs[1] &&
+++	    (vm.ext_funcs[1]->name == "bpftime_bound_percpu_array_lookup_v1" ||
+++	     vm.ext_funcs[1]->name == "bpftime_bound_array_lookup_v2") &&
+++	    vm.ext_funcs[8] && vm.ext_funcs[8]->fn &&
+++	    vm.ext_funcs[8]->name == "bpf_get_smp_processor_id") {
+++		const auto hooks = resolve_array_cpu_query(vm.ext_funcs[8]->fn);
+++		if (hooks.read_cpu) {
+++			auto define_cpu_symbol = [&](const char *name, void *fn) {
+++				auto symbol = JITEvaluatedSymbol::fromPointer(fn);
+++				symbol.setFlags(JITSymbolFlags::Callable | JITSymbolFlags::Exported);
+++				auto key = jit->getExecutionSession().intern(name);
+++#if LLVM_VERSION_MAJOR < 17
+++				extSymbols.try_emplace(key, symbol);
+++#else
+++				extSymbols.try_emplace(key, llvm::orc::ExecutorSymbolDef(
+++					llvm::orc::ExecutorAddr(symbol.getAddress()), symbol.getFlags()));
+++#endif
+++			};
+++			define_cpu_symbol("__bpftime_array_cpu_raw_v1", (void *)hooks.read_cpu);
+++			define_cpu_symbol("__bpftime_array_cpu_error_v1", (void *)hooks.on_error);
+++		}
+++	}
++ #if defined(__arm__) || defined(_M_ARM)
++ 	SPDLOG_INFO("Defining __aeabi_unwind_cpp_pr1 on arm32");
++ 	extSymbols.try_emplace(
+diff --git a/vm/compat/llvm-vm/compat_llvm.hpp b/vm/compat/llvm-vm/compat_llvm.hpp
+index 9bcc229..7d42b21 100644
+--- a/vm/compat/llvm-vm/compat_llvm.hpp
++++ b/vm/compat/llvm-vm/compat_llvm.hpp
+@@ -31,11 +31,11 @@ class bpftime_llvm_vm : public bpftime::llvmbpf_vm,
+ 				       void *fn) override;
+ 	int register_array_map(uint64_t handle, uint64_t value_base,
+ 		uint32_t key_size, uint32_t value_size, uint32_t stride,
+-		uint32_t max_entries) override
++		uint32_t max_entries, bool per_cpu = false) override
+ 	{
+ 		return bpftime::llvmbpf_vm::register_array_map(
+ 			bpftime::array_map_descriptor{handle, value_base, key_size,
+-				value_size, stride, max_entries});
++				value_size, stride, max_entries, per_cpu});
+ 	}
+ 	void unload_code() override;
+ 	int exec(void *mem, size_t mem_len,
+diff --git a/vm/vm-core/include/ebpf-vm.h b/vm/vm-core/include/ebpf-vm.h
+index 8d746b4..102e6e1 100644
+--- a/vm/vm-core/include/ebpf-vm.h
++++ b/vm/vm-core/include/ebpf-vm.h
+@@ -123,6 +123,12 @@ int ebpf_register_array_map(struct ebpf_vm *vm, uint64_t handle,
+ 	uint64_t value_base, uint32_t key_size, uint32_t value_size,
+ 	uint32_t stride, uint32_t max_entries);
+ 
++/* Explicit kind: a per-CPU allocation may have only one CPU, so its kind
++ * cannot be inferred from stride. Existing callers above remain ordinary. */
++int ebpf_register_array_map_kind(struct ebpf_vm *vm, uint64_t handle,
++	uint64_t value_base, uint32_t key_size, uint32_t value_size,
++	uint32_t stride, uint32_t max_entries, bool per_cpu);
++
+ /**
+  * @brief Load code into a VM.
+  * This must be done before calling ebpf_exec or ebpf_compile and after
+diff --git a/vm/vm-core/src/ebpf-vm.cpp b/vm/vm-core/src/ebpf-vm.cpp
+index 33a3fc0..7550309 100644
+--- a/vm/vm-core/src/ebpf-vm.cpp
++++ b/vm/vm-core/src/ebpf-vm.cpp
+@@ -52,11 +52,19 @@ extern "C" int ebpf_load(struct ebpf_vm *vm, const void *code,
+ extern "C" int ebpf_register_array_map(struct ebpf_vm *vm, uint64_t handle,
+ 	uint64_t value_base, uint32_t key_size, uint32_t value_size,
+ 	uint32_t stride, uint32_t max_entries)
++{
++	return ebpf_register_array_map_kind(vm, handle, value_base, key_size,
++		value_size, stride, max_entries, false);
++}
++
++extern "C" int ebpf_register_array_map_kind(struct ebpf_vm *vm, uint64_t handle,
++	uint64_t value_base, uint32_t key_size, uint32_t value_size,
++	uint32_t stride, uint32_t max_entries, bool per_cpu)
+ {
+ 	if (!vm || !vm->vm_instance || value_base == 0)
+ 		return -EINVAL;
+ 	return vm->vm_instance->register_array_map(handle, value_base, key_size,
+-		value_size, stride, max_entries);
++		value_size, stride, max_entries, per_cpu);
+ }
+ 
+ extern "C" void ebpf_unload_code(struct ebpf_vm *vm)

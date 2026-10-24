@@ -1,0 +1,286 @@
+Building isolated CPU query-count correctness test.
+Randomness seeded to: 2559745063
+===============================================================================
+All tests passed (10248 assertions in 1 test case)
+
+Building slot-helper candidate and current runtime tests.
+Running production array/hash correctness checks.
+[2026-10-19 14:22:32.224] [info] [bpf_attach_ctx.cpp:217] bpf_attach_ctx constructed
+Filters: [array-lookup-cold],[percpu-array],[percpu-hash],[maps] [hash],[hash-fast4],"Test basic operations of array map"
+Randomness seeded to: 990576724
+===============================================================================
+All tests passed (106610 assertions in 17 test cases)
+
+[2026-10-19 14:22:32.278] [info] [bpf_attach_ctx.cpp:205] Destructor: bpf_attach_ctx
+runtime/src/bpf_helper.cpp: OK
+runtime/src/bpf_map/bpftime_hash_map.hpp: OK
+runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp: OK
+runtime/src/bpf_map/userspace/per_cpu_hash_map.hpp: OK
+runtime/src/bpf_map/userspace/array_map.cpp: OK
+runtime/src/bpf_map/userspace/array_map.hpp: OK
+Inspecting generated array helper assembly.
+{
+  "baseline": {
+    "ordinary": {
+      "static_instruction_count": 47,
+      "stack_references": [],
+      "calls": [],
+      "slot_tail_branch": false
+    },
+    "percpu": {
+      "static_instruction_count": 69,
+      "stack_references": [
+        "  4e5730:\tstp\tx29, x30, [sp, #-32]!",
+        "  4e575c:\tldp\tx29, x30, [sp], #32",
+        "  4e57b0:\tldp\tx29, x30, [sp], #32",
+        "  4e57bc:\tstp\tx19, x20, [sp, #16]",
+        "  4e5820:\tldp\tx19, x20, [sp, #16]",
+        "  4e5830:\tldp\tx19, x20, [sp, #16]"
+      ],
+      "calls": [
+        "  4e574c:\tbl\t48ab80 <__errno_location@plt>",
+        "  4e57dc:\tbl\t48a680 <sched_getcpu@plt>",
+        "  4e582c:\tbl\t48ab80 <__errno_location@plt>"
+      ],
+      "slot_tail_branch": false
+    }
+  },
+  "slot-helper": {
+    "ordinary": {
+      "static_instruction_count": 47,
+      "stack_references": [],
+      "calls": [],
+      "slot_tail_branch": false
+    },
+    "percpu": {
+      "static_instruction_count": 62,
+      "stack_references": [
+        "  4e6900:\tstp\tx29, x30, [sp, #-16]!",
+        "  4e692c:\tldp\tx29, x30, [sp], #16",
+        "  4e6980:\tldp\tx29, x30, [sp], #16",
+        "  4e69e0:\tldp\tx29, x30, [sp], #16"
+      ],
+      "calls": [
+        "  4e691c:\tbl\t48ab80 <__errno_location@plt>",
+        "  4e69f0:\tbl\t48a680 <sched_getcpu@plt>"
+      ],
+      "slot_tail_branch": true
+    },
+    "cpu-slot": {
+      "static_instruction_count": 11,
+      "calls": [
+        "  4f02c4:\tbl\t48a680 <sched_getcpu@plt>"
+      ],
+      "callee_saved_registers": [
+        19,
+        20
+      ],
+      "after_cpu_query": [
+        "  4f02c8:\tsxtw\tx0, w0",
+        "  4f02cc:\tmadd\tx0, x0, x20, x19",
+        "  4f02d0:\tldp\tx19, x20, [sp, #16]",
+        "  4f02d4:\tldp\tx29, x30, [sp], #32",
+        "  4f02d8:\tret"
+      ]
+    }
+  }
+}
+Starting balanced six-round array A/B.
+Completed kernel round 1/6
+Completed baseline round 1/6
+Completed candidate round 1/6
+Completed candidate round 2/6
+Completed baseline round 2/6
+Completed kernel round 2/6
+Completed kernel round 3/6
+Completed baseline round 3/6
+Completed candidate round 3/6
+Completed candidate round 4/6
+Completed baseline round 4/6
+Completed kernel round 4/6
+Completed kernel round 5/6
+Completed baseline round 5/6
+Completed candidate round 5/6
+Completed candidate round 6/6
+Completed baseline round 6/6
+Completed kernel round 6/6
+[
+  {
+    "case": "array_lookup",
+    "kernel": {
+      "median": 1.3807779199999999,
+      "mean": 1.3790481066666667,
+      "stdev": 0.020782619119557123,
+      "raw_values": [
+        1.3804787200000002,
+        1.3487718400000004,
+        1.3810771199999998,
+        1.3914636800000002,
+        1.40837248,
+        1.3641248000000001
+      ]
+    },
+    "baseline": {
+      "median": 6.493784,
+      "mean": 6.4844289066666665,
+      "stdev": 0.01772394531614521,
+      "raw_values": [
+        6.49805568,
+        6.49335168,
+        6.46259904,
+        6.49758528,
+        6.49421632,
+        6.46076544
+      ]
+    },
+    "candidate": {
+      "median": 6.50781888,
+      "mean": 6.506299626666666,
+      "stdev": 0.018536297248383887,
+      "raw_values": [
+        6.49502464,
+        6.48419648,
+        6.52061312,
+        6.49003648,
+        6.526073600000001,
+        6.52185344
+      ]
+    },
+    "reduction_percent": -0.21612791555740696
+  },
+  {
+    "case": "array_update",
+    "kernel": {
+      "median": 10.901662720000001,
+      "mean": 10.91942528,
+      "stdev": 0.05704695258582449,
+      "raw_values": [
+        10.85266368,
+        10.99242368,
+        10.9019712,
+        10.881984000000001,
+        10.98615488,
+        10.90135424
+      ]
+    },
+    "baseline": {
+      "median": 11.37620704,
+      "mean": 11.39588096,
+      "stdev": 0.08409684677808121,
+      "raw_values": [
+        11.37541568,
+        11.5629504,
+        11.3784384,
+        11.352759039999999,
+        11.328723839999999,
+        11.3769984
+      ]
+    },
+    "candidate": {
+      "median": 11.3437776,
+      "mean": 11.346802133333334,
+      "stdev": 0.01962216022884648,
+      "raw_values": [
+        11.326698239999999,
+        11.3359776,
+        11.378663040000001,
+        11.330727040000001,
+        11.35716928,
+        11.351577599999999
+      ]
+    },
+    "reduction_percent": 0.2850637289386171
+  },
+  {
+    "case": "percpu_array_lookup",
+    "kernel": {
+      "median": 1.9815680000000002,
+      "mean": 1.9603649066666669,
+      "stdev": 0.06289002052078749,
+      "raw_values": [
+        1.9823744,
+        1.96455616,
+        1.8359673600000002,
+        1.98591232,
+        2.0126176000000005,
+        1.9807616000000003
+      ]
+    },
+    "baseline": {
+      "median": 9.70287744,
+      "mean": 9.700675306666666,
+      "stdev": 0.013778015461083698,
+      "raw_values": [
+        9.710670719999998,
+        9.70813824,
+        9.693774079999999,
+        9.715747200000001,
+        9.69761664,
+        9.67810496
+      ]
+    },
+    "candidate": {
+      "median": 11.859750720000001,
+      "mean": 11.858954773333332,
+      "stdev": 0.021264245546372282,
+      "raw_values": [
+        11.84381184,
+        11.83901824,
+        11.877681919999999,
+        11.83636672,
+        11.8756896,
+        11.88116032
+      ]
+    },
+    "reduction_percent": -22.22921286327204
+  },
+  {
+    "case": "percpu_array_update",
+    "kernel": {
+      "median": 14.48977248,
+      "mean": 14.5022128,
+      "stdev": 0.11471801564989523,
+      "raw_values": [
+        14.711683840000001,
+        14.48411264,
+        14.495432319999999,
+        14.41974592,
+        14.520194560000002,
+        14.382107520000002
+      ]
+    },
+    "baseline": {
+      "median": 14.193655360000001,
+      "mean": 14.22098048,
+      "stdev": 0.10271124110255286,
+      "raw_values": [
+        14.156628480000002,
+        14.374277759999998,
+        14.23068224,
+        14.13917056,
+        14.1172256,
+        14.30789824
+      ]
+    },
+    "candidate": {
+      "median": 14.114856960000001,
+      "mean": 14.205997759999999,
+      "stdev": 0.16803384848912029,
+      "raw_values": [
+        14.401831679999999,
+        14.0679456,
+        14.120976,
+        14.44048192,
+        14.10873792,
+        14.096013439999998
+      ]
+    },
+    "reduction_percent": 0.5551663613170943
+  }
+]
+array_lookup candidate/baseline 1.002161279155574
+array_update candidate/baseline 0.9971493627106138
+percpu_array_lookup candidate/baseline 1.2222921286327204
+Traceback (most recent call last):
+  File "<stdin>", line 8, in <module>
+AssertionError: Array regression requires review: percpu_array_lookup
