@@ -69,3 +69,25 @@ with LTO and lock-free maps. The microbenchmark table of the paper (Table 3) mat
 run on a 4-core Core Ultra 7 258V laptop in the repo; its "user memory read 1.5 ns" is a 5-byte
 read amortized over a 1000-iteration loop with checks off. Kernel cost here is similar to the
 paper's; the gap is in bpftime's per-event cost on this machine, mainly stage 2.
+
+## Stage 2 split (leave-one-out, 16 B, 2026-10-24 15:02-15:31 JST)
+
+Stage 2 rebuilt with switches that each remove one group and use constants instead
+(`stage2-split/src/stage2-split.diff`; the plain stage 2 build has identical BPF instructions to
+`stage2`). Without the per-CPU array lookup the event is assembled in a global `.bss` byte array.
+Same-run fair scope, 13 legs (baseline, kernel and db3d475f at stage 1, stage 2 and the four
+variants), 10 reps; `bench/analyze_split.py` -> `bench/summary-split.md`. Cost of a group =
+stage 2 minus stage 2 without it, per rep.
+
+| Part | kernel us/req | bpftime us/req | bpftime - kernel |
+|---|---:|---:|---:|
+| stage 2 total | 7.3 +/- 0.9 | 9.9 +/- 1.3 | +2.6 +/- 1.0 |
+| `bpf_get_current_uid_gid` | 1.1 +/- 1.5 | **5.0 +/- 1.6** | **+3.8 +/- 1.9** |
+| pid_tgid + ktime_get_ns + get_current_comm | 1.6 +/- 1.1 | 1.9 +/- 1.2 | +0.3 +/- 1.7 |
+| hash map update/lookup/delete | 5.0 +/- 1.3 | 2.2 +/- 2.0 | -2.7 +/- 2.1 |
+| per-CPU array lookup | 1.1 +/- 1.2 | -1.2 +/- 3.9 | -2.3 +/- 4.4 |
+
+`bpf_get_current_uid_gid` is half of bpftime's stage 2 and more than its whole disadvantage against
+kernel: it calls `getgid()` and `getuid()` on every invocation, 4 invocations (8 system calls) per
+16 B request, about 0.6 us per system call here. bpftime's hash map operations are cheaper than the
+kernel's in this program; the per-CPU array lookup is within noise; pid/ktime/comm are on par.

@@ -1,0 +1,178 @@
+--- sslsniff-ablation-base/sslsniff.bpf.c	2026-10-24 09:29:29.668877786 +0900
++++ sslsniff-ablation2-base/sslsniff.bpf.c	2026-10-24 15:00:22.237833578 +0900
+@@ -34,6 +34,26 @@
+ #define SSLSNIFF_STAGE 4
+ #endif
+ 
++/* Stage-2 leave-one-out switches (each removes one group, values become constants):
++ * NO_UID: bpf_get_current_uid_gid; NO_META: pid_tgid, ktime_get_ns, get_current_comm;
++ * NO_HASH: bufs/start_ns update, lookup, delete; NO_PCPU: per-CPU ssl_data lookup
++ * (the event is assembled in a global .bss struct instead). */
++#ifndef SSLSNIFF_NO_UID
++#define SSLSNIFF_NO_UID 0
++#endif
++#ifndef SSLSNIFF_NO_META
++#define SSLSNIFF_NO_META 0
++#endif
++#ifndef SSLSNIFF_NO_HASH
++#define SSLSNIFF_NO_HASH 0
++#endif
++#ifndef SSLSNIFF_NO_PCPU
++#define SSLSNIFF_NO_PCPU 0
++#endif
++#define PID_TGID() (SSLSNIFF_NO_META ? 0x100000001ULL : bpf_get_current_pid_tgid())
++#define UID_GID() (SSLSNIFF_NO_UID ? 0 : bpf_get_current_uid_gid())
++#define KTIME() (SSLSNIFF_NO_META ? 1ULL : bpf_ktime_get_ns())
++
+ #define min(x, y)                      \
+     ({                                 \
+         typeof(x) _min1 = (x);         \
+@@ -63,19 +83,29 @@
+     __type(value, __u64);
+ } bufs SEC(".maps");
+ 
++#if SSLSNIFF_NO_PCPU
++/* A byte array keeps the user-space skeleton independent of the struct definition. */
++char ssl_data_global[sizeof(struct probe_SSL_data_t)] __attribute__((aligned(8)));
++#define SSL_DATA() ((struct probe_SSL_data_t *)ssl_data_global)
++#else
++#define SSL_DATA() ((struct probe_SSL_data_t *)bpf_map_lookup_elem(&ssl_data, &zero))
++#endif
++
+ SEC("uprobe/do_handshake")
+ int BPF_UPROBE(probe_SSL_rw_enter, void *ssl, void *buf, int num) {
+     if (SSLSNIFF_STAGE == 1)
+         return 0;
+-    u64 pid_tgid = bpf_get_current_pid_tgid();
++    u64 pid_tgid = PID_TGID();
+     u32 pid = pid_tgid >> 32;
+     u32 tid = pid_tgid;
+-    u32 uid = bpf_get_current_uid_gid();
+-    u64 ts = bpf_ktime_get_ns();
++    u32 uid = UID_GID();
++    u64 ts = KTIME();
+ 
+     /* store arg info for later lookup */
+-    bpf_map_update_elem(&bufs, &tid, &buf, BPF_ANY);
+-    bpf_map_update_elem(&start_ns, &tid, &ts, BPF_ANY);
++    if (!SSLSNIFF_NO_HASH) {
++        bpf_map_update_elem(&bufs, &tid, &buf, BPF_ANY);
++        bpf_map_update_elem(&start_ns, &tid, &ts, BPF_ANY);
++    }
+     return 0;
+ }
+ 
+@@ -84,18 +114,19 @@
+         return 0;
+     int ret = 0;
+     u32 zero = 0;
+-    u64 pid_tgid = bpf_get_current_pid_tgid();
++    u64 pid_tgid = PID_TGID();
+     u32 pid = pid_tgid >> 32;
+     u32 tid = (u32)pid_tgid;
+-    u32 uid = bpf_get_current_uid_gid();
+-    u64 ts = bpf_ktime_get_ns();
++    u32 uid = UID_GID();
++    u64 ts = KTIME();
+ 
+     /* store arg info for later lookup */
+-    u64 *bufp = bpf_map_lookup_elem(&bufs, &tid);
++    u64 dummy = 0;
++    u64 *bufp = SSLSNIFF_NO_HASH ? &dummy : bpf_map_lookup_elem(&bufs, &tid);
+     if (bufp == 0)
+         return 0;
+ 
+-    u64 *tsp = bpf_map_lookup_elem(&start_ns, &tid);
++    u64 *tsp = SSLSNIFF_NO_HASH ? &dummy : bpf_map_lookup_elem(&start_ns, &tid);
+     if (!tsp)
+         return 0;
+     u64 delta_ns = ts - *tsp;
+@@ -104,7 +135,7 @@
+     if (len <= 0)  // no data
+         return 0;
+ 
+-    struct probe_SSL_data_t *data = bpf_map_lookup_elem(&ssl_data, &zero);
++    struct probe_SSL_data_t *data = SSL_DATA();
+     if (!data)
+         return 0;
+ 
+@@ -119,13 +150,16 @@
+     data->is_handshake = false;
+     u32 buf_copy_size = min((size_t)MAX_BUF_SIZE, (size_t)len);
+ 
+-    bpf_get_current_comm(&data->comm, sizeof(data->comm));
++    if (!SSLSNIFF_NO_META)
++        bpf_get_current_comm(&data->comm, sizeof(data->comm));
+ 
+     if (SSLSNIFF_STAGE >= 3 && bufp != 0)
+         ret = bpf_probe_read_user(&data->buf, buf_copy_size, (char *)*bufp);
+ 
+-    bpf_map_delete_elem(&bufs, &tid);
+-    bpf_map_delete_elem(&start_ns, &tid);
++    if (!SSLSNIFF_NO_HASH) {
++        bpf_map_delete_elem(&bufs, &tid);
++        bpf_map_delete_elem(&start_ns, &tid);
++    }
+ 
+     if (!ret)
+         data->buf_filled = 1;
+@@ -152,13 +186,14 @@
+ int BPF_UPROBE(probe_SSL_do_handshake_enter, void *ssl) {
+     if (SSLSNIFF_STAGE == 1)
+         return 0;
+-    u64 pid_tgid = bpf_get_current_pid_tgid();
++    u64 pid_tgid = PID_TGID();
+     u32 pid = pid_tgid >> 32;
+     u32 tid = (u32)pid_tgid;
+-    u64 ts = bpf_ktime_get_ns();
++    u64 ts = KTIME();
+ 
+     /* store arg info for later lookup */
+-    bpf_map_update_elem(&start_ns, &tid, &ts, BPF_ANY);
++    if (!SSLSNIFF_NO_HASH)
++        bpf_map_update_elem(&start_ns, &tid, &ts, BPF_ANY);
+     return 0;
+ }
+ 
+@@ -167,14 +202,15 @@
+     if (SSLSNIFF_STAGE == 1)
+         return 0;
+     u32 zero = 0;
+-    u64 pid_tgid = bpf_get_current_pid_tgid();
++    u64 pid_tgid = PID_TGID();
+     u32 pid = pid_tgid >> 32;
+     u32 tid = (u32)pid_tgid;
+-    u32 uid = bpf_get_current_uid_gid();
+-    u64 ts = bpf_ktime_get_ns();
++    u32 uid = UID_GID();
++    u64 ts = KTIME();
+     int ret = 0;
+ 
+-    u64 *tsp = bpf_map_lookup_elem(&start_ns, &tid);
++    u64 dummy = 0;
++    u64 *tsp = SSLSNIFF_NO_HASH ? &dummy : bpf_map_lookup_elem(&start_ns, &tid);
+     if (tsp == 0)
+         return 0;
+ 
+@@ -182,7 +218,7 @@
+     if (ret <= 0)  // handshake failed
+         return 0;
+ 
+-    struct probe_SSL_data_t *data = bpf_map_lookup_elem(&ssl_data, &zero);
++    struct probe_SSL_data_t *data = SSL_DATA();
+     if (!data)
+         return 0;
+ 
+@@ -195,8 +231,10 @@
+     data->buf_filled = 0;
+     data->rw = 2;
+     data->is_handshake = true;
+-    bpf_get_current_comm(&data->comm, sizeof(data->comm));
+-    bpf_map_delete_elem(&start_ns, &tid);
++    if (!SSLSNIFF_NO_META)
++        bpf_get_current_comm(&data->comm, sizeof(data->comm));
++    if (!SSLSNIFF_NO_HASH)
++        bpf_map_delete_elem(&start_ns, &tid);
+ 
+     if (SSLSNIFF_STAGE >= 4)
+         bpf_perf_event_output(ctx, &perf_SSL_events, BPF_F_CURRENT_CPU, data,
