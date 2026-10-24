@@ -296,6 +296,11 @@ blocked while sleeping and are collected with a zero-timeout `sigtimedwait`
 afterwards. Ring buffers do not notify and are found by the timeout.
 Segments without the wakeup object (older servers) fall back to polling.
 
+A producer finds its shard by (pid, tid) on every sample. Both are cached per
+thread (getpid and gettid are system calls); the atfork child handler clears
+the cache, and the shard match still compares pid and tid. Keep both, or a
+fork child would write into its parent's shard.
+
 ## Credential Cache
 
 `bpf_get_current_uid_gid` may cache the real uid/gid only while every change of

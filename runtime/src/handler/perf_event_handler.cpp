@@ -144,6 +144,33 @@ constexpr size_t software_perf_event_reclaim_shard_threshold = 64;
 thread_local std::unordered_map<const software_perf_event_data *,
 				software_perf_event_shard_cache_entry>
 	software_perf_event_shard_cache;
+
+// A producer finds its shard by (pid, tid) on every sample. getpid() and the
+// thread id are system calls (glibc caches neither), so keep them per thread.
+// A fork child starts with the forking thread's copy; the atfork child handler
+// clears it. If registering the handler failed, query on every call.
+thread_local int cached_producer_pid = -1;
+thread_local int64_t cached_producer_tid = -1;
+const int producer_identity_atfork_status =
+	pthread_atfork(nullptr, nullptr, [] {
+		cached_producer_pid = -1;
+		cached_producer_tid = -1;
+	});
+
+void current_producer_identity(int &pid, int64_t &tid)
+{
+	if (producer_identity_atfork_status != 0) {
+		pid = getpid();
+		tid = current_thread_id();
+		return;
+	}
+	if (cached_producer_pid == -1) {
+		cached_producer_pid = getpid();
+		cached_producer_tid = current_thread_id();
+	}
+	pid = cached_producer_pid;
+	tid = cached_producer_tid;
+}
 } // namespace
 
 bpf_perf_event_handler::bpf_perf_event_handler(
@@ -534,8 +561,9 @@ software_perf_event_data::~software_perf_event_data()
 
 software_perf_event_shard &software_perf_event_data::get_current_thread_shard()
 {
-	const int pid = getpid();
-	const int64_t tid = current_thread_id();
+	int pid;
+	int64_t tid;
+	current_producer_identity(pid, tid);
 	uint64_t current_buffer_generation =
 		READ_ONCE_U64(producer_buffer_generation);
 	if (auto itr = software_perf_event_shard_cache.find(this);
