@@ -471,6 +471,10 @@ dispatch, `bpftime_prog_exec`, stack generation, unsupported-map dispatch) use
 its 1st, 10th, 100th, ... occurrence with the count, one relaxed atomic
 increment per error. Use them for any new per-event diagnostic; load-time and
 control-plane errors keep plain `SPDLOG_*`. The format must be a literal.
+The logging is a cold, non-inlined template taking the arguments by value
+(and file/line as plain values); never inline it or capture locals by
+reference: the inlined version made `bpf_probe_read` take a stack-protector
+canary on every call (+31% probe read, +27% probe write in the full ten).
 
 ## Agent Work Is Invisible To Probes
 
