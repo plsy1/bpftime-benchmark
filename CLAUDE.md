@@ -438,3 +438,16 @@ process. The helper returns the formatted length (kernel), not 0. Cost per
 printk (malloc example, Jetson): default 453k calls/s, `stdout` 650k, `none`
 3.0M, kernel 534k; the old buffered `vprintf` did ~2M. A kernel-like shared
 trace ring (bounded, no system call, read by a tool) would be the fast default.
+
+## Shared Memory Size And bpf() Failures
+
+Boost 1.83 commits the whole segment at creation (`posix_fallocate`), so
+`BPFTIME_SHM_MEMORY_MB` is resident memory, not a sparse limit. The default is
+128 MB (was 50): memleak's 1M-entry hash map needs 64-96 MB with the doubled
+hash buckets. When a `bpf()` or `perf_event_open()` that bpftime handles fails
+in userspace (Boost `bad_alloc`, Boost container `length_error`: "allocator's
+max size reached"), the interposer returns -1 with `ENOMEM` (`EINVAL` for other
+exceptions) and logs a hint to raise the size. It must never fall back to the
+kernel there: the kernel then created a real map the runtime did not know, the
+tool loaded without error, and its programs could not resolve the map ("Expected
+fd 5 to be a map fd") and traced nothing.
