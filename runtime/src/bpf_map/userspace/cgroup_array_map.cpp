@@ -278,6 +278,33 @@ long cgroup_task_under_path(const char *ancestor)
 	return cgroup_path_is_under(current, ancestor) ? 1 : 0;
 }
 
+uint64_t current_thread_cgroup_id()
+{
+	// The cgroup2 mount of this process, parsed once (mount namespaces do
+	// not change under a running process in practice).
+	static const auto mount = cgroup2_mount();
+	if (!mount)
+		return 0;
+	char path[PATH_MAX];
+	if (!current_thread_cgroup_path(path, sizeof(path)))
+		return 0;
+	const auto &[root, mount_point] = *mount;
+	// /proc paths and the mount root are both relative to the cgroup
+	// namespace root.
+	const char *suffix = path;
+	if (root != "/") {
+		if (strncmp(path, root.c_str(), root.size()) != 0)
+			return 0;
+		suffix = path + root.size();
+	}
+	std::string dir = mount_point == "/" ? std::string(suffix) :
+					      mount_point + suffix;
+	struct stat st;
+	if (stat(dir.c_str(), &st) != 0)
+		return 0;
+	return st.st_ino;
+}
+
 long cgroup_array_map_impl::current_task_under_cgroup(uint32_t index) const
 {
 	char ancestor[PATH_MAX];

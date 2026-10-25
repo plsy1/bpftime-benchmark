@@ -58,6 +58,9 @@ bool current_thread_cgroup_path(char *buf, size_t size);
 bool cgroup_path_is_under(const char *path, const char *ancestor);
 // 1 if the calling thread's cgroup is `ancestor` or below it, else 0.
 long cgroup_task_under_path(const char *ancestor);
+// bpf_get_current_cgroup_id: the cgroup v2 id of the calling thread, which
+// is the inode number of its cgroup directory; 0 if unavailable.
+uint64_t current_thread_cgroup_id();
 
 } // namespace bpftime
 #endif
