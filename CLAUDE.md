@@ -471,3 +471,14 @@ dispatch, `bpftime_prog_exec`, stack generation, unsupported-map dispatch) use
 its 1st, 10th, 100th, ... occurrence with the count, one relaxed atomic
 increment per error. Use them for any new per-event diagnostic; load-time and
 control-plane errors keep plain `SPDLOG_*`. The format must be a literal.
+
+## Agent Work Is Invisible To Probes
+
+The agent runs inside the traced process; its own calls must not reach the
+probes (memleak reported ~250 agent allocations and two 8 MB thread stacks).
+`agent_internal_section` (RAII `gum_interceptor_ignore_current_thread`) covers
+`init_attach_ctx_from_handlers`, thread creation and `setenv`, and every agent
+background thread (IPC, auto-refresh, detach) ignores probes for its lifetime.
+Wrap any new agent-side work that allocates or calls hooked functions on the
+host's threads. Allocations made before the agent takes over (process start-up
+before `__libc_start_main`) stay invisible, unlike kernel uprobes armed at exec.
