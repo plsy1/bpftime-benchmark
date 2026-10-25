@@ -314,5 +314,14 @@ static void uprobe_listener_on_leave(GumInvocationContext *ctx,
 	SPDLOG_TRACE("Handle uretprobe at uprobe_listener_on_leave");
 	bpftime::pt_regs regs;
 	convert_gum_cpu_context_to_pt_regs(*ctx->cpu_context, regs);
+
+	// Stack helpers (bpf_get_stackid, bpf_get_stack) unwind from this
+	// context; without it every call in a uretprobe fails.
+	SPDLOG_DEBUG("Setting current thread gum cpu context");
+	current_thread_gum_cpu_context = ctx->cpu_context;
+
 	hook_entry->iterate_uretprobe_callbacks(regs);
+
+	SPDLOG_DEBUG("Resetting current thread gum cpu context");
+	current_thread_gum_cpu_context.reset();
 }
