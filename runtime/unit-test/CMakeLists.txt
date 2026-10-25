@@ -54,6 +54,7 @@ set(TEST_SOURCES
     test_prog_after_shm_release.cpp
     test_prog_jit_load.cpp
     test_trace_printk.cpp
+    test_ratelimited_log.cpp
     test_software_perf_event.cpp
     test_software_perf_event_cache.cpp
     test_ringbuf_tail_wrap.cpp

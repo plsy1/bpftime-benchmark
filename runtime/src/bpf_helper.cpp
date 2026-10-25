@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 #include "bpf_attach_ctx.hpp"
-#include "base_attach_impl.hpp"
+#include "bpftime_ratelimited_log.hpp"
 #if BPFTIME_HAVE_TRAP_UPROBE_ATTACH
 #include "trap_uprobe_attach_impl.hpp"
 #endif
@@ -321,7 +321,7 @@ int64_t bpftime_probe_read(uint64_t dst, int64_t size, uint64_t ptr, uint64_t,
 			   uint64_t)
 {
 	if (unlikely(size < 0)) {
-		SPDLOG_ERROR("Invalid size: {}", size);
+		BPFTIME_LOG_ERROR_RATELIMITED("Invalid size: {}", size);
 		return -EFAULT;
 	}
 #ifdef ENABLE_PROBE_READ_CHECK
@@ -364,7 +364,7 @@ int64_t bpftime_probe_write_user(uint64_t dst, uint64_t src, int64_t len,
 				 uint64_t, uint64_t)
 {
 	if (unlikely(len < 0)) {
-		SPDLOG_ERROR("Invalid len: {}", len);
+		BPFTIME_LOG_ERROR_RATELIMITED("Invalid len: {}", len);
 		return -EFAULT;
 	}
 #if defined(ENABLE_PROBE_READ_CHECK) && __linux__
@@ -1254,11 +1254,13 @@ uint64_t bpf_ringbuf_output(uint64_t rb, uint64_t data, uint64_t size,
 			    uint64_t flags, uint64_t)
 {
 	int fd = (int)rb;
-	if (flags & ~(BPF_RB_NO_WAKEUP | BPF_RB_FORCE_WAKEUP))
-		return (uint64_t)-EINVAL;
+	if (flags != 0) {
+		BPFTIME_LOG_WARN_RATELIMITED(
+			"Currently only supports ringbuf_output with flags=0");
+	}
 	auto buf = bpftime_ringbuf_reserve(fd, size);
 	if (!buf) {
-		SPDLOG_ERROR("Failed to reserve when executing ringbuf output");
+		BPFTIME_LOG_ERROR_RATELIMITED("Failed to reserve when executing ringbuf output");
 		return (uint64_t)-1;
 	}
 	memcpy(buf, (const void *)(uintptr_t)data, size);
@@ -1271,7 +1273,7 @@ uint64_t bpf_ringbuf_reserve(uint64_t rb, uint64_t size, uint64_t flags,
 {
 	int fd = (int)rb;
 	if (flags != 0) {
-		SPDLOG_WARN(
+		BPFTIME_LOG_WARN_RATELIMITED(
 			"Currently only supports ringbuf_reserve with flags=0");
 	}
 	return (uint64_t)(uintptr_t)bpftime_ringbuf_reserve(fd, size);
@@ -1283,7 +1285,7 @@ uint64_t bpf_ringbuf_submit(uint64_t data, uint64_t flags, uint64_t, uint64_t,
 	int32_t *ptr = (int32_t *)(uintptr_t)data;
 	int fd = ptr[-1];
 	if (flags != 0) {
-		SPDLOG_WARN(
+		BPFTIME_LOG_WARN_RATELIMITED(
 			"Currently only supports ringbuf_submit with flags=0");
 	}
 	bpftime_ringbuf_submit(fd, (void *)(uintptr_t)data, false);
@@ -1296,7 +1298,7 @@ uint64_t bpf_ringbuf_discard(uint64_t data, uint64_t flags, uint64_t, uint64_t,
 	int32_t *ptr = (int32_t *)(uintptr_t)data;
 	int fd = ptr[-1];
 	if (flags != 0) {
-		SPDLOG_WARN(
+		BPFTIME_LOG_WARN_RATELIMITED(
 			"Currently only supports ringbuf_submit with flags=0");
 	}
 	bpftime_ringbuf_submit(fd, (void *)(uintptr_t)data, true);
@@ -1308,7 +1310,7 @@ uint64_t bpf_perf_event_output(uint64_t ctx, uint64_t map, uint64_t flags,
 {
 	int32_t current_cpu = my_sched_getcpu();
 	if (unlikely(current_cpu == -1)) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Unable to get current cpu when running perf event output");
 		return (uint64_t)-1;
 	}
@@ -1324,7 +1326,7 @@ uint64_t bpf_perf_event_output(uint64_t ctx, uint64_t map, uint64_t flags,
 	bpftime::bpf_map_type map_ty;
 	if (int err = bpftime_map_get_info(fd, nullptr, nullptr, &map_ty);
 	    err < 0) {
-		SPDLOG_ERROR("Unable to query map type of fd {}", fd);
+		BPFTIME_LOG_ERROR_RATELIMITED("Unable to query map type of fd {}", fd);
 		return (uint64_t)-1;
 	}
 	if (map_ty == bpftime::bpf_map_type::BPF_MAP_TYPE_PERF_EVENT_ARRAY) {
@@ -1333,7 +1335,7 @@ uint64_t bpf_perf_event_output(uint64_t ctx, uint64_t map, uint64_t flags,
 				.global_shared_memory.bpf_map_lookup_elem(
 					fd, &current_cpu, false);
 		if (val_ptr == nullptr) {
-			SPDLOG_ERROR("Invalid map fd for perf event output: {}",
+			BPFTIME_LOG_ERROR_RATELIMITED("Invalid map fd for perf event output: {}",
 				     fd);
 			errno = EINVAL;
 			return (uint64_t)-1;
@@ -1355,7 +1357,7 @@ uint64_t bpf_perf_event_output(uint64_t ctx, uint64_t map, uint64_t flags,
 	}
 #endif
 	else {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Attempting to run perf_output on a non-perf array map");
 		ret = -1;
 	}
@@ -1367,14 +1369,14 @@ uint64_t bpftime_tail_call(uint64_t ctx, uint64_t prog_array, uint64_t index)
 {
 	int fd = (int)prog_array;
 	if (!bpftime_is_prog_array(fd)) {
-		SPDLOG_ERROR("Expected fd {} to be a prog array fd", fd);
+		BPFTIME_LOG_ERROR_RATELIMITED("Expected fd {} to be a prog array fd", fd);
 		return -1;
 	}
 	int idx = index;
 
 	int *to_call_id_ptr = (int *)bpftime_map_lookup_elem(fd, &idx);
 	if (!to_call_id_ptr) {
-		SPDLOG_ERROR("Unable to lookup index {} of prog array {}", idx,
+		BPFTIME_LOG_ERROR_RATELIMITED("Unable to lookup index {} of prog array {}", idx,
 			     fd);
 		return -1;
 	}
@@ -1385,7 +1387,7 @@ uint64_t bpftime_tail_call(uint64_t ctx, uint64_t prog_array, uint64_t index)
 		constexpr uint32_t MAX_TAIL_CALL_CNT = 32;
 		static thread_local uint32_t tail_call_depth = 0;
 		if (tail_call_depth >= MAX_TAIL_CALL_CNT) {
-			SPDLOG_ERROR("tail call depth limit exceeded");
+			BPFTIME_LOG_ERROR_RATELIMITED("tail call depth limit exceeded");
 			return -1;
 		}
 		struct tail_call_depth_guard {
@@ -1630,7 +1632,7 @@ int64_t bpftime_get_stackid(uint64_t ctx_raw, uint64_t map_raw, uint64_t flags,
 			    uint64_t, uint64_t)
 {
 	if (!(flags & BPF_F_USER_STACK)) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"bpftime_get_stackid only supports collect user stack!");
 		return -ENOTSUP;
 	}
@@ -1641,16 +1643,17 @@ int64_t bpftime_get_stackid(uint64_t ctx_raw, uint64_t map_raw, uint64_t flags,
 	auto attach_impl =
 		attach_ctx.get_attach_impl_by_attach_type(ATTACH_UPROBE);
 	if (!attach_impl.has_value()) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Unable to get stack id: frida_uprobe_attach_impl not registered");
 		return -ENOTSUP;
 	}
 	auto raw_ptr = (*attach_impl)
 			       ->call_attach_specific_function("generate_stack",
 							       nullptr);
-	// No frames is normal when the probe has no unwinding context, such as a
-	// syscall-trace or tracepoint program whose pt_regs was synthesized:
-	// treat it as an empty stack rather than an error.
+	if (raw_ptr == nullptr) {
+		BPFTIME_LOG_ERROR_RATELIMITED("Unable to get stack trace");
+		return -ENOENT;
+	}
 	std::unique_ptr<std::vector<uint64_t>> result(
 		raw_ptr != nullptr ? (std::vector<uint64_t> *)raw_ptr :
 				     new std::vector<uint64_t>());
@@ -1686,17 +1689,17 @@ int64_t bpftime_get_stack(uint64_t ctx_raw, uint64_t buf, uint64_t size,
 			  uint64_t flags, uint64_t)
 {
 	if (!(flags & BPF_F_USER_STACK)) {
-		SPDLOG_DEBUG(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"bpftime_get_stack only supports collect user stack!");
 		return -ENOTSUP;
 	}
 	if (flags & BPF_F_USER_BUILD_ID) {
-		SPDLOG_ERROR("bpftime_get_stack doesn't support buildid!");
+		BPFTIME_LOG_ERROR_RATELIMITED("bpftime_get_stack doesn't support buildid!");
 		return -ENOTSUP;
 	}
 	auto *buffer = reinterpret_cast<void *>(static_cast<uintptr_t>(buf));
 	if (size % sizeof(uint64_t) != 0) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"bpftime_get_stack buffer size must be a multiple of {} bytes",
 			sizeof(uint64_t));
 		if (size > 0)
@@ -1709,7 +1712,7 @@ int64_t bpftime_get_stack(uint64_t ctx_raw, uint64_t buf, uint64_t size,
 	auto attach_impl =
 		attach_ctx.get_attach_impl_by_attach_type(ATTACH_UPROBE);
 	if (!attach_impl.has_value()) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Unable to get stack id: frida_uprobe_attach_impl not registered");
 		return -ENOTSUP;
 	}
@@ -1717,15 +1720,8 @@ int64_t bpftime_get_stack(uint64_t ctx_raw, uint64_t buf, uint64_t size,
 			       ->call_attach_specific_function("generate_stack",
 							       nullptr);
 	if (raw_ptr == nullptr) {
-		// No frames: the probe ran where no userspace stack can be
-		// unwound, such as a syscall-trace or tracepoint program
-		// whose pt_regs was synthesized. The kernel reports that as
-		// an empty stack, so copy nothing and report zero bytes
-		// instead of an error the program would have to special-case.
-		SPDLOG_DEBUG("No stack frames available");
-		if (size > 0)
-			memset(buffer, 0, size);
-		return 0;
+		BPFTIME_LOG_ERROR_RATELIMITED("Unable to get stack trace");
+		return -ENOENT;
 	}
 	std::unique_ptr<std::vector<uint64_t>> result(
 		(std::vector<uint64_t> *)raw_ptr);
