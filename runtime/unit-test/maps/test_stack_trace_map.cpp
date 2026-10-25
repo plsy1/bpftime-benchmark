@@ -77,12 +77,20 @@ TEST_CASE("Test stack trace map 2")
 	// Make some collision
 	auto stk2 = generated[100].at(1);
 
-	int id2 = impl.fill_stack_trace(stk2, false, true);
-	REQUIRE(id1 == id2);
-	// The query result should be the same as id1
+	// Same bucket, different trace and full hash: the kernel returns
+	// -EEXIST without BPF_F_REUSE_STACKID, also with BPF_F_FAST_STACK_CMP.
+	REQUIRE(impl.fill_stack_trace(stk2, false, true) == -EEXIST);
+	REQUIRE(impl.fill_stack_trace(stk2, false, false) == -EEXIST);
+	// The stored trace is still stk1
 	{
-		auto result = (uint64_t *)impl.elem_lookup(&id2);
+		auto result = (uint64_t *)impl.elem_lookup(&id1);
 		REQUIRE(std::equal(stk1.begin(), stk1.end(), result));
+	}
+	// BPF_F_REUSE_STACKID replaces it
+	REQUIRE(impl.fill_stack_trace(stk2, true, false) == id1);
+	{
+		auto result = (uint64_t *)impl.elem_lookup(&id1);
+		REQUIRE(std::equal(stk2.begin(), stk2.end(), result));
 	}
 	SPDLOG_INFO("Checking insertion for two same stack trace..");
 	// Put two same entries into the map
@@ -100,131 +108,33 @@ TEST_CASE("Test stack trace map 2")
 	}
 }
 
-// Search for two distinct stacks (with the given sizes) that hash into the
-// same bucket. The search is deterministic through a fixed seed.
-static bool
-find_colliding_stacks(uint32_t max_entries, size_t size_a, size_t size_b,
-		      std::vector<uint64_t> &stk_a,
-		      std::vector<uint64_t> &stk_b, uint32_t seed)
-{
-	std::mt19937 gen(seed);
-	std::uniform_int_distribution<uint64_t> rand(1, 1000);
-	auto make_stack = [&](size_t n) {
-		std::vector<uint64_t> v(n);
-		for (auto &x : v)
-			x = rand(gen);
-		return v;
-	};
-	std::map<uint32_t, std::vector<uint64_t>> occupied;
-	for (int i = 0; i < 20000; i++) {
-		auto v = make_stack(size_a);
-		occupied.emplace(
-			stack_trace_map::hash_stack_trace(v) % max_entries, v);
-	}
-	for (int i = 0; i < 20000; i++) {
-		auto v = make_stack(size_b);
-		uint32_t bucket =
-			stack_trace_map::hash_stack_trace(v) % max_entries;
-		auto it = occupied.find(bucket);
-		if (it != occupied.end() && it->second != v) {
-			stk_a = it->second;
-			stk_b = v;
-			return true;
-		}
-	}
-	return false;
-}
-
-TEST_CASE("Test stack trace map 3: equal-size different-content collision")
+TEST_CASE("Stack trace map pads, truncates and compares like the kernel",
+	  "[maps][stack_trace]")
 {
 	shm_remove remover(SHM_NAME);
 	managed_shared_memory mem(create_only, SHM_NAME, 20 << 20);
-	stack_trace_map_impl impl(mem, 4, 255 * 8, 1000);
+	// value_size of 4 frames
+	stack_trace_map_impl impl(mem, 4, 4 * 8, 1000);
 
-	std::vector<uint64_t> stk1, stk2;
-	REQUIRE(find_colliding_stacks(1000, 3, 3, stk1, stk2, 0x1234));
-	REQUIRE(stk1.size() == stk2.size());
-	REQUIRE(stk1 != stk2);
-	REQUIRE(stack_trace_map::hash_stack_trace(stk1) % 1000 ==
-		stack_trace_map::hash_stack_trace(stk2) % 1000);
+	// A short trace reads back zero-padded to the whole value: lookups
+	// copy value_size bytes.
+	std::vector<uint64_t> short_stack{ 0x1000, 0x2000 };
+	int id = impl.fill_stack_trace(short_stack, false, false);
+	REQUIRE(id >= 0);
+	auto value = (const uint64_t *)impl.elem_lookup(&id);
+	REQUIRE(value[0] == 0x1000);
+	REQUIRE(value[1] == 0x2000);
+	REQUIRE(value[2] == 0);
+	REQUIRE(value[3] == 0);
+	REQUIRE(impl.fill_stack_trace(short_stack, false, false) == id);
 
-	int id1 = impl.fill_stack_trace(stk1, false, false);
-	REQUIRE(id1 >= 0);
-
-	// Kernel semantics: without BPF_F_REUSE_STACKID, a collision with a
-	// different stack returns -EEXIST and the original stack is kept.
-	int id2 = impl.fill_stack_trace(stk2, false, false);
-	REQUIRE(id2 == -EEXIST);
-	{
-		auto result = (uint64_t *)impl.elem_lookup(&id1);
-		REQUIRE(result != nullptr);
-		REQUIRE(std::equal(stk1.begin(), stk1.end(), result));
-	}
-
-	// With BPF_F_REUSE_STACKID the id is reused and the stack replaced.
-	int id3 = impl.fill_stack_trace(stk2, true, false);
-	REQUIRE(id3 == id1);
-	{
-		auto result = (uint64_t *)impl.elem_lookup(&id3);
-		REQUIRE(result != nullptr);
-		REQUIRE(std::equal(stk2.begin(), stk2.end(), result));
-	}
-
-	// Inserting the very same stack again deduplicates to the same id
-	// instead of reporting a collision.
-	int id4 = impl.fill_stack_trace(stk2, false, false);
-	REQUIRE(id4 == id3);
-}
-
-TEST_CASE("Test stack trace map 4: different-size collision")
-{
-	shm_remove remover(SHM_NAME);
-	managed_shared_memory mem(create_only, SHM_NAME, 20 << 20);
-	stack_trace_map_impl impl(mem, 4, 255 * 8, 1000);
-
-	std::vector<uint64_t> stk1, stk2;
-	REQUIRE(find_colliding_stacks(1000, 3, 5, stk1, stk2, 0x5678));
-	REQUIRE(stk1.size() != stk2.size());
-	REQUIRE(stack_trace_map::hash_stack_trace(stk1) % 1000 ==
-		stack_trace_map::hash_stack_trace(stk2) % 1000);
-
-	int id1 = impl.fill_stack_trace(stk1, false, false);
-	REQUIRE(id1 >= 0);
-
-	int id2 = impl.fill_stack_trace(stk2, false, false);
-	REQUIRE(id2 == -EEXIST);
-	{
-		auto result = (uint64_t *)impl.elem_lookup(&id1);
-		REQUIRE(result != nullptr);
-		REQUIRE(std::equal(stk1.begin(), stk1.end(), result));
-	}
-
-	int id3 = impl.fill_stack_trace(stk2, true, false);
-	REQUIRE(id3 == id1);
-	{
-		auto result = (uint64_t *)impl.elem_lookup(&id3);
-		REQUIRE(result != nullptr);
-		REQUIRE(std::equal(stk2.begin(), stk2.end(), result));
-	}
-}
-
-TEST_CASE("Test stack trace map 5: fast hash comparison keeps legacy id reuse")
-{
-	shm_remove remover(SHM_NAME);
-	managed_shared_memory mem(create_only, SHM_NAME, 20 << 20);
-	stack_trace_map_impl impl(mem, 4, 255 * 8, 1000);
-
-	std::vector<uint64_t> stk1, stk2;
-	REQUIRE(find_colliding_stacks(1000, 3, 3, stk1, stk2, 0x9abc));
-	REQUIRE(stk1 != stk2);
-
-	int id1 = impl.fill_stack_trace(stk1, false, false);
-	REQUIRE(id1 >= 0);
-
-	// BPF_F_FAST_STACK_CMP compares by hash/bucket only: distinct stacks
-	// still share the id and never trigger -EEXIST.
-	int id2 = impl.fill_stack_trace(stk2, false, true);
-	REQUIRE(id2 == id1);
-	int id3 = impl.fill_stack_trace(stk2, true, true);
-	REQUIRE(id3 == id1);
+	// Frames beyond value_size are dropped; the result equals the trace
+	// of the first four frames.
+	std::vector<uint64_t> long_stack{ 0x10, 0x20, 0x30, 0x40, 0x50, 0x60 };
+	std::vector<uint64_t> first_four{ 0x10, 0x20, 0x30, 0x40 };
+	int long_id = impl.fill_stack_trace(long_stack, false, false);
+	REQUIRE(long_id >= 0);
+	REQUIRE(impl.fill_stack_trace(first_four, false, false) == long_id);
+	value = (const uint64_t *)impl.elem_lookup(&long_id);
+	REQUIRE(std::equal(first_four.begin(), first_four.end(), value));
 }
