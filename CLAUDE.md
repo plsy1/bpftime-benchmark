@@ -373,3 +373,14 @@ the return block of a bpf-to-bpf call only for calls after pc 0, so a program
 starting with a call (libbpf-tools funclatency's kretprobe) stored a null block
 address and crashed the traced process while compiling. Conflicts on upstream
 updates must fail configuration.
+
+## Failed JIT Compiles
+
+The LLVM VM has no interpreter, and its `exec` retried the compile on every
+invocation after a failed one (about 1 ms each, logged each time: 1,122
+calls/s for funclatency with the unsupported helper 37). `bpftime_prog_load`
+now marks such a program `jit_failed`, logs once that it is disabled, and
+`bpftime_prog_exec` returns `-ENOEXEC` without running; the Frida callback
+does not log it again. VMs with an interpreter (ubpf) still fall back to it.
+A disabled program is not a stub for the missing helper: the tool loads but
+records nothing.
