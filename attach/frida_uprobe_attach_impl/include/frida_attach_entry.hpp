@@ -4,6 +4,7 @@
 #include "base_attach_impl.hpp"
 #include "frida_uprobe_attach_impl.hpp"
 #include "spdlog/spdlog.h"
+#include <cerrno>
 #include <variant>
 namespace bpftime
 {
@@ -53,7 +54,10 @@ class frida_attach_entry {
 			uint64_t ret = 0;
 			int err = ebpf_call_args.ebpf_cb((void *)&regs,
 							 sizeof(regs), &ret);
-			if (err < 0) {
+			// -ENODEV: the runtime released its shared memory
+			// at process exit and skipped the program. The logger
+			// may already be destroyed by then; stay silent.
+			if (err < 0 && err != -ENODEV) {
 				SPDLOG_ERROR("Unable to run ebpf callback: {}",
 					     err);
 			}
