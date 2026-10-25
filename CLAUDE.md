@@ -350,3 +350,16 @@ been entered. Starting a server in the child began a new session, whose
 diverged fd table no longer matches the shared handler table. Children of a
 started server keep the inherited state; their `close` of an inherited object
 still destroys it for every process, unlike the kernel.
+
+## Hash Map Update Flags
+
+`fix_size_hash_map_impl` (the default `BPF_MAP_TYPE_HASH`) follows the kernel
+htab: `BPF_NOEXIST` on an existing key fails with `EEXIST`, `BPF_EXIST` on a
+missing key with `ENOENT`, a new key in a full map with `E2BIG`, flags above
+`BPF_EXIST` with `EINVAL`, and deleting a missing key with `ENOENT` (all as -1
+plus errno, the convention of the other maps). `BPF_F_LOCK` is still ignored.
+The existence check runs only for `BPF_NOEXIST`/`BPF_EXIST`, under the map lock
+the callers hold; `BPF_ANY` stays a single probe. Lookup-then-update counters
+depend on `BPF_EXIST`: when a reader deletes the key in between, ignoring the
+flag re-inserted the stale count (the malloc example counted up to 20% too many
+calls).
