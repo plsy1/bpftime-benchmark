@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 #include "bpftime.hpp"
+#include "bpftime_ratelimited_log.hpp"
 #include "base_attach_impl.hpp"
 #include "bpftime_config.hpp"
 #include "bpftime_helper_group.hpp"
@@ -647,7 +648,7 @@ int bpftime_prog::bpftime_prog_exec(void *memory, size_t memory_size,
 		SPDLOG_DEBUG("Running using ebpf_exec");
 		res = ebpf_exec(vm, memory, memory_size, &val);
 		if (res < 0) {
-			SPDLOG_ERROR("ebpf_exec returned error: {}", res);
+			BPFTIME_LOG_ERROR_RATELIMITED("ebpf_exec returned error: {}", res);
 		}
 	}
 	*return_val = current_thread_tail_call_ret.value_or(val);
