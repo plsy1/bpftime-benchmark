@@ -27,6 +27,7 @@
 #include <bpf_map/userspace/queue.hpp>
 #include <bpf_map/userspace/stack.hpp>
 #include <bpf_map/userspace/bloom_filter.hpp>
+#include <bpf_map/userspace/cgroup_array_map.hpp>
 #include "spdlog/spdlog.h"
 #include <cassert>
 #include <handler/map_handler.hpp>
@@ -183,6 +184,11 @@ const void *bpf_map_handler::map_lookup_elem(const void *key,
 	}
 	case bpf_map_type::BPF_MAP_TYPE_BLOOM_FILTER: {
 		auto impl = static_cast<bloom_filter_map_impl *>(
+			map_impl_ptr.get());
+		return do_lookup(impl);
+	}
+	case bpf_map_type::BPF_MAP_TYPE_CGROUP_ARRAY: {
+		auto impl = static_cast<cgroup_array_map_impl *>(
 			map_impl_ptr.get());
 		return do_lookup(impl);
 	}
@@ -454,6 +460,11 @@ long bpf_map_handler::map_update_elem(const void *key, const void *value,
 			map_impl_ptr.get());
 		return do_update(impl);
 	}
+	case bpf_map_type::BPF_MAP_TYPE_CGROUP_ARRAY: {
+		auto impl = static_cast<cgroup_array_map_impl *>(
+			map_impl_ptr.get());
+		return do_update(impl);
+	}
 #ifdef BPFTIME_BUILD_WITH_LIBBPF
 	case bpf_map_type::BPF_MAP_TYPE_KERNEL_USER_ARRAY: {
 		auto impl = static_cast<array_map_kernel_user_impl *>(
@@ -626,6 +637,11 @@ int bpf_map_handler::bpf_map_get_next_key(const void *key, void *next_key,
 	}
 	case bpf_map_type::BPF_MAP_TYPE_BLOOM_FILTER: {
 		auto impl = static_cast<bloom_filter_map_impl *>(
+			map_impl_ptr.get());
+		return do_get_next_key(impl);
+	}
+	case bpf_map_type::BPF_MAP_TYPE_CGROUP_ARRAY: {
+		auto impl = static_cast<cgroup_array_map_impl *>(
 			map_impl_ptr.get());
 		return do_get_next_key(impl);
 	}
@@ -802,6 +818,11 @@ long bpf_map_handler::map_delete_elem(const void *key, bool from_syscall) const
 	}
 	case bpf_map_type::BPF_MAP_TYPE_BLOOM_FILTER: {
 		auto impl = static_cast<bloom_filter_map_impl *>(
+			map_impl_ptr.get());
+		return do_delete(impl);
+	}
+	case bpf_map_type::BPF_MAP_TYPE_CGROUP_ARRAY: {
+		auto impl = static_cast<cgroup_array_map_impl *>(
 			map_impl_ptr.get());
 		return do_delete(impl);
 	}
@@ -1011,6 +1032,13 @@ int bpf_map_handler::map_init(managed_shared_memory &memory)
 		map_impl_ptr = memory.construct<stack_map_impl>(
 			boost::interprocess::anonymous_instance)(
 			memory, value_size, max_entries);
+		init_refcnt();
+		return 0;
+	}
+	case bpf_map_type::BPF_MAP_TYPE_CGROUP_ARRAY: {
+		map_impl_ptr = memory.construct<cgroup_array_map_impl>(
+			boost::interprocess::anonymous_instance)(
+			memory, key_size, value_size, max_entries);
 		init_refcnt();
 		return 0;
 	}
@@ -1363,6 +1391,9 @@ void bpf_map_handler::map_free(managed_shared_memory &memory) const
 	case bpf_map_type::BPF_MAP_TYPE_BLOOM_FILTER:
 		memory.destroy_ptr(static_cast<bloom_filter_map_impl *>(impl));
 		break;
+	case bpf_map_type::BPF_MAP_TYPE_CGROUP_ARRAY:
+		memory.destroy_ptr(static_cast<cgroup_array_map_impl *>(impl));
+		break;
 #ifdef BPFTIME_BUILD_WITH_LIBBPF
 	case bpf_map_type::BPF_MAP_TYPE_STACK_TRACE:
 		memory.destroy_ptr(static_cast<stack_trace_map_impl *>(impl));
@@ -1449,6 +1480,13 @@ bpf_map_handler::try_get_stack_trace_map_impl() const
 	if (type != bpf_map_type::BPF_MAP_TYPE_STACK_TRACE)
 		return {};
 	return static_cast<stack_trace_map_impl *>(map_impl_ptr.get());
+}
+std::optional<cgroup_array_map_impl *>
+bpf_map_handler::try_get_cgroup_array_map_impl() const
+{
+	if (type != bpf_map_type::BPF_MAP_TYPE_CGROUP_ARRAY)
+		return {};
+	return static_cast<cgroup_array_map_impl *>(map_impl_ptr.get());
 }
 std::optional<perf_event_array_kernel_user_impl *>
 bpf_map_handler::try_get_shared_perf_event_array_map_impl() const
