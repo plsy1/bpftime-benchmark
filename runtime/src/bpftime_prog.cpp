@@ -590,6 +590,12 @@ int bpftime_prog::bpftime_prog_unload()
 int bpftime_prog::bpftime_prog_exec(void *memory, size_t memory_size,
 				    uint64_t *return_val) const
 {
+	if (global_shm_released.load(std::memory_order_acquire)) {
+		// Process teardown: maps and bindings live in the unmapped shm.
+		if (return_val)
+			*return_val = 0;
+		return -ENODEV;
+	}
 	if (array_jit_requested && (!program_loaded || array_jit_failed)) {
 		if (return_val)
 			*return_val = 0;
