@@ -10,3 +10,5 @@ lost-watermark lost-wakeup but the producer wakes the consumer only when its sha
 db3d475f      a90fa447 + perf loss reporting and half-full consumer wakeup (hard links to lost-watermark, same files)
 7ed339ad      db3d475f + cached bpf_get_current_uid_gid with set*id interposers (candidate build-jit, LLVM 16)
 bca2ebce      7ed339ad + cached producer pid/tid in software perf output (candidate build-jit, LLVM 16)
+df865b3e      bca2ebce + uretprobe stack context, exit shm guard, fork-child pass-through, hash flags, JIT local call at pc 0, disabled failed JIT (candidate build-jit, LLVM 16)
+2448aeaf      df865b3e + uretprobe CPU context read from the current gum invocation (on_leave keeps no TLS work) (candidate build-jit, LLVM 16)

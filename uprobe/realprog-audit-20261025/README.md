@@ -7,8 +7,8 @@ changes?
 Backends:
 
 - `kernel`: kernel eBPF.
-- `official`: upstream 177a1dc, built without CPU affinity pinning (`builds/official-noaff` of
-  `ssl-nginx-2x2-20261023`).
+- `official`: upstream 177a1dc unpatched, CPU affinity pinning included (`builds/official` of
+  `ssl-nginx-2x2-20261023`; corrected 2026-10-25, an earlier version said `official-noaff`).
 - `bca2ebce`: the dev branch head `codex/uprobe-official-177a1dc465ff` at bca2ebce.
 
 Tools are built without BTF/CO-RE (`src/libbpf-tools-nobtf.diff`,
@@ -80,3 +80,11 @@ Throughput numbers in the jsonl files are from single 4 s runs and are not measu
 - `src/harness/audit.py`, `measure.py`, `bash_driver.py`: harness (copies of
   `/home/jetson/src/realprog-20261025/harness`).
 - `src/workloads/*.c`, `src/*.diff`, `src/build-logs/`.
+
+## Follow-up (2026-10-25)
+
+Fixed on the dev branch (df865b3e), see `../realprog-fixes-20261025`: uretprobe stacks, the exit
+crash they exposed, the memleak `-c` map errors (cause: the forked child started a second
+syscall server whose new session reset the parent's maps; the static wrapper was not the cause),
+the hash map flags, and the JIT crash (an off-by-one for a bpf-to-bpf call at pc 0, not the
+missing helper itself).

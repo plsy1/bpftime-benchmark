@@ -7,8 +7,10 @@ per round. `jetson_clocks` applied (cpu5 1728000), machine otherwise idle, stock
 6.8.12-1021-tegra.
 
 - `none`: workload alone (same `sudo env`, no preload, no tool).
-- `kernel`: kernel eBPF. `official`: upstream 177a1dc without affinity pinning
-  (`ssl-nginx-2x2-20261023/builds/official-noaff`). `bca2ebce`: dev branch head.
+- `kernel`: kernel eBPF. `official`: upstream 177a1dc unpatched, CPU affinity pinning included
+  (`ssl-nginx-2x2-20261023/builds/official`; corrected 2026-10-25, an earlier version of this
+  README named `official-noaff`). `bca2ebce`: dev branch head. The bca2ebce vs official gap
+  therefore includes the removal of affinity pinning (20870a03).
 
 Harness: `../realprog-audit-20261025/src/harness/measure.py` (uses `audit.py`).
 Command: `python3 measure.py --out measure.jsonl` (defaults: 3 tools, 4 backends, 5 rounds, 10 s).
