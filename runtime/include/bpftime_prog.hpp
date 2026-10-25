@@ -125,6 +125,10 @@ class bpftime_prog {
 	struct ebpf_vm *vm;
 
 	bool jitted = false;
+	// The VM can only run JIT code (llvm), and the JIT compile failed: the
+	// program is disabled instead of recompiling on every invocation.
+	bool jit_only_vm = false;
+	bool jit_failed = false;
 	bool program_loaded = false;
 	bool signal_ready = false;
 	bool loaded_from_aot = false;
