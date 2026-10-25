@@ -58,6 +58,7 @@ extern "C" void bpftime_initialize_global_shm(bpftime::shm_open_type type)
 	// call the constructor
 	new (&shm_holder.global_shared_memory) bpftime_shm(type);
 	global_shm_initialized = true;
+	global_shm_released.store(false, std::memory_order_release);
 	SPDLOG_INFO("Global shm initialized");
 }
 
@@ -68,6 +69,8 @@ extern "C" void bpftime_destroy_global_shm()
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
 		stop_cuda_watcher_before_shm_unmap();
 #endif
+		// Before unmapping: programs triggered from now on are skipped.
+		global_shm_released.store(true, std::memory_order_release);
 		// SPDLOG_INFO("Global shm destructed");
 		shm_holder.global_shared_memory.~bpftime_shm();
 		// Make this idempotent: clear the flag so a later explicit call
@@ -120,6 +123,7 @@ namespace bpftime
 {
 
 bpftime_shm_holder shm_holder;
+std::atomic<bool> global_shm_released{ false };
 
 namespace
 {
