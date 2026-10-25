@@ -1,13 +1,13 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-25 00:00 JST 左右。以下分支、进程和文件状态均为本机快照；
+最后核对：2026-10-25 21:00 JST 左右。以下分支、进程和文件状态均为本机快照；
 后续模型行动前需重新核实。**新会话先读第 0 节**，再按需读其余章节。
 
-## 0. 现状一页（2026-10-25 00:00 JST，新会话从这里继续）
+## 0. 现状一页（2026-10-25 21:00 JST，新会话从这里继续）
 
 **目标**：继续优化 `codex/uprobe-official-177a1dc465ff`（开发 worktree
-`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `bca2ebce`）。
+`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `2448aeaf`）。
 下一阶段重点：扩大测试覆盖（见 0.4），hash map 重写暂缓。
 
 ### 0.1 改了什么（7 个新提交，均已推送并加入每日补丁栈，共 50 个提交）
@@ -37,6 +37,31 @@ delete 大函数，源码小改动就会重排整函数的代码生成；专用 
 每日补丁栈：LLVM 15 第 5 轮重放（`results/uprobe/daily-jit-stack-validation-20261021/round5-hash-bound-delete`）
 50/50 无冲突，树与 `72aebadd` 相同，候选 77 cases、官方 26 cases 通过。
 
+### 0.1a 真实程序（10/25）：审计、测量、7 个修复提交（已推送，已加入补丁栈，共 62 个提交）
+
+审计（`realprog-audit-20261025`）：无 BTF 构建 7 个 uprobe 工具，比较 kernel / 官方 177a1dc（`builds/official`，**未去绑核**）/ `bca2ebce`。
+没有“官方能跑、我们改后不能跑”的工具。测量（`realprog-measure-20261025`，5 轮中位数，被追踪程序吞吐）：gethostlatency `bca2ebce` 是 kernel 的 1.49x
+（相对不追踪 −21%，kernel −47%）；funclatency 示例 3.71x、malloc 示例 4.00x（被追踪函数只有几 ns，测的是探针本身；malloc 示例每次调用 `bpf_printk`，bpftime 写宿主 stdout）。
+
+修复（`realprog-fixes-20261025`，每个都有不修就失败的单测）：
+
+| 提交 | 修了什么 |
+|---|---|
+| `97a837bc` | uretprobe 里栈 helper 全部失败（memleak 拿不到栈） |
+| `28637b6b` | 退出时 shm 已解除映射、probe 还挂着，之后的 hook 调用崩溃（栈修好后暴露，官方同样）。`[shm_release]` |
+| `a43f6b85` | memleak `-c` 的 “Expected fd 4 to be a map fd”：fork 出的子进程启动了第二个 syscall-server，新会话 `reset_server_state` 清掉父进程刚建的 map。子进程（父进程尚未启动 server 时 fork）改为直通 libc |
+| `d0e40e41` | hash update 按 kernel 处理 `BPF_NOEXIST/BPF_EXIST`、满表 `E2BIG`、删除不存在返回 `ENOENT`（malloc 示例官方多计 10–20%） |
+| `86f98862` | JIT 崩溃真因是 llvmbpf 差一错误：pc 0 的 bpf-to-bpf 调用没登记返回块。父仓库补丁 `vm/compat/llvm-vm/local-call-return-block.patch`，子模块不改。`[jit_load]` |
+| `df865b3e` | LLVM JIT 编译失败后每次调用都重编并打日志（1122 次/秒），改为一次性禁用该程序（`-ENOEXEC`） |
+| `2448aeaf` | `97a837bc` 在 on_leave 设线程局部变量使 uretprobe +1.9%（agent 里每次 TLS 访问是 `__tls_get_addr`）；改为栈 helper 需要时从当前 gum invocation 取上下文 |
+
+验证：每日过滤器 97 cases 通过；完整十轮（`full10-2448aeaf`）各项相对 `bca2ebce` ±2.1% 内；ssl-nginx 2 × 10 配对 +0.9%（16 B）/ +0.6%（256 KB），
+相对 kernel +19.1% / +12.4%。修复后：memleak `-c` 能报 1024 个泄漏、栈 `main+0xf0` 正确；funclatency（libbpf-tools）不再崩溃，但缺 helper 37，事件数 0。
+
+遗留：memleak 在 bpftime 上约 2 万次分配/秒（kernel 32.6 万），gum 精确回溯每次重读 ELF 展开信息，且 libc 返回地址带 PAC 签名导致栈只有一帧（打印两次）——
+按 kernel 方式走帧指针链（去 PAC、限定线程栈范围）可同时解决；`bpf_current_task_under_cgroup` + CGROUP_ARRAY 需要设计；
+stack trace map 等长栈只比哈希（内容比较写反）；已启动 server 的子进程 close 继承 fd 会删掉全局对象。
+
 ### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`）
 
 | 目录 | 内容 |
@@ -53,6 +78,8 @@ delete 大函数，源码小改动就会重排整函数的代码生成；专用 
 | `ssl-nginx-ablation2-20261024` | 在 `7ed339ad` 上锁频重做四段消融、拆第 1 段（只挂入口/只挂返回）、perf record/stat（`perf/`） |
 | `perf-output-identity-20261024` | `bca2ebce` 的测试、完整十轮、ssl-nginx 2 × 10 |
 | `uid-gid-cache-20261024` | `7ed339ad` 的测试、UID 审计、完整十轮、ssl-nginx 2 × 10 |
+| `realprog-audit-20261025`、`realprog-measure-20261025` | 真实工具功能审计（7 个工具 × kernel / 官方 / `bca2ebce`）和吞吐测量（5 轮）；测试脚本源码在 `realprog-audit-20261025/src` |
+| `realprog-fixes-20261025` | 7 个修复提交的审计、两次完整十轮（`full10-df865b3e`、`full10-2448aeaf`）、ssl-nginx 2 × 10（`bench/`） |
 | `ssl-nginx-netns-recheck-20261023` | 复核 7 月 Tailscale/host netns 结论：共享的约 8% 环境开销成立，“bpftime 额外损失”在当前版本不成立 |
 
 ### 0.3 结论
@@ -62,7 +89,7 @@ delete 大函数，源码小改动就会重排整函数的代码生成；专用 
 3. hash update/delete 在三种程序里都远低于 kernel（0.31–0.34x）。
 4. 官方十项（`72aebadd`，只跑 bpftime，对基线 `5466f0d`）：hash lookup -10%（0.85x）、hash update -13%（0.32x）、hash delete -22%（0.26x）、其余 map 项 ±1%。
 5. 代码布局效应：uprobe、uprobe + uretprobe、per-CPU array update、probe write 会随构建在 1–10% 内波动，已证实是布局而非逻辑（同源码全函数对齐对照）；全函数对齐不采用。热点未定位。
-6. 已知语义问题（官方即如此，未改）：hash update 忽略 `BPF_NOEXIST/BPF_EXIST` 且表满时仍返回 0，delete 不存在的 key 也返回 0。
+6. ~~已知语义问题：hash update 忽略 `BPF_NOEXIST/BPF_EXIST` 且表满时仍返回 0，delete 不存在的 key 也返回 0。~~ 10/25 由 `d0e40e41` 修复（见 0.1a）。
 7. 现有 hash map 仍是“打过补丁的线性探测”：内存翻倍、插删后表内无空桶（靠探测上限兜底）、整表一把锁、只对 4 字节 key 有快速路径。重写方案（元素池 + 带 hash 标签的紧凑索引表、只在索引上做回移删除、分段锁）已讨论，**等测试证明是瓶颈再做**。
 8. **ssl-nginx 端到端（`ssl-nginx-2x2-20261023`）**：
    - map 优化对端到端吞吐没有可测影响（开发分支对“官方 + 去绑核”：+0.2% / +0.4%，噪声内）。sslsniff 每个事件只有几次 map 操作，
