@@ -11,6 +11,7 @@
 #include "bpf_map/userspace/per_cpu_array_map.hpp"
 #include "bpf_map/userspace/ringbuf_map.hpp"
 #include "bpf_map/userspace/stack_trace_map.hpp"
+#include "bpf_map/userspace/cgroup_array_map.hpp"
 #include "bpftime_shm.hpp"
 #include "spdlog/spdlog.h"
 #include <atomic>
@@ -274,6 +275,8 @@ class bpf_map_handler {
 
 	std::optional<stack_trace_map_impl *>
 	try_get_stack_trace_map_impl() const;
+	std::optional<cgroup_array_map_impl *>
+	try_get_cgroup_array_map_impl() const;
 	pthread_spinlock_t &get_raw_spin_lock() const
 	{
 		return map_lock;
