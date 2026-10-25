@@ -359,8 +359,11 @@ atfork child handler marks the interposer disabled when `start_up` has not
 been entered. Starting a server in the child began a new session, whose
 `reset_server_state` dropped the maps the parent was creating, and the child's
 diverged fd table no longer matches the shared handler table. Children of a
-started server keep the inherited state; their `close` of an inherited object
-still destroys it for every process, unlike the kernel.
+started server keep the inherited state: the same atfork handler records the
+fds that hold bpftime objects at fork time (`inherited_bpftime_fds`), and the
+child's `close` of one closes only its fd, as the kernel drops just that
+reference (it used to destroy the object for every process). Objects the
+child creates itself are destroyed on close as before.
 
 ## Hash Map Update Flags
 
