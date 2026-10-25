@@ -426,7 +426,10 @@ re-reads it with `pread` at offset 0 (fresh content, one system call: 327k
 filtered calls/s vs 85k with open/read/close; kernel 469k); `/proc/thread-self`
 is bound at open, so the atfork child handler bumps a generation and inherited
 fds are reopened. Loader and traced process must share the cgroup namespace;
-cgroup v1 is not supported. `bpf_get_current_cgroup_id` is still missing.
+cgroup v1 is not supported. `bpf_get_current_cgroup_id` (helper 80) returns
+the inode number of the calling thread's cgroup v2 directory (the kernel's
+cgroup id on 64-bit), from the same per-thread proc read plus the process's
+cgroup2 mount (parsed once) and a `stat`; 0 when unavailable.
 
 ## bpf_trace_printk Output
 
