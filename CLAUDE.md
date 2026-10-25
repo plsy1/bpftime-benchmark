@@ -318,3 +318,13 @@ raw system calls that bypass libc are not observed; do not claim otherwise,
 and do not add the helper to the async-signal-safe list for this reason alone.
 Forking servers such as nginx change uid in the worker after fork, so keep
 both invalidation paths.
+
+## Uretprobe Stacks
+
+`uprobe_listener_on_leave` sets `current_thread_gum_cpu_context` around the
+uretprobe callbacks exactly like `on_enter`, so `bpf_get_stackid` and
+`bpf_get_stack` work in uretprobes (memleak records its stacks there). The
+gum context at return and the frames it yields differ from the kernel's
+frame-pointer walk (on PAC-enabled arm64 libc the stack ends early, and the
+accurate backtracer re-reads ELF unwind data on every call); do not claim
+kernel-identical stacks or cost.

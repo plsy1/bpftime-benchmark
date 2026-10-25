@@ -96,6 +96,46 @@ TEST_CASE("Test with backtrace")
 	REQUIRE(invoked == true);
 }
 
+TEST_CASE("Uretprobe callbacks can generate a backtrace")
+{
+	frida_attach_impl impl(false);
+	auto generate = [&]() {
+		auto stack = (std::vector<uint64_t> *)
+				     impl.call_attach_specific_function(
+					     "generate_stack", nullptr);
+		REQUIRE(stack != nullptr);
+		std::vector<uint64_t> copy = *stack;
+		delete stack;
+		return copy;
+	};
+	std::vector<uint64_t> at_entry, at_return;
+	impl.create_uprobe_at((void *)&__bpftime_test_attach_with_back_trace__func5,
+			      [&](const pt_regs &) { at_entry = generate(); });
+	impl.create_uretprobe_at(
+		(void *)&__bpftime_test_attach_with_back_trace__func5,
+		[&](const pt_regs &) { at_return = generate(); });
+	REQUIRE(__bpftime_test_attach_with_back_trace__func1(100) == 635);
+
+	// The return lands where the call came from, so the callers seen at
+	// entry are the stack at return. Compilers may inline the outer
+	// fixtures (func2/func1), so only the first two frames are named.
+	REQUIRE(at_return.size() >= 2);
+	REQUIRE(at_return == at_entry);
+	const char *expected[] = { "__bpftime_test_attach_with_back_trace__func4",
+				   "__bpftime_test_attach_with_back_trace__func3" };
+	for (int i = 0; i < 2; i++) {
+		GumDebugSymbolDetails debug_details;
+		REQUIRE(gum_symbol_details_from_address(
+				(GumReturnAddress)at_return[i], &debug_details));
+		SPDLOG_INFO("symbol name {}", debug_details.symbol_name);
+		REQUIRE(std::string(debug_details.symbol_name)
+				.starts_with(expected[i]));
+	}
+	// The context is cleared after the callbacks.
+	REQUIRE(impl.call_attach_specific_function("generate_stack", nullptr) ==
+		nullptr);
+}
+
 TEST_CASE("Fuzzy backtracer recovers a call chain without unwind metadata")
 {
 	std::array<std::size_t, 2> fixture_frames{};
