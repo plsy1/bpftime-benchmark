@@ -268,6 +268,33 @@ static int fork_before_startup(void)
 	return out == 42 ? 100 : 117;
 }
 
+/* A map larger than the shared memory: bpf() must fail with ENOMEM instead
+ * of falling back to the kernel (which created a kernel map the runtime could
+ * not resolve), and the server must keep working afterwards.
+ */
+static int map_exhaustion(void)
+{
+	union bpf_attr attr;
+	memset(&attr, 0, sizeof(attr));
+	attr.map_type = BPF_MAP_TYPE_HASH;
+	attr.key_size = 8;
+	attr.value_size = 8;
+	attr.max_entries = 8 * 1024 * 1024;
+	errno = 0;
+	long fd = sys_bpf(BPF_MAP_CREATE, &attr);
+	if (fd >= 0)
+		return 120;
+	if (errno != ENOMEM) {
+		fprintf(stderr, "map create errno %d\n", errno);
+		return 121;
+	}
+	attr.max_entries = 4;
+	fd = sys_bpf(BPF_MAP_CREATE, &attr);
+	if (fd < 0)
+		return 122;
+	return 100;
+}
+
 int main(int argc, char **argv)
 {
 	if (argc != 2) {
@@ -287,6 +314,9 @@ int main(int argc, char **argv)
 	}
 	if (strcmp(argv[1], "perf-mmap") == 0) {
 		return trigger_perf_mmap();
+	}
+	if (strcmp(argv[1], "map-exhaustion") == 0) {
+		return map_exhaustion();
 	}
 	if (strcmp(argv[1], "fork-before-startup") == 0) {
 		return fork_before_startup();
