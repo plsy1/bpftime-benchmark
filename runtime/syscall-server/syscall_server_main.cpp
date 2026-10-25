@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 #include "syscall_context.hpp"
+#include "syscall_server_utils.hpp"
 #if defined(__x86_64__)
 #include <asm/unistd_64.h>
 #else
@@ -27,6 +28,7 @@
 #include <cstdarg>
 #include <sched.h>
 #include <sys/epoll.h>
+#include <pthread.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <utility>
@@ -203,6 +205,23 @@ union syscall_server_ctx_union {
 	}
 };
 static syscall_server_ctx_union context;
+
+// A child forked before this process started the server (memleak -c forks
+// the traced command before its first bpf() call) has no bpftime objects,
+// and its fd table no longer matches the shared handler table. Starting a
+// server there would begin a new session and reset the objects the parent
+// is creating, so the child passes every call to libc instead. A child of a
+// started server keeps the inherited state.
+static void disable_in_unstarted_fork_child()
+{
+	if (!bpftime::syscall_server_startup_entered())
+		__atomic_store_n(&ctx_initialized, 3, __ATOMIC_RELEASE);
+}
+
+__attribute__((constructor)) static void register_syscall_server_atfork()
+{
+	pthread_atfork(nullptr, nullptr, disable_in_unstarted_fork_child);
+}
 static bool initialize_ctx() noexcept
 {
 	if (tls_initializing)

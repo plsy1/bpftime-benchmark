@@ -19,6 +19,8 @@ int determine_kprobe_perf_type();
 int determine_kprobe_retprobe_bit();
 
 void start_up(syscall_context &ctx);
+// Whether start_up has begun in this process (inherited across fork).
+bool syscall_server_startup_entered();
 std::optional<std::unique_ptr<mocked_file_provider>>
 create_mocked_file_based_on_full_path(const std::filesystem::path &path);
 std::optional<std::filesystem::path>
