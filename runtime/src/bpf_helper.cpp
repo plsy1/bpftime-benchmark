@@ -1136,6 +1136,12 @@ long bpftime_xdp_load_bytes(struct xdp_md_userspace *xdp_md, __u32 offset,
 }
 using namespace bpftime;
 
+uint64_t bpftime_get_current_cgroup_id(uint64_t, uint64_t, uint64_t, uint64_t,
+				       uint64_t)
+{
+	return bpftime::current_thread_cgroup_id();
+}
+
 // bpf_current_task_under_cgroup(map, index): 1 if the calling thread is in
 // the cgroup stored at index of a BPF_MAP_TYPE_CGROUP_ARRAY or below it, 0 if
 // not; -E2BIG / -EAGAIN like the kernel. Reads /proc/thread-self/cgroup on
@@ -1674,6 +1680,12 @@ bpftime_helper_group::get_kernel_utils_helper_group()
 			    .index = BPF_FUNC_get_current_pid_tgid,
 			    .name = "bpf_get_current_pid_tgid",
 			    .fn = (void *)bpftime_get_current_pid_tgid,
+		    } },
+		  { BPF_FUNC_get_current_cgroup_id,
+		    bpftime_helper_info{
+			    .index = BPF_FUNC_get_current_cgroup_id,
+			    .name = "bpf_get_current_cgroup_id",
+			    .fn = (void *)bpftime_get_current_cgroup_id,
 		    } },
 		  { BPF_FUNC_get_current_uid_gid,
 		    bpftime_helper_info{
