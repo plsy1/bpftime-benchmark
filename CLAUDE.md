@@ -328,3 +328,14 @@ gum context at return and the frames it yields differ from the kernel's
 frame-pointer walk (on PAC-enabled arm64 libc the stack ends early, and the
 accurate backtracer re-reads ELF unwind data on every call); do not claim
 kernel-identical stacks or cost.
+
+## Process Exit
+
+Probes stay attached until the process ends, while the exit-time destructor
+`__destruct_shm` unmaps the global shm. `bpftime_destroy_global_shm` sets
+`global_shm_released` before unmapping and `bpftime_prog_exec` then returns
+`-ENODEV` without running (re-initialization clears it). Hooked calls made by
+later destructors (gum/GLib teardown calling `free` under memleak) used to run
+programs against the unmapped segment and crash the host at exit. The Frida
+callback does not log `-ENODEV`, because the logger may already be destroyed.
+Threads still inside a program when the main thread unmaps are not covered.

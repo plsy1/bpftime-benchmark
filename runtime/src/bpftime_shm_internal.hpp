@@ -10,6 +10,7 @@
 #include "bpf_map/userspace/stack_trace_map.hpp"
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/sync/interprocess_mutex.hpp>
+#include <atomic>
 #include <cstddef>
 #include <functional>
 #include <boost/interprocess/containers/set.hpp>
@@ -367,6 +368,11 @@ union bpftime_shm_holder {
 };
 
 extern bpftime_shm_holder shm_holder;
+
+// Set once the global shm is unmapped (normally by the exit-time destructor).
+// Probes stay attached until the process ends, so hooked calls made by later
+// destructors must not run programs against the unmapped segment.
+extern std::atomic<bool> global_shm_released;
 
 } // namespace bpftime
 
