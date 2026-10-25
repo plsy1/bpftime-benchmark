@@ -289,12 +289,18 @@ void *frida_attach_impl::call_attach_specific_function(const std::string& name,
 {
 	SPDLOG_DEBUG("Calling frida attach impl specified feature: {}", name);
 	if (name == "generate_stack") {
-		if (!current_thread_gum_cpu_context.has_value()) {
-			// The caller may run outside a Frida hook: a syscall-trace
-			// or tracepoint program gets a synthesized pt_regs and has
-			// no Gum invocation to unwind. No frames is a normal
-			// result for bpf_get_stack, not an error.
-			SPDLOG_DEBUG("There is no frida hook running");
+		GumCpuContext *cpu_context = nullptr;
+		if (current_thread_gum_cpu_context.has_value()) {
+			cpu_context =
+				(GumCpuContext *)*current_thread_gum_cpu_context;
+		} else if (auto *invocation =
+				   gum_interceptor_get_current_invocation()) {
+			// Uretprobe callbacks run in on_leave, which leaves the
+			// thread-local unset to keep returns cheap.
+			cpu_context = invocation->cpu_context;
+		}
+		if (cpu_context == nullptr) {
+			SPDLOG_ERROR("There is no frida hook running");
 			return nullptr;
 		}
 		SPDLOG_DEBUG("Getting stack trace...");
@@ -307,10 +313,8 @@ void *frida_attach_impl::call_attach_specific_function(const std::string& name,
 		auto tracer = use_fuzzy_backtracer ?
 				      gum_backtracer_make_fuzzy() :
 				      gum_backtracer_make_accurate();
-		gum_backtracer_generate(
-			tracer,
-			(GumCpuContext *)*current_thread_gum_cpu_context,
-			(GumReturnAddressArray *)&array);
+		gum_backtracer_generate(tracer, cpu_context,
+					(GumReturnAddressArray *)&array);
 		if (array.len == 0) {
 			SPDLOG_ERROR("Unable to get stack trace");
 			g_object_unref(tracer);
