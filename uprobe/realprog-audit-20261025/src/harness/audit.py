@@ -40,6 +40,14 @@ def ops(text):
     m = re.search(r'ops_per_sec_median ([\d.]+)', text)
     return float(m.group(1)) if m else None
 
+def expected_calls(text, rate, secs):
+    # Exact count printed by the workloads (total_ops); the old estimate was the
+    # per-second median times the duration, off by up to ~1%.
+    m = re.search(r'total_ops (\d+)', text)
+    if m:
+        return int(m.group(1))
+    return rate * secs if rate else None
+
 def start_tool(cmd, backend, cwd=None):
     # Tool output goes to a file, not a pipe: a pipe nobody reads fills at 64 KB and then blocks
     # the tool's printf, which stalls event polling (gethostlatency stopped after ~1200 lines).
@@ -97,7 +105,7 @@ def t_funclatency(binary, backend, secs):
     rc, wout = workload([str(WL / 'callloop'), str(secs)], backend)
     tout = stop_tool(p, wait=secs + 10)
     rate = ops(wout)
-    return dict(workload_rc=rc, ops_per_sec=rate, expected=rate * secs if rate else None,
+    return dict(workload_rc=rc, ops_per_sec=rate, expected=expected_calls(wout, rate, secs),
                 reported=hist_total(tout)), wout, tout
 
 def t_gethostlatency(backend, secs):
@@ -108,8 +116,11 @@ def t_gethostlatency(backend, secs):
     run(['sudo', '-n', 'kill', '-INT', '--', f'-{p.pid}'])
     tout = stop_tool(p, wait=5)
     rate = ops(wout)
-    return dict(workload_rc=rc, ops_per_sec=rate, expected=rate * secs if rate else None,
-                reported=len(re.findall(r'\bresolveloop\b.*localhost', tout))), wout, tout
+    # The tool reports perf buffer overflows ("lost N events on CPU #c"), as the kernel does;
+    # reported + lost should equal the calls.
+    lost = sum(int(m.group(1)) for m in re.finditer(r'lost (\d+) events on CPU', tout))
+    return dict(workload_rc=rc, ops_per_sec=rate, expected=expected_calls(wout, rate, secs),
+                reported=len(re.findall(r'\bresolveloop\b.*localhost', tout)), lost=lost), wout, tout
 
 def t_memleak(backend, secs):
     # memleak -c forks the command from the tool process, so it inherits the tool's LD_PRELOAD.
@@ -145,7 +156,7 @@ def t_malloc_example(backend, secs):
     for m in re.finditer(r'pid=(\d+)\s+malloc calls: (\d+)', tout):
         per_pid[m.group(1)] = per_pid.get(m.group(1), 0) + int(m.group(2))
     counts = [int(m.group(1)) for m in re.finditer(r'malloc calls: (\d+)', tout)]
-    return dict(workload_rc=rc, ops_per_sec=rate, expected=rate * secs if rate else None,
+    return dict(workload_rc=rc, ops_per_sec=rate, expected=expected_calls(wout, rate, secs),
                 reported=max(per_pid.values()) if per_pid else 0,
                 max_interval=max(counts) if counts else 0), wout, tout
 
@@ -168,7 +179,10 @@ def t_usdt_minimal(backend, secs):
     p = start_tool(['./usdt_minimal'], backend, cwd=d)
     time.sleep(3)
     try:
-        r = run(env_prefix(backend, 'workload') + ['timeout', str(secs), './victim'], cwd=d, timeout=secs + 10)
+        # bpf_printk stays off the host's stdout unless selected (since the dev branch's
+        # printk sink change); select stdout to count the probe hits there.
+        r = run(env_prefix(backend, 'workload') + ['BPFTIME_TRACE_PRINTK_OUTPUT=stdout', 'timeout', str(secs),
+                                                   './victim'], cwd=d, timeout=secs + 10)
         wout = r.stdout + r.stderr
     except subprocess.TimeoutExpired:
         wout = ''

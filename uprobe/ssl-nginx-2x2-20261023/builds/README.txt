@@ -15,3 +15,5 @@ df865b3e      bca2ebce + uretprobe stack context, exit shm guard, fork-child pas
 f9d2d9fc      2448aeaf + frame-pointer user stacks on aarch64, kernel-style stack trace map, cgroup array + bpf_current_task_under_cgroup (candidate build-jit, LLVM 16)
 layout-pad12  f9d2d9fc + 12 unused nops in bpf_helper.cpp (layout experiment only, not a commit)
 layout-pad28  f9d2d9fc + 28 unused nops in bpf_helper.cpp (layout experiment only, not a commit)
+4d9b8a61      f9d2d9fc + printk sink, ENOMEM on shm exhaustion (128 MB default), rate-limited runtime errors, fork-child inherited close, cgroup id helper, XPACI frame strip, agent work hidden from probes (candidate build-jit, LLVM 16)
+a7d54d7e      4d9b8a61 + rate-limited logging out of line (candidate build-jit, LLVM 16)

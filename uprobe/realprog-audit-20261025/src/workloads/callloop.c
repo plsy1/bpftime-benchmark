@@ -13,15 +13,16 @@ __attribute__((noinline)) unsigned long target_func(unsigned long x) {
 }
 int main(int argc, char **argv) {
     int duration = argc > 1 ? atoi(argv[1]) : 10;
-    double rates[1000]; int k = 0; unsigned long ops = 0, i = 0;
+    double rates[1000]; int k = 0; unsigned long ops = 0, total_ops = 0, i = 0;
     double mark = now();
     while (k < duration) {
         for (int j = 0; j < 1000; j++) sink += target_func(i++);
-        ops += 1000;
+        ops += 1000; total_ops += 1000;
         double t = now();
         if (t - mark >= 1.0) { rates[k++] = ops / (t - mark); ops = 0; mark = t; }
     }
     qsort(rates, k, sizeof(double), cmp);
     printf("ops_per_sec_median %.1f\n", rates[k / 2]);
+    printf("total_ops %lu\n", total_ops);
     return 0;
 }
