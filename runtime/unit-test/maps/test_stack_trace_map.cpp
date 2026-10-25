@@ -77,12 +77,20 @@ TEST_CASE("Test stack trace map 2")
 	// Make some collision
 	auto stk2 = generated[100].at(1);
 
-	int id2 = impl.fill_stack_trace(stk2, false, true);
-	REQUIRE(id1 == id2);
-	// The query result should be the same as id1
+	// Same bucket, different trace and full hash: the kernel returns
+	// -EEXIST without BPF_F_REUSE_STACKID, also with BPF_F_FAST_STACK_CMP.
+	REQUIRE(impl.fill_stack_trace(stk2, false, true) == -EEXIST);
+	REQUIRE(impl.fill_stack_trace(stk2, false, false) == -EEXIST);
+	// The stored trace is still stk1
 	{
-		auto result = (uint64_t *)impl.elem_lookup(&id2);
+		auto result = (uint64_t *)impl.elem_lookup(&id1);
 		REQUIRE(std::equal(stk1.begin(), stk1.end(), result));
+	}
+	// BPF_F_REUSE_STACKID replaces it
+	REQUIRE(impl.fill_stack_trace(stk2, true, false) == id1);
+	{
+		auto result = (uint64_t *)impl.elem_lookup(&id1);
+		REQUIRE(std::equal(stk2.begin(), stk2.end(), result));
 	}
 	SPDLOG_INFO("Checking insertion for two same stack trace..");
 	// Put two same entries into the map
@@ -98,4 +106,35 @@ TEST_CASE("Test stack trace map 2")
 		auto result = (uint64_t *)impl.elem_lookup(&id3);
 		REQUIRE(std::equal(stk4.begin(), stk4.end(), result));
 	}
+}
+
+TEST_CASE("Stack trace map pads, truncates and compares like the kernel",
+	  "[maps][stack_trace]")
+{
+	shm_remove remover(SHM_NAME);
+	managed_shared_memory mem(create_only, SHM_NAME, 20 << 20);
+	// value_size of 4 frames
+	stack_trace_map_impl impl(mem, 4, 4 * 8, 1000);
+
+	// A short trace reads back zero-padded to the whole value: lookups
+	// copy value_size bytes.
+	std::vector<uint64_t> short_stack{ 0x1000, 0x2000 };
+	int id = impl.fill_stack_trace(short_stack, false, false);
+	REQUIRE(id >= 0);
+	auto value = (const uint64_t *)impl.elem_lookup(&id);
+	REQUIRE(value[0] == 0x1000);
+	REQUIRE(value[1] == 0x2000);
+	REQUIRE(value[2] == 0);
+	REQUIRE(value[3] == 0);
+	REQUIRE(impl.fill_stack_trace(short_stack, false, false) == id);
+
+	// Frames beyond value_size are dropped; the result equals the trace
+	// of the first four frames.
+	std::vector<uint64_t> long_stack{ 0x10, 0x20, 0x30, 0x40, 0x50, 0x60 };
+	std::vector<uint64_t> first_four{ 0x10, 0x20, 0x30, 0x40 };
+	int long_id = impl.fill_stack_trace(long_stack, false, false);
+	REQUIRE(long_id >= 0);
+	REQUIRE(impl.fill_stack_trace(first_four, false, false) == long_id);
+	value = (const uint64_t *)impl.elem_lookup(&long_id);
+	REQUIRE(std::equal(first_four.begin(), first_four.end(), value));
 }
