@@ -1,0 +1,26 @@
+--- /home/jetson/src/survey-sources/bcc-v0.37.0/libbpf-tools/Makefile	2026-10-21 21:56:19.552811605 +0900
++++ Makefile	2026-10-25 16:40:39.541733636 +0900
+@@ -209,7 +209,7 @@
+ 	$(call msg,BPF,$@)
+ 	$(Q)$(CLANG) $(BPFCFLAGS) -target bpf -D__TARGET_ARCH_$(ARCH)	      \
+ 		     -I$(ARCH)/ $(INCLUDES) -c $(filter %.c,$^) -o $@ &&      \
+-	$(LLVM_STRIP) -g $@
++	$(LLVM_STRIP) -g $@ && $(OBJCOPY_NOBTF) --remove-section=.BTF.ext $@
+ 
+ btfhub-archive: force
+ 	$(call msg,GIT,$@)
+--- /home/jetson/src/survey-sources/bcc-v0.37.0/libbpf-tools/btf_helpers.c	2026-10-21 21:56:19.596813230 +0900
++++ btf_helpers.c	2026-10-25 16:43:20.407861883 +0900
+@@ -178,9 +178,10 @@
+ 	if (vmlinux_btf_exists())
+ 		return 0;
+ 
+-	/* compiled without min core btfs */
++	/* compiled without min core btfs: this no-BTF build strips all CO-RE
++	 * relocations (.BTF.ext), so the objects load without kernel BTF. */
+ 	if (!_binary_min_core_btfs_tar_gz_start)
+-		return -EOPNOTSUPP;
++		return 0;
+ 
+ 	info = get_os_info();
+ 	if (!info)
