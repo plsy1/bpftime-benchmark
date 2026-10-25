@@ -19,6 +19,7 @@
 #include <ebpf-vm.h>
 #include "syscall_context.hpp"
 #include "handler/map_handler.hpp"
+#include "bpftime_shm_internal.hpp"
 #include <cstring>
 #include <fcntl.h>
 #if __linux__
@@ -564,6 +565,11 @@ int syscall_context::handle_close(int fd)
 			deferred_map_closes.insert(fd);
 			return 0;
 		}
+		if (fd >= 0 && (size_t)fd < inherited_bpftime_fds.size() &&
+		    inherited_bpftime_fds[fd]) {
+			inherited_bpftime_fds[fd] = false;
+			return orig_close_fn(fd);
+		}
 	}
 	const bool closing_prog = bpftime_is_prog_fd(fd);
 	release_map_in_map_refs(fd);
@@ -593,6 +599,17 @@ void syscall_context::release_unreferenced_deferred_maps()
 		release_map_in_map_refs(fd);
 		release_owned_map_fd(fd);
 	}
+}
+
+void syscall_context::mark_inherited_fds_after_fork()
+{
+	const auto *manager = shm_holder.global_shared_memory.get_manager();
+	if (manager == nullptr)
+		return;
+	const size_t size = manager->size();
+	inherited_bpftime_fds.assign(size, false);
+	for (size_t fd = 0; fd < size; fd++)
+		inherited_bpftime_fds[fd] = manager->is_allocated((int)fd);
 }
 
 int syscall_context::handle_openat(int fd, const char *file, int oflag,
