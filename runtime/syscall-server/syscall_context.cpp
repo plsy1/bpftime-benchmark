@@ -18,6 +18,7 @@
 #include <ebpf-vm.h>
 #include "syscall_context.hpp"
 #include "handler/map_handler.hpp"
+#include "bpftime_shm_internal.hpp"
 #include <cstring>
 #include <fcntl.h>
 #if __linux__
@@ -269,9 +270,25 @@ int syscall_context::handle_close(int fd)
 			this->mocked_files.erase(itr);
 			return orig_close_fn(fd);
 		}
+		if (fd >= 0 && (size_t)fd < inherited_bpftime_fds.size() &&
+		    inherited_bpftime_fds[fd]) {
+			inherited_bpftime_fds[fd] = false;
+			return orig_close_fn(fd);
+		}
 	}
 	bpftime_close(fd);
 	return orig_close_fn(fd);
+}
+
+void syscall_context::mark_inherited_fds_after_fork()
+{
+	const auto *manager = shm_holder.global_shared_memory.get_manager();
+	if (manager == nullptr)
+		return;
+	const size_t size = manager->size();
+	inherited_bpftime_fds.assign(size, false);
+	for (size_t fd = 0; fd < size; fd++)
+		inherited_bpftime_fds[fd] = manager->is_allocated((int)fd);
 }
 
 int syscall_context::handle_openat(int fd, const char *file, int oflag,

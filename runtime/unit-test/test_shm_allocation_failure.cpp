@@ -510,6 +510,17 @@ TEST_CASE("Syscall server mock files do not leave tmp entries",
 	REQUIRE(result.output.empty());
 }
 
+TEST_CASE("Syscall server child closing an inherited fd keeps the parent's map",
+	  "[allocation][syscall_server][fork]")
+{
+	auto result = run_allocation_helper("fork-after-startup-close", "16",
+					    "128", nullptr);
+
+	INFO(result.output);
+	REQUIRE(WIFEXITED(result.status));
+	REQUIRE(WEXITSTATUS(result.status) == 100);
+}
+
 TEST_CASE("Syscall server reports map allocation failure instead of using the kernel",
 	  "[allocation][syscall_server][exhaustion]")
 {

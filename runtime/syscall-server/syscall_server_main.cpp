@@ -217,8 +217,18 @@ static syscall_server_ctx_union context;
 // started server keeps the inherited state.
 static void disable_in_unstarted_fork_child()
 {
-	if (!bpftime::syscall_server_startup_entered())
+	if (!bpftime::syscall_server_startup_entered()) {
 		__atomic_store_n(&ctx_initialized, 3, __ATOMIC_RELEASE);
+		return;
+	}
+	// A child of a started server shares the parent's objects; its close()
+	// of an inherited fd must not destroy them for every process.
+	if (__atomic_load_n(&ctx_initialized, __ATOMIC_ACQUIRE) == 2) {
+		try {
+			context->mark_inherited_fds_after_fork();
+		} catch (...) {
+		}
+	}
 }
 
 __attribute__((constructor)) static void register_syscall_server_atfork()

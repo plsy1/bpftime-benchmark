@@ -20,6 +20,7 @@
 #include <unordered_set>
 #include <pthread.h>
 #include <atomic>
+#include <vector>
 #include <future>
 #include <stdexcept>
 #include <string>
@@ -156,6 +157,11 @@ class syscall_context {
 	std::atomic<bool> initializing_cuda{ false };
 	// Whether enable mock after syscall server has been initialized
 	std::atomic<bool> enable_mock_after_initialized{ true };
+	// fds of bpftime objects inherited from the parent by a fork child of a
+	// started server. Closing one closes only this process's fd: the parent
+	// still holds the object (the kernel only drops a reference).
+	std::vector<bool> inherited_bpftime_fds;
+	void mark_inherited_fds_after_fork();
 	syscall_context();
 	virtual ~syscall_context()
 	{
