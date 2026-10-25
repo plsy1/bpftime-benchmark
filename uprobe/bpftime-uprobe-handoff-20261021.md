@@ -1,13 +1,13 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-25 21:00 JST 左右。以下分支、进程和文件状态均为本机快照；
+最后核对：2026-10-25 23:10 JST 左右。以下分支、进程和文件状态均为本机快照；
 后续模型行动前需重新核实。**新会话先读第 0 节**，再按需读其余章节。
 
-## 0. 现状一页（2026-10-25 21:00 JST，新会话从这里继续）
+## 0. 现状一页（2026-10-25 23:10 JST，新会话从这里继续）
 
 **目标**：继续优化 `codex/uprobe-official-177a1dc465ff`（开发 worktree
-`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `2448aeaf`）。
+`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `f9d2d9fc`）。
 下一阶段重点：扩大测试覆盖（见 0.4），hash map 重写暂缓。
 
 ### 0.1 改了什么（7 个新提交，均已推送并加入每日补丁栈，共 50 个提交）
@@ -37,7 +37,7 @@ delete 大函数，源码小改动就会重排整函数的代码生成；专用 
 每日补丁栈：LLVM 15 第 5 轮重放（`results/uprobe/daily-jit-stack-validation-20261021/round5-hash-bound-delete`）
 50/50 无冲突，树与 `72aebadd` 相同，候选 77 cases、官方 26 cases 通过。
 
-### 0.1a 真实程序（10/25）：审计、测量、7 个修复提交（已推送，已加入补丁栈，共 62 个提交）
+### 0.1a 真实程序（10/25）：审计、测量、10 个修复提交（已推送，已加入补丁栈，共 65 个提交）
 
 审计（`realprog-audit-20261025`）：无 BTF 构建 7 个 uprobe 工具，比较 kernel / 官方 177a1dc（`builds/official`，**未去绑核**）/ `bca2ebce`。
 没有“官方能跑、我们改后不能跑”的工具。测量（`realprog-measure-20261025`，5 轮中位数，被追踪程序吞吐）：gethostlatency `bca2ebce` 是 kernel 的 1.49x
@@ -58,9 +58,20 @@ delete 大函数，源码小改动就会重排整函数的代码生成；专用 
 验证：每日过滤器 97 cases 通过；完整十轮（`full10-2448aeaf`）各项相对 `bca2ebce` ±2.1% 内；ssl-nginx 2 × 10 配对 +0.9%（16 B）/ +0.6%（256 KB），
 相对 kernel +19.1% / +12.4%。修复后：memleak `-c` 能报 1024 个泄漏、栈 `main+0xf0` 正确；funclatency（libbpf-tools）不再崩溃，但缺 helper 37，事件数 0。
 
-遗留：memleak 在 bpftime 上约 2 万次分配/秒（kernel 32.6 万），gum 精确回溯每次重读 ELF 展开信息，且 libc 返回地址带 PAC 签名导致栈只有一帧（打印两次）——
-按 kernel 方式走帧指针链（去 PAC、限定线程栈范围）可同时解决；`bpf_current_task_under_cgroup` + CGROUP_ARRAY 需要设计；
-stack trace map 等长栈只比哈希（内容比较写反）；已启动 server 的子进程 close 继承 fd 会删掉全局对象。
+当晚又加 3 个（`realprog-next-20261025`，第 11 轮回放 65/65，候选 103 cases、官方 34 cases）：
+
+| 提交 | 修了什么 |
+|---|---|
+| `64da197c` | aarch64 取栈改为按帧指针走（结果同 kernel `perf_callchain_user`：先 pc，再 x29 帧记录，去 PAC，限定线程栈范围）。memleak 2 万 → 42 万次分配/秒（kernel 32 万），栈完整 |
+| `d766e6ad` | 栈 map 按 `__bpf_get_stackid`：补零（原来查询越界读，memleak 栈尾的乱值）、截断、冲突返回 `-EEXIST`；`bpf_get_stackid` 错误保持负数 |
+| `f9d2d9fc` | 新增 CGROUP_ARRAY 和 37 号 `bpf_current_task_under_cgroup`（写入时把 fd 解析成 cgroup v2 路径；每线程缓存 `/proc/thread-self/cgroup` 的 fd，用 pread 重读，fork 后重开）。funclatency（libbpf-tools）计数和 cgroup 过滤与 kernel 一致 |
+
+七个工具在 bpftime 上全部正常。吞吐（5 轮中位数，相对 kernel）：gethostlatency 1.49x、funclatency 示例 3.68x、funclatency（libbpf-tools）3.21x、
+memleak 1.31x、malloc 示例 3.74x；完整十轮 ±2%。malloc 示例相对 2448aeaf −6% 已证实是代码布局（每次调用指令数相同、IPC 2.93 → 2.74；
+同逻辑加无用 nop 的对照构建回到 −0.9%），不靠填充修。
+
+遗留：cgroup 过滤时 327k 次/秒（kernel 469k），每次一次 pread；`bpf_get_current_cgroup_id` 还没有；已启动 server 的子进程 close 继承 fd 会删掉全局对象；
+memleak 下 bpftime 自己的内部分配（约 250 个）也被探针看到。上游 PR 计划见 0.6。
 
 ### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`）
 
@@ -79,6 +90,7 @@ stack trace map 等长栈只比哈希（内容比较写反）；已启动 server
 | `perf-output-identity-20261024` | `bca2ebce` 的测试、完整十轮、ssl-nginx 2 × 10 |
 | `uid-gid-cache-20261024` | `7ed339ad` 的测试、UID 审计、完整十轮、ssl-nginx 2 × 10 |
 | `realprog-audit-20261025`、`realprog-measure-20261025` | 真实工具功能审计（7 个工具 × kernel / 官方 / `bca2ebce`）和吞吐测量（5 轮）；测试脚本源码在 `realprog-audit-20261025/src` |
+| `realprog-next-20261025` | 帧指针取栈、栈 map、cgroup array 的审计、cgroup 过滤检查、5 工具吞吐（`measure-run/`）、完整十轮、malloc 布局对照（`malloc-ab/`） |
 | `realprog-fixes-20261025` | 7 个修复提交的审计、两次完整十轮（`full10-df865b3e`、`full10-2448aeaf`）、ssl-nginx 2 × 10（`bench/`） |
 | `ssl-nginx-netns-recheck-20261023` | 复核 7 月 Tailscale/host netns 结论：共享的约 8% 环境开销成立，“bpftime 额外损失”在当前版本不成立 |
 
@@ -151,7 +163,15 @@ ssl-nginx 能跑并已分析。其余各项的现状（10/24 读源码核对，�
 - 每次改动：增量构建 → 回归测试（`config.json` 的 `test_filter` 清单）→ 同轮 kernel / 改动前 / 改动后的配对短测 → 完整十轮（不跑 kernel，倍率借用基线那轮 kernel 并注明）。
 - 补丁栈攒几轮再加；推送前问用户。
 - 汇报用提交号和描述性名称，自起的标签首次出现要解释。
+- 10/26 用户去实验室启动 BTF 新内核：之后不再做受限于旧内核的工作（无 BTF 编译补丁作废），原版 libbpf-tools 用 CO-RE 编译，重跑真实程序审计和 kernel 基线。
 - 教训：自选测试过滤器会漏测；SHA 用 `git rev-parse` 完整值；核对系统时间；测量期间不要在其他核上跑 CPU 密集任务。
+
+### 0.6 上游 PR（用户 10/25 定：过几天再提）
+
+上游 eunomia-bpf/bpftime 合并外部小修复很快（393 个 PR 合并约 85%，"fix:" 类 0–15 天），大功能会搁置。规则：一个 issue 一个 PR（Fixes #N）、改动小、带测试、`.clang-format`。
+第一批建议：llvmbpf pc 0 调用（先给 eunomia-bpf/llvmbpf 提）、hash 标志 `d0e40e41`、栈 map `d766e6ad`、uretprobe 取栈（`97a837bc`+`2448aeaf` 合一）。
+提交前对照：上游 #705（加载时拒绝未注册 helper）与 `df865b3e` 重叠；#703/#701（多进程退出回收 shm）在 `28637b6b` 附近；#685 与 `bca2ebce` 相关；
+#678 说明上游仍每事件绑核，`20870a03` 去绑核应先开 issue 附 ssl-nginx 数据。用用户账号 plsy1 提交，先给用户看草稿。
 
 ## 1. 先读结论
 
