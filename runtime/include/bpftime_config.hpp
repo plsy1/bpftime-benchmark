@@ -76,7 +76,9 @@ struct runtime_config {
 	// memory size will determine the maximum size of the shared memory
 	// available for the eBPF programs and maps
 	// The value is in MB
-	int shm_memory_size = 50; // default to 50MB
+	// MB. Boost commits the whole segment at creation (posix_fallocate),
+	// so this is resident memory. 128 fits memleak's 1M-entry hash map.
+	int shm_memory_size = 128;
 
 	// Maximum file descriptor count for handler manager
 	// This determines the size of the handler vector
