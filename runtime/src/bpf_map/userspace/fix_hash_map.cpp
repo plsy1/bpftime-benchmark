@@ -3,11 +3,11 @@
  * Copyright (c) 2022, eunomia-bpf org
  * All rights reserved.
  */
+#include "linux/bpf.h"
 #include "spdlog/spdlog.h"
 #include <bpf_map/userspace/fix_hash_map.hpp>
 #include <algorithm>
 #include <cerrno>
-#include <cstring>
 #include <functional>
 #include <linux/bpf.h>
 #include <unistd.h>
@@ -42,27 +42,28 @@ void *fix_size_hash_map_impl::elem_lookup(const void *key)
 long fix_size_hash_map_impl::elem_update(const void *key, const void *value,
 					 uint64_t flags)
 {
-	if (!is_good_update_flag(flags)) {
+	// Kernel htab semantics. BPF_F_LOCK is ignored as before.
+	const uint64_t mode = flags & ~static_cast<uint64_t>(BPF_F_LOCK);
+	if (mode > BPF_EXIST) {
 		errno = EINVAL;
 		return -1;
 	}
-	// Only the existence-checked flags need a preliminary lookup;
-	// BPF_ANY goes straight to the underlying upsert.
-	if (flags != BPF_ANY) {
-		bool element_exists = map_impl.elem_lookup(key) != nullptr;
-		if (flags == BPF_NOEXIST && element_exists) {
+	if (mode != BPF_ANY) {
+		// Callers hold the map lock, so the check and the update are
+		// atomic. BPF_EXIST matters to lookup-then-update counters: a
+		// key deleted in between must not come back with its old count.
+		const bool exists = map_impl.elem_lookup(key) != nullptr;
+		if (mode == BPF_NOEXIST && exists) {
 			errno = EEXIST;
 			return -1;
 		}
-		if (flags == BPF_EXIST && !element_exists) {
+		if (mode == BPF_EXIST && !exists) {
 			errno = ENOENT;
 			return -1;
 		}
 	}
 	if (!map_impl.elem_update(key, value)) {
-		// The underlying fixed-size map rejects insertion once it
-		// reaches its capacity
-		errno = E2BIG;
+		errno = E2BIG; // full: max_entries reached
 		return -1;
 	}
 	return 0;
@@ -71,28 +72,6 @@ long fix_size_hash_map_impl::elem_update(const void *key, const void *value,
 long fix_size_hash_map_impl::elem_delete(const void *key)
 {
 	if (!map_impl.elem_delete(key)) {
-		errno = ENOENT;
-		return -1;
-	}
-	return 0;
-}
-
-// BPF_MAP_LOOKUP_AND_DELETE_ELEM on BPF_MAP_TYPE_HASH. The fixed-size
-// backend stores keys and values in one bucket, so the value is copied out
-// before the bucket is released; the caller's pointer would otherwise be
-// stale storage.
-int fix_size_hash_map_impl::lookup_and_delete(const void *key, void *value_out,
-					      bool from_syscall)
-{
-	void *stored = map_impl.elem_lookup(key);
-	if (stored == nullptr) {
-		errno = ENOENT;
-		return -1;
-	}
-	memcpy(value_out, stored, _value_size);
-	if (!map_impl.elem_delete(key)) {
-		// Unreachable while map_lock is held: the lookup above found the
-		// key. Keep the kernel errno rather than reporting success.
 		errno = ENOENT;
 		return -1;
 	}

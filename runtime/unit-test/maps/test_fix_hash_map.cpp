@@ -4,6 +4,9 @@
 #include <boost/interprocess/shared_memory_object.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <algorithm>
+#include <cerrno>
+#include <linux/bpf.h>
+#include <optional>
 #include <array>
 #include <cstdint>
 #include <limits>
@@ -268,4 +271,62 @@ TEST_CASE("Fixed hash lookup preserves wrapped probe chains and full-table misse
 				verify_value(index);
 		}
 	}
+}
+
+TEST_CASE("Fixed hash map honours update flags like the kernel",
+	  "[maps][hash][flags]")
+{
+	static const char *shm_name = "bpftime_fix_hash_flags_test";
+	shm_cleanup cleanup(shm_name);
+	managed_shared_memory segment(create_only, shm_name, 65536);
+	fix_size_hash_map_impl map(segment, 4, sizeof(uint32_t),
+				   sizeof(uint64_t));
+	auto value_of = [&](uint32_t key) {
+		auto ptr = static_cast<const uint64_t *>(map.elem_lookup(&key));
+		return ptr ? std::optional<uint64_t>(*ptr) : std::nullopt;
+	};
+
+	uint32_t key = 1;
+	uint64_t value = 10;
+	REQUIRE(map.elem_update(&key, &value, BPF_NOEXIST) == 0);
+	value = 11;
+	errno = 0;
+	REQUIRE(map.elem_update(&key, &value, BPF_NOEXIST) == -1);
+	REQUIRE(errno == EEXIST);
+	REQUIRE(value_of(1) == 10);
+	REQUIRE(map.elem_update(&key, &value, BPF_EXIST) == 0);
+	REQUIRE(value_of(1) == 11);
+
+	uint32_t missing = 2;
+	errno = 0;
+	REQUIRE(map.elem_update(&missing, &value, BPF_EXIST) == -1);
+	REQUIRE(errno == ENOENT);
+	REQUIRE_FALSE(value_of(2).has_value());
+
+	// Lookup-then-update counter racing with a reader that deletes the
+	// key (the malloc example): the stale count must not come back.
+	uint64_t stale = *value_of(1) + 1;
+	REQUIRE(map.elem_delete(&key) == 0);
+	errno = 0;
+	REQUIRE(map.elem_update(&key, &stale, BPF_EXIST) == -1);
+	REQUIRE(errno == ENOENT);
+	REQUIRE_FALSE(value_of(1).has_value());
+
+	errno = 0;
+	REQUIRE(map.elem_delete(&key) == -1);
+	REQUIRE(errno == ENOENT);
+
+	errno = 0;
+	REQUIRE(map.elem_update(&key, &value, BPF_EXIST + 1) == -1);
+	REQUIRE(errno == EINVAL);
+	REQUIRE(map.elem_update(&key, &value, BPF_ANY | BPF_F_LOCK) == 0);
+
+	// Full map: a new key is rejected, an existing one still updates.
+	for (uint32_t k = 10; k < 13; k++)
+		REQUIRE(map.elem_update(&k, &value, BPF_ANY) == 0);
+	uint32_t extra = 20;
+	errno = 0;
+	REQUIRE(map.elem_update(&extra, &value, BPF_ANY) == -1);
+	REQUIRE(errno == E2BIG);
+	REQUIRE(map.elem_update(&key, &value, BPF_ANY) == 0);
 }
