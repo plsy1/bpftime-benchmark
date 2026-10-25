@@ -78,7 +78,10 @@
       {"sha": "d0e40e414d23cd6408164c03c6ae2163a281d8a5", "kind": "runtime-fix", "subject": "Honour hash map update flags and report missing keys on delete"},
       {"sha": "86f98862155d26f3a42fd6c3749c023e66d54ec8", "kind": "runtime-fix", "subject": "Register the return block of a bpf-to-bpf call at pc 0"},
       {"sha": "df865b3e064f4e517fe08b5b39d1990b315be7eb", "kind": "runtime-fix", "subject": "Disable a program whose LLVM JIT compile failed"},
-      {"sha": "2448aeaf7fe930ce8add4ca974074ad1ed900aed", "kind": "optimization", "subject": "Find the uretprobe CPU context through the current gum invocation"}
+      {"sha": "2448aeaf7fe930ce8add4ca974074ad1ed900aed", "kind": "optimization", "subject": "Find the uretprobe CPU context through the current gum invocation"},
+      {"sha": "64da197c1e751d29b2da0be4bfba42d93f72ec5d", "kind": "optimization", "subject": "Walk the frame-pointer chain for user stacks on aarch64"},
+      {"sha": "d766e6ad2d57c1f01589a7482dfb44cafcaa0367", "kind": "runtime-fix", "subject": "Store stack traces the kernel way: padded, truncated, -EEXIST on collision"},
+      {"sha": "f9d2d9fcff8db6a02970cba9f63c0aac16463f80", "kind": "runtime-fix", "subject": "Support cgroup arrays and bpf_current_task_under_cgroup"}
     ]
   },
   "build": {
@@ -103,7 +106,7 @@
       "simple-benchmark-with-embed-ebpf-calling",
       "bpftime_runtime_tests"
     ],
-    "test_filter": "[array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent,[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps][map_in_map],Test bpftime runtime_config,Allow external maps from the environment,Select Frida*,Test basic operations of external hash map ops,[perf_event],[epoll],[uid_gid],[shm_release],[jit_load]"
+    "test_filter": "[array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent,[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps][map_in_map],Test bpftime runtime_config,Allow external maps from the environment,Select Frida*,Test basic operations of external hash map ops,[perf_event],[epoll],[uid_gid],[shm_release],[jit_load],[stack_trace],Test stack trace map*,[cgroup_array]"
   },
   "benchmark": {
     "cpu": 5,
