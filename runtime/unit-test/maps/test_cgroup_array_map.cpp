@@ -1,4 +1,5 @@
 #include "bpf_map/userspace/cgroup_array_map.hpp"
+#include "bpftime_helper_group.hpp"
 #include "catch2/catch_test_macros.hpp"
 #include "unit-test/common_def.hpp"
 #include <cerrno>
@@ -8,6 +9,7 @@
 #include <fcntl.h>
 #include <linux/bpf.h>
 #include <string>
+#include <sys/stat.h>
 #include <sys/vfs.h>
 #include <sys/wait.h>
 #include <thread>
@@ -160,4 +162,33 @@ TEST_CASE("Cgroup checks in a fork child do not use the parent thread's file",
 	REQUIRE(WEXITSTATUS(status) == 0);
 	close(go[0]);
 	close(go[1]);
+}
+
+TEST_CASE("bpf_get_current_cgroup_id is the inode of the thread's cgroup",
+	  "[cgroup_array]")
+{
+	struct statfs fs;
+	if (statfs(CGROUP_ROOT, &fs) != 0 || fs.f_type != 0x63677270) {
+		SKIP("no cgroup v2 at /sys/fs/cgroup");
+	}
+	char own[PATH_MAX];
+	REQUIRE(current_thread_cgroup_path(own, sizeof(own)));
+	struct stat st;
+	REQUIRE(stat((std::string(CGROUP_ROOT) + own).c_str(), &st) == 0);
+	REQUIRE(current_thread_cgroup_id() == st.st_ino);
+	REQUIRE(current_thread_cgroup_id() != 0);
+}
+
+TEST_CASE("Cgroup helpers are registered", "[cgroup_array]")
+{
+	auto has = [](const bpftime::bpftime_helper_group &group, int id) {
+		for (auto x : group.get_helper_ids())
+			if ((int)x == id)
+				return true;
+		return false;
+	};
+	using bpftime::bpftime_helper_group;
+	// bpf_get_current_cgroup_id and bpf_current_task_under_cgroup.
+	REQUIRE(has(bpftime_helper_group::get_kernel_utils_helper_group(), 80));
+	REQUIRE(has(bpftime_helper_group::get_shm_maps_helper_group(), 37));
 }
