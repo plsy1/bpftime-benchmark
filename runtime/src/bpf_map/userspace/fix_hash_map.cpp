@@ -3,9 +3,11 @@
  * Copyright (c) 2022, eunomia-bpf org
  * All rights reserved.
  */
+#include "linux/bpf.h"
 #include "spdlog/spdlog.h"
 #include <bpf_map/userspace/fix_hash_map.hpp>
 #include <algorithm>
+#include <cerrno>
 #include <functional>
 #include <unistd.h>
 #include <unordered_map>
@@ -34,13 +36,39 @@ void *fix_size_hash_map_impl::elem_lookup(const void *key)
 long fix_size_hash_map_impl::elem_update(const void *key, const void *value,
 					 uint64_t flags)
 {
-	map_impl.elem_update(key, value);
+	// Kernel htab semantics. BPF_F_LOCK is ignored as before.
+	const uint64_t mode = flags & ~static_cast<uint64_t>(BPF_F_LOCK);
+	if (mode > BPF_EXIST) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (mode != BPF_ANY) {
+		// Callers hold the map lock, so the check and the update are
+		// atomic. BPF_EXIST matters to lookup-then-update counters: a
+		// key deleted in between must not come back with its old count.
+		const bool exists = map_impl.elem_lookup(key) != nullptr;
+		if (mode == BPF_NOEXIST && exists) {
+			errno = EEXIST;
+			return -1;
+		}
+		if (mode == BPF_EXIST && !exists) {
+			errno = ENOENT;
+			return -1;
+		}
+	}
+	if (!map_impl.elem_update(key, value)) {
+		errno = E2BIG; // full: max_entries reached
+		return -1;
+	}
 	return 0;
 }
 
 long fix_size_hash_map_impl::elem_delete(const void *key)
 {
-	map_impl.elem_delete(key);
+	if (!map_impl.elem_delete(key)) {
+		errno = ENOENT;
+		return -1;
+	}
 	return 0;
 }
 
