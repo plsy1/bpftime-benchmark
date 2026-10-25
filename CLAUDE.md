@@ -451,3 +451,13 @@ exceptions) and logs a hint to raise the size. It must never fall back to the
 kernel there: the kernel then created a real map the runtime did not know, the
 tool loaded without error, and its programs could not resolve the map ("Expected
 fd 5 to be a map fd") and traced nothing.
+
+## Rate-Limited Runtime Errors
+
+Errors on paths that run per event (helpers, map access from programs, probe
+dispatch, `bpftime_prog_exec`, stack generation, unsupported-map dispatch) use
+`BPFTIME_LOG_ERROR_RATELIMITED` / `BPFTIME_LOG_WARN_RATELIMITED`
+(`attach/base_attach_impl/bpftime_ratelimited_log.hpp`): each call site logs
+its 1st, 10th, 100th, ... occurrence with the count, one relaxed atomic
+increment per error. Use them for any new per-event diagnostic; load-time and
+control-plane errors keep plain `SPDLOG_*`. The format must be a literal.

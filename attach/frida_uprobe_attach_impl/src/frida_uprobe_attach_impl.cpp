@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 #include "frida_uprobe_attach_impl.hpp"
+#include "bpftime_ratelimited_log.hpp"
 #include "frida-gum.h"
 #include "frida_attach_private_data.hpp"
 #include "frida_attach_utils.hpp"
@@ -382,7 +383,7 @@ void *frida_attach_impl::call_attach_specific_function(const std::string& name,
 			cpu_context = invocation->cpu_context;
 		}
 		if (cpu_context == nullptr) {
-			SPDLOG_ERROR("There is no frida hook running");
+			BPFTIME_LOG_ERROR_RATELIMITED("There is no frida hook running");
 			return nullptr;
 		}
 		SPDLOG_DEBUG("Getting stack trace...");
@@ -416,7 +417,7 @@ void *frida_attach_impl::call_attach_specific_function(const std::string& name,
 		gum_backtracer_generate(tracer, cpu_context,
 					(GumReturnAddressArray *)&array);
 		if (array.len == 0) {
-			SPDLOG_ERROR("Unable to get stack trace");
+			BPFTIME_LOG_ERROR_RATELIMITED("Unable to get stack trace");
 			g_object_unref(tracer);
 			return nullptr;
 		}

@@ -5,6 +5,7 @@
  */
 
 #include "bpf_map/userspace/lru_var_hash_map.hpp"
+#include "bpftime_ratelimited_log.hpp"
 #include "bpf_map/userspace/per_cpu_array_map.hpp"
 #include "bpf_map/userspace/per_cpu_hash_map.hpp"
 #include "bpf_map/userspace/stack_trace_map.hpp"
@@ -265,7 +266,7 @@ const void *bpf_map_handler::map_lookup_elem(const void *key,
 		if (func_ptr) {
 			return func_ptr(id, key, from_syscall);
 		} else {
-			SPDLOG_ERROR("[elem_lookup] Unsupported map type: {}",
+			BPFTIME_LOG_ERROR_RATELIMITED("[elem_lookup] Unsupported map type: {}",
 				     (int)type);
 			return nullptr;
 		}
@@ -506,7 +507,7 @@ long bpf_map_handler::map_update_elem(const void *key, const void *value,
 		if (func_ptr) {
 			return func_ptr(id, key, value, flags, from_syscall);
 		} else {
-			SPDLOG_ERROR(
+			BPFTIME_LOG_ERROR_RATELIMITED(
 				"[map_update_elem] Unsupported map type: {}",
 				(int)type);
 			return -1;
@@ -662,7 +663,7 @@ int bpf_map_handler::bpf_map_get_next_key(const void *key, void *next_key,
 		if (func_ptr) {
 			return func_ptr(id, key, next_key, from_syscall);
 		} else {
-			SPDLOG_ERROR(
+			BPFTIME_LOG_ERROR_RATELIMITED(
 				"[bpf_map_get_next_key] Unsupported map type: {}",
 				(int)type);
 			return -1;
@@ -831,7 +832,7 @@ long bpf_map_handler::map_delete_elem(const void *key, bool from_syscall) const
 		if (func_ptr) {
 			return func_ptr(id, key, from_syscall);
 		} else {
-			SPDLOG_ERROR(
+			BPFTIME_LOG_ERROR_RATELIMITED(
 				"[bpf_map_delete_elem] Unsupported map type: {}",
 				(int)type);
 			return -1;
