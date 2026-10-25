@@ -14,6 +14,8 @@ BASE = {
     'gethostlatency': lambda s: [str(audit.WL / 'resolveloop'), str(s)],
     'malloc-example': lambda s: [str(audit.WL / 'mallocloop'), str(s), '64', '1024'],
     'funclatency-bpftime-example': lambda s: [str(audit.WL / 'callloop'), str(s)],
+    'funclatency-libbpf': lambda s: [str(audit.WL / 'callloop'), str(s)],
+    'memleak': lambda s: [str(audit.WL / 'mallocloop'), str(s), '64', '1024'],
 }
 
 def main():

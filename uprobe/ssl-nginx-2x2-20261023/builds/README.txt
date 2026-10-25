@@ -12,3 +12,6 @@ db3d475f      a90fa447 + perf loss reporting and half-full consumer wakeup (hard
 bca2ebce      7ed339ad + cached producer pid/tid in software perf output (candidate build-jit, LLVM 16)
 df865b3e      bca2ebce + uretprobe stack context, exit shm guard, fork-child pass-through, hash flags, JIT local call at pc 0, disabled failed JIT (candidate build-jit, LLVM 16)
 2448aeaf      df865b3e + uretprobe CPU context read from the current gum invocation (on_leave keeps no TLS work) (candidate build-jit, LLVM 16)
+f9d2d9fc      2448aeaf + frame-pointer user stacks on aarch64, kernel-style stack trace map, cgroup array + bpf_current_task_under_cgroup (candidate build-jit, LLVM 16)
+layout-pad12  f9d2d9fc + 12 unused nops in bpf_helper.cpp (layout experiment only, not a commit)
+layout-pad28  f9d2d9fc + 28 unused nops in bpf_helper.cpp (layout experiment only, not a commit)
