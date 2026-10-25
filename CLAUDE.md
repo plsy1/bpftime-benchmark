@@ -424,3 +424,17 @@ filtered calls/s vs 85k with open/read/close; kernel 469k); `/proc/thread-self`
 is bound at open, so the atfork child handler bumps a generation and inherited
 fds are reopened. Loader and traced process must share the cgroup namespace;
 cgroup v1 is not supported. `bpf_get_current_cgroup_id` is still missing.
+
+## bpf_trace_printk Output
+
+`bpf_trace_printk` never writes the host's stdio by default (it used to
+`vprintf` into the host's stdout). Default: a bpftime log record
+"bpf_trace_printk: <msg>" through the `BPFTIME_LOG_OUTPUT` sink (a rotating,
+size-bounded file unless "console"). `BPFTIME_TRACE_PRINTK_OUTPUT` selects
+`stdout`, `stderr`, `none` or a file (appended); those are written with one
+`write` per message from a 512-byte stack buffer, so nothing interleaves with
+or is lost from the host's stdio buffers. The sink is resolved once per
+process. The helper returns the formatted length (kernel), not 0. Cost per
+printk (malloc example, Jetson): default 453k calls/s, `stdout` 650k, `none`
+3.0M, kernel 534k; the old buffered `vprintf` did ~2M. A kernel-like shared
+trace ring (bounded, no system call, read by a tool) would be the fast default.
