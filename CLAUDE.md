@@ -339,3 +339,14 @@ later destructors (gum/GLib teardown calling `free` under memleak) used to run
 programs against the unmapped segment and crash the host at exit. The Frida
 callback does not log `-ENODEV`, because the logger may already be destroyed.
 Threads still inside a program when the main thread unmaps are not covered.
+
+## Syscall Server Fork Children
+
+A child forked before the syscall server started (memleak `-c` forks the
+traced command before its first `bpf()` call) passes every call to libc: an
+atfork child handler marks the interposer disabled when `start_up` has not
+been entered. Starting a server in the child began a new session, whose
+`reset_server_state` dropped the maps the parent was creating, and the child's
+diverged fd table no longer matches the shared handler table. Children of a
+started server keep the inherited state; their `close` of an inherited object
+still destroys it for every process, unlike the kernel.
