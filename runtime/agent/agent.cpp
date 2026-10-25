@@ -82,6 +82,32 @@ bool injected_with_frida = true;
 
 static std::atomic<uint64_t> auto_refresh_epoch{ 0 };
 static std::mutex auto_refresh_thread_mutex;
+// The agent's own work runs inside the traced process. Probes must not see
+// it: memleak reported the agent's allocations while it attached, and its
+// background threads' 8 MB stacks, as leaks. Gum skips listeners and
+// replacements on ignored threads (the count nests).
+static void ignore_probes_on_this_thread()
+{
+	GumInterceptor *interceptor = gum_interceptor_obtain();
+	gum_interceptor_ignore_current_thread(interceptor);
+	g_object_unref(interceptor);
+}
+
+struct agent_internal_section {
+	agent_internal_section()
+	{
+		ignore_probes_on_this_thread();
+	}
+	~agent_internal_section()
+	{
+		GumInterceptor *interceptor = gum_interceptor_obtain();
+		gum_interceptor_unignore_current_thread(interceptor);
+		g_object_unref(interceptor);
+	}
+	agent_internal_section(const agent_internal_section &) = delete;
+	agent_internal_section &operator=(const agent_internal_section &) = delete;
+};
+
 static std::thread auto_refresh_thread;
 static std::atomic<pid_t> auto_refresh_loader_pid{ -1 };
 
@@ -296,7 +322,9 @@ static void start_agent_ipc_server_once()
 		agent_ipc_fd = fd;
 		agent_ipc_stop.store(false, std::memory_order_release);
 		try {
+			agent_internal_section probes_ignored_for_spawn;
 			agent_ipc_thread = std::thread([]() {
+			ignore_probes_on_this_thread();
 			for (;;) {
 				if (agent_ipc_stop.load(std::memory_order_acquire))
 					return;
@@ -505,7 +533,9 @@ static bool ensure_detach_worker_started() noexcept
 		detach_pipe_fds[1] = fds[1];
 		fds[0] = -1;
 		fds[1] = -1;
+		agent_internal_section probes_ignored_for_spawn;
 		std::thread([]() {
+			ignore_probes_on_this_thread();
 			for (;;) {
 				uint8_t buf[16];
 				ssize_t n =
@@ -695,6 +725,7 @@ static int refresh_attach_session(const gchar *data)
 	(void)ctx_holder.ctx.destroy_all_attach_links();
 	ctx_holder.ctx.reset_instantiated_state();
 
+	agent_internal_section probes_ignored;
 	int res =
 		ctx_holder.ctx.init_attach_ctx_from_handlers(bpftime_get_runtime_config());
 	if (res != 0) {
@@ -723,7 +754,9 @@ static int refresh_attach_session(const gchar *data)
 		std::lock_guard<std::mutex> tguard(auto_refresh_thread_mutex);
 		if (auto_refresh_thread.joinable())
 			auto_refresh_thread.join();
+		agent_internal_section probes_ignored_for_spawn;
 		auto_refresh_thread = std::thread([auto_refresh_ms, epoch]() {
+ignore_probes_on_this_thread();
 			for (;;) {
 				if (auto_refresh_epoch.load(
 					    std::memory_order_acquire) != epoch) {
@@ -1068,6 +1101,7 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 			SPDLOG_INFO("Initializing agent..");
 
 			try {
+				agent_internal_section probes_ignored;
 				int res = ctx_holder.ctx
 						  .init_attach_ctx_from_handlers(
 							  runtime_config);
@@ -1103,8 +1137,10 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 					auto_refresh_thread_mutex);
 				if (auto_refresh_thread.joinable())
 					auto_refresh_thread.join();
+				agent_internal_section probes_ignored_for_spawn;
 				auto_refresh_thread = std::thread(
 					[auto_refresh_ms, epoch]() {
+ignore_probes_on_this_thread();
 						for (;;) {
 							if (auto_refresh_epoch.load(
 								    std::memory_order_acquire) !=
@@ -1165,7 +1201,11 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 			signal(SIGUSR1, sig_handler_sigusr1_detach);
 			/* We don't want our library to be unloaded after we return. */
 			*stay_resident = TRUE;
-			setenv("BPFTIME_USED", "1", 0);
+			{
+				// setenv allocates in the traced process.
+				agent_internal_section probes_ignored;
+				setenv("BPFTIME_USED", "1", 0);
+			}
 			__atomic_store_n(&initialized, AGENT_READY,
 					 __ATOMIC_SEQ_CST);
 			try {
