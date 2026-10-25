@@ -406,3 +406,21 @@ a different trace in an occupied bucket returns `-EEXIST` unless
 `BPF_F_REUSE_STACKID` replaces it, and `BPF_F_FAST_STACK_CMP` compares the full
 hash. `bpf_get_stackid` returns errors negative (it used to cast them to a
 valid-looking `uint32_t` id).
+
+## Cgroup Array And bpf_current_task_under_cgroup
+
+`BPF_MAP_TYPE_CGROUP_ARRAY` (`cgroup_array_map_impl`) stores, per slot, the
+cgroup v2 path of the directory fd the loader wrote (resolved at update via
+`/proc/self/fd` and the cgroup2 entry of `/proc/self/mountinfo`), because the
+fd means nothing in the traced process. Kernel rules: `BPF_ANY` only (`EINVAL`),
+`E2BIG` out of range, `EBADF` for anything but a cgroup v2 directory, `ENOENT`
+deleting an empty slot, `EOPNOTSUPP` for lookups. Helper 37 returns 1 when the
+calling thread's cgroup (`/proc/thread-self/cgroup`, the `0::` line) is the
+slot's path or below it on a component boundary, else 0; `-E2BIG`/`-EAGAIN` as
+the kernel. The slot path is copied under the map spinlock and compared outside
+it; never do file I/O under the map lock. Each thread keeps its proc fd and
+re-reads it with `pread` at offset 0 (fresh content, one system call: 327k
+filtered calls/s vs 85k with open/read/close; kernel 469k); `/proc/thread-self`
+is bound at open, so the atfork child handler bumps a generation and inherited
+fds are reopened. Loader and traced process must share the cgroup namespace;
+cgroup v1 is not supported. `bpf_get_current_cgroup_id` is still missing.
