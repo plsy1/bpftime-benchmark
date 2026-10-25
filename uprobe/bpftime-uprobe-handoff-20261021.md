@@ -1,13 +1,13 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口，替代 2026-10-11/13 文档的“当前状态”，但不覆盖历史实验。
-最后核对：2026-10-25 23:10 JST 左右。以下分支、进程和文件状态均为本机快照；
+最后核对：2026-10-26 02:30 JST 左右。以下分支、进程和文件状态均为本机快照；
 后续模型行动前需重新核实。**新会话先读第 0 节**，再按需读其余章节。
 
-## 0. 现状一页（2026-10-25 23:10 JST，新会话从这里继续）
+## 0. 现状一页（2026-10-26 02:30 JST，新会话从这里继续）
 
 **目标**：继续优化 `codex/uprobe-official-177a1dc465ff`（开发 worktree
-`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `f9d2d9fc`）。
+`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `a7d54d7e`）。
 下一阶段重点：扩大测试覆盖（见 0.4），hash map 重写暂缓。
 
 ### 0.1 改了什么（7 个新提交，均已推送并加入每日补丁栈，共 50 个提交）
@@ -37,7 +37,7 @@ delete 大函数，源码小改动就会重排整函数的代码生成；专用 
 每日补丁栈：LLVM 15 第 5 轮重放（`results/uprobe/daily-jit-stack-validation-20261021/round5-hash-bound-delete`）
 50/50 无冲突，树与 `72aebadd` 相同，候选 77 cases、官方 26 cases 通过。
 
-### 0.1a 真实程序（10/25）：审计、测量、10 个修复提交（已推送，已加入补丁栈，共 65 个提交）
+### 0.1a 真实程序（10/25–26）：审计、测量、18 个修复提交（已推送，已加入补丁栈，共 73 个提交）
 
 审计（`realprog-audit-20261025`）：无 BTF 构建 7 个 uprobe 工具，比较 kernel / 官方 177a1dc（`builds/official`，**未去绑核**）/ `bca2ebce`。
 没有“官方能跑、我们改后不能跑”的工具。测量（`realprog-measure-20261025`，5 轮中位数，被追踪程序吞吐）：gethostlatency `bca2ebce` 是 kernel 的 1.49x
@@ -70,8 +70,24 @@ delete 大函数，源码小改动就会重排整函数的代码生成；专用 
 memleak 1.31x、malloc 示例 3.74x；完整十轮 ±2%。malloc 示例相对 2448aeaf −6% 已证实是代码布局（每次调用指令数相同、IPC 2.93 → 2.74；
 同逻辑加无用 nop 的对照构建回到 −0.9%），不靠填充修。
 
-遗留：cgroup 过滤时 327k 次/秒（kernel 469k），每次一次 pread；`bpf_get_current_cgroup_id` 还没有；已启动 server 的子进程 close 继承 fd 会删掉全局对象；
-memleak 下 bpftime 自己的内部分配（约 250 个）也被探针看到。上游 PR 计划见 0.6。
+10/26 凌晨再加 8 个（`realprog-rest-20261026`，第 12 轮回放）：
+
+| 提交 | 修了什么 |
+|---|---|
+| `597d89f0` | `bpf_trace_printk` 默认不再写宿主 stdout（上游契约 #634）：默认写 bpftime 日志；`BPFTIME_TRACE_PRINTK_OUTPUT`=stdout/stderr/none/文件（一次 write）；返回长度 |
+| `4341a60b` | 用户态处理 `bpf()`/`perf_event_open()` 出错时返回 `ENOMEM`/`EINVAL`，不再转给内核（原来内核建了 map，memleak 的程序引用不到、静默无数据）；默认 shm 128 MB（boost 用 posix_fallocate 预占，所以是常驻内存） |
+| `da50a34c` + `a7d54d7e` | 每事件的出错日志限流（第 1、10、100…次）；日志放到冷函数里，否则热函数多出栈保护金丝雀（`4d9b8a61` 上 probe read +31%） |
+| `71ce81b7` | 已启动 server 后 fork 的子进程关闭继承 fd 不再删掉全局对象 |
+| `b00be207` | `bpf_get_current_cgroup_id`（80） |
+| `f2596ce8` | 栈帧用 XPACI 去 PAC（`gum_strip_code_address` 在 Linux 上不去签名） |
+| `4d9b8a61` | agent 的挂载、建线程、setenv、后台线程不再触发探针：memleak 1026（kernel 1027，原约 1275） |
+
+gethostlatency 少记不是 bpftime 的问题：用精确总数（工作负载打印 `total_ops`）后，工具计数 + 它报告的 "lost N events" = 调用数，kernel 也同样丢（perf 缓冲溢出）。
+吞吐（a7d54d7e，相对 kernel）：gethostlatency 1.45x、funclatency 示例 3.60x、funclatency（libbpf-tools）3.12x、memleak 1.28x、malloc 示例 0.99x
+（每次 malloc 都 printk，默认写日志后从约 200 万降到 52 万；共享内存 trace 环形缓冲区是更快的默认方案，未做）。完整十轮 ±2%；相对 f9d2d9fc 的 1–2.5% 差值经 perf stat 确认
+每次调用指令数不增（2367 vs 2373）、周期数相同，属布局/噪声。
+
+遗留：cgroup 过滤 327k 次/秒（kernel 469k）；printk 默认路径较慢；bpftime 看不到 agent 接管前（`__libc_start_main` 之前）的分配。上游 PR 计划见 0.6。
 
 ### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`）
 
@@ -90,6 +106,7 @@ memleak 下 bpftime 自己的内部分配（约 250 个）也被探针看到。�
 | `perf-output-identity-20261024` | `bca2ebce` 的测试、完整十轮、ssl-nginx 2 × 10 |
 | `uid-gid-cache-20261024` | `7ed339ad` 的测试、UID 审计、完整十轮、ssl-nginx 2 × 10 |
 | `realprog-audit-20261025`、`realprog-measure-20261025` | 真实工具功能审计（7 个工具 × kernel / 官方 / `bca2ebce`）和吞吐测量（5 轮）；测试脚本源码在 `realprog-audit-20261025/src` |
+| `realprog-rest-20261026` | printk、shm 耗尽、日志限流、fork 关闭、cgroup id、PAC、agent 噪声 8 个修复的审计、两次完整十轮、两轮 5 工具测量、perf stat |
 | `realprog-next-20261025` | 帧指针取栈、栈 map、cgroup array 的审计、cgroup 过滤检查、5 工具吞吐（`measure-run/`）、完整十轮、malloc 布局对照（`malloc-ab/`） |
 | `realprog-fixes-20261025` | 7 个修复提交的审计、两次完整十轮（`full10-df865b3e`、`full10-2448aeaf`）、ssl-nginx 2 × 10（`bench/`） |
 | `ssl-nginx-netns-recheck-20261023` | 复核 7 月 Tailscale/host netns 结论：共享的约 8% 环境开销成立，“bpftime 额外损失”在当前版本不成立 |
