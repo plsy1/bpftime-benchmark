@@ -57,7 +57,9 @@ class frida_attach_entry {
 			// -ENODEV: the runtime released its shared memory
 			// at process exit and skipped the program. The logger
 			// may already be destroyed by then; stay silent.
-			if (err < 0 && err != -ENODEV) {
+			// -ENOEXEC: the program failed to compile and was
+			// disabled, which was logged once at load.
+			if (err < 0 && err != -ENODEV && err != -ENOEXEC) {
 				SPDLOG_ERROR("Unable to run ebpf callback: {}",
 					     err);
 			}

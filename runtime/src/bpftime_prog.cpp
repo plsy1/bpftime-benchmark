@@ -486,6 +486,7 @@ bpftime_prog::bpftime_prog(const struct ebpf_inst *insn, size_t insn_cnt,
 
 	if (vm_name_str == "llvm") {
 		SPDLOG_DEBUG("Creating vm with name {}", vm_name_str);
+		jit_only_vm = true;
 	} else if (vm_name_str == "ubpf") {
 		SPDLOG_DEBUG("Creating vm with name {}", vm_name_str);
 	} else {
@@ -517,6 +518,7 @@ bpftime_prog::bpftime_prog(const struct ebpf_inst *insn, size_t insn_cnt,
 
 	if (vm_name_str == "llvm") {
 		SPDLOG_DEBUG("Creating vm with name {}", vm_name_str);
+		jit_only_vm = true;
 	} else if (vm_name_str == "ubpf") {
 		SPDLOG_DEBUG("Creating vm with name {}", vm_name_str);
 	} else {
@@ -674,8 +676,16 @@ int bpftime_prog::bpftime_prog_load(bool jit)
 		{
 			ebpf_jit_fn jit_fn = ebpf_compile(vm, &errmsg);
 			if (jit_fn == NULL) {
-				SPDLOG_WARN("JIT compilation failed ({}), falling back to interpreter", errmsg);
 				jitted = false;
+				if (jit_only_vm) {
+					// The LLVM VM has no interpreter: its exec
+					// would retry the compile on every call.
+					jit_failed = true;
+					SPDLOG_ERROR("JIT compilation of {} failed ({}); the program is disabled",
+						     name, errmsg ? errmsg : "");
+				} else {
+					SPDLOG_WARN("JIT compilation failed ({}), falling back to interpreter", errmsg);
+				}
 			} else {
 				jitted = true;
 				fn = jit_fn;
@@ -732,6 +742,12 @@ int bpftime_prog::bpftime_prog_exec(void *memory, size_t memory_size,
 		if (return_val)
 			*return_val = 0;
 		return -ENODEV;
+	}
+	if (jit_failed) {
+		// Reported once at load; the Frida callback does not log it.
+		if (return_val)
+			*return_val = 0;
+		return -ENOEXEC;
 	}
 	if (array_jit_requested && (!program_loaded || array_jit_failed)) {
 		if (return_val)
