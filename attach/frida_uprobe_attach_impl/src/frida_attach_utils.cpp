@@ -1,3 +1,7 @@
+#include <sys/auxv.h>
+#if defined(__aarch64__)
+#include <asm/hwcap.h>
+#endif
 #include "frida_attach_utils.hpp"
 #include "frida_uprobe_attach_impl.hpp"
 #include <cstdio>
@@ -210,3 +214,23 @@ extern "C" uint64_t bpftime_get_retval(uint64_t, uint64_t, uint64_t, uint64_t,
 	}
 	return (uintptr_t)gum_invocation_context_get_return_value(gum_ctx);
 }
+
+// Strip the pointer authentication code of a return address (libc and the
+// agent sign theirs); gum_strip_code_address does not strip on Linux, and
+// frames came out as 0x0005ffff... XPACI is undefined without PAC, so check
+// the hwcap; without PAC nothing is signed. (A naked asm function here lost
+// its argument to interprocedural optimization.)
+uint64_t bpftime::attach::strip_code_pointer_auth(uint64_t addr)
+{
+#if defined(__aarch64__)
+	static const bool has_pac = (getauxval(AT_HWCAP) & HWCAP_PACA) != 0;
+	if (!has_pac)
+		return addr;
+	register uint64_t x0 asm("x0") = addr;
+	asm(".inst 0xdac143e0" : "+r"(x0)); // xpaci x0
+	return x0;
+#else
+	return addr;
+#endif
+}
+
