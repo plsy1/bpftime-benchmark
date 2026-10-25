@@ -509,4 +509,15 @@ TEST_CASE("Syscall server mock files do not leave tmp entries",
 	REQUIRE(WEXITSTATUS(result.status) == 0);
 	REQUIRE(result.output.empty());
 }
+
+TEST_CASE("Syscall server child forked before startup leaves the parent's maps",
+	  "[allocation][syscall_server][fork]")
+{
+	auto result = run_allocation_helper("fork-before-startup", "16", "128",
+					    nullptr);
+
+	INFO(result.output);
+	REQUIRE(WIFEXITED(result.status));
+	REQUIRE(WEXITSTATUS(result.status) == 100);
+}
 #endif

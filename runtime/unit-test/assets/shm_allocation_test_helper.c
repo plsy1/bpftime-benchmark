@@ -6,6 +6,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/bpf.h>
 #include <linux/perf_event.h>
 #include <limits.h>
 #include <signal.h>
@@ -14,6 +15,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 static int global_shm_exists(void)
@@ -206,6 +208,66 @@ static int check_sigusr1_default(void)
 	return action.sa_handler == SIG_DFL ? 100 : 106;
 }
 
+static long sys_bpf(int cmd, union bpf_attr *attr)
+{
+	return syscall(__NR_bpf, cmd, attr, sizeof(*attr));
+}
+
+/* A loader that forks before its first bpf() call (memleak -c forks the
+ * traced command first). The child inherits the interposer without a started
+ * server; its first intercepted call must not start a second server session,
+ * which would reset the objects the parent created meanwhile.
+ */
+static int fork_before_startup(void)
+{
+	int go[2];
+	if (pipe(go) != 0)
+		return 110;
+	pid_t child = fork();
+	if (child < 0)
+		return 111;
+	if (child == 0) {
+		char c;
+		/* Raw read: passes the interposer without starting anything. */
+		if (syscall(SYS_read, go[0], &c, 1) != 1)
+			_exit(1);
+		int fd = open("/dev/null", O_RDONLY);
+		if (fd >= 0)
+			close(fd);
+		_exit(0);
+	}
+	union bpf_attr attr;
+	memset(&attr, 0, sizeof(attr));
+	attr.map_type = BPF_MAP_TYPE_HASH;
+	attr.key_size = 4;
+	attr.value_size = 8;
+	attr.max_entries = 4;
+	int map_fd = (int)sys_bpf(BPF_MAP_CREATE, &attr);
+	if (map_fd < 0)
+		return 112;
+	unsigned int key = 1;
+	unsigned long long value = 42, out = 0;
+	memset(&attr, 0, sizeof(attr));
+	attr.map_fd = map_fd;
+	attr.key = (unsigned long long)(unsigned long)&key;
+	attr.value = (unsigned long long)(unsigned long)&value;
+	if (sys_bpf(BPF_MAP_UPDATE_ELEM, &attr) != 0)
+		return 113;
+	if (write(go[1], "x", 1) != 1)
+		return 114;
+	int status = 0;
+	if (waitpid(child, &status, 0) != child || !WIFEXITED(status) ||
+	    WEXITSTATUS(status) != 0)
+		return 115;
+	memset(&attr, 0, sizeof(attr));
+	attr.map_fd = map_fd;
+	attr.key = (unsigned long long)(unsigned long)&key;
+	attr.value = (unsigned long long)(unsigned long)&out;
+	if (sys_bpf(BPF_MAP_LOOKUP_ELEM, &attr) != 0)
+		return 116;
+	return out == 42 ? 100 : 117;
+}
+
 int main(int argc, char **argv)
 {
 	if (argc != 2) {
@@ -225,6 +287,9 @@ int main(int argc, char **argv)
 	}
 	if (strcmp(argv[1], "perf-mmap") == 0) {
 		return trigger_perf_mmap();
+	}
+	if (strcmp(argv[1], "fork-before-startup") == 0) {
+		return fork_before_startup();
 	}
 	if (strcmp(argv[1], "check-sigusr1") == 0) {
 		return check_sigusr1_default();

@@ -12,15 +12,7 @@
 #include "cuda.h"
 #endif
 #include "syscall_context.hpp"
-#include "synthetic_kallsyms.hpp"
-#if __linux__
-// Self-contained rootless tracepoint id synthesis. The syscall name->number
-// table is generated inside runtime/ (syscall_id_table target); the syscall
-// server must not include or link anything under attach/ to read it.
-#include "syscall_id_list.h"
-#include "platform_utils.hpp"
-#endif
-#include <cstdint>
+#include <atomic>
 #include <cerrno>
 #include <cstdlib>
 #include <dlfcn.h>
@@ -46,6 +38,7 @@
 namespace bpftime
 {
 static std::once_flag g_startup_once;
+static std::atomic<bool> g_startup_entered{ false };
 static std::exception_ptr g_startup_exception;
 static std::string g_syscall_server_shm_name;
 static pid_t g_syscall_server_shm_owner_pid = -1;
@@ -316,9 +309,15 @@ static bool initialize_global_shm_with_ownership()
 	return false;
 }
 
+bool syscall_server_startup_entered()
+{
+	return g_startup_entered.load(std::memory_order_acquire);
+}
+
 void start_up(syscall_context &ctx)
 {
 	std::call_once(g_startup_once, [&ctx]() {
+		g_startup_entered.store(true, std::memory_order_release);
 		try {
 			SPDLOG_INFO("Starting syscall server..");
 			auto runtime_config = construct_runtime_config_from_env();
