@@ -268,6 +268,48 @@ static int fork_before_startup(void)
 	return out == 42 ? 100 : 117;
 }
 
+/* A child forked after the server started closes an inherited map fd; the
+ * parent still holds the map (the kernel only drops the child's reference).
+ */
+static int fork_after_startup_close(void)
+{
+	union bpf_attr attr;
+	memset(&attr, 0, sizeof(attr));
+	attr.map_type = BPF_MAP_TYPE_HASH;
+	attr.key_size = 4;
+	attr.value_size = 8;
+	attr.max_entries = 4;
+	int map_fd = (int)sys_bpf(BPF_MAP_CREATE, &attr);
+	if (map_fd < 0)
+		return 130;
+	unsigned int key = 1;
+	unsigned long long value = 42, out = 0;
+	memset(&attr, 0, sizeof(attr));
+	attr.map_fd = map_fd;
+	attr.key = (unsigned long long)(unsigned long)&key;
+	attr.value = (unsigned long long)(unsigned long)&value;
+	if (sys_bpf(BPF_MAP_UPDATE_ELEM, &attr) != 0)
+		return 131;
+	pid_t child = fork();
+	if (child < 0)
+		return 132;
+	if (child == 0) {
+		close(map_fd);
+		_exit(0);
+	}
+	int status = 0;
+	if (waitpid(child, &status, 0) != child || !WIFEXITED(status) ||
+	    WEXITSTATUS(status) != 0)
+		return 133;
+	memset(&attr, 0, sizeof(attr));
+	attr.map_fd = map_fd;
+	attr.key = (unsigned long long)(unsigned long)&key;
+	attr.value = (unsigned long long)(unsigned long)&out;
+	if (sys_bpf(BPF_MAP_LOOKUP_ELEM, &attr) != 0)
+		return 134;
+	return out == 42 ? 100 : 135;
+}
+
 /* A map larger than the shared memory: bpf() must fail with ENOMEM instead
  * of falling back to the kernel (which created a kernel map the runtime could
  * not resolve), and the server must keep working afterwards.
@@ -314,6 +356,9 @@ int main(int argc, char **argv)
 	}
 	if (strcmp(argv[1], "perf-mmap") == 0) {
 		return trigger_perf_mmap();
+	}
+	if (strcmp(argv[1], "fork-after-startup-close") == 0) {
+		return fork_after_startup_close();
 	}
 	if (strcmp(argv[1], "map-exhaustion") == 0) {
 		return map_exhaustion();
