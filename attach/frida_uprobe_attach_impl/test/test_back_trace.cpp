@@ -108,6 +108,13 @@ TEST_CASE("Uretprobe callbacks can generate a backtrace")
 		delete stack;
 		return copy;
 	};
+	auto symbol = [](uint64_t addr) {
+		GumDebugSymbolDetails details;
+		REQUIRE(gum_symbol_details_from_address((GumReturnAddress)addr,
+							&details));
+		SPDLOG_INFO("symbol name {}", details.symbol_name);
+		return std::string(details.symbol_name);
+	};
 	std::vector<uint64_t> at_entry, at_return;
 	impl.create_uprobe_at((void *)&__bpftime_test_attach_with_back_trace__func5,
 			      [&](const pt_regs &) { at_entry = generate(); });
@@ -116,21 +123,26 @@ TEST_CASE("Uretprobe callbacks can generate a backtrace")
 		[&](const pt_regs &) { at_return = generate(); });
 	REQUIRE(__bpftime_test_attach_with_back_trace__func1(100) == 635);
 
-	// The return lands where the call came from, so the callers seen at
-	// entry are the stack at return. Compilers may inline the outer
-	// fixtures (func2/func1), so only the first two frames are named.
-	REQUIRE(at_return.size() >= 2);
+	const std::string prefix = "__bpftime_test_attach_with_back_trace__func";
+	REQUIRE(at_entry.size() >= 3);
+	REQUIRE(at_return.size() >= 3);
+#if defined(__aarch64__)
+	// Kernel semantics (arm64 perf_callchain_user): the pc first, then the
+	// frame-record chain. At entry the pc is the probed function and the
+	// caller (func4) has no record yet; at return the pc is the return
+	// address in func4. Above that both see the same chain.
+	REQUIRE(at_entry[0] ==
+		(uint64_t)(uintptr_t)&__bpftime_test_attach_with_back_trace__func5);
+	REQUIRE(symbol(at_entry[1]).starts_with(prefix + "3"));
+	REQUIRE(symbol(at_return[0]).starts_with(prefix + "4"));
+	REQUIRE(std::vector<uint64_t>(at_entry.begin() + 1, at_entry.end()) ==
+		std::vector<uint64_t>(at_return.begin() + 1, at_return.end()));
+#else
+	// Gum backtracer: callers seen at entry are the stack at return.
 	REQUIRE(at_return == at_entry);
-	const char *expected[] = { "__bpftime_test_attach_with_back_trace__func4",
-				   "__bpftime_test_attach_with_back_trace__func3" };
-	for (int i = 0; i < 2; i++) {
-		GumDebugSymbolDetails debug_details;
-		REQUIRE(gum_symbol_details_from_address(
-				(GumReturnAddress)at_return[i], &debug_details));
-		SPDLOG_INFO("symbol name {}", debug_details.symbol_name);
-		REQUIRE(std::string(debug_details.symbol_name)
-				.starts_with(expected[i]));
-	}
+	REQUIRE(symbol(at_return[0]).starts_with(prefix + "4"));
+	REQUIRE(symbol(at_return[1]).starts_with(prefix + "3"));
+#endif
 	// The context is cleared after the callbacks.
 	REQUIRE(impl.call_attach_specific_function("generate_stack", nullptr) ==
 		nullptr);
