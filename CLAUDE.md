@@ -326,11 +326,19 @@ both invalidation paths.
 context of `gum_interceptor_get_current_invocation()`, so stacks work in
 uretprobes (memleak records its stacks there). `on_leave` does not set the
 thread-local: in the agent each TLS access is a `__tls_get_addr` call, and
-setting and resetting it cost every return about 5 ns (uretprobe +1.9%). The
-gum context at return and the frames it yields differ from the kernel's
-frame-pointer walk (on PAC-enabled arm64 libc the stack ends early, and the
-accurate backtracer re-reads ELF unwind data on every call); do not claim
-kernel-identical stacks or cost.
+setting and resetting it cost every return about 5 ns (uretprobe +1.9%).
+
+On aarch64 the non-fuzzy backtracer is a frame-pointer walk with the kernel's
+`perf_callchain_user` result: the pc first (the probed function at entry, the
+return address at return, as `regs->pc` in a kernel uprobe/uretprobe), then the
+return address of each x29 frame record with its PAC stripped. At entry the
+immediate caller is missing, as in the kernel. Records are read only within the
+current thread's stack (`pthread_getattr_np`, cached per thread), must move
+strictly upwards and 8-byte aligned, and a return address below the first page
+or above the user VA limit ends the walk; never read through an unchecked x29.
+The gum accurate backtracer re-read ELF unwind data on every call (memleak
+20k allocations/s) and stopped at PAC-signed return addresses. Other
+architectures and the fuzzy option keep gum.
 
 ## Process Exit
 
