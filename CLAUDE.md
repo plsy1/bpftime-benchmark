@@ -336,6 +336,10 @@ immediate caller is missing, as in the kernel. Records are read only within the
 current thread's stack (`pthread_getattr_np`, cached per thread), must move
 strictly upwards and 8-byte aligned, and a return address below the first page
 or above the user VA limit ends the walk; never read through an unchecked x29.
+Return addresses are stripped with `strip_code_pointer_auth` (XPACI when
+`HWCAP_PACA`): `gum_strip_code_address` returns signed addresses unchanged on
+Linux, and libc and the agent sign theirs. Do not write it as a naked asm
+function: interprocedural optimization dropped the "unused" argument.
 The gum accurate backtracer re-read ELF unwind data on every call (memleak
 20k allocations/s) and stopped at PAC-signed return addresses. Other
 architectures and the fuzzy option keep gum.
