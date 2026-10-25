@@ -38,6 +38,9 @@
 
 #include "platform_utils.hpp"
 #include "spdlog/spdlog.h"
+#include "bpftime_logger.hpp"
+#include <fcntl.h>
+#include <string_view>
 #include <map>
 #include <stdio.h>
 #include <stdarg.h>
@@ -79,18 +82,86 @@ static const int probe_access_atfork_status = pthread_atfork(
 uint64_t bpftime_override_return(uint64_t ctx, uint64_t value);
 uint64_t bpftime_set_retval(uint64_t retval);
 
+} // extern "C"
+
+namespace
+{
+// Where bpf_trace_printk output goes. The injected-agent contract keeps it off
+// the host's stdio unless chosen: by default it is a bpftime log record (the
+// BPFTIME_LOG_OUTPUT sink, a size-bounded rotating file unless "console"), as
+// the kernel keeps it in its trace ring. BPFTIME_TRACE_PRINTK_OUTPUT selects
+// "stdout", "stderr", "none" or a file (appended).
+struct trace_printk_sink {
+	enum { to_logger, to_fd, to_none } target;
+	int fd;
+};
+
+const trace_printk_sink &trace_printk_output()
+{
+	static const trace_printk_sink sink = []() -> trace_printk_sink {
+		const char *value = getenv("BPFTIME_TRACE_PRINTK_OUTPUT");
+		if (value == nullptr || *value == '\0')
+			return { trace_printk_sink::to_logger, -1 };
+		const std::string target(value);
+		if (target == "none")
+			return { trace_printk_sink::to_none, -1 };
+		if (target == "stdout")
+			return { trace_printk_sink::to_fd, STDOUT_FILENO };
+		if (target == "stderr")
+			return { trace_printk_sink::to_fd, STDERR_FILENO };
+		int fd = open(bpftime::expand_user_path(target).c_str(),
+			      O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+		if (fd < 0) {
+			SPDLOG_WARN(
+				"Unable to open BPFTIME_TRACE_PRINTK_OUTPUT {}: {}; using the bpftime log",
+				target, strerror(errno));
+			return { trace_printk_sink::to_logger, -1 };
+		}
+		return { trace_printk_sink::to_fd, fd };
+	}();
+	return sink;
+}
+} // namespace
+
+extern "C" {
+
 uint64_t bpftime_trace_printk(uint64_t fmt, uint64_t fmt_size, ...)
 {
+	const auto &sink = trace_printk_output();
+	if (sink.target == trace_printk_sink::to_none)
+		return 0;
 	const char *fmt_str = (const char *)fmt;
+	char buf[512];
 	va_list args;
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
 #pragma GCC diagnostic ignored "-Wvarargs"
 	va_start(args, fmt_str);
-	long ret = vprintf(fmt_str, args);
+	int len = vsnprintf(buf, sizeof(buf), fmt_str, args);
 #pragma GCC diagnostic pop
 	va_end(args);
-	return 0;
+	if (len < 0)
+		return (uint64_t)(int64_t)-EINVAL;
+	if ((size_t)len >= sizeof(buf))
+		len = sizeof(buf) - 1;
+	if (sink.target == trace_printk_sink::to_fd) {
+		// One write, no host stdio buffer: nothing to interleave with
+		// or to lose when the host is killed.
+		for (size_t done = 0; done < (size_t)len;) {
+			ssize_t n = write(sink.fd, buf + done, len - done);
+			if (n < 0 && errno == EINTR)
+				continue;
+			if (n <= 0)
+				break;
+			done += n;
+		}
+	} else {
+		int shown = len;
+		while (shown > 0 && buf[shown - 1] == '\n')
+			shown--;
+		SPDLOG_INFO("bpf_trace_printk: {}", std::string_view(buf, shown));
+	}
+	return len;
 }
 
 long bpftime_strncmp(const char *s1, uint64_t s1_sz, const char *s2)
