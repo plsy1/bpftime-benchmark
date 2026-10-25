@@ -1116,7 +1116,8 @@ int64_t bpftime_get_stackid(uint64_t ctx_raw, uint64_t map_raw, uint64_t flags,
 					 flags & BPF_F_FAST_STACK_CMP);
 
 	SPDLOG_DEBUG("Got stackid {}", ret);
-	return (uint32_t)ret;
+	// Ids are non-negative; errors (-EEXIST) must stay negative.
+	return ret < 0 ? ret : (uint32_t)ret;
 }
 
 int64_t bpftime_get_stack(uint64_t ctx_raw, uint64_t buf, uint64_t size,

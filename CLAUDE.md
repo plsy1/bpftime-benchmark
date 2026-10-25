@@ -395,3 +395,14 @@ now marks such a program `jit_failed`, logs once that it is disabled, and
 does not log it again. VMs with an interpreter (ubpf) still fall back to it.
 A disabled program is not a stub for the missing helper: the tool loads but
 records nothing.
+
+## Stack Trace Map
+
+`stack_trace_map_impl::fill_stack_trace` follows the kernel `__bpf_get_stackid`:
+frames beyond `value_size / 8` are dropped, stored traces are zero-padded to the
+whole value (lookups copy `value_size` bytes; a shorter stored vector was read
+out of bounds and showed heap garbage as frames), the same trace returns its id,
+a different trace in an occupied bucket returns `-EEXIST` unless
+`BPF_F_REUSE_STACKID` replaces it, and `BPF_F_FAST_STACK_CMP` compares the full
+hash. `bpf_get_stackid` returns errors negative (it used to cast them to a
+valid-looking `uint32_t` id).
