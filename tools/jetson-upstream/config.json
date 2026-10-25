@@ -81,7 +81,15 @@
       {"sha": "2448aeaf7fe930ce8add4ca974074ad1ed900aed", "kind": "optimization", "subject": "Find the uretprobe CPU context through the current gum invocation"},
       {"sha": "64da197c1e751d29b2da0be4bfba42d93f72ec5d", "kind": "optimization", "subject": "Walk the frame-pointer chain for user stacks on aarch64"},
       {"sha": "d766e6ad2d57c1f01589a7482dfb44cafcaa0367", "kind": "runtime-fix", "subject": "Store stack traces the kernel way: padded, truncated, -EEXIST on collision"},
-      {"sha": "f9d2d9fcff8db6a02970cba9f63c0aac16463f80", "kind": "runtime-fix", "subject": "Support cgroup arrays and bpf_current_task_under_cgroup"}
+      {"sha": "f9d2d9fcff8db6a02970cba9f63c0aac16463f80", "kind": "runtime-fix", "subject": "Support cgroup arrays and bpf_current_task_under_cgroup"},
+      {"sha": "597d89f0649f1fcbc388ecbd63610147e9b586f2", "kind": "runtime-fix", "subject": "Keep bpf_trace_printk off the host's stdout unless selected"},
+      {"sha": "4341a60b80c92fe61d3f7f9620dec532be8ba320", "kind": "runtime-fix", "subject": "Fail bpf() with ENOMEM on shared memory exhaustion; default to 128 MB"},
+      {"sha": "da50a34ce33a11627db992252739cd2f2529550f", "kind": "runtime-fix", "subject": "Rate-limit per-event runtime error logs"},
+      {"sha": "71ce81b7e3d291aefed1151b69bc37da068e4604", "kind": "runtime-fix", "subject": "Keep shared objects when a fork child closes an inherited fd"},
+      {"sha": "b00be2072d4df07ebb879aa1ebab89a536fb9929", "kind": "runtime-fix", "subject": "Add bpf_get_current_cgroup_id"},
+      {"sha": "f2596ce89c0fed25512aa136dc88e4c7859a23c2", "kind": "runtime-fix", "subject": "Strip pointer authentication codes from stack frames with XPACI"},
+      {"sha": "4d9b8a612d620c7eb19ef48af9b80e0ed64add44", "kind": "runtime-fix", "subject": "Keep the agent's own work out of the probes"},
+      {"sha": "a7d54d7eb7a06f5314f9bf00560586d668dbe6e6", "kind": "runtime-fix", "subject": "Move rate-limited logging out of line"}
     ]
   },
   "build": {
@@ -106,7 +114,7 @@
       "simple-benchmark-with-embed-ebpf-calling",
       "bpftime_runtime_tests"
     ],
-    "test_filter": "[array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent,[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps][map_in_map],Test bpftime runtime_config,Allow external maps from the environment,Select Frida*,Test basic operations of external hash map ops,[perf_event],[epoll],[uid_gid],[shm_release],[jit_load],[stack_trace],Test stack trace map*,[cgroup_array]"
+    "test_filter": "[array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent,[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps][map_in_map],Test bpftime runtime_config,Allow external maps from the environment,Select Frida*,Test basic operations of external hash map ops,[perf_event],[epoll],[uid_gid],[shm_release],[jit_load],[stack_trace],Test stack trace map*,[cgroup_array],[trace_printk],[ratelimit]"
   },
   "benchmark": {
     "cpu": 5,
