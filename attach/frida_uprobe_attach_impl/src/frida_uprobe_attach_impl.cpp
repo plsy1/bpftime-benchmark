@@ -79,7 +79,7 @@ std::vector<uint64_t> *walk_frame_pointers(const GumCpuContext &cpu,
 {
 	auto result = new std::vector<uint64_t>;
 	result->reserve(16);
-	result->push_back(gum_strip_code_address(first_pc));
+	result->push_back(strip_code_pointer_auth(first_pc));
 	thread_stack_range range;
 	if (!current_stack_range(cpu.sp, range))
 		return result;
@@ -88,7 +88,7 @@ std::vector<uint64_t> *walk_frame_pointers(const GumCpuContext &cpu,
 	       (fp & 0x7) == 0 && fp >= range.low &&
 	       fp + 2 * sizeof(uint64_t) <= range.high) {
 		const auto *record = reinterpret_cast<const uint64_t *>(fp);
-		const uint64_t ret = gum_strip_code_address(record[1]);
+		const uint64_t ret = strip_code_pointer_auth(record[1]);
 		// Past the outermost frame the chain can reach the initial
 		// stack (argc, argv); such values are not code addresses.
 		if (ret < 0x1000 || ret >= MAX_USER_ADDRESS)
