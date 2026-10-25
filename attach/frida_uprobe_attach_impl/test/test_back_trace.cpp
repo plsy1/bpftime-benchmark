@@ -2,6 +2,7 @@
 #include "frida-gum.h"
 #include "frida_register_def.hpp"
 #include "frida_uprobe_attach_impl.hpp"
+#include "frida_attach_utils.hpp"
 #include "spdlog/spdlog.h"
 #include <array>
 #include <cstdint>
@@ -178,4 +179,21 @@ TEST_CASE("Fuzzy backtracer recovers a call chain without unwind metadata")
 
 	REQUIRE(fixture_frames[1] >= 3);
 	REQUIRE(fixture_frames[1] > fixture_frames[0]);
+}
+
+TEST_CASE("Return addresses lose their pointer authentication code")
+{
+	const uint64_t plain =
+		(uint64_t)(uintptr_t)&__bpftime_test_attach_with_back_trace__func4;
+	uint64_t signed_addr = plain;
+#if defined(__aarch64__)
+	// PACIA1716 signs x17 with modifier x16 (a NOP hint without PAC).
+	register uint64_t x17 asm("x17") = plain;
+	register uint64_t x16 asm("x16") = 0x1234;
+	asm volatile("hint #8" : "+r"(x17) : "r"(x16));
+	signed_addr = x17;
+#endif
+	SPDLOG_INFO("signed {:x} plain {:x}", signed_addr, plain);
+	REQUIRE(strip_code_pointer_auth(signed_addr) == plain);
+	REQUIRE(strip_code_pointer_auth(plain) == plain);
 }

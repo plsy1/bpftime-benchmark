@@ -36,6 +36,9 @@ extern "C" uint64_t bpftime_get_func_arg(uint64_t ctx, uint32_t n,
 // Helper implementation of bpf_get_retval
 extern "C" uint64_t bpftime_get_retval(uint64_t, uint64_t, uint64_t, uint64_t,
 				       uint64_t);
+// Return address without its pointer authentication code (aarch64 with PAC;
+// unchanged elsewhere). gum_strip_code_address does not strip on Linux.
+uint64_t strip_code_pointer_auth(uint64_t addr);
 } // namespace attach
 } // namespace bpftime
 #endif
