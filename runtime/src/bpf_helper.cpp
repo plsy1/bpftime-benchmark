@@ -1064,6 +1064,32 @@ long bpftime_xdp_load_bytes(struct xdp_md_userspace *xdp_md, __u32 offset,
 }
 using namespace bpftime;
 
+// bpf_current_task_under_cgroup(map, index): 1 if the calling thread is in
+// the cgroup stored at index of a BPF_MAP_TYPE_CGROUP_ARRAY or below it, 0 if
+// not; -E2BIG / -EAGAIN like the kernel. Reads /proc/thread-self/cgroup on
+// every call, outside the map lock.
+int64_t bpftime_current_task_under_cgroup(uint64_t map_raw, uint64_t index,
+					  uint64_t, uint64_t, uint64_t)
+{
+	auto &shm = shm_holder.global_shared_memory;
+	const int fd = (int)map_raw;
+	if (!shm.is_map_fd(fd))
+		return -EINVAL;
+	auto &handler = std::get<bpf_map_handler>(shm.get_handler(fd));
+	auto impl = handler.try_get_cgroup_array_map_impl();
+	if (!impl.has_value())
+		return -EINVAL;
+	char ancestor[PATH_MAX];
+	{
+		bpftime_lock_guard guard(handler.get_raw_spin_lock());
+		if (long err = (*impl)->slot_path((uint32_t)index, ancestor,
+						  sizeof(ancestor));
+		    err < 0)
+			return err;
+	}
+	return cgroup_task_under_path(ancestor);
+}
+
 int64_t bpftime_get_stackid(uint64_t ctx_raw, uint64_t map_raw, uint64_t flags,
 			    uint64_t, uint64_t)
 {
@@ -1721,6 +1747,12 @@ const bpftime_helper_group &bpftime_helper_group::get_shm_maps_helper_group()
 			  .index = BPF_FUNC_map_peek_elem,
 			  .name = "bpf_map_peek_elem",
 			  .fn = (void *)bpftime_map_peek_elem_helper,
+		  } },
+		{ BPF_FUNC_current_task_under_cgroup,
+		  bpftime_helper_info{
+			  .index = BPF_FUNC_current_task_under_cgroup,
+			  .name = "bpf_current_task_under_cgroup",
+			  .fn = (void *)bpftime_current_task_under_cgroup,
 		  } },
 	} };
 
