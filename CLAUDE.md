@@ -321,9 +321,12 @@ both invalidation paths.
 
 ## Uretprobe Stacks
 
-`uprobe_listener_on_leave` sets `current_thread_gum_cpu_context` around the
-uretprobe callbacks exactly like `on_enter`, so `bpf_get_stackid` and
-`bpf_get_stack` work in uretprobes (memleak records its stacks there). The
+`generate_stack` (behind `bpf_get_stackid` and `bpf_get_stack`) uses
+`current_thread_gum_cpu_context` when `on_enter` set it and otherwise the CPU
+context of `gum_interceptor_get_current_invocation()`, so stacks work in
+uretprobes (memleak records its stacks there). `on_leave` does not set the
+thread-local: in the agent each TLS access is a `__tls_get_addr` call, and
+setting and resetting it cost every return about 5 ns (uretprobe +1.9%). The
 gum context at return and the frames it yields differ from the kernel's
 frame-pointer walk (on PAC-enabled arm64 libc the stack ends early, and the
 accurate backtracer re-reads ELF unwind data on every call); do not claim
