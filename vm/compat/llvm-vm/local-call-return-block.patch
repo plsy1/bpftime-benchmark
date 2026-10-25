@@ -1,0 +1,15 @@
+--- a/src/compiler.cpp
++++ b/src/compiler.cpp
+@@ -478,8 +478,10 @@
+ 				allBlocks.push_back(currBlk);
+ 
+ 				// Indicating that these block is the next
+-				// instruction of a local func call
+-				if (i > 1 &&
++				// instruction of a local func call. A call at
++				// pc 0 returns to pc 1 (a BPF_KRETPROBE wrapper
++				// whose body was not inlined starts that way).
++				if (i >= 1 &&
+ 				    insts[i - 1].opcode == EBPF_OP_CALL &&
+ 				    insts[i - 1].src == 0x01) {
+ 					auto blockAddr =

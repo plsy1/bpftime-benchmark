@@ -42,6 +42,32 @@ if(BPFTIME_LLVM_SOURCE_INDEX LESS 0)
 endif()
 list(REMOVE_AT BPFTIME_LLVM_SOURCES ${BPFTIME_LLVM_SOURCE_INDEX})
 list(APPEND BPFTIME_LLVM_SOURCES "${BPFTIME_ARRAY_JIT_SOURCE}")
+
+# A bpf-to-bpf call at pc 0 never registered its return block, so the JIT
+# stored a null block address and crashed the traced process (libbpf-tools
+# funclatency's kretprobe). Same overlay scheme as above.
+set(BPFTIME_LOCAL_CALL_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/local-call-return-block.patch")
+set(BPFTIME_LOCAL_CALL_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/compiler_local_call.cpp")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${BPFTIME_LOCAL_CALL_PATCH}" "${BPFTIME_LLVM_SOURCE_DIR}/src/compiler.cpp")
+execute_process(
+  COMMAND "${BPFTIME_PATCH_EXECUTABLE}" --batch --fuzz=0
+    "--output=${BPFTIME_LOCAL_CALL_SOURCE}.tmp"
+    "${BPFTIME_LLVM_SOURCE_DIR}/src/compiler.cpp" "${BPFTIME_LOCAL_CALL_PATCH}"
+  RESULT_VARIABLE BPFTIME_LOCAL_CALL_PATCH_RESULT
+  OUTPUT_VARIABLE BPFTIME_LOCAL_CALL_PATCH_OUTPUT
+  ERROR_VARIABLE BPFTIME_LOCAL_CALL_PATCH_ERROR)
+if(NOT BPFTIME_LOCAL_CALL_PATCH_RESULT EQUAL 0)
+  message(FATAL_ERROR "Local call patch conflicts with upstream llvmbpf; rebase local-call-return-block.patch.\n${BPFTIME_LOCAL_CALL_PATCH_OUTPUT}\n${BPFTIME_LOCAL_CALL_PATCH_ERROR}")
+endif()
+configure_file("${BPFTIME_LOCAL_CALL_SOURCE}.tmp" "${BPFTIME_LOCAL_CALL_SOURCE}" COPYONLY)
+file(REMOVE "${BPFTIME_LOCAL_CALL_SOURCE}.tmp")
+list(FIND BPFTIME_LLVM_SOURCES "src/compiler.cpp" BPFTIME_LLVM_COMPILER_INDEX)
+if(BPFTIME_LLVM_COMPILER_INDEX LESS 0)
+  message(FATAL_ERROR "Upstream llvmbpf source layout changed; audit the local call overlay.")
+endif()
+list(REMOVE_AT BPFTIME_LLVM_SOURCES ${BPFTIME_LLVM_COMPILER_INDEX})
+list(APPEND BPFTIME_LLVM_SOURCES "${BPFTIME_LOCAL_CALL_SOURCE}")
 set_property(TARGET llvmbpf_vm PROPERTY SOURCES "${BPFTIME_LLVM_SOURCES}")
 target_include_directories(llvmbpf_vm PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include")
 
