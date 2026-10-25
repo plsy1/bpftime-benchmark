@@ -5,15 +5,17 @@
 
 ## 建议阅读顺序
 
-**课题全貌：[阶段总结（截至 2026-10-23）](bpftime-research-overview-20261023.md)**，
-按时间整理从基础设施、ssl-nginx 调查、map 诊断到 C++ 优化、array JIT 和 hash map 优化的全部工作。
+**课题全貌：[阶段总结（截至 2026-10-26）](bpftime-research-overview.md)**，按时间整理从基础设施、ssl-nginx 调查、
+map 诊断、C++ 优化、array JIT、hash map 优化、ssl-nginx 收尾，到真实程序兼容性审计与修复的全部工作。
 
-**当前接力入口：[Uprobe 研究进度与工程接力（2026-10-21）](uprobe/bpftime-uprobe-handoff-20261021.md)。**
-包含正式工作区/分支、已推送的 JIT 提交、最新十轮与 kernel 对比、array consuming
-测试口径、delete 回退修复、JIT 加入每日补丁栈的集成验证，以及接手后的行动顺序。
-最新完整十轮已通过，不是仍在运行；此前
-[2026-10-11 优化推进状态](uprobe/bpftime-uprobe-optimization-progress-20261011.md)
-保留为历史阶段记录，不代表当前进度。
+**当前接力入口：[研究进度与工程接力](uprobe/bpftime-uprobe-handoff-20261021.md)**（文件名保留 10/21，内容持续更新）。
+第 0 节是现状一页：开发分支 HEAD、补丁栈、各阶段提交、结论、下一阶段计划、工作方式和上游 PR 计划；
+第 1–3 节是工作区、JIT 设计边界和易踩坑。
+
+**真实程序：[兼容性问题与修复](realprog/bpftime-realprog-compatibility-20261026.md)**，7 个真实 uprobe 工具暴露的
+18 个 bpftime 问题（现象、根因、修复、官方是否也有）和修复后的功能、吞吐。
+
+以下为 7–8 月的调查报告，保存当时的归因过程：
 
 1. [Uprobe 综合调查报告](uprobe/bpftime-uprobe-comprehensive-investigation-report-20260813.md)：
    从 benchmark 语义修正、ARM64/x64 顶层对照，到 Jetson matched 差额、L0–L3
@@ -74,6 +76,12 @@ array/hash helper，后者包含 CPU 选择和 per-CPU 数据布局，不应把�
 | [No-BTF 修改记录](ssl-nginx/bpftime-official-no-btf-change-log.md) | official no-BTF 分支已做与未做的修改 |
 | [ssl-nginx 运行手册](ssl-nginx/bpftime-official-no-btf-ssl-nginx-benchmark-runbook.md) | Docker/host 流程、变体、脚本和结果归档口径 |
 
+## 真实程序
+
+| 文档 | 内容 |
+|---|---|
+| [兼容性问题与修复](realprog/bpftime-realprog-compatibility-20261026.md) | 10/25–26 的审计方法、18 个修复、结果、上游情况与遗留 |
+
 ## 工程与协作材料
 
 | 文档 | 内容 |
@@ -93,6 +101,8 @@ array/hash helper，后者包含 CPU 选择和 per-CPU 数据布局，不应把�
 | [software perf record 对齐修复](archive/bpftime-software-perf-record-alignment-fix-20260722.md) | 8 字节对齐 bug、隐藏丢事件与方差下降 |
 | [latest bridge 路径分析](archive/bpftime-latest-jetson-ssl-nginx-bridge-path-analysis-20260721.md) | 早期 Docker bridge/host 网络环境调查 |
 | [v0.2.0 host 网络验证](archive/bpftime-v020-jetson-host-network-validation.md) | v0.2.0、Tailscale/netfilter 和 network namespace 对照；10/23 复核：bpftime 额外损失在当前版本不成立，见文首 |
+| [2026-10-11 优化推进状态](archive/bpftime-uprobe-optimization-progress-20261011.md) | C++ 实现层优化阶段的进度记录，已被接力文档取代 |
+| [接力文档历史部分](archive/bpftime-uprobe-handoff-20261021-history.md) | 10/21 写成的接力文档原第 1–9 节 |
 
 `archive/` 中的材料保留调查过程和历史口径；需要引用当前结论时，优先使用顶层的
 系统报告或根因总览。

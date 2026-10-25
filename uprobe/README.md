@@ -1,10 +1,8 @@
 # Uprobe map investigation
 
-当前模型接力请先读
-[研究进度与工程接力（2026-10-21）](bpftime-uprobe-handoff-20261021.md)：
-最新默认 array JIT + hash delete 修复已通过完整十轮，源码已推送为 `c0939bd`；连同测试修复 `2eea622` 已加入每日补丁栈并在 177a1dc 上验证。
-后续开发在 `codex/uprobe-official-177a1dc465ff`，新基线与“官方原版 vs 优化”consuming 对照、总体评价口径见接力文档第 4、8 节。
-下列综合报告与调查矩阵主要保存历史归因，不能代替当前工程状态。
+当前状态请先读 [研究进度与工程接力](bpftime-uprobe-handoff-20261021.md) 第 0 节（开发分支 `codex/uprobe-official-177a1dc465ff`，
+HEAD `a7d54d7e`，补丁栈 73 个提交）；课题全过程见 [研究总览](../bpftime-research-overview.md)。
+下列报告是 7–8 月的 map 操作归因，保存历史分析，不代表当前工程状态。
 
 - [综合调查报告](bpftime-uprobe-comprehensive-investigation-report-20260813.md)：**主入口**，统一说明 benchmark 语义修正、ARM64/x64 顶层结果、Jetson BPFtime–kernel 严格差额、L0–L3 分层和源码叶子归因。
 - [下一步 workload 稳健性计划](bpftime-uprobe-next-step-workload-robustness-plan-20260816.md)：load factor、key/value size、PMU 端点和缺失语义的执行方案。
