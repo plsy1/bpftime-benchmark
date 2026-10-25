@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 #include "bpftime_prog.hpp"
+#include "bpftime_ratelimited_log.hpp"
 #include "handler/epoll_handler.hpp"
 #include "handler/map_handler.hpp"
 #include "handler/perf_event_handler.hpp"
@@ -108,7 +109,7 @@ int bpftime_helper_map_get_next_key(int fd, const void *key, void *next_key)
 		return shm_holder.global_shared_memory.bpf_map_get_next_key(
 			fd, key, next_key, false);
 	} catch (std::exception &ex) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Exception happened when performing map get next key (from helper): {}",
 			ex.what());
 		return -1;
@@ -121,7 +122,7 @@ const void *bpftime_map_lookup_elem(int fd, const void *key)
 		return shm_holder.global_shared_memory.bpf_map_lookup_elem(
 			fd, key, true);
 	} catch (std::exception &ex) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Exception happened when performing map lookup elem: {}",
 			ex.what());
 		return nullptr;
@@ -135,7 +136,7 @@ long bpftime_map_update_elem(int fd, const void *key, const void *value,
 		return shm_holder.global_shared_memory.bpf_map_update_elem(
 			fd, key, value, flags, true);
 	} catch (std::exception &ex) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Exception happened when performing map update: {}",
 			ex.what());
 		return -1;
@@ -148,7 +149,7 @@ long bpftime_map_delete_elem(int fd, const void *key)
 		return shm_holder.global_shared_memory.bpf_delete_elem(fd, key,
 								       true);
 	} catch (std::exception &ex) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Exception happened when performing map delete elem: {}",
 			ex.what());
 		return -1;
@@ -161,7 +162,7 @@ long bpftime_map_lookup_and_delete_elem(int fd, void *value)
 		return shm_holder.global_shared_memory.bpf_map_pop_elem(
 			fd, value, true);
 	} catch (std::exception &ex) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Exception happened when performing map lookup and delete elem: {}",
 			ex.what());
 		return -1;
@@ -174,7 +175,7 @@ long bpftime_map_push_elem(int fd, const void *value, uint64_t flags)
 		return shm_holder.global_shared_memory.bpf_map_push_elem(
 			fd, value, flags, true);
 	} catch (std::exception &ex) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Exception happened when performing map push elem: {}",
 			ex.what());
 		return -1;
@@ -187,7 +188,7 @@ long bpftime_map_pop_elem(int fd, void *value)
 		return shm_holder.global_shared_memory.bpf_map_pop_elem(
 			fd, value, true);
 	} catch (std::exception &ex) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Exception happened when performing map pop elem: {}",
 			ex.what());
 		return -1;
@@ -200,7 +201,7 @@ long bpftime_map_peek_elem(int fd, void *value)
 		return shm_holder.global_shared_memory.bpf_map_peek_elem(
 			fd, value, true);
 	} catch (std::exception &ex) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Exception happened when performing map peek elem: {}",
 			ex.what());
 		return -1;
@@ -213,7 +214,7 @@ int bpftime_map_get_next_key(int fd, const void *key, void *next_key)
 		return shm_holder.global_shared_memory.bpf_map_get_next_key(
 			fd, key, next_key, true);
 	} catch (std::exception &ex) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Exception happened when performing map get next key: {}",
 			ex.what());
 		return -1;
@@ -368,7 +369,7 @@ void *bpftime_get_ringbuf_consumer_page(int ringbuf_fd)
 		return ret.value()->get_consumer_page();
 	} else {
 		errno = EINVAL;
-		SPDLOG_ERROR("Expected fd {} to be ringbuf map fd ",
+		BPFTIME_LOG_ERROR_RATELIMITED("Expected fd {} to be ringbuf map fd ",
 			     ringbuf_fd);
 		return nullptr;
 	}
@@ -382,7 +383,7 @@ void *bpftime_get_ringbuf_producer_page(int ringbuf_fd)
 		return ret.value()->get_producer_page();
 	} else {
 		errno = EINVAL;
-		SPDLOG_ERROR("Expected fd {} to be ringbuf map fd ",
+		BPFTIME_LOG_ERROR_RATELIMITED("Expected fd {} to be ringbuf map fd ",
 			     ringbuf_fd);
 		return nullptr;
 	}
@@ -396,7 +397,7 @@ void *bpftime_ringbuf_reserve(int fd, uint64_t size)
 		return impl->reserve(size, fd);
 	} else {
 		errno = EINVAL;
-		SPDLOG_ERROR("Expected fd {} to be ringbuf map fd ", fd);
+		BPFTIME_LOG_ERROR_RATELIMITED("Expected fd {} to be ringbuf map fd ", fd);
 		return nullptr;
 	}
 }
@@ -409,7 +410,7 @@ void bpftime_ringbuf_submit(int fd, void *data, int discard)
 		impl->submit(data, discard);
 	} else {
 		errno = EINVAL;
-		SPDLOG_ERROR("Expected fd {} to be ringbuf map fd ", fd);
+		BPFTIME_LOG_ERROR_RATELIMITED("Expected fd {} to be ringbuf map fd ", fd);
 	}
 }
 
@@ -422,7 +423,7 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 		       int timeout)
 {
 	if (timeout < -1) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"bpftime_epoll_wait only accepts timeout=-1 when negative");
 		errno = EINVAL;
 		return -1;
@@ -430,7 +431,7 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 	auto &shm = shm_holder.global_shared_memory;
 	if (!shm.is_epoll_fd(fd)) {
 		errno = EINVAL;
-		SPDLOG_ERROR("Expected {} to be an epoll fd", fd);
+		BPFTIME_LOG_ERROR_RATELIMITED("Expected {} to be an epoll fd", fd);
 		return -1;
 	}
 	using namespace std::chrono;
@@ -448,7 +449,7 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 	// them when sleeping
 	if (int err = sigprocmask(SIG_BLOCK, &to_block, &orig_sigset);
 	    err == -1) {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"sigprocmask failed to block sigint & sigterm, errno={}. this SHOULD NOT HAPPEN",
 			errno);
 		errno = EINVAL;
@@ -620,7 +621,7 @@ int bpftime_perf_event_output(int fd, const void *buf, size_t sz)
 {
 	auto &shm = shm_holder.global_shared_memory;
 	if (!shm.is_perf_event_handler_fd(fd)) {
-		SPDLOG_ERROR("Expected fd {} to be a perf event handler", fd);
+		BPFTIME_LOG_ERROR_RATELIMITED("Expected fd {} to be a perf event handler", fd);
 		errno = EINVAL;
 		return -1;
 	}
@@ -638,7 +639,7 @@ int bpftime_perf_event_output(int fd, const void *buf, size_t sz)
 		}
 		return ret;
 	} else {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Expected perf event handler {} to be a software perf event handler",
 			fd);
 		errno = ENOTSUP;
@@ -652,7 +653,7 @@ int bpftime_shared_perf_event_output(int map_fd, const void *buf, size_t sz)
 	SPDLOG_DEBUG("Output data into shared perf event array fd {}", map_fd);
 	auto &shm = shm_holder.global_shared_memory;
 	if (!shm.is_shared_perf_event_array_map_fd(map_fd)) {
-		SPDLOG_ERROR("Expected fd {} to be a shared perf event array",
+		BPFTIME_LOG_ERROR_RATELIMITED("Expected fd {} to be a shared perf event array",
 			     map_fd);
 		errno = EINVAL;
 		return -1;
@@ -667,7 +668,7 @@ int bpftime_shared_perf_event_output(int map_fd, const void *buf, size_t sz)
 		}
 		return 0;
 	} else {
-		SPDLOG_ERROR(
+		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Expected map {} to be a shared perf event array map",
 			map_fd);
 		errno = EINVAL;
@@ -689,7 +690,7 @@ extern "C" uint64_t map_ptr_by_fd(uint32_t fd)
 	if (!shm_holder.global_shared_memory.get_manager() ||
 	    !shm_holder.global_shared_memory.is_map_fd(fd)) {
 		errno = ENOENT;
-		SPDLOG_ERROR("Expected fd {} to be a map fd (map_ptr_by_fd)",
+		BPFTIME_LOG_ERROR_RATELIMITED("Expected fd {} to be a map fd (map_ptr_by_fd)",
 			     fd);
 		// Here we just ignore the wrong maps
 		return INVALID_MAP_PTR;
@@ -704,7 +705,7 @@ extern "C" uint64_t map_val(uint64_t map_ptr)
 	int fd = (int)map_ptr;
 	if (!shm_holder.global_shared_memory.get_manager() ||
 	    !shm_holder.global_shared_memory.is_map_fd(fd)) {
-		SPDLOG_ERROR("Expected fd {} to be a map fd (map_val call)",
+		BPFTIME_LOG_ERROR_RATELIMITED("Expected fd {} to be a map fd (map_val call)",
 			     fd);
 		// here we just ignore the wrong maps
 		errno = ENOENT;

@@ -2,6 +2,7 @@
 #define _BPFTIME_FRIDA_ATTACH_ENTRY_HPP
 
 #include "base_attach_impl.hpp"
+#include "bpftime_ratelimited_log.hpp"
 #include "frida_uprobe_attach_impl.hpp"
 #include "spdlog/spdlog.h"
 #include <cerrno>
@@ -60,7 +61,7 @@ class frida_attach_entry {
 			// -ENOEXEC: the program failed to compile and was
 			// disabled, which was logged once at load.
 			if (err < 0 && err != -ENODEV && err != -ENOEXEC) {
-				SPDLOG_ERROR("Unable to run ebpf callback: {}",
+				BPFTIME_LOG_ERROR_RATELIMITED("Unable to run ebpf callback: {}",
 					     err);
 			}
 		}
