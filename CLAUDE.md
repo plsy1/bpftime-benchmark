@@ -363,3 +363,13 @@ the callers hold; `BPF_ANY` stays a single probe. Lookup-then-update counters
 depend on `BPF_EXIST`: when a reader deletes the key in between, ignoring the
 flag re-inserted the stale count (the malloc example counted up to 20% too many
 calls).
+
+## llvmbpf Local Call Overlay
+
+`vm/compat/llvm-vm/local-call-return-block.patch` generates
+`compiler_local_call.cpp` in the build tree, replacing upstream
+`src/compiler.cpp` the same way as the array JIT overlay. Upstream registered
+the return block of a bpf-to-bpf call only for calls after pc 0, so a program
+starting with a call (libbpf-tools funclatency's kretprobe) stored a null block
+address and crashed the traced process while compiling. Conflicts on upstream
+updates must fail configuration.
