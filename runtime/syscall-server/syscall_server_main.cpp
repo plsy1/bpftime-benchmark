@@ -10,6 +10,7 @@
 #else
 #include <asm-generic/unistd.h>
 #endif
+#include <boost/container/throw_exception.hpp>
 #include <boost/interprocess/exceptions.hpp>
 #include <cstdio>
 #if __linux__
@@ -20,6 +21,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <new>
+#include <stdexcept>
 #include <fcntl.h>
 #include <atomic>
 #include <spdlog/spdlog.h>
@@ -275,6 +278,46 @@ auto handle_exceptions(F &&f, Fallback &&fallback) noexcept -> decltype(f())
 	}
 }
 
+// bpf() and perf_event_open() that bpftime handles must not reach the kernel
+// when the userspace handler fails: the kernel would create an object the
+// runtime does not know (a kernel map the loaded programs cannot resolve, as
+// memleak's 1M-entry map did when the shared memory was full). Report the
+// error instead, ENOMEM for allocation failures.
+template <typename F> long handle_bpf_exceptions(F &&f) noexcept
+{
+	const auto exhausted = [](const char *what) {
+		safe_spdlog_error(
+			"bpftime shared memory exhausted ({}); raise BPFTIME_SHM_MEMORY_MB",
+			what);
+		errno = ENOMEM;
+		return -1L;
+	};
+	try {
+		return f();
+	} catch (const boost::interprocess::bad_alloc &e) {
+		return exhausted(e.what());
+	} catch (const std::bad_alloc &e) {
+		return exhausted(e.what());
+	} catch (const boost::container::length_error_t &e) {
+		// Boost containers in shared memory: "allocator's max size
+		// reached" (not a std::length_error unless configured so).
+		return exhausted(e.what());
+	} catch (const boost::container::bad_alloc_t &e) {
+		return exhausted(e.what());
+	} catch (const std::length_error &e) {
+		return exhausted(e.what());
+	} catch (const std::exception &e) {
+		safe_spdlog_error("bpftime syscall handler failed: {}", e.what());
+		errno = EINVAL;
+		return -1;
+	} catch (...) {
+		safe_spdlog_error(
+			"bpftime syscall handler failed with an unknown exception");
+		errno = EINVAL;
+		return -1;
+	}
+}
+
 template <typename F, typename Fallback>
 auto call_with_context(F &&f, Fallback &&fallback) noexcept
 	-> decltype(fallback())
@@ -510,22 +553,17 @@ extern "C" long syscall(long sysno, ...)
 		int cmd = (int)arg1;
 		auto attr = (union bpf_attr *)(uintptr_t)arg2;
 		auto size = (size_t)arg3;
-		return handle_exceptions(
-			[&]() {
-				return context->handle_sysbpf(cmd, attr, size);
-			},
-			call_original);
+		return handle_bpf_exceptions([&]() -> long {
+			return context->handle_sysbpf(cmd, attr, size);
+		});
 	} else if (sysno == __NR_perf_event_open) {
 		safe_spdlog_debug("SYS_PERF_EVENT_OPEN {} {} {} {} {} {}", arg1,
 				  arg2, arg3, arg4, arg5, arg6);
-		return handle_exceptions(
-			[&]() {
-				return context->handle_perfevent(
-					(perf_event_attr *)(uintptr_t)arg1,
-					(pid_t)arg2, (int)arg3, (int)arg4,
-					(unsigned long)arg5);
-			},
-			call_original);
+		return handle_bpf_exceptions([&]() -> long {
+			return context->handle_perfevent(
+				(perf_event_attr *)(uintptr_t)arg1, (pid_t)arg2,
+				(int)arg3, (int)arg4, (unsigned long)arg5);
+		});
 	} else if (sysno == __NR_ioctl) {
 		safe_spdlog_debug("SYS_IOCTL {} {} {} {} {} {}", arg1, arg2,
 				  arg3, arg4, arg5, arg6);
