@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <pthread.h>
 #include <string>
 #include <typeinfo>
 #include <utility>
@@ -27,6 +28,80 @@ using namespace bpftime::attach;
 
 thread_local std::optional<void *>
 	bpftime::attach::current_thread_gum_cpu_context;
+
+#if defined(__aarch64__)
+namespace
+{
+constexpr size_t MAX_USER_STACK_FRAMES = 127; // kernel perf_event_max_stack
+constexpr uint64_t MAX_USER_ADDRESS = 1ULL << 52; // arm64 user VA limit
+
+struct thread_stack_range {
+	uintptr_t low = 0;
+	uintptr_t high = 0;
+};
+thread_local thread_stack_range cached_stack_range;
+
+// The current thread's stack mapping, cached per thread. False when sp is
+// outside it (signal alternate stack, user-level stacks): no walk then.
+bool current_stack_range(uintptr_t sp, thread_stack_range &range)
+{
+	auto &cached = cached_stack_range;
+	if (cached.low <= sp && sp < cached.high) {
+		range = cached;
+		return true;
+	}
+	pthread_attr_t attr;
+	if (pthread_getattr_np(pthread_self(), &attr) != 0)
+		return false;
+	void *addr = nullptr;
+	size_t size = 0;
+	const int err = pthread_attr_getstack(&attr, &addr, &size);
+	pthread_attr_destroy(&attr);
+	if (err != 0)
+		return false;
+	thread_stack_range fresh{ (uintptr_t)addr, (uintptr_t)addr + size };
+	if (!(fresh.low <= sp && sp < fresh.high))
+		return false;
+	cached = fresh;
+	range = fresh;
+	return true;
+}
+
+// User stack the way arm64 perf_callchain_user (bpf_get_stackid) builds it:
+// the pc first, then the return address of every frame record on the x29
+// chain with its pointer authentication code stripped. Records are read only
+// inside the current thread's stack and must move strictly upwards, so an x29
+// used as a general register ends the walk instead of faulting. At function
+// entry the immediate caller is not in the chain yet, as in the kernel.
+std::vector<uint64_t> *walk_frame_pointers(const GumCpuContext &cpu,
+					   uint64_t first_pc)
+{
+	auto result = new std::vector<uint64_t>;
+	result->reserve(16);
+	result->push_back(gum_strip_code_address(first_pc));
+	thread_stack_range range;
+	if (!current_stack_range(cpu.sp, range))
+		return result;
+	uintptr_t fp = cpu.fp;
+	while (result->size() < MAX_USER_STACK_FRAMES && fp != 0 &&
+	       (fp & 0x7) == 0 && fp >= range.low &&
+	       fp + 2 * sizeof(uint64_t) <= range.high) {
+		const auto *record = reinterpret_cast<const uint64_t *>(fp);
+		const uint64_t ret = gum_strip_code_address(record[1]);
+		// Past the outermost frame the chain can reach the initial
+		// stack (argc, argv); such values are not code addresses.
+		if (ret < 0x1000 || ret >= MAX_USER_ADDRESS)
+			break;
+		result->push_back(ret);
+		const uintptr_t next = record[0];
+		if (next <= fp)
+			break;
+		fp = next;
+	}
+	return result;
+}
+} // namespace
+#endif
 
 frida_attach_impl::~frida_attach_impl()
 {
@@ -311,6 +386,24 @@ void *frida_attach_impl::call_attach_specific_function(const std::string& name,
 			return nullptr;
 		}
 		SPDLOG_DEBUG("Getting stack trace...");
+#if defined(__aarch64__)
+		if (!use_fuzzy_backtracer) {
+			// The accurate gum backtracer re-reads ELF unwind data
+			// on every call (memleak: ~50 us per allocation) and
+			// stops at PAC-signed return addresses.
+			uint64_t first_pc = cpu_context->pc;
+			auto *invocation = gum_interceptor_get_current_invocation();
+			if (invocation != nullptr &&
+			    gum_invocation_context_get_point_cut(invocation) ==
+				    GUM_POINT_LEAVE) {
+				// At return the kernel's pc is the return address.
+				first_pc = (uint64_t)(uintptr_t)
+					gum_invocation_context_get_return_address(
+						invocation);
+			}
+			return walk_frame_pointers(*cpu_context, first_pc);
+		}
+#endif
 
 		struct {
 			guint len;
