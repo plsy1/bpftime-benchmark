@@ -15,6 +15,8 @@ map 诊断、C++ 优化、array JIT、hash map 优化、ssl-nginx 收尾，到�
 **真实程序：[兼容性问题与修复](realprog/bpftime-realprog-compatibility-20261026.md)**，7 个真实 uprobe 工具暴露的
 18 个 bpftime 问题（现象、根因、修复、官方是否也有）和修复后的功能、吞吐。
 
+**x86 NUC：[新会话交接](x86-nuc/bpftime-x86-nuc-handoff-20261026.md)**，在用户的 x86 NUC 上跑 bpftime 时先读：机器、构建、候选目标、规矩、结果放哪。
+
 以下为 7–8 月的调查报告，保存当时的归因过程：
 
 1. [Uprobe 综合调查报告](uprobe/bpftime-uprobe-comprehensive-investigation-report-20260813.md)：
