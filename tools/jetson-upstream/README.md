@@ -11,7 +11,7 @@ to replay the accepted local patch stack in a separate worktree.
 - `official-latest`: exact local mirror of `official/master`; never add local
   commits to this branch.
 - `automation/jetson-daily`: this automation and its configuration.
-- `codex/uprobe-official-<SHA>`: generated candidate branch for one official
+- `dev/uprobe-official-<SHA>`: generated candidate branch for one official
   snapshot.
 
 The official mirror is updated only by fast-forward. A rewritten official
@@ -68,7 +68,9 @@ official bpftime replaced that implementation with `process_vm_readv` and
 regression rather than a migration.
 
 The configured commit IDs are the rebased/adapted commits from
-`codex/uprobe-official-8da867d541f8`, not the original historical commit IDs.
+`archive/uprobe-official-8da867d541f8` (formerly `codex/uprobe-official-8da867d541f8`),
+not the original historical commit IDs. Candidate branches were renamed from
+`codex/` to `dev/` on 2026-10-26; the commit IDs are unchanged.
 This makes the patch stack portable to another Jetson without relying on a
 machine-local `rerere` cache.
 
