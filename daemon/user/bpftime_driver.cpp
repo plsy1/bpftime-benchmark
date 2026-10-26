@@ -232,8 +232,12 @@ int bpftime_driver::bpftime_maps_create_server(int kernel_id)
 		return -1;
 	}
 	bpftime::bpf_map_attr attr;
-	// convert type to kernel-user type
-	attr.type = info.type + KERNEL_USER_MAP_OFFSET;
+	// convert type to kernel-user type. The kernel evicts LRU hash entries
+	// itself; to the syscall proxy it is a hash map.
+	const uint32_t proxied_type = info.type == BPF_MAP_TYPE_LRU_HASH ?
+					      (uint32_t)BPF_MAP_TYPE_HASH :
+					      info.type;
+	attr.type = proxied_type + KERNEL_USER_MAP_OFFSET;
 	attr.key_size = info.key_size;
 	attr.value_size = info.value_size;
 	attr.max_ents = info.max_entries;
