@@ -37,6 +37,7 @@
 #include <bpf_map/userspace/var_hash_map.hpp>
 #include <bpf_map/userspace/ringbuf_map.hpp>
 #ifdef BPFTIME_BUILD_WITH_LIBBPF
+#include <bpf/libbpf.h>
 #include <bpf_map/shared/array_map_kernel_user.hpp>
 #include <bpf_map/shared/hash_map_kernel_user.hpp>
 #include <bpf_map/shared/percpu_array_map_kernel_user.hpp>
@@ -75,6 +76,14 @@ uint32_t bpf_map_handler::get_userspace_value_size() const
 	    (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH)) {
 		result *= sysconf(_SC_NPROCESSORS_ONLN);
 	}
+#ifdef BPFTIME_BUILD_WITH_LIBBPF
+	if (type == bpf_map_type::BPF_MAP_TYPE_KERNEL_USER_PERCPU_ARRAY) {
+		// The kernel's layout: each possible CPU's value rounded up to
+		// 8 bytes.
+		int cpus = libbpf_num_possible_cpus();
+		result = ((value_size + 7) & ~7u) * (cpus > 0 ? cpus : 1);
+	}
+#endif
 	if (type == bpf_map_type::BPF_MAP_TYPE_PERGPUTD_ARRAY_MAP ||
 	    type == bpf_map_type::BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP) {
 		result *= this->attr.gpu_thread_count;
@@ -205,7 +214,8 @@ const void *bpf_map_handler::map_lookup_elem(const void *key,
 	case bpf_map_type::BPF_MAP_TYPE_KERNEL_USER_PERCPU_ARRAY: {
 		auto impl = static_cast<percpu_array_map_kernel_user_impl *>(
 			map_impl_ptr.get());
-		return do_lookup(impl);
+		return from_syscall ? do_lookup_userspace(impl) :
+				      do_lookup(impl);
 	}
 	case bpf_map_type::BPF_MAP_TYPE_KERNEL_USER_PERF_EVENT_ARRAY: {
 		auto impl = static_cast<perf_event_array_kernel_user_impl *>(
@@ -433,7 +443,8 @@ long bpf_map_handler::map_update_elem(const void *key, const void *value,
 	case bpf_map_type::BPF_MAP_TYPE_KERNEL_USER_PERCPU_ARRAY: {
 		auto impl = static_cast<percpu_array_map_kernel_user_impl *>(
 			map_impl_ptr.get());
-		return do_update(impl);
+		return from_syscall ? do_update_userspace(impl) :
+				      do_update(impl);
 	}
 	case bpf_map_type::BPF_MAP_TYPE_KERNEL_USER_PERF_EVENT_ARRAY: {
 		auto impl = static_cast<perf_event_array_kernel_user_impl *>(

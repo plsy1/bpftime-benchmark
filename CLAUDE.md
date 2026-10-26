@@ -519,3 +519,22 @@ original string's bytes (`path_len`, NUL included): writing back the whole
 255-byte name buffer ran past short heap strings (DeepFlow's per-probe path
 strings: "free(): invalid pointer" in the tracer). Never write more of the
 loader's memory than was read from it.
+
+## Kernel-User Proxy Maps
+
+In daemon mode, maps that userspace programs share with kernel programs are
+proxies (`runtime/src/bpf_map/shared/*_kernel_user*`, type `1000 + kernel
+type`) whose operations are syscalls on the kernel map. The proxy objects live
+in shared memory and serve every attached process, so descriptors and value
+buffers must not be stored in them: `kernel_map_of_this_process` opens each
+kernel map once per process (cached per thread), and lookups return a copy in
+`kernel_map_thread_buffer`, valid until that thread's next lookup of the map.
+(The percpu proxy never opened its fd; the hash proxy kept one value buffer in
+shared memory that concurrent lookups overwrote: 105k of 160k reads torn with
+8 threads, as on Go programs whose uprobes run on many threads.) The percpu
+array proxy gives a program the calling CPU's value and its update rewrites
+that CPU's value only (read all, replace, write back: not atomic against other
+writers); syscall access uses the kernel layout, each possible CPU's value
+rounded up to 8 bytes. The daemon proxies a kernel `LRU_HASH` as a hash map
+(the kernel evicts). The array proxy still keeps its fd and mmap in shared
+memory. `[kernel_user]` tests need root.

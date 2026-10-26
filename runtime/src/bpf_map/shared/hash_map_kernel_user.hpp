@@ -17,19 +17,11 @@ namespace bpftime
 
 using namespace boost::interprocess;
 
-// implementation of hash map
+// A hash map shared with a kernel map (also used for the kernel's LRU hash,
+// whose eviction the kernel does): every operation is a syscall through this
+// process's own descriptor; lookups return a copy in a per-thread buffer.
 class hash_map_kernel_user_impl {
-
-	uint32_t _key_size;
-	uint32_t _value_size;
-
-	bytes_vec key_vec;
-	bytes_vec value_vec;
-
 	int kernel_map_id = -1;
-	int map_fd = -1;
-
-	void init_map_fd();
 
     public:
 	const static bool should_lock = false;
