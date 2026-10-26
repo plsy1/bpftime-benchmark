@@ -6,7 +6,10 @@
 #include <bpf/libbpf.h>
 #include <fcntl.h>
 #include <linux/perf_event.h>
+#include <cstring>
+#include <fstream>
 #include <memory>
+#include <sys/syscall.h>
 #include <unistd.h>
 #include "bpf_tracer_event.h"
 #include "user/daemon.hpp"
@@ -132,4 +135,48 @@ TEST_CASE("Daemon tracer follows duplicated bpf descriptors", "[daemon-tracer]")
 	}
 	if (map_fd >= 0)
 		close(map_fd);
+}
+
+TEST_CASE("Daemon tracer restores only the redirected uprobe path",
+	  "[daemon-tracer]")
+{
+	if (geteuid() != 0)
+		SKIP("loading the tracer needs root");
+	int uprobe_type = -1;
+	std::ifstream("/sys/bus/event_source/devices/uprobe/type") >>
+		uprobe_type;
+	REQUIRE(uprobe_type >= 0);
+
+	daemon_config env;
+	tracer_ptr obj(bpf_tracer_bpf__open());
+	REQUIRE(obj);
+	obj->rodata->target_pid = getpid();
+	obj->rodata->enable_replace_uprobe = true;
+	obj->rodata->uprobe_perf_type = uprobe_type;
+	strncpy(obj->rodata->new_uprobe_path, "/a", PATH_LENTH);
+	bpftime::select_tracer_programs(obj.get(), env);
+	REQUIRE(bpf_tracer_bpf__load(obj.get()) == 0);
+	REQUIRE(bpf_tracer_bpf__attach(obj.get()) == 0);
+
+	// The loader's path buffer holds exactly the string (as a strdup'ed
+	// path in DeepFlow does); what follows it must not be touched.
+	const char path[] = "/proc/self/exe";
+	unsigned char buf[sizeof(path) + 64];
+	memcpy(buf, path, sizeof(path));
+	memset(buf + sizeof(path), 0xa5, sizeof(buf) - sizeof(path));
+	perf_event_attr attr = {};
+	attr.size = sizeof(attr);
+	attr.type = uprobe_type;
+	attr.uprobe_path = (__u64)(uintptr_t)buf;
+	attr.probe_offset = 0x1000;
+	int fd = syscall(SYS_perf_event_open, &attr, getpid(), -1, -1, 0);
+	if (fd >= 0)
+		close(fd);
+
+	CHECK(std::string((const char *)buf) == path);
+	CHECK(attr.probe_offset == 0x1000);
+	bool guard_intact = true;
+	for (size_t i = sizeof(path); i < sizeof(buf); i++)
+		guard_intact = guard_intact && buf[i] == 0xa5;
+	CHECK(guard_intact);
 }
