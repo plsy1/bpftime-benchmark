@@ -111,7 +111,8 @@ typed_helper_map_type(const handler_manager *manager,
 	bool hash = false, percpu_hash = false;
 	for (std::size_t i = 0; i < prog.insns.size(); ++i) {
 		const auto &insn = prog.insns[i];
-		if (insn.code == EBPF_OP_CALL && insn.imm == helper_id)
+		if (insn.code == EBPF_OP_CALL &&
+		    insn.imm == static_cast<int32_t>(helper_id))
 			has_helper = true;
 		if (insn.code != EBPF_OP_LDDW)
 			continue;
