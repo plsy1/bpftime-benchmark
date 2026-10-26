@@ -150,4 +150,5 @@
 - **uprobe 完整十轮（10/26，4.4 GHz）**：开发分支 10 项 map 操作全部快于同轮 kernel（0.25–0.81×），官方只有 hash update/delete 快于 kernel；
   hash 三项倍率与 Jetson 几乎相同。x86 kernel uprobe 约 1.1 µs/次，bpftime 124 ns。见 x86 报告第 5 节。
 - **ssl-nginx（10/26）**：a7d54d7e 相对同轮 kernel +48.0%（16 B）/ +27.9%（256 KB），Jetson 为 +17.5% / +10.4%；官方在 x86 上也快于 kernel（+16.2%），
-  但 256 KB 时丢约 70% 事件。见 x86 报告第 6 节。
+  但 256 KB 时丢约 70% 事件。7 档扫测：a7d54d7e 领先从 16 B 的 +50% 收窄到 256 KB 的 +26%（Jetson +17% → +12%），
+  官方从 1 KB 起就丢事件。见 x86 报告第 6 节。
