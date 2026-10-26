@@ -4,6 +4,9 @@
 原始结果、统计汇总、复现脚本和环境记录。分析结论位于
 [`summry/jetson`](https://github.com/plsy1/bpftime-benchmark/tree/summry/jetson) 分支。
 
+用户 x86 NUC（i5-1240P）上的结果在 [`benchmark-results/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/x86-nuc) 分支
+（10/26 曾短暂提交在本分支，已搬走）。
+
 ## 快速入口
 
 最新工程与实验状态（2026-10-21）：
