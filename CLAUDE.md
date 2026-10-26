@@ -499,3 +499,15 @@ whole tracer (`bpftime_daemon -o` on arm64). Presence is read from tracefs
 program stays selected. Add new syscall tracepoints to the tracer freely; the
 selection drops the absent ones. `[daemon-tracer]` tests load the real tracer
 and need root (they skip otherwise).
+
+The tracer's pid/fd table (`bpf_fd_map`) follows descriptor duplication:
+`dup`, `dup2`, `dup3` and `fcntl(F_DUPFD[_CLOEXEC])` copy the old fd's entry to
+the new fd, or clear the new fd's entry when the old one is not a bpf fd.
+libbpf 1.3+ creates each map at a scratch fd, `dup2`s it onto a reserved fd
+(arm64: the `dup3` system call) and closes the scratch fd, so programs refer
+to the reserved fd; without this the daemon could not relocate any program
+built with a current libbpf ("Failed to lookup bpf fd map", the tool's probes
+ran nowhere). Perf fds are not copied (closing one copy would detach the
+shared event). Closing a non-perf bpf fd still leaves its entry, because events
+are resolved asynchronously; a reused number therefore keeps the stale entry
+until it is overwritten.
