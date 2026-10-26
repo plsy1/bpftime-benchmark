@@ -163,6 +163,63 @@ static int process_exec_maps(bpf_event_handler *handler, bpf_tracer_bpf *obj,
 	pid_map = new_pid_map;
 	return 0;
 }
+// Whether this kernel has the syscall tracepoint NAME (sys_enter_open,
+// sys_exit_dup2, ...). Architectures with the generic syscall table (arm64,
+// riscv64) have no open or dup2 system calls, so attaching those tracepoints
+// fails the whole skeleton. Unknown (tracefs not mounted) counts as present.
+static bool syscall_tracepoint_present(const char *name)
+{
+	bool tracefs_found = false;
+	for (const char *root :
+	     { "/sys/kernel/tracing", "/sys/kernel/debug/tracing" }) {
+		std::string dir = std::string(root) + "/events/syscalls";
+		if (access(dir.c_str(), F_OK) != 0)
+			continue;
+		tracefs_found = true;
+		if (access((dir + "/" + name).c_str(), F_OK) == 0)
+			return true;
+	}
+	return !tracefs_found;
+}
+
+void bpftime::select_tracer_programs(struct bpf_tracer_bpf *obj,
+				     const struct daemon_config &env)
+{
+	if (!env.show_open) {
+		bpf_program__set_autoload(
+			obj->progs.tracepoint__syscalls__sys_exit_open, false);
+		bpf_program__set_autoload(
+			obj->progs.tracepoint__syscalls__sys_enter_open, false);
+		bpf_program__set_autoload(
+			obj->progs.tracepoint__syscalls__sys_exit_openat,
+			false);
+		bpf_program__set_autoload(
+			obj->progs.tracepoint__syscalls__sys_enter_openat,
+			false);
+	}
+
+	if (!env.enable_auto_attach) {
+		bpf_program__set_autoload(obj->progs.handle_exit, false);
+		bpf_program__set_autoload(obj->progs.handle_exec, false);
+	}
+
+	const std::string prefix = "tracepoint/syscalls/";
+	struct bpf_program *prog;
+	bpf_object__for_each_program(prog, obj->obj)
+	{
+		std::string sec = bpf_program__section_name(prog);
+		if (!bpf_program__autoload(prog) || sec.rfind(prefix, 0) != 0)
+			continue;
+		const std::string name = sec.substr(prefix.size());
+		if (!syscall_tracepoint_present(name.c_str())) {
+			SPDLOG_INFO("No syscall tracepoint {} on this kernel, "
+				    "not attaching {}",
+				    name, bpf_program__name(prog));
+			bpf_program__set_autoload(prog, false);
+		}
+	}
+}
+
 extern "C" const char placeholder[];
 extern "C" size_t placeholder_len;
 int bpftime::start_daemon(struct daemon_config env)
@@ -220,23 +277,7 @@ int bpftime::start_daemon(struct daemon_config env)
 	obj->rodata->submit_bpf_events = env.submit_bpf_events;
 	obj->rodata->current_pid = getpid();
 	obj->rodata->enable_whitelist = env.whitelist_enabled();
-	if (!env.show_open) {
-		bpf_program__set_autoload(
-			obj->progs.tracepoint__syscalls__sys_exit_open, false);
-		bpf_program__set_autoload(
-			obj->progs.tracepoint__syscalls__sys_enter_open, false);
-		bpf_program__set_autoload(
-			obj->progs.tracepoint__syscalls__sys_exit_openat,
-			false);
-		bpf_program__set_autoload(
-			obj->progs.tracepoint__syscalls__sys_enter_openat,
-			false);
-	}
-
-	if (!env.enable_auto_attach) {
-		bpf_program__set_autoload(obj->progs.handle_exit, false);
-		bpf_program__set_autoload(obj->progs.handle_exec, false);
-	}
+	bpftime::select_tracer_programs(obj, env);
 
 	bpftime_driver driver(env, obj);
 	// update handler config
