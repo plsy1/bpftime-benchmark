@@ -146,31 +146,27 @@ TEST_CASE("Daemon releases temporary kernel FDs on every return", "[daemon-fd]")
 	// map.
 	tracer.maps.bpf_prog_insns_map = reinterpret_cast<bpf_map *>(&tracer);
 	bpftime::bpftime_driver driver({}, &tracer);
-	int id = 7;
-	int expected = id;
+	const int id = 7;
+	// Success returns the handler index the object is mirrored at (the
+	// minimal free one), not the kernel id.
+	constexpr int MIRRORED = -2;
+	int expected = MIRRORED;
 	int expected_errno = 0;
 	int expected_info_calls = program ? 2 : 1;
+	bool opens_fd = true;
 
 	SECTION("success")
 	{
 	}
-	SECTION("object already exists")
+	SECTION("object already mirrored")
 	{
-		if (program) {
-			ebpf_inst insn = {};
-			REQUIRE(bpftime_progs_create(id, &insn, 1, "existing",
-						     BPF_PROG_TYPE_KPROBE) ==
-				id);
-		} else {
-			bpftime::bpf_map_attr attr = {};
-			attr.type = BPF_MAP_TYPE_ARRAY;
-			attr.key_size = attr.value_size = sizeof(uint32_t);
-			attr.max_ents = 1;
-			REQUIRE(bpftime_maps_create(id, "existing", attr) ==
-				id);
-		}
-		expected = 0;
-		expected_info_calls = 1;
+		if (program)
+			driver.adopt_prog_handle(id, 3);
+		else
+			driver.adopt_map_handle(id, 3);
+		expected = 3;
+		expected_info_calls = 0;
+		opens_fd = false;
 	}
 	SECTION("FD acquisition fails")
 	{
@@ -188,17 +184,25 @@ TEST_CASE("Daemon releases temporary kernel FDs on every return", "[daemon-fd]")
 	}
 	SECTION("shared-memory insertion fails")
 	{
-		id = INT_MAX; // Beyond any supported handler table capacity.
+		// No free handler left.
+		bpftime::bpf_map_attr attr = {};
+		attr.type = BPF_MAP_TYPE_ARRAY;
+		attr.key_size = attr.value_size = sizeof(uint32_t);
+		attr.max_ents = 1;
+		for (int h = bpftime_find_minimal_unused_fd(); h >= 0;
+		     h = bpftime_find_minimal_unused_fd())
+			REQUIRE(bpftime_maps_create(h, "filler", attr) == h);
 		expected = -1;
-		expected_info_calls = 1;
+		expected_info_calls = program ? 2 : 1;
 	}
 	if (program) {
 		SECTION("instruction relocation fails")
 		{
+			// After the dependent maps are enumerated.
 			state.fail_lookup = true;
 			expected = -1;
 			expected_errno = EIO;
-			expected_info_calls = 1;
+			expected_info_calls = 2;
 		}
 		SECTION("dependent-map enumeration fails")
 		{
@@ -207,6 +211,8 @@ TEST_CASE("Daemon releases temporary kernel FDs on every return", "[daemon-fd]")
 			expected_errno = EIO;
 		}
 	}
+	if (expected == MIRRORED)
+		expected = bpftime_find_minimal_unused_fd();
 	active = &state;
 	BOOST_SCOPE_EXIT_ALL(&)
 	{
@@ -221,8 +227,8 @@ TEST_CASE("Daemon releases temporary kernel FDs on every return", "[daemon-fd]")
 	if (expected_errno)
 		CHECK(saved_errno == expected_errno);
 	CHECK(state.info_calls == expected_info_calls);
-	CHECK(state.closes == (state.fail_open ? 0 : 1));
-	if (!state.fail_open) {
+	CHECK(state.closes == (state.fail_open || !opens_fd ? 0 : 1));
+	if (!state.fail_open && opens_fd) {
 		REQUIRE(state.fd >= 0);
 		CHECK(fcntl(state.fd, F_GETFD) == -1);
 		CHECK(errno == EBADF);
