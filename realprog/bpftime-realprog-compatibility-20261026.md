@@ -96,4 +96,43 @@ malloc 示例每次 malloc 都 printk，#11 之后 printk 走日志，从约 200
 
 - printk 默认路径慢：内核式共享内存 trace 环形缓冲区（有界、无系统调用、工具读取）是更快的默认方案。
 - cgroup 过滤 327k 次/秒（kernel 469k）：每次一次 `pread`。
-- 当前只覆盖 7 个工具；BTF 内核启用后用原版 libbpf-tools（CO-RE）扩大范围。
+- ~~当前只覆盖 7 个工具~~：10/26 已扩到 18 个，见第 8 节。
+
+## 8. BTF 内核上的扩大审计（10/26）
+
+新内核 `6.8.12-1021-tegra-btf` 有 BTF，第 1 节的无 BTF 编译方式作废：libbpf-tools v0.37.0 和 bpftime 示例原样 CO-RE 编译，
+另加 bpftrace 0.20.2 和 OpenJDK 17。数据与脚本：`benchmark-results/jetson` 分支 `uprobe/btf-kernel-20261026`（README 有全表）。
+
+| 工具 | kernel | 官方 177a1dc | `a7d54d7e` |
+|---|---|---|---|
+| 原 7 个（CO-RE 产物） | 正常 | 同第 2 节的老问题 | 全部精确一致 |
+| sslsniff 示例（`sslloop`：BIO 对上的 SSL 读写） | 精确 | 精确 | 精确 |
+| bashreadline 示例 | 200/200 | 200/200 | 200/200 |
+| get_stack_id 示例 | 栈全是 `-EEXIST`（示例追踪全部进程，map 满） | 记到 agent 自己的分配，栈 2 帧 | 栈 6 帧 |
+| bpftrace：uprobe 计数、uprobe+uretprobe 直方图、`ustack`、bashreadline.bt、gethostlatency.bt | 精确 | 精确（`ustack` 慢 11 倍） | 精确 |
+| bpftrace：JVM 里的 USDT `hotspot:gc__begin` | 50/50 | 50/50 | 50/50 |
+| javagc（libbpf-tools） | 50/50 | 未测 | 未测 |
+| opensnoop（syscall tracepoint） | 99.99% | 0，不报错 | 0，不报错 |
+
+- 开发分支上没有发现新的 bpftime 问题；官方的差别都是已修过的问题：取栈与 agent 自身分配（第 3 节 #8、#16、#17），perf 输出静默丢事件（10/24 的 db3d475f）。
+- `ustack` 符号：两边都是 `target_func → __libc_start_call_main → __libc_start_main_impl → _start`（入口处缺直接调用者，同内核），
+  bpftime 多一帧 agent 的 `bpftime_hooked_main`（agent 包装了 main）。
+- **跑不了的**：javagc 必须先有 JVM 的 pid 再加载，bpftime 只能靠 `bpftime attach`（frida CLI）注入运行中的进程，冻结构建没有编；
+  syscall tracepoint 工具在 bpftime 上显示 "Attach successfully" 却一个事件都没有（aarch64 没有系统调用改写跳板），应在挂载时报错。
+- **不是 bpftime 的**：libbpf-tools v0.37 opensnoop 的 `-n` 在 kernel 上也会以 EPERM 退出（过滤掉的事件返回 -1，被 `ring_buffer__poll` 当成错误）；
+  bpftime 示例 opensnoop 挂 `sys_enter_open`，arm64 没有这个 tracepoint。
+
+吞吐（5 轮中位数，相对 kernel）：
+
+| 工具 | kernel | 官方 | `a7d54d7e` | `a7d54d7e`/kernel |
+|---|---:|---:|---:|---:|
+| gethostlatency | 62,086 | 56,258 | 88,226 | 1.42× |
+| funclatency 示例 | 505,050 | 1,681,368 | 1,847,435 | 3.66× |
+| funclatency（libbpf-tools） | 484,264 | 崩溃 | 1,473,208 | 3.04× |
+| memleak | 331,007 | 不工作 | 419,432 | 1.27× |
+| malloc 示例 | 537,594 | 1,940,265 | 519,392 | 0.97× |
+| bpftrace uprobe 计数 | 795,350 | 3,946,528 | 4,290,175 | 5.39× |
+| bpftrace uprobe+uretprobe 直方图 | 468,611 | 1,162,976 | 1,233,130 | 2.63× |
+| bpftrace gethostlatency.bt | 61,412 | 87,401 | 85,162 | 1.39× |
+
+kernel 侧与旧内核相差 −0.4%～+3.7%；新内核配置不改变 kernel 成本（完整十轮 kernel 腿逐项 ±3%，ssl-nginx kernel 12,163 req/s，旧 11,967–12,027）。

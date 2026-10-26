@@ -97,6 +97,10 @@
 - **结果**：7 个工具的计数全部与 kernel 一致；吞吐相对 kernel：gethostlatency 1.45×、memleak 1.28×、funclatency 3.1–3.6×、malloc 示例 0.99×
   （每次 malloc 都 printk，printk 改为不写宿主 stdout 后变慢）。memleak 从 2 万提到 41 万次分配/秒（kernel 32 万）。
 - **上游情况**：GitHub 上几乎没有真实工具的问题报告；上游合并外部小 PR 积极，计划分批提交（见接力文档 0.6）。
+- **BTF 内核后扩大范围（10/26）**：切到带 BTF 和 syscall tracepoint 的新内核，工具改用原版 CO-RE 编译，审计扩到 18 个工具
+  （新增 sslsniff、bashreadline、get_stack_id 示例和 6 个 bpftrace 用法，含 JVM 里的 USDT），开发分支全部与 kernel 精确一致，没有新问题；
+  javagc（要注入运行中的进程）和 syscall tracepoint 工具（aarch64 缺跳板，静默无事件）在 bpftime 上跑不了。
+  重测 kernel 基线：新内核配置不改变 kernel 侧成本（±3%），之前的倍率都成立（`results/uprobe/btf-kernel-20261026`）。
 
 ## 9. 总体结果：最初 vs 现在（官方 10 项，相对 kernel）
 
@@ -129,9 +133,9 @@
 - **局限**：
   - 微基准仍是单线程、小 map；hash map 是打过补丁的线性探测，内存翻倍、整表一把锁；
   - 代码布局效应：uprobe 等路径和个别工具会随构建在 1–6% 内波动；
-  - 当前内核没有 BTF，真实工具只能用不带 CO-RE 的方式编译，覆盖面受限。
+  - 真实工具只覆盖 uprobe/USDT 类（18 个）；syscall tracepoint 类在 ARM64 bpftime 上不支持，运行中注入（`bpftime attach`）未测。
 - **下一步**：
-  1. 启动 BTF 新内核，用原版 libbpf-tools 扩大真实程序范围，重测 kernel 基线；
-  2. 扩大 ARM64 支持（aarch64 系统调用改写跳板，解锁 syscall/syscount-nginx/fuse；deepflow）；
+  1. ~~启动 BTF 新内核，扩大真实程序范围，重测 kernel 基线~~（10/26 完成）；
+  2. 扩大 ARM64 支持（aarch64 系统调用改写跳板，解锁 syscall/syscount-nginx/fuse 和 syscall tracepoint 工具；deepflow；`bpftime attach`）；
   3. 分批向上游提交修复；
   4. 视结果再做多维度 map benchmark 和 hash map 重写。

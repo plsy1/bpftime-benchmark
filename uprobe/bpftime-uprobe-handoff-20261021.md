@@ -1,12 +1,12 @@
 # Uprobe 优化：研究进度与模型接力（2026-10-21）
 
 本文件是当前接力入口（文件名保留 10/21，根目录 `HANDOFF.md` 指向这里）。
-最后核对：2026-10-26 02:30 JST 左右。以下分支、进程和文件状态均为本机快照；
+最后核对：2026-10-26 13:45 JST 左右。以下分支、进程和文件状态均为本机快照；
 后续模型行动前需重新核实。**新会话先读第 0 节**；第 1–3 节是工作区、JIT 设计边界和易踩坑。
 课题全过程见 [研究总览](../bpftime-research-overview.md)；10/21 写成的原第 1–9 节已移到
 [archive](../archive/bpftime-uprobe-handoff-20261021-history.md)。
 
-## 0. 现状一页（2026-10-26 02:30 JST，新会话从这里继续）
+## 0. 现状一页（2026-10-26 13:45 JST，新会话从这里继续）
 
 **目标**：继续优化 `codex/uprobe-official-177a1dc465ff`（开发 worktree
 `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `a7d54d7e`）。
@@ -93,6 +93,25 @@ gethostlatency 少记不是 bpftime 的问题：用精确总数（工作负载�
 
 遗留：cgroup 过滤 327k 次/秒（kernel 469k）；printk 默认路径较慢；bpftime 看不到 agent 接管前（`__libc_start_main` 之前）的分配。上游 PR 计划见 0.6。
 
+### 0.1b BTF 内核（10/26）：CO-RE 审计扩到 18 个工具，kernel 基线重测
+
+10/26 11:03 起默认启动 `6.8.12-1021-tegra-btf`（检查脚本 14 项全过，见 0.4）。结果：`results/uprobe/btf-kernel-20261026`（README 有全部表格）。
+
+- **编译**：无 BTF 补丁作废。libbpf-tools v0.37.0 原版源码 CO-RE 编译（`/home/jetson/src/realprog-20261026-btf/libbpf-tools`），
+  bpftime 示例原样编译在官方树的 `*-core` 副本里；另装 bpftrace 0.20.2、OpenJDK 17（libjvm 自带 hotspot USDT）。
+- **审计 18 个工具 × kernel / 官方 / `a7d54d7e`**（`realprog-20261026-btf/harness/audit.py`，新工作负载 `sslloop`、`openloop`、`GcLoop.java`）：
+  原 7 个用 CO-RE 产物结论不变；新增 sslsniff、bashreadline 示例、get_stack_id 示例、bpftrace 6 个（uprobe 计数、uprobe+uretprobe 直方图、
+  `ustack`、JVM 里的 USDT `gc__begin`、bashreadline.bt、gethostlatency.bt）在 `a7d54d7e` 上全部与工作负载精确一致；**没有发现新的 bpftime 问题**。
+  官方的差别都是已修过的老问题（栈、agent 自身分配、perf 静默丢事件）。
+- **不能跑的**：javagc 要先有 JVM 的 pid 再加载，bpftime 要靠 `bpftime attach`（frida CLI）注入运行中的进程，冻结构建没编；
+  opensnoop/syscount（syscall tracepoint）在 bpftime 上“Attach successfully”然后一个事件都没有（aarch64 缺系统调用跳板），应在挂载时报错。
+- **不是 bpftime 的**：libbpf-tools v0.37 的 opensnoop `-n` 在 kernel 上也会 EPERM 退出（过滤的事件返回 -1，ring buffer 当错误）；
+  get_stack_id 示例在 kernel 上追踪全部进程，栈 map 满后 victim 的栈全是 `-EEXIST`。
+- **kernel 基线**：新内核的配置（BTF、tracing）不改变 kernel 侧成本：完整十轮 kernel 腿逐项 −3.1%～+2.2%（同一份 benchmark 程序），
+  `a7d54d7e` 相对 kernel 的倍率变化 ≤0.2；真实工具 kernel 吞吐与旧内核差 −0.4%～+3.7%；ssl-nginx kernel 12,163 req/s（旧 11,967–12,027）。
+  同轮：ssl-nginx `a7d54d7e` 相对 kernel +17.5%（16 B）/ +10.4%（256 KB），官方 −10.8% / −9.4%；真实工具 `a7d54d7e` 相对 kernel：
+  gethostlatency 1.42x、funclatency 示例 3.66x、funclatency（libbpf-tools）3.04x、memleak 1.27x、malloc 示例 0.97x、bpftrace 计数 5.39x、直方图 2.63x。
+
 ### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`）
 
 | 目录 | 内容 |
@@ -166,7 +185,7 @@ ssl-nginx 能跑并已分析。其余各项的现状（10/24 读源码核对，�
 | benchmark | 现状 | 解锁条件 |
 |---|---|---|
 | `syscall`、`syscount-nginx`、`fuse` | 跑不了：bpftime 拦截系统调用靠 `attach/text_segment_transformer`，aarch64 分支只有 `// TODO: implement syscall trace trampoline`，capstone 写死 x86。7 月 ARM64 CI 上 syscount-nginx 的“成功”并没有真正拦截到系统调用（日志已过期） | 实现 aarch64 系统调用改写跳板（`svc #0` 改写 + 指令重定位） |
-| `deepflow` | 跑不了，连 kernel 那一组都不行：Jetson 内核没开 `CONFIG_FTRACE_SYSCALLS`（只有 `raw_syscalls`），DeepFlow v6.1.1 的 socket 追踪器（`TPPROG(sys_enter_read)` 等）和 `bpftime_daemon`（`tracepoint/syscalls/sys_enter_bpf` 等）都依赖按调用名的系统调用 tracepoint；另需在 ARM64 上装 Rust/Go 重编 agent 和服务 | 重编 Jetson 内核打开 `CONFIG_FTRACE_SYSCALLS`（需本人在场、有恢复手段），或把 DeepFlow 与 daemon 改用 `raw_syscalls` 加调用号过滤 |
+| `deepflow` | 旧内核上连 kernel 那一组都跑不了：没开 `CONFIG_FTRACE_SYSCALLS`（只有 `raw_syscalls`；10/26 起的 BTF 内核已开），DeepFlow v6.1.1 的 socket 追踪器（`TPPROG(sys_enter_read)` 等）和 `bpftime_daemon`（`tracepoint/syscalls/sys_enter_bpf` 等）都依赖按调用名的系统调用 tracepoint；另需在 ARM64 上装 Rust/Go 重编 agent 和服务 | 内核条件 10/26 已满足；还需在 ARM64 上重编 agent 和服务，bpftime 侧仍受 aarch64 系统调用跳板限制 |
 | `redis-durability-tuning` | 未试：uprobe 加 io_uring 扩展，BPF 程序里写死了 x86 路径 | 移植路径，验证 io_uring 扩展在 ARM64 上可用 |
 | `gpu` | 未试：CUDA 挂钩，与 CPU 侧 uprobe 研究关系远 | 暂不考虑 |
 | `mpk` | 不适用：MPK 是 x86 专有 | — |
@@ -174,17 +193,19 @@ ssl-nginx 能跑并已分析。其余各项的现状（10/24 读源码核对，�
 
 任何一项跑起来后，先审计 bpftime 那一组确实收到了事件，再采信吞吐数字。
 
-**新内核（10/24 A 段已完成，B 段待本人在场）**：已编好 L4T R39.2.1 内核 `6.8.12-1021-tegra-btf`（BTF、`FTRACE_SYSCALLS`、`KPROBES`、
-`FUNCTION_TRACER`，全部 NVIDIA 树外驱动重编），作为 extlinux 非默认启动项 `btf` 装好，默认仍为原内核、尚未启动验证。
-操作指南、检查脚本、配置和构建日志在 `benchmark-results/jetson` 分支 `kernel/l4t-r39.2.1-btf/`（本机 `/home/jetson/src/l4t-r39.2.1/`）。
-它能解锁 deepflow 与 `bpftime_daemon`；切换后需重测 kernel 侧基线。arm64 6.8 上 `FPROBE`（kprobe_multi）开不了，属架构限制。
+**新内核（10/26 起为默认内核）**：L4T R39.2.1 内核 `6.8.12-1021-tegra-btf`（BTF、`FTRACE_SYSCALLS`、`KPROBES`、`FUNCTION_TRACER`，
+全部 NVIDIA 树外驱动重编），10/26 设为 extlinux 默认项并启动验证：`sudo check-btf-kernel.sh` 14 项全过（622 个 syscall tracepoint，
+WiFi、GPU、显示正常）。原内核保留为启动项 `primary`；启动菜单在本机显示器上看不到但会等 30 秒（硬件计数器算出内核前多等了 26 秒），
+开机约 20 秒盲按 `0` 回原内核，配置备份 `/boot/extlinux/extlinux.conf.before-default-btf`。`nvpmodel.service` 每次开机失败（原内核也是），模式已是 MAXN_SUPER。
+操作指南、检查脚本、配置和构建日志在 `benchmark-results/jetson` 分支 `kernel/l4t-r39.2.1-btf/`（本机 `/home/jetson/src/l4t-r39.2.1/`；检查脚本要 sudo 跑）。
+deepflow 与 `bpftime_daemon` 的内核条件已满足，尚未尝试。arm64 6.8 上 `FPROBE`（kprobe_multi）开不了，属架构限制。
 
 ### 0.5 用户定下的工作方式
 
 - 每次改动：增量构建 → 回归测试（`config.json` 的 `test_filter` 清单）→ 同轮 kernel / 改动前 / 改动后的配对短测 → 完整十轮（不跑 kernel，倍率借用基线那轮 kernel 并注明）。
 - 补丁栈攒几轮再加；推送前问用户。
 - 汇报用提交号和描述性名称，自起的标签首次出现要解释。
-- 10/26 用户去实验室启动 BTF 新内核：之后不再做受限于旧内核的工作（无 BTF 编译补丁作废），原版 libbpf-tools 用 CO-RE 编译，重跑真实程序审计和 kernel 基线。
+- 10/26 已切到 BTF 新内核：不再做受限于旧内核的工作（无 BTF 编译补丁作废）；CO-RE 审计和 kernel 基线已重做（0.1b）。
 - 教训：自选测试过滤器会漏测；SHA 用 `git rev-parse` 完整值；核对系统时间；测量期间不要在其他核上跑 CPU 密集任务。
 
 ### 0.6 上游 PR（用户 10/25 定：过几天再提）
