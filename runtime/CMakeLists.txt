@@ -108,6 +108,7 @@ if(UNIX AND NOT APPLE AND BPFTIME_BUILD_WITH_LIBBPF)
   list(APPEND sources
     src/bpf_map/shared/array_map_kernel_user.cpp
     src/bpf_map/shared/hash_map_kernel_user.cpp
+    src/bpf_map/shared/kernel_map_local.cpp
     src/bpf_map/shared/percpu_array_map_kernel_user.cpp
     src/bpf_map/shared/perf_event_array_kernel_user.cpp
   )

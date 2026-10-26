@@ -10,23 +10,27 @@
 namespace bpftime
 {
 
-// This is a simple percpu array map implementation, which could be accessed from both userspace ebpf programs and kernel ebpf programs
-// It just uses syscalls to operate the corresponding kernel map :(
-
+// A percpu array map shared with a kernel map: every operation is a syscall on
+// the kernel map, through this process's own descriptor. Programs see the
+// calling CPU's value (a copy in a per-thread buffer); their updates rewrite
+// that CPU's value only. Userspace (syscall) access uses the kernel layout:
+// one value per possible CPU, each rounded up to 8 bytes.
 class percpu_array_map_kernel_user_impl {
-	uint32_t _value_size;
-	uint32_t _max_entries;
-	int kernel_map_fd = -1;
 	int kernel_map_id;
-    int ncpu;
-	void init_map_fd();
-	bytes_vec value_data;
+
+	// Values of all possible CPUs, kernel layout, in a per-thread buffer.
+	uint8_t *read_all_cpus(const void *key, uint32_t *stride);
 
     public:
 	const static bool should_lock = false;
 	void *elem_lookup(const void *key);
 
 	long elem_update(const void *key, const void *value, uint64_t flags);
+
+	void *elem_lookup_userspace(const void *key);
+
+	long elem_update_userspace(const void *key, const void *value,
+				   uint64_t flags);
 
 	long elem_delete(const void *key);
 
