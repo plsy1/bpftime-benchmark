@@ -1,4 +1,4 @@
-# x86 NUC：构建与回归（2026-10-26）及交给 Jetson 的问题
+# x86 NUC：构建与回归、uprobe 完整十轮（2026-10-26）及交给 Jetson 的问题
 
 NUC 会话按交接说明第 4 节候选目标 1 做的第一件事：在 x86 上编译官方 `177a1dc` 和开发分支
 `codex/uprobe-official-177a1dc465ff`（`a7d54d7e`），跑单测，确认 Jetson 上的修复与优化在 x86 上也成立。
@@ -76,3 +76,15 @@ NUC 会话按交接说明第 4 节候选目标 1 做的第一件事：在 x86 �
 ### 4.4 次要
 
 - 开发分支新警告 `runtime/src/attach/bpf_attach_ctx.cpp:114` 有符号与无符号比较（`insn.imm == helper_id`），对正常 helper 号无影响，未深入。
+
+## 5. uprobe 完整十轮（10/26 下午，4.4 GHz）
+
+原始数据：`benchmark-results/jetson` 分支 `uprobe/x86-nuc-full10-20261026/`（README、`full10-4.4ghz-turbo/comparison.md`）。
+
+- 条件：CPU 2（P 核）turbo 开、min = max = 4.4 GHz、CPU 2/3 禁用 C6+（用户选定；每秒采样 1,540 次全在 4.42 GHz）。同一会话先开发分支后官方，各带同段 kernel 组；
+  工作负载两段相同（开发分支 `benchmark/`），只换运行时产物。测量前审计过 4 组都收到事件。
+- **开发分支 `a7d54d7e` 在 x86 上 10 项 map 操作全部快于 kernel（0.25–0.81×）**；官方 177a1dc 只有 hash update/delete 快于 kernel（0.67×/0.53×），其余 1.20–5.49×。
+  开发分支比官方快 45–92%。hash lookup/update/delete 的倍率与 Jetson 几乎相同（x86 0.81/0.29/0.30，Jetson 0.82/0.29/0.26）；
+  array update 和 per-CPU 各项在 x86 上更低（如 per-CPU hash lookup 0.66× 对 0.94×）。array lookup 两行不使用返回值，不作收益结论。
+- 探针本身：x86 kernel uprobe 约 1.1 µs/次，bpftime 124 ns（0.11×，Jetson 0.16×）；probe read/write 0.07–0.09×（Jetson 0.24–0.26×）。
+- 这台机器固定频率的坑：核心从 C6 及更深空闲状态醒来、以及改完频率设置后的头几秒会跑在 1.4 GHz，需禁用 C6+ 并在测前等稳定（细节见 README）。

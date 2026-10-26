@@ -147,3 +147,5 @@
 - **构建与回归（10/26）**：官方 177a1dc 和 `a7d54d7e` 用 LLVM 19 都能编；开发分支每日过滤器 110 个用例、Frida 19 个用例全过，
   含 x86 走 gum 回溯器的 uretprobe 取栈。交给 Jetson：`bpf_get_stackid` 的错误在 64 位返回值里仍是正数（`d766e6ad` 的三元表达式类型提升，官方同样），
   诊断 benchmark 的 clang 查找让只有 clang-19 的机器配置失败。详见 [x86 构建与回归](x86-nuc/bpftime-x86-nuc-build-regression-20261026.md)。
+- **uprobe 完整十轮（10/26，4.4 GHz）**：开发分支 10 项 map 操作全部快于同轮 kernel（0.25–0.81×），官方只有 hash update/delete 快于 kernel；
+  hash 三项倍率与 Jetson 几乎相同。x86 kernel uprobe 约 1.1 µs/次，bpftime 124 ns。见 x86 报告第 5 节。
