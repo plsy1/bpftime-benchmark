@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Complete ten-round uprobe suite WITH the kernel arm, on the BTF kernel
+# 6.8.12-1021-tegra-btf (10/26), userspace and embedded legs from the frozen a7d54d7e
+# artifacts (reused in place). Adapted from realprog-rest-20261026/full10-a7d54d7e,
+# on the frozen a7d54d7e artifacts. Adapted from
+# baseline-177a1dc-jit-llvm16-20261021/run-full.sh.
+set -euo pipefail
+RESULTS=/home/jetson/src/results/uprobe/btf-kernel-20261026/full10-a7d54d7e-kernel
+OUT="$RESULTS/full10"
+FROZEN="$RESULTS/artifacts"
+RUNNER="$RESULTS/full-runner/bpftime"
+test ! -e /dev/shm/bpftime_maps_shm
+mkdir "$OUT"
+finish()
+{
+    status=$?
+    trap - EXIT
+    sudo -n "$FROZEN/tools/bpftimetool/bpftimetool" remove >>"$OUT/cleanup.log" 2>&1 || true
+    printf '%s\n' "$status" >"$OUT/exit-status.txt"
+    date --iso-8601=seconds >"$OUT/finished-at.txt"
+    exit "$status"
+}
+trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+date --iso-8601=seconds >"$OUT/started-at.txt"
+sha256sum --check --quiet "$RESULTS/artifact-sha256.txt"
+sudo -n /usr/sbin/nvpmodel -q >"$OUT/nvpmodel-before.txt" 2>&1
+sudo -n jetson_clocks --show >"$OUT/jetson-clocks-before.txt" 2>&1
+python3 -I - <<'PY'
+from pathlib import Path
+p=Path('/sys/devices/system/cpu/cpu5/cpufreq')
+assert all(int((p/f'scaling_{k}_freq').read_text())==1728000 for k in ('min','max','cur'))
+PY
+cd "$RUNNER"
+sudo -n taskset -c 5 env -u BPFTIME_ARRAY_JIT_INLINE PYTHONUNBUFFERED=1 BPFTIME_LOG_OUTPUT=console \
+    /usr/bin/python3 -u benchmark/uprobe/benchmark.py --iter 10 \
+    2>&1 | tee "$OUT/runner.log"
+for artifact in benchmark-output.json results.md benchmark-logs.txt; do
+    test "$RUNNER/benchmark/uprobe/$artifact" -nt "$OUT/started-at.txt"
+    cp "$RUNNER/benchmark/uprobe/$artifact" "$OUT/"
+done
+sudo -n "$FROZEN/tools/bpftimetool/bpftimetool" remove >"$OUT/audit-pre-cleanup.log" 2>&1
+python3 "$RESULTS/audit-full-activation.py" >"$OUT/activation-audit.log" 2>&1
+python3 -I - "$OUT/benchmark-output.json" <<'PY'
+import json,math,sys
+result=json.load(open(sys.argv[1]))
+for group,count in [('kernel_uprobe',17),('userspace_uprobe',17),('embed',1)]:
+    assert len(result[group])==count
+    for name,value in result[group].items():
+        assert len(value['raw_values'])==10,(group,name)
+        assert all(math.isfinite(x) and x>0 for x in value['raw_values'])
+print('Full-suite sample validation passed.',flush=True)
+PY
+sha256sum --check --quiet "$RESULTS/artifact-sha256.txt"
+sudo -n jetson_clocks --show >"$OUT/jetson-clocks-after.txt" 2>&1
+uname -r >"$OUT/kernel.txt"
+python3 -I "$RESULTS/compare-kernels.py" >"$OUT/comparison.md"
