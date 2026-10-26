@@ -26,6 +26,7 @@ set(TEST_SOURCES
     maps/kernel_unit_tests.cpp
     maps/test_stack_trace_map.cpp
     maps/test_cgroup_array_map.cpp
+    maps/test_kernel_user_maps.cpp
     maps/test_queue_map.cpp
     maps/test_stack_map.cpp
     maps/test_bloom_filter_map.cpp
