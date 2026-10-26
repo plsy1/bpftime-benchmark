@@ -587,6 +587,115 @@ int tracepoint__syscalls__sys_enter_close(struct trace_event_raw_sys_enter *ctx)
 	return 0;
 }
 
+// Descriptor duplication. libbpf (since 1.3) creates each map at a scratch
+// fd and moves it onto a reserved one with dup2 (dup3 on arm64), then closes
+// the scratch fd; programs refer to the reserved fd. The pid/fd table must
+// follow, or the daemon cannot resolve the program's maps. A duplicate of a
+// bpf fd gets a copy of its entry; a non-bpf fd duplicated over a bpf fd
+// clears that entry. Perf fds are not copied: closing one copy would detach
+// the shared perf event in userspace.
+struct dup_args_t {
+	int oldfd;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 10240);
+	__type(key, u64);
+	__type(value, struct dup_args_t);
+} dup_param_start SEC(".maps");
+
+static __always_inline int trace_enter_dup(int oldfd)
+{
+	if (!filter_target()) {
+		return 0;
+	}
+	struct dup_args_t args = { .oldfd = oldfd };
+	u64 pid_tgid = bpf_get_current_pid_tgid();
+	bpf_map_update_elem(&dup_param_start, &pid_tgid, &args, 0);
+	return 0;
+}
+
+static __always_inline int trace_exit_dup(long ret)
+{
+	u64 pid_tgid = bpf_get_current_pid_tgid();
+	struct dup_args_t *ap = bpf_map_lookup_elem(&dup_param_start, &pid_tgid);
+	if (!ap) {
+		return 0;
+	}
+	int oldfd = ap->oldfd;
+	bpf_map_delete_elem(&dup_param_start, &pid_tgid);
+	if (ret < 0 || ret == oldfd) {
+		return 0;
+	}
+	u32 pid = pid_tgid >> 32;
+	u64 old_key = MAKE_PFD(pid, oldfd);
+	u64 new_key = MAKE_PFD(pid, (u32)ret);
+	struct bpf_fd_data *old = bpf_map_lookup_elem(&bpf_fd_map, &old_key);
+	if (old && old->type != BPF_FD_TYPE_PERF) {
+		struct bpf_fd_data copy = *old;
+		bpf_map_update_elem(&bpf_fd_map, &new_key, &copy, 0);
+	} else {
+		bpf_map_delete_elem(&bpf_fd_map, &new_key);
+	}
+	return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_dup")
+int tracepoint__syscalls__sys_enter_dup(struct trace_event_raw_sys_enter *ctx)
+{
+	return trace_enter_dup((int)ctx->args[0]);
+}
+
+SEC("tracepoint/syscalls/sys_exit_dup")
+int tracepoint__syscalls__sys_exit_dup(struct trace_event_raw_sys_exit *ctx)
+{
+	return trace_exit_dup(ctx->ret);
+}
+
+SEC("tracepoint/syscalls/sys_enter_dup2")
+int tracepoint__syscalls__sys_enter_dup2(struct trace_event_raw_sys_enter *ctx)
+{
+	return trace_enter_dup((int)ctx->args[0]);
+}
+
+SEC("tracepoint/syscalls/sys_exit_dup2")
+int tracepoint__syscalls__sys_exit_dup2(struct trace_event_raw_sys_exit *ctx)
+{
+	return trace_exit_dup(ctx->ret);
+}
+
+SEC("tracepoint/syscalls/sys_enter_dup3")
+int tracepoint__syscalls__sys_enter_dup3(struct trace_event_raw_sys_enter *ctx)
+{
+	return trace_enter_dup((int)ctx->args[0]);
+}
+
+SEC("tracepoint/syscalls/sys_exit_dup3")
+int tracepoint__syscalls__sys_exit_dup3(struct trace_event_raw_sys_exit *ctx)
+{
+	return trace_exit_dup(ctx->ret);
+}
+
+#define BPFTIME_F_DUPFD 0
+#define BPFTIME_F_DUPFD_CLOEXEC 1030
+
+SEC("tracepoint/syscalls/sys_enter_fcntl")
+int tracepoint__syscalls__sys_enter_fcntl(struct trace_event_raw_sys_enter *ctx)
+{
+	int cmd = (int)ctx->args[1];
+	if (cmd != BPFTIME_F_DUPFD && cmd != BPFTIME_F_DUPFD_CLOEXEC) {
+		return 0;
+	}
+	return trace_enter_dup((int)ctx->args[0]);
+}
+
+SEC("tracepoint/syscalls/sys_exit_fcntl")
+int tracepoint__syscalls__sys_exit_fcntl(struct trace_event_raw_sys_exit *ctx)
+{
+	return trace_exit_dup(ctx->ret);
+}
+
 struct ioctl_args_t {
 	int fd;
 	unsigned long req;
