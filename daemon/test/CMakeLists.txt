@@ -16,6 +16,7 @@ find_package(Boost REQUIRED)
 set(TEST_SOURCES
     test_daemon_driver.cpp
     test_daemon_fd.cpp
+    test_daemon_tracer.cpp
 )
 
 add_executable(bpftime_daemon_tests ${TEST_SOURCES})
