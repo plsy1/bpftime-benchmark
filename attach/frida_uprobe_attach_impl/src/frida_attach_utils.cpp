@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <frida-gum.h>
@@ -207,8 +208,19 @@ resolve_function_addr_by_module_offset(const std::string_view &module_name,
 	return reinterpret_cast<void *>(base + func_offset);
 }
 
+// The symbol helpers below may run before any frida_attach_impl exists (ufunc
+// resolution, tests); gum's lookups crash before gum_init_embedded
+// (gum_find_function -> g_hash_table_new_full -> g_slice_alloc). Initializing
+// again is harmless.
+static void ensure_gum_initialized()
+{
+	static std::once_flag once;
+	std::call_once(once, [] { gum_init_embedded(); });
+}
+
 void *find_function_addr_by_name(const char *name)
 {
+	ensure_gum_initialized();
 	if (auto ptr = gum_find_function(name); ptr)
 		return ptr;
 	if (auto ptr = (void *)gum_module_find_export_by_name(nullptr, name);
@@ -219,6 +231,7 @@ void *find_function_addr_by_name(const char *name)
 
 void *get_module_base_addr(const char *module_name)
 {
+	ensure_gum_initialized();
 	gum_module_load(module_name, nullptr);
 	return (void *)gum_module_find_base_address(module_name);
 }
@@ -231,67 +244,9 @@ struct ExtentAccumulator {
 
 gboolean accumulate_range(const GumRangeDetails *details, gpointer user_data)
 {
-	auto *acc = static_cast<ExtentAccumulator *>(user_data);
-	const auto base = (uintptr_t)details->range->base_address;
-	const auto range_end = base + (uintptr_t)details->range->size;
-	if (base < acc->begin)
-		acc->begin = base;
-	if (range_end > acc->end)
-		acc->end = range_end;
-	return TRUE;
-}
-
-struct AddressLookup {
-	uintptr_t address;
-	bool found = false;
-};
-
-gboolean find_mapped_address(const GumRangeDetails *details, gpointer user_data)
-{
-	auto *lookup = static_cast<AddressLookup *>(user_data);
-	const auto start = (uintptr_t)details->range->base_address;
-	if (lookup->address >= start &&
-	    lookup->address - start < (uintptr_t)details->range->size) {
-		lookup->found = true;
-		return FALSE;
-	}
-	return TRUE;
-}
-
-} // namespace
-
-// gum's module lookup matches a full path for the base address but, for range
-// enumeration, only the executable name (the basename) is matched; a full path
-// yields zero ranges. Try the given name and then the basename so a path from
-// an attach spec still resolves.
-bool module_contains_address(std::string_view module_name, uintptr_t address)
-{
-	AddressLookup lookup{address};
-	const std::string name(module_name);
-	gum_module_enumerate_ranges(name.c_str(), GUM_PAGE_READ,
-				    find_mapped_address, &lookup);
-	if (lookup.found)
-		return true;
-
-	const auto slash = name.find_last_of('/');
-	if (slash == std::string::npos || slash + 1 >= name.size())
-		return false;
-	gum_module_enumerate_ranges(name.c_str() + slash + 1, GUM_PAGE_READ,
-				    find_mapped_address, &lookup);
-	return lookup.found;
-}
-
-// Returns the span covering the module's mapped ranges (possibly with gaps),
-// or 0 when the ranges cannot be determined.
-uintptr_t module_mapped_extent(const std::string_view &module_name)
-{
-	const std::string name(module_name);
-	ExtentAccumulator acc;
-	gum_module_enumerate_ranges(name.c_str(), GUM_PAGE_READ,
-				    accumulate_range, &acc);
-	if (acc.end <= acc.begin)
-		return 0;
-	return acc.end - acc.begin;
+	ensure_gum_initialized();
+	return (void *)(uintptr_t)gum_module_find_export_by_name(module_name,
+								 symbol_name);
 }
 int from_cb_idx_to_attach_type(int idx)
 {
