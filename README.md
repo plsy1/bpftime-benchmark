@@ -19,4 +19,4 @@ x86 的结论在 [`summry/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/t
   `uprobe/x86-nuc-full10-20261026/jetson-reference/`。
 - 这些结果 10/26 先提交在 `benchmark-results/jetson`（提交 `86fadc91`..`77a1df2f`），当天按用户要求搬到本分支；
   当时脚本运行在该分支的工作区 `/home/y/src/bpftime-wt-results`，搬家后脚本里的绝对路径改成了本分支工作区 `/home/y/src/bpftime-wt-results-x86`，内容不变。
-- 冻结的运行时产物和大的原始输出（sslsniff 抓包文本等）留在 NUC 本机 `/home/y/src/bpftime-x86-runs/`，未提交。
+- 冻结的运行时产物留在 NUC 本机 `/home/y/src/bpftime-x86-runs/`，未提交；sslsniff 原始抓包文本（21 GB）10/26 已删除，仓库里有首尾片段。

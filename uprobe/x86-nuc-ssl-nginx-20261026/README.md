@@ -29,7 +29,7 @@ sslsniff（bpftime 自带示例，原样 CO-RE 编译）跟踪 nginx 的 SSL 读
 | 256 KB（事件/请求） | 17.69 | **5.46** | 18.00 |
 
 官方在 256 KB 时丢掉约 70% 事件（perf 缓冲区满静默丢弃，开发分支 `db3d475f` 修过；Jetson 上官方为 9.46），所以官方的 256 KB 吞吐不是公平对比。
-完整 sslsniff 输出在本机 `raw/audit-captures/`，仓库里只留首尾各 20 行（`*.head-tail.txt`）。
+完整 sslsniff 输出（4.9 GB）10/26 已从 NUC 删除（用户同意），仓库里只留首尾各 20 行（`*.head-tail.txt`），事件数在 `audit-*.json`。
 
 ## 结果（每秒请求数，2 轮 × 10 次合并中位数）
 

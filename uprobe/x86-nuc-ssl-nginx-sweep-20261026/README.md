@@ -7,7 +7,7 @@ nginx 在 P 核 CPU 2、sslsniff 在 P 核 CPU 4（3.5 GHz），wrk 在 E 核 8�
 `run-sweep.sh` → `summary-sweep.md`、`absolute_performance.png`、`relative_to_kernel.png`、`overhead_trend.png`（Jetson 的 `plot_sweep.py`，只把开发分支名换成 a7d54d7e）。
 
 - 频率：nginx 所在 CPU 2 忙碌 > 90% 的 1,331 个采样全部在 3.5 GHz ± 3% 内；测前测后忙碌检查通过；测完恢复原设置；容器已删。
-- 原始 sslsniff 输出在本机 `/home/y/src/bpftime-x86-runs/ssl-nginx-sweep-20261026/raw/`，仓库里只留首尾各 20 行。
+- 原始 sslsniff 输出（16 GB）10/26 已从 NUC 删除（用户同意），仓库里只留首尾各 20 行；每档事件数在 `audit-*.json`。
 
 ## 事件审计（每请求事件数）
 
