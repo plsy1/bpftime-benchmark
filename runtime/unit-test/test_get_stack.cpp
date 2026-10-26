@@ -1,4 +1,6 @@
 #include "bpf_attach_ctx.hpp"
+#include "bpftime_shm.hpp"
+#include "common_def.hpp"
 #include "linux/bpf.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -7,10 +9,13 @@
 
 #include <algorithm>
 #include <array>
+#include <boost/scope_exit.hpp>
 #include <cerrno>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
-#include <sstream>
+#include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace
@@ -65,6 +70,8 @@ bpftime::bpf_attach_ctx &get_global_attach_ctx()
 
 extern "C" int64_t bpftime_get_stack(uint64_t, uint64_t, uint64_t, uint64_t,
 				     uint64_t);
+extern "C" int64_t bpftime_get_stackid(uint64_t, uint64_t, uint64_t, uint64_t,
+				       uint64_t);
 
 TEST_CASE("get_stack rejects build IDs")
 {
@@ -151,33 +158,47 @@ TEST_CASE("get_stack rejects skips beyond the available trace")
 			    [](uint64_t value) { return value == 0; }));
 }
 
-TEST_CASE("get_stack outside a hook reports an empty stack without logging")
+// The helper returns a 64-bit value: an error must be negative there too
+// (kernel: -EEXIST is 0xffffffffffffffef). A program that keeps the result in
+// a 64-bit variable and tests < 0 took 0x00000000ffffffef for a valid id.
+TEST_CASE("get_stackid returns errors as negative 64-bit values")
 {
-	// A syscall-trace or tracepoint probe has a synthesized pt_regs and no
-	// Gum invocation, so the attach implementation returns no frames. The
-	// kernel reports that as an empty stack, and the helper must not turn
-	// it into an error a BPF program would have to special-case, nor log at
-	// error level for a program that runs outside a hook by design.
-	std::ostringstream output;
-	auto previous = spdlog::default_logger();
-	auto logger = std::make_shared<spdlog::logger>(
-		"get_stack_outside_hook",
-		std::make_shared<spdlog::sinks::ostream_sink_mt>(output));
-	logger->set_level(spdlog::level::err);
-	spdlog::set_default_logger(logger);
-	mock_outside_hook = true;
-	std::array<uint64_t, 2> buffer;
-	buffer.fill(UINT64_MAX);
+	const char *old_name = getenv("BPFTIME_GLOBAL_SHM_NAME");
+	const bool had_name = old_name != nullptr;
+	const std::string previous_name = old_name ? old_name : "";
+	const std::string name = "GetStackidShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(name) };
+	bool initialized = false;
+	BOOST_SCOPE_EXIT_ALL(&)
+	{
+		if (initialized) {
+			bpftime_destroy_global_shm();
+			bpftime_initialize_global_shm(
+				bpftime::shm_open_type::SHM_NO_CREATE);
+		}
+		if (had_name)
+			setenv("BPFTIME_GLOBAL_SHM_NAME", previous_name.c_str(),
+			       1);
+		else
+			unsetenv("BPFTIME_GLOBAL_SHM_NAME");
+	};
+	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+	bpftime_destroy_global_shm();
+	bpftime_initialize_global_shm(
+		bpftime::shm_open_type::SHM_REMOVE_AND_CREATE);
+	initialized = true;
 
-	auto copied =
-		bpftime_get_stack(0, reinterpret_cast<uint64_t>(buffer.data()),
-				  sizeof(buffer), BPF_F_USER_STACK, 0);
-
-	mock_outside_hook = false;
-	spdlog::set_default_logger(previous);
-
-	REQUIRE(copied == 0);
-	REQUIRE(buffer[0] == 0);
-	REQUIRE(buffer[1] == 0);
-	REQUIRE(output.str().empty());
+	// One bucket: a second, different trace collides with the first.
+	const int map_fd =
+		bpftime_maps_create(-1, "stackid_err",
+				    { .type = BPF_MAP_TYPE_STACK_TRACE,
+				      .key_size = sizeof(uint32_t),
+				      .value_size = 4 * sizeof(uint64_t),
+				      .max_ents = 1 });
+	REQUIRE(map_fd >= 0);
+	mock_stack = { 0x1111111111111111, 0x2222222222222222 };
+	REQUIRE(bpftime_get_stackid(0, map_fd, BPF_F_USER_STACK, 0, 0) == 0);
+	mock_stack = { 0x3333333333333333, 0x4444444444444444 };
+	REQUIRE(bpftime_get_stackid(0, map_fd, BPF_F_USER_STACK, 0, 0) ==
+		-(int64_t)EEXIST);
 }
