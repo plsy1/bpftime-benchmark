@@ -15,9 +15,8 @@ map 诊断、C++ 优化、array JIT、hash map 优化、ssl-nginx 收尾，到�
 **真实程序：[兼容性问题与修复](realprog/bpftime-realprog-compatibility-20261026.md)**，7 个真实 uprobe 工具暴露的
 18 个 bpftime 问题（现象、根因、修复、官方是否也有）和修复后的功能、吞吐。
 
-**x86 NUC：[新会话交接](x86-nuc/bpftime-x86-nuc-handoff-20261026.md)**，在用户的 x86 NUC 上跑 bpftime 时先读：机器、构建、候选目标、规矩、结果放哪。
-
-**x86 NUC 结果：[构建与回归（10/26）](x86-nuc/bpftime-x86-nuc-build-regression-20261026.md)**，LLVM 19 下官方和开发分支的构建、单测；第 4 节是 NUC 发现、交给 Jetson 会话处理的问题（`bpf_get_stackid` 64 位错误返回值、诊断 clang 配置失败），第 5 节是 x86 上的 uprobe 完整十轮（4.4 GHz），第 6 节是 ssl-nginx 端到端。
+**x86 NUC**：结论和交接说明在 [`summry/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/tree/summry/x86-nuc) 分支，原始数据在 [`benchmark-results/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/x86-nuc) 分支；
+交给 Jetson 会话处理的问题见 [x86 发现](uprobe/bpftime-x86-nuc-findings-20261026.md)。
 
 以下为 7–8 月的调查报告，保存当时的归因过程：
 

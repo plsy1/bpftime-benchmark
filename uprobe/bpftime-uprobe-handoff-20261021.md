@@ -112,6 +112,12 @@ gethostlatency 少记不是 bpftime 的问题：用精确总数（工作负载�
   同轮：ssl-nginx `a7d54d7e` 相对 kernel +17.5%（16 B）/ +10.4%（256 KB），官方 −10.8% / −9.4%；真实工具 `a7d54d7e` 相对 kernel：
   gethostlatency 1.42x、funclatency 示例 3.66x、funclatency（libbpf-tools）3.04x、memleak 1.27x、malloc 示例 0.97x、bpftrace 计数 5.39x、直方图 2.63x。
 
+### 0.1c x86 NUC（10/26，另一个会话）
+
+用户的 x86 NUC 上另有一个会话在跑 bpftime，结果在 `summry/x86-nuc`、`benchmark-results/x86-nuc` 分支。它不改开发分支，
+发现的问题交给这里处理：[x86 发现](bpftime-x86-nuc-findings-20261026.md)（`bpf_get_stackid` 的错误在 64 位返回值里仍是正数；
+开发分支在只有 clang-19 的机器上配置失败；官方单测 `Test attach replace with ebpf` 在 gum 初始化前调用 gum）。
+
 ### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`）
 
 | 目录 | 内容 |
