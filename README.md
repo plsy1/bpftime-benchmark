@@ -7,7 +7,7 @@ bpftime 的 benchmark 工具仓库：workflow、脚本与说明在 `main`，被�
 | 分支 | 内容 |
 |---|---|
 | `main` | benchmark harness：GitHub Actions workflow、runner 脚本、说明文档 |
-| `codex/official-no-btf` | 被测的 bpftime 代码（含全部修复；bug 清单见 summry 分支的 change-log） |
+| `archive/official-no-btf` | 被测的 bpftime 代码（含全部修复；bug 清单见 summry 分支的 change-log） |
 | `benchmark-results/jetson` | Jetson 本地实验的结果数据（checkout 即数据目录） |
 | `summry/jetson` | 分析文档（消融报告、runbook、修复记录、阅读指南单文件版） |
 | `docs/source-reading-guide` | bpftime 源码阅读指南（多文件版） |

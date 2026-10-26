@@ -83,8 +83,10 @@ If the same image gives different `ssl-nginx` results on another ARM64 host, the
 
 ## Official Master No-BTF Image
 
-`codex/jetson-no-btf-docker` preserves the official bpftime master commit plus
-the Jetson compatibility build for hosts without `/sys/kernel/btf/vmlinux`.
+The `Build Jetson No-BTF Image` workflow builds `archive/official-no-btf` by
+default (the earlier `codex/jetson-no-btf-docker` branch, official master plus
+only this compatibility build, no longer exists): the Jetson compatibility
+build for hosts without `/sys/kernel/btf/vmlinux`.
 It keeps `.BTF` for skeleton generation, removes `.BTF.ext`, and disables
 CO-RE relocations in the local ARM64 vmlinux header. The corresponding ARM64
 image is published by the `Build Jetson No-BTF Image` workflow.
