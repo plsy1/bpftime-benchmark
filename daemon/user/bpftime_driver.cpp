@@ -70,9 +70,10 @@ static int get_bpf_obj_id_from_pid_fd(bpf_tracer_bpf *obj, int pid, int fd)
 	return map_id;
 }
 
-static int relocate_bpf_prog_insns(std::vector<ebpf_inst> &insns,
-				   bpf_tracer_bpf *obj, int id, int pid)
+int bpftime_driver::relocate_bpf_prog_insns(std::vector<ebpf_inst> &insns,
+					    int id, int pid)
 {
+	bpf_tracer_bpf *obj = object;
 	// relocate the bpf program
 	unsigned long long key_id = id;
 	assert(obj);
@@ -105,11 +106,15 @@ static int relocate_bpf_prog_insns(std::vector<ebpf_inst> &insns,
 				if (map_id < 0) {
 					return -1;
 				}
+				int handle = bpftime_maps_create_server(map_id);
+				if (handle < 0) {
+					return -1;
+				}
 				SPDLOG_DEBUG(
 					"relocate bpf prog insns for id {} in {}, "
-					"lddw imm {} to map id {}",
-					id, i, inst.imm, map_id);
-				insns[i].imm = map_id;
+					"lddw imm {} to map id {} (handle {})",
+					id, i, inst.imm, map_id, handle);
+				insns[i].imm = handle;
 			}
 			break;
 		case EBPF_OP_CALL:
@@ -146,11 +151,6 @@ int bpftime_driver::check_and_create_prog_related_maps(
 	assert(info->nr_map_ids == new_info.nr_map_ids);
 	for (unsigned int i = 0; i < info->nr_map_ids; i++) {
 		int map_id = map_ids[i];
-		if (bpftime_is_map_fd(map_id)) {
-			// check whether the map is exist
-			SPDLOG_INFO("map {} already exists", map_id);
-			continue;
-		}
 		int res = bpftime_maps_create_server(map_id);
 		if (res < 0) {
 			SPDLOG_ERROR("Failed to create map for id {}", map_id);
@@ -162,6 +162,8 @@ int bpftime_driver::check_and_create_prog_related_maps(
 
 int bpftime_driver::bpftime_progs_create_server(int kernel_id, int server_pid)
 {
+	if (auto it = prog_handles.find(kernel_id); it != prog_handles.end())
+		return it->second;
 	int fd = bpf_prog_get_fd_by_id(kernel_id);
 	if (fd < 0) {
 		SPDLOG_ERROR("Failed to get prog fd by prog id {}, err={}",
@@ -182,37 +184,40 @@ int bpftime_driver::bpftime_progs_create_server(int kernel_id, int server_pid)
 		SPDLOG_ERROR("Failed to get prog info for id {}", kernel_id);
 		return -1;
 	}
-	if (bpftime_is_prog_fd(kernel_id)) {
-		// check whether the prog is exist
-		SPDLOG_INFO("prog {} already exists in shm", kernel_id);
-		return 0;
-	}
-	std::vector<ebpf_inst> buffer;
-	res = relocate_bpf_prog_insns(buffer, object, kernel_id, server_pid);
-	if (res < 0) {
-		SPDLOG_ERROR("Failed to relocate prog insns for id {}",
-			      kernel_id);
-		return -1;
-	}
-	res = bpftime_progs_create(kernel_id, buffer.data(), buffer.size(),
-				   info.name, info.type);
-	if (res < 0) {
-		SPDLOG_ERROR("Failed to create prog for id {}", kernel_id);
-		return -1;
-	}
-	SPDLOG_INFO("create prog {}, fd {} in shm success", kernel_id, fd);
-	// check and created related maps
+	// The program's maps first: relocation refers to their handles.
 	res = check_and_create_prog_related_maps(fd, &info);
 	if (res < 0) {
 		SPDLOG_ERROR("Failed to create related maps for prog {}",
 			      kernel_id);
 		return -1;
 	}
-	return kernel_id;
+	std::vector<ebpf_inst> buffer;
+	res = relocate_bpf_prog_insns(buffer, kernel_id, server_pid);
+	if (res < 0) {
+		SPDLOG_ERROR("Failed to relocate prog insns for id {}",
+			      kernel_id);
+		return -1;
+	}
+	int handle = find_minimal_unused_id();
+	if (handle < 0) {
+		SPDLOG_ERROR("No free handler for prog {}", kernel_id);
+		return -1;
+	}
+	res = bpftime_progs_create(handle, buffer.data(), buffer.size(),
+				   info.name, info.type);
+	if (res < 0) {
+		SPDLOG_ERROR("Failed to create prog for id {}", kernel_id);
+		return -1;
+	}
+	prog_handles[kernel_id] = handle;
+	SPDLOG_INFO("create prog {} as handle {} in shm", kernel_id, handle);
+	return handle;
 }
 
 int bpftime_driver::bpftime_maps_create_server(int kernel_id)
 {
+	if (auto it = map_handles.find(kernel_id); it != map_handles.end())
+		return it->second;
 	int map_fd = bpf_map_get_fd_by_id(kernel_id);
 	if (map_fd < 0) {
 		SPDLOG_ERROR("Failed to get map fd for id {}", kernel_id);
@@ -249,19 +254,19 @@ int bpftime_driver::bpftime_maps_create_server(int kernel_id)
 	attr.btf_vmlinux_value_type_id = info.btf_vmlinux_value_type_id;
 	attr.ifindex = info.ifindex;
 
-	if (bpftime_is_map_fd(kernel_id)) {
-		// check whether the map is exist
-		SPDLOG_INFO("map {} already exists", kernel_id);
-		return 0;
+	int handle = find_minimal_unused_id();
+	if (handle < 0) {
+		SPDLOG_ERROR("No free handler for map {}", kernel_id);
+		return -1;
 	}
-
-	res = bpftime_maps_create(kernel_id, info.name, attr);
+	res = bpftime_maps_create(handle, info.name, attr);
 	if (res < 0) {
 		SPDLOG_ERROR("Failed to create map for id {}", kernel_id);
 		return -1;
 	}
-	SPDLOG_INFO("create map in kernel id {}", kernel_id);
-	return kernel_id;
+	map_handles[kernel_id] = handle;
+	SPDLOG_INFO("create map {} as handle {} in shm", kernel_id, handle);
+	return handle;
 }
 
 int bpftime_driver::bpftime_attach_perf_to_bpf_fd_server(
@@ -290,28 +295,24 @@ int bpftime_driver::bpftime_attach_perf_to_bpf_server(
 			      server_pid);
 		return -1;
 	}
-	if (bpftime_is_prog_fd(kernel_bpf_id)) {
-		SPDLOG_INFO("bpf {} already exists in shm", kernel_bpf_id);
-	} else {
-		int res =
-			bpftime_progs_create_server(kernel_bpf_id, server_pid);
-		if (res < 0) {
-			SPDLOG_ERROR(
-				"Failed to create bpf program (userspace side) for kernel program id {}",
-				kernel_bpf_id);
-			return -1;
-		}
+	int prog_handle =
+		bpftime_progs_create_server(kernel_bpf_id, server_pid);
+	if (prog_handle < 0) {
+		SPDLOG_ERROR(
+			"Failed to create bpf program (userspace side) for kernel program id {}",
+			kernel_bpf_id);
+		return -1;
 	}
 
 	int res = cookie ? bpftime_attach_perf_to_bpf_with_cookie(
-				   perf_id, kernel_bpf_id, *cookie) :
-			   bpftime_attach_perf_to_bpf(perf_id, kernel_bpf_id);
+				   perf_id, prog_handle, *cookie) :
+			   bpftime_attach_perf_to_bpf(perf_id, prog_handle);
 	if (res < 0) {
 		SPDLOG_ERROR("Failed to attach perf to bpf");
 		return -1;
 	}
-	SPDLOG_INFO("attach perf {} to bpf {}, for pid {}", perf_id,
-		     kernel_bpf_id, server_pid);
+	SPDLOG_INFO("attach perf {} to bpf {} (handle {}), for pid {}",
+		     perf_id, kernel_bpf_id, prog_handle, server_pid);
 	return 0;
 }
 
