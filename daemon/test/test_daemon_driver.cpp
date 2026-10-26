@@ -6,6 +6,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <bpf/bpf.h>
+#include <unistd.h>
 #include "bpftime_shm.hpp"
 #include "bpftime_shm_internal.hpp"
 #include "handler/link_handler.hpp"
@@ -76,4 +78,29 @@ TEST_CASE("Daemon accepts the exact captured instruction capacity")
 	REQUIRE(insns.front().code == EBPF_OP_MOV64_IMM);
 	REQUIRE(insns.front().imm == 7);
 	REQUIRE(insns.back().code == EBPF_OP_EXIT);
+}
+
+// DeepFlow's goroutine tracking shares an LRU hash (go_ancerstor_map) with
+// kernel programs; the daemon must mirror it ("Unsupported map type: 1009").
+TEST_CASE("Daemon mirrors kernel LRU hash maps", "[daemon-tracer]")
+{
+	if (geteuid() != 0)
+		SKIP("creating a kernel map needs root");
+	int fd = bpf_map_create(BPF_MAP_TYPE_LRU_HASH, "lru_mirror", 4, 8, 16,
+				nullptr);
+	REQUIRE(fd >= 0);
+	bpf_map_info info = {};
+	uint32_t len = sizeof(info);
+	REQUIRE(bpf_obj_get_info_by_fd(fd, &info, &len) == 0);
+	uint32_t key = 3;
+	uint64_t value = 0x1122334455667788;
+	REQUIRE(bpf_map_update_elem(fd, &key, &value, BPF_ANY) == 0);
+
+	bpftime::bpftime_driver driver({}, nullptr);
+	REQUIRE(driver.bpftime_maps_create_server(info.id) == (int)info.id);
+	REQUIRE(bpftime_is_map_fd(info.id));
+	auto *seen = (const uint64_t *)bpftime_map_lookup_elem(info.id, &key);
+	REQUIRE(seen != nullptr);
+	CHECK(*seen == value);
+	close(fd);
 }
