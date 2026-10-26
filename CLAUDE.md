@@ -411,8 +411,9 @@ whole value (lookups copy `value_size` bytes; a shorter stored vector was read
 out of bounds and showed heap garbage as frames), the same trace returns its id,
 a different trace in an occupied bucket returns `-EEXIST` unless
 `BPF_F_REUSE_STACKID` replaces it, and `BPF_F_FAST_STACK_CMP` compares the full
-hash. `bpf_get_stackid` returns errors negative (it used to cast them to a
-valid-looking `uint32_t` id).
+hash. `bpf_get_stackid` returns errors negative in its 64-bit result (it used
+to cast them to a valid-looking `uint32_t` id; `ret < 0 ? ret : (uint32_t)ret`
+still did, both branches being unsigned int: -EEXIST came back as 0xffffffef).
 
 ## Cgroup Array And bpf_current_task_under_cgroup
 
