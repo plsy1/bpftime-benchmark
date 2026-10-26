@@ -511,3 +511,11 @@ ran nowhere). Perf fds are not copied (closing one copy would detach the
 shared event). Closing a non-perf bpf fd still leaves its entry, because events
 are resolved asynchronously; a reused number therefore keeps the stale entry
 until it is overwritten.
+
+Uprobe redirection writes into the loader's memory: on entry to
+`perf_event_open` the tracer replaces the uprobe path with `new_uprobe_path`
+(`/a`) and the offset with 0, on exit it restores both. Restore exactly the
+original string's bytes (`path_len`, NUL included): writing back the whole
+255-byte name buffer ran past short heap strings (DeepFlow's per-probe path
+strings: "free(): invalid pointer" in the tracer). Never write more of the
+loader's memory than was read from it.
