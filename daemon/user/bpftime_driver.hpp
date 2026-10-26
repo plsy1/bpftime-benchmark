@@ -35,24 +35,39 @@ class bpftime_driver {
 		return it->second;
 	}
 	std::map<uint64_t, int> pid_fd_to_id_map;
+	// Handler indexes of the kernel maps and programs mirrored so far,
+	// by kernel id. Kernel ids are global, grow without bound and are
+	// separate spaces for maps and programs; they cannot index the
+	// handler table themselves.
+	std::map<int, int> map_handles;
+	std::map<int, int> prog_handles;
 	daemon_config config;
 	struct bpf_tracer_bpf *object = NULL;
 
 	int check_and_create_prog_related_maps(int fd,
 					       const bpf_prog_info *info);
+	int relocate_bpf_prog_insns(std::vector<ebpf_inst> &insns, int id,
+				    int pid);
 
     public:
-	// create a bpf prog in the global shared memory
-	//
-	// @param[fd]: fd is the fd allocated by the kernel. if fd is -1, then
-	// the function will allocate a new perf event fd.
+	// Mirror kernel program KERNEL_ID (and the maps it uses) in the global
+	// shared memory, once; returns its handler index.
 	int bpftime_progs_create_server(int kernel_id, int server_pid);
 
-	// create a bpf map in the global shared memory
-	//
-	// @param[fd]: fd is the fd allocated by the kernel. if fd is -1, then
-	// the function will allocate a new perf event fd.
+	// Mirror kernel map KERNEL_ID in the global shared memory as a
+	// kernel-user proxy, once; returns its handler index.
 	int bpftime_maps_create_server(int kernel_id);
+
+	// Use HANDLE, already in shared memory, for kernel program or map
+	// KERNEL_ID.
+	void adopt_prog_handle(int kernel_id, int handle)
+	{
+		prog_handles[kernel_id] = handle;
+	}
+	void adopt_map_handle(int kernel_id, int handle)
+	{
+		map_handles[kernel_id] = handle;
+	}
 
 	int bpftime_attach_perf_to_bpf_server(
 		int server_pid, int perf_fd, int kernel_bpf_id,
