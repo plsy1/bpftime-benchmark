@@ -116,7 +116,8 @@ gethostlatency 少记不是 bpftime 的问题：用精确总数（工作负载�
 
 用户的 x86 NUC 上另有一个会话在跑 bpftime，结果在 `summry/x86-nuc`、`benchmark-results/x86-nuc` 分支。它不改开发分支，
 发现的问题交给这里处理：[x86 发现](bpftime-x86-nuc-findings-20261026.md)（`bpf_get_stackid` 的错误在 64 位返回值里仍是正数；
-开发分支在只有 clang-19 的机器上配置失败；官方单测 `Test attach replace with ebpf` 在 gum 初始化前调用 gum）。
+开发分支在只有 clang-19 的机器上配置失败；官方单测 `Test attach replace with ebpf` 在 gum 初始化前调用 gum；
+**用户要求把 `codex/` 开头的分支改名**，含每日自动化前缀和 main 的 CI，方案见该文件第 5 条）。
 
 ### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`）
 

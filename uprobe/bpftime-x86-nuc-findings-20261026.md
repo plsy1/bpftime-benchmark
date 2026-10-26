@@ -44,3 +44,30 @@ x86 的全部结果和结论在 [`summry/x86-nuc`](https://github.com/plsy1/bpft
 
 - 开发分支新警告 `runtime/src/attach/bpf_attach_ctx.cpp:114` 有符号与无符号比较（`insn.imm == helper_id`），对正常 helper 号无影响，未深入。
 
+### 5. 分支改名：去掉 `codex/` 前缀（用户 10/26 要求，交给 Jetson 会话做）
+
+`codex/` 是当时 Codex 编程助手默认加的前缀，用户不想要。这些分支由 Jetson 这边建、由每日自动化维护，
+NUC 上不动，由 Jetson 会话统一改。建议的新名字（用户同意按此执行）：
+
+| 现在 | 改成 | 说明 |
+|---|---|---|
+| `codex/uprobe-official-177a1dc465ff` | `dev/uprobe-official-177a1dc465ff` | 当前开发分支；保持自动化生成的 `<前缀>-<官方提交号>` 格式 |
+| `codex/uprobe-official-8da867d541f8` | `archive/uprobe-official-8da867d541f8` | 已被 177a1dc 取代 |
+| `codex/uprobe-map-optimization` | `archive/uprobe-map-optimization` | 10/14 前的 map 优化分支 |
+| `codex/official-no-btf` | `archive/official-no-btf` | 7–8 月无 BTF 构建；**main 的 CI 仍在用，见下** |
+
+要一起改的地方（10/26 在 GitHub 上统计）：
+
+1. **每日自动化**（`automation/jetson-daily`）：`tools/jetson-upstream/config.json` 的 `candidate.branch_prefix`
+   `codex/uprobe-official` → `dev/uprobe-official`；`tools/jetson-upstream/README.md` 两处。`push_after_test` 是 true，
+   不改前缀的话下次跟到官方新提交时还会推出新的 `codex/` 分支。改之前先停每日定时器，改完再开。
+2. **main 的 GitHub Actions**：`.github/workflows/` 下 9 个工作流（bench-core、build-jetson-no-btf-image、build-prebuilt、mpk、
+   official-no-btf-nginx-path-perf-x64、ssl-nginx、syscall、syscount-nginx、uprobe）的默认 ref 是 `codex/official-no-btf`，
+   `README.md` 一处；`docker/jetson-repro/README.md` 提到的 `codex/jetson-no-btf-docker` 远端已不存在，顺手核对。
+3. **远端分支**：先推新名（`git push origin origin/codex/<旧>:refs/heads/<新>`），确认 CI、自动化、本机工作区都切过去后再删旧名。
+4. **Jetson 本机工作区**：`git branch -m <旧> <新>` 加 `git branch -u origin/<新>`（开发 worktree、每日状态目录里的候选和回放 worktree）。
+5. **文档**：`summry/jetson` 21 个文件 34 处，`benchmark-results/jetson` 78 个文件 81 处（多为历史结果里的说明，可只改入口 README 和接力文档，
+   历史目录加一句"已改名"即可）。提交信息里的旧名不用改。
+6. **x86 分支**：`summry/x86-nuc`、`benchmark-results/x86-nuc` 共 5 处，改名完成后由 NUC 会话更新；
+   完成后请在本文件这一条下面写一句"已完成"和新名字，NUC 会话会从这里读。
+
