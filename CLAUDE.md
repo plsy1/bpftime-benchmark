@@ -486,3 +486,16 @@ background thread (IPC, auto-refresh, detach) ignores probes for its lifetime.
 Wrap any new agent-side work that allocates or calls hooked functions on the
 host's threads. Allocations made before the agent takes over (process start-up
 before `__libc_start_main`) stay invisible, unlike kernel uprobes armed at exec.
+
+## Daemon Tracer Programs
+
+`bpftime::select_tracer_programs` (`daemon/user/bpf_tracer.cpp`) decides
+which programs of the daemon's kernel tracer load: the open and auto-attach
+programs per the options, and never a `tracepoint/syscalls/*` program whose
+tracepoint the running kernel lacks. Architectures with the generic syscall
+table (arm64, riscv64) have no `open` or `dup2`; attaching those failed the
+whole tracer (`bpftime_daemon -o` on arm64). Presence is read from tracefs
+(`/sys/kernel/tracing` or `/sys/kernel/debug/tracing`); without tracefs the
+program stays selected. Add new syscall tracepoints to the tracer freely; the
+selection drops the absent ones. `[daemon-tracer]` tests load the real tracer
+and need root (they skip otherwise).
