@@ -17,7 +17,7 @@ map 诊断、C++ 优化、array JIT、hash map 优化、ssl-nginx 收尾，到�
 
 **x86 NUC：[新会话交接](x86-nuc/bpftime-x86-nuc-handoff-20261026.md)**，在用户的 x86 NUC 上跑 bpftime 时先读：机器、构建、候选目标、规矩、结果放哪。
 
-**x86 NUC 结果：[构建与回归（10/26）](x86-nuc/bpftime-x86-nuc-build-regression-20261026.md)**，LLVM 19 下官方和开发分支的构建、单测；第 4 节是 NUC 发现、交给 Jetson 会话处理的问题（`bpf_get_stackid` 64 位错误返回值、诊断 clang 配置失败），第 5 节是 x86 上的 uprobe 完整十轮（4.4 GHz）。
+**x86 NUC 结果：[构建与回归（10/26）](x86-nuc/bpftime-x86-nuc-build-regression-20261026.md)**，LLVM 19 下官方和开发分支的构建、单测；第 4 节是 NUC 发现、交给 Jetson 会话处理的问题（`bpf_get_stackid` 64 位错误返回值、诊断 clang 配置失败），第 5 节是 x86 上的 uprobe 完整十轮（4.4 GHz），第 6 节是 ssl-nginx 端到端。
 
 以下为 7–8 月的调查报告，保存当时的归因过程：
 

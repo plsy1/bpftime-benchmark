@@ -1,4 +1,4 @@
-# x86 NUC：构建与回归、uprobe 完整十轮（2026-10-26）及交给 Jetson 的问题
+# x86 NUC：构建与回归、uprobe 完整十轮、ssl-nginx（2026-10-26）及交给 Jetson 的问题
 
 NUC 会话按交接说明第 4 节候选目标 1 做的第一件事：在 x86 上编译官方 `177a1dc` 和开发分支
 `codex/uprobe-official-177a1dc465ff`（`a7d54d7e`），跑单测，确认 Jetson 上的修复与优化在 x86 上也成立。
@@ -110,3 +110,18 @@ map 行为每次操作 ns（每次调用 / 1,000），其余为每次调用 ns�
 倍率各用同段 kernel（两段 kernel 除 hash lookup 差 −5.9% 外都在 ±2% 内，官方 hash lookup 的分母是 9.94）。
 
 - 这台机器固定频率的坑：核心从 C6 及更深空闲状态醒来、以及改完频率设置后的头几秒会跑在 1.4 GHz，需禁用 C6+ 并在测前等稳定（细节见 README）。
+
+## 6. ssl-nginx 端到端（10/26 傍晚）
+
+原始数据：`benchmark-results/jetson` 分支 `uprobe/x86-nuc-ssl-nginx-20261026/`（README、`summary.md`）。方法与 Jetson `btf-kernel-20261026/ssl-nginx` 相同
+（同一 Dockerfile、`run_fair.py`、sslsniff 示例原样 CO-RE 编译、wrk `-c 100 -d 10`、2 轮 × 10 次、顺序轮换），x86 只加了绑核：
+nginx 在 P 核 CPU 2、sslsniff 在 P 核 CPU 4（3.5 GHz），wrk 在 E 核 8–9（2.5 GHz）；多个核同时忙时 4.4 GHz 撑不住，所以没用 4.4 GHz。
+
+| 负载 | 不追踪 | kernel | 官方 | a7d54d7e | a7d54d7e vs kernel | 官方 vs kernel | Jetson a7d54d7e vs kernel |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 16 B（req/s） | 95,883 | 53,827 | 62,558 | 79,642 | **+48.0%** | +16.2% | +17.5% |
+| 256 KB（req/s） | 6,845 | 4,613 | 5,212 | 5,901 | **+27.9%** | +13.0%（丢约 70% 事件） | +10.4% |
+
+- 事件审计：16 B 三组每请求都是 2 个事件；256 KB kernel 17.7、a7d54d7e 18.0、官方 5.5（官方静默丢事件，`db3d475f` 修过），所以官方 256 KB 不是公平对比。
+- 每请求比不追踪多出的时间（16 B）：kernel 8.1 µs、官方 5.6 µs、a7d54d7e 2.1 µs。x86 kernel 的 uprobe 本身贵（一对 uprobe + uretprobe 约 1.34 µs），
+  所以 x86 上 bpftime 相对 kernel 的优势比 Jetson 大，官方在 x86 上也快于 kernel。
