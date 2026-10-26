@@ -139,3 +139,11 @@
   2. 扩大 ARM64 支持（aarch64 系统调用改写跳板，解锁 syscall/syscount-nginx/fuse 和 syscall tracepoint 工具；deepflow；`bpftime attach`）；
   3. 分批向上游提交修复；
   4. 视结果再做多维度 map benchmark 和 hash map 重写。
+
+## 12. x86 NUC（10/26 起）
+
+- 用户的 x86 NUC（i5-1240P，Debian 13，内核 6.12）上由另一个会话跑 bpftime，两边通过本仓库交接（[交接说明](x86-nuc/bpftime-x86-nuc-handoff-20261026.md)）；
+  NUC 上不改开发分支，发现的问题交给 Jetson 会话。
+- **构建与回归（10/26）**：官方 177a1dc 和 `a7d54d7e` 用 LLVM 19 都能编；开发分支每日过滤器 110 个用例、Frida 19 个用例全过，
+  含 x86 走 gum 回溯器的 uretprobe 取栈。交给 Jetson：`bpf_get_stackid` 的错误在 64 位返回值里仍是正数（`d766e6ad` 的三元表达式类型提升，官方同样），
+  诊断 benchmark 的 clang 查找让只有 clang-19 的机器配置失败。详见 [x86 构建与回归](x86-nuc/bpftime-x86-nuc-build-regression-20261026.md)。
