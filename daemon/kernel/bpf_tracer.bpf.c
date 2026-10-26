@@ -453,6 +453,9 @@ struct perf_event_args_t {
 
 	// we may modify the offset and name, so we keep it here
 	char name_or_path[NAME_MAX];
+	// bytes of the original path, including its NUL; only these are
+	// restored (the loader's buffer may be no longer than the string)
+	long path_len;
 	// original offset, if we modified
 	u64 orig_offset;
 	// Whether to send thie creation to bpftime_daemon?
@@ -485,8 +488,9 @@ int tracepoint__syscalls__sys_enter_perf_event_open(
 	args.cpu = (int)ctx->args[2];
 	args.attr_user = (struct perf_event_attr *)ctx->args[0];
 	args.path_buf_user = (void *)args.attr.uprobe_path;
-	bpf_probe_read_user_str(args.name_or_path, PATH_LENTH,
-				(const void *)args.attr.uprobe_path);
+	args.path_len = bpf_probe_read_user_str(
+		args.name_or_path, PATH_LENTH,
+		(const void *)args.attr.uprobe_path);
 	args.orig_offset = args.attr.probe_offset;
 	bpf_printk("Received path: %s", args.name_or_path);
 	u64 pid_tgid = bpf_get_current_pid_tgid();
@@ -539,8 +543,17 @@ int tracepoint__syscalls__sys_exit_perf_event_open(
 		bpf_printk("Accept perf event creation at program %s to daemon",
 			   ap->name_or_path);
 		// Revert changes
-		bpf_probe_write_user(ap->path_buf_user, ap->name_or_path,
-				     sizeof(ap->name_or_path));
+		// Restore exactly the bytes replaced on entry: writing the
+		// whole name buffer ran past short heap strings in the loader
+		// (DeepFlow: "free(): invalid pointer").
+		// NAME_MAX is 255: the mask is the verifier's bound.
+		if (ap->path_len > 0 &&
+		    ap->path_len <= (long)sizeof(ap->name_or_path)) {
+			u32 len = (u32)ap->path_len & 0xff;
+			if (len > 0)
+				bpf_probe_write_user(ap->path_buf_user,
+						     ap->name_or_path, len);
+		}
 		bpf_probe_write_user(&ap->attr_user->probe_offset,
 				     &ap->orig_offset, sizeof(ap->orig_offset));
 	} else {
