@@ -56,49 +56,61 @@ set_target_properties(per-cpu-hash-delete-layers PROPERTIES
   INTERPROCEDURAL_OPTIMIZATION FALSE
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
 
-find_program(DIAGNOSTIC_BPF_CLANG NAMES clang-16 clang-15 clang REQUIRED)
-set(ARRAY_HELPER_JIT_BPF_OBJECT
-  ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics/array_helper_jit.bpf.o)
-add_custom_command(
-  OUTPUT ${ARRAY_HELPER_JIT_BPF_OBJECT}
-  COMMAND ${CMAKE_COMMAND} -E make_directory
-          ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics
-  COMMAND ${DIAGNOSTIC_BPF_CLANG} -O2 -g -target bpf
-          -c ${CMAKE_CURRENT_SOURCE_DIR}/uprobe/diagnostics/array_helper_jit.bpf.c
-          -o ${ARRAY_HELPER_JIT_BPF_OBJECT}
-  DEPENDS uprobe/diagnostics/array_helper_jit.bpf.c
-  VERBATIM)
-add_custom_target(array-helper-jit-bpf DEPENDS ${ARRAY_HELPER_JIT_BPF_OBJECT})
-add_executable(array-helper-jit-layers
-  uprobe/diagnostics/array_helper_jit_layers.cpp)
-add_dependencies(array-helper-jit-layers array-helper-jit-bpf)
-target_link_libraries(array-helper-jit-layers PRIVATE runtime)
-target_compile_definitions(array-helper-jit-layers PRIVATE
-  ARRAY_HELPER_JIT_BPF_OBJECT="${ARRAY_HELPER_JIT_BPF_OBJECT}")
-set_target_properties(array-helper-jit-layers PROPERTIES
-  INTERPROCEDURAL_OPTIMIZATION FALSE
-  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
+# The helper-JIT diagnostics compile a BPF object: use the configured BPF
+# clang, else any clang found. Without one, skip them instead of failing the
+# whole configuration (a machine with only clang-19 has none of the names the
+# measurements used).
+if(NOT DIAGNOSTIC_BPF_CLANG AND BPFTIME_BPF_CLANG)
+  set(DIAGNOSTIC_BPF_CLANG ${BPFTIME_BPF_CLANG})
+endif()
+find_program(DIAGNOSTIC_BPF_CLANG
+  NAMES clang-16 clang-15 clang clang-20 clang-19 clang-18 clang-17)
+if(NOT DIAGNOSTIC_BPF_CLANG)
+  message(STATUS "No clang for BPF objects: skipping the helper-JIT diagnostics")
+else()
+  set(ARRAY_HELPER_JIT_BPF_OBJECT
+    ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics/array_helper_jit.bpf.o)
+  add_custom_command(
+    OUTPUT ${ARRAY_HELPER_JIT_BPF_OBJECT}
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics
+    COMMAND ${DIAGNOSTIC_BPF_CLANG} -O2 -g -target bpf
+            -c ${CMAKE_CURRENT_SOURCE_DIR}/uprobe/diagnostics/array_helper_jit.bpf.c
+            -o ${ARRAY_HELPER_JIT_BPF_OBJECT}
+    DEPENDS uprobe/diagnostics/array_helper_jit.bpf.c
+    VERBATIM)
+  add_custom_target(array-helper-jit-bpf DEPENDS ${ARRAY_HELPER_JIT_BPF_OBJECT})
+  add_executable(array-helper-jit-layers
+    uprobe/diagnostics/array_helper_jit_layers.cpp)
+  add_dependencies(array-helper-jit-layers array-helper-jit-bpf)
+  target_link_libraries(array-helper-jit-layers PRIVATE runtime)
+  target_compile_definitions(array-helper-jit-layers PRIVATE
+    ARRAY_HELPER_JIT_BPF_OBJECT="${ARRAY_HELPER_JIT_BPF_OBJECT}")
+  set_target_properties(array-helper-jit-layers PROPERTIES
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
 
-add_executable(hash-helper-jit-layers
-  uprobe/diagnostics/hash_helper_jit_layers.cpp)
-add_dependencies(hash-helper-jit-layers array-helper-jit-bpf)
-target_link_libraries(hash-helper-jit-layers PRIVATE runtime)
-target_compile_definitions(hash-helper-jit-layers PRIVATE
-  ARRAY_HELPER_JIT_BPF_OBJECT="${ARRAY_HELPER_JIT_BPF_OBJECT}")
-set_target_properties(hash-helper-jit-layers PROPERTIES
-  INTERPROCEDURAL_OPTIMIZATION FALSE
-  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
+  add_executable(hash-helper-jit-layers
+    uprobe/diagnostics/hash_helper_jit_layers.cpp)
+  add_dependencies(hash-helper-jit-layers array-helper-jit-bpf)
+  target_link_libraries(hash-helper-jit-layers PRIVATE runtime)
+  target_compile_definitions(hash-helper-jit-layers PRIVATE
+    ARRAY_HELPER_JIT_BPF_OBJECT="${ARRAY_HELPER_JIT_BPF_OBJECT}")
+  set_target_properties(hash-helper-jit-layers PROPERTIES
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
 
-# Matched ordinary/per-CPU map helper diagnostic through the LLVM JIT.
-add_executable(per-cpu-helper-jit-layers
-  uprobe/diagnostics/per_cpu_helper_jit_layers.cpp)
-add_dependencies(per-cpu-helper-jit-layers array-helper-jit-bpf)
-target_link_libraries(per-cpu-helper-jit-layers PRIVATE runtime)
-target_compile_definitions(per-cpu-helper-jit-layers PRIVATE
-  ARRAY_HELPER_JIT_BPF_OBJECT="${ARRAY_HELPER_JIT_BPF_OBJECT}")
-set_target_properties(per-cpu-helper-jit-layers PROPERTIES
-  INTERPROCEDURAL_OPTIMIZATION FALSE
-  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
+  # Matched ordinary/per-CPU map helper diagnostic through the LLVM JIT.
+  add_executable(per-cpu-helper-jit-layers
+    uprobe/diagnostics/per_cpu_helper_jit_layers.cpp)
+  add_dependencies(per-cpu-helper-jit-layers array-helper-jit-bpf)
+  target_link_libraries(per-cpu-helper-jit-layers PRIVATE runtime)
+  target_compile_definitions(per-cpu-helper-jit-layers PRIVATE
+    ARRAY_HELPER_JIT_BPF_OBJECT="${ARRAY_HELPER_JIT_BPF_OBJECT}")
+  set_target_properties(per-cpu-helper-jit-layers PROPERTIES
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/benchmark/uprobe/diagnostics)
+endif()
 
 if(BPFTIME_ENABLE_CUDA_ATTACH)
   add_executable(gpu_array_map_host_perf
