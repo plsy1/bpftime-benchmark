@@ -520,6 +520,15 @@ original string's bytes (`path_len`, NUL included): writing back the whole
 strings: "free(): invalid pointer" in the tracer). Never write more of the
 loader's memory than was read from it.
 
+Mirrored kernel maps and programs get handler indexes from
+`find_minimal_unused_id`, recorded per kernel id in the driver
+(`map_handles`, `prog_handles`, each object mirrored once); program
+instructions are relocated to map handles, so a program's maps are mirrored
+before it. Kernel ids must never index the handler table: they are global,
+grow without bound (past the 6144-entry table after a few DeepFlow runs:
+"set_handler: fd 6957 out of range", and agents then ran nothing), and maps
+and programs have separate id spaces.
+
 ## Kernel-User Proxy Maps
 
 In daemon mode, maps that userspace programs share with kernel programs are
