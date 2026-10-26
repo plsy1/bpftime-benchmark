@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <frida-gum.h>
@@ -138,8 +139,19 @@ resolve_function_addr_by_module_offset(const std::string_view &module_name,
 	return ((char *)module_base_addr) + func_offset;
 }
 
+// The symbol helpers below may run before any frida_attach_impl exists (ufunc
+// resolution, tests); gum's lookups crash before gum_init_embedded
+// (gum_find_function -> g_hash_table_new_full -> g_slice_alloc). Initializing
+// again is harmless.
+static void ensure_gum_initialized()
+{
+	static std::once_flag once;
+	std::call_once(once, [] { gum_init_embedded(); });
+}
+
 void *find_function_addr_by_name(const char *name)
 {
+	ensure_gum_initialized();
 	if (auto ptr = gum_find_function(name); ptr)
 		return ptr;
 	if (auto ptr = (void *)gum_module_find_export_by_name(nullptr, name);
@@ -150,12 +162,14 @@ void *find_function_addr_by_name(const char *name)
 
 void *get_module_base_addr(const char *module_name)
 {
+	ensure_gum_initialized();
 	gum_module_load(module_name, nullptr);
 	return (void *)gum_module_find_base_address(module_name);
 }
 void *find_module_export_by_name(const char *module_name,
 				 const char *symbol_name)
 {
+	ensure_gum_initialized();
 	return (void *)(uintptr_t)gum_module_find_export_by_name(module_name,
 								 symbol_name);
 }
