@@ -87,4 +87,26 @@ NUC 会话按交接说明第 4 节候选目标 1 做的第一件事：在 x86 �
   开发分支比官方快 45–92%。hash lookup/update/delete 的倍率与 Jetson 几乎相同（x86 0.81/0.29/0.30，Jetson 0.82/0.29/0.26）；
   array update 和 per-CPU 各项在 x86 上更低（如 per-CPU hash lookup 0.66× 对 0.94×）。array lookup 两行不使用返回值，不作收益结论。
 - 探针本身：x86 kernel uprobe 约 1.1 µs/次，bpftime 124 ns（0.11×，Jetson 0.16×）；probe read/write 0.07–0.09×（Jetson 0.24–0.26×）。
+
+| 操作 | kernel ns | 官方 ns | 官方/kernel | 开发分支 ns | 开发分支/kernel | Jetson 开发分支/kernel |
+|---|---:|---:|---:|---:|---:|---:|
+| Ordinary array lookup | 1.81 | 5.78 | 3.19× | 0.45 | 0.25×（不使用返回值） | 0.31× |
+| Ordinary array update | 7.44 | 8.94 | 1.20× | 3.58 | 0.48× | 0.88× |
+| Ordinary hash lookup | 10.57 | 20.65 | 2.08× | 8.60 | 0.81× | 0.82× |
+| Ordinary hash update | 34.47 | 23.48 | 0.67× | 10.02 | 0.29× | 0.29× |
+| Ordinary hash delete | 34.36 | 18.33 | 0.53× | 10.16 | 0.30× | 0.26× |
+| Per-CPU array lookup | 1.84 | 9.98 | 5.49× | 1.28 | 0.70×（不使用返回值） | 0.95× |
+| Per-CPU array update | 7.43 | 18.15 | 2.43× | 4.74 | 0.64× | 0.87× |
+| Per-CPU hash lookup | 10.61 | 45.15 | 4.25× | 6.99 | 0.66× | 0.94× |
+| Per-CPU hash update | 25.81 | 70.64 | 2.79× | 12.63 | 0.49× | 0.66× |
+| Per-CPU hash delete | 112.21 | 64.50 | 0.58× | 30.51 | 0.27× | 0.67× |
+| uprobe | 1,107.9 | 122.9 | 0.11× | 124.0 | 0.11× | 0.16× |
+| uretprobe | 1,292.2 | 182.4 | 0.14× | 183.8 | 0.14× | 0.16× |
+| uprobe + uretprobe | 1,337.7 | 212.0 | 0.16× | 214.4 | 0.16× | 0.18× |
+| probe read | 18,937.8 | 1,698.6 | 0.09× | 1,507.5 | 0.08× | 0.26× |
+| probe write | 19,130.4 | 1,506.5 | 0.08× | 1,285.2 | 0.07× | 0.24× |
+
+map 行为每次操作 ns（每次调用 / 1,000），其余为每次调用 ns；越小越好。kernel 列取开发分支那一段的 kernel 组；
+倍率各用同段 kernel（两段 kernel 除 hash lookup 差 −5.9% 外都在 ±2% 内，官方 hash lookup 的分母是 9.94）。
+
 - 这台机器固定频率的坑：核心从 C6 及更深空闲状态醒来、以及改完频率设置后的头几秒会跑在 1.4 GHz，需禁用 C6+ 并在测前等稳定（细节见 README）。
