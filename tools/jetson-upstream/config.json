@@ -89,7 +89,24 @@
       {"sha": "b00be2072d4df07ebb879aa1ebab89a536fb9929", "kind": "runtime-fix", "subject": "Add bpf_get_current_cgroup_id"},
       {"sha": "f2596ce89c0fed25512aa136dc88e4c7859a23c2", "kind": "runtime-fix", "subject": "Strip pointer authentication codes from stack frames with XPACI"},
       {"sha": "4d9b8a612d620c7eb19ef48af9b80e0ed64add44", "kind": "runtime-fix", "subject": "Keep the agent's own work out of the probes"},
-      {"sha": "a7d54d7eb7a06f5314f9bf00560586d668dbe6e6", "kind": "runtime-fix", "subject": "Move rate-limited logging out of line"}
+      {"sha": "a7d54d7eb7a06f5314f9bf00560586d668dbe6e6", "kind": "runtime-fix", "subject": "Move rate-limited logging out of line"},
+      {"sha": "d8470a6177ce905b93c3944670ee911d61b9822e", "kind": "daemon-fix", "subject": "daemon: skip syscall tracepoints the running kernel lacks"},
+      {"sha": "4d8b89f9eb70811fcbebf1cb19da4b6c2b5e142b", "kind": "daemon-fix", "subject": "daemon: follow duplicated bpf descriptors"},
+      {"sha": "a43f213d10daf293ae04ddb72d649f0071e001b0", "kind": "daemon-fix", "subject": "daemon: restore only the redirected uprobe path's bytes"},
+      {"sha": "21182b7936a0f2d1e70074b031182836c4134b76", "kind": "runtime-fix", "subject": "Kernel-user proxy maps: per-process fds, per-thread values, percpu CPU slot"},
+      {"sha": "1d2944d985110a814e79ce0f205aac8f15ae5bd3", "kind": "daemon-fix", "subject": "daemon: mirror kernel LRU hash maps through the hash proxy"},
+      {"sha": "e6bfc3d916e12336b4158a91a9d4539d27497e98", "kind": "daemon-fix", "subject": "daemon: mirror kernel objects at free handler indexes, not kernel ids"},
+      {"sha": "a0b0eb2ffbba5a51aa76803ca39bacecd5c327e1", "kind": "runtime-fix", "subject": "bpf_get_stackid: keep errors negative in the 64-bit result"},
+      {"sha": "fb506ff4f44399e745f22384b66d00c27d788a39", "kind": "build-fix", "subject": "benchmark: do not fail configuration without the diagnostic BPF clang"},
+      {"sha": "7b6fa4fdbf6b6f03b0ee4ebac84c17dfdd43cd2a", "kind": "runtime-fix", "subject": "frida attach utils: initialize gum before symbol lookups"},
+      {"sha": "627a2201afd901e6991ae60b318622613a5604df", "kind": "warning-fix", "subject": "typed helper selection: compare helper ids as signed"}
+    ],
+    "cmake_args": ["-DBUILD_BPFTIME_DAEMON=ON"],
+    "test_suites": [
+      {"target": "bpftime_runtime_tests", "binary": "runtime/unit-test/bpftime_runtime_tests", "filter": "[kernel_user]", "root": true},
+      {"target": "bpftime_daemon_tests", "binary": "daemon/test/bpftime_daemon_tests", "root": true},
+      {"target": "bpftime_runtime_tests", "binary": "runtime/unit-test/bpftime_runtime_tests", "filter": "Test attach replace with ebpf"},
+      {"target": "bpftime_frida_uprobe_attach_tests", "binary": "attach/frida_uprobe_attach_impl/bpftime_frida_uprobe_attach_tests"}
     ]
   },
   "build": {
@@ -114,7 +131,7 @@
       "simple-benchmark-with-embed-ebpf-calling",
       "bpftime_runtime_tests"
     ],
-    "test_filter": "[array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent,[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps][map_in_map],Test bpftime runtime_config,Allow external maps from the environment,Select Frida*,Test basic operations of external hash map ops,[perf_event],[epoll],[uid_gid],[shm_release],[jit_load],[stack_trace],Test stack trace map*,[cgroup_array],[trace_printk],[ratelimit]"
+    "test_filter": "[array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent,[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps][map_in_map],Test bpftime runtime_config,Allow external maps from the environment,Select Frida*,Test basic operations of external hash map ops,[perf_event],[epoll],[uid_gid],[shm_release],[jit_load],[stack_trace],Test stack trace map*,[cgroup_array],[trace_printk],[ratelimit],get_stackid returns errors as negative 64-bit values"
   },
   "benchmark": {
     "cpu": 5,

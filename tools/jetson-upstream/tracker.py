@@ -37,6 +37,9 @@ MAP_CASES = (
 )
 
 
+ROOT_TEST_SHM = "bpftime_daily_root_tests"
+
+
 class TrackerError(RuntimeError):
     pass
 
@@ -295,13 +298,31 @@ def benchmark_vmlinux(config: dict[str, Any], path: Path, build_dir: Path) -> Pa
     return output
 
 
-def build(config: dict[str, Any], path: Path) -> Path:
+def candidate_suites(config: dict[str, Any]) -> list[dict[str, Any]]:
+    return config["candidate"].get("test_suites", [])
+
+
+def build(
+    config: dict[str, Any],
+    path: Path,
+    *,
+    extra_cmake_args: list[str] | None = None,
+    extra_targets: list[str] | None = None,
+) -> Path:
     build_cfg = config["build"]
     jobs = int(build_cfg["jobs"])
     initialize_submodules(path, jobs)
     build_dir = path / "build-jetson-daily"
     run(
-        ["cmake", "-S", str(path), "-B", str(build_dir), *build_cfg["cmake_args"]],
+        [
+            "cmake",
+            "-S",
+            str(path),
+            "-B",
+            str(build_dir),
+            *build_cfg["cmake_args"],
+            *(extra_cmake_args or []),
+        ],
         cwd=path,
     )
     run(
@@ -313,6 +334,7 @@ def build(config: dict[str, Any], path: Path) -> Path:
             str(jobs),
             "--target",
             *build_cfg["targets"],
+            *(extra_targets or []),
         ],
         cwd=path,
     )
@@ -348,6 +370,38 @@ def build(config: dict[str, Any], path: Path) -> Path:
 def test_runtime(config: dict[str, Any], path: Path, build_dir: Path) -> None:
     test_binary = build_dir / "runtime/unit-test/bpftime_runtime_tests"
     run([str(test_binary), config["build"]["test_filter"]], cwd=path)
+
+
+def build_candidate(config: dict[str, Any], path: Path) -> Path:
+    return build(
+        config,
+        path,
+        extra_cmake_args=config["candidate"].get("cmake_args", []),
+        extra_targets=sorted({suite["target"] for suite in candidate_suites(config)}),
+    )
+
+
+def test_candidate(config: dict[str, Any], path: Path, build_dir: Path) -> None:
+    """Suites only the patched tree passes: kernel map tests need root, the
+    daemon and Frida tests are separate binaries, and some cases fail on the
+    official tree by design (they test the stack's fixes)."""
+    test_runtime(config, path, build_dir)
+    for suite in candidate_suites(config):
+        argv = [str(build_dir / suite["binary"])]
+        if suite.get("filter"):
+            argv.append(suite["filter"])
+        if not suite.get("root", False):
+            run(argv, cwd=path)
+            continue
+        # A root run would leave the default global segment owned by root,
+        # and every later unprivileged test run would fail to open it.
+        try:
+            run(
+                ["sudo", "-n", "env", f"BPFTIME_GLOBAL_SHM_NAME={ROOT_TEST_SHM}", *argv],
+                cwd=path,
+            )
+        finally:
+            run(["sudo", "-n", "rm", "-f", f"/dev/shm/{ROOT_TEST_SHM}"], cwd=path)
 
 
 def cpu_frequency(cpu: int) -> dict[str, int | None]:
@@ -578,8 +632,8 @@ def daily(config: dict[str, Any], repo: Path, *, push: bool, force: bool) -> dic
         status["candidate_worktree"] = str(candidate_path)
         status["migration"] = "success"
         if config["candidate"].get("build_and_test", True):
-            candidate_build = build(config, candidate_path)
-            test_runtime(config, candidate_path, candidate_build)
+            candidate_build = build_candidate(config, candidate_path)
+            test_candidate(config, candidate_path, candidate_build)
             status["candidate_build"] = str(candidate_build)
             status["candidate_tests"] = "passed"
         if config["candidate"].get("push_after_test", False):
@@ -633,6 +687,10 @@ def main() -> int:
     migrate_parser.add_argument("--official-sha")
     build_parser = subparsers.add_parser("build", help="build an existing worktree")
     build_parser.add_argument("worktree", type=Path)
+    candidate_parser = subparsers.add_parser(
+        "test-candidate", help="build and test a patched worktree as the daily candidate"
+    )
+    candidate_parser.add_argument("worktree", type=Path)
     daily_parser = subparsers.add_parser("daily", help="sync, build, test, benchmark, then migrate")
     daily_parser.add_argument("--push", action="store_true")
     daily_parser.add_argument("--force", action="store_true")
@@ -656,6 +714,11 @@ def main() -> int:
             print(migrate(config, repo, official_sha))
         elif args.command == "build":
             print(build(config, args.worktree.resolve()))
+        elif args.command == "test-candidate":
+            worktree = args.worktree.resolve()
+            build_dir = build_candidate(config, worktree)
+            test_candidate(config, worktree, build_dir)
+            print(build_dir)
         elif args.command == "daily":
             print(json.dumps(daily(config, repo, push=args.push, force=args.force), indent=2))
     return 0

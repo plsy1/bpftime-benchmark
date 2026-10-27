@@ -43,7 +43,8 @@ python3 tools/jetson-upstream/tracker.py daily --push
    uprobe benchmark for 10 rounds;
 7. validates every raw result has 10 samples and archives metadata;
 8. attempts the configured patch stack in a separate candidate worktree;
-9. builds and tests a conflict-free candidate, then pushes its dated branch.
+9. builds and tests a conflict-free candidate (the focused filter plus the
+   candidate-only suites below), then pushes its dated branch.
 
 Results are written below `../results/uprobe/official-daily`. Worktrees,
 migration reports, and the lock file are written below
@@ -222,3 +223,37 @@ cases on the official build; candidate-only tags match nothing there and do not
 fail the gate. Experiments on the maintained stack should run this whole
 filter, not only their own tags: the map-name collision case was missed by the
 JIT experiments' narrower filters until it was replayed here.
+
+## Candidate-only suites
+
+The daemon-mode fixes (DeepFlow on ARM64, 2026-10-26/27: syscall tracepoints
+absent on arm64, duplicated bpf descriptors, the redirected uprobe path
+restore, kernel-user proxy maps, LRU hash maps, handler indexes) and the x86
+NUC findings (`bpf_get_stackid` sign, the diagnostic clang lookup, gum
+initialization before symbol lookups, a signed helper id comparison) are the
+last ten commits of the stack. Their tests either need root (kernel maps) or
+live in other binaries, and several fail on the official tree by design, so
+they run on the candidate only:
+
+- `candidate.cmake_args` adds `-DBUILD_BPFTIME_DAEMON=ON` to the candidate
+  build (the official build is unchanged);
+- `candidate.test_suites` lists each binary, filter and whether it runs under
+  `sudo -n`: `[kernel_user]` of the runtime tests (root), the whole daemon test
+  binary (root, includes `[daemon-tracer]`), the runtime test `Test attach
+  replace with ebpf` alone (it crashed in gum before the fix when run first)
+  and then the whole Frida attach binary. Root suites run with
+  `BPFTIME_GLOBAL_SHM_NAME=bpftime_daily_root_tests`, which is removed
+  afterwards: a root run on the default name left `/dev/shm/bpftime_maps_shm`
+  owned by root, and later unprivileged runs could not open it.
+
+`get_stackid returns errors as negative 64-bit values` is in the focused
+filter; it does not exist on the official tree and matches nothing there. The
+clang lookup fix is checked by a configure script kept with the results
+(`uprobe/nuc-fixes-20261026/check-clang19-configure.sh`), not daily; the
+helper id comparison only removes a warning.
+
+Run the candidate gate by hand on a patched worktree with:
+
+```sh
+python3 tools/jetson-upstream/tracker.py test-candidate <worktree>
+```
