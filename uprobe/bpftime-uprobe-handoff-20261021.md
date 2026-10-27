@@ -9,7 +9,7 @@
 ## 0. 现状一页（2026-10-26 13:45 JST，新会话从这里继续）
 
 **目标**：继续优化 `dev/uprobe-official-177a1dc465ff`（开发 worktree
-`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `627a2201`，10/26–27 新增 daemon 与共享 map 修复 6 个、NUC 发现的修复 4 个，补丁栈未加入）。
+`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `627a2201`，10/26–27 新增 daemon 与共享 map 修复 6 个、NUC 发现的修复 4 个，10/27 已加入补丁栈，共 83 个提交）。
 下一阶段重点：扩大测试覆盖（见 0.4），hash map 重写暂缓。
 
 ### 0.1 map 与 ssl-nginx 阶段的提交（10/22–24，均已推送并加入补丁栈）
@@ -121,6 +121,8 @@ gethostlatency 少记不是 bpftime 的问题：用精确总数（工作负载�
 10/27 已处理：第 1–4 条修复为 `a0b0eb2f`、`fb506ff4`、`7b6fa4fd`、`627a2201`；改名完成，开发分支现为 `dev/uprobe-official-177a1dc465ff`（HEAD `627a2201`），
 其余三个为 `archive/…`，每日自动化前缀为 `dev/uprobe-official`（详见该文件）。x86 结果只放 `benchmark-results/x86-nuc` 和 `summry/x86-nuc`。
 
+10/27 这 10 个提交（daemon 6 个、NUC 4 个）加入补丁栈，共 83 个（自动化 `56ee70f1`）。它们的测试要 root、daemon 构建或在其他测试程序里，所以候选分支另开 `-DBUILD_BPFTIME_DAEMON=ON` 并跑 `candidate.test_suites`：`[kernel_user]` 和 daemon 测试用 `sudo -n`（单独的共享内存段，跑完删除），`Test attach replace with ebpf` 单独跑，再跑 frida 测试；手动运行 `tracker.py test-candidate <worktree>`。验证见 `daily-jit-stack-validation-20261021/round13-daemon-nuc-fixes`。
+
 ### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`）
 
 | 目录 | 内容 |
@@ -228,7 +230,7 @@ deepflow 与 `bpftime_daemon` 的内核条件已满足，尚未尝试。arm64 6.
 
 | 用途 | 本机路径 / 分支 |
 |---|---|
-| **开发源码** | `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，分支 `dev/uprobe-official-177a1dc465ff`，HEAD `627a2201`（官方 177a1dc + 83 个提交，其中前 73 个在补丁栈） |
+| **开发源码** | `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，分支 `dev/uprobe-official-177a1dc465ff`，HEAD `627a2201`（官方 177a1dc + 83 个提交，全部在补丁栈） |
 | 开发构建 | 上述目录的 `build-jit`（LLVM 16，RelWithDebInfo + LTO）；增量构建 `cmake --build build-jit --target bpftime-agent bpftime-syscall-server bpftime_runtime_tests` |
 | 冻结的构建产物 | `results/uprobe/ssl-nginx-2x2-20261023/builds/<提交号>/`（agent、syscall-server、bpftimetool），说明见同目录 `README.txt` |
 | 官方对照树 | `/home/jetson/src/bpftime-official-177a1dc-noaffinity-20261023`（177a1dc + 去绑核补丁，工作树里还有 no-BTF 示例） |
