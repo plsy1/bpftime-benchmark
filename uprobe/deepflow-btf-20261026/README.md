@@ -2,7 +2,7 @@
 
 The official `bpftime/benchmark/deepflow` scenario on the Jetson with **upstream DeepFlow v7.2.3**
 (native ARM64 support, BPF programs unmodified) instead of eunomia-bpf's x86-only v6.1.1 fork
-(which also replaced DeepFlow's goroutine hash map with an array-backed one). Kernel
+(which also replaced two of DeepFlow's hash maps with hand-written tables on array maps, see the end). Kernel
 `6.8.12-1021-tegra-btf`, `jetson_clocks` (cpu5 1728000 before and after), dev branch built from
 `build-jit` (daemon, CLI and the fixes below; agent/syscall-server/daemon at `e6bfc3d9`).
 
@@ -73,10 +73,23 @@ on HTTP (only the goroutine uprobes fire there: about 3x), 12.8-15.5 us vs 23.5-
   kernel (3.25%).
 
 So about nine tenths of bpftime's per-hit cost is the system calls for maps shared with the
-kernel; a kernel uprobe pays one trap and accesses the maps in place. bpftime only wins when a
-program's maps live in userspace, or are arrays the proxy can mmap (BPF_F_MMAPABLE): eunomia's
-DeepFlow fork for the paper replaced `goroutines_map` with an array-backed table, which is
-probably what the paper's speed-up relied on.
+kernel; a kernel uprobe pays one trap and accesses the maps in place. bpftime avoids them only
+for maps that live in userspace, or arrays created with `BPF_F_MMAPABLE`, which the array proxy
+maps directly.
+
+**The paper's fork.** eunomia-bpf/deepflow (officeyutong, 2023-11-13..17, messages "Mock?",
+"Update with mocked hashmap?", "Update uprobe-go impl with custom hashmap", "Update with implemented
+hashmap") replaced `goroutines_map` and `uprobe_offsets_map` (both `BPF_MAP_TYPE_HASH` in v6.1.1)
+with linear-probing tables of 229 slots on `BPF_MAP_TYPE_ARRAY`, one `bpf_map_lookup_elem` per
+probed slot. The arrays are not `BPF_F_MMAPABLE`, so the kernel refuses to mmap them and today's
+array proxy falls back to a syscall per lookup (`array_map_kernel_user.cpp`, re-mmap failure path):
+the change saves no syscalls here. The reason for it is not recorded; it is not a missing proxy
+(the hash proxy was added on 2023-10-26). Inferred, not verified: with the fallback a lookup
+returns a copy, so the tables' writes through the returned pointer (`ent->used = 1`, key and
+value copies) would not reach the kernel map, and the kernel TLS programs would not see the
+goroutine ids written in userspace. The fork is x86-only and bpftime of that time differs, so this
+was not reproduced here. Our legs do not depend on it: the audit shows the goroutine ids written
+by bpftime reach the kernel programs.
 
 `bench/run1-invalid-handle-overflow`: the first full run, before `e6bfc3d9`; from some run on the
 daemon could not create the programs (kernel ids > 6144) and user-uprobe ran nothing. Not usable.
