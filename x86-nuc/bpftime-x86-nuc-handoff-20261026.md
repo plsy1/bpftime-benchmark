@@ -1,5 +1,7 @@
 # 在 x86 NUC 上跑 bpftime：给新会话的交接（2026-10-26）
 
+> 10/27：开发分支已由 Jetson 会话改名为 `dev/uprobe-official-177a1dc465ff`（原 `codex/` 前缀），其余 `codex/` 分支改为 `archive/`；本文中的分支名已同步。
+
 写给在 NUC 上新开的 Claude 会话。Jetson 上的会话看不到你，你也发不了消息给它；两边只通过本仓库
 （`plsy1/bpftime-benchmark`）交接。**回复用户用中文。**
 
@@ -8,7 +10,7 @@
 用户的课题是在 Jetson Orin（ARM64）上优化和验证 bpftime（用户态 eBPF 运行时，eunomia-bpf/bpftime，OSDI 论文），
 处处与 kernel eBPF 对比。从 6 月到 10/26 做了：基础设施、ssl-nginx 端到端调查、uprobe map 诊断、C++ 实现层优化、
 array lookup 的 JIT 内联、hash map 优化、真实工具兼容性审计与 18 个修复、BTF 内核上扩到 18 个工具的审计。
-开发分支 `codex/uprobe-official-177a1dc465ff`（基于官方 177a1dc，HEAD `a7d54d7e`）在 ARM64 上 uprobe 微基准、
+开发分支 `dev/uprobe-official-177a1dc465ff`（基于官方 177a1dc，HEAD `a7d54d7e`）在 ARM64 上 uprobe 微基准、
 ssl-nginx、真实工具都快于 kernel。现在用户想在这台 x86 NUC 上也跑 bpftime。具体目标由用户定（见第 4 节的候选）。
 
 ## 1. 先读这些（`summry/jetson` 分支）
@@ -42,7 +44,7 @@ Jetson 的 `~/.ssh/id_ed25519` 已加入 `y` 的 `authorized_keys`，Jetson 上 
 ## 3. 代码、分支、构建
 
 - 仓库 `https://github.com/plsy1/bpftime-benchmark`（用户账号 plsy1）：
-  - `codex/uprobe-official-177a1dc465ff`：开发分支（需 `git submodule update --init --recursive`）。
+  - `dev/uprobe-official-177a1dc465ff`：开发分支（需 `git submodule update --init --recursive`）。
   - `automation/jetson-daily`：每日补丁栈，`tools/jetson-upstream/config.json` 的 `candidate.commits` 是 73 个提交，
     `build.test_filter` 是单测过滤器（Jetson 上按它跑出 110 个用例），`build.cmake_args` 是构建选项；用来在官方新版本上重放。
   - `benchmark-results/jetson`：原始数据；`summry/jetson`：文档；`docs/source-reading-guide`：按官方 177a1dc 写的源码阅读指南（9 章）。

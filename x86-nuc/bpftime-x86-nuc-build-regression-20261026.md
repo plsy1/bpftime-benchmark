@@ -1,7 +1,7 @@
 # x86 NUC：构建与回归、uprobe 完整十轮、ssl-nginx（2026-10-26）及交给 Jetson 的问题
 
 NUC 会话按交接说明第 4 节候选目标 1 做的第一件事：在 x86 上编译官方 `177a1dc` 和开发分支
-`codex/uprobe-official-177a1dc465ff`（`a7d54d7e`），跑单测，确认 Jetson 上的修复与优化在 x86 上也成立。
+`dev/uprobe-official-177a1dc465ff`（`a7d54d7e`），跑单测，确认 Jetson 上的修复与优化在 x86 上也成立。
 只做构建和正确性，**没有计时**。原始数据、脚本和日志在 `benchmark-results/x86-nuc` 分支
 `uprobe/x86-nuc-build-regression-20261026/`（README 有全表）。
 
@@ -141,3 +141,20 @@ nginx 在 P 核 CPU 2、sslsniff 在 P 核 CPU 4（3.5 GHz），wrk 在 E 核 8�
 
 - 趋势与 Jetson 相同（领先随 payload 增大而收窄，原因是分母变大、每事件复制成本略增），幅度约为 Jetson 的 2–3 倍。
 - **官方在 x86 上从 1 KB 起就丢事件**（4 KB 只收到 45%），1 KB 及以上官方的吞吐不公平；Jetson 上官方只在大 payload 丢。
+
+## 7. 后续（10/27）
+
+Jetson 会话处理了第 4 节的问题和分支改名，记录在 `summry/jetson` 的 `uprobe/bpftime-x86-nuc-findings-20261026.md`
+（数据在 `benchmark-results/jetson` 的 `uprobe/nuc-fixes-20261026/`）：
+
+| # | 提交（`dev/uprobe-official-177a1dc465ff`） | 内容 |
+|---|---|---|
+| 4.1 | `a0b0eb2f` | `bpf_get_stackid` 直接返回 `ret`，错误在 64 位结果里保持负数；新测试修复前得到 4294967279 |
+| 4.2 | `fb506ff4` | 诊断 clang 先用 `BPFTIME_BPF_CLANG`，再找 clang 15–20，找不到就跳过诊断目标 |
+| 4.3 | `7b6fa4fd` | `frida_attach_utils` 的 gum 查找函数先确保 gum 已初始化；`Test attach replace with ebpf` 不再崩溃 |
+| 4.4 | `627a2201` | helper 号按有符号比较（只是警告，行为不变） |
+
+分支改名：`codex/uprobe-official-177a1dc465ff` → `dev/uprobe-official-177a1dc465ff`（现 HEAD `627a2201`，比 x86 测量用的 `a7d54d7e` 多 10 个提交），
+其余三个 `codex/` 分支改为 `archive/`；每日自动化前缀为 `dev/uprobe-official`，main 的 CI 默认 `archive/official-no-btf`。
+本报告第 2、5、6 节的 x86 数据都是 `a7d54d7e` 的，这 10 个提交未在 x86 上重测。
+
