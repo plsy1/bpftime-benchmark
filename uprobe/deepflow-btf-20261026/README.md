@@ -53,12 +53,30 @@ uprobes write) 2.0 in kernel-uprobe and user-uprobe, 0 in no-uprobe. Without inj
 (`checks/bpftime-noattach`) the ids are 0, so in user-uprobe the goroutine tracking runs in bpftime.
 Some runs lost events in both uprobe legs (kernel 0.21 and 0.09 per request once each, user 1.33 once).
 
-On ARM64 with upstream DeepFlow, bpftime is slower than the kernel. The cause is not analysed yet;
-the leading hypothesis: the goroutine programs share their maps with kernel programs, so in bpftime
-every map operation is a `bpf()` syscall through the kernel-user proxies (each `runtime.execute`:
-percpu offsets lookup, `proc_info_map` lookup, `goroutines_map` update), versus one trap with
-in-kernel map access for a kernel uprobe. eunomia's fork replaced `goroutines_map` with an
-array-backed table, which the array proxy can mmap without syscalls.
+On ARM64 with upstream DeepFlow, bpftime is slower than the kernel. Per request, against the
+no-uprobe leg (1/throughput), the Go uprobes cost the kernel 3.0-3.8 us and bpftime 6.9-13.0 us
+on HTTP (only the goroutine uprobes fire there: about 3x), 12.8-15.5 us vs 23.5-28.5 us on HTTPS
+(the TLS uprobes, in the kernel in both legs, included).
+
+## Why bpftime is slower (`analysis/`, HTTP 1 KB, `why-slow.sh`)
+
+- Probe hits per request (kernel leg, bpftrace): `runtime.execute` 3.0, `runtime.newproc1` 1.0
+  (entry and return probes: 2 hits), about 5 goroutine-uprobe hits.
+- In the bpftime leg the Go server made 16 `bpf()` system calls per request (5.28M in the
+  window, 86% of all its system calls): about 3 per hit. The goroutine programs share their maps
+  with DeepFlow's kernel programs, so each map operation goes through a kernel-user proxy as a
+  syscall: the percpu `members_offset` lookup at the start of every program, `proc_info_map`
+  lookup, `goroutines_map` / `pid_tgid_callerid_map` / `go_ancerstor_map` updates.
+- `perf record -g` on the server (`user-uprobe/perf.data`): the frida enter path is 33.9% of its
+  CPU time; inside it the proxied lookups take 21.2% and updates 8.5%, the JIT-compiled programs
+  0.43%. Each of those syscalls also runs bpftime_daemon's own `sys_enter_bpf` tracer in the
+  kernel (3.25%).
+
+So about nine tenths of bpftime's per-hit cost is the system calls for maps shared with the
+kernel; a kernel uprobe pays one trap and accesses the maps in place. bpftime only wins when a
+program's maps live in userspace, or are arrays the proxy can mmap (BPF_F_MMAPABLE): eunomia's
+DeepFlow fork for the paper replaced `goroutines_map` with an array-backed table, which is
+probably what the paper's speed-up relied on.
 
 `bench/run1-invalid-handle-overflow`: the first full run, before `e6bfc3d9`; from some run on the
 daemon could not create the programs (kernel ids > 6144) and user-uprobe ran nothing. Not usable.
