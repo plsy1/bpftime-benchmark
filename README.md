@@ -4,7 +4,8 @@
 Jetson ARM64 的结果在 [`benchmark-results/jetson`](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson)；
 x86 的结论在 [`summry/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/tree/summry/x86-nuc)。
 
-对比的三方：kernel eBPF、bpftime 官方 177a1dc、开发分支 `codex/uprobe-official-177a1dc465ff` 的 `a7d54d7e`（官方 + 73 个提交）。
+对比的三方：kernel eBPF、bpftime 官方 177a1dc、开发分支 `dev/uprobe-official-177a1dc465ff` 的 `a7d54d7e`（官方 + 73 个提交）。
+开发分支 10/27 由 Jetson 会话从 `codex/uprobe-official-177a1dc465ff` 改名；本分支的测量都在 `a7d54d7e` 上，之后的提交（含 x86 发现的修复）未在 x86 上重测。
 
 | 目录 | 内容 |
 |---|---|
