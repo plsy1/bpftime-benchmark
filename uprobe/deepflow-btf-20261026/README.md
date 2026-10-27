@@ -80,17 +80,27 @@ maps directly.
 **The paper's fork.** eunomia-bpf/deepflow (officeyutong, 2023-11-13..17, messages "Mock?",
 "Update with mocked hashmap?", "Update uprobe-go impl with custom hashmap", "Update with implemented
 hashmap") replaced `goroutines_map` and `uprobe_offsets_map` (both `BPF_MAP_TYPE_HASH` in v6.1.1)
-with linear-probing tables of 229 slots on `BPF_MAP_TYPE_ARRAY`, one `bpf_map_lookup_elem` per
-probed slot. The arrays are not `BPF_F_MMAPABLE`, so the kernel refuses to mmap them and today's
-array proxy falls back to a syscall per lookup (`array_map_kernel_user.cpp`, re-mmap failure path):
-the change saves no syscalls here. The reason for it is not recorded; it is not a missing proxy
-(the hash proxy was added on 2023-10-26). With the fallback a lookup returns a copy, so the
-tables' writes through the returned pointer (`ent->used = 1`, key and value copies) do not reach
-the kernel map, and the kernel TLS programs do not see the goroutine ids written in userspace:
-reproduced with today's bpftime on the same change ported to v7.2.3 (variant A below). The fork
-itself is x86-only and bpftime of that time differs, so whether the paper's runs had this is not
-known. Our run2 legs do not depend on it: the audit shows the goroutine ids written by bpftime
-reach the kernel programs.
+with linear-probing tables of 229 slots on `BPF_MAP_TYPE_ARRAY`, and its loader creates both
+arrays with `BPF_F_MMAPABLE` (`agent/src/ebpf/user/tracer.c` at `373b34f`:
+`bpf_map__set_map_flags(map, bpf_map__map_flags(map) | BPF_F_MMAPABLE)`; `go_tracer.c` mmaps the
+offsets table itself to fill it). The bpftime array proxy maps such arrays, so the programs read
+and write them in place, without system calls: that is the point of the change. (This README said
+the opposite in `689dd993` and `cd8a9814`: only the `.bpf.c` map definitions had been checked, not
+the loader. Wrong.) The goroutine tracking the official run moved to bpftime is the
+`runtime.casgstatus` uprobe (the official run directory is `deepflow-runtime.casgstatus`), which in
+the fork uses only these two tables (offsets lookups, goroutine id update): no system call per hit.
+v7.2.3 replaced it with `runtime.execute` and `runtime.newproc1` (entry and return) and added the
+per-CPU `members_offset` readiness check and the parent-goroutine maps (`pid_tgid_callerid_map`,
+`go_ancerstor_map`), each a system call per operation under bpftime (above). So the official
+result (bpftime faster than the kernel) is consistent with the mechanism measured here; it was not
+reproduced (x86 only, 2023 bpftime).
+
+Side note on bpftime history: until `a911ee68` (2026-01-02) a failed re-mmap of a non-mmapable
+kernel array kept the anonymous placeholder mapping, so programs silently read and wrote
+process-local zeroed memory instead of the kernel map (fast, no system call, nothing shared).
+The fork's arrays are mmapable, so this did not apply to it. Today the proxy falls back to a
+syscall per access, and lookups return a copy whose writes do not reach the kernel (variant A
+below).
 
 ## Array-table variants (eunomia-style, `bench/run-arraytbl-A`, `-B`; requested experiment)
 
@@ -105,9 +115,10 @@ slots made `df_T_exit_sendmsg` too complex for the verifier (E2BIG), DeepFlow fe
 `common` variant, whose fully unrolled goroutine program (25,948 instructions) exceeds the
 daemon's 4096-instruction capture; with 16 both legs load the usual `5.2_plus` programs.
 
-- **A**: arrays as in the fork (not mmapable).
-- **B**: the same with `BPF_F_MMAPABLE` on both arrays (`DF_TABLES_MMAPABLE=1`, set in `user/load.c`),
-  so the bpftime array proxy maps the kernel arrays and programs read and write them in place.
+- **A**: the arrays without `BPF_F_MMAPABLE` (a control; the fork sets the flag).
+- **B**: with `BPF_F_MMAPABLE` on both arrays as the fork's loader does (`DF_TABLES_MMAPABLE=1`, set
+  in `user/load.c`), so the bpftime array proxy maps the kernel arrays and programs read and write
+  them in place.
 
 Functional check first (`checks/arraytbl`, 5 HTTPS requests, TLS events carrying a goroutine id):
 kernel 10/10 in both variants; bpftime **A 0/10** (the agent logs the failed re-mmap, err 22, and
