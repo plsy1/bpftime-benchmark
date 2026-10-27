@@ -7,6 +7,11 @@
 用户 x86 NUC（i5-1240P）上的结果在 [`benchmark-results/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/x86-nuc) 分支
 （10/26 曾短暂提交在本分支，已搬走）。
 
+**分支改名（2026-10-26）**：去掉了 `codex/` 前缀。`codex/uprobe-official-177a1dc465ff` → `dev/uprobe-official-177a1dc465ff`（开发分支），
+`codex/uprobe-official-8da867d541f8` → `archive/uprobe-official-8da867d541f8`，`codex/uprobe-map-optimization` →
+`archive/uprobe-map-optimization`，`codex/official-no-btf` → `archive/official-no-btf`。提交号不变；各结果目录里的旧名
+（`source-state.txt`、日志、当时的说明）是当时的记录，未改动，按上面的对应关系换成新名即可。
+
 ## 快速入口
 
 最新工程与实验状态（2026-10-21）：

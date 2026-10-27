@@ -1,0 +1,342 @@
+  TOOLS    bintobuffer
+  Clang/LLVM  11.0.0
+  COMPILE ELF kernel version common
+  BPF      build/common/socket_trace.bpf.elf
+  Generate file user/socket_trace_bpf_common.c
+  Clang/LLVM  11.0.0
+  COMPILE ELF kernel version 3_10_0
+  BPF      build/3_10_0/socket_trace.bpf.elf
+  Generate file user/socket_trace_bpf_3_10_0.c
+  Clang/LLVM  11.0.0
+  COMPILE ELF kernel version 5_2_plus
+  BPF      build/5_2_plus/socket_trace.bpf.elf
+  Generate file user/socket_trace_bpf_5_2_plus.c
+  Clang/LLVM  11.0.0
+  COMPILE ELF kernel version kfunc
+  BPF      build/kfunc/socket_trace.bpf.elf
+  Generate file user/socket_trace_bpf_kfunc.c
+  Clang/LLVM  11.0.0
+  COMPILE ELF kernel version kylin
+  BPF      build/kylin/socket_trace.bpf.elf
+  Generate file user/socket_trace_bpf_kylin.c
+  Clang/LLVM  11.0.0
+  COMPILE ELF kernel version rt
+  BPF      build/rt/socket_trace.bpf.elf
+  Generate file user/socket_trace_bpf_rt.c
+  Clang/LLVM  11.0.0
+  COMPILE ELF kernel version kprobe
+  BPF      build/kprobe/socket_trace.bpf.elf
+  Generate file user/socket_trace_bpf_kprobe.c
+  Clang/LLVM  11.0.0
+  COMPILE ELF kernel version common
+  BPF      build/common/perf_profiler.bpf.elf
+perf_profiler.bpf.c:754:39: warning: incompatible pointer types passing 'bpf_user_pt_regs_t *' (aka 'struct user_pt_regs *') to parameter of type 'struct pt_regs *' [-Wincompatible-pointer-types]
+        return collect_stack_and_send_output(&ctx->regs, key, NULL, NULL,
+                                             ^~~~~~~~~~
+perf_profiler.bpf.c:538:51: note: passing argument to parameter 'ctx' here
+int collect_stack_and_send_output(struct pt_regs *ctx,
+                                                  ^
+1 warning generated.
+  Generate file user/perf_profiler_bpf_common.c
+  Clang/LLVM  11.0.0
+  COMPILE ELF kernel version 5_2_plus
+  BPF      build/5_2_plus/perf_profiler.bpf.elf
+perf_profiler.bpf.c:754:39: warning: incompatible pointer types passing 'bpf_user_pt_regs_t *' (aka 'struct user_pt_regs *') to parameter of type 'struct pt_regs *' [-Wincompatible-pointer-types]
+        return collect_stack_and_send_output(&ctx->regs, key, NULL, NULL,
+                                             ^~~~~~~~~~
+perf_profiler.bpf.c:538:51: note: passing argument to parameter 'ctx' here
+int collect_stack_and_send_output(struct pt_regs *ctx,
+                                                  ^
+perf_profiler.bpf.c:1039:39: warning: incompatible pointer types passing 'bpf_user_pt_regs_t *' (aka 'struct user_pt_regs *') to parameter of type 'struct pt_regs *' [-Wincompatible-pointer-types]
+        return collect_stack_and_send_output(&ctx->regs, &state->key,
+                                             ^~~~~~~~~~
+perf_profiler.bpf.c:538:51: note: passing argument to parameter 'ctx' here
+int collect_stack_and_send_output(struct pt_regs *ctx,
+                                                  ^
+2 warnings generated.
+  Generate file user/perf_profiler_bpf_5_2_plus.c
+  Clang/LLVM  11.0.0
+  COMPILE ELF kernel version 5_15_plus
+  BPF      build/5_15_plus/perf_profiler.bpf.elf
+perf_profiler.bpf.c:754:39: warning: incompatible pointer types passing 'bpf_user_pt_regs_t *' (aka 'struct user_pt_regs *') to parameter of type 'struct pt_regs *' [-Wincompatible-pointer-types]
+        return collect_stack_and_send_output(&ctx->regs, key, NULL, NULL,
+                                             ^~~~~~~~~~
+perf_profiler.bpf.c:538:51: note: passing argument to parameter 'ctx' here
+int collect_stack_and_send_output(struct pt_regs *ctx,
+                                                  ^
+perf_profiler.bpf.c:1039:39: warning: incompatible pointer types passing 'bpf_user_pt_regs_t *' (aka 'struct user_pt_regs *') to parameter of type 'struct pt_regs *' [-Wincompatible-pointer-types]
+        return collect_stack_and_send_output(&ctx->regs, &state->key,
+                                             ^~~~~~~~~~
+perf_profiler.bpf.c:538:51: note: passing argument to parameter 'ctx' here
+int collect_stack_and_send_output(struct pt_regs *ctx,
+                                                  ^
+2 warnings generated.
+  Generate file user/perf_profiler_bpf_5_15_plus.c
+  SO       df_java_agent_v4.1.so
+user/profile/java/symbol_collect_agent.c:114:4: warning: 'close_files_locked' is static but used in inline function 'send_msg' which is not static
+    close_files_locked(); // Example function call, define as needed
+    ^~~~~~~~~~~~~~~~~~
+user/profile/java/symbol_collect_agent.c:109:5: warning: 'close_files_locked' is static but used in inline function 'send_msg' which is not static
+     close_files_locked(); // Example function call, define as needed
+     ^~~~~~~~~~~~~~~~~~
+  SO       df_java_agent_musl_v4.1.so
+user/profile/java/symbol_collect_agent.c:114:4: warning: 'close_files_locked' is static but used in inline function 'send_msg' which is not static
+    close_files_locked(); // Example function call, define as needed
+    ^~~~~~~~~~~~~~~~~~
+user/profile/java/symbol_collect_agent.c:109:5: warning: 'close_files_locked' is static but used in inline function 'send_msg' which is not static
+     close_files_locked(); // Example function call, define as needed
+     ^~~~~~~~~~~~~~~~~~
+  MAKE     libjattach.a
+  TOOLS    deepflow-jattach
+  TOOLS    deepflow-ebpfctl
+  CTLBIN_C deepflow_ebpfctl_bin.c
+  MKDIR    staticobjs
+  CC       elf.o
+  CC       utils.o
+  CC       symbol.o
+  CC       proc.o
+  CC       go_tracer.o
+  CC       ssl_tracer.o
+  CC       unwind_tracer.o
+  CC       ring.o
+  CC       btf_core.o
+  CC       load.o
+  CC       log.o
+  CC       probe.o
+  CC       tracer.o
+  CC       table.o
+  CC       socket.o
+  CC       ctrl.o
+  CC       offset.o
+  CC       mem.o
+  CC       vec.o
+  CC       bihash.o
+  CC       mount.o
+  CC       profile_common.o
+  CC       extended.o
+  CC       perf_profiler.o
+  CC       stringifier.o
+  CC       jvm_symbol_collect.o
+  CC       collect_symbol_files.o
+  AR       libtrace.a
+  Current-DIR 
+  Architecture is aarch64
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded autocfg v1.1.0
+  Downloaded atty v0.2.14
+  Downloaded adler v1.0.2
+  Downloaded anyhow v1.0.86
+  Downloaded ahash v0.8.11
+  Downloaded unicode-ident v1.0.19
+  Downloaded bitflags v2.9.4
+  Downloaded equivalent v1.0.1
+  Downloaded cfg-if v1.0.0
+  Downloaded cfg_aliases v0.2.1
+  Downloaded version_check v0.9.5
+  Downloaded hex v0.4.3
+  Downloaded dunce v0.1.1
+  Downloaded errno v0.3.14
+  Downloaded stable_deref_trait v1.2.0
+  Downloaded lazy_static v1.4.0
+  Downloaded thiserror-impl v1.0.63
+  Downloaded thiserror v1.0.63
+  Downloaded termcolor v1.3.0
+  Downloaded static_assertions v1.1.0
+  Downloaded byteorder v1.5.0
+  Downloaded humantime v2.1.0
+  Downloaded fallible-iterator v0.3.0
+  Downloaded shlex v1.3.0
+  Downloaded rustc-demangle v0.1.24
+  Downloaded quote v1.0.36
+  Downloaded twox-hash v1.6.3
+  Downloaded log v0.4.20
+  Downloaded proc-macro2 v1.0.86
+  Downloaded once_cell v1.19.0
+  Downloaded env_logger v0.9.3
+  Downloaded crc32fast v1.4.2
+  Downloaded iana-time-zone v0.1.64
+  Downloaded semver v1.0.23
+  Downloaded num-traits v0.2.14
+  Downloaded serde_derive v1.0.144
+  Downloaded ruzstd v0.7.0
+  Downloaded procfs v0.16.0
+  Downloaded serde v1.0.144
+  Downloaded procfs-core v0.16.0
+  Downloaded getrandom v0.2.15
+  Downloaded memchr v2.6.4
+  Downloaded cc v1.1.13
+  Downloaded btf-rs v1.1.1
+  Downloaded indexmap v2.4.0
+  Downloaded miniz_oxide v0.7.4
+  Downloaded flate2 v1.0.31
+  Downloaded aho-corasick v1.1.1
+  Downloaded hashbrown v0.14.5
+  Downloaded zerocopy v0.7.35
+  Downloaded syn v1.0.99
+  Downloaded syn v2.0.75
+  Downloaded regex v1.9.6
+  Downloaded gimli v0.31.0
+  Downloaded chrono v0.4.42
+  Downloaded regex-syntax v0.7.5
+  Downloaded object v0.36.3
+  Downloaded rustix v0.38.37
+  Downloaded nix v0.29.0
+  Downloaded regex-automata v0.3.9
+  Downloaded libc v0.2.157
+  Downloaded linux-raw-sys v0.4.15
+   Compiling cfg-if v1.0.0
+   Compiling proc-macro2 v1.0.86
+   Compiling unicode-ident v1.0.19
+   Compiling libc v0.2.157
+   Compiling autocfg v1.1.0
+   Compiling memchr v2.6.4
+   Compiling bitflags v2.9.4
+   Compiling adler v1.0.2
+   Compiling miniz_oxide v0.7.4
+   Compiling crc32fast v1.4.2
+   Compiling shlex v1.3.0
+   Compiling num-traits v0.2.14
+   Compiling cfg_aliases v0.2.1
+   Compiling iana-time-zone v0.1.64
+   Compiling aho-corasick v1.1.1
+   Compiling syn v1.0.99
+   Compiling quote v1.0.36
+   Compiling static_assertions v1.1.0
+   Compiling anyhow v1.0.86
+   Compiling regex-syntax v0.7.5
+   Compiling byteorder v1.5.0
+   Compiling rustix v0.38.37
+   Compiling version_check v0.9.5
+   Compiling chrono v0.4.42
+   Compiling syn v2.0.75
+   Compiling ahash v0.8.11
+   Compiling twox-hash v1.6.3
+   Compiling flate2 v1.0.31
+   Compiling nix v0.29.0
+   Compiling cc v1.1.13
+   Compiling linux-raw-sys v0.4.15
+   Compiling regex-automata v0.3.9
+   Compiling hashbrown v0.14.5
+   Compiling semver v1.0.23
+   Compiling thiserror v1.0.63
+   Compiling serde_derive v1.0.144
+   Compiling equivalent v1.0.1
+   Compiling hex v0.4.3
+   Compiling procfs v0.16.0
+   Compiling indexmap v2.4.0
+   Compiling trace-utils v0.1.0 (/deepflow/agent/crates/trace-utils)
+   Compiling procfs-core v0.16.0
+   Compiling thiserror-impl v1.0.63
+   Compiling ruzstd v0.7.0
+   Compiling regex v1.9.6
+   Compiling getrandom v0.2.15
+   Compiling lazy_static v1.4.0
+   Compiling serde v1.0.144
+   Compiling dunce v0.1.1
+   Compiling zerocopy v0.7.35
+   Compiling stable_deref_trait v1.2.0
+   Compiling log v0.4.20
+   Compiling once_cell v1.19.0
+   Compiling fallible-iterator v0.3.0
+   Compiling socket_tracer v0.1.0 (/deepflow/agent/src/ebpf/samples/rust/socket-tracer)
+   Compiling gimli v0.31.0
+   Compiling btf-rs v1.1.1
+   Compiling object v0.36.3
+   Compiling atty v0.2.14
+   Compiling termcolor v1.3.0
+   Compiling rustc-demangle v0.1.24
+   Compiling humantime v2.1.0
+   Compiling env_logger v0.9.3
+warning: unexpected `cfg` condition value: `extended_observability`
+   --> src/ebpf.rs:254:7
+    |
+254 | #[cfg(feature = "extended_observability")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `extended_observability` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `extended_observability`
+   --> src/ebpf.rs:259:7
+    |
+259 | #[cfg(feature = "extended_observability")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `extended_observability` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `extended_observability`
+   --> src/ebpf.rs:176:14
+    |
+176 |     if #[cfg(feature = "extended_observability")] {
+    |              ^^^^^^^---------------------------
+    |              |
+    |              help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `extended_observability` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `extended_observability`
+   --> src/ebpf.rs:246:14
+    |
+246 |     if #[cfg(feature = "extended_observability")] {
+    |              ^^^^^^^---------------------------
+    |              |
+    |              help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `extended_observability` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `extended_observability`
+   --> src/ebpf.rs:879:18
+    |
+879 |         if #[cfg(feature = "extended_observability")] {
+    |                  ^^^^^^^---------------------------
+    |                  |
+    |                  help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `extended_observability` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: `socket_tracer` (lib) generated 5 warnings
+warning: use of deprecated associated function `chrono::FixedOffset::east`: use `east_opt()` instead
+   --> src/main.rs:189:39
+    |
+189 |     let china_timezone = FixedOffset::east(8 * 3600);
+    |                                       ^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: unused variable: `queue_id`
+   --> src/main.rs:303:5
+    |
+303 |     queue_id: c_int,
+    |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_queue_id`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `cp`
+   --> src/main.rs:469:44
+    |
+469 | extern "C" fn continuous_profiler_callback(cp: *mut stack_profile_data) {
+    |                                            ^^ help: if this is intentional, prefix it with an underscore: `_cp`
+
+warning: unnecessary `unsafe` block
+   --> src/main.rs:470:5
+    |
+470 |     unsafe {
+    |     ^^^^^^ unnecessary `unsafe` block
+    |
+    = note: `#[warn(unused_unsafe)]` on by default
+
+warning: `socket_tracer` (bin "socket_tracer") generated 4 warnings
+    Finished `release` profile [unoptimized + debuginfo] target(s) in 48.21s
+  samples/rust/socket-tracer/target/release/socket_tracer
+sudo -n docker run --rm --name df-build --privileged --workdir /deepflow/ -v   0.07s user 0.08s system 0% cpu 6:27.02 total

@@ -1,0 +1,69 @@
+26a27
+> use std::sync::atomic::{AtomicU64, Ordering};
+300a302,308
+> // Benchmark driver (bpftime/benchmark/deepflow on ARM64): DF_QUIET=1 counts
+> // events per data source instead of printing them.
+> static QUIET: AtomicU64 = AtomicU64::new(0);
+> static SOURCE_COUNTS: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+> // Events that carry a goroutine id (filled from goroutines_map).
+> static WITH_COROUTINE: AtomicU64 = AtomicU64::new(0);
+> 
+305a314,321
+>     if QUIET.load(Ordering::Relaxed) != 0 {
+>         let source = unsafe { (*sd).source } as usize;
+>         SOURCE_COUNTS[source.min(15)].fetch_add(1, Ordering::Relaxed);
+>         if unsafe { (*sd).coroutine_id } != 0 {
+>             WITH_COROUTINE.fetch_add(1, Ordering::Relaxed);
+>         }
+>         return 0;
+>     }
+760a777,778
+>         // The agent's default (server/agent_config/template.yaml): all ten,
+>         // including read/write, which Go's plain HTTP uses.
+762c780,781
+<             "readv", "recvfrom", "recvmsg", "recvmmsg", "sendmsg", "sendmmsg", "sendto", "writev",
+---
+>             "read", "readv", "recvfrom", "recvmsg", "recvmmsg", "sendmsg", "sendmmsg", "sendto",
+>             "write", "writev",
+770a790,795
+>         // Go uprobes are off unless enabled before running_socket_tracer()
+>         // loads the programs; the pids are matched after it (matching queues
+>         // the process on the socket tracer, attached 60 s later).
+>         if env::var("DF_GO_PIDS").is_ok() {
+>             set_uprobe_golang_enabled(true);
+>         }
+785,789d809
+<         let feature: c_int = FEATURE_UPROBE_GOLANG;
+<         let pids: [c_int; 3] = [101, 202, 303];
+<         let num: c_int = pids.len() as c_int;
+<         let result = set_feature_pids(feature, pids.as_ptr(), num);
+<         println!("Result {}", result);
+827a848,858
+>         let feature: c_int = FEATURE_UPROBE_GOLANG;
+>         // DF_GO_PIDS: comma-separated pids whose Go TLS/HTTP2 functions get
+>         // uprobes (benchmark driver); without it the sample's placeholders.
+>         let pids: Vec<c_int> = match env::var("DF_GO_PIDS") {
+>             Ok(list) => list.split(',').filter_map(|p| p.trim().parse().ok()).collect(),
+>             Err(_) => vec![101, 202, 303],
+>         };
+>         let num: c_int = pids.len() as c_int;
+>         let result = set_feature_pids(feature, pids.as_ptr(), num);
+>         println!("Result {} (golang uprobe pids {:?})", result, pids);
+> 
+897a929,932
+>     if env::var("DF_QUIET").is_ok() {
+>         QUIET.store(1, Ordering::Relaxed);
+>         println!("quiet: counting events per data source");
+>     }
+899c934,942
+<         thread::sleep(Duration::from_secs(5));
+---
+>         thread::sleep(Duration::from_secs(1));
+>         if QUIET.load(Ordering::Relaxed) != 0 {
+>             let counts: Vec<u64> = SOURCE_COUNTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+>             println!(
+>                 "EVENT_COUNTS {:?} WITH_COROUTINE {}",
+>                 counts,
+>                 WITH_COROUTINE.load(Ordering::Relaxed)
+>             );
+>         }
