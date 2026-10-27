@@ -1,6 +1,6 @@
 # Uprobe map investigation
 
-当前状态请先读 [研究进度与工程接力](bpftime-uprobe-handoff-20261021.md) 第 0 节（开发分支 `codex/uprobe-official-177a1dc465ff`，
+当前状态请先读 [研究进度与工程接力](bpftime-uprobe-handoff-20261021.md) 第 0 节（开发分支 `dev/uprobe-official-177a1dc465ff`，
 HEAD `a7d54d7e`，补丁栈 73 个提交）；课题全过程见 [研究总览](../bpftime-research-overview.md)。
 下列报告是 7–8 月的 map 操作归因，保存历史分析，不代表当前工程状态。
 

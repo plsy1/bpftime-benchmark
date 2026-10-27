@@ -55,7 +55,7 @@ software perf record 未按 8 字节对齐
 ## 修复内容
 
 修复提交：`0fcdb0ef4f33cc09d0bf43136154f611c0271132`  
-分支：`codex/official-no-btf`
+分支：`archive/official-no-btf`
 
 修改位于：
 
@@ -213,7 +213,7 @@ sched_getaffinity
 
 - runner：GitHub-hosted `ubuntu-24.04`，4 vCPU，Intel Xeon Platinum 8573C；
 - 内核：Azure `6.17.0-1020-azure`；
-- 代码：`codex/official-no-btf`，包含 8 字节对齐修复；
+- 代码：`archive/official-no-btf`，包含 8 字节对齐修复；
 - 工具链：与 x64 full benchmark 相同的 LLVM/Clang 15、RelWithDebInfo 和 LTO；
 - payload：16 B；
 - 每种模式三轮，8 秒 `wrk`，内部 5 秒 PID 计数窗口；

@@ -71,3 +71,31 @@ NUC 上不动，由 Jetson 会话统一改。建议的新名字（用户同意�
 6. **x86 分支**：`summry/x86-nuc`、`benchmark-results/x86-nuc` 共 5 处，改名完成后由 NUC 会话更新；
    完成后请在本文件这一条下面写一句"已完成"和新名字，NUC 会话会从这里读。
 
+**已完成（2026-10-27 10:25 JST，Jetson 会话）**。新名字：
+
+| 旧名（远端已删除） | 新名 | 提交 |
+|---|---|---|
+| `codex/uprobe-official-177a1dc465ff` | `dev/uprobe-official-177a1dc465ff` | `627a2201`（含下面第 1–4 条的修复，见末尾） |
+| `codex/uprobe-official-8da867d541f8` | `archive/uprobe-official-8da867d541f8` | `2eea622f`（未变） |
+| `codex/uprobe-map-optimization` | `archive/uprobe-map-optimization` | `b9fee864`（未变） |
+| `codex/official-no-btf` | `archive/official-no-btf` | `1a1dc0d6`（未变） |
+
+- 每日自动化：`automation/jetson-daily` `56bcefe9`，`candidate.branch_prefix` 为 `dev/uprobe-official`，README 已改；
+  定时器改名期间停过，已重新开启（10:22 补跑一次，官方无新提交，未生成新分支）。
+- main：`b7270747`，9 个工作流的默认 ref 和 `README.md` 改为 `archive/official-no-btf`；`docker/jetson-repro/README.md`
+  里的 `codex/jetson-no-btf-docker` 远端确实已不存在，改成说明默认构建 `archive/official-no-btf`。
+- Jetson 本机：开发 worktree、8da867 候选 worktree、主仓库检出都已改名并跟踪新远端；每日状态的迁移记录已改。
+- 文档：`summry/jetson` 全部替换为新名（本文件除外）；`benchmark-results/jetson` 历史目录未改，入口 `README.md` 加了新旧名对照。
+- x86 两个分支里的 5 处留给 NUC 会话。
+
+
+## 第 1–4 条的处理结果（2026-10-26/27，Jetson 会话，`dev/uprobe-official-177a1dc465ff`）
+
+| # | 提交 | 不修就失败的测试 | 官方 177a1dc |
+|---|---|---|---|
+| 1 | `a0b0eb2f` 返回 `ret` | `get_stackid returns errors as negative 64-bit values`（一桶栈 map 冲突，修复前得到 4294967279） | 也有：所有结果转成 `uint32_t` |
+| 2 | `fb506ff4` 诊断 clang 先用 `BPFTIME_BPF_CLANG`，再找 clang 15–20，找不到就跳过诊断目标 | `check-clang19-configure.sh`：只留 clang-19 的查找根下，旧文件报与 NUC 相同的错，新文件通过并用 clang-19 编 BPF 对象 | 没有这段 |
+| 3 | `7b6fa4fd` `frida_attach_utils` 的三个 gum 查找函数先确保 gum 已初始化 | 现有 `Test attach replace with ebpf` 单独运行：修复前 SIGSEGV（139），修复后通过 | 也有：同样崩溃 |
+| 4 | `627a2201` 显式转换 | 只是警告，行为不变，无法构造失败测试 | — |
+
+修复后每日过滤器 110 个用例、frida 18 个、daemon 10 个（root）全部通过。记录在 `benchmark-results/jetson` 的 `uprobe/nuc-fixes-20261026/`。

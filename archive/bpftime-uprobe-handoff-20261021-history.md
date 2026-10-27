@@ -37,9 +37,9 @@
 | 用途 | 本机路径 / 分支 |
 |---|---|
 | **后续开发源码** | `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate` |
-| **后续开发分支** | `codex/uprobe-official-177a1dc465ff`：远端 `f24dc9b`（官方 177a1dc + 补丁栈 42 个 + 诊断 `f24dc9b`）；新增 `baf0cc85` … `72aebadd` 共 7 个（已推送，见第 0 节）；`5466f0d` 为基线，`bdd9835` 为全局变量支持 |
+| **后续开发分支** | `dev/uprobe-official-177a1dc465ff`：远端 `f24dc9b`（官方 177a1dc + 补丁栈 42 个 + 诊断 `f24dc9b`）；新增 `baf0cc85` … `72aebadd` 共 7 个（已推送，见第 0 节）；`5466f0d` 为基线，`bdd9835` 为全局变量支持 |
 | 本轮实测源码（冻结） | `/home/jetson/src/bpftime-daily-state/worktrees/8da867d541f8/candidate` |
-| 本轮实测分支（冻结） | `codex/uprobe-official-8da867d541f8` |
+| 本轮实测分支（冻结） | `archive/uprobe-official-8da867d541f8` |
 | 已提交并推送 HEAD | `2eea622f97688b82a5c39402f631e79b5eb538f8`，map-name 用例适配 binding mutex（只改测试） |
 | 本轮实测源码提交 | `c0939bdf8e3ece38f56d964cac3d333468b8bf23`，默认 ordinary/per-CPU array JIT + delete 修复 |
 | 独立热构建源码 | `/home/jetson/src/bpftime-percpu-array-jit-20261020` |
@@ -258,7 +258,7 @@ GCC 13 + LTO 改变内联决策，使普通 hash delete 虽不走 array JIT 也�
 重放配置的补丁栈、构建测试并按配置推送 candidate。不要把顺序误说成只跑打补丁版本。
 
 `official-latest` 只能跟踪官方，不加本地优化提交；`automation/jetson-daily` 保存脚本和配置；
-`codex/uprobe-official-<SHA>` 是对应上游快照的优化分支。
+`dev/uprobe-official-<SHA>` 是对应上游快照的优化分支。
 
 2026-10-21 起 config（`automation/jetson-daily`，最新 `8cd91f4`，已推送）补丁栈共 42 个提交：
 `8da867d541f8..2eea622` 按序全部提交（在 `fefe2f6` 之后新增 `9ffbffb` ordinary JIT、
@@ -284,7 +284,7 @@ Select Frida*）。README 已同步。
 **今后对维护栈的实验至少跑完整每日 filter，再加实验专属标签。**
 
 注意：
-- 每日任务只在官方 SHA 变化时迁移。`codex/uprobe-official-177a1dc465ff` 原为 10-19 生成的
+- 每日任务只在官方 SHA 变化时迁移。`dev/uprobe-official-177a1dc465ff` 原为 10-19 生成的
   37 个提交，已于 10-21 20:31 用 `tracker.py migrate` 补齐 4 个提交到 `5466f0d` 并推送；
   其树与第 2 轮已验证候选 `0fb1fd5` 完全一致。
   集成验证 worktree `worktrees/177a1dc465ff/jit-stack-validation{,-2}` 为 detached，未建分支、未推送。
@@ -310,7 +310,7 @@ ExecMainStatus=0，查询时 inactive。后续希望迁到独立 Jetson，还没
 4. 源码、自动化补丁栈、接力文档和选定结果均已同步。补丁栈已在 177a1dc 上验证可重放；
    下次官方 SHA 变化时由定时任务自动迁移。若 cherry-pick 或 overlay patch 冲突，
    按 README 在保留的 candidate worktree 中人工解决，再更新补丁栈。
-5. **后续优化在 `codex/uprobe-official-177a1dc465ff` 上开发**；`8da867d541f8` 分支冻结为已归档实验的
+5. **后续优化在 `dev/uprobe-official-177a1dc465ff` 上开发**；`8da867d541f8` 分支冻结为已归档实验的
    源码快照。用户选定 LLVM 16。**新基线已完成**（10-21 20:37–21:11，全部退出码 0）：
    [`baseline-177a1dc-jit-llvm16-20261021`](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/uprobe/baseline-177a1dc-jit-llvm16-20261021/README.md)，
    本机 `/home/jetson/src/results/uprobe/baseline-177a1dc-jit-llvm16-20261021`。

@@ -94,7 +94,7 @@ ARM64/x64 winner reversal仍由既有kernel分析解释：ARM64 kernel将`bpf_ob
 - 所有定量值来自同binary、同输入、成对A/B；没有相减不同构建的绝对值。
 - Hash container remainder是完整find减去严格hash/equality A/B后的组合量；perf确认bucket/node/`offset_ptr`等符号，但嵌套sample百分比不可相加。
 - 诊断开关不是通用优化，本轮没有修改kernel。
-- 代码分支：`codex/official-no-btf`，提交`a199a4c2`。
+- 代码分支：`archive/official-no-btf`，提交`a199a4c2`。
 - 结果分支：`benchmark-results/jetson`。
 - Lookup结果：`uprobe/percpu-hash-lookup-leaf-ab-arm64-20260813/`。
 - 其余四项结果：`uprobe/remaining-map-leaf-ab-arm64-20260813/`。

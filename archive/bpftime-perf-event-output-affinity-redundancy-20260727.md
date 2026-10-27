@@ -1,7 +1,7 @@
 # 为什么 `bpf_perf_event_output` 的 CPU 绑核序列是冗余的（附两个既有 bug）
 
 本文解释 2026-07-27 短测判定"affinity 绑核序列功能冗余"的代码依据与实验证据。
-代码引用基于 `bpftime-offical-no-btf`（分支 codex/official-no-btf，含对齐修复）。
+代码引用基于 `bpftime-offical-no-btf`（分支 archive/official-no-btf，含对齐修复）。
 配套数据见 `bpftime-official-no-btf-ssl-nginx-path-ablation-20260726.md` 的
 "④ 段内部消融：短测结果"一节。
 

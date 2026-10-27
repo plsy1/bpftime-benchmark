@@ -15,7 +15,7 @@
 
 ## 第一项：per-CPU array 包装
 
-源码分支：`codex/uprobe-map-optimization`，基于 `1a1dc0d6c2026a5e4b0e4faa964e3eea8ccdd241`；本项提交为 `0572f81`。
+源码分支：`archive/uprobe-map-optimization`，基于 `1a1dc0d6c2026a5e4b0e4faa964e3eea8ccdd241`；本项提交为 `0572f81`。
 
 `runtime/src/bpf_map/map_common_def.hpp` 中 `ensure_on_current_cpu` 由接收 `std::function` 改为模板 callable 转发。
 生产路径的两个调用者为 per-CPU array lookup/update；不改变取当前 CPU、检查 flags/key、数据布局或复制语义，也不打开诊断 shortcut。

@@ -46,7 +46,7 @@ perf record 对齐修复、event-output affinity 删除和 SIGSEGV handler 修�
 
 - Workflow run：
   <https://github.com/plsy1/bpftime-benchmark/actions/runs/30340475614>
-- 代码版本：`codex/official-no-btf`，包含 `ead56c9`
+- 代码版本：`archive/official-no-btf`，包含 `ead56c9`
 - ARM64：Linux `6.17.0-1020-azure`，4 threads
 - x64：Linux `6.17.0-1020-azure`，AMD EPYC 7763，2 cores / 4 threads
 - 每个平台：kernel uprobe 10 轮 + BPFtime userspace uprobe 10 轮

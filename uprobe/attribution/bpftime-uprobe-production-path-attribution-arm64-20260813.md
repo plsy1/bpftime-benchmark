@@ -66,5 +66,5 @@ SHM dispatch、generic handler、`std::function` 包装和 Boost.Interprocess al
 - 结果分支：`benchmark-results/jetson`
 - 完整目录：`uprobe/map-production-leaf-ab-arm64-20260813/`
 - 顶层 matched 对照：`uprobe/relative-kernel-attribution-arm64-20260812/`
-- 代码分支：`codex/official-no-btf`
+- 代码分支：`archive/official-no-btf`
 - 诊断代码提交：`9c90b225`；closure benchmark 提交：`fea5a4b6`

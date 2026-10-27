@@ -9,7 +9,7 @@ Jetson 上 `bpftime-offical-no-btf` 的 ssl-nginx benchmark 全部操作方式�
 
 | 项 | 值 |
 |---|---|
-| 源码树 | `/home/jetson/src/bpftime-offical-no-btf`（分支 codex/official-no-btf，含 8 字节对齐修复） |
+| 源码树 | `/home/jetson/src/bpftime-offical-no-btf`（分支 archive/official-no-btf，含 8 字节对齐修复） |
 | 构建目录 | `build-alignment-test/`（RelWithDebInfo；产出 agent / syscall-server `.so` 与 bpftimetool） |
 | Docker 镜像 | `bpftime:official-no-btf`（benchmark 脚本与 nginx/wrk 已内置；`.so` 和 sslsniff 由宿主机 mount 覆盖） |
 | BPF 程序 | `example/tracing/sslsniff/`（`example/sslsniff` 是指向它的符号链接，容器内同构） |

@@ -171,7 +171,7 @@ per-CPU-specific = per-CPU hash net - ordinary hash net
 
 ## 代码与结果位置
 
-- 代码分支：`codex/official-no-btf`
+- 代码分支：`archive/official-no-btf`
 - 计划文档：`summry/jetson`
 - 结果分支：`benchmark-results/jetson`
 - 计划结果目录：`uprobe/hash-workload-robustness-arm64-20260816/`

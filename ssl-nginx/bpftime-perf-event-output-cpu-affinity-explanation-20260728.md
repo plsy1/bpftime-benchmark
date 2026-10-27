@@ -2,7 +2,7 @@
 
 **日期：** 2026-07-28
 **对应提交：** `076e3e4`（`Remove per-event CPU affinity pinning from bpf_perf_event_output`）
-**适用代码：** `bpftime-offical-no-btf`，分支 `codex/official-no-btf`
+**适用代码：** `bpftime-offical-no-btf`，分支 `archive/official-no-btf`
 
 ## 结论
 

@@ -8,8 +8,8 @@
 
 ## 0. 现状一页（2026-10-26 13:45 JST，新会话从这里继续）
 
-**目标**：继续优化 `codex/uprobe-official-177a1dc465ff`（开发 worktree
-`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `a7d54d7e`）。
+**目标**：继续优化 `dev/uprobe-official-177a1dc465ff`（开发 worktree
+`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `627a2201`，10/26–27 新增 daemon 与共享 map 修复 6 个、NUC 发现的修复 4 个，补丁栈未加入）。
 下一阶段重点：扩大测试覆盖（见 0.4），hash map 重写暂缓。
 
 ### 0.1 map 与 ssl-nginx 阶段的提交（10/22–24，均已推送并加入补丁栈）
@@ -118,6 +118,8 @@ gethostlatency 少记不是 bpftime 的问题：用精确总数（工作负载�
 发现的问题交给这里处理：[x86 发现](bpftime-x86-nuc-findings-20261026.md)（`bpf_get_stackid` 的错误在 64 位返回值里仍是正数；
 开发分支在只有 clang-19 的机器上配置失败；官方单测 `Test attach replace with ebpf` 在 gum 初始化前调用 gum；
 **用户要求把 `codex/` 开头的分支改名**，含每日自动化前缀和 main 的 CI，方案见该文件第 5 条）。
+10/27 已处理：第 1–4 条修复为 `a0b0eb2f`、`fb506ff4`、`7b6fa4fd`、`627a2201`；改名完成，开发分支现为 `dev/uprobe-official-177a1dc465ff`（HEAD `627a2201`），
+其余三个为 `archive/…`，每日自动化前缀为 `dev/uprobe-official`（详见该文件）。x86 结果只放 `benchmark-results/x86-nuc` 和 `summry/x86-nuc`。
 
 ### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`）
 
@@ -226,7 +228,7 @@ deepflow 与 `bpftime_daemon` 的内核条件已满足，尚未尝试。arm64 6.
 
 | 用途 | 本机路径 / 分支 |
 |---|---|
-| **开发源码** | `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，分支 `codex/uprobe-official-177a1dc465ff`，HEAD `a7d54d7e`（官方 177a1dc + 73 个提交） |
+| **开发源码** | `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，分支 `dev/uprobe-official-177a1dc465ff`，HEAD `627a2201`（官方 177a1dc + 83 个提交，其中前 73 个在补丁栈） |
 | 开发构建 | 上述目录的 `build-jit`（LLVM 16，RelWithDebInfo + LTO）；增量构建 `cmake --build build-jit --target bpftime-agent bpftime-syscall-server bpftime_runtime_tests` |
 | 冻结的构建产物 | `results/uprobe/ssl-nginx-2x2-20261023/builds/<提交号>/`（agent、syscall-server、bpftimetool），说明见同目录 `README.txt` |
 | 官方对照树 | `/home/jetson/src/bpftime-official-177a1dc-noaffinity-20261023`（177a1dc + 去绑核补丁，工作树里还有 no-BTF 示例） |

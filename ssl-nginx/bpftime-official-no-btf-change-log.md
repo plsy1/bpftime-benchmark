@@ -1,6 +1,6 @@
 # bpftime official-no-btf bug 修复记录
 
-分支 `codex/official-no-btf`（远端 plsy1/bpftime-benchmark）。
+分支 `archive/official-no-btf`（远端 plsy1/bpftime-benchmark）。
 
 ## 已修复
 

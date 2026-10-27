@@ -308,7 +308,7 @@ affinity 绑核序列是 Jetson/ARM 上 BPFtime 输给 kernel eBPF 的主因，
 
 - 2026-07-27：**Fair 口径验证完成**（3 轮 × 10 reps × 2 payload，逐 rep 交错）：修复版 bpftime 在等范围挂载下 16B **+7.58%**、256KB **+9.81%** 反超 kernel，六轮全同向；修复前 fair 差距为 −9.57%，净改善 ~17pp。残余离群（60 样本中 4 个，−10~−15%）未根除，列入 P3。数据 `benchmark-results/v4-ablation/fair/fixed/`。
 
-- 2026-07-27：**正式修复已提交**：`076e3e4` "Remove per-event CPU affinity pinning from bpf_perf_event_output"（分支 codex/official-no-btf；同时 `99adf3a` 把 `sslsniff.bpf.c` 恢复为上游 c796f45 干净完整版——注意此前 HEAD 里提交的是 V2 消融版）。修复验证：单元测试 8,358 断言全过；16B 短测 bpftime 中位数 12,329 RPS、**反超 kernel +8.8%**、CV 1.22%，与 no-affinity 变体一致（数据 `benchmark-results/v4-ablation/short/fixed/16b-run01/`）。注意：修复后 worktree 不再匹配 `v4-ablation/original/` 与 `v1-v4-ablation/v4-full/` 的冻结副本（实验历史产物），如需再做消融应以修复后代码为新基线重建参照。
+- 2026-07-27：**正式修复已提交**：`076e3e4` "Remove per-event CPU affinity pinning from bpf_perf_event_output"（分支 archive/official-no-btf；同时 `99adf3a` 把 `sslsniff.bpf.c` 恢复为上游 c796f45 干净完整版——注意此前 HEAD 里提交的是 V2 消融版）。修复验证：单元测试 8,358 断言全过；16B 短测 bpftime 中位数 12,329 RPS、**反超 kernel +8.8%**、CV 1.22%，与 no-affinity 变体一致（数据 `benchmark-results/v4-ablation/short/fixed/16b-run01/`）。注意：修复后 worktree 不再匹配 `v4-ablation/original/` 与 `v1-v4-ablation/v4-full/` 的冻结副本（实验历史产物），如需再做消融应以修复后代码为新基线重建参照。
 - 2026-07-27：新增独立解释文档 `bpftime-perf-event-output-affinity-redundancy-20260727.md`：绑核为何冗余（快照先于绑核 / per-thread shard / 绑核非锁 / KERNEL_USER 路径无效）、两个既有 bug（错误路径钉死单核、陈旧 mask 竞态）、删除后的行为边界。
 - 2026-07-27：完成 ④ 段内部消融短测（16B 7-run 预注册批次 + 事件守恒审计 + 256KB 补验）：affinity 绑核序列 = ④ 段成本的 72%（+12.6 pp），功能冗余；去掉后 BPFtime 在 16B/256KB 均反超 kernel 约 10%，CV 收敛至 kernel 水平。"下一步"整节按三视角评审意见改写（P1 正式修复 + fair 主口径 + 上游 PR 切分）。原始数据：`benchmark-results/v4-ablation/short/`。
 

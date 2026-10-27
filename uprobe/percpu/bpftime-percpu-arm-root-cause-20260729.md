@@ -188,7 +188,7 @@ sched_setaffinity()
 
 - Jetson 聚焦测试使用 `ghcr.io/plsy1/bpftime:original`，镜像源 revision 为
   `52ddee18951210f353979999f5c011b1ee5769ae`。
-- 镜像和当前 `codex/official-no-btf` 工作树中的
+- 镜像和当前 `archive/official-no-btf` 工作树中的
   `per_cpu_array_map.cpp`、`per_cpu_hash_map.cpp` SHA-256 完全一致，因此后续
   perf record 对齐、event-output affinity、SIGSEGV handler 修改不影响本次
   map 归因。

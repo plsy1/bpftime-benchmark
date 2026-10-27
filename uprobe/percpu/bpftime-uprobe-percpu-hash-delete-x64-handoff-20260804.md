@@ -15,7 +15,7 @@ Docker，不修改 benchmark 循环、setup、BPF 程序或 map 参数。
 
 ```text
 repository: https://github.com/plsy1/bpftime-benchmark.git
-branch: codex/official-no-btf
+branch: archive/official-no-btf
 commit: c6e2737aabddb23a9915f5eec2fe890f2c3fba07
 ```
 
@@ -68,11 +68,11 @@ ROOT="$HOME/src/bpftime-offical-no-btf"
 cd "$ROOT"
 
 git status --short --branch
-git fetch benchmark codex/official-no-btf || \
-  git fetch origin codex/official-no-btf
-git checkout codex/official-no-btf
-git pull --ff-only benchmark codex/official-no-btf || \
-  git pull --ff-only origin codex/official-no-btf
+git fetch benchmark archive/official-no-btf || \
+  git fetch origin archive/official-no-btf
+git checkout archive/official-no-btf
+git pull --ff-only benchmark archive/official-no-btf || \
+  git pull --ff-only origin archive/official-no-btf
 
 git rev-parse HEAD
 git status --short

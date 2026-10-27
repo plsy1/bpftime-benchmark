@@ -16,7 +16,7 @@
 - 覆盖的测试：uprobe 微基准、syscall、ssl-nginx（sslsniff）、syscount-nginx、MPK。
 - 对比官方 v0.2.0 与 master 两个版本。
 - Jetson 内核没有 BTF，为此构建了 no-BTF 的镜像和构建流程。
-- 对应分支：`main`、`codex/official-no-btf`；运行手册见
+- 对应分支：`main`、`archive/official-no-btf`；运行手册见
   [ssl-nginx 运行手册](ssl-nginx/bpftime-official-no-btf-ssl-nginx-benchmark-runbook.md)。
 
 ## 2. ssl-nginx 端到端调查与修复（7/12 – 7/27）

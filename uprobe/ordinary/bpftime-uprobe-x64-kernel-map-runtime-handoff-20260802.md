@@ -20,7 +20,7 @@ per-CPU map、delete、ssl-nginx，也不使用 Docker。
 
 ```text
 https://github.com/plsy1/bpftime-benchmark.git
-branch: codex/official-no-btf
+branch: archive/official-no-btf
 minimum commit: 8ed291e
 ```
 
@@ -62,7 +62,7 @@ bpftool。
 mkdir -p "$HOME/src"
 cd "$HOME/src"
 
-git clone --branch codex/official-no-btf \
+git clone --branch archive/official-no-btf \
   --single-branch --recurse-submodules \
   https://github.com/plsy1/bpftime-benchmark.git \
   bpftime-official-no-btf

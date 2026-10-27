@@ -30,7 +30,7 @@
 
 - 机器：Jetson Orin Nano，Cortex-A78AE，6 个 CPU 在线、无 SMT sibling；
 - CPU5，MAXN_SUPER，`jetson_clocks` 后 CPU/GPU/EMC 锁频，CPU 1.728 GHz；
-- 代码：`codex/official-no-btf`，runtime 基线
+- 代码：`archive/official-no-btf`，runtime 基线
   `c6e2737aabddb23a9915f5eec2fe890f2c3fba07`；诊断 target 提交
   `1ee2eb6`；
 - 构建：RelWithDebInfo、LLVM JIT ON、LTO ON、probe read/write checks OFF、
@@ -238,6 +238,6 @@ shared-memory allocator 回收。但仍有以下边界：
 - hash：`uprobe/percpu-hash-path-arm64-20260805/`，提交 `6f68112`；
 - hash delete 叶子级：`uprobe/percpu-hash-delete-layers-arm64-20260805/`，包含
   wall、附着式 PMU、BPFtime 调用图、kernel 预分配对照及命令记录；
-- 源码诊断：`codex/official-no-btf`，既有提交 `1ee2eb6`；
+- 源码诊断：`archive/official-no-btf`，既有提交 `1ee2eb6`；
 - delete 叶子级诊断提交：`deb8f56`（基于 `e0240a1`）；
 - 各结果目录包含 raw stdout、PMU/perf、汇总 CSV 和复现命令。
