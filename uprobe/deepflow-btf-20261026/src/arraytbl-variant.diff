@@ -1,0 +1,459 @@
+--- deepflow-v7.2.3/agent/src/ebpf/kernel/uprobe_base.bpf.c	2026-10-26 16:19:30.098382227 +0900
++++ deepflow-v7.2.3-arraytbl/agent/src/ebpf/kernel/uprobe_base.bpf.c	2026-10-27 10:58:28.679802000 +0900
+@@ -50,14 +50,71 @@
+  * key: pid
+  * value: struct ebpf_proc_info
+  */
+-struct bpf_map_def SEC("maps") proc_info_map = {
+-	.type = BPF_MAP_TYPE_HASH,
+-	.key_size = sizeof(int),
+-	.value_size = sizeof(struct ebpf_proc_info),
+-	.max_entries = HASH_ENTRIES_MAX,
++/*
++ * Experiment (bpftime benchmark, after eunomia-bpf/deepflow's "mocked
++ * hashmap"): proc_info_map and goroutines_map are hash tables kept in
++ * BPF_MAP_TYPE_ARRAY maps, linear probing over DF_TBL_SLOTS slots. A slot is
++ * free (0), used (1) or deleted (2); lookups stop at a free slot or after
++ * DF_TBL_PROBES slots (eunomia scanned all 229; a full scan made the 5.2+
++ * programs too complex for the verifier and, unrolled in the "common" build,
++ * longer than bpftime_daemon can capture). Writes go through the pointer
++ * bpf_map_lookup_elem returns. No locking (as eunomia).
++ */
++#define DF_TBL_SLOTS 229
++#define DF_TBL_PROBES 16
++#define DF_SLOT_FREE 0
++#define DF_SLOT_USED 1
++#define DF_SLOT_DELETED 2
++
++static __inline __u32 df_tbl_hash(__u64 key)
++{
++	return (__u32)((key * 0x9E3779B97F4A7C15ULL) >> 32) % DF_TBL_SLOTS;
++}
++
++struct proc_info_slot {
++	__u32 state;
++	__u32 key;
++	struct ebpf_proc_info value;
++};
++
++struct bpf_map_def SEC("maps") proc_info_tbl = {
++	.type = BPF_MAP_TYPE_ARRAY,
++	.key_size = sizeof(__u32),
++	.value_size = sizeof(struct proc_info_slot),
++	.max_entries = DF_TBL_SLOTS,
+ 	.feat_flags = FEATURE_FLAG_UPROBE_GOLANG,
+ };
+ 
++static __inline struct proc_info_slot *proc_info_find(__u32 key)
++{
++	__u32 start = df_tbl_hash(key);
++	for (__u32 j = 0; j < DF_TBL_PROBES; j++) {
++		__u32 i = (start + j) % DF_TBL_SLOTS;
++		struct proc_info_slot *e = bpf_map_lookup_elem(&proc_info_tbl, &i);
++		if (!e || e->state == DF_SLOT_FREE)
++			return NULL;
++		if (e->state == DF_SLOT_USED && e->key == key)
++			return e;
++	}
++	return NULL;
++}
++
++static __inline struct ebpf_proc_info *proc_info_lookup(__u32 key)
++{
++	struct proc_info_slot *e = proc_info_find(key);
++	return e ? &e->value : NULL;
++}
++
++static __inline void proc_info_delete(__u32 key)
++{
++	struct proc_info_slot *e = proc_info_find(key);
++	if (e)
++		e->state = DF_SLOT_DELETED;
++}
++
++#define PROC_INFO_LOOKUP(kp) proc_info_lookup(*(kp))
++#define PROC_INFO_DELETE(kp) proc_info_delete(*(kp))
++
+ // Process ID and coroutine ID, marking the coroutine in the system
+ struct go_key {
+ 	__u32 tgid;
+@@ -107,13 +164,77 @@
+  * key: {tgid, pid}
+  * value: goroutine ID
+  */
+-struct bpf_map_def SEC("maps") goroutines_map = {
+-	.type = BPF_MAP_TYPE_HASH,
+-	.key_size = sizeof(__u64),
+-	.value_size = sizeof(__u64),
+-	.max_entries = MAX_SYSTEM_THREADS,
++struct goroutine_slot {
++	__u64 state;
++	__u64 key;
++	__u64 value;
++};
++
++struct bpf_map_def SEC("maps") goroutines_tbl = {
++	.type = BPF_MAP_TYPE_ARRAY,
++	.key_size = sizeof(__u32),
++	.value_size = sizeof(struct goroutine_slot),
++	.max_entries = DF_TBL_SLOTS,
+ 	.feat_flags = FEATURE_FLAG_UPROBE_GOLANG,
+ };
++
++static __inline __u64 *goroutine_lookup(__u64 key)
++{
++	__u32 start = df_tbl_hash(key);
++	for (__u32 j = 0; j < DF_TBL_PROBES; j++) {
++		__u32 i = (start + j) % DF_TBL_SLOTS;
++		struct goroutine_slot *e = bpf_map_lookup_elem(&goroutines_tbl, &i);
++		if (!e || e->state == DF_SLOT_FREE)
++			return NULL;
++		if (e->state == DF_SLOT_USED && e->key == key)
++			return &e->value;
++	}
++	return NULL;
++}
++
++static __inline void goroutine_update(__u64 key, __u64 value)
++{
++	__u32 start = df_tbl_hash(key);
++	struct goroutine_slot *spare = NULL;
++	for (__u32 j = 0; j < DF_TBL_PROBES; j++) {
++		__u32 i = (start + j) % DF_TBL_SLOTS;
++		struct goroutine_slot *e = bpf_map_lookup_elem(&goroutines_tbl, &i);
++		if (!e)
++			break;
++		if (e->state == DF_SLOT_USED && e->key == key) {
++			e->value = value;
++			return;
++		}
++		if (e->state != DF_SLOT_USED && !spare)
++			spare = e;
++		if (e->state == DF_SLOT_FREE)
++			break;
++	}
++	if (spare) {
++		spare->key = key;
++		spare->value = value;
++		spare->state = DF_SLOT_USED;
++	}
++}
++
++static __inline void goroutine_delete(__u64 key)
++{
++	__u32 start = df_tbl_hash(key);
++	for (__u32 j = 0; j < DF_TBL_PROBES; j++) {
++		__u32 i = (start + j) % DF_TBL_SLOTS;
++		struct goroutine_slot *e = bpf_map_lookup_elem(&goroutines_tbl, &i);
++		if (!e || e->state == DF_SLOT_FREE)
++			return;
++		if (e->state == DF_SLOT_USED && e->key == key) {
++			e->state = DF_SLOT_DELETED;
++			return;
++		}
++	}
++}
++
++#define GOROUTINE_LOOKUP(kp) goroutine_lookup(*(kp))
++#define GOROUTINE_UPDATE(kp, vp) goroutine_update(*(kp), *(vp))
++#define GOROUTINE_DELETE(kp) goroutine_delete(*(kp))
+ /* *INDENT-ON* */
+ 
+ // The first 16 bytes are fixed headers,
+@@ -202,7 +323,7 @@
+ 	id = bpf_get_current_pid_tgid();
+ 	pid = id >> 32;
+ 	struct ebpf_proc_info *info;
+-	info = bpf_map_lookup_elem(&proc_info_map, &pid);
++	info = PROC_INFO_LOOKUP(&pid);
+ 	if (!info) {
+ 		return false;
+ 	}
+@@ -224,7 +345,7 @@
+ static __inline __u64 get_current_goroutine(void)
+ {
+ 	__u64 current_thread = bpf_get_current_pid_tgid();
+-	__u64 *goid_ptr = bpf_map_lookup_elem(&goroutines_map, &current_thread);
++	__u64 *goid_ptr = GOROUTINE_LOOKUP(&current_thread);
+ 	if (goid_ptr) {
+ 		return *goid_ptr;
+ 	}
+@@ -289,7 +410,7 @@
+ {
+ 	__u32 tgid = (__u32) (bpf_get_current_pid_tgid() >> 32);
+ 	struct ebpf_proc_info *info =
+-	    bpf_map_lookup_elem(&proc_info_map, &tgid);
++	    PROC_INFO_LOOKUP(&tgid);
+ 	if (info && info->version) {
+ 		return true;
+ 	} else {
+@@ -463,7 +584,7 @@
+ 	__u32 tgid = pid_tgid >> 32;
+ 
+ 	struct ebpf_proc_info *info =
+-	    bpf_map_lookup_elem(&proc_info_map, &tgid);
++	    PROC_INFO_LOOKUP(&tgid);
+ 	if (!info) {
+ 		return 0;
+ 	}
+@@ -483,7 +604,7 @@
+ 
+ 	__s64 goid = 0;
+ 	bpf_probe_read_user(&goid, sizeof(goid), g_ptr + offset_g_goid);
+-	bpf_map_update_elem(&goroutines_map, &pid_tgid, &goid, BPF_ANY);
++	GOROUTINE_UPDATE(&pid_tgid, &goid);
+ 
+ 	return 0;
+ }
+@@ -504,7 +625,7 @@
+ 	__u32 tgid = pid_tgid >> 32;
+ 
+ 	struct ebpf_proc_info *info =
+-	    bpf_map_lookup_elem(&proc_info_map, &tgid);
++	    PROC_INFO_LOOKUP(&tgid);
+ 	if (!info) {
+ 		return 0;
+ 	}
+@@ -566,7 +687,7 @@
+ 	__u32 tgid = pid_tgid >> 32;
+ 
+ 	struct ebpf_proc_info *info =
+-	    bpf_map_lookup_elem(&proc_info_map, &tgid);
++	    PROC_INFO_LOOKUP(&tgid);
+ 	if (!info) {
+ 		return 0;
+ 	}
+@@ -629,7 +750,7 @@
+ 
+ 	// If is a process, clear proc_info_map element and submit event.
+ 	if (pid == tid) {
+-		bpf_map_delete_elem(&proc_info_map, &pid);
++		PROC_INFO_DELETE(&pid);
+ 		struct process_event_t data;
+ 		data.pid = pid;
+ 		data.meta.event_type = EVENT_TYPE_PROC_EXIT;
+@@ -645,7 +766,7 @@
+ #endif
+ 	}
+ 
+-	bpf_map_delete_elem(&goroutines_map, &id);
++	GOROUTINE_DELETE(&id);
+ 	return 0;
+ }
+ 
+--- deepflow-v7.2.3/agent/src/ebpf/kernel/go_tls.bpf.c	2026-10-26 16:19:30.094382063 +0900
++++ deepflow-v7.2.3-arraytbl/agent/src/ebpf/kernel/go_tls.bpf.c	2026-10-27 10:45:12.510923813 +0900
+@@ -77,7 +77,7 @@
+ 	__u64 id = bpf_get_current_pid_tgid();
+ 	pid_t pid = id >> 32;
+ 
+-	struct ebpf_proc_info *info = bpf_map_lookup_elem(&proc_info_map, &pid);
++	struct ebpf_proc_info *info = PROC_INFO_LOOKUP(&pid);
+ 	if (!info) {
+ 		submit_debug(1, 1, 0);
+ 		return 0;
+@@ -123,7 +123,7 @@
+ 	__u64 id = bpf_get_current_pid_tgid();
+ 	pid_t pid = id >> 32;
+ 
+-	struct ebpf_proc_info *info = bpf_map_lookup_elem(&proc_info_map, &pid);
++	struct ebpf_proc_info *info = PROC_INFO_LOOKUP(&pid);
+ 	if (!info) {
+ 		submit_debug(2, 1, 0);
+ 		return 0;
+@@ -199,7 +199,7 @@
+ 	__u64 id = bpf_get_current_pid_tgid();
+ 	pid_t pid = id >> 32;
+ 
+-	struct ebpf_proc_info *info = bpf_map_lookup_elem(&proc_info_map, &pid);
++	struct ebpf_proc_info *info = PROC_INFO_LOOKUP(&pid);
+ 	if (!info) {
+ 		submit_debug(3, 1, 0);
+ 		return 0;
+@@ -245,7 +245,7 @@
+ 	__u64 id = bpf_get_current_pid_tgid();
+ 	pid_t pid = id >> 32;
+ 
+-	struct ebpf_proc_info *info = bpf_map_lookup_elem(&proc_info_map, &pid);
++	struct ebpf_proc_info *info = PROC_INFO_LOOKUP(&pid);
+ 	if (!info) {
+ 		submit_debug(4, 1, 0);
+ 		return 0;
+--- deepflow-v7.2.3/agent/src/ebpf/kernel/go_http2.bpf.c	2026-10-26 16:19:30.094382063 +0900
++++ deepflow-v7.2.3-arraytbl/agent/src/ebpf/kernel/go_http2.bpf.c	2026-10-27 10:45:12.514923963 +0900
+@@ -553,7 +553,7 @@
+ 	__u64 id = bpf_get_current_pid_tgid();
+ 	pid_t pid = id >> 32;
+ 
+-	struct ebpf_proc_info *info = bpf_map_lookup_elem(&proc_info_map, &pid);
++	struct ebpf_proc_info *info = PROC_INFO_LOOKUP(&pid);
+ 	if (skip_http2_uprobe(info)) {
+ 		return 0;
+ 	}
+@@ -612,7 +612,7 @@
+ 	__u64 id = bpf_get_current_pid_tgid();
+ 	pid_t pid = id >> 32;
+ 
+-	struct ebpf_proc_info *info = bpf_map_lookup_elem(&proc_info_map, &pid);
++	struct ebpf_proc_info *info = PROC_INFO_LOOKUP(&pid);
+ 	if (skip_http2_uprobe(info)) {
+ 		return 0;
+ 	}
+@@ -659,7 +659,7 @@
+ 	__u64 id = bpf_get_current_pid_tgid();
+ 	pid_t pid = id >> 32;
+ 
+-	struct ebpf_proc_info *info = bpf_map_lookup_elem(&proc_info_map, &pid);
++	struct ebpf_proc_info *info = PROC_INFO_LOOKUP(&pid);
+ 	if (skip_http2_uprobe(info)) {
+ 		return 0;
+ 	}
+@@ -696,7 +696,7 @@
+ 	__u64 id = bpf_get_current_pid_tgid();
+ 	pid_t pid = id >> 32;
+ 
+-	struct ebpf_proc_info *info = bpf_map_lookup_elem(&proc_info_map, &pid);
++	struct ebpf_proc_info *info = PROC_INFO_LOOKUP(&pid);
+ 	if (skip_http2_uprobe(info)) {
+ 		return 0;
+ 	}
+@@ -788,7 +788,7 @@
+ 	__u64 id = bpf_get_current_pid_tgid();
+ 	pid_t pid = id >> 32;
+ 
+-	struct ebpf_proc_info *info = bpf_map_lookup_elem(&proc_info_map, &pid);
++	struct ebpf_proc_info *info = PROC_INFO_LOOKUP(&pid);
+ 	if (skip_http2_uprobe(info)) {
+ 		return 0;
+ 	}
+@@ -824,7 +824,7 @@
+ 	__u64 id = bpf_get_current_pid_tgid();
+ 	pid_t pid = id >> 32;
+ 
+-	struct ebpf_proc_info *info = bpf_map_lookup_elem(&proc_info_map, &pid);
++	struct ebpf_proc_info *info = PROC_INFO_LOOKUP(&pid);
+ 	if (skip_http2_uprobe(info)) {
+ 		return 0;
+ 	}
+@@ -871,7 +871,7 @@
+ 	__u64 id = bpf_get_current_pid_tgid();
+ 	pid_t pid = id >> 32;
+ 
+-	struct ebpf_proc_info *info = bpf_map_lookup_elem(&proc_info_map, &pid);
++	struct ebpf_proc_info *info = PROC_INFO_LOOKUP(&pid);
+ 	if (skip_http2_uprobe(info)) {
+ 		return 0;
+ 	}
+@@ -911,7 +911,7 @@
+ 	__u64 id = bpf_get_current_pid_tgid();
+ 	pid_t pid = id >> 32;
+ 
+-	struct ebpf_proc_info *info = bpf_map_lookup_elem(&proc_info_map, &pid);
++	struct ebpf_proc_info *info = PROC_INFO_LOOKUP(&pid);
+ 	if (skip_http2_uprobe(info)) {
+ 		return 0;
+ 	}
+@@ -1105,7 +1105,7 @@
+ 	pid_t tgid = pid_tgid >> 32;
+ 
+ 	struct ebpf_proc_info *info =
+-	    bpf_map_lookup_elem(&proc_info_map, &tgid);
++	    PROC_INFO_LOOKUP(&tgid);
+ 	if (skip_http2_uprobe(info)) {
+ 		return 0;
+ 	}
+@@ -1163,7 +1163,7 @@
+ 	pid_t tgid = pid_tgid >> 32;
+ 
+ 	struct ebpf_proc_info *info =
+-	    bpf_map_lookup_elem(&proc_info_map, &tgid);
++	    PROC_INFO_LOOKUP(&tgid);
+ 	if (skip_http2_uprobe(info)) {
+ 		return 0;
+ 	}
+--- deepflow-v7.2.3/agent/src/ebpf/user/go_tracer.c	2026-10-26 16:19:30.102382391 +0900
++++ deepflow-v7.2.3-arraytbl/agent/src/ebpf/user/go_tracer.c	2026-10-27 10:58:28.679802000 +0900
+@@ -907,6 +907,54 @@
+ 	}
+ }
+ 
++/*
++ * Experiment (bpftime benchmark): proc_info_map is a linear-probing table in
++ * the array map "proc_info_tbl" (see kernel/uprobe_base.bpf.c); a slot is
++ * free (0), used (1) or deleted (2).
++ */
++#define DF_TBL_SLOTS 229
++#define DF_TBL_PROBES 16
++struct proc_info_slot {
++	uint32_t state;
++	uint32_t key;
++	struct ebpf_proc_info value;
++};
++
++static uint32_t df_tbl_hash(uint64_t key)
++{
++	return (uint32_t)((key * 0x9E3779B97F4A7C15ULL) >> 32) % DF_TBL_SLOTS;
++}
++
++static bool proc_info_tbl_set(struct bpf_tracer *tracer, int pid,
++			      struct ebpf_proc_info *info)
++{
++	int fd = bpf_table_get_fd(tracer, "proc_info_tbl");
++	if (fd < 0)
++		return false;
++	uint32_t start = df_tbl_hash((uint32_t)pid);
++	int target = -1;
++	for (uint32_t j = 0; j < DF_TBL_PROBES; j++) {
++		uint32_t i = (start + j) % DF_TBL_SLOTS;
++		struct proc_info_slot slot;
++		if (bpf_lookup_elem(fd, &i, &slot) != 0)
++			return false;
++		if (slot.state == 1 && slot.key == (uint32_t)pid) {
++			target = i;
++			break;
++		}
++		if (slot.state != 1 && target < 0)
++			target = i;
++		if (slot.state == 0)
++			break;
++	}
++	if (target < 0)
++		return false;
++	struct proc_info_slot slot = { .state = 1, .key = (uint32_t)pid,
++				       .value = *info };
++	uint32_t k = target;
++	return bpf_update_elem(fd, &k, &slot, BPF_ANY) == 0;
++}
++
+ void update_proc_info_to_map(struct bpf_tracer *tracer)
+ {
+ 	struct proc_info *p_info;
+@@ -919,8 +967,7 @@
+ 			continue;
+ 		info = &p_info->info;
+ 		int pid = p_info->pid;
+-		if (!bpf_table_set_value
+-		    (tracer, MAP_PROC_INFO_MAP_NAME, pid, (void *)info))
++		if (!proc_info_tbl_set(tracer, pid, info))
+ 			continue;
+ 		len =
+ 		    snprintf(buff, sizeof(buff), "go%d.%d offsets:",
+--- deepflow-v7.2.3/agent/src/ebpf/user/load.c	2026-10-26 16:19:30.102382391 +0900
++++ deepflow-v7.2.3-arraytbl/agent/src/ebpf/user/load.c	2026-10-27 10:45:52.640427891 +0900
+@@ -1316,6 +1316,16 @@
+ 			map_flags = BPF_F_NO_PREALLOC;
+ 		}
+ 
++		// Experiment (bpftime benchmark): DF_TABLES_MMAPABLE=1 creates the
++		// array-backed goroutine/proc-info tables with BPF_F_MMAPABLE.
++		if (getenv("DF_TABLES_MMAPABLE") &&
++		    map->def.type == BPF_MAP_TYPE_ARRAY &&
++		    (strcmp(map->name, "proc_info_tbl") == 0 ||
++		     strcmp(map->name, "goroutines_tbl") == 0)) {
++			map_flags |= (1U << 10);	/* BPF_F_MMAPABLE */
++			ebpf_info("map %s created mmapable\n", map->name);
++		}
++
+ 		uint32_t enabled_feats = map->def.feat_flags;
+ 		if (!is_golang_trace_enabled()) {
+ 			enabled_feats &= ~FEATURE_FLAG_UPROBE_GOLANG;

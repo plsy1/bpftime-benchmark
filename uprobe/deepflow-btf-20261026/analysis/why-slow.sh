@@ -3,9 +3,10 @@
 # count the Go server's bpf() system calls and the goroutine uprobe sites it hits
 # (bpftrace on the kernel), then a second 10 s window under perf record.
 # Usage: why-slow.sh OUTDIR LEG   (LEG = user-uprobe or kernel-uprobe)
+# Env: T=<socket_tracer of a DeepFlow variant>, TRACER_ENV="K=V ..." extra tracer env.
 set -u
 D=/home/jetson/src/deepflow-20261026; I=$D/bpftime-install
-T=$D/deepflow-v7.2.3/agent/src/ebpf/samples/rust/socket-tracer/target/release/socket_tracer
+T=${T:-$D/deepflow-v7.2.3/agent/src/ebpf/samples/rust/socket-tracer/target/release/socket_tracer}
 OUT=$1; LEG=$2; mkdir -p $OUT
 PERF=/usr/lib/linux-tools/6.8.0-1020-nvidia-tegra/perf
 sudo -n pkill -9 -x wrk; sudo -n pkill -9 -x socket_tracer; sudo -n pkill -9 -x bpftime_daemon; sudo -n pkill -9 -x main; sleep 0.5
@@ -15,7 +16,7 @@ sleep 1.5; P=$(pgrep -n -x main); echo "server $P"
 if [ $LEG = user-uprobe ]; then
   (sudo -n env BPFTIME_LOG_OUTPUT=console $I/bpftime_daemon -w 0x41770 -w 0x464f0 -w 0x46998 > $OUT/daemon.txt 2>&1 &); sleep 3
 fi
-(cd $OUT && sudo -n env DF_QUIET=1 DF_GO_PIDS=$P $T > $OUT/tracer.txt 2>&1 &)
+(cd $OUT && sudo -n env DF_QUIET=1 DF_GO_PIDS=$P ${TRACER_ENV:-} $T > $OUT/tracer.txt 2>&1 &)
 for i in $(seq 1 90); do grep -aq "adapt success" $OUT/tracer.txt 2>/dev/null && break; sleep 1; done
 sleep 70
 [ $LEG = user-uprobe ] && sudo -n env BPFTIME_LOG_OUTPUT=console $I/bpftime -i $I attach $P > $OUT/attach.txt 2>&1

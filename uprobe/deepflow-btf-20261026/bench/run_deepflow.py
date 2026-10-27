@@ -49,7 +49,7 @@ def last_counts(path):
     counts, coro = m[-1]
     return [int(x) for x in counts.split(',')], int(coro)
 
-def run_one(leg, kind, size, wrk_secs, out):
+def run_one(leg, kind, size, wrk_secs, out, tracer=TRACER, tracer_env=()):
     cleanup()
     port, scheme = (446, 'https') if kind == 'https' else (447, 'http')
     url = f'{scheme}://127.0.0.1:{port}/'
@@ -70,8 +70,8 @@ def run_one(leg, kind, size, wrk_secs, out):
                                           stdout=open(f'{stem}.daemon.txt', 'w'), stderr=subprocess.STDOUT))
             time.sleep(3)
         if leg != 'no-probe':
-            env = ['DF_QUIET=1'] + ([f'DF_GO_PIDS={pid}'] if leg != 'no-uprobe' else [])
-            procs.append(subprocess.Popen(['sudo', '-n', 'env', *env, str(TRACER)], cwd=out,
+            env = ['DF_QUIET=1', *tracer_env] + ([f'DF_GO_PIDS={pid}'] if leg != 'no-uprobe' else [])
+            procs.append(subprocess.Popen(['sudo', '-n', 'env', *env, str(tracer)], cwd=out,
                                           stdout=open(tracer_log, 'w'), stderr=subprocess.STDOUT))
             res['tracer_ready'] = wait_for(tracer_log, 'adapt success', 90)
             time.sleep(70 if leg != 'no-uprobe' else 3)
@@ -113,7 +113,10 @@ def main():
     ap.add_argument('--reps', type=int, default=3)
     ap.add_argument('--wrk-secs', type=int, default=10)
     ap.add_argument('--out', required=True)
+    ap.add_argument('--tracer', default=str(TRACER), help='socket_tracer binary (a DeepFlow variant)')
+    ap.add_argument('--tracer-env', default='', help='extra KEY=VALUE,... for the tracer')
     a = ap.parse_args()
+    tracer_env = [e for e in a.tracer_env.split(',') if e]
     out = Path(a.out)
     raw = out / 'raw'
     raw.mkdir(parents=True, exist_ok=True)
@@ -124,7 +127,7 @@ def main():
                 order = legs[r % len(legs):] + legs[:r % len(legs)]
                 for leg in order:
                     t0 = time.time()
-                    res = run_one(leg, kind, size, a.wrk_secs, raw)
+                    res = run_one(leg, kind, size, a.wrk_secs, raw, a.tracer, tracer_env)
                     res.update(rep=r, seconds=round(time.time() - t0, 1))
                     with (out / 'results.jsonl').open('a') as f:
                         f.write(json.dumps(res) + '\n')

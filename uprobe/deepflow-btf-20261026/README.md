@@ -84,12 +84,64 @@ with linear-probing tables of 229 slots on `BPF_MAP_TYPE_ARRAY`, one `bpf_map_lo
 probed slot. The arrays are not `BPF_F_MMAPABLE`, so the kernel refuses to mmap them and today's
 array proxy falls back to a syscall per lookup (`array_map_kernel_user.cpp`, re-mmap failure path):
 the change saves no syscalls here. The reason for it is not recorded; it is not a missing proxy
-(the hash proxy was added on 2023-10-26). Inferred, not verified: with the fallback a lookup
-returns a copy, so the tables' writes through the returned pointer (`ent->used = 1`, key and
-value copies) would not reach the kernel map, and the kernel TLS programs would not see the
-goroutine ids written in userspace. The fork is x86-only and bpftime of that time differs, so this
-was not reproduced here. Our legs do not depend on it: the audit shows the goroutine ids written
-by bpftime reach the kernel programs.
+(the hash proxy was added on 2023-10-26). With the fallback a lookup returns a copy, so the
+tables' writes through the returned pointer (`ent->used = 1`, key and value copies) do not reach
+the kernel map, and the kernel TLS programs do not see the goroutine ids written in userspace:
+reproduced with today's bpftime on the same change ported to v7.2.3 (variant A below). The fork
+itself is x86-only and bpftime of that time differs, so whether the paper's runs had this is not
+known. Our run2 legs do not depend on it: the audit shows the goroutine ids written by bpftime
+reach the kernel programs.
+
+## Array-table variants (eunomia-style, `bench/run-arraytbl-A`, `-B`; requested experiment)
+
+**This changes DeepFlow's BPF programs**, unlike everything above; both legs of a variant run the
+same changed programs. `src/arraytbl-variant.diff` (on v7.2.3, copy `deepflow-v7.2.3-arraytbl`):
+`goroutines_map` and `proc_info_map` (the two maps the goroutine programs look up and update) become
+229-slot linear-probing tables on `BPF_MAP_TYPE_ARRAY` (slot = state + key + value; states free,
+used, deleted; multiplicative hash), as in eunomia-bpf/deepflow; `go_tracer.c` fills the
+`proc_info` table from userspace slot by slot. Differences from the fork: deleted slots are marked
+and a lookup stops at the first never-used slot, and at most 16 slots are probed. Scanning all 229
+slots made `df_T_exit_sendmsg` too complex for the verifier (E2BIG), DeepFlow fell back to its
+`common` variant, whose fully unrolled goroutine program (25,948 instructions) exceeds the
+daemon's 4096-instruction capture; with 16 both legs load the usual `5.2_plus` programs.
+
+- **A**: arrays as in the fork (not mmapable).
+- **B**: the same with `BPF_F_MMAPABLE` on both arrays (`DF_TABLES_MMAPABLE=1`, set in `user/load.c`),
+  so the bpftime array proxy maps the kernel arrays and programs read and write them in place.
+
+Functional check first (`checks/arraytbl`, 5 HTTPS requests, TLS events carrying a goroutine id):
+kernel 10/10 in both variants; bpftime **A 0/10** (the agent logs the failed re-mmap, err 22, and
+falls back to copies), **B 10/10**.
+
+Throughput as above (3 reps, rotated, legs no-uprobe/kernel-uprobe/user-uprobe; no-probe is
+DeepFlow-independent and taken from run2), `bench/summarize-arraytbl.py` → `summary-arraytbl.txt`:
+
+| Protocol | Size | run2 kernel | run2 bpftime | run2 | A kernel | A bpftime | A | B kernel | B bpftime | B |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| https | 1 KB | 32,433 | 24,107 | -25.7% | 32,532 | 24,465 | -24.8% | 32,912 | 25,468 | -22.6% |
+| https | 16 KB | 18,406 | 14,835 | -19.4% | 18,503 | 15,163 | -18.0% | 18,517 | 15,501 | -16.3% |
+| https | 256 KB | 4,235 | 4,183 | -1.2% | 4,199 | 4,216 | +0.4% | 4,167 | 4,198 | +0.7% |
+| http | 1 KB | 52,554 | 37,646 | -28.4% | 52,360 | 36,469 | -30.3% | 52,483 | 40,647 | -22.6% |
+| http | 16 KB | 30,668 | 23,960 | -21.9% | 30,473 | 24,361 | -20.1% | 30,407 | 26,116 | -14.1% |
+| http | 256 KB | 11,561 | 11,061 | -4.3% | 11,756 | 11,221 | -4.6% | 11,699 | 11,219 | -4.1% |
+
+Go uprobe cost per request against each run's no-uprobe leg, kernel / bpftime (us): HTTP 1 KB
+run2 3.4 / 10.9, A 3.6 / 11.9, B 3.5 / 9.1; HTTP 16 KB 3.8 / 13.0, 4.1 / 12.4, 4.4 / 9.8;
+HTTPS 1 KB 12.8 / 23.5, 12.6 / 22.8, 12.4 / 21.2.
+
+- The tables cost the kernel nothing measurable (kernel legs within 2% of run2).
+- A in bpftime: goroutine ids 0.0 per request in all 18 runs (kernel leg about 2.0): the
+  throughput is that of a broken configuration.
+- B in bpftime: ids about 2.0 per request (one HTTPS 256 KB run lost all TLS events, as single runs
+  of both legs do in every variant). bpftime gains 3-8 points against the kernel at 1-16 KB
+  (HTTP 1 KB 10.9 → 9.1 us per request) and is still 14-23% slower.
+- Why still slower (`analysis/arraytbl-B-user-uprobe`, HTTP 1 KB, same script with
+  `T=… TRACER_ENV=DF_TABLES_MMAPABLE=1`): 8.8 `bpf()` calls per request (run2: 16). `perf`: the
+  frida enter path 26.0% of the server's CPU (run2 33.9%); proxied lookups 16.7% (21.2%), of
+  which 14.5% is the percpu `members_offset` lookup (`read_all_cpus`: one syscall reading every
+  CPU's value at the start of each program run); updates 4.8% (8.5%: `pid_tgid_callerid_map`,
+  `go_ancerstor_map`, still hash maps). A kernel percpu array cannot be mmapped, so this lookup
+  stays a syscall unless the proxy caches it (DeepFlow writes the offsets once at start).
 
 `bench/run1-invalid-handle-overflow`: the first full run, before `e6bfc3d9`; from some run on the
 daemon could not create the programs (kernel ids > 6144) and user-uprobe ran nothing. Not usable.
