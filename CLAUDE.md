@@ -548,3 +548,21 @@ writers); syscall access uses the kernel layout, each possible CPU's value
 rounded up to 8 bytes. The daemon proxies a kernel `LRU_HASH` as a hash map
 (the kernel evicts). The array proxy still keeps its fd and mmap in shared
 memory. `[kernel_user]` tests need root.
+
+## Map Usage Counters
+
+`BPFTIME_ENABLE_MAP_USAGE_STATS` (CMake, off by default) counts map
+operations per map for surveying how real tools use maps; with it off the
+hooks compile to nothing. With it on, counting also needs
+`BPFTIME_MAP_USAGE_STATS_FILE`: each process appends one JSON line per map at
+exit (lookups hit/miss, inserts, updates of existing keys, failed updates,
+deletes hit/miss, distinct threads, first/last time), separately for programs
+and for the loader's `bpf()` calls. The hooks sit in the `bpf_map_handler`
+entry points (generic, typed and array); the generic implementations are
+renamed `*_uncounted` in such builds and wrapped. Updates of hash-like maps
+look the key up first to tell inserts from updates (diagnostic cost). The
+array lookup JIT is disabled in counting builds (`bind_array_maps`), since
+inlined accesses bypass the handlers. Metadata is copied at the first
+operation, because the exit dump may run after the shared segment is
+unmapped; a fork child drops the parent's counts. Do not measure performance
+with a counting build.

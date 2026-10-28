@@ -117,8 +117,16 @@ bpf_map_handler::try_get_nv_gpu_ringbuf_map_impl() const
 	return static_cast<nv_gpu_ringbuf_map_impl *>(map_impl_ptr.get());
 }
 #endif
-const void *bpf_map_handler::map_lookup_elem(const void *key,
-					     bool from_syscall) const
+// Usage-counting builds rename the generic implementations; the counted
+// entry points at the end of this file wrap them.
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+#define BPFTIME_UNCOUNTED(name) name##_uncounted
+#else
+#define BPFTIME_UNCOUNTED(name) name
+#endif
+
+const void *bpf_map_handler::BPFTIME_UNCOUNTED(map_lookup_elem)(
+	const void *key, bool from_syscall) const
 {
 	const auto do_lookup = [&](auto *impl) -> const void * {
 		if (impl->should_lock) {
@@ -287,35 +295,75 @@ const void *bpf_map_handler::map_lookup_elem(const void *key,
 const void *bpf_map_handler::map_lookup_hash(const void *key) const
 {
 	bpftime_lock_guard guard(map_lock);
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+	const void *result =
+		static_cast<hash_map_impl *>(map_impl_ptr.get())->elem_lookup(key);
+	map_usage::record_lookup(*this, result, false);
+	return result;
+#else
 	return static_cast<hash_map_impl *>(map_impl_ptr.get())->elem_lookup(key);
+#endif
 }
 
 const void *bpf_map_handler::map_lookup_percpu_hash(const void *key) const
 {
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+	const void *result =
+		static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
+			->elem_lookup(key);
+	map_usage::record_lookup(*this, result, false);
+	return result;
+#else
 	return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
 		->elem_lookup(key);
+#endif
 }
 
 long bpf_map_handler::map_update_hash(const void *key, const void *value,
 				      uint64_t flags) const
 {
 	bpftime_lock_guard guard(map_lock);
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+	auto *impl = static_cast<hash_map_impl *>(map_impl_ptr.get());
+	const bool existed =
+		map_usage::enabled() && impl->elem_lookup(key) != nullptr;
+	long result = impl->elem_update(key, value, flags);
+	map_usage::record_update(*this, result, existed, false);
+	return result;
+#else
 	return static_cast<hash_map_impl *>(map_impl_ptr.get())
 		->elem_update(key, value, flags);
+#endif
 }
 
 long bpf_map_handler::map_delete_hash(const void *key) const
 {
 	bpftime_lock_guard guard(map_lock);
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+	long result =
+		static_cast<hash_map_impl *>(map_impl_ptr.get())->elem_delete(key);
+	map_usage::record_delete(*this, result, false);
+	return result;
+#else
 	return static_cast<hash_map_impl *>(map_impl_ptr.get())->elem_delete(key);
+#endif
 }
 
 long bpf_map_handler::map_update_percpu_hash(const void *key,
 					     const void *value,
 					     uint64_t flags) const
 {
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+	auto *impl = static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get());
+	const bool existed =
+		map_usage::enabled() && impl->elem_lookup(key) != nullptr;
+	long result = impl->elem_update(key, value, flags);
+	map_usage::record_update(*this, result, existed, false);
+	return result;
+#else
 	return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
 		->elem_update(key, value, flags);
+#endif
 }
 
 const void *bpf_map_handler::diagnostic_direct_lookup(const void *key) const
@@ -356,8 +404,9 @@ long bpf_map_handler::diagnostic_direct_delete(const void *key) const
 	return map_delete_elem(key, false);
 }
 
-long bpf_map_handler::map_update_elem(const void *key, const void *value,
-				      uint64_t flags, bool from_syscall) const
+long bpf_map_handler::BPFTIME_UNCOUNTED(map_update_elem)(
+	const void *key, const void *value, uint64_t flags,
+	bool from_syscall) const
 {
 	const auto do_update = [&](auto *impl) -> long {
 		if (impl->should_lock) {
@@ -683,7 +732,8 @@ int bpf_map_handler::bpf_map_get_next_key(const void *key, void *next_key,
 	return 0;
 }
 
-long bpf_map_handler::map_delete_elem(const void *key, bool from_syscall) const
+long bpf_map_handler::BPFTIME_UNCOUNTED(map_delete_elem)(
+	const void *key, bool from_syscall) const
 {
 	const auto do_delete = [&](auto *impl) -> long {
 		if (impl->should_lock) {
@@ -1597,4 +1647,43 @@ long bpf_map_handler::map_peek_elem(void *value, bool from_syscall) const
 	}
 }
 
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+bool bpf_map_handler::usage_key_present(const void *key, bool from_syscall) const
+{
+	switch (type) {
+	case bpf_map_type::BPF_MAP_TYPE_HASH:
+	case bpf_map_type::BPF_MAP_TYPE_LRU_HASH:
+	case bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH:
+	case bpf_map_type::BPF_MAP_TYPE_LRU_PERCPU_HASH:
+		return map_lookup_elem_uncounted(key, from_syscall) != nullptr;
+	default:
+		return true; // Arrays: every in-range key exists.
+	}
+}
+
+const void *bpf_map_handler::map_lookup_elem(const void *key,
+					     bool from_syscall) const
+{
+	const void *result = map_lookup_elem_uncounted(key, from_syscall);
+	map_usage::record_lookup(*this, result, from_syscall);
+	return result;
+}
+
+long bpf_map_handler::map_update_elem(const void *key, const void *value,
+				      uint64_t flags, bool from_syscall) const
+{
+	const bool existed =
+		map_usage::enabled() && usage_key_present(key, from_syscall);
+	long result = map_update_elem_uncounted(key, value, flags, from_syscall);
+	map_usage::record_update(*this, result, existed, from_syscall);
+	return result;
+}
+
+long bpf_map_handler::map_delete_elem(const void *key, bool from_syscall) const
+{
+	long result = map_delete_elem_uncounted(key, from_syscall);
+	map_usage::record_delete(*this, result, from_syscall);
+	return result;
+}
+#endif
 } // namespace bpftime
