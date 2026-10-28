@@ -1,0 +1,127 @@
+1728000
+==== BPFtime Syscall Benchmark ====
+[DEBUG 00:26:42] Initialized safe PIDs: {560190, 560198, 560191}
+[DEBUG 00:26:42] Cleaning up processes...
+[DEBUG 00:26:42] Safe PIDs: {560190, 560198, 560191}
+[DEBUG 00:26:42] Killing process 560187: /usr/bin/zsh -c source /home/jetson/.claude/shell-snapshots/snapshot-zsh-1793189757886-xc892d.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && { \builtin unalias -- 'unsetenv'; \builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'S=/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad; bash $S/run_official.sh > $S/official-syscall.log 2>&1; tail -45 $S/official-syscall.log' < /dev/null && pwd -P >| /tmp/claude-01c2-cwd
+
+=== Running Native Tests (No Tracing) ===
+Run 1/10...
+  Average time usage: 353.16 ns
+Run 2/10...
+  Average time usage: 353.16 ns
+Run 3/10...
+  Average time usage: 353.88 ns
+Run 4/10...
+  Average time usage: 353.71 ns
+Run 5/10...
+  Average time usage: 353.84 ns
+Run 6/10...
+  Average time usage: 353.65 ns
+Run 7/10...
+  Average time usage: 353.50 ns
+Run 8/10...
+  Average time usage: 352.98 ns
+Run 9/10...
+  Average time usage: 353.79 ns
+Run 10/10...
+  Average time usage: 352.83 ns
+[DEBUG 00:26:47] Cleaning up processes...
+[DEBUG 00:26:47] Safe PIDs: {560190, 560198, 560191}
+
+=== Running Kernel Tracepoint Tests ===
+Run 1/10...
+  Average time usage: 436.52 ns
+Run 2/10...
+  Average time usage: 438.27 ns
+Run 3/10...
+  Average time usage: 438.64 ns
+Run 4/10...
+  Average time usage: 440.03 ns
+Run 5/10...
+  Average time usage: 437.11 ns
+Run 6/10...
+  Average time usage: 438.13 ns
+Run 7/10...
+  Average time usage: 438.45 ns
+Run 8/10...
+  Average time usage: 439.53 ns
+Run 9/10...
+  Average time usage: 438.12 ns
+Run 10/10...
+  Average time usage: 437.40 ns
+[DEBUG 00:26:55] Cleaning up processes...
+[DEBUG 00:26:55] Safe PIDs: {560190, 560242, 560198, 560191}
+[DEBUG 00:26:56] Cleaning up processes...
+[DEBUG 00:26:56] Safe PIDs: {560190, 560242, 560198, 560191}
+
+=== Running Userspace BPF Syscall Tests ===
+[DEBUG 00:26:57] Using LD_PRELOAD method
+[DEBUG 00:26:58] Syscall server started with PID: 560290
+Run 1/10...
+  Average time usage: 633.28 ns
+Run 2/10...
+  Average time usage: 638.81 ns
+Run 3/10...
+  Average time usage: 632.63 ns
+Run 4/10...
+  Average time usage: 641.63 ns
+Run 5/10...
+  Average time usage: 639.42 ns
+Run 6/10...
+  Average time usage: 641.83 ns
+Run 7/10...
+  Average time usage: 640.49 ns
+Run 8/10...
+  Average time usage: 645.09 ns
+Run 9/10...
+  Average time usage: 642.58 ns
+Run 10/10...
+  Average time usage: 644.28 ns
+[DEBUG 00:27:06] Terminating syscall server (PID: 560290)
+[DEBUG 00:27:06] Cleaning up processes...
+[DEBUG 00:27:06] Safe PIDs: {560290, 560198, 560242, 560190, 560191}
+[DEBUG 00:27:08] Cleaning up processes...
+[DEBUG 00:27:08] Safe PIDs: {560290, 560198, 560242, 560190, 560191}
+
+=== Benchmark Results ===
+Each configuration run 10 times
+
+Native (No tracing):
+  Average time usage (mean):   353.45 ns
+  Average time usage (median): 353.58 ns
+  Standard deviation:          0.38
+  Min:                         352.83 ns
+  Max:                         353.88 ns
+  All runs:                    [353.16, 353.16, 353.88, 353.71, 353.84, 353.65, 353.5, 352.98, 353.79, 352.83]
+
+Kernel Tracepoint Syscall:
+  Average time usage (mean):   438.22 ns
+  Average time usage (median): 438.20 ns
+  Standard deviation:          1.05
+  Min:                         436.52 ns
+  Max:                         440.03 ns
+  All runs:                    [436.52, 438.27, 438.64, 440.03, 437.11, 438.13, 438.45, 439.53, 438.12, 437.4]
+
+Userspace BPF Syscall:
+  Average time usage (mean):   640.00 ns
+  Average time usage (median): 641.06 ns
+  Standard deviation:          4.19
+  Min:                         632.63 ns
+  Max:                         645.09 ns
+  All runs:                    [633.28, 638.81, 632.63, 641.63, 639.42, 641.83, 640.49, 645.09, 642.58, 644.28]
+
+=== Overhead Compared to Native ===
+Kernel Tracepoint Syscall: 23.98% increase
+Userspace BPF Syscall: 81.07% increase
+
+Userspace BPF syscall has 46.05% more overhead than kernel tracepoint
+
+Results saved to benchmark/syscall/syscall_benchmark_results_20261029_002709.json
+
+Human-readable results saved to benchmark/syscall/results.md
+[DEBUG 00:27:09] Cleaning up processes...
+[DEBUG 00:27:09] Safe PIDs: {560290, 560198, 560242, 560190, 560191}
+Benchmark complete
+exit 0
+1728000
