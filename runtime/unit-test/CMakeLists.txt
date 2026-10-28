@@ -18,6 +18,7 @@ set(TEST_SOURCES
     maps/test_array_jit_poc.cpp
     maps/test_per_cpu_array.cpp
     maps/test_per_cpu_hash.cpp
+    maps/test_per_cpu_hash_concurrency.cpp
     maps/test_shm_hash_maps.cpp
     maps/test_external_map_ops.cpp
     maps/test_bpftime_hash_map.cpp

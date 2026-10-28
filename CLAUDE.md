@@ -415,6 +415,18 @@ hash. `bpf_get_stackid` returns errors negative in its 64-bit result (it used
 to cast them to a valid-looking `uint32_t` id; `ret < 0 ? ret : (uint32_t)ret`
 still did, both branches being unsigned int: -EEXIST came back as 0xffffffef).
 
+## Per-CPU Hash Maps
+
+Only the values of `per_cpu_hash_map_impl` are per CPU: the key index (Boost
+`unordered_map`, which rehashes on insert), the four-byte-key value slot and
+recycled-node free lists, and the key scratch buffers are shared by every
+thread and process. Every operation therefore runs under the handler's map
+lock (`should_lock = true`, plus the typed helper entry points and the
+diagnostic direct paths). It used to take none: two threads inserting new keys
+crashed or hung the traced process (shared counters, 64 keys, 2-6 threads: 6 of
+9 runs). Lookups still return a pointer used after the lock is released, as for
+hash maps.
+
 ## Cgroup Array And bpf_current_task_under_cgroup
 
 `BPF_MAP_TYPE_CGROUP_ARRAY` (`cgroup_array_map_impl`) stores, per slot, the
