@@ -65,4 +65,6 @@ bpftime below the kernel there.
 5. **Problem 3, torn reads**: no change proposed; it is within kernel semantics. Document it.
    Revisit only if step 2 changes the update path anyway.
 
+6. **Problem 7, per-CPU maps with unpinned threads** (found after this plan): recorded, not fixed (user decision 2026-10-28); option in `percpu-unpinned-20261028`.
+
 Not in this plan: the ARM64 syscall trampoline (next phase), upstream PRs (deferred).

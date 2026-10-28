@@ -34,7 +34,7 @@ Runner `run_unpinned.py`; `run1.jsonl`, `summary-run1.md`.
   parallel, not only interleaved); with 12 threads on 6 CPUs this happens constantly.
 - Atomic updates on an ordinary array never lost a count, on either runtime.
 
-Not fixed. Options: give each program run an exclusive slot (claim the current CPU's slot with
+Not fixed (user decision 2026-10-28: record only). Options: give each program run an exclusive slot (claim the current CPU's slot with
 one atomic at program entry, try another if it is taken, release at exit), which matches what
 the kernel's migration-disable gives; rseq (restartable sequences) only works for a few
 instructions of hand-written code, not for a whole BPF program; locking per lookup does not
