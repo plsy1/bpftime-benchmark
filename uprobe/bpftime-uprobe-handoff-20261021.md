@@ -6,11 +6,13 @@
 课题全过程见 [研究总览](../bpftime-research-overview.md)；10/21 写成的原第 1–9 节已移到
 [archive](../archive/bpftime-uprobe-handoff-20261021-history.md)。
 
-## 0. 现状一页（2026-10-26 13:45 JST，新会话从这里继续）
+## 0. 现状一页（2026-10-28 JST，新会话从这里继续）
 
 **目标**：继续优化 `dev/uprobe-official-177a1dc465ff`（开发 worktree
-`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `627a2201`，10/26–27 新增 daemon 与共享 map 修复 6 个、NUC 发现的修复 4 个，10/27 已加入补丁栈，共 83 个提交）。
-下一阶段重点：扩大测试覆盖（见 0.4），hash map 重写暂缓。
+`/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，HEAD `c98951a4`，10/26–27 新增 daemon 与共享 map 修复 6 个、NUC 发现的修复 4 个，
+10/28 新增 map 用法计数选项和 per-CPU hash 两个修复，均已加入补丁栈，共 86 个提交）。
+**10/28 多维度对比收尾**（见 0.4 开头）：单线程 bpftime 普遍快于 kernel，问题全在多线程。用户定：多线程性能先不动，
+下一条主线是 **ARM64 系统调用跳板**（见 0.4 的扩大支持表）。
 
 ### 0.1 map 与 ssl-nginx 阶段的提交（10/22–24，均已推送并加入补丁栈）
 
@@ -123,6 +125,11 @@ gethostlatency 少记不是 bpftime 的问题：用精确总数（工作负载�
 
 10/27 这 10 个提交（daemon 6 个、NUC 4 个）加入补丁栈，共 83 个（自动化 `56ee70f1`）。它们的测试要 root、daemon 构建或在其他测试程序里，所以候选分支另开 `-DBUILD_BPFTIME_DAEMON=ON` 并跑 `candidate.test_suites`：`[kernel_user]` 和 daemon 测试用 `sudo -n`（单独的共享内存段，跑完删除），`Test attach replace with ebpf` 单独跑，再跑 frida 测试；手动运行 `tracker.py test-candidate <worktree>`。验证见 `daily-jit-stack-validation-20261021/round13-daemon-nuc-fixes`。
 
+10/28 再加 3 个，共 86 个：`09421773`（`BPFTIME_ENABLE_MAP_USAGE_STATS`，默认关，统计真实工具的 map 用法）、`cdc05f67`（per-CPU hash
+每个操作都拿 map 锁：原先完全不加锁，多线程插入新 key 让被追踪进程崩溃，官方同样）、`c98951a4`（per-CPU hash 程序路径按 kernel 处理
+`BPF_NOEXIST`/`BPF_EXIST`/`E2BIG`：原先覆盖赢家的值，丢计数）。新测试 `[percpu-hash][concurrency]` 在每日过滤器内。验证见
+`daily-jit-stack-validation-20261021/round14-percpu-hash-fixes`。
+
 ### 0.2 测了什么（结果目录 `/home/jetson/src/results/uprobe/`）
 
 | 目录 | 内容 |
@@ -184,6 +191,25 @@ gethostlatency 少记不是 bpftime 的问题：用精确总数（工作负载�
 
 ### 0.4 下一阶段：扩大测试覆盖（用户定的重点）
 
+**10/28 状态：多维度对比完成**（结果仓库 `uprobe/`）。逐项说明（中文）`dimension-walkthrough-zh.md`，问题清单
+`dimension-problems.md`，改进计划 `dimension-plan.md`。做法：先计数统计 16 个真实工具的 map 用法（`map-usage-20261027`：
+入口插入、出口查删最常见；key 4/8 B；全是单线程），再按这些用法做受控测试，1–6 线程、同轮 kernel、每次校验结果：
+churn（`map-threads-20261028`）、memleak 式大表和共享计数（`map-table-20261028`）、8 KB per-CPU 临时值（`map-scratch-20261028`），
+补充探针路径 perf（`probe-path-profile-20261028`）、读到改一半的值（`map-torn-20261028`）、杀死持锁进程（`dead-holder-20261028`）、
+不绑核的 per-CPU（`percpu-unpinned-20261028`）。结论与用户决定：
+
+| # | 问题 | 状态 |
+|---|---|---|
+| 1 | hash 整表一把自旋锁（查找也拿），6 线程 map 开销 0.1 → 10+ µs，kernel < 1 | 多线程性能，先不动 |
+| 2 | Frida 每次命中对每函数计数器 `trampoline_usage_counter` 原子加减，6 线程探针 0.2 → 4.5 µs | Frida 的问题，不归 bpftime 修 |
+| 3 | 查找指针 + 原地更新，读到改一半的值（kernel 也会，bpftime 多 3–90 倍） | 在 kernel 语义内，不改 |
+| 4 | per-CPU hash 多线程插入崩溃；程序路径忽略 NOEXIST/EXIST | 已修（`cdc05f67`、`c98951a4`，`percpu-hash-fix-20261028`） |
+| 5 | 持锁进程被杀，map 自旋锁永远不放（`kill -9` 40 次卡死 7 次） | 已记录，不修 |
+| 6 | Frida 每次命中清零约 3 KB 调用记录 | Frida 的问题，不修 |
+| 7 | 线程不绑核时 per-CPU map 丢计数（12 线程 1.4–2.3%，kernel ≤ 0.09%） | 已记录，不修 |
+
+数组和 per-CPU 数组在多线程下与 kernel 一样平稳。以下为原计划（10/23）：
+
 官方 benchmark 太理想化，自设计的 consuming benchmark 也不够。两条线并行：
 1. **多维度、多参数的 benchmark**：key 大小（libbpf-tools 普通 hash 仅约 46% 是 4 字节 key，27% 是 8 字节，27% 是 12–192 字节）、value 大小（多为 16–144 字节）、操作语义（插入新 key、删除不存在的 key）、表的状态、并发（多线程/多进程；hash map 目前整表一把锁），每项与同轮 kernel 对比。
 2. **真实程序**：在 bpftime 上跑 uprobe 类工具（如 memleak、funclatency、bashreadline、sslsniff），统计实际 map 使用特征（操作次数、key/value 大小、miss 率、插删频率、并发度），从结果找问题；优化后回到真实程序验证。
@@ -230,7 +256,7 @@ deepflow 与 `bpftime_daemon` 的内核条件已满足，尚未尝试。arm64 6.
 
 | 用途 | 本机路径 / 分支 |
 |---|---|
-| **开发源码** | `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，分支 `dev/uprobe-official-177a1dc465ff`，HEAD `627a2201`（官方 177a1dc + 83 个提交，全部在补丁栈） |
+| **开发源码** | `/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate`，分支 `dev/uprobe-official-177a1dc465ff`，HEAD `c98951a4`（官方 177a1dc + 86 个提交，全部在补丁栈） |
 | 开发构建 | 上述目录的 `build-jit`（LLVM 16，RelWithDebInfo + LTO）；增量构建 `cmake --build build-jit --target bpftime-agent bpftime-syscall-server bpftime_runtime_tests` |
 | 冻结的构建产物 | `results/uprobe/ssl-nginx-2x2-20261023/builds/<提交号>/`（agent、syscall-server、bpftimetool），说明见同目录 `README.txt` |
 | 官方对照树 | `/home/jetson/src/bpftime-official-177a1dc-noaffinity-20261023`（177a1dc + 去绑核补丁，工作树里还有 no-BTF 示例） |
