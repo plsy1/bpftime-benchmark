@@ -404,3 +404,64 @@ TEST_CASE("per-cpu hash helper lookup handles empty maps and colliding keys",
 		});
 	}
 }
+
+namespace
+{
+template <typename Key>
+uint64_t sum_over_cpus(per_cpu_hash_map_impl &map, const Key &key, int ncpu)
+{
+	auto *values = static_cast<const uint64_t *>(
+		map.elem_lookup_userspace(&key));
+	REQUIRE(values != nullptr);
+	uint64_t sum = 0;
+	for (int cpu = 0; cpu < ncpu; ++cpu)
+		sum += values[cpu];
+	return sum;
+}
+
+template <typename Key> void check_program_update_flags(const char *suffix)
+{
+	const std::string shm_name = "BPFTIME_PER_CPU_HASH_FLAGS_SHM_" +
+				     std::string(suffix) + "_" +
+				     std::to_string(getpid());
+	shm_remove remover(shm_name.c_str());
+	managed_shared_memory mem(create_only, shm_name.c_str(), 4 << 20);
+	const int ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+	per_cpu_hash_map_impl map(mem, sizeof(Key), sizeof(uint64_t), 2, ncpu);
+	const Key key1 = 0x12345678, key2 = 0x2345, missing = 0x777;
+	const uint64_t seven = 7, other = 99;
+
+	REQUIRE(map.elem_update(&key1, &seven, BPF_NOEXIST) == 0);
+	// The losing insert of a racing pair must not overwrite the winner.
+	errno = 0;
+	REQUIRE(map.elem_update(&key1, &other, BPF_NOEXIST) == -1);
+	REQUIRE(errno == EEXIST);
+	REQUIRE(sum_over_cpus(map, key1, ncpu) == seven);
+	errno = 0;
+	REQUIRE(map.elem_update(&missing, &other, BPF_EXIST) == -1);
+	REQUIRE(errno == ENOENT);
+	REQUIRE(map.elem_lookup_userspace(&missing) == nullptr);
+	REQUIRE(map.elem_update(&key1, &other, BPF_EXIST) == 0);
+	REQUIRE(map.elem_update(&key2, &seven, BPF_ANY) == 0);
+	// Full: two entries of two.
+	errno = 0;
+	REQUIRE(map.elem_update(&missing, &other, BPF_ANY) == -1);
+	REQUIRE(errno == E2BIG);
+	REQUIRE(map.elem_lookup_userspace(&missing) == nullptr);
+	REQUIRE(map.elem_delete(&key2) == 0);
+	REQUIRE(map.elem_update(&missing, &other, BPF_ANY) == 0);
+}
+} // namespace
+
+TEST_CASE("per-cpu hash program updates follow kernel flags and size limits",
+	  "[percpu-hash][flags]")
+{
+	SECTION("four-byte keys")
+	{
+		check_program_update_flags<uint32_t>("k4");
+	}
+	SECTION("eight-byte keys")
+	{
+		check_program_update_flags<uint64_t>("k8");
+	}
+}
