@@ -13,6 +13,7 @@
 #include "bpf_map/userspace/stack_trace_map.hpp"
 #include "bpf_map/userspace/cgroup_array_map.hpp"
 #include "bpftime_shm.hpp"
+#include "bpf_map/map_usage_stats.hpp"
 #include "spdlog/spdlog.h"
 #include <atomic>
 #include <boost/interprocess/managed_shared_memory.hpp>
@@ -166,14 +167,23 @@ class bpf_map_handler {
 	const void *map_lookup_hash(const void *key) const;
 	const void *map_lookup_array(const void *key) const
 	{
-		return static_cast<array_map_impl *>(
-			detail::offset_ptr_get_branch(map_impl_ptr))
-			->elem_lookup(key);
+		const void *result = static_cast<array_map_impl *>(
+					     detail::offset_ptr_get_branch(map_impl_ptr))
+					     ->elem_lookup(key);
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+		map_usage::record_lookup(*this, result, false);
+#endif
+		return result;
 	}
 	const void *map_lookup_percpu_array(const void *key) const
 	{
-		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
-			->elem_lookup_base(key);
+		const void *result =
+			static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
+				->elem_lookup_base(key);
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+		map_usage::record_lookup(*this, result, false);
+#endif
+		return result;
 	}
 	const void *map_lookup_percpu_hash(const void *key) const;
 	// * BPF_MAP_UPDATE_ELEM
@@ -212,14 +222,23 @@ class bpf_map_handler {
 	long map_update_array(const void *key, const void *value,
 			      uint64_t flags) const
 	{
-		return static_cast<array_map_impl *>(map_impl_ptr.get())
-			->elem_update(key, value, flags);
+		long result = static_cast<array_map_impl *>(map_impl_ptr.get())
+				      ->elem_update(key, value, flags);
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+		map_usage::record_update(*this, result, true, false);
+#endif
+		return result;
 	}
 	long map_update_percpu_array(const void *key, const void *value,
 				     uint64_t flags) const
 	{
-		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
-			->elem_update_base(key, value, flags);
+		long result =
+			static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
+				->elem_update_base(key, value, flags);
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+		map_usage::record_update(*this, result, true, false);
+#endif
+		return result;
 	}
 	long map_update_hash(const void *key, const void *value,
 			     uint64_t flags) const;
@@ -234,6 +253,17 @@ class bpf_map_handler {
 	// *		Returns zero on success. On error, -1 is returned and
 	// *errno* *		is set appropriately.
 	long map_delete_elem(const void *key, bool from_syscall = false) const;
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+	// The counted generic entry points wrap these (map_usage_stats.hpp).
+	const void *map_lookup_elem_uncounted(const void *key,
+					      bool from_syscall) const;
+	long map_update_elem_uncounted(const void *key, const void *value,
+				       uint64_t flags, bool from_syscall) const;
+	long map_delete_elem_uncounted(const void *key,
+				       bool from_syscall) const;
+	// Whether an update of key would replace an existing element.
+	bool usage_key_present(const void *key, bool from_syscall) const;
+#endif
 	// Diagnostic production A/B entry points. These keep the concrete map
 	// operation while bypassing generic map-type dispatch for supported maps.
 	const void *diagnostic_direct_lookup(const void *key) const;

@@ -38,6 +38,11 @@ option(BPFTIME_USE_CATCH2 "Use the Catch2 project for creating unit tests." OFF)
 # counters from lookup/update/delete paths.
 option(BPFTIME_ENABLE_MAP_PRODUCTION_AB "Enable map hot-path A/B diagnostics" OFF)
 
+# Count map operations per map (hits, misses, inserts, deletes, threads) for
+# surveying real tools; see runtime/src/bpf_map/map_usage_stats.hpp. It also
+# disables the array lookup JIT, whose inlined accesses could not be counted.
+option(BPFTIME_ENABLE_MAP_USAGE_STATS "Count runtime map operations per map" OFF)
+
 #
 # Miscelanious options
 #
