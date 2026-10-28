@@ -415,6 +415,37 @@ hash. `bpf_get_stackid` returns errors negative in its 64-bit result (it used
 to cast them to a valid-looking `uint32_t` id; `ret < 0 ? ret : (uint32_t)ret`
 still did, both branches being unsigned int: -EEXIST came back as 0xffffffef).
 
+## aarch64 System Call Rewriting
+
+`attach/text_segment_transformer` intercepts system calls by rewriting code
+(the `bpftime start -s` / transformer path). x86 uses zpoline (`syscall` ->
+`call *%rax` into a page at address 0); aarch64 cannot (instructions must be
+4-byte aligned and `bl` overwrites x30), so each `svc #imm` becomes `b gate`
+to its own 32-byte gate in a trampoline region mapped within the +-128 MiB
+reach of `b` (`MAP_FIXED_NOREPLACE`, closest free gap), after svc-hook
+(Middleware 2025) and ASC-Hook. The gate saves only x16/x17 on the stack and
+passes its own address (`adr`); `syscall_hooker_asm` saves x0-x30, NZCV, FPSR
+and q0-q31, calls `syscall_hooker_cxx`, restores everything (x0 = result) and
+branches to the gate's return stub, which restores x16/x17 and branches to the
+site + 4. The kernel preserves every register but x0 across `svc`, so nothing
+may be clobbered: svc-hook's x6/x14/x15 scratch registers and unsaved SIMD
+registers would corrupt callers. `rt_sigreturn`, `clone` and `clone3` take the
+gate's direct stub: all registers and sp restored, `svc` issued in the gate,
+plain `b` back, so a child on a fresh stack never returns into C frames (they
+are not traced, as on x86). glibc returns from signal handlers through the
+vDSO (not rewritten); musl and Go use their own restorer, covered by a test.
+Sites are found per executable mapping: ELF files by their `SHF_EXECINSTR`
+sections (no constants of a shared segment taken for code), other mappings
+word by word; `[vdso]`, `[stack]` and the transformer's own `syscall_addr`
+are skipped. Each site is one aligned word store plus an I-cache flush;
+`svc` -> `b` is a permitted concurrent modification. Failures skip the site or
+mapping and log; they never end the host. The asm lives in file-scope blocks
+and `syscall_hooker_cxx` is `used`: LTO dropped them from executables.
+Code loaded later (dlopen, JIT) is not rewritten. Tests:
+`bpftime_text_segment_transformer_tests` (aarch64; each case rewrites a
+forked child): register preservation, arguments/results/override, threads,
+fork/clone/posix_spawn, signals, own restorer.
+
 ## Per-CPU Hash Maps
 
 Only the values of `per_cpu_hash_map_impl` are per CPU: the key index (Boost

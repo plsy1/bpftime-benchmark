@@ -70,7 +70,9 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 		return;
 	}
 	SPDLOG_DEBUG("Using agent {}", agent_so);
+#if defined(__x86_64__)
 	cs_arch_register_x86();
+#endif
 	bpftime::setup_syscall_tracer();
 	SPDLOG_DEBUG("Loading dynamic library..");
 	auto next_handle = dlmopen(LM_ID_NEWLM, agent_so, RTLD_NOW | RTLD_LOCAL);
