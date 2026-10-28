@@ -78,7 +78,10 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 		return;
 	}
 	SPDLOG_DEBUG("Using agent {}", agent_so);
+#if defined(__x86_64__)
 	cs_arch_register_x86();
+#endif
+	bpftime::setup_syscall_tracer();
 	SPDLOG_DEBUG("Loading dynamic library..");
 	const bool use_same_namespace =
 		getenv("BPFTIME_AGENT_USE_DLOPEN") != nullptr;
