@@ -45,3 +45,35 @@ jetson_clocks on, cpu5 at 1728000 before and after. 5 rounds, order rotated, all
   15 ns.
 
 Next: profile `agent-other` (perf) to split the 200 ns.
+
+## Profile of the dispatch (`profile.sh`, `perf/`)
+
+`profile.sh agent-other` and `profile.sh rewrite`: 20,000,000 writes, `perf stat` over the run and
+`perf record -F 2999 -g` on writeloop for 5 s (perf 6.8.12). Per write: rewrite 674 cycles /
+1207 instructions, agent-other 1032 cycles / 2176 instructions. The agent adds **357 cycles
+(207 ns) and about 970 instructions** at an IPC of 2.1: not stalls, just code. In agent-other
+(`perf/agent-other.user.txt`), user-space samples outside the system call itself:
+
+| Samples | Function | What it is |
+|---:|---|---|
+| 8.2% | `dispatch_syscall` | the dispatch body |
+| 5.5% | `syscall_hooker_asm` | the trampoline's register save/restore (also in rewrite) |
+| 5.3% + 2.4% | `_dl_tlsdesc_dynamic`, TLS init function of `curr_thread_override_return_callback` | thread-local access in the dlmopen-ed agent (dynamic TLS) and the lazy initialization of a non-trivial `thread_local` |
+| 4.1% + 4.0% + 1.7% + ~1.5% | `malloc`, `_int_free`, `free`, `operator new`, `std::function` handlers | heap allocation and release of `std::function`s, twice per system call |
+| 0.5% | `syscall_callback` | the agent's entry |
+
+The source (`attach/syscall_trace_attach_impl/src/syscall_trace_attach_impl.cpp`,
+`attach/base_attach_impl/base_attach_impl.hpp`): for every system call, before checking whether
+any program is attached, `dispatch_syscall` assigns
+`thread_local std::optional<std::function<void(uint64_t, uint64_t)>>
+curr_thread_override_return_callback` a lambda capturing three locals by reference (24 bytes,
+above `std::function`'s 16-byte inline buffer, so a heap allocation), resets it, assigns it again
+for the exit side and resets it again. Only then are the (empty) callback sets checked. The
+callback exists so that `bpf_override_return`-style helpers can replace the result.
+
+Candidate fixes (not done; shared code, so x86 should gain too):
+1. Return straight to the system call when no enter, exit or global callbacks exist for the
+   number (every system call a tool does not trace pays the 200 ns today).
+2. Without the allocation: a callback that fits the inline buffer (one pointer to a small
+   struct on the stack), or a plain per-thread pointer to that struct.
+3. A trivially constructible `thread_local` (no TLS init function).
