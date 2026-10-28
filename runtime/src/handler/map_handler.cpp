@@ -307,6 +307,7 @@ const void *bpf_map_handler::map_lookup_hash(const void *key) const
 
 const void *bpf_map_handler::map_lookup_percpu_hash(const void *key) const
 {
+	bpftime_lock_guard guard(map_lock);
 #if BPFTIME_ENABLE_MAP_USAGE_STATS
 	const void *result =
 		static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
@@ -353,6 +354,7 @@ long bpf_map_handler::map_update_percpu_hash(const void *key,
 					     const void *value,
 					     uint64_t flags) const
 {
+	bpftime_lock_guard guard(map_lock);
 #if BPFTIME_ENABLE_MAP_USAGE_STATS
 	auto *impl = static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get());
 	const bool existed =
@@ -374,9 +376,11 @@ const void *bpf_map_handler::diagnostic_direct_lookup(const void *key) const
 	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)
 		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
 			->elem_lookup(key);
-	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH)
+	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH) {
+		bpftime_lock_guard guard(map_lock);
 		return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
 			->elem_lookup(key);
+	}
 	return map_lookup_elem(key, false);
 }
 
@@ -390,17 +394,21 @@ long bpf_map_handler::diagnostic_direct_update(const void *key,
 	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)
 		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
 			->elem_update(key, value, flags);
-	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH)
+	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH) {
+		bpftime_lock_guard guard(map_lock);
 		return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
 			->elem_update(key, value, flags);
+	}
 	return map_update_elem(key, value, flags, false);
 }
 
 long bpf_map_handler::diagnostic_direct_delete(const void *key) const
 {
-	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH)
+	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH) {
+		bpftime_lock_guard guard(map_lock);
 		return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
 			->elem_delete(key);
+	}
 	return map_delete_elem(key, false);
 }
 
