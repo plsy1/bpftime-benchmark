@@ -18,3 +18,5 @@ layout-pad28  f9d2d9fc + 28 unused nops in bpf_helper.cpp (layout experiment onl
 4d9b8a61      f9d2d9fc + printk sink, ENOMEM on shm exhaustion (128 MB default), rate-limited runtime errors, fork-child inherited close, cgroup id helper, XPACI frame strip, agent work hidden from probes (candidate build-jit, LLVM 16)
 a7d54d7e      4d9b8a61 + rate-limited logging out of line (candidate build-jit, LLVM 16)
 mapusage      627a2201 + opt-in map usage counters (BPFTIME_ENABLE_MAP_USAGE_STATS=ON; array lookup JIT off; LLVM 15, no LTO). Counting only, not for timing.
+09421773      dev branch HEAD (627a2201 + map usage counters compiled out); daily config: GCC 13, LLVM 15, RelWithDebInfo, LTO (candidate build-jetson-daily)
+09421773      dev branch HEAD (627a2201 + map usage counters compiled out); daily config: GCC 13, LLVM 15, RelWithDebInfo, LTO (candidate build-jetson-daily)
