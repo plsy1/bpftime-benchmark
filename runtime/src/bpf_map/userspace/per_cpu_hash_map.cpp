@@ -263,6 +263,23 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
 		if (itr != impl.end())
 			existing_value = itr->second.data();
 	}
+	// Kernel percpu htab: BPF_NOEXIST on an existing key fails with EEXIST,
+	// BPF_EXIST on a missing key with ENOENT, a new key in a full map with
+	// E2BIG. The flags used to be ignored here (only the syscall path checked
+	// them), so a racing NOEXIST insert overwrote the winner's value.
+	const uint64_t base_flags = flags & 0xFFFFFFFFULL;
+	if (base_flags == BPF_NOEXIST && existing_value != nullptr) {
+		if (collect_stats)
+			map_production_ab_lookup_active() = false;
+		errno = EEXIST;
+		return -1;
+	}
+	if (base_flags == BPF_EXIST && existing_value == nullptr) {
+		if (collect_stats)
+			map_production_ab_lookup_active() = false;
+		errno = ENOENT;
+		return -1;
+	}
 	if (existing_value != nullptr) {
 		if (collect_stats) {
 			++map_production_ab_stats().hits;
@@ -288,6 +305,10 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
 			if (!insert_uint32_value(key_value, value_ref))
 				release_uint32_value(value_ref.slot);
 		} else {
+			if (impl.size() >= _max_entries) {
+				errno = E2BIG;
+				return -1;
+			}
 			bytes_vec full_value_vec = this->value_template;
 			std::memcpy(full_value_vec.data() + cpu * value_size,
 				    value, value_size);
