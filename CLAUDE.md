@@ -424,8 +424,11 @@ thread and process. Every operation therefore runs under the handler's map
 lock (`should_lock = true`, plus the typed helper entry points and the
 diagnostic direct paths). It used to take none: two threads inserting new keys
 crashed or hung the traced process (shared counters, 64 keys, 2-6 threads: 6 of
-9 runs). Lookups still return a pointer used after the lock is released, as for
-hash maps.
+9 runs). The program path follows the kernel percpu htab like the syscall path:
+`BPF_NOEXIST` on an existing key fails with `EEXIST` (it used to overwrite the
+calling CPU's value), `BPF_EXIST` on a missing key with `ENOENT`, a new key in a
+full map with `E2BIG` (eight-byte and larger keys had no limit). Lookups still
+return a pointer used after the lock is released, as for hash maps.
 
 ## Cgroup Array And bpf_current_task_under_cgroup
 
