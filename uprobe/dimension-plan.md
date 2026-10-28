@@ -39,7 +39,7 @@ bpftime below the kernel there.
 
 ## Plan (in order; each fix gets a test that fails without it and a check against official)
 
-1. **Problem 4, per-CPU hash crash** (small, bpftime only). Serialize per-CPU hash updates and
+1. **Problem 4, per-CPU hash crash** (small, bpftime only). **Done 2026-10-28** (dev `cdc05f67`, `c98951a4`, plus kernel update flags; `percpu-hash-fix-20261028`). User decision: multi-thread performance (steps 2-3) deferred; Frida problems are Frida's, not bpftime's. Serialize per-CPU hash updates and
    deletes like the hash map, and make lookups safe against a concurrent insert (the
    container can rehash), or move the per-CPU hash onto the fixed-size open-addressing table
    the hash map already uses (no rehash). Test: concurrent-insert unit test (crashes without

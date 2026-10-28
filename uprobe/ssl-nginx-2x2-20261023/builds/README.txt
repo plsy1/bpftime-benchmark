@@ -19,3 +19,4 @@ layout-pad28  f9d2d9fc + 28 unused nops in bpf_helper.cpp (layout experiment onl
 a7d54d7e      4d9b8a61 + rate-limited logging out of line (candidate build-jit, LLVM 16)
 mapusage      627a2201 + opt-in map usage counters (BPFTIME_ENABLE_MAP_USAGE_STATS=ON; array lookup JIT off; LLVM 15, no LTO). Counting only, not for timing.
 09421773      dev branch HEAD (627a2201 + map usage counters compiled out); daily config: GCC 13, LLVM 15, RelWithDebInfo, LTO (candidate build-jetson-daily)
+c98951a4      dev branch HEAD (09421773 + per-cpu hash: map lock on every operation, kernel update flags and size limit); daily config: GCC 13, LLVM 15, RelWithDebInfo, LTO (candidate build-jetson-daily)

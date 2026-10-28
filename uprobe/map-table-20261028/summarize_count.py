@@ -11,7 +11,7 @@ for r in rows:
         d[(r['backend'], r['obj'], r['nkeys'], r['threads'])].append(r['ops_per_sec'])
 threads = sorted({r['threads'] for r in rows})
 nkeys = sorted({r['nkeys'] for r in rows})
-backends = [b for b in ('kernel', '09421773', 'official') if any(k[0] == b for k in d)]
+backends = [b for b in ('kernel', '09421773', 'c98951a4', 'official') if any(k[0] == b for k in d)]
 kinds = ['hash', 'percpu-hash', 'percpu-array', 'array']
 
 
