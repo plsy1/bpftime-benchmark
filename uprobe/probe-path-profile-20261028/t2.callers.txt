@@ -1,0 +1,53 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 15K of event 'cycles:P'
+# Event count (approx.): 13802234164
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                           
+# ........  .................................................................................................................................................................................................................................................................................................................................
+#
+    50.58%  [.] _gum_function_context_begin_invocation
+            |          
+            |--42.49%--_gum_function_context_begin_invocation
+            |          0xffff83ce10b0
+            |          worker
+            |          |          
+            |          |--34.25%--0xd60003c09b017c00
+            |          |          
+            |           --8.24%--start_thread
+            |                     thread_start
+            |          
+             --8.10%--0xffff83ce10af
+                       |          
+                        --8.03%--0xffff83ce10b0
+                                  worker
+                                  start_thread
+                                  thread_start
+
+    10.04%  [.] __memset_zva64
+            |
+            ---_frida_g_array_set_size
+               gum_invocation_stack_push
+               _gum_function_context_begin_invocation
+               0xffff83ce10b0
+               worker
+               start_thread
+               thread_start
+
+     7.95%  [.] uprobe_listener_on_enter(_GumInvocationContext*, void*)
+            |          
+             --5.16%--uprobe_listener_on_enter(_GumInvocationContext*, void*)
+                       _gum_function_context_begin_invocation
+                       0xffff83ce10b0
+                       worker
+                       start_thread
+                       thread_start
+
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
