@@ -8,6 +8,8 @@ Jetson ARM64 的课题文档在 [`summry/jetson`](https://github.com/plsy1/bpfti
 |---|---|
 | [x86 报告（10/26）](x86-nuc/bpftime-x86-nuc-build-regression-20261026.md) | 构建与回归（LLVM 19）、交给 Jetson 会话的问题（第 4 节）、uprobe 完整十轮（第 5 节）、ssl-nginx 与 7 档扫测（第 6 节） |
 | [新会话交接说明（Jetson 会话写，10/26）](x86-nuc/bpftime-x86-nuc-handoff-20261026.md) | 机器、构建选项、候选目标、用户定的规矩 |
+| [系统调用追踪对照（10/29）](x86-nuc/bpftime-x86-nuc-syscall-20261029.md) | 开发分支 `7a7d29b8` 在 x86 上的构建、拆层测量、官方 benchmark/syscall，与 Jetson 对比 |
+| [交给 Jetson 的发现（10/29）](x86-nuc/bpftime-x86-nuc-syscall-findings-20261029.md) | 没有要修的 bug；官方 benchmark 不能单核绑定；分发层和跳板的跨架构周期数 |
 
 ## 一页结论（开发分支 `a7d54d7e` = 官方 177a1dc + 73 个提交）
 
@@ -18,3 +20,10 @@ Jetson ARM64 的课题文档在 [`summry/jetson`](https://github.com/plsy1/bpfti
   官方在 x86 上也快于 kernel，但从 1 KB 起就丢事件。
 - **交给 Jetson 会话**：`bpf_get_stackid` 的错误在 64 位返回值里仍是正数（`d766e6ad`）；开发分支在只有 clang-19 的机器上配置失败。
 - **这台机器固定频率的坑**：核心从 C6 及更深空闲状态醒来、以及改完频率设置后的头几秒会跑在 1.4 GHz；多个核同时忙时 4.4 GHz 撑不住。
+
+## 系统调用追踪（10/29，开发分支 `7a7d29b8`）
+
+- **构建与正确性**：x86 上能编译（含 `bpftime_text_segment_transformer`），每日过滤器 113/113，zpoline 计数 1,000,000 / 1,000,000。
+- **分发层**：没有匹配程序也要约 220 周期（1.7 GHz 130 ns，4.4 GHz 51 ns），Jetson 349 周期（202 ns）；两边都是最大的一层。
+- **跳板**：zpoline 约 110 周期，ARM64 逐处跳板 65 周期。
+- **官方 benchmark/syscall**：1.7 GHz kernel +57.8 / bpftime +224.2 ns（3.9×），4.4 GHz +20.9 / +87.4 ns（4.2×），Jetson +84.8 / +286.6 ns（3.4×）。
