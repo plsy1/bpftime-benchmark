@@ -58,7 +58,7 @@ bpftime below the kernel there.
    it. Then: (2) replace the shared counter with per-thread or sharded counters that detach sums
    (or an epoch scheme), keeping detach safe; (6) stop clearing the whole stack entry. Measure
    with the probe-path profile and the controls. Candidate for an upstream Frida change.
-4. **Problem 5, crash robustness** (medium). Find which shm locks a dead process can hold
+4. **Problem 5, crash robustness** (medium). **Recorded, not fixed (user decision 2026-10-28)**; measurement and options in `dead-holder-20261028`. Find which shm locks a dead process can hold
    (pid set, handler table, map spinlocks); use robust mutexes with owner-death recovery where
    possible, and at least keep the loader from terminating. Test: kill a traced process inside
    a map operation, the loader must keep working.

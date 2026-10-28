@@ -1,0 +1,20 @@
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+__pthread_spin_lock (lock=0xffff7db70474) at ./nptl/pthread_spin_lock.c:71
+
+Thread 1 (Thread 0xffff90a62020 (LWP 536516) "attach"):
+#0  __pthread_spin_lock (lock=0xffff7db70474) at ./nptl/pthread_spin_lock.c:71
+#1  0x0000ffff8e5c79cc in bpftime::bpftime_lock_guard::bpftime_lock_guard (spinlock=<optimized out>, this=<optimized out>, this=<optimized out>, spinlock=<optimized out>) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/handler/map_handler.hpp:57
+#2  operator()<bpftime::fix_size_hash_map_impl> (impl=0xffff7dc6c9e0, __closure=<synthetic pointer>) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/handler/map_handler.cpp:592
+#3  bpftime::bpf_map_handler::bpf_map_get_next_key(void const*, void*, bool) const [clone .constprop.0] (this=0xffff7db70400, key=0x0, next_key=0xffffc339d908, from_syscall=true) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/handler/map_handler.cpp:601
+#4  0x0000ffff8e5c19dc in bpftime::bpftime_shm::bpf_map_get_next_key (this=<optimized out>, from_syscall=true, next_key=0xffffc339d908, key=0x0, fd=<optimized out>) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpftime_shm_internal.cpp:409
+#5  bpftime_map_get_next_key (next_key=0xffffc339d908, key=0x0, fd=<optimized out>) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpftime_shm.cpp:214
+#6  syscall_context::handle_sysbpf(int, bpf_attr*, unsigned long) [clone .constprop.0] (cmd=<optimized out>, attr=<optimized out>, size=24, this=<optimized out>) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/syscall-server/syscall_context.cpp:641
+#7  0x0000ffff8e566dd0 in operator() (__closure=<optimized out>) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/syscall-server/syscall_server_main.cpp:567
+#8  handle_bpf_exceptions<syscall(long int, ...)::<lambda()> > (f=...) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/syscall-server/syscall_server_main.cpp:306
+#9  syscall (sysno=<optimized out>, sysno@entry=280) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/syscall-server/syscall_server_main.cpp:566
+#10 0x0000aaaac67c74ec in sys_bpf (size=24, attr=0xffffc339d840, cmd=BPF_MAP_GET_NEXT_KEY) at bpf.c:75
+#11 bpf_map_get_next_key (fd=<optimized out>, key=key@entry=0x0, next_key=next_key@entry=0xffffc339d908) at bpf.c:509
+[Inferior 1 (process 536516) detached]
+
+warning: 71	./nptl/pthread_spin_lock.c: No such file or directory
