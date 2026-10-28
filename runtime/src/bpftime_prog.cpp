@@ -239,6 +239,9 @@ int bpftime_prog::bind_array_maps(bpftime_shm &shm)
 #if BPFTIME_ENABLE_MPK
 	return 0; // Retained mappings have not been audited with MPK transitions.
 #endif
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+	return 0; // Inlined array accesses would bypass the usage counters.
+#endif
 	if (is_cuda() || loaded_from_aot || std::string_view(vm_backend_name()) != "llvm" ||
 	    get_map_production_ab_mode() != map_production_ab_mode::base)
 		return 0;
