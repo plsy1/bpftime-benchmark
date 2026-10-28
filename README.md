@@ -5,7 +5,7 @@ Jetson ARM64 的结果在 [`benchmark-results/jetson`](https://github.com/plsy1/
 x86 的结论在 [`summry/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/tree/summry/x86-nuc)。
 
 对比的三方：kernel eBPF、bpftime 官方 177a1dc、开发分支 `dev/uprobe-official-177a1dc465ff` 的 `a7d54d7e`（官方 + 73 个提交）。
-开发分支 10/27 由 Jetson 会话从 `codex/uprobe-official-177a1dc465ff` 改名；本分支的测量都在 `a7d54d7e` 上，之后的提交（含 x86 发现的修复）未在 x86 上重测。
+开发分支 10/27 由 Jetson 会话从 `codex/uprobe-official-177a1dc465ff` 改名。`uprobe/` 下的测量都在 `a7d54d7e` 上，之后的提交（含 x86 发现的修复）未在 x86 上重测；`syscall/` 下的在 `7a7d29b8` 上。
 
 | 目录 | 内容 |
 |---|---|
@@ -13,6 +13,10 @@ x86 的结论在 [`summry/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/t
 | [uprobe/x86-nuc-full10-20261026](uprobe/x86-nuc-full10-20261026/) | 官方 uprobe benchmark 完整十轮（CPU 2 钉 4.4 GHz），10 项 map 操作与探针开销 |
 | [uprobe/x86-nuc-ssl-nginx-20261026](uprobe/x86-nuc-ssl-nginx-20261026/) | ssl-nginx 16 B / 256 KB，2 轮 × 10 次 |
 | [uprobe/x86-nuc-ssl-nginx-sweep-20261026](uprobe/x86-nuc-ssl-nginx-sweep-20261026/) | ssl-nginx 7 档 payload 扫测，每档 5 次，含图 |
+| [syscall/x86-nuc-build-20261029](syscall/x86-nuc-build-20261029/) | 开发分支 `7a7d29b8`（ARM64 系统调用改写）在 x86 上的构建与每日过滤器单测（113/113） |
+| [syscall/x86-nuc-breakdown-20261029](syscall/x86-nuc-breakdown-20261029/) | 每次系统调用开销拆层（Jetson 的 `run_layers.py`），1.7 / 4.4 GHz，与 Jetson 对比 |
+| [syscall/x86-nuc-official-syscall-20261029](syscall/x86-nuc-official-syscall-20261029/) | 官方 benchmark/syscall，1.7 / 4.4 GHz（含一次因单核绑定作废的记录） |
+| [syscall/x86-nuc-syscall-session-20261029](syscall/x86-nuc-syscall-session-20261029/) | 上面两项的驱动脚本、钉频与 `vm.mmap_min_addr` 记录 |
 
 说明：
 - 各 README 里提到的 Jetson 目录（`btf-kernel-20261026`、`ssl-nginx-2x2-20261023`、`ssl-nginx-sweep-bca2ebce-20261024`、
