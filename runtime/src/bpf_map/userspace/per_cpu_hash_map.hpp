@@ -194,7 +194,10 @@ class per_cpu_hash_map_impl {
 	void recycle_uint32_node(shm_uint32_hash_map::iterator itr);
 
     public:
-	const static bool should_lock = false;
+	// Only the values are per CPU: the key index, the value slot and node
+	// free lists and the key scratch buffers are shared by every thread and
+	// process, so every operation runs under the handler's map lock.
+	const static bool should_lock = true;
 
 	per_cpu_hash_map_impl(boost::interprocess::managed_shared_memory &memory,
 			      uint32_t key_size, uint32_t value_size,
