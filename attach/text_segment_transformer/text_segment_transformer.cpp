@@ -19,6 +19,9 @@
 #if defined(__aarch64__)
 #include <elf.h>
 #endif
+#if defined(__x86_64__)
+#include <cpuid.h>
+#endif
 #include "text_segment_transformer.hpp"
 #include <frida-gum.h>
 /*
@@ -65,14 +68,19 @@ thread_local unsigned bpftime_syscall_dispatch_active = 0;
 }
 
 #if defined(__x86_64__)
-// `used` keeps this function in the object under -flto: LTO sees a body whose
-// only effect is to define assembler-level labels, drops the whole function as
-// unreferenced, and the labels go with it -- `syscall_addr` then stays an
-// undefined reference at link time (issue #83). `maybe_unused` alone only
-// silences the warning, it does not prevent the removal.
-[[maybe_unused, gnu::used]] void __asm_holder()
-{
-	__asm__(".globl syscall_hooker_asm\n\t"
+// XSAVE components the hook preserves: x87, SSE, AVX, opmask, ZMM_Hi256 and
+// Hi16_ZMM (bits 0-2, 5-7). The mask is ANDed with XCR0; AMX tiles are left
+// out, as glibc's lazy-binding trampoline does.
+#define BPFTIME_XSAVE_MASK 0xe7
+#define BPFTIME_XSAVE_MASK_STR "0xe7"
+// Bytes the hook reserves for XSAVE, set by setup_syscall_tracer from CPUID
+// before any site is rewritten (hidden: the asm addresses it rip-relative).
+extern "C" {
+__attribute__((visibility("hidden"))) uint64_t bpftime_xsave_area_size = 0;
+}
+// File scope: LTO dropped asm inside an unreferenced function (see aarch64).
+__asm__(".pushsection .text\n\t"
+	".globl syscall_hooker_asm\n\t"
 		"syscall_hooker_asm:\n\t"
 		"pop %rax\n\t" // Restore the saved rax, which is the syscall
 			       // number
@@ -91,73 +99,66 @@ thread_local unsigned bpftime_syscall_dispatch_active = 0;
 		"je handle_clone\n\t"
 		"cmp $435, %rax\n\t" // SYS_clone3
 		"je handle_clone3\n\t"
-		// fork and vfork also return in two processes. In particular, the
-		// vfork child shares the parent's stack until exec or _exit, so it
-		// must never run through the C++ dispatcher on that stack.
-		"cmp $57, %rax\n\t" // SYS_fork
-		"je syscall_addr\n\t"
-		"cmp $58, %rax\n\t" // SYS_vfork
-		"je handle_vfork\n\t"
-		// The dispatcher and its helpers may issue syscalls themselves. Sending
-		// those through the dispatcher again recursively corrupts its private
-		// stack, so keep nested syscalls on the raw path until this callback
-		// returns.
-		"movq bpftime_syscall_dispatch_active@gottpoff(%rip), %rcx\n\t"
-		"cmpl $0, %fs:(%rcx)\n\t"
-		"jne syscall_addr\n\t"
-		"movl $1, %fs:(%rcx)\n\t"
-		// Retain the application stack pointer for pt_regs and the final ret.
-		"movq %rsp, %r11\n\t"
-		"pushq %rbp\n\t" // application frame pointer
-		"pushq %r11\n\t" // application stack with return PC at top
+		// The kernel changes only rax, rcx and r11 across `syscall`;
+		// code after an inline system call keeps using the argument
+		// registers and vector registers (glibc's __libc_sigaction
+		// reads its oact pointer from r8 afterwards). Save and restore
+		// all of them around the C hook, below the caller's 128-byte
+		// red zone: the rewritten `call *%rax` already stored its
+		// return address at its top, nothing else of it may change.
+		"lea -120(%rsp), %rsp\n\t"
+		"pushq %rbp\n\t"
 		"movq %rsp, %rbp\n\t"
-		"andq $-16, %rsp \n\t" // 16 byte stack alignment
-		"pushq %rax\n\t" // Save syscall args on stack
-		"pushq %rdi\n\t"
-		"pushq %rsi\n\t"
-		"pushq %rdx\n\t"
-		"pushq %r10\n\t"
-		"pushq %r8\n\t"
-		"pushq %r9\n\t"
-		// Put syscall args in appreciate argument order
-		"movq 48(%rsp), %rdi\n\t" // syscall_nr
-		"movq 40(%rsp), %rsi\n\t" // arg1
-		"movq 32(%rsp), %rdx\n\t" // arg2
-		"movq 24(%rsp), %rcx\n\t" // arg3
-		"movq 16(%rsp), %r8\n\t" // arg4
-		"movq 8(%rsp), %r9\n\t" // arg5
-		// The OTel stack helper consumes a pt_regs-shaped context. Carry
-		// the application state at the replaced syscall through the C ABI:
-		// arg6, return PC, pre-hook SP, and the original frame pointer.
-		"subq $8, %rsp\n\t" // preserve 16-byte call-site alignment
-		"pushq 8(%rbp)\n\t" // user_bp (argument 10)
-		"movq 0(%rbp), %r11\n\t"
-		"leaq 8(%r11), %r11\n\t"
-		"pushq %r11\n\t" // user_sp (argument 9)
-		"movq 0(%rbp), %r11\n\t"
-		"pushq (%r11)\n\t" // user_ip (argument 8)
-		"pushq 32(%rsp)\n\t" // arg6 (argument 7)
+		"subq $64, %rsp\n\t"
+		"movq %rax, -8(%rbp)\n\t" // syscall number
+		"movq %rdi, -16(%rbp)\n\t"
+		"movq %rsi, -24(%rbp)\n\t"
+		"movq %rdx, -32(%rbp)\n\t"
+		"movq %r10, -40(%rbp)\n\t"
+		"movq %r8, -48(%rbp)\n\t"
+		"movq %r9, -56(%rbp)\n\t"
+		// Vector, opmask and x87 state: XSAVE into a 64-byte aligned
+		// area sized at setup. The header must be zero for XRSTOR.
+		"subq bpftime_xsave_area_size(%rip), %rsp\n\t"
+		"andq $-64, %rsp\n\t"
+		"xorl %eax, %eax\n\t"
+		"movq %rax, 512(%rsp)\n\t"
+		"movq %rax, 520(%rsp)\n\t"
+		"movq %rax, 528(%rsp)\n\t"
+		"movq %rax, 536(%rsp)\n\t"
+		"movq %rax, 544(%rsp)\n\t"
+		"movq %rax, 552(%rsp)\n\t"
+		"movq %rax, 560(%rsp)\n\t"
+		"movq %rax, 568(%rsp)\n\t"
+		"movl $" BPFTIME_XSAVE_MASK_STR ", %eax\n\t"
+		"xorl %edx, %edx\n\t"
+		"xsave (%rsp)\n\t"
+		// syscall_hooker_cxx(nr, arg1, ..., arg6), arg6 on the stack
+		"movq -8(%rbp), %rdi\n\t"
+		"movq -16(%rbp), %rsi\n\t"
+		"movq -24(%rbp), %rdx\n\t"
+		"movq -32(%rbp), %rcx\n\t"
+		"movq -40(%rbp), %r8\n\t"
+		"movq -48(%rbp), %r9\n\t"
+		"subq $8, %rsp\n\t" // 16-byte alignment at the call
+		"pushq -56(%rbp)\n\t"
 		"call syscall_hooker_cxx\n\t"
-		"movq bpftime_syscall_dispatch_active@gottpoff(%rip), %rcx\n\t"
-		"movl $0, %fs:(%rcx)\n\t"
-		// A real syscall preserves the argument registers. The C++
-		// dispatcher is allowed to clobber them, so restore their values
-		// before returning to the application while retaining the syscall
-		// result in %rax.
-		"movq %rax, %r11\n\t"
-		"movq 80(%rsp), %rdi\n\t"
-		"movq 72(%rsp), %rsi\n\t"
-		"movq 64(%rsp), %rdx\n\t"
-		"movq 56(%rsp), %r10\n\t"
-		"movq 48(%rsp), %r8\n\t"
-		"movq 40(%rsp), %r9\n\t"
+		"addq $16, %rsp\n\t"
+		"movq %rax, %r11\n\t" // the result; `syscall` clobbers r11
+		"movl $" BPFTIME_XSAVE_MASK_STR ", %eax\n\t"
+		"xorl %edx, %edx\n\t"
+		"xrstor (%rsp)\n\t"
 		"movq %r11, %rax\n\t"
-		"movq 0(%rbp), %rcx\n\t"
-		"movq 8(%rbp), %rbp\n\t"
-		"movq %rcx, %rsp\n\t"
-		"ret\n\t");
-
-	__asm__(".globl call_orig_syscall\n\t"
+		"movq -16(%rbp), %rdi\n\t"
+		"movq -24(%rbp), %rsi\n\t"
+		"movq -32(%rbp), %rdx\n\t"
+		"movq -40(%rbp), %r10\n\t"
+		"movq -48(%rbp), %r8\n\t"
+		"movq -56(%rbp), %r9\n\t"
+		"leave\n\t"
+		"lea 120(%rsp), %rsp\n\t"
+		"ret\n\t"
+	".globl call_orig_syscall\n\t"
 		"call_orig_syscall:\n\t"
 		"movq %rdi, %rax \n\t"
 		"movq %rsi, %rdi \n\t"
@@ -216,8 +217,8 @@ thread_local unsigned bpftime_syscall_dispatch_active = 0;
 		"movq %r11, (%rcx)\n\t"
 		"subq $8, 48(%rdi)\n\t" // the kernel starts the child one
 					 // slot lower, on the seeded address
-		"jmp syscall_addr\n\t");
-}
+		"jmp handle_sigreturn\n\t"
+	".popsection\n\t");
 #elif defined(__aarch64__)
 /*
 Every `svc #imm` found in executable code is replaced by `b gate`, where the
@@ -541,8 +542,33 @@ void set_call_hook(syscall_hooker_func_t hook)
 }
 
 #if defined(__x86_64__)
+// Size of the XSAVE area for BPFTIME_XSAVE_MASK (standard format: legacy
+// region, header, then each component at its CPUID offset), or 0 without
+// OS-enabled XSAVE.
+static uint64_t xsave_area_size()
+{
+	unsigned eax, ebx, ecx, edx;
+	if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx) || !(ecx & bit_OSXSAVE))
+		return 0;
+	uint64_t end = 512 + 64;
+	for (unsigned i = 2; i < 8; i++) {
+		if (!((BPFTIME_XSAVE_MASK >> i) & 1))
+			continue;
+		__cpuid_count(0xd, i, eax, ebx, ecx, edx);
+		if (eax != 0)
+			end = std::max<uint64_t>(end, (uint64_t)ebx + eax);
+	}
+	return (end + 63) & ~(uint64_t)63;
+}
+
 void setup_syscall_tracer()
 {
+	bpftime_xsave_area_size = xsave_area_size();
+	if (bpftime_xsave_area_size == 0) {
+		SPDLOG_ERROR(
+			"No OS-enabled XSAVE: the system call hook could not preserve vector registers; not rewriting");
+		return;
+	}
 	// Setup page mappings
 
 	if (auto mmap_addr =
