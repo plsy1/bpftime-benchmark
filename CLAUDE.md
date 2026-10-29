@@ -459,6 +459,8 @@ nginx under syscount crashed in `__libc_sigaction`, which reads its oact
 pointer from r8 after the inline system call (the dispatch fast path also left
 rdx changed with no program). The frame starts below the caller's 128-byte red
 zone; only the 8 bytes the rewritten `call *%rax` stores at its top are lost.
+`bpftime_xsave_area_size` is defined in the asm block: only the asm reads it,
+and GCC's LTO removed a C++ definition with no C++ read (the link failed).
 Tests: `test_syscall_rewrite_x86.cpp` with `regs_check_x86_64.S` (patterns in
 the argument, callee-saved and xmm registers and the red zone, with and
 without a hook; skipped without root and `vm.mmap_min_addr=0`).

@@ -64,12 +64,20 @@ static syscall_hooker_func_t call_hook = &call_orig_syscall;
 #define BPFTIME_XSAVE_MASK 0xe7
 #define BPFTIME_XSAVE_MASK_STR "0xe7"
 // Bytes the hook reserves for XSAVE, set by setup_syscall_tracer from CPUID
-// before any site is rewritten (hidden: the asm addresses it rip-relative).
-extern "C" {
-__attribute__((visibility("hidden"))) uint64_t bpftime_xsave_area_size = 0;
-}
+// before any site is rewritten. Defined in the asm below: only the asm reads
+// it, and GCC's LTO removed a C++ definition it saw no read of (hidden: the
+// asm addresses it rip-relative).
+extern "C" __attribute__((visibility("hidden"))) uint64_t
+	bpftime_xsave_area_size;
 // File scope: LTO dropped asm inside an unreferenced function (see aarch64).
-__asm__(".pushsection .text\n\t"
+__asm__(".pushsection .data\n\t"
+	".p2align 3\n\t"
+	".globl bpftime_xsave_area_size\n\t"
+	".hidden bpftime_xsave_area_size\n\t"
+	"bpftime_xsave_area_size:\n\t"
+	".quad 0\n\t"
+	".popsection\n\t"
+	".pushsection .text\n\t"
 	".globl syscall_hooker_asm\n\t"
 		"syscall_hooker_asm:\n\t"
 		"pop %rax\n\t" // Restore the saved rax, which is the syscall
