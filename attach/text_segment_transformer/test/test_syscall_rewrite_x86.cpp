@@ -21,7 +21,11 @@ syscall_hooker_func_t next_hook;
 int hook_calls;
 
 // As the agent's dispatch with programs: a C++ call chain that uses the
-// argument registers, the vector registers and the flags.
+// argument registers, the vector registers and the flags, before the system
+// call and after it (exit programs run after the system call returns; the
+// call_orig_syscall at the end of the chain reloads rdi-r9 from its
+// arguments, so clobbering only before it would hide a hook that does not
+// restore them).
 __attribute__((noinline)) int64_t clobbering_hook(int64_t nr, int64_t a1,
 						   int64_t a2, int64_t a3,
 						   int64_t a4, int64_t a5,
@@ -34,7 +38,21 @@ __attribute__((noinline)) int64_t clobbering_hook(int64_t nr, int64_t a1,
 	memset(buf, (int)acc & 0x7f, sizeof(buf));
 	asm volatile("" : : "r"(buf) : "memory");
 	hook_calls++;
-	return next_hook(nr, a1, a2, a3, a4, a5, a6);
+	int64_t ret = next_hook(nr, a1, a2, a3, a4, a5, a6);
+	asm volatile("movq $0x0bad0001, %%rdi\n\t"
+		     "movq $0x0bad0002, %%rsi\n\t"
+		     "movq $0x0bad0003, %%rdx\n\t"
+		     "movq $0x0bad0004, %%r10\n\t"
+		     "movq $0x0bad0005, %%r8\n\t"
+		     "movq $0x0bad0006, %%r9\n\t"
+		     "pxor %%xmm0, %%xmm0\n\t"
+		     "pxor %%xmm7, %%xmm7\n\t"
+		     "pxor %%xmm15, %%xmm15\n\t"
+		     :
+		     :
+		     : "rdi", "rsi", "rdx", "r10", "r8", "r9", "xmm0", "xmm7",
+		       "xmm15");
+	return ret;
 }
 
 bool page_zero_available()
