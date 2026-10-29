@@ -14,6 +14,7 @@ Jetson ARM64 的课题文档在 [`summry/jetson`](https://github.com/plsy1/bpfti
 | [分发修复的发现（10/29 下午）](x86-nuc/bpftime-x86-nuc-dispatch-fix-findings-20261029.md) | 没有要修的 bug；剩下的 TLS 与 zpoline nop 滑道 |
 | [syscount-nginx（10/29 晚）](x86-nuc/bpftime-x86-nuc-syscount-nginx-20261029.md) | 开发分支 `59e5e154`：pthread key 修复在 x86 上有效；官方脚本对照；与 Jetson、论文、用户 7 月结果对比 |
 | [syscount-nginx 的发现（10/29 晚）](x86-nuc/bpftime-x86-nuc-syscount-nginx-findings-20261029.md) | **需要修**：x86 跳板不保留系统调用要保持的寄存器（上游 bug），nginx 因此起不来 |
+| [x86 跳板寄存器修复的验证（10/29 夜）](x86-nuc/bpftime-x86-nuc-x86-hook-registers-findings-20261029.md) | **需要修**：`0a602133` 在 x86 上 GCC LTO 链接失败（`bpftime_xsave_area_size` 被删）；修复前测试在 LTO 下也链接不过 |
 
 ## 一页结论（开发分支 `a7d54d7e` = 官方 177a1dc + 73 个提交）
 
@@ -35,3 +36,4 @@ Jetson ARM64 的课题文档在 [`summry/jetson`](https://github.com/plsy1/bpfti
   官方 benchmark/syscall 倍数 3.9× → 2.8×（1.7 GHz）、4.2× → 2.9×（4.4 GHz）。剩下的大头是 zpoline 的 nop 滑道（每次 write 约 130 周期）。
 - **syscount-nginx（`59e5e154`）**：pthread key 冲突在 x86 上也有，已修好；但 x86 跳板调用 C 代码后不恢复 rdi/rsi/rdx/r10/r8/r9 和 xmm
   （官方 177a1dc 也是），挂着程序时 nginx 启动即崩，正确跑法测不了。官方脚本原样：内核 −4.3% / −2.9%，bpftime −1.1% / −1.6%（什么都没追踪）。
+- **x86 跳板寄存器修复（`0a602133`）**：在 x86 上编不过（GCC LTO 删掉了只被 asm 读的 `bpftime_xsave_area_size`），已交给 Jetson；测试、regcheck、nginx 和正式测量待修复后再做。
