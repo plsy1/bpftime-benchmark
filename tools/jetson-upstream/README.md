@@ -241,10 +241,23 @@ they run on the candidate only:
   `sudo -n`: `[kernel_user]` of the runtime tests (root), the whole daemon test
   binary (root, includes `[daemon-tracer]`), the runtime test `Test attach
   replace with ebpf` alone (it crashed in gum before the fix when run first)
-  and then the whole Frida attach binary. Root suites run with
+  then the whole Frida attach binary, the text segment transformer tests
+  (aarch64: system call rewriting in forked children; every architecture:
+  the agent's pthread keys), and the syscall trace attach tests (root, they
+  read tracefs) without `Test syscall dispatch - multiple` and `Test resolving
+  private data`, which look up `fork`, a system call arm64 does not have. Root
+  suites run with
   `BPFTIME_GLOBAL_SHM_NAME=bpftime_daily_root_tests`, which is removed
   afterwards: a root run on the default name left `/dev/shm/bpftime_maps_shm`
   owned by root, and later unprivileged runs could not open it.
+
+Seven commits accepted 2026-10-29 are the system call line: system call
+rewriting on aarch64 (`7a7d29b8`), the dispatch pass-through for system calls
+without programs (`2e850c45`), the agent's pthread keys kept apart from the
+process's (`59e5e154`), and four x86 hook commits (`0a602133` registers,
+`e299cd3f` LTO link, `c23442ac` capstone registration, `1aa74c4c` test). The
+x86 ones are verified on the NUC, not here (the x86 rewriting test needs root
+and `vm.mmap_min_addr=0`).
 
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The

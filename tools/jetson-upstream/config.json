@@ -102,14 +102,23 @@
       {"sha": "627a2201afd901e6991ae60b318622613a5604df", "kind": "warning-fix", "subject": "typed helper selection: compare helper ids as signed"},
       {"sha": "09421773d693c3c7f0743b7f27b7fda513838de1", "kind": "diagnostic-runtime", "subject": "map usage counters: opt-in per-map operation counts for surveying tools"},
       {"sha": "cdc05f679eafba95ef802367f61af1c40ba6ab4e", "kind": "runtime-fix", "subject": "per-cpu hash: run every operation under the map lock"},
-      {"sha": "c98951a4a1d73d276f833b6ab155726ecdb0f2ba", "kind": "runtime-fix", "subject": "per-cpu hash: kernel update flags and size limit on the program path"}
+      {"sha": "c98951a4a1d73d276f833b6ab155726ecdb0f2ba", "kind": "runtime-fix", "subject": "per-cpu hash: kernel update flags and size limit on the program path"},
+      {"sha": "7a7d29b8cabd4e92bcaea93ff3f80e005f1684ee", "kind": "feature", "subject": "text segment transformer: system call rewriting on aarch64"},
+      {"sha": "2e850c45b407260ad563eabfc72bf4665787b074", "kind": "optimization", "subject": "syscall trace: pass system calls without programs straight through"},
+      {"sha": "59e5e1547a311477dff761746e52d60c23487d53", "kind": "runtime-fix", "subject": "text segment transformer: keep the agent's pthread keys apart from the process's"},
+      {"sha": "0a602133637e9aaba36d9605fa2b0e599af3b14f", "kind": "runtime-fix", "subject": "text segment transformer: keep every register across the x86 hook"},
+      {"sha": "e299cd3f312dd2ace87787204e64eb9f18d151f4", "kind": "build-fix", "subject": "text segment transformer: define the x86 XSAVE area size in the asm"},
+      {"sha": "c23442acb0ea4c75902135b41f3bac579e38aec7", "kind": "test-fix", "subject": "text segment transformer: register capstone x86 in setup_syscall_tracer"},
+      {"sha": "1aa74c4c72a311e6be5f54c0ca8e8d421495f11b", "kind": "test-fix", "subject": "text segment transformer tests: clobber the argument registers after the x86 system call"}
     ],
     "cmake_args": ["-DBUILD_BPFTIME_DAEMON=ON"],
     "test_suites": [
       {"target": "bpftime_runtime_tests", "binary": "runtime/unit-test/bpftime_runtime_tests", "filter": "[kernel_user]", "root": true},
       {"target": "bpftime_daemon_tests", "binary": "daemon/test/bpftime_daemon_tests", "root": true},
       {"target": "bpftime_runtime_tests", "binary": "runtime/unit-test/bpftime_runtime_tests", "filter": "Test attach replace with ebpf"},
-      {"target": "bpftime_frida_uprobe_attach_tests", "binary": "attach/frida_uprobe_attach_impl/bpftime_frida_uprobe_attach_tests"}
+      {"target": "bpftime_frida_uprobe_attach_tests", "binary": "attach/frida_uprobe_attach_impl/bpftime_frida_uprobe_attach_tests"},
+      {"target": "bpftime_text_segment_transformer_tests", "binary": "attach/text_segment_transformer/bpftime_text_segment_transformer_tests"},
+      {"target": "bpftime_syscall_trace_attach_tests", "binary": "attach/syscall_trace_attach_impl/bpftime_syscall_trace_attach_tests", "filter": "~\"Test syscall dispatch - multiple\" ~\"Test resolving private data\"", "root": true}
     ]
   },
   "build": {
