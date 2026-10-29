@@ -53,3 +53,14 @@ NUC 上只做了测量，没有改代码。
 - **nop 滑道**：约 118 个周期，是 zpoline 方案本身的成本。
 
 是否改、怎么改，由 Jetson 会话和用户决定。修复是为了正确性，必须保留。
+
+## 后续（10/29 夜）：第 1 节已由 `1aa74c4c` 解决
+
+- **测试改动**：`1aa74c4c` 让 `clobbering_hook` 在 `next_hook` 返回之后改写 rdi…r9 和 xmm0、7、15。
+- **修复后**：在 x86 上连跑 3 次都是 3/3。
+- **变异补丁**：3 次都失败，"hook that uses registers"这一节报出：
+  - rdi…r9 = `0xbad0001`…`0xbad0006`；
+  - xmm0、1、2、7、15；
+  - 13 项 red zone。
+- **结论**：测试现在能抓到参数寄存器没有恢复的情况。原始记录在 `benchmark-results/x86-nuc` 的 `syscall/x86-nuc-syscount-nginx-20261029/regs-fix/tests-1aa74c4c/`。
+- 按用户决定，x86 的性能（XSAVE 的成本等）先不处理。
