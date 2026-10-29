@@ -376,11 +376,35 @@ htab: `BPF_NOEXIST` on an existing key fails with `EEXIST`, `BPF_EXIST` on a
 missing key with `ENOENT`, a new key in a full map with `E2BIG`, flags above
 `BPF_EXIST` with `EINVAL`, and deleting a missing key with `ENOENT` (all as -1
 plus errno, the convention of the other maps). `BPF_F_LOCK` is still ignored.
-The existence check runs only for `BPF_NOEXIST`/`BPF_EXIST`, under the map lock
-the callers hold; `BPF_ANY` stays a single probe. Lookup-then-update counters
+The existence check runs only for `BPF_NOEXIST`/`BPF_EXIST`, under the
+implementation's writer lock; `BPF_ANY` stays a single probe. Lookup-then-update counters
 depend on `BPF_EXIST`: when a reader deletes the key in between, ignoring the
 flag re-inserted the stale count (the malloc example counted up to 20% too many
 calls).
+
+## Hash Map Lookups Take No Lock
+
+`fix_size_hash_map_impl` locks itself (`should_lock = false`): updates,
+deletes and `get_next_key` take its `writer_lock` (a process-shared spinlock
+on a cache line of its own), lookups take nothing. Callers, the typed helper
+entry points included, must not take the handler's map lock for it. Every
+lookup used to take the map lock: with one key per thread the map cost per
+probe hit went from 0.12 us (1 thread) to 10.7 us (6 threads, both clusters).
+`bpftime_hash_map` makes lock-free lookups safe without changing its layout:
+filled buckets never move, and each bucket's 4-byte word holds the state (low
+two bits) and a generation that every delete increments. Inserts write key
+and value after a release fence and publish the word with a release store;
+a lookup reads the word (acquire), compares the key, fences (acquire) and
+accepts the match only if the word is unchanged, otherwise it starts again.
+Without the re-check a lookup matched keys half overwritten by the next
+insert into the bucket and returned values not yet written (tests:
+`test_hash_map_lockfree_lookup.cpp`, hundreds of thousands of false matches
+in 1.5 s with the re-check removed). The bucket stride is rounded to 4 bytes
+so the word is aligned. The fields lookups read and the counters writers
+change are on separate cache lines; the probe bound is stored only when it
+changes. Values are still updated in place (readers may see a partly written
+value, as with the kernel without `BPF_F_LOCK`), and a value pointer is only
+valid while its key stays, as in the kernel's preallocated htab.
 
 ## llvmbpf Local Call Overlay
 
