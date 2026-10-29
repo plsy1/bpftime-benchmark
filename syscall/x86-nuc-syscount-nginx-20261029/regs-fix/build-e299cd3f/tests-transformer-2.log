@@ -1,0 +1,15 @@
+RNG seed: 2315150021
+[2026-10-29 19:23:51.909] [info] [text_segment_transformer.cpp:530] Page zero setted up..
+[2026-10-29 19:23:51.910] [info] [text_segment_transformer.cpp:558] Rewriting executable segments..
+[2026-10-29 19:23:51.910] [error] [text_segment_transformer.cpp:385] Failed to open capstone instance: 2, Invalid/unsupported architecture(CS_ERR_ARCH)
+/home/y/src/bpftime-wt-uprobe-177a1dc/attach/text_segment_transformer/test/test_syscall_rewrite_x86.cpp:117: failed: in_rewritten_child(false) == 0 for: 1 == 0
+[2026-10-29 19:23:51.910] [info] [text_segment_transformer.cpp:530] Page zero setted up..
+[2026-10-29 19:23:51.910] [info] [text_segment_transformer.cpp:558] Rewriting executable segments..
+[2026-10-29 19:23:51.910] [error] [text_segment_transformer.cpp:385] Failed to open capstone instance: 2, Invalid/unsupported architecture(CS_ERR_ARCH)
+/home/y/src/bpftime-wt-uprobe-177a1dc/attach/text_segment_transformer/test/test_syscall_rewrite_x86.cpp:121: failed: in_rewritten_child(true) == 0 for: 1 == 0
+/home/y/src/bpftime-wt-uprobe-177a1dc/attach/text_segment_transformer/test/test_agent_namespace.cpp:84: passed: in_child([]() -> int { pthread_key_t early[3]; for (int i = 0; i < 3; i++) { pthread_key_create(&early[i], nullptr); pthread_setspecific(early[i], (void *)(0xe000L + i)); } fake_agent agent; if (!load(agent)) return 101; std::set<unsigned> agent_keys; for (int i = 0; i < agent.count; i++) { if (agent.key(i) >= 32) return 102; agent_keys.insert(agent.key(i)); } pthread_key_t keys[PROCESS_KEYS]; int bad = create_process_keys(keys); for (auto k : keys) if (agent_keys.count(k)) bad++; for (int i = 0; i < 3; i++) if (agent_keys.count(early[i]) || pthread_getspecific(early[i]) != (void *)(0xe000L + i)) bad++; if (agent.wrong() != 0) bad++; agent.set(); return bad + wrong_process_values(keys); }) == 0 for: 0 == 0
+/home/y/src/bpftime-wt-uprobe-177a1dc/attach/text_segment_transformer/test/test_agent_namespace.cpp:121: passed: in_child([]() -> int { static fake_agent agent; if (!load(agent)) return 101; static pthread_key_t keys[PROCESS_KEYS]; if (create_process_keys(keys) != 0) return 1; int bad = 0; for (int round = 0; round < 4; round++) { pthread_t thread; void *ret = nullptr; pthread_create( &thread, nullptr, [](void *) -> void * { long bad = 0; if (agent.set() != 0) bad++; for (int i = 0; i < PROCESS_KEYS; i++) pthread_setspecific( keys[i], (void *)(0xc000L + i)); bad += agent.wrong(); return (void *)bad; }, nullptr); pthread_join(thread, &ret); bad += (int)(long)ret; } return bad + agent.wrong() + wrong_process_values(keys); }) == 0 for: 0 == 0
+test cases: 3 | 2 passed | 1 failed
+assertions: 4 | 2 passed | 2 failed
+
+

@@ -120,4 +120,8 @@ transformer: keep the agent's pthread keys apart from the process's"，在 `2e85
 
 ## 后续：x86 跳板寄存器修复（`regs-fix/`）
 
-开发分支 `0a602133` 修了第 3 节的寄存器问题，但在 x86 上用同样的选项（LTO）链接失败，详见 `regs-fix/README.md`。正确跑法的测量仍然没做。
+- 开发分支 `0a602133` 修了第 3 节的寄存器问题，但在 x86 上用同样的选项（LTO）链接失败。
+- `e299cd3f` 修好了链接。验证结果：regcheck 0 个改变、nginx 正常、计数和内核一致。
+- 正确跑法已按 `run_correct.py --rounds 10` 补测，驱动脚本是 `session/correct.sh`。
+- 结果：内核 −5.31% / −3.63%，bpftime −18.68% / −17.11%，只加载跳板 −11.92%。
+- 详见 `regs-fix/README.md`。
