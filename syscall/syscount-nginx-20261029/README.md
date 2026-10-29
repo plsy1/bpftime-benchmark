@@ -118,6 +118,45 @@ What run 3 shows:
 | bpftime, nginx | **−11.4%** | −2.2% (nothing traced) | −3.36% |
 | bpftime, other process | −9.0% | −6.0% (nothing traced) | no effect |
 
+## 4. perf: where bpftime's cost per traced call goes in nginx (`perf/`)
+
+`profile_nginx.sh` + `profile_leg.py`: each leg is set up as in `run_correct.py`, wrk runs `-c 100 -d 20`, and from
+3 s after nginx serves the host counts nginx's cycles, instructions and cache misses for 8 s (`perf stat -p`) and
+samples it (`perf record -F 2999 -g`). Per-request figures divide by wrk's requests/s × 8 (throughput under perf is
+a few percent lower). All samples are nginx's single thread (no agent background thread shows up). Clean CPU,
+cpu5 1728000. Three repetitions of native, transformer_only and bpftime_targeted (`*-r2`, `*-r3`); the split by
+DSO is from `perf report --sort dso`:
+
+| Leg (mean ± sd of 3) | cycles/request | instructions/request | kernel | bpftime libraries | nginx + libc | cache misses/request |
+|---|---:|---:|---:|---:|---:|---:|
+| No tracing | 70,861 ±163 | 59,011 ±137 | 53,796 ±240 | 0 | 17,066 ±83 | 838 ±41 |
+| Transformer, no programs | 73,584 ±696 | 60,439 ±198 | 55,049 ±831 | 2,303 ±113 | 16,232 ±528 | 884 ±30 |
+| bpftime syscount, nginx | 79,836 ±548 | 66,654 ±293 | 57,776 ±650 | 5,389 ±116 | 16,672 ±66 | 992 ±14 |
+
+"bpftime libraries" = agent, transformer, ld.so (dynamic TLS), JIT code (gates and programs), libstdc++. The
+samples at the rewritten `svc` (`syscall_addr`) count here; without bpftime they fall in libc, hence the lower
+"nginx + libc".
+
+Per traced system call (÷ 9.02) against no tracing:
+
+| | total | bpftime libraries | kernel | nginx + libc | cache misses |
+|---|---:|---:|---:|---:|---:|
+| Transformer, no programs | +302 cycles | +255 | +139 | −92 | +5.1 |
+| bpftime syscount, nginx | **+995 cycles** (≈576 ns) | **+597** (≈345 ns) | **+441** (≈255 ns) | −44 | +17.1 |
+
+- The work bpftime does itself, about 600 cycles (345 ns) per call, matches the write-loop microbenchmark (two
+  counting programs, +329 ns over no tracing, `../dispatch-fix-20261029`).
+- The rest is the kernel getting slower: the same system calls take about 440 more cycles each, with 17 more cache
+  misses per call. In the write loop everything stays in cache; in nginx, bpftime's per-call user work (768-byte
+  register save, agent code and data, the shared-memory maps) evicts what the kernel's network and file paths
+  use. This is inferred from the counters, not isolated.
+- In the bpftime libraries (first run, `perf/*.report.txt`, cycles per request over the transformer alone):
+  `syscall_callback` (dispatch, inlined) +741, dynamic TLS (`_dl_tlsdesc_dynamic` + TLS init of
+  `curr_thread_override_return_callback`) +425, `bpftime_prog_exec` +213, JIT code +179, `std::function` call
+  +102, `bpf_get_current_pid_tgid` +102, `std::set` iteration +79; tracing nginx adds the hash map
+  (`elem_lookup` +420, helper +127, libc compare +190).
+
 ## Open
 
-- Profile bpftime_targeted/untargeted in nginx: why a traced call costs about twice the write loop's.
+- Smaller per-call footprint: the thread-local return-override callback (dynamic TLS), dispatch over std::set,
+  saving all 32 SIMD registers on every call; whether a smaller footprint also removes the kernel slowdown.
