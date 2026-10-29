@@ -446,6 +446,23 @@ Code loaded later (dlopen, JIT) is not rewritten. Tests:
 forked child): register preservation, arguments/results/override, threads,
 fork/clone/posix_spawn, signals, own restorer.
 
+## x86-64 System Call Hook Registers
+
+The zpoline hook (`syscall_hooker_asm`, x86-64) must leave every register as
+the kernel would: only rax (the result), rcx and r11 change across `syscall`.
+It saves rdi, rsi, rdx, r10, r8, r9 and restores them after the C entry, and
+saves the vector state with XSAVE/XRSTOR (x87, SSE, AVX, opmask and AVX-512
+components, mask 0xe7; area size from CPUID at `setup_syscall_tracer`, which
+does not rewrite without OS-enabled XSAVE). It used to push the argument
+registers only to pass them to C and return with whatever the C code left:
+nginx under syscount crashed in `__libc_sigaction`, which reads its oact
+pointer from r8 after the inline system call (the dispatch fast path also left
+rdx changed with no program). The frame starts below the caller's 128-byte red
+zone; only the 8 bytes the rewritten `call *%rax` stores at its top are lost.
+Tests: `test_syscall_rewrite_x86.cpp` with `regs_check_x86_64.S` (patterns in
+the argument, callee-saved and xmm registers and the red zone, with and
+without a hook; skipped without root and `vm.mmap_min_addr=0`).
+
 ## Agent Namespace And pthread Keys
 
 The transformer loads the agent with `dlmopen(LM_ID_NEWLM)` so that the

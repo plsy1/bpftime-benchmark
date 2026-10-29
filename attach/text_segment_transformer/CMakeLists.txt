@@ -41,14 +41,21 @@ if (${TEST_LCOV})
     target_link_options(bpftime_text_segment_transformer PRIVATE -fprofile-arcs)
 endif()
 
-# The agent namespace loader on every architecture; the rewriting cases on
-# aarch64, where each case rewrites a forked child of the test process.
+# The agent namespace loader on every architecture; the rewriting cases per
+# architecture, where each case rewrites a forked child of the test process
+# (on x86-64 they need root and vm.mmap_min_addr=0, and are skipped without).
 set(TRANSFORMER_TEST_SOURCES test/test_agent_namespace.cpp)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
     enable_language(ASM)
     list(APPEND TRANSFORMER_TEST_SOURCES
         test/test_syscall_rewrite.cpp
         test/regs_check_aarch64.S
+    )
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    enable_language(ASM)
+    list(APPEND TRANSFORMER_TEST_SOURCES
+        test/test_syscall_rewrite_x86.cpp
+        test/regs_check_x86_64.S
     )
 endif()
 add_library(bpftime_test_fake_agent_keys MODULE test/fake_agent_keys.c)
