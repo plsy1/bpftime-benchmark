@@ -10,6 +10,8 @@ Jetson ARM64 的课题文档在 [`summry/jetson`](https://github.com/plsy1/bpfti
 | [新会话交接说明（Jetson 会话写，10/26）](x86-nuc/bpftime-x86-nuc-handoff-20261026.md) | 机器、构建选项、候选目标、用户定的规矩 |
 | [系统调用追踪对照（10/29）](x86-nuc/bpftime-x86-nuc-syscall-20261029.md) | 开发分支 `7a7d29b8` 在 x86 上的构建、拆层测量、官方 benchmark/syscall，与 Jetson 对比 |
 | [交给 Jetson 的发现（10/29）](x86-nuc/bpftime-x86-nuc-syscall-findings-20261029.md) | 没有要修的 bug；官方 benchmark 不能单核绑定；分发层和跳板的跨架构周期数 |
+| [分发修复重测（10/29 下午）](x86-nuc/bpftime-x86-nuc-dispatch-fix-20261029.md) | 开发分支 `2e850c45` 修复前后对比：拆层、官方 benchmark/syscall、perf |
+| [分发修复的发现（10/29 下午）](x86-nuc/bpftime-x86-nuc-dispatch-fix-findings-20261029.md) | 没有要修的 bug；剩下的 TLS 与 zpoline nop 滑道 |
 
 ## 一页结论（开发分支 `a7d54d7e` = 官方 177a1dc + 73 个提交）
 
@@ -27,3 +29,5 @@ Jetson ARM64 的课题文档在 [`summry/jetson`](https://github.com/plsy1/bpfti
 - **分发层**：没有匹配程序也要约 220 周期（1.7 GHz 130 ns，4.4 GHz 51 ns），Jetson 349 周期（202 ns）；两边都是最大的一层。
 - **跳板**：zpoline 约 110 周期，ARM64 逐处跳板 65 周期。
 - **官方 benchmark/syscall**：1.7 GHz kernel +57.8 / bpftime +224.2 ns（3.9×），4.4 GHz +20.9 / +87.4 ns（4.2×），Jetson +84.8 / +286.6 ns（3.4×）。
+- **分发修复（`2e850c45`）**：分发 221 → 41 周期（Jetson 349 → 48）；挂一个空程序时 bpftime 386 → 263 周期；
+  官方 benchmark/syscall 倍数 3.9× → 2.8×（1.7 GHz）、4.2× → 2.9×（4.4 GHz）。剩下的大头是 zpoline 的 nop 滑道（每次 write 约 130 周期）。
