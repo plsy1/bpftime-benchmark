@@ -70,8 +70,44 @@ of this directory), 10 runs per configuration, wrk `-c 100 -d 10`, run order as 
 - The kernel rows show the expected direction (tracing nginx costs more than tracing another process, and every
   process pays for the system-wide tracepoints).
 
+## 3. Run correctly, after the pthread key fix (`run_correct.py`, `correct-run1.jsonl`)
+
+Dev branch `59e5e154` ("text segment transformer: keep the agent's pthread keys apart from the process's") on top
+of `2e850c45`. `run_correct.py` keeps benchmark.py's nginx.conf, syscount, wrk (`-c 100 -d 10`) and syscount
+duration (`-d 20`, wrk 2 s after it starts) and changes only what made it wrong or noisy: the bpftime legs load
+the programs first and start nginx with the transformer; nginx starts as `sh -c 'read; exec env ... nginx'`, so
+`syscount -p <nginx>` works for bpftime too; syscount's output is kept and counted; legs rotate every round; the
+access log is deleted before each start. 10 rounds, 15:05-15:24, cpu5 1728000 before and after, 60 runs valid,
+nginx never died. `summarize_correct.py` -> `summary-correct-run1.md`:
+
+| Configuration | Requests/s | sd | vs no tracing | +ns per nginx system call | Calls counted per request |
+|---|---:|---:|---:|---:|---|
+| No tracing | 24,469 | 425 | – | – | – |
+| Kernel syscount, nginx | 23,345 | 446 | −4.6% | +218 | 9.019-9.020 |
+| Kernel syscount, other process | 23,698 | 521 | −3.2% | +148 | 0 |
+| **bpftime syscount, nginx** | **21,788** | 367 | **−11.0%** | +558 | **9.019-9.020** (= kernel) |
+| bpftime syscount, other process | 22,151 | 562 | −9.5% | +474 | 0 |
+| nginx with the transformer, no programs | 23,820 | 488 | −2.6% | +123 | – |
+
+"+ns per nginx system call" is the extra time per request divided by 9.02 calls (the kernel count): it charges
+all of the difference to system calls.
+
+- bpftime now counts exactly what the kernel counts.
+- bpftime is slower than kernel here (−11.0% vs −4.6%), as in the system call microbenchmark, and more so:
+  about 560 ns per traced call, against +247.6 ns for two counting programs in the write loop
+  (`../dispatch-fix-20261029`). Not explained yet; to be profiled.
+- "Other process" does not make bpftime free: the programs still run in nginx and return at the pid check
+  (−9.5%). The paper's "does not affect the unmonitored process" corresponds to nginx without bpftime at all.
+- Rewriting with no programs costs 2.6% (+123 ns per call; the write loop showed about +66 ns).
+- benchmark.py's sequential order gave kernel −6.4% / −3.7%; rotated, −4.6% / −3.2%.
+
+| | Jetson, run correctly | Jetson, benchmark.py | Paper (Fig. 10, x86) |
+|---|---:|---:|---:|
+| Kernel, nginx | −4.6% | −6.4% | −10.3% |
+| Kernel, other process | −3.2% | −3.7% | −9.6% |
+| bpftime, nginx | **−11.0%** | −2.2% (nothing traced) | −3.36% |
+| bpftime, other process | −9.5% | −6.0% (nothing traced) | no effect |
+
 ## Open
 
-- Fix the pthread key overlap, then a corrected run: syscount first, nginx with the transformer, counts checked
-  against the kernel, configurations rotated per round. In that setup "other process" still runs the programs in
-  nginx (they filter by pid), so "bpftime does not affect untraced processes" would be nginx without bpftime.
+- Profile bpftime_targeted/untargeted in nginx: why a traced call costs about twice the write loop's.
