@@ -20,3 +20,10 @@ a7d54d7e      4d9b8a61 + rate-limited logging out of line (candidate build-jit, 
 mapusage      627a2201 + opt-in map usage counters (BPFTIME_ENABLE_MAP_USAGE_STATS=ON; array lookup JIT off; LLVM 15, no LTO). Counting only, not for timing.
 09421773      dev branch HEAD (627a2201 + map usage counters compiled out); daily config: GCC 13, LLVM 15, RelWithDebInfo, LTO (candidate build-jetson-daily)
 c98951a4      dev branch HEAD (09421773 + per-cpu hash: map lock on every operation, kernel update flags and size limit); daily config: GCC 13, LLVM 15, RelWithDebInfo, LTO (candidate build-jetson-daily)
+9c3e0345      dev branch HEAD (1aa74c4c + hash map lookups take no lock: per-bucket generation, writer lock inside the implementation); daily config: GCC 13, LLVM 15, RelWithDebInfo, LTO (candidate build-jetson-daily)
+cb3f29d2      dev branch HEAD (9c3e0345 + test fix + hash map writers lock stripes, per-CPU element tokens); daily config: GCC 13, LLVM 15, RelWithDebInfo, LTO (candidate build-jetson-daily)
+stripe-tokens cb3f29d2 + element tokens held per stripe under its lock (no per-CPU slots, no sched_getcpu) (candidate.diff; candidate build-jetson-daily)
+stripe-relaxed stripe-tokens + relaxed probe-bound loads + dmb ishst before writing a new key (candidate.diff; candidate build-jetson-daily)
+stripe-view   stripe-tokens + shared vectors resolved to plain pointers once per operation (candidate.diff; candidate build-jetson-daily)
+stripe-line   stripe-view + one-line stripe state holding the probe bound (11 tracked distances) (candidate.diff; candidate build-jetson-daily)
+f4fdcbcd: dev/uprobe-official-177a1dc465ff commit f4fdcbcd (hash map: per-stripe tokens, one-line stripe state, resolved views); binaries identical to stripe-line.
