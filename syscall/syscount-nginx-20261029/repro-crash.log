@@ -1,0 +1,20 @@
+Breakpoint 1 at 0x253b0
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+[2026-10-29 05:29:02.896] [info] [agent-transformer.cpp:39] Entering bpftime syscal transformer agent
+[2026-10-29 05:29:02.900] [stderr] [info] [text_segment_transformer.cpp:763] Rewrote 565 of 565 svc instructions
+[New Thread 0xffffeb41e120 (LWP 615159)]
+[New Thread 0xffffeac0e120 (LWP 615160)]
+free(): invalid pointer
+
+Thread 1 "nginx" hit Breakpoint 1.2, 0x0000fffff7707d10 in abort () from /lib/aarch64-linux-gnu/libc.so.6
+#0  0x0000fffff7707d10 in abort () from /lib/aarch64-linux-gnu/libc.so.6
+#1  0x0000fffff775aac4 in ?? () from /lib/aarch64-linux-gnu/libc.so.6
+#2  0x0000fffff7771fdc in ?? () from /lib/aarch64-linux-gnu/libc.so.6
+#3  0x0000fffff777439c in ?? () from /lib/aarch64-linux-gnu/libc.so.6
+#4  0x0000fffff7776e68 in free () from /lib/aarch64-linux-gnu/libc.so.6
+#5  0x0000fffff7a9d464 in ERR_clear_error () from /lib/aarch64-linux-gnu/libcrypto.so.3
+#6  0x0000aaaaaaaf85f8 [PAC] in ngx_ssl_init ()
+#7  0x0000aaaaaaac5aa8 [PAC] in main ()
+pc             0xfffff7707d10      0xfffff7707d10 <abort+4>
+/home/jetson/src/results/syscall/syscount-nginx-20261029/repro-crash.sh: line 17: 615144 Killed                  LD_PRELOAD=$B/runtime/syscall-server/libbpftime-syscall-server.so example/libbpf-tools/syscount/syscount -d 15 -T 40 > /tmp/sc.log 2>&1
