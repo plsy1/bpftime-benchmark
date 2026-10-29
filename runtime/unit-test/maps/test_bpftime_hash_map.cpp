@@ -292,12 +292,14 @@ TEST_CASE("bpftime_hash_map probe bound shrinks after far elements are deleted",
 	REQUIRE(map.max_displacement() == 79);
 	// While an element beyond the tracked range remains, the bound stays
 	// conservative; it becomes exact once all of them are gone.
-	for (size_t i = 79; i >= 65; --i)
+	const size_t tracked = bpftime_hash_map::tracked_displacements();
+	REQUIRE(tracked < 79);
+	for (size_t i = 79; i > tracked; --i)
 		REQUIRE(map.elem_delete(&keys[i]));
 	REQUIRE(map.max_displacement() == 79);
-	REQUIRE(map.elem_delete(&keys[64]));
-	REQUIRE(map.max_displacement() == 63);
-	for (size_t i = 63; i >= 1; --i)
+	REQUIRE(map.elem_delete(&keys[tracked]));
+	REQUIRE(map.max_displacement() == tracked - 1);
+	for (size_t i = tracked - 1; i >= 1; --i)
 		REQUIRE(map.elem_delete(&keys[i]));
 	REQUIRE(map.max_displacement() == 0);
 	REQUIRE(*static_cast<uint64_t *>(map.elem_lookup(&keys[0])) == keys[0]);

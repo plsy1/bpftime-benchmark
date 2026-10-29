@@ -11,13 +11,17 @@
 #include <catch2/catch_test_macros.hpp>
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <linux/bpf.h>
 #include <map>
 #include <random>
+#include <sched.h>
 #include <set>
+#include <sys/wait.h>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 using namespace boost::interprocess;
@@ -179,7 +183,8 @@ TEST_CASE("striped hash map keeps max_entries exact across threads",
 	const uint32_t extra = 1u << 30;
 	const uint64_t value = 0;
 	REQUIRE_FALSE(map.elem_update(&extra, &value));
-	// Deleting on other threads leaves the tokens in other CPUs' slots.
+	// Deleting on other threads leaves the tokens spread over the stripes
+	// (and the pool); the refill must still reach max_entries.
 	{
 		std::atomic<uint64_t> failed{ 0 };
 		std::vector<std::thread> workers;
@@ -253,4 +258,143 @@ TEST_CASE("striped hash map probe runs wrap past the last stripe",
 			wrapped++;
 	}
 	REQUIRE(wrapped > 0);
+}
+
+TEST_CASE("striped hash map is shared by processes mapping it elsewhere",
+	  "[bpftime_hash_map][concurrency]")
+{
+	// Each child maps the segment again, at an address of its own, and works
+	// on the map with the others: buckets, stripe locks, probe bounds and
+	// the token pool all live in the segment. First disjoint clustered keys
+	// against private references, then every process inserts until E2BIG.
+	static const char *name = "BPFTIME_TEST_HASH_STRIPED_PROCESSES";
+	shm_guard shm(name);
+	constexpr size_t max_entries = 4096;
+	constexpr int procs = 4;
+	constexpr int keys_per_proc = 900;
+	constexpr int ops_per_proc = 100000;
+	struct shared_state {
+		std::atomic<int> started{ 0 };
+		std::atomic<int> referenced{ 0 };
+		std::atomic<uint64_t> errors{ 0 };
+		std::atomic<uint64_t> inserted{ 0 };
+	};
+	auto *map = shm.segment.construct<fix_size_hash_map_impl>("map")(
+		shm.segment, max_entries, 4, 8);
+	shm.segment.construct<shared_state>("state")();
+
+	// Child body; returns the exit status (never REQUIRE in a child).
+	auto child = [&](uint32_t p) -> int {
+		managed_shared_memory segment(open_only, name);
+		auto *m = segment.find<fix_size_hash_map_impl>("map").first;
+		auto *s = segment.find<shared_state>("state").first;
+		if (m == nullptr || s == nullptr)
+			return 2;
+		if (m == map)
+			return 3; // Not mapped elsewhere: the test would prove nothing.
+		auto barrier = [&](std::atomic<int> &count) {
+			count++;
+			const auto deadline = std::chrono::steady_clock::now() +
+					      std::chrono::seconds(60);
+			while (count.load() < procs)
+				if (std::chrono::steady_clock::now() > deadline)
+					return false;
+				else
+					sched_yield();
+			return true;
+		};
+		if (!barrier(s->started))
+			return 4;
+		std::mt19937 rng(4321 + p);
+		std::map<uint32_t, uint64_t> ref;
+		uint64_t bad = 0;
+		for (int op = 0; op < ops_per_proc; op++) {
+			const uint32_t key = clustered_key(
+				(uint32_t)(rng() % keys_per_proc) * procs + p);
+			const uint64_t value = ((uint64_t)p << 32) | op;
+			const auto it = ref.find(key);
+			if (rng() % 3 == 0) {
+				const long r = m->elem_delete(&key);
+				if (it == ref.end()) {
+					bad += !(r == -1 && errno == ENOENT);
+				} else {
+					bad += r != 0;
+					ref.erase(it);
+				}
+			} else if (rng() % 2 == 0) {
+				bad += m->elem_update(&key, &value, BPF_ANY) != 0;
+				ref[key] = value;
+			} else {
+				const auto *v = static_cast<const uint64_t *>(
+					m->elem_lookup(&key));
+				if (it == ref.end())
+					bad += v != nullptr;
+				else
+					bad += v == nullptr || *v != it->second;
+			}
+		}
+		// Known final state: every third key kept, with value key * 7.
+		for (uint32_t i = 0; i < keys_per_proc; i++) {
+			const uint32_t key = clustered_key(i * procs + p);
+			if (i % 3 == 0) {
+				const uint64_t value = (uint64_t)key * 7;
+				bad += m->elem_update(&key, &value, BPF_ANY) != 0;
+			} else {
+				const long r = m->elem_delete(&key);
+				bad += r != 0 && errno != ENOENT;
+			}
+		}
+		s->errors += bad;
+		if (!barrier(s->referenced))
+			return 5;
+		// Fill: keys with nonzero low 16 bits, unlike the clustered ones.
+		bad = 0;
+		for (uint32_t i = 0;; i++) {
+			const uint32_t key = 1 + i + (p << 13);
+			const uint64_t value = key;
+			if (m->elem_update(&key, &value, BPF_NOEXIST) == 0) {
+				s->inserted++;
+				continue;
+			}
+			bad += errno != E2BIG;
+			break;
+		}
+		s->errors += bad;
+		return 0;
+	};
+	std::vector<pid_t> pids;
+	for (uint32_t p = 0; p < procs; p++) {
+		const pid_t pid = fork();
+		if (pid == 0)
+			_exit(child(p));
+		REQUIRE(pid > 0);
+		pids.push_back(pid);
+	}
+	for (pid_t pid : pids) {
+		int status = 0;
+		REQUIRE(waitpid(pid, &status, 0) == pid);
+		REQUIRE(WIFEXITED(status));
+		REQUIRE(WEXITSTATUS(status) == 0);
+	}
+	auto *state = shm.segment.find<shared_state>("state").first;
+	REQUIRE(state->errors.load() == 0);
+	// Exactly max_entries in all: kept keys plus the fill.
+	constexpr size_t kept = procs * keys_per_proc / 3;
+	REQUIRE(state->inserted.load() == max_entries - kept);
+	std::set<uint32_t> seen;
+	uint32_t key, next;
+	const void *prev = nullptr;
+	while (map->map_get_next_key(prev, &next) == 0) {
+		REQUIRE(seen.insert(next).second);
+		const auto *v =
+			static_cast<const uint64_t *>(map->elem_lookup(&next));
+		REQUIRE(v != nullptr);
+		REQUIRE(*v == ((next & 0xffff) == 0 ? (uint64_t)next * 7 : next));
+		key = next;
+		prev = &key;
+	}
+	REQUIRE(seen.size() == max_entries);
+	for (uint32_t p = 0; p < procs; p++)
+		for (uint32_t i = 0; i < keys_per_proc; i += 3)
+			REQUIRE(seen.count(clustered_key(i * procs + p)) == 1);
 }
