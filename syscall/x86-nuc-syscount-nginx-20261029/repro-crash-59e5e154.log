@@ -1,0 +1,16 @@
+Breakpoint 1 at 0x286a0
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+[2026-10-29 08:47:36.468] [info] [agent-transformer.cpp:40] Entering bpftime syscal transformer agent
+[2026-10-29 08:47:36.468] [stderr] [info] [text_segment_transformer.cpp:448] Page zero setted up..
+[2026-10-29 08:47:36.468] [stderr] [info] [text_segment_transformer.cpp:476] Rewriting executable segments..
+[New Thread 0x7fffea07f6c0 (LWP 422988)]
+[New Thread 0x7fffe987e6c0 (LWP 422989)]
+
+Thread 1 "nginx" received signal SIGSEGV, Segmentation fault.
+0x00007ffff6d00e6d in __libc_sigaction () from /lib/x86_64-linux-gnu/libc.so.6
+#0  0x00007ffff6d00e6d in __libc_sigaction () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00005555555ab6db in ngx_init_signals ()
+#2  0x000055555557e861 in main ()
+pc             0x7ffff6d00e6d      0x7ffff6d00e6d <__libc_sigaction+237>
+/home/y/src/bpftime-wt-results-x86/syscall/x86-nuc-syscount-nginx-20261029/repro-crash.sh: line 17: 422963 Killed                  LD_PRELOAD=$B/runtime/syscall-server/libbpftime-syscall-server.so example/libbpf-tools/syscount/syscount -d 15 -T 40 > /tmp/sc.log 2>&1

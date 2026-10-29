@@ -5,7 +5,7 @@ Jetson ARM64 的结果在 [`benchmark-results/jetson`](https://github.com/plsy1/
 x86 的结论在 [`summry/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/tree/summry/x86-nuc)。
 
 对比的三方：kernel eBPF、bpftime 官方 177a1dc、开发分支 `dev/uprobe-official-177a1dc465ff` 的 `a7d54d7e`（官方 + 73 个提交）。
-开发分支 10/27 由 Jetson 会话从 `codex/uprobe-official-177a1dc465ff` 改名。`uprobe/` 下的测量都在 `a7d54d7e` 上，之后的提交（含 x86 发现的修复）未在 x86 上重测；`syscall/` 下的在 `7a7d29b8` 上（`x86-nuc-dispatch-fix-20261029` 在 `2e850c45` 上）。
+开发分支 10/27 由 Jetson 会话从 `codex/uprobe-official-177a1dc465ff` 改名。`uprobe/` 下的测量都在 `a7d54d7e` 上，之后的提交（含 x86 发现的修复）未在 x86 上重测；`syscall/` 下的在 `7a7d29b8` 上（`x86-nuc-dispatch-fix-20261029` 在 `2e850c45` 上，`x86-nuc-syscount-nginx-20261029` 在 `59e5e154` 上）。
 
 | 目录 | 内容 |
 |---|---|
@@ -18,6 +18,7 @@ x86 的结论在 [`summry/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/t
 | [syscall/x86-nuc-official-syscall-20261029](syscall/x86-nuc-official-syscall-20261029/) | 官方 benchmark/syscall，1.7 / 4.4 GHz（含一次因单核绑定作废的记录） |
 | [syscall/x86-nuc-syscall-session-20261029](syscall/x86-nuc-syscall-session-20261029/) | 上面两项的驱动脚本、钉频与 `vm.mmap_min_addr` 记录 |
 | [syscall/x86-nuc-dispatch-fix-20261029](syscall/x86-nuc-dispatch-fix-20261029/) | 分发修复 `2e850c45` 的重测：构建与单测、拆层、官方 benchmark/syscall、perf，与修复前对比 |
+| [syscall/x86-nuc-syscount-nginx-20261029](syscall/x86-nuc-syscount-nginx-20261029/) | syscount-nginx（`59e5e154`）：pthread key 检查、审计、x86 跳板寄存器问题、官方脚本对照（容器，CPU 0–7 钉 1.7 GHz） |
 
 说明：
 - 各 README 里提到的 Jetson 目录（`btf-kernel-20261026`、`ssl-nginx-2x2-20261023`、`ssl-nginx-sweep-bca2ebce-20261024`、
