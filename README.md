@@ -16,6 +16,7 @@ Jetson ARM64 的课题文档在 [`summry/jetson`](https://github.com/plsy1/bpfti
 | [syscount-nginx 的发现（10/29 晚）](x86-nuc/bpftime-x86-nuc-syscount-nginx-findings-20261029.md) | **需要修**：x86 跳板不保留系统调用要保持的寄存器（上游 bug），nginx 因此起不来 |
 | [x86 跳板寄存器修复的验证（10/29 夜）](x86-nuc/bpftime-x86-nuc-x86-hook-registers-findings-20261029.md) | **需要修**：`0a602133` 在 x86 上 GCC LTO 链接失败（`bpftime_xsave_area_size` 被删）；修复前测试在 LTO 下也链接不过 |
 | [x86 跳板寄存器修复的验证（续，10/29 夜）](x86-nuc/bpftime-x86-nuc-x86-hook-registers-findings-2-20261029.md) | `e299cd3f` 修复有效（regcheck 0，nginx 正常，计数一致）；**需要修**：新测试没注册 capstone，必然失败；只加载跳板就 −11.9% |
+| [x86 跳板寄存器修复的验证（续二，10/29 夜）](x86-nuc/bpftime-x86-nuc-x86-hook-registers-findings-3-20261029.md) | `c23442ac` 测试 3/3、变异后失败（但抓不到参数寄存器）；修复每次系统调用固定多约 255 周期（XSAVE+XRSTOR 约 230） |
 
 ## 一页结论（开发分支 `a7d54d7e` = 官方 177a1dc + 73 个提交）
 
@@ -40,3 +41,5 @@ Jetson ARM64 的课题文档在 [`summry/jetson`](https://github.com/plsy1/bpfti
 - **x86 跳板寄存器修复（`0a602133`）**：在 x86 上编不过（GCC LTO 删掉了只被 asm 读的 `bpftime_xsave_area_size`），已交给 Jetson；测试、regcheck、nginx 和正式测量待修复后再做。
 - **x86 跳板寄存器修复（`e299cd3f`）**：链接问题已解决，寄存器修复在 x86 上有效。syscount-nginx 正确跑法（10 轮，1.7 GHz）：
   内核 −5.3% / −3.6%，bpftime −18.7% / −17.1%（计数 = 内核），只加载跳板 −11.9%（Jetson −11.4% / −9.0% / −3.4%）。新测试因没注册 capstone 必然失败，已交给 Jetson。
+- **寄存器修复的成本（`c23442ac`，写循环，1.7 GHz）**：每次系统调用固定多约 255 周期（≈150 ns），其中 XSAVE + XRSTOR 约 230；
+  跳板层从约 110 周期涨到约 370 周期。nginx 里只加载跳板的 440 周期 ≈ 修复 255 + nop 滑道 118 + 分发 41。
