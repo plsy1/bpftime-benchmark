@@ -1,0 +1,66 @@
+#include "agent_namespace.hpp"
+#include "spdlog/spdlog.h"
+#include <dlfcn.h>
+#include <gnu/lib-names.h>
+#include <link.h>
+#include <pthread.h>
+#include <vector>
+
+namespace bpftime
+{
+namespace
+{
+// Keys below 32 are stored in the thread descriptor itself. Higher keys use
+// second-level arrays that the libc of the first setter allocates and the
+// thread's own libc frees at thread exit: an array of the agent's libc would
+// be freed by the process's.
+constexpr pthread_key_t INLINE_KEYS = 32;
+// The agent (GLib/Frida, spdlog) used 5 keys when measured.
+constexpr size_t FEW_AGENT_KEYS = 8;
+using key_create_t = int (*)(pthread_key_t *, void (*)(void *));
+using key_delete_t = int (*)(pthread_key_t);
+} // namespace
+
+void *load_agent_in_new_namespace(const char *path)
+{
+	// The process's libc: take every free key below INLINE_KEYS and never
+	// release them. Its later keys are INLINE_KEYS and above.
+	std::vector<pthread_key_t> agent_keys;
+	for (;;) {
+		pthread_key_t key;
+		if (pthread_key_create(&key, nullptr) != 0)
+			break;
+		if (key >= INLINE_KEYS) {
+			pthread_key_delete(key);
+			break;
+		}
+		agent_keys.push_back(key);
+	}
+	void *libc = dlmopen(LM_ID_NEWLM, LIBC_SO, RTLD_NOW | RTLD_LOCAL);
+	if (libc == nullptr)
+		return nullptr;
+	Lmid_t lmid;
+	if (dlinfo(libc, RTLD_DI_LMID, &lmid) != 0)
+		return nullptr;
+	auto create = (key_create_t)dlsym(libc, "pthread_key_create");
+	auto remove = (key_delete_t)dlsym(libc, "pthread_key_delete");
+	if (create == nullptr || remove == nullptr)
+		return nullptr;
+	// The agent's libc: take every key, then free the reserved ones, so that
+	// it allocates only those. Beyond them its pthread_key_create fails
+	// rather than sharing a slot with the process.
+	pthread_key_t key;
+	size_t taken = 0;
+	while (create(&key, nullptr) == 0)
+		taken++;
+	for (auto k : agent_keys)
+		remove(k);
+	if (agent_keys.size() < FEW_AGENT_KEYS)
+		SPDLOG_WARN(
+			"Only {} pthread keys left for the agent (the process holds the others below {})",
+			agent_keys.size(), INLINE_KEYS);
+	SPDLOG_DEBUG("Reserved {} pthread keys for the agent's namespace ({} taken there)",
+		     agent_keys.size(), taken);
+	return dlmopen(lmid, path, RTLD_NOW | RTLD_LOCAL);
+}
+} // namespace bpftime
