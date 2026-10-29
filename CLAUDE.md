@@ -446,6 +446,21 @@ Code loaded later (dlopen, JIT) is not rewritten. Tests:
 forked child): register preservation, arguments/results/override, threads,
 fork/clone/posix_spawn, signals, own restorer.
 
+## System Call Dispatch
+
+`syscall_trace_attach_impl::dispatch_syscall` runs for every system call of a
+rewritten process, traced or not. It checks the per-syscall and global lists
+first and issues a system call without programs directly. It used to assign
+`curr_thread_override_return_callback` twice per call before checking: two
+`std::function` heap allocations (the lambda captured three references, more
+than the 16-byte local buffer) and dynamic TLS accesses in the dlmopen-ed
+agent, about 200 ns (349 cycles) per untraced call on the Jetson, 221 cycles on
+x86. With programs, the callback is set only around them and captures one
+pointer, so it never allocates; keep it that small. Numbers outside the
+512-entry lists (`syscall(-1)`, x32) run only global programs: indexing with
+them read neighbouring members (-1 ran global exit programs at entry) or past
+the object (600 crashed). Tests count `operator new` per dispatch.
+
 ## Per-CPU Hash Maps
 
 Only the values of `per_cpu_hash_map_impl` are per CPU: the key index (Boost
