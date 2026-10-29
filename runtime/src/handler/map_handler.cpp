@@ -294,7 +294,10 @@ const void *bpf_map_handler::BPFTIME_UNCOUNTED(map_lookup_elem)(
 
 const void *bpf_map_handler::map_lookup_hash(const void *key) const
 {
-	bpftime_lock_guard guard(map_lock);
+	// fix_size_hash_map_impl locks its own writers; lookups take no lock.
+	std::optional<bpftime_lock_guard> guard;
+	if constexpr (hash_map_impl::should_lock)
+		guard.emplace(map_lock);
 #if BPFTIME_ENABLE_MAP_USAGE_STATS
 	const void *result =
 		static_cast<hash_map_impl *>(map_impl_ptr.get())->elem_lookup(key);
@@ -323,7 +326,9 @@ const void *bpf_map_handler::map_lookup_percpu_hash(const void *key) const
 long bpf_map_handler::map_update_hash(const void *key, const void *value,
 				      uint64_t flags) const
 {
-	bpftime_lock_guard guard(map_lock);
+	std::optional<bpftime_lock_guard> guard;
+	if constexpr (hash_map_impl::should_lock)
+		guard.emplace(map_lock);
 #if BPFTIME_ENABLE_MAP_USAGE_STATS
 	auto *impl = static_cast<hash_map_impl *>(map_impl_ptr.get());
 	const bool existed =
@@ -339,7 +344,9 @@ long bpf_map_handler::map_update_hash(const void *key, const void *value,
 
 long bpf_map_handler::map_delete_hash(const void *key) const
 {
-	bpftime_lock_guard guard(map_lock);
+	std::optional<bpftime_lock_guard> guard;
+	if constexpr (hash_map_impl::should_lock)
+		guard.emplace(map_lock);
 #if BPFTIME_ENABLE_MAP_USAGE_STATS
 	long result =
 		static_cast<hash_map_impl *>(map_impl_ptr.get())->elem_delete(key);
