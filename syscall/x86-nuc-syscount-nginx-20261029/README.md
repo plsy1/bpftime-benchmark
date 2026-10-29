@@ -117,3 +117,7 @@ transformer: keep the agent's pthread keys apart from the process's"，在 `2e85
 
 - **`run_correct.py`（6 组 × 10 轮）和可选的 perf**：bpftime 的几组需要先加载程序、再启动 nginx，而在跳板保住寄存器之前，这在 x86 上一定会崩。等修复后再跑。
 - **收尾**：容器已删除，镜像 `x86-nginx-wrk:20261029` 保留；Docker 已重新停掉（开始前它就是停止且不自启的）。
+
+## 后续：x86 跳板寄存器修复（`regs-fix/`）
+
+开发分支 `0a602133` 修了第 3 节的寄存器问题，但在 x86 上用同样的选项（LTO）链接失败，详见 `regs-fix/README.md`。正确跑法的测量仍然没做。
