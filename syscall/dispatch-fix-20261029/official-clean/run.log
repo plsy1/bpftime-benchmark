@@ -1,0 +1,127 @@
+1728000
+==== BPFtime Syscall Benchmark ====
+[DEBUG 15:50:13] Initialized safe PIDs: {628286, 628294, 628287}
+[DEBUG 15:50:13] Cleaning up processes...
+[DEBUG 15:50:13] Safe PIDs: {628286, 628294, 628287}
+[DEBUG 15:50:13] Killing process 628279: /usr/bin/zsh -c source /home/jetson/.claude/shell-snapshots/snapshot-zsh-1793256585597-9bqn5t.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && { \builtin unalias -- 'unsetenv'; \builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'S=/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad; cat > $S/rerun-clean.sh <<'"'"'EOF'"'"' #!/bin/bash # Reruns on a clean CPU (stray process killed 15:46): official benchmark/syscall, # then run_correct.py syscount-nginx 10 rounds. No command line may contain the # words the official cleanup kill -9'"'"'s. S=/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad R=/home/jetson/src/results/syscall/syscount-nginx-20261029 WT=/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate echo "== official $(date +%T)" bash $S/offrun.sh > $S/offrun3.log 2>&1 echo "official exit $? $(date +%T)" ps -eo pid,pcpu,args --sort=-pcpu | head -4 | cut -c1-100 echo "== nginx $(date +%T)" cat /sys/devices/system/cpu/cpu5/cpufreq/scaling_cur_freq > $R/clock-before-correct2.txt sudo -n docker run -d --name sc-nginx --privileged --pid=host --shm-size=1g -v /sys:/sys \   -v /lib/modules:/lib/modules:ro -v "${WT}:${WT}:ro" -v "${R}:${R}" -w "${R}/view" \   bpftime-syscount-nginx:20261029 sleep infinity > /dev/null timeout 3000 sudo -n docker exec sc-nginx python3 $R/run_correct.py --rounds 10 --out $R/correct-run2.jsonl > $R/correct-run2.log 2>&1 echo "nginx exit $? $(date +%T)" sudo -n docker rm -f sc-nginx > /dev/null sudo -n chown -R jetson:jetson $R cat /sys/devices/system/cpu/cpu5/cpufreq/scaling_cur_freq > $R/clock-after-correct2.txt EOF timeout 5400 bash $S/rerun-clean.sh > $S/rerun-clean.log 2>&1; cat $S/rerun-clean.log' && pwd -P >| /tmp/claude-0074-cwd
+
+=== Running Native Tests (No Tracing) ===
+Run 1/10...
+  Average time usage: 352.94 ns
+Run 2/10...
+  Average time usage: 353.29 ns
+Run 3/10...
+  Average time usage: 353.92 ns
+Run 4/10...
+  Average time usage: 353.17 ns
+Run 5/10...
+  Average time usage: 353.33 ns
+Run 6/10...
+  Average time usage: 352.78 ns
+Run 7/10...
+  Average time usage: 352.91 ns
+Run 8/10...
+  Average time usage: 353.28 ns
+Run 9/10...
+  Average time usage: 353.52 ns
+Run 10/10...
+  Average time usage: 353.22 ns
+[DEBUG 15:50:18] Cleaning up processes...
+[DEBUG 15:50:18] Safe PIDs: {628286, 628294, 628287}
+
+=== Running Kernel Tracepoint Tests ===
+Run 1/10...
+  Average time usage: 438.11 ns
+Run 2/10...
+  Average time usage: 438.64 ns
+Run 3/10...
+  Average time usage: 438.73 ns
+Run 4/10...
+  Average time usage: 444.59 ns
+Run 5/10...
+  Average time usage: 436.82 ns
+Run 6/10...
+  Average time usage: 437.02 ns
+Run 7/10...
+  Average time usage: 437.42 ns
+Run 8/10...
+  Average time usage: 438.06 ns
+Run 9/10...
+  Average time usage: 436.34 ns
+Run 10/10...
+  Average time usage: 437.41 ns
+[DEBUG 15:50:25] Cleaning up processes...
+[DEBUG 15:50:25] Safe PIDs: {628286, 628325, 628294, 628287}
+[DEBUG 15:50:26] Cleaning up processes...
+[DEBUG 15:50:26] Safe PIDs: {628286, 628325, 628294, 628287}
+
+=== Running Userspace BPF Syscall Tests ===
+[DEBUG 15:50:28] Using LD_PRELOAD method
+[DEBUG 15:50:29] Syscall server started with PID: 628382
+Run 1/10...
+  Average time usage: 523.37 ns
+Run 2/10...
+  Average time usage: 516.13 ns
+Run 3/10...
+  Average time usage: 526.96 ns
+Run 4/10...
+  Average time usage: 513.79 ns
+Run 5/10...
+  Average time usage: 514.18 ns
+Run 6/10...
+  Average time usage: 521.72 ns
+Run 7/10...
+  Average time usage: 513.43 ns
+Run 8/10...
+  Average time usage: 513.35 ns
+Run 9/10...
+  Average time usage: 505.20 ns
+Run 10/10...
+  Average time usage: 511.75 ns
+[DEBUG 15:50:36] Terminating syscall server (PID: 628382)
+[DEBUG 15:50:36] Cleaning up processes...
+[DEBUG 15:50:36] Safe PIDs: {628325, 628294, 628382, 628286, 628287}
+[DEBUG 15:50:37] Cleaning up processes...
+[DEBUG 15:50:37] Safe PIDs: {628325, 628294, 628382, 628286, 628287}
+
+=== Benchmark Results ===
+Each configuration run 10 times
+
+Native (No tracing):
+  Average time usage (mean):   353.24 ns
+  Average time usage (median): 353.25 ns
+  Standard deviation:          0.33
+  Min:                         352.78 ns
+  Max:                         353.92 ns
+  All runs:                    [352.94, 353.29, 353.92, 353.17, 353.33, 352.78, 352.91, 353.28, 353.52, 353.22]
+
+Kernel Tracepoint Syscall:
+  Average time usage (mean):   438.31 ns
+  Average time usage (median): 437.74 ns
+  Standard deviation:          2.34
+  Min:                         436.34 ns
+  Max:                         444.59 ns
+  All runs:                    [438.11, 438.64, 438.73, 444.59, 436.82, 437.02, 437.42, 438.06, 436.34, 437.41]
+
+Userspace BPF Syscall:
+  Average time usage (mean):   515.99 ns
+  Average time usage (median): 513.99 ns
+  Standard deviation:          6.36
+  Min:                         505.20 ns
+  Max:                         526.96 ns
+  All runs:                    [523.37, 516.13, 526.96, 513.79, 514.18, 521.72, 513.43, 513.35, 505.2, 511.75]
+
+=== Overhead Compared to Native ===
+Kernel Tracepoint Syscall: 24.09% increase
+Userspace BPF Syscall: 46.07% increase
+
+Userspace BPF syscall has 17.72% more overhead than kernel tracepoint
+
+Results saved to benchmark/syscall/syscall_benchmark_results_20261029_155038.json
+
+Human-readable results saved to benchmark/syscall/results.md
+[DEBUG 15:50:38] Cleaning up processes...
+[DEBUG 15:50:38] Safe PIDs: {628325, 628294, 628382, 628286, 628287}
+Benchmark complete
+exit 0
+1728000

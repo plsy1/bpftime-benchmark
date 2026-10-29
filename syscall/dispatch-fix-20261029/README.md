@@ -51,6 +51,10 @@ runs; before, every call paid for it in the agent-other step. Their totals dropp
 | bpftime | 640.00 ns (+286.6) | **515.51 ns (+162.4)** |
 | bpftime overhead / kernel overhead | 3.4× | **1.9×** |
 
+Rerun 15:50 with no other process using CPU (`official-clean/`; the run above and every measurement since 10-28
+night ran beside a leftover process spinning on one CPU): none 353.24, kernel 438.31, bpftime 515.99 ns. Within
+0.6 ns of the run above.
+
 ## perf (`profile.sh`, 20M writes, `perf/`)
 
 | Leg | cycles / write | instructions / write |
