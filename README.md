@@ -15,6 +15,7 @@ Jetson ARM64 的课题文档在 [`summry/jetson`](https://github.com/plsy1/bpfti
 | [syscount-nginx（10/29 晚）](x86-nuc/bpftime-x86-nuc-syscount-nginx-20261029.md) | 开发分支 `59e5e154`：pthread key 修复在 x86 上有效；官方脚本对照；与 Jetson、论文、用户 7 月结果对比 |
 | [syscount-nginx 的发现（10/29 晚）](x86-nuc/bpftime-x86-nuc-syscount-nginx-findings-20261029.md) | **需要修**：x86 跳板不保留系统调用要保持的寄存器（上游 bug），nginx 因此起不来 |
 | [x86 跳板寄存器修复的验证（10/29 夜）](x86-nuc/bpftime-x86-nuc-x86-hook-registers-findings-20261029.md) | **需要修**：`0a602133` 在 x86 上 GCC LTO 链接失败（`bpftime_xsave_area_size` 被删）；修复前测试在 LTO 下也链接不过 |
+| [x86 跳板寄存器修复的验证（续，10/29 夜）](x86-nuc/bpftime-x86-nuc-x86-hook-registers-findings-2-20261029.md) | `e299cd3f` 修复有效（regcheck 0，nginx 正常，计数一致）；**需要修**：新测试没注册 capstone，必然失败；只加载跳板就 −11.9% |
 
 ## 一页结论（开发分支 `a7d54d7e` = 官方 177a1dc + 73 个提交）
 
@@ -37,3 +38,5 @@ Jetson ARM64 的课题文档在 [`summry/jetson`](https://github.com/plsy1/bpfti
 - **syscount-nginx（`59e5e154`）**：pthread key 冲突在 x86 上也有，已修好；但 x86 跳板调用 C 代码后不恢复 rdi/rsi/rdx/r10/r8/r9 和 xmm
   （官方 177a1dc 也是），挂着程序时 nginx 启动即崩，正确跑法测不了。官方脚本原样：内核 −4.3% / −2.9%，bpftime −1.1% / −1.6%（什么都没追踪）。
 - **x86 跳板寄存器修复（`0a602133`）**：在 x86 上编不过（GCC LTO 删掉了只被 asm 读的 `bpftime_xsave_area_size`），已交给 Jetson；测试、regcheck、nginx 和正式测量待修复后再做。
+- **x86 跳板寄存器修复（`e299cd3f`）**：链接问题已解决，寄存器修复在 x86 上有效。syscount-nginx 正确跑法（10 轮，1.7 GHz）：
+  内核 −5.3% / −3.6%，bpftime −18.7% / −17.1%（计数 = 内核），只加载跳板 −11.9%（Jetson −11.4% / −9.0% / −3.4%）。新测试因没注册 capstone 必然失败，已交给 Jetson。
