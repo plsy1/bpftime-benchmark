@@ -402,8 +402,7 @@ lookup matched keys half overwritten by the next insert into the bucket
 so the word is aligned.
 
 Writers lock stripes of buckets (a power of two, at least 64, at most 4096
-stripes), each lock with its stripe's displacement counts on cache lines of
-their own. An operation locks every stripe from its key's home bucket
+stripes). An operation locks every stripe from its key's home bucket
 through the last bucket it may write or rely on (the probe bound, plus one
 for a delete's empty-successor check), in increasing stripe order with the
 wrapped part from stripe 0 first; when it finds it needs more it unlocks
@@ -411,11 +410,23 @@ everything and starts again with the larger range. Never take a stripe lock
 while holding a higher one. Each stripe keeps the probe bound of the keys
 whose home bucket is in it (stored only when it changes; lookups read it).
 A delete turns tombstones back into empty buckets only inside its locked
-range. The element count is `max_entries` tokens: an insert takes one from
-its CPU's slot, then the shared pool, then other slots; a delete returns it
-to its CPU's slot, so churn touches only per-CPU lines and the limit stays
-exact (a concurrent insert can miss a token only while a delete is still in
-progress). `get_elem_count` is exact only without concurrent writers.
+range. The element count is `max_entries` tokens: each stripe holds some
+under its lock, the rest are in a shared atomic pool. An insert takes one
+from its home stripe (refilling 32 from the pool when it has none), a delete
+returns it there (giving 32 back at 64); only when the pool is empty too
+does an insert lock every stripe and take any stripe's token, so the limit
+is exact (E2BIG only when all `max_entries` are used). `get_elem_count` is
+exact only without concurrent writers.
+
+A stripe's whole state (lock, probe bound, tokens, displacement counts up to
+distance 10) is one 64-byte line, and every operation resolves the two
+shared-memory vectors to plain pointers once (`view`). The single-thread
+cost of striping came from extra lines and instructions, not from atomics:
+per-CPU token slots, a separate bound array and a 320-byte stripe state
+added cache/TLB misses with keys spread over many stripes (memleak's
+addresses), and offset_ptr resolution per access added ~300 instructions to
+an insert + lookup + delete. Keep the stripe state one line and the hot path
+free of offset_ptr arithmetic.
 
 Values are still updated in place (readers may see a partly written value,
 as with the kernel without `BPF_F_LOCK`), and a value pointer is only valid
@@ -424,7 +435,7 @@ inside a writer leaves its stripes locked (writers to them hang, lookups do
 not). Tests: `test_hash_map_lockfree_lookup.cpp` (torn keys; values read
 while no delete runs), `test_hash_map_striped_writers.cpp` (threads against a reference
 with clustered keys, exact capacity, probe runs wrapping past the last
-stripe).
+stripe, processes mapping the segment at different addresses).
 
 ## llvmbpf Local Call Overlay
 
