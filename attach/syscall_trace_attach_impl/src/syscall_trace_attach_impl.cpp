@@ -27,16 +27,31 @@ int64_t syscall_trace_attach_impl::dispatch_syscall(int64_t sys_nr,
 #endif
 	SPDLOG_DEBUG("Syscall callback {} {} {} {} {} {} {}", sys_nr, arg1,
 		     arg2, arg3, arg4, arg5, arg6);
-	// Indicate whether the return value is overridden
-	bool is_overrided = false;
-	uint64_t user_ret = 0;
-	uint64_t user_ret_ctx = 0;
-	curr_thread_override_return_callback =
-		override_return_set_callback([&](uint64_t ctx, uint64_t v) {
-			is_overrided = true;
-			user_ret = v;
-			user_ret_ctx = ctx;
-		});
+	// Numbers outside the per-syscall lists (x32, syscall(-1) probing for
+	// ENOSYS) run only the global programs.
+	const bool in_range =
+		sys_nr >= 0 && sys_nr < (int64_t)std::size(sys_enter_callbacks);
+	const bool has_enter = (in_range && !sys_enter_callbacks[sys_nr].empty()) ||
+			       !global_enter_callbacks.empty();
+	const bool has_exit = (in_range && !sys_exit_callbacks[sys_nr].empty()) ||
+			      !global_exit_callbacks.empty();
+	// Every system call of the process comes here: without programs, issue
+	// it before touching the thread-local override callback (two heap
+	// allocations and dynamic TLS accesses, about 200 ns on aarch64).
+	if (!has_enter && !has_exit)
+		return orig_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
+
+	// Set by bpf_override_return/bpf_set_retval. The callback captures only
+	// a pointer, so std::function keeps it in its local buffer: no
+	// allocation.
+	struct override_state {
+		bool overridden = false;
+		uint64_t value = 0;
+	} state;
+	auto set_override = [s = &state](uint64_t, uint64_t v) {
+		s->overridden = true;
+		s->value = v;
+	};
 	auto run_callbacks = [](const auto &callbacks,
 				const auto &ctx) noexcept {
 		for (auto prog : callbacks) {
@@ -52,8 +67,7 @@ int64_t syscall_trace_attach_impl::dispatch_syscall(int64_t sys_nr,
 		}
 	};
 
-	if (!sys_enter_callbacks[sys_nr].empty() ||
-	    !global_enter_callbacks.empty()) {
+	if (has_enter) {
 		trace_event_raw_sys_enter ctx;
 		memset(&ctx, 0, sizeof(ctx));
 		ctx.id = sys_nr;
@@ -63,33 +77,30 @@ int64_t syscall_trace_attach_impl::dispatch_syscall(int64_t sys_nr,
 		ctx.args[3] = arg4;
 		ctx.args[4] = arg5;
 		ctx.args[5] = arg6;
-		run_callbacks(sys_enter_callbacks[sys_nr], ctx);
+		curr_thread_override_return_callback =
+			override_return_set_callback(set_override);
+		if (in_range)
+			run_callbacks(sys_enter_callbacks[sys_nr], ctx);
 		run_callbacks(global_enter_callbacks, ctx);
+		curr_thread_override_return_callback.reset();
+		if (state.overridden)
+			return state.value;
 	}
-	curr_thread_override_return_callback.reset();
-	if (is_overrided) {
-		return user_ret;
-	}
-	curr_thread_override_return_callback =
-		override_return_set_callback([&](uint64_t ctx, uint64_t v) {
-			is_overrided = true;
-			user_ret = v;
-			user_ret_ctx = ctx;
-		});
 	SPDLOG_DEBUG("executing original syscall");
 	int64_t ret = orig_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
-	if (!sys_exit_callbacks[sys_nr].empty() ||
-	    !global_exit_callbacks.empty()) {
+	if (has_exit) {
 		trace_event_raw_sys_exit ctx;
 		memset(&ctx, 0, sizeof(ctx));
 		ctx.id = sys_nr;
 		ctx.ret = ret;
-		run_callbacks(sys_exit_callbacks[sys_nr], ctx);
+		curr_thread_override_return_callback =
+			override_return_set_callback(set_override);
+		if (in_range)
+			run_callbacks(sys_exit_callbacks[sys_nr], ctx);
 		run_callbacks(global_exit_callbacks, ctx);
-	}
-	curr_thread_override_return_callback.reset();
-	if (is_overrided) {
-		return user_ret;
+		curr_thread_override_return_callback.reset();
+		if (state.overridden)
+			return state.value;
 	}
 	return ret;
 }
