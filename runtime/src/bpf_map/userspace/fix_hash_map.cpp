@@ -23,13 +23,31 @@ fix_size_hash_map_impl::fix_size_hash_map_impl(managed_shared_memory &memory,
 	  _key_size(key_size), _value_size(value_size),
 	  _num_buckets(map_impl.bucket_count())
 {
+	pthread_spin_init(&writer_lock, PTHREAD_PROCESS_SHARED);
 }
+
+namespace
+{
+class writer_guard {
+	pthread_spinlock_t &lock;
+
+    public:
+	explicit writer_guard(pthread_spinlock_t &lock) : lock(lock)
+	{
+		pthread_spin_lock(&lock);
+	}
+	~writer_guard()
+	{
+		pthread_spin_unlock(&lock);
+	}
+	writer_guard(const writer_guard &) = delete;
+	writer_guard &operator=(const writer_guard &) = delete;
+};
+} // namespace
 
 void *fix_size_hash_map_impl::elem_lookup(const void *key)
 {
 	SPDLOG_TRACE("Peform elem lookup of hash map");
-	// Since we use lock here, we don't need to allocate key_vec and
-	// value_vec
 	return map_impl.elem_lookup(key);
 }
 
@@ -42,8 +60,9 @@ long fix_size_hash_map_impl::elem_update(const void *key, const void *value,
 		errno = EINVAL;
 		return -1;
 	}
+	writer_guard guard(writer_lock);
 	if (mode != BPF_ANY) {
-		// Callers hold the map lock, so the check and the update are
+		// Under the writer lock, so the check and the update are
 		// atomic. BPF_EXIST matters to lookup-then-update counters: a
 		// key deleted in between must not come back with its old count.
 		const bool exists = map_impl.elem_lookup(key) != nullptr;
@@ -65,6 +84,7 @@ long fix_size_hash_map_impl::elem_update(const void *key, const void *value,
 
 long fix_size_hash_map_impl::elem_delete(const void *key)
 {
+	writer_guard guard(writer_lock);
 	if (!map_impl.elem_delete(key)) {
 		errno = ENOENT;
 		return -1;
@@ -79,6 +99,13 @@ int fix_size_hash_map_impl::map_get_next_key(const void *key, void *next_key)
 		errno = EINVAL;
 		return -1;
 	}
+	writer_guard guard(writer_lock);
+	return get_next_key_locked(key, next_key);
+}
+
+int fix_size_hash_map_impl::get_next_key_locked(const void *key,
+						void *next_key)
+{
 	if (key == nullptr) {
 		// get the first key
 		for (size_t i = 0; i < _num_buckets; i++) {
@@ -95,7 +122,7 @@ int fix_size_hash_map_impl::map_get_next_key(const void *key, void *next_key)
 	// get the next key
 	void *value_ptr = elem_lookup(key);
 	if (value_ptr == nullptr) {
-		return map_get_next_key(nullptr, next_key);
+		return get_next_key_locked(nullptr, next_key);
 	}
 	// get_next_key
 	size_t index = map_impl.get_index_of_value(value_ptr);
