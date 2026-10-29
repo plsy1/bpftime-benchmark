@@ -23,6 +23,7 @@ set(TEST_SOURCES
     maps/test_external_map_ops.cpp
     maps/test_bpftime_hash_map.cpp
     maps/test_hash_map_lockfree_lookup.cpp
+    maps/test_hash_map_striped_writers.cpp
     maps/test_fix_hash_map.cpp
     maps/test_map_in_map_bounds.cpp
     maps/test_map_usage_stats.cpp
