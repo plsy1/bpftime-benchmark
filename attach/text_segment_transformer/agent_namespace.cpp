@@ -50,7 +50,7 @@ void *load_agent_in_new_namespace(const char *path)
 	// it allocates only those. Beyond them its pthread_key_create fails
 	// rather than sharing a slot with the process.
 	pthread_key_t key;
-	size_t taken = 0;
+	[[maybe_unused]] size_t taken = 0;
 	while (create(&key, nullptr) == 0)
 		taken++;
 	for (auto k : agent_keys)
