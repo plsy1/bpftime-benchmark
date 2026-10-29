@@ -110,9 +110,10 @@ TEST_CASE("hash lookups return only values written for the key",
 {
 	// Four-byte keys {0,0,1,0} and {0,0,0,31}; 256-byte values that hold
 	// their key in the last four bytes (written last). The writer deletes
-	// each key before inserting the other, and bumps that key's delete count
-	// before deleting it; a reader that found key K and read the value
-	// before K's delete count moved must see K in it.
+	// each key before inserting the other and counts each delete when it
+	// starts and when it has finished. A reader that read the finished count,
+	// found key K, read the value and then saw the same started count, ran
+	// while no delete of K was in progress, so the value must hold K.
 	shm_guard shm("BPFTIME_TEST_HASH_LOCKFREE_VALUE");
 	struct value_t {
 		uint8_t payload[252];
@@ -127,7 +128,7 @@ TEST_CASE("hash lookups return only values written for the key",
 		REQUIRE(bpftime_hasher::hash_func(b0, 4) ==
 			bpftime_hasher::hash_func(b1, 4));
 	}
-	std::atomic<uint64_t> deletes[2] = { 0, 0 };
+	std::atomic<uint64_t> started[2] = { 0, 0 }, finished[2] = { 0, 0 };
 	std::atomic<bool> done{ false };
 	std::atomic<uint64_t> wrong{ 0 }, hits{ 0 };
 	std::vector<std::thread> threads;
@@ -136,7 +137,7 @@ TEST_CASE("hash lookups return only values written for the key",
 			const int k = r % 2;
 			uint64_t bad = 0, n = 0;
 			while (!done.load(std::memory_order_relaxed)) {
-				const uint64_t before = deletes[k].load();
+				const uint64_t before = finished[k].load();
 				auto *v = static_cast<value_t *>(
 					map.elem_lookup(&keys[k]));
 				if (v == nullptr)
@@ -146,7 +147,7 @@ TEST_CASE("hash lookups return only values written for the key",
 						std::memory_order_relaxed);
 				std::atomic_thread_fence(
 					std::memory_order_seq_cst);
-				if (deletes[k].load() != before)
+				if (started[k].load() != before)
 					continue; // Deleted meanwhile: may be reused.
 				n++;
 				if (seen != keys[k])
@@ -165,8 +166,9 @@ TEST_CASE("hash lookups return only values written for the key",
 		for (int i = 0; i < 1000; i++) {
 			for (int k = 0; k < 2; k++) {
 				REQUIRE(map.elem_update(&keys[k], &values[k]));
-				deletes[k].fetch_add(1);
+				started[k].fetch_add(1);
 				REQUIRE(map.elem_delete(&keys[k]));
+				finished[k].fetch_add(1);
 			}
 		}
 	}
