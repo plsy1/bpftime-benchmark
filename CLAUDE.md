@@ -382,29 +382,49 @@ depend on `BPF_EXIST`: when a reader deletes the key in between, ignoring the
 flag re-inserted the stale count (the malloc example counted up to 20% too many
 calls).
 
-## Hash Map Lookups Take No Lock
+## Hash Map Concurrency
 
-`fix_size_hash_map_impl` locks itself (`should_lock = false`): updates,
-deletes and `get_next_key` take its `writer_lock` (a process-shared spinlock
-on a cache line of its own), lookups take nothing. Callers, the typed helper
-entry points included, must not take the handler's map lock for it. Every
-lookup used to take the map lock: with one key per thread the map cost per
-probe hit went from 0.12 us (1 thread) to 10.7 us (6 threads, both clusters).
-`bpftime_hash_map` makes lock-free lookups safe without changing its layout:
-filled buckets never move, and each bucket's 4-byte word holds the state (low
-two bits) and a generation that every delete increments. Inserts write key
-and value after a release fence and publish the word with a release store;
-a lookup reads the word (acquire), compares the key, fences (acquire) and
-accepts the match only if the word is unchanged, otherwise it starts again.
-Without the re-check a lookup matched keys half overwritten by the next
-insert into the bucket and returned values not yet written (tests:
-`test_hash_map_lockfree_lookup.cpp`, hundreds of thousands of false matches
-in 1.5 s with the re-check removed). The bucket stride is rounded to 4 bytes
-so the word is aligned. The fields lookups read and the counters writers
-change are on separate cache lines; the probe bound is stored only when it
-changes. Values are still updated in place (readers may see a partly written
-value, as with the kernel without `BPF_F_LOCK`), and a value pointer is only
-valid while its key stays, as in the kernel's preallocated htab.
+`fix_size_hash_map_impl` locks itself (`should_lock = false`); callers, the
+typed helper entry points included, must not take the handler's map lock for
+it. The handler's single lock used to serialize every operation, lookups
+included: with one key per thread the map cost per probe hit went from 0.12
+us (1 thread) to 10.7 us (6 threads, both clusters), lookup-only counters to
+1.4 us.
+
+Lookups take no lock and write nothing shared. Filled buckets never move,
+and each bucket's 4-byte word holds the state (low two bits) and a
+generation that every delete increments. Inserts write key and value after a
+release fence and publish the word with a release store; a lookup reads the
+word (acquire), compares the key, fences (acquire) and accepts the match only
+if the word is unchanged, otherwise it starts again. Without the re-check a
+lookup matched keys half overwritten by the next insert into the bucket
+(18k-291k false matches in 1.5 s). The bucket stride is rounded to 4 bytes
+so the word is aligned.
+
+Writers lock stripes of buckets (a power of two, at least 64, at most 4096
+stripes), each lock with its stripe's displacement counts on cache lines of
+their own. An operation locks every stripe from its key's home bucket
+through the last bucket it may write or rely on (the probe bound, plus one
+for a delete's empty-successor check), in increasing stripe order with the
+wrapped part from stripe 0 first; when it finds it needs more it unlocks
+everything and starts again with the larger range. Never take a stripe lock
+while holding a higher one. Each stripe keeps the probe bound of the keys
+whose home bucket is in it (stored only when it changes; lookups read it).
+A delete turns tombstones back into empty buckets only inside its locked
+range. The element count is `max_entries` tokens: an insert takes one from
+its CPU's slot, then the shared pool, then other slots; a delete returns it
+to its CPU's slot, so churn touches only per-CPU lines and the limit stays
+exact (a concurrent insert can miss a token only while a delete is still in
+progress). `get_elem_count` is exact only without concurrent writers.
+
+Values are still updated in place (readers may see a partly written value,
+as with the kernel without `BPF_F_LOCK`), and a value pointer is only valid
+while its key stays, as in the kernel's preallocated htab. A process killed
+inside a writer leaves its stripes locked (writers to them hang, lookups do
+not). Tests: `test_hash_map_lockfree_lookup.cpp` (torn keys; values read
+while no delete runs), `test_hash_map_striped_writers.cpp` (threads against a reference
+with clustered keys, exact capacity, probe runs wrapping past the last
+stripe).
 
 ## llvmbpf Local Call Overlay
 
