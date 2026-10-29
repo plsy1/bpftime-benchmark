@@ -13,7 +13,6 @@
 #include <boost/unordered/unordered_map.hpp>
 #include <boost/functional/hash.hpp>
 #include <bpf_map/bpftime_hash_map.hpp>
-#include <pthread.h>
 
 namespace bpftime
 {
@@ -22,20 +21,13 @@ using namespace boost::interprocess;
 
 // implementation of hash map
 //
-// Locks itself: lookups take no lock (bpftime_hash_map), updates, deletes
-// and get_next_key take writer_lock, so callers must not take the map lock.
+// Locks itself (bpftime_hash_map: lookups take no lock, writers lock
+// stripes of buckets), so callers must not take the map lock.
 class fix_size_hash_map_impl {
 	bpftime_hash_map map_impl;
 	uint32_t _key_size;
 	uint32_t _value_size;
 	uint32_t _num_buckets;
-	// Written by every update and delete: alone on its cache line, away
-	// from the fields lookups read.
-	char _lock_before[64] = {};
-	pthread_spinlock_t writer_lock;
-	char _lock_after[64] = {};
-
-	int get_next_key_locked(const void *key, void *next_key);
 
     public:
 	const static bool should_lock = false;
