@@ -23,27 +23,7 @@ fix_size_hash_map_impl::fix_size_hash_map_impl(managed_shared_memory &memory,
 	  _key_size(key_size), _value_size(value_size),
 	  _num_buckets(map_impl.bucket_count())
 {
-	pthread_spin_init(&writer_lock, PTHREAD_PROCESS_SHARED);
 }
-
-namespace
-{
-class writer_guard {
-	pthread_spinlock_t &lock;
-
-    public:
-	explicit writer_guard(pthread_spinlock_t &lock) : lock(lock)
-	{
-		pthread_spin_lock(&lock);
-	}
-	~writer_guard()
-	{
-		pthread_spin_unlock(&lock);
-	}
-	writer_guard(const writer_guard &) = delete;
-	writer_guard &operator=(const writer_guard &) = delete;
-};
-} // namespace
 
 void *fix_size_hash_map_impl::elem_lookup(const void *key)
 {
@@ -60,31 +40,32 @@ long fix_size_hash_map_impl::elem_update(const void *key, const void *value,
 		errno = EINVAL;
 		return -1;
 	}
-	writer_guard guard(writer_lock);
-	if (mode != BPF_ANY) {
-		// Under the writer lock, so the check and the update are
-		// atomic. BPF_EXIST matters to lookup-then-update counters: a
-		// key deleted in between must not come back with its old count.
-		const bool exists = map_impl.elem_lookup(key) != nullptr;
-		if (mode == BPF_NOEXIST && exists) {
-			errno = EEXIST;
-			return -1;
-		}
-		if (mode == BPF_EXIST && !exists) {
-			errno = ENOENT;
-			return -1;
-		}
-	}
-	if (!map_impl.elem_update(key, value)) {
-		errno = E2BIG; // full: max_entries reached
+	// The existence check and the update are one locked operation.
+	// BPF_EXIST matters to lookup-then-update counters: a key deleted in
+	// between must not come back with its old count.
+	using update_mode = bpftime_hash_map::update_mode;
+	using update_result = bpftime_hash_map::update_result;
+	switch (map_impl.update(key, value,
+				mode == BPF_NOEXIST ? update_mode::no_exist :
+				mode == BPF_EXIST   ? update_mode::exist :
+						      update_mode::any)) {
+	case update_result::ok:
+		return 0;
+	case update_result::exists:
+		errno = EEXIST;
 		return -1;
+	case update_result::missing:
+		errno = ENOENT;
+		return -1;
+	case update_result::full:
+		break;
 	}
-	return 0;
+	errno = E2BIG; // full: max_entries reached
+	return -1;
 }
 
 long fix_size_hash_map_impl::elem_delete(const void *key)
 {
-	writer_guard guard(writer_lock);
 	if (!map_impl.elem_delete(key)) {
 		errno = ENOENT;
 		return -1;
@@ -99,43 +80,11 @@ int fix_size_hash_map_impl::map_get_next_key(const void *key, void *next_key)
 		errno = EINVAL;
 		return -1;
 	}
-	writer_guard guard(writer_lock);
-	return get_next_key_locked(key, next_key);
-}
-
-int fix_size_hash_map_impl::get_next_key_locked(const void *key,
-						void *next_key)
-{
-	if (key == nullptr) {
-		// get the first key
-		for (size_t i = 0; i < _num_buckets; i++) {
-			if (map_impl.is_empty(i)) {
-				continue;
-			}
-			memcpy(next_key, map_impl.get_key(i), _key_size);
-			return 0;
-		}
-		errno = ENOENT;
-		// no key found
+	if (!map_impl.next_key(key, next_key)) {
+		errno = ENOENT; // empty map or the last key
 		return -1;
 	}
-	// get the next key
-	void *value_ptr = elem_lookup(key);
-	if (value_ptr == nullptr) {
-		return get_next_key_locked(nullptr, next_key);
-	}
-	// get_next_key
-	size_t index = map_impl.get_index_of_value(value_ptr);
-	for (size_t i = index + 1; i < _num_buckets; i++) {
-		if (map_impl.is_empty(i)) {
-			continue;
-		}
-		memcpy(next_key, map_impl.get_key(i), _key_size);
-		return 0;
-	}
-	// if this is the last key
-	errno = ENOENT;
-	return -1;
+	return 0;
 }
 
 } // namespace bpftime
