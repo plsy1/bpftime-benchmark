@@ -461,6 +461,8 @@ rdx changed with no program). The frame starts below the caller's 128-byte red
 zone; only the 8 bytes the rewritten `call *%rax` stores at its top are lost.
 `bpftime_xsave_area_size` is defined in the asm block: only the asm reads it,
 and GCC's LTO removed a C++ definition with no C++ read (the link failed).
+`setup_syscall_tracer` registers capstone's x86 architecture itself (frida-gum
+opens only registered ones); callers such as the tests need not.
 Tests: `test_syscall_rewrite_x86.cpp` with `regs_check_x86_64.S` (patterns in
 the argument, callee-saved and xmm registers and the red zone, with and
 without a hook; skipped without root and `vm.mmap_min_addr=0`).

@@ -470,6 +470,9 @@ static uint64_t xsave_area_size()
 
 void setup_syscall_tracer()
 {
+	// frida-gum's capstone opens only registered architectures; the
+	// rewriting below needs x86 (registering again is harmless).
+	cs_arch_register_x86();
 	bpftime_xsave_area_size = xsave_area_size();
 	if (bpftime_xsave_area_size == 0) {
 		SPDLOG_ERROR(
