@@ -6,6 +6,7 @@
 #include <dlfcn.h>
 #include <frida-gum.h>
 #include "text_segment_transformer.hpp"
+#include "agent_namespace.hpp"
 #include <spdlog/cfg/env.h>
 #include <string>
 #include <frida-gum.h>
@@ -75,7 +76,7 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 #endif
 	bpftime::setup_syscall_tracer();
 	SPDLOG_DEBUG("Loading dynamic library..");
-	auto next_handle = dlmopen(LM_ID_NEWLM, agent_so, RTLD_NOW | RTLD_LOCAL);
+	auto next_handle = bpftime::load_agent_in_new_namespace(agent_so);
 	if (next_handle == nullptr) {
 		SPDLOG_ERROR("Failed to open agent: {}", dlerror());
 		exit(1);

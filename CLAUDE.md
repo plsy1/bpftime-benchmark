@@ -446,6 +446,26 @@ Code loaded later (dlopen, JIT) is not rewritten. Tests:
 forked child): register preservation, arguments/results/override, threads,
 fork/clone/posix_spawn, signals, own restorer.
 
+## Agent Namespace And pthread Keys
+
+The transformer loads the agent with `dlmopen(LM_ID_NEWLM)` so that the
+agent's own libc is not rewritten. That libc numbers pthread keys from its
+own table, but values live in the thread's shared `specific` array: the
+agent's keys (GLib/Frida) and the process's got the same numbers, and a key
+the process created later read the agent's pointer instead of NULL (nginx
+under syscount aborted in OpenSSL's `ERR_clear_error`, "free(): invalid
+pointer"). `load_agent_in_new_namespace` (`agent_namespace.cpp`) first takes
+every free key below 32 in the process's libc and keeps them, loads libc
+alone into the new namespace, takes every key there and releases the reserved
+ones, then loads the agent into that namespace: the agent can use only the
+reserved keys, the process only 32 and above. Keep the agent's range below 32:
+those slots are stored in the thread descriptor, while higher keys use
+second-level arrays that the thread's own libc frees at exit (an array the
+agent's libc allocated would be freed by the process's). If the agent needs
+more keys than were free, its `pthread_key_create` fails rather than sharing
+a slot. Tests: `test_agent_namespace.cpp` (stand-in agent, keys created
+before loading, threads using both).
+
 ## System Call Dispatch
 
 `syscall_trace_attach_impl::dispatch_syscall` runs for every system call of a
