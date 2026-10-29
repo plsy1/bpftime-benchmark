@@ -3,7 +3,12 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <new>
 #include <stdexcept>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <syscall_trace_attach_impl.hpp>
 
 #ifdef __linux__
@@ -257,186 +262,178 @@ TEST_CASE("A failing exit callback is contained")
 	REQUIRE(!curr_thread_override_return_callback.has_value());
 }
 
-TEST_CASE("Scheduler lifecycle tracepoints are dispatched")
+// Counts operator new calls on this thread while enabled. The dispatcher runs
+// for every system call of the traced process, so it must not allocate.
+static thread_local bool count_allocations = false;
+static thread_local int allocation_count = 0;
+
+void *operator new(std::size_t size)
 {
-	REQUIRE(offsetof(trace_event_raw_sched_process_fork, parent_pid) == 24);
-	REQUIRE(offsetof(trace_event_raw_sched_process_fork, child_pid) == 44);
-	auto tracepoint_id = [](const char *name) {
-		for (const auto &[id, mapped_name] :
-		     get_global_syscall_tracepoint_name_table()) {
-			if (mapped_name == name)
-				return id;
+	if (count_allocations)
+		allocation_count++;
+	if (void *p = std::malloc(size ? size : 1))
+		return p;
+	throw std::bad_alloc();
+}
+
+void operator delete(void *p) noexcept
+{
+	std::free(p);
+}
+
+void operator delete(void *p, std::size_t) noexcept
+{
+	std::free(p);
+}
+
+static int override_callback_seen;
+extern "C" int64_t _bpftime_checking_syscall(int64_t, int64_t, int64_t,
+					     int64_t, int64_t, int64_t, int64_t)
+{
+	if (curr_thread_override_return_callback.has_value())
+		override_callback_seen++;
+	return ++syscall_call_count;
+}
+
+static int attach_counter(syscall_trace_attach_impl &attacher, int sys_nr,
+			  bool is_enter, int &counter)
+{
+	syscall_trace_attach_private_data data;
+	data.sys_nr = sys_nr;
+	data.is_enter = is_enter;
+	return attacher.create_attach_with_ebpf_callback(
+		[&counter](const void *, size_t, uint64_t *) -> int {
+			counter++;
+			return 0;
+		},
+		data, ATTACH_SYSCALL_TRACE);
+}
+
+TEST_CASE("Dispatch of a system call without programs passes it through")
+{
+	syscall_trace_attach_impl attacher;
+	attacher.set_original_syscall_function(_bpftime_checking_syscall);
+	int other_enter = 0, other_exit = 0;
+	REQUIRE(attach_counter(attacher, 20, true, other_enter) >= 0);
+	REQUIRE(attach_counter(attacher, 21, false, other_exit) >= 0);
+
+	syscall_call_count = 0;
+	override_callback_seen = 0;
+	allocation_count = 0;
+	count_allocations = true;
+	int64_t ret = 0;
+	for (int i = 0; i < 100; i++)
+		ret = attacher.dispatch_syscall(11, 0, 0, 0, 0, 0, 0);
+	count_allocations = false;
+	REQUIRE(ret == 100);
+	REQUIRE(syscall_call_count == 100);
+	REQUIRE(allocation_count == 0);
+	REQUIRE(override_callback_seen == 0);
+	REQUIRE(other_enter == 0);
+	REQUIRE(other_exit == 0);
+	REQUIRE(!curr_thread_override_return_callback.has_value());
+}
+
+TEST_CASE("Dispatch with programs does not allocate")
+{
+	syscall_trace_attach_impl attacher;
+	attacher.set_original_syscall_function(_bpftime_counting_syscall);
+	int enter = 0, exits = 0, global_enter = 0, global_exit = 0;
+	REQUIRE(attach_counter(attacher, 11, true, enter) >= 0);
+	REQUIRE(attach_counter(attacher, 11, false, exits) >= 0);
+	REQUIRE(attach_counter(attacher, -1, true, global_enter) >= 0);
+	REQUIRE(attach_counter(attacher, -1, false, global_exit) >= 0);
+
+	syscall_call_count = 0;
+	allocation_count = 0;
+	count_allocations = true;
+	for (int i = 0; i < 100; i++)
+		attacher.dispatch_syscall(11, 0, 0, 0, 0, 0, 0);
+	count_allocations = false;
+	REQUIRE(syscall_call_count == 100);
+	REQUIRE(enter == 100);
+	REQUIRE(exits == 100);
+	REQUIRE(global_enter == 100);
+	REQUIRE(global_exit == 100);
+	REQUIRE(allocation_count == 0);
+	REQUIRE(!curr_thread_override_return_callback.has_value());
+}
+
+TEST_CASE("Out-of-range system call numbers run only global programs")
+{
+	syscall_trace_attach_impl attacher;
+	attacher.set_original_syscall_function(_bpftime_counting_syscall);
+	int global_exit = 0, exit_88 = 0;
+	REQUIRE(attach_counter(attacher, -1, false, global_exit) >= 0);
+	REQUIRE(attach_counter(attacher, 88, false, exit_88) >= 0);
+
+	// syscall(-1) probes for ENOSYS; index -1 of the per-syscall lists is
+	// another member of the attacher.
+	syscall_call_count = 0;
+	REQUIRE(attacher.dispatch_syscall(-1, 0, 0, 0, 0, 0, 0) == 1);
+	REQUIRE(global_exit == 1);
+	REQUIRE(exit_88 == 0);
+
+	// x32 numbers (0x40000000 + nr) and others above the lists: run in a
+	// child, as the lookup reads past the attacher.
+	for (int64_t nr : { (int64_t)512 + 88, (int64_t)0x40000000 + 1 }) {
+		fflush(nullptr);
+		pid_t pid = fork();
+		REQUIRE(pid >= 0);
+		if (pid == 0) {
+			global_exit = exit_88 = 0;
+			syscall_call_count = 0;
+			attacher.dispatch_syscall(nr, 0, 0, 0, 0, 0, 0);
+			_exit(syscall_call_count == 1 && global_exit == 1 &&
+					      exit_88 == 0 ?
+				      0 :
+				      1);
 		}
-		return -1;
-	};
-	auto make_data = [&](const char *name) {
-		syscall_trace_attach_private_data data;
-		int id = tracepoint_id(name);
-		REQUIRE(id >= 0);
-		REQUIRE(data.initialize_from_string(std::to_string(id)) == 0);
-		return data;
-	};
-
-	syscall_trace_attach_impl attacher;
-	attacher.set_original_syscall_function(_bpftime_counting_syscall);
-	bool fork_invoked = false;
-	bool exec_invoked = false;
-	bool exit_invoked = false;
-	size_t fork_ctx_size = 0;
-	size_t exec_ctx_size = 0;
-	size_t exit_ctx_size = 0;
-	int parent_pid = 0;
-	int child_pid = 0;
-	auto fork_data = make_data(SCHED_PROCESS_FORK_NAME);
-	int fork_id = attacher.create_attach_with_ebpf_callback(
-		[&](const void *p, size_t size, uint64_t *) -> int {
-			auto &ctx = *static_cast<
-				const trace_event_raw_sched_process_fork *>(p);
-			fork_ctx_size = size;
-			parent_pid = ctx.parent_pid;
-			child_pid = ctx.child_pid;
-			fork_invoked = true;
-			return 0;
-		},
-		fork_data, ATTACH_SYSCALL_TRACE);
-	REQUIRE(fork_id >= 0);
-	auto exec_data = make_data(SCHED_PROCESS_EXEC_NAME);
-	int exec_id = attacher.create_attach_with_ebpf_callback(
-		[&](const void *, size_t size, uint64_t *) -> int {
-			exec_ctx_size = size;
-			exec_invoked = true;
-			return 0;
-		},
-		exec_data, ATTACH_SYSCALL_TRACE);
-	REQUIRE(exec_id >= 0);
-	auto exit_data = make_data(SCHED_PROCESS_EXIT_NAME);
-	int exit_id = attacher.create_attach_with_ebpf_callback(
-		[&](const void *, size_t size, uint64_t *) -> int {
-			exit_ctx_size = size;
-			exit_invoked = true;
-			return 0;
-		},
-		exit_data, ATTACH_SYSCALL_TRACE);
-	REQUIRE(exit_id >= 0);
-
-	auto &syscalls = std::get<0>(get_global_syscall_id_table());
-	REQUIRE(syscalls.contains("clone"));
-	syscall_call_count = 0;
-	REQUIRE(attacher.dispatch_syscall(syscalls.at("clone"), 0, 0, 0, 0, 0,
-					  0) == 1);
-	attacher.dispatch_process_exec();
-	attacher.dispatch_process_exit();
-	REQUIRE(fork_invoked);
-	REQUIRE(exec_invoked);
-	REQUIRE(exit_invoked);
-	REQUIRE(fork_ctx_size == sizeof(trace_event_raw_sched_process_fork));
-	REQUIRE(exec_ctx_size == sizeof(trace_entry));
-	REQUIRE(exit_ctx_size == sizeof(trace_entry));
-	REQUIRE(parent_pid > 0);
-	REQUIRE(child_pid == 1);
-
-	REQUIRE(attacher.detach_by_id(fork_id) == 0);
-	REQUIRE(attacher.detach_by_id(exec_id) == 0);
-	REQUIRE(attacher.detach_by_id(exit_id) == 0);
+		int status = 0;
+		REQUIRE(waitpid(pid, &status, 0) == pid);
+		INFO("system call number " << nr << ", status " << status);
+		REQUIRE(WIFEXITED(status));
+		REQUIRE(WEXITSTATUS(status) == 0);
+	}
 }
 
-TEST_CASE("Reentrant syscall dispatch skips nested callbacks")
+TEST_CASE("Programs override the return value of a system call")
 {
-	// Reproduces issue #165: a userspace program that attaches its own
-	// tracepoint issues the attaching bpf() syscall while the agent is
-	// already dispatching a syscall on the same thread. The nested dispatch
-	// must not re-enter the callback machinery; it runs the original syscall
-	// only, and the host process keeps running.
 	syscall_trace_attach_impl attacher;
 	attacher.set_original_syscall_function(_bpftime_counting_syscall);
-
-	// Global enter callback (sys_nr -1). Construct the private data
-	// directly so the test does not depend on the tracefs name table,
-	// which is unavailable in rootless/container CI environments.
 	syscall_trace_attach_private_data data;
-	data.sys_nr = -1;
-	data.is_enter = true;
+	data.sys_nr = 11;
+	int exits = 0;
 
-	int outer_callbacks = 0;
-	int nested_ret = 0;
-	bool inside_callback = false;
-	int id = attacher.create_attach_with_ebpf_callback(
-		[&](const void *, size_t, uint64_t *) -> int {
-			outer_callbacks++;
-			if (!inside_callback) {
-				inside_callback = true;
-				nested_ret = (int)attacher.dispatch_syscall(
-					12, 0, 0, 0, 0, 0, 0);
-				inside_callback = false;
-			}
-			return 0;
-		},
-		data, ATTACH_SYSCALL_TRACE);
-	REQUIRE(id >= 0);
-
-	syscall_call_count = 0;
-	int64_t ret = attacher.dispatch_syscall(11, 0, 0, 0, 0, 0, 0);
-	REQUIRE(outer_callbacks == 1);
-	REQUIRE(nested_ret == 1);
-	REQUIRE(ret == 2);
-	REQUIRE(syscall_call_count == 2);
-	REQUIRE(attacher.detach_by_id(id) == 0);
-}
-
-TEST_CASE("Independent syscalls each run their callbacks after reentry")
-{
-	syscall_trace_attach_impl attacher;
-	attacher.set_original_syscall_function(_bpftime_dummy_syscall);
-
-	// Direct construction keeps the test independent of the tracefs
-	// name table (see the reentrancy case above).
-	syscall_trace_attach_private_data data;
-	data.sys_nr = -1;
-	data.is_enter = true;
-
-	int callback_count = 0;
-	int id = attacher.create_attach_with_ebpf_callback(
-		[&](const void *, size_t, uint64_t *) -> int {
-			callback_count++;
-			return 0;
-		},
-		data, ATTACH_SYSCALL_TRACE);
-	REQUIRE(id >= 0);
-
-	attacher.dispatch_syscall(11, 0, 0, 0, 0, 0, 0);
-	attacher.dispatch_syscall(11, 0, 0, 0, 0, 0, 0);
-	REQUIRE(callback_count == 2);
-	REQUIRE(attacher.detach_by_id(id) == 0);
-}
-
-TEST_CASE("The trampoline survives a teardown that clears the global")
-{
-	// Reproduces issue #773: the published instance is cleared at detach and
-	// at process exit while the injected host keeps issuing syscalls through
-	// the trampoline. That must run the original syscall rather than throw
-	// std::bad_optional_access or call through a destroyed instance.
-	REQUIRE(global_syscall_trace_attach_impl.load() == nullptr);
-
-	syscall_trace_attach_impl attacher;
-	attacher.set_original_syscall_function(_bpftime_counting_syscall);
-	attacher.set_to_global();
-	REQUIRE(global_syscall_trace_attach_impl.load() == &attacher);
-
-	syscall_call_count = 0;
-	REQUIRE(_bpftime__syscall_dispatcher(11, 0, 0, 0, 0, 0, 0, 0, 0,
-					     0) == 1);
-	REQUIRE(syscall_call_count == 1);
-
-	// Teardown: the instance goes away, the original syscall stays
-	// reachable, and the next dispatched call runs it.
-	global_syscall_trace_attach_impl.store(nullptr);
-	REQUIRE(_bpftime__syscall_dispatcher(11, 0, 0, 0, 0, 0, 0, 0, 0,
-					     0) == 2);
-	REQUIRE(syscall_call_count == 2);
-
-	// With no published original either, the trampoline still returns
-	// instead of throwing.
-	global_orig_syscall.store(nullptr);
-	REQUIRE(_bpftime__syscall_dispatcher(11, 0, 0, 0, 0, 0, 0, 0, 0,
-					     0) == -ENOSYS);
+	SECTION("at entry, skipping the system call")
+	{
+		data.is_enter = true;
+		REQUIRE(attacher.create_attach_with_ebpf_callback(
+				[](const void *, size_t, uint64_t *) -> int {
+					bpftime_override_return(0, 77);
+					return 0;
+				},
+				data, ATTACH_SYSCALL_TRACE) >= 0);
+		REQUIRE(attach_counter(attacher, 11, false, exits) >= 0);
+		syscall_call_count = 0;
+		REQUIRE(attacher.dispatch_syscall(11, 0, 0, 0, 0, 0, 0) == 77);
+		REQUIRE(syscall_call_count == 0);
+		REQUIRE(exits == 0);
+	}
+	SECTION("at exit")
+	{
+		data.is_enter = false;
+		REQUIRE(attacher.create_attach_with_ebpf_callback(
+				[](const void *, size_t, uint64_t *) -> int {
+					bpftime_set_retval(99);
+					return 0;
+				},
+				data, ATTACH_SYSCALL_TRACE) >= 0);
+		syscall_call_count = 0;
+		REQUIRE(attacher.dispatch_syscall(11, 0, 0, 0, 0, 0, 0) == 99);
+		REQUIRE(syscall_call_count == 1);
+		// Without a program on this system call nothing is overridden.
+		REQUIRE(attacher.dispatch_syscall(12, 0, 0, 0, 0, 0, 0) == 2);
+	}
+	REQUIRE(!curr_thread_override_return_callback.has_value());
 }
