@@ -1,9 +1,10 @@
 # x86 跳板寄存器修复在 x86 上的验证（2026-10-29 夜，NUC）
 
-分两轮：
+分三轮：
 
 - 第 1 节、第 2 节：`0a602133`，在 x86 上链接失败。
-- 第 3 节起：`e299cd3f`（"text segment transformer: define the x86 XSAVE area size in the asm"），链接问题已修。验证通过，并按正确方式跑完了 syscount-nginx。
+- 第 3–6 节：`e299cd3f`（"text segment transformer: define the x86 XSAVE area size in the asm"），链接问题已修。验证通过，并按正确方式跑完了 syscount-nginx。
+- 第 7–8 节：`c23442ac`（"text segment transformer: register capstone x86 in setup_syscall_tracer"）。测试已修好，变异检查通过，并量出了修复本身的成本（`layers-cost/`）。
 
 ---
 
@@ -129,3 +130,29 @@ nginx 能起来，bpftime 的计数和内核一致（各系统调用的分布也
   - **缓存**：Jetson 的 perf 里看到的那种内核变慢。
 
   可以用写循环拆层（`../../x86-nuc-breakdown-20261029` 的 `run_layers.py`）在 `build-59e5e154` 和 `build-e299cd3f` 上对比 rewrite 一层，量出 XSAVE 修复本身的成本。
+
+---
+
+## 第三轮：`c23442ac`
+
+按 `summry/jetson` 的 `syscall/x86-nuc-x86-hook-registers-handoff-3-20261029.md` 做。
+
+## 7. 测试复查（`build-c23442ac/`，`mutation-c23442ac/`）
+
+- **构建**：选项同前，退出码 0，警告与 `build-59e5e154` 相同。
+- **每日过滤器**：113/113。
+- **`bpftime_syscall_trace_attach_tests`**（root）：8/8。
+- **`bpftime_text_segment_transformer_tests`**（root，`vm.mmap_min_addr` 65536 → 0 → 65536）：**连跑 3 次都是 3/3**（`tests-transformer-{1,2,3}.log`）。日志里不再有 capstone 报错，新用例的两个 SECTION 都通过。
+- **变异检查**：
+  - 做法：在临时 worktree 里检出 `c23442ac`，打上 `x86-hook-before-fix-mutation.patch`，用同样的选项构建测试，连跑 3 次（`mutation-c23442ac/`）。worktree 用完已删除。
+  - 结果：3 次都是 2/3，新用例两个 SECTION 都失败，失败原因是寄存器和 red zone 检查，不再是 capstone 的退出码 1。3 次报告的位置相同：
+    - **不挂 hook**（退出码 9）：red zone rsp−32 到 rsp−96 共 9 项被改。
+    - **挂 hook**（退出码 16）：xmm0、xmm1、xmm2 被改；red zone rsp−32 到 rsp−128 共 13 项被改。
+  - 注意：**挂 hook 的 SECTION 没有报 rdi…r9 被改**。
+    - 原因：测试的 `clobbering_hook` 只在调用 `next_hook` 之前用寄存器；而 `call_orig_syscall` 会从参数重新装回 rdi、rsi、rdx、r10、r8、r9，于是在旧跳板下它们碰巧保持了原值。
+    - 真正让 nginx 崩溃的是另一种情况：系统调用返回**之后**运行的 exit 程序改了 r8（regcheck 在 `59e5e154` 和变异构建上都能复现这一点）。
+    - 所以这个用例目前抓得到 red zone 和 xmm 的问题，但抓不到"参数寄存器没有恢复"。
+
+## 8. 修复本身的成本：见 `layers-cost/README.md`
+
+结论：每次系统调用固定多约 255 个周期（1.7 GHz 下约 150 ns），其中 XSAVE + XRSTOR 约 230 个周期。

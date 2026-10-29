@@ -1,0 +1,56 @@
+  20a770:	pop    %rax
+  20a771:	cmp    $0xf,%rax
+  20a775:	je     20a881 <handle_sigreturn>
+  20a77b:	cmp    $0x38,%rax
+  20a77f:	je     20a884 <handle_clone>
+  20a785:	cmp    $0x1b3,%rax
+  20a78b:	je     20a896 <handle_clone3>
+  20a791:	lea    -0x78(%rsp),%rsp
+  20a796:	push   %rbp
+  20a797:	mov    %rsp,%rbp
+  20a79a:	sub    $0x40,%rsp
+  20a79e:	mov    %rax,-0x8(%rbp)
+  20a7a2:	mov    %rdi,-0x10(%rbp)
+  20a7a6:	mov    %rsi,-0x18(%rbp)
+  20a7aa:	mov    %rdx,-0x20(%rbp)
+  20a7ae:	mov    %r10,-0x28(%rbp)
+  20a7b2:	mov    %r8,-0x30(%rbp)
+  20a7b6:	mov    %r9,-0x38(%rbp)
+  20a7ba:	sub    0x63d49f(%rip),%rsp        # 847c60 <bpftime_xsave_area_size>
+  20a7c1:	and    $0xffffffffffffffc0,%rsp
+  20a7c5:	xor    %eax,%eax
+  20a7c7:	mov    %rax,0x200(%rsp)
+  20a7cf:	mov    %rax,0x208(%rsp)
+  20a7d7:	mov    %rax,0x210(%rsp)
+  20a7df:	mov    %rax,0x218(%rsp)
+  20a7e7:	mov    %rax,0x220(%rsp)
+  20a7ef:	mov    %rax,0x228(%rsp)
+  20a7f7:	mov    %rax,0x230(%rsp)
+  20a7ff:	mov    %rax,0x238(%rsp)
+  20a807:	mov    $0xe7,%eax
+  20a80c:	xor    %edx,%edx
+  20a80e:	xsave  (%rsp)
+  20a812:	mov    -0x8(%rbp),%rdi
+  20a816:	mov    -0x10(%rbp),%rsi
+  20a81a:	mov    -0x18(%rbp),%rdx
+  20a81e:	mov    -0x20(%rbp),%rcx
+  20a822:	mov    -0x28(%rbp),%r8
+  20a826:	mov    -0x30(%rbp),%r9
+  20a82a:	sub    $0x8,%rsp
+  20a82e:	push   -0x38(%rbp)
+  20a831:	call   204720 <syscall_hooker_cxx@plt>
+  20a836:	add    $0x10,%rsp
+  20a83a:	mov    %rax,%r11
+  20a83d:	mov    $0xe7,%eax
+  20a842:	xor    %edx,%edx
+  20a844:	xrstor (%rsp)
+  20a848:	mov    %r11,%rax
+  20a84b:	mov    -0x10(%rbp),%rdi
+  20a84f:	mov    -0x18(%rbp),%rsi
+  20a853:	mov    -0x20(%rbp),%rdx
+  20a857:	mov    -0x28(%rbp),%r10
+  20a85b:	mov    -0x30(%rbp),%r8
+  20a85f:	mov    -0x38(%rbp),%r9
+  20a863:	leave
+  20a864:	lea    0x78(%rsp),%rsp
+  20a869:	ret
