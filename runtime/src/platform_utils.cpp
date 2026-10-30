@@ -35,3 +35,36 @@ int sched_setaffinity([[maybe_unused]]pid_t pid, [[maybe_unused]]size_t cpusetsi
 
 #endif
 
+#include <unistd.h>
+#if __linux__
+#include <cstdio>
+#endif
+
+int bpftime_num_possible_cpus()
+{
+    static const int count = [] {
+#if __linux__
+        // "0-5", "0,2-3": the highest number listed, plus one.
+        if (FILE *f = fopen("/sys/devices/system/cpu/possible", "re")) {
+            int highest = -1, a = 0, b = 0;
+            char sep = 0;
+            while (fscanf(f, "%d", &a) == 1) {
+                b = a;
+                if (fscanf(f, "%c", &sep) == 1 && sep == '-' &&
+                    fscanf(f, "%d", &b) == 1)
+                    fscanf(f, "%c", &sep);
+                if (b > highest)
+                    highest = b;
+                if (sep != ',')
+                    break;
+            }
+            fclose(f);
+            if (highest >= 0)
+                return highest + 1;
+        }
+#endif
+        const long conf = sysconf(_SC_NPROCESSORS_CONF);
+        return conf > 0 ? (int)conf : 1;
+    }();
+    return count;
+}
