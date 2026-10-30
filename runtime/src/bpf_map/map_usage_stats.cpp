@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 #include "bpf_map/map_usage_stats.hpp"
+#include "fork_handlers.hpp"
 
 #if BPFTIME_ENABLE_MAP_USAGE_STATS
 #include "handler/map_handler.hpp"
@@ -80,7 +81,8 @@ void install_exit_hooks()
 {
 	std::call_once(exit_hooks_once, [] {
 		atexit(dump_at_exit);
-		pthread_atfork(nullptr, nullptr, forget_parent_counts);
+		bpftime::register_fork_handlers(nullptr, nullptr,
+						forget_parent_counts);
 	});
 }
 
