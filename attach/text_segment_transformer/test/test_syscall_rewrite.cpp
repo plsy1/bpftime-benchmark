@@ -374,7 +374,7 @@ TEST_CASE("a library loaded while unhooked is not rewritten",
 }
 
 TEST_CASE("svc fallbacks in the vDSO are hooked",
-	  "[syscall-rewrite][coverage][!shouldfail]")
+	  "[syscall-rewrite][coverage]")
 {
 	int code = in_rewritten_child([] {
 		// The vDSO has no CPU-time clocks: __kernel_clock_gettime falls
@@ -385,6 +385,35 @@ TEST_CASE("svc fallbacks in the vDSO are hooked",
 			return 2;
 		if (calls[SYS_clock_gettime] != before + 1)
 			return 3;
+		return 0;
+	});
+	REQUIRE(code == 0);
+}
+
+TEST_CASE("the vDSO signal trampoline is left as it is",
+	  "[syscall-rewrite][coverage]")
+{
+	int code = in_rewritten_child([] {
+		// glibc's handlers return to __kernel_rt_sigreturn in the
+		// vDSO: their return address. Unwinders match its code.
+		static const uint32_t *trampoline = nullptr;
+		struct sigaction sa = {};
+		sa.sa_handler = [](int) {
+			trampoline = (const uint32_t *)__builtin_extract_return_addr(
+				__builtin_return_address(0));
+		};
+		sigemptyset(&sa.sa_mask);
+		if (sigaction(SIGUSR1, &sa, nullptr) != 0)
+			return 2;
+		kill(getpid(), SIGUSR1);
+		if (trampoline == nullptr)
+			return 3;
+		if (trampoline[0] != mov_x8(SYS_rt_sigreturn) ||
+		    trampoline[1] != SVC_0) {
+			fprintf(stderr, "trampoline %#x %#x\n", trampoline[0],
+				trampoline[1]);
+			return 4;
+		}
 		return 0;
 	});
 	REQUIRE(code == 0);
