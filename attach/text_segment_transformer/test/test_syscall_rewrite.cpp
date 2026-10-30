@@ -702,3 +702,31 @@ TEST_CASE("lazy mode works in fork children", "[syscall-rewrite][lazy]")
 	});
 	REQUIRE(code == 0);
 }
+
+TEST_CASE("lazy mode refuses execve", "[syscall-rewrite][lazy]")
+{
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		// The filter would outlive the exec and kill /bin/true.
+		char *const argv[] = { (char *)"true", nullptr };
+		if (execve("/bin/true", argv, environ) != -1 || errno != EPERM)
+			return 3;
+		int fd = open("/bin/true", O_RDONLY | O_CLOEXEC);
+		if (fd < 0)
+			return 4;
+		if (fexecve(fd, argv, environ) != -1 || errno != EPERM) // execveat
+			return 5;
+		close(fd);
+		// A bad path pointer is logged as "?", not read.
+		const char *volatile no_path = nullptr;
+		if (execve(no_path, argv, environ) != -1 || errno != EPERM)
+			return 6;
+		pid_t pid;
+		if (posix_spawn(&pid, "/bin/true", nullptr, nullptr, argv,
+				environ) != EPERM)
+			return 7;
+		return 0;
+	});
+	REQUIRE(code == 0);
+}
