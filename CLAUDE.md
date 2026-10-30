@@ -635,6 +635,48 @@ that reaches a never-rewritten `svc` is killed). Tests: `[lazy]` cases (first
 trap rewrites once, threads trapping on one site, SIGSYS kept deliverable,
 fork children, execve/fexecve/posix_spawn refused).
 
+Fixed after an independent review (results `reviews-20261031`), each with a
+`[lazy]` test that fails without it:
+- `patch_owner` has atfork handlers (prepare takes it unless this thread
+  holds it, the child clears it): a fork while another thread patched left
+  the child's lock owned by a thread it lacks, and its first trap spun forever
+  (8 of 20 children in the review).
+- Enabling is refused (warning naming the thread) while any thread has SIGSYS
+  in its `SigBlk` (`/proc/self/task/*/status`): the filter covers every
+  thread, the unblock only the caller, and a thread that had blocked all
+  signals died at its first trap.
+- The handler has `SA_ONSTACK`: a trap's frame is about 5 KiB, and a thread
+  with an alternate signal stack (every Go thread) takes it there.
+- Allowed code ranges are compared as `[lo + 4, hi + 4)` (the kernel reports
+  the address after the svc), and `call_orig_syscall`'s own svc is allowed
+  exactly, not its page: an svc in an allowed range's last word trapped, and
+  a relink putting `syscall_addr` in a page's last word (1 in 1024) would
+  have trapped the hook's own calls into unbounded recursion.
+- A process that may not write `/proc/self/mem` (not dumpable: setuid
+  programs, daemons after `PR_SET_DUMPABLE 0`) rewrites with `mprotect`
+  around the store instead, the page's protection read from
+  `/proc/self/maps` with raw system calls; every trap was emulated untraced.
+  The emulation path (no gate space) refuses execve too and sanitizes signal
+  masks (`sanitize_signal_call`), counting refusals for the next hooked call
+  to log.
+- `patch_lock` yields every 64 spins (a SCHED_FIFO spinner on the holder's
+  CPU).
+
+Known limits of the aarch64 rewriting (documented, not fixed):
+- A hooked call pushes 16 + 784 bytes before the C dispatch, about 1.3 KiB
+  with the agent's callback, plus the BPF stack when programs run; `svc`
+  needs none. Code on very small stacks (Go goroutine stacks, a sigaltstack
+  near MINSIGSTKSZ) can overflow; not tested with Go.
+- The gate's `stp x16, x17, [sp, #-16]!` needs a 16-byte aligned sp: hand
+  written code issuing `svc` with a misaligned sp gets SIGBUS once rewritten.
+- `mremap` moving rewritten code breaks the PC-relative `b` of its sites.
+- `in_hook` (below) stays set if a signal handler `siglongjmp`s out of a hook
+  that is running programs, or a vfork child sharing the thread's TLS is
+  killed inside the hook: that thread's calls are then untraced. Jumping out
+  of running programs is unsupported anyway (map locks may be held); a
+  stack-pointer check instead would let handlers on an alternate stack
+  re-enter the hook.
+
 ## System Call Hook Re-entrancy
 
 `syscall_hooker_cxx` (both architectures) runs the hook at most once per
