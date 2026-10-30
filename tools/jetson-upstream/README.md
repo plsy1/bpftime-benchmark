@@ -259,6 +259,15 @@ process's (`59e5e154`), and four x86 hook commits (`0a602133` registers,
 x86 ones are verified on the NUC, not here (the x86 rewriting test needs root
 and `vm.mmap_min_addr=0`).
 
+Four commits accepted 2026-10-30 make the default hash map scale with
+threads: lookups without a lock (`9c3e0345`, its test fixed in `33bd3d13`),
+writers locking stripes of buckets (`cb3f29d2`), and per-stripe element
+tokens with a one-line stripe state (`f4fdcbcd`). Their tests
+(`[bpftime_hash_map][concurrency]`: torn keys, a reference under
+contention, exact capacity, wrap-around, processes mapping the segment at
+different addresses) are in the focused filter through `[bpftime_hash_map]`.
+Results: `uprobe/hash-striped-writers-20261030` in the results branch.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
