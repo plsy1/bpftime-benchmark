@@ -40,6 +40,8 @@ typedef int gboolean;
 #define FALSE 0
 #endif
 #include <cstdint>
+#include <cxxabi.h>
+#include <unwind.h>
 #include <dlfcn.h>
 #include <link.h>
 #ifdef __linux__
@@ -1289,6 +1291,11 @@ extern "C" int64_t syscall_callback(int64_t sys_nr, int64_t arg1, int64_t arg2,
 				sys_nr, arg1, arg2, arg3, arg4, arg5, arg6,
 				user_ip, user_sp, user_bp);
 		}
+	} catch (abi::__forced_unwind &) {
+		// pthread_cancel of a thread blocked in the system call unwinds
+		// through here to the application's cleanup; swallowing it
+		// aborts the process.
+		throw;
 	} catch (...) {
 	}
 	if (orig_hooker != nullptr)
@@ -1311,6 +1318,14 @@ _bpftime__setup_syscall_trace_callback(syscall_hooker_func_t *hooker)
 {
 	if (hooker == nullptr)
 		return;
+	// Loaded with dlmopen, this library has its own libgcc_s, whose
+	// register size table is filled on its first unwind. A forced unwind
+	// (pthread_cancel of a thread blocked in a hooked call) is driven by
+	// the application's libgcc_s, but this library's frames call their own
+	// personality, and its _Unwind_SetGR aborted on the empty table: fill
+	// it now.
+	_Unwind_Backtrace([](_Unwind_Context *, void *) { return _URC_NO_REASON; },
+			  nullptr);
 	orig_hooker = *hooker;
 	*hooker = &syscall_callback;
 	gboolean val = FALSE;
