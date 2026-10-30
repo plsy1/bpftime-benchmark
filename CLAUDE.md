@@ -505,12 +505,16 @@ permitted concurrent modification. Failures (including restoring a page's
 protection) skip the site or mapping and log; they never end the host. The asm lives in file-scope blocks
 and `syscall_hooker_cxx` is `used`: LTO dropped them from executables.
 Code that becomes executable later is rewritten when it is mapped:
-after a hooked `mmap`, `mprotect` or `pkey_mprotect` succeeds with
-`PROT_EXEC`, `after_hooked_syscall` rescans just that range (inside the
-re-entrancy guard, under `rescan_mutex`, which an atfork handler keeps from
-being inherited locked), so a library loaded with dlopen is rewritten before
-it runs. JIT code (anonymous) is covered only with
-`BPFTIME_SYSCALL_REWRITE_ANON=1`. The rescan runs inside ld.so's dlopen with
+after a hooked `mmap` of a file succeeds with `PROT_EXEC`,
+`after_hooked_syscall` rescans just that range (inside the re-entrancy
+guard, under `rescan_mutex`, which an atfork handler keeps from being
+inherited locked), so a library loaded with dlopen is rewritten before it
+runs (ld.so maps code executable from its file). Anonymous `mmap` and every
+`mprotect`/`pkey_mprotect` to `PROT_EXEC` are rescanned only with
+`BPFTIME_SYSCALL_REWRITE_ANON=1` (JIT code; a file mapped first without
+`PROT_EXEC`, such as a text relocation, is not covered otherwise). The
+decision is taken from the call's arguments: reading `/proc/self/maps` for
+every JIT `mprotect` cost 190 us per call. The rescan runs inside ld.so's dlopen with
 the loader lock held: never call `dl_iterate_phdr`, `dlsym` or `dlopen`
 there. Trampoline regions are recorded and never scanned. The agent's
 namespace is loaded inside an `unhooked_scope`, so its own libc stays
