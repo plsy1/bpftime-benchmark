@@ -301,6 +301,22 @@ thread (getpid and gettid are system calls); the atfork child handler clears
 the cache, and the shard match still compares pid and tid. Keep both, or a
 fork child would write into its parent's shard.
 
+Idle shards of dead threads are reclaimed by probing (pid, tid) with tgkill.
+Each shard records its producer's pid namespace (inode of `/proc/self/ns/pid`);
+a reclaimer probes only shards of its own namespace. A producer in a container
+sharing `/dev/shm` with the tool used to lose its live, idle shard (tgkill from
+the host: ESRCH) and the lost-sample count in it. Test: "Software perf event
+shards of another pid namespace are not reclaimed".
+
+Not handled (documented): a process killed while holding `shard_lock`, the
+ringbuf's `reserve_spin_lock` or a map's `map_lock` (per-CPU hash: every
+operation) leaves every later user spinning, like the hash map stripes. A
+consumer killed between delivering a record and releasing the shard tail
+redelivers it on the next drain, and one killed while waiting leaves
+`waiters` above zero (every watermark output then pays a futex wake).
+`map_lock` is initialized `PTHREAD_PROCESS_SHARED` (glibc ignores the flag for
+spin locks; the lock is shared between processes).
+
 ## Credential Cache
 
 `bpf_get_current_uid_gid` may cache the real uid/gid only while every change of

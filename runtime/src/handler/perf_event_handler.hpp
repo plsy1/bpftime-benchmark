@@ -117,6 +117,9 @@ struct software_perf_event_buffer {
 struct software_perf_event_shard {
 	int pid;
 	int64_t tid;
+	// The producer's pid namespace (inode of /proc/self/ns/pid; 0 if
+	// unknown): pid and tid mean something only there.
+	uint64_t pid_namespace = 0;
 	uint64_t generation;
 	uint64_t buffer_generation;
 	software_perf_event_buffer buffer;
