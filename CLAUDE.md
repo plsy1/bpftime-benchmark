@@ -709,6 +709,16 @@ calling CPU's value), `BPF_EXIST` on a missing key with `ENOENT`, a new key in a
 full map with `E2BIG` (eight-byte and larger keys had no limit). Lookups still
 return a pointer used after the lock is released, as for hash maps.
 
+Per-CPU maps (hash and array) hold `bpftime_num_possible_cpus()` values per
+key: the highest number in `/sys/devices/system/cpu/possible` plus one, as
+libbpf counts. It used to be `_SC_NPROCESSORS_ONLN` at creation, and nothing
+checked `sched_getcpu()` against it: a CPU numbered at or above the online
+count (a core a power mode had offlined, back online) read and wrote past the
+values, and a failed `sched_getcpu()` (-1) before them. Every path indexing
+by the current CPU now checks it (lookup: ENOENT, update/delete: EINVAL), like
+the JIT binding `lookup_bound` already did. Test: `[cpu-bounds]` (maps made for
+one CPU, the thread pinned to CPU 1).
+
 ## Cgroup Array And bpf_current_task_under_cgroup
 
 `BPF_MAP_TYPE_CGROUP_ARRAY` (`cgroup_array_map_impl`) stores, per slot, the
