@@ -472,6 +472,21 @@ C struct with an 8-byte member has a size that is a multiple of 8, so only
 packed structs could misalign there. Test: `[alignment]` (key sizes 1-64,
 value sizes 4-24, an atomic add on every value).
 
+A stripe without tokens, once the pool is empty, takes a batch (up to
+`TOKEN_BATCH`) from other stripes while it holds every stripe, instead of one
+token per insert (which locked every stripe on each insert near capacity).
+Test: `[tokens]`.
+
+Known, not changed: `hash_func` (4 bytes: 29791, 961, 31, 1 per byte; others
+byte-wise times 31) maps keys with fixed low bytes (packed fields, `id << 16`)
+to few adjacent homes: 10,000 such u32 keys in 20,000 entries gave a probe
+bound of 9,945 (an independent review's stress run: 170,707), and every miss
+homing there probes the whole run. MurmurHash3's 32-bit finalizer brought it
+under 64 but made 6-thread churn 1.2-1.4% slower in two runs; its 64-bit
+finalizer made a 900K-entry table of u64 address keys 3.1% slower (they rely
+on `hash_func`'s locality). Neither was committed (results
+`reviews-20261031/fixes/hash-ab`, `hash-ab2`).
+
 ## llvmbpf Local Call Overlay
 
 `vm/compat/llvm-vm/local-call-return-block.patch` generates
