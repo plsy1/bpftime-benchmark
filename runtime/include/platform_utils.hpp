@@ -28,4 +28,7 @@
 #endif
 
 int my_sched_getcpu(); 
+// Number of possible CPUs (highest possible CPU number + 1), as libbpf counts
+// them for per-CPU map values: CPUs can come online after a map is created.
+int bpftime_num_possible_cpus();
 #endif
