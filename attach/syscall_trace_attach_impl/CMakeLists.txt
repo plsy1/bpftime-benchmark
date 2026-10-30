@@ -1,6 +1,7 @@
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/syscall_id_list.h
     COMMAND /bin/bash ${CMAKE_CURRENT_SOURCE_DIR}/generate_syscall_id_table.sh "${CMAKE_CURRENT_BINARY_DIR}/syscall_id_list.h"
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/generate_syscall_id_table.sh
     USES_TERMINAL
 )
 add_custom_target(
