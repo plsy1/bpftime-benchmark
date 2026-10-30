@@ -22,6 +22,7 @@ set(TEST_SOURCES
     maps/test_shm_hash_maps.cpp
     maps/test_external_map_ops.cpp
     maps/test_bpftime_hash_map.cpp
+    maps/test_hash_map_value_alignment.cpp
     maps/test_hash_map_lockfree_lookup.cpp
     maps/test_hash_map_striped_writers.cpp
     maps/test_fix_hash_map.cpp
