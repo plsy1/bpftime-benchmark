@@ -20,6 +20,7 @@
 #include <ucontext.h>
 #include <sys/syscall.h>
 #include <sys/mman.h>
+#include <sys/uio.h>
 #include <vector>
 #include <cstdint>
 #include <unistd.h>
@@ -447,7 +448,9 @@ extern "C" __attribute__((used)) int64_t syscall_hooker_cxx(int64_t sys_nr, int6
 	if (__builtin_expect(sys_nr == SYS_mmap || sys_nr == SYS_mprotect ||
 				     sys_nr == SYS_pkey_mprotect ||
 				     sys_nr == SYS_rt_sigaction ||
-				     sys_nr == SYS_rt_sigprocmask,
+				     sys_nr == SYS_rt_sigprocmask ||
+				     sys_nr == SYS_execve ||
+				     sys_nr == SYS_execveat,
 			     0))
 		return hook_special_call(sys_nr, arg1, arg2, arg3, arg4, arg5,
 					 arg6);
@@ -1328,11 +1331,38 @@ static void after_hooked_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
 	rescan(addr, (uint64_t)arg2);
 }
 
+// Logs the path without trusting the pointer (execve itself would report
+// EFAULT for a bad one).
+static void refuse_exec(int64_t sys_nr, int64_t arg1, int64_t arg2)
+{
+	int64_t path = sys_nr == SYS_execve ? arg1 : arg2;
+	char buf[256] = {};
+	size_t len = std::min<size_t>(sizeof(buf) - 1,
+				      page_size - ((uint64_t)path % page_size));
+	iovec local = { buf, len }, remote = { (void *)path, len };
+	if (path == 0 ||
+	    raw_syscall(SYS_process_vm_readv, raw_syscall(SYS_getpid),
+			(int64_t)&local, 1, (int64_t)&remote, 1, 0) < 0)
+		strcpy(buf, "?");
+	else if (buf[0] == 0 && sys_nr == SYS_execveat) // fexecve
+		snprintf(buf, sizeof(buf), "fd %d", (int)arg1);
+	SPDLOG_WARN("Lazy rewriting: execve of {} refused (EPERM): the seccomp "
+		    "filter would kill the new program",
+		    buf);
+}
+
 static bool before_hooked_syscall(int64_t sys_nr, int64_t &arg1, int64_t &arg2,
 				  int64_t &arg3, uint64_t *scratch, int64_t &ret)
 {
 	if (!lazy_active.load(std::memory_order_relaxed))
 		return false;
+	if (sys_nr == SYS_execve || sys_nr == SYS_execveat) {
+		// The filter survives execve, our handler does not: the new
+		// program would be killed at its first system call.
+		refuse_exec(sys_nr, arg1, arg2);
+		ret = -EPERM;
+		return true;
+	}
 	// A trap with SIGSYS blocked or ignored kills the process.
 	const uint64_t sigsys = 1ull << (SIGSYS - 1);
 	if (sys_nr == SYS_rt_sigprocmask) {
