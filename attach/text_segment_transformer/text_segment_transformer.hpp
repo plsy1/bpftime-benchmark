@@ -15,6 +15,17 @@ void setup_syscall_tracer();
 syscall_hooker_func_t get_call_hook();
 // Set the syscall callback function
 void set_call_hook(syscall_hooker_func_t hook);
+// While one exists, this thread's system calls bypass the hook, and code it
+// maps is not rewritten (aarch64): for loading the agent's own namespace.
+class unhooked_scope {
+	bool previous;
+
+    public:
+	unhooked_scope();
+	~unhooked_scope();
+	unhooked_scope(const unhooked_scope &) = delete;
+	unhooked_scope &operator=(const unhooked_scope &) = delete;
+};
 } // namespace bpftime
 
 #endif

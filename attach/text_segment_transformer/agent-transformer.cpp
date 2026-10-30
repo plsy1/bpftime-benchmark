@@ -1,3 +1,4 @@
+#include <optional>
 #include "spdlog/cfg/env.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/stdout_sinks.h"
@@ -73,6 +74,10 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 	SPDLOG_DEBUG("Using agent {}", agent_so);
 	bpftime::setup_syscall_tracer();
 	SPDLOG_DEBUG("Loading dynamic library..");
+	// The agent's namespace (its own libc included) must not be rewritten
+	// as code mapped later.
+	std::optional<bpftime::unhooked_scope> unhooked;
+	unhooked.emplace();
 	auto next_handle = bpftime::load_agent_in_new_namespace(agent_so);
 	if (next_handle == nullptr) {
 		SPDLOG_ERROR("Failed to open agent: {}", dlerror());
@@ -97,6 +102,7 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 	syscall_hooker_func_t orig_syscall_hooker_func =
 		bpftime::get_call_hook();
 	entry_func(&orig_syscall_hooker_func);
+	unhooked.reset();
 	bpftime::set_call_hook(orig_syscall_hooker_func);
 	SPDLOG_DEBUG("Transformer exiting, syscall trace is usable now");
 }
