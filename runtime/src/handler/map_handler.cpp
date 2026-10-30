@@ -74,7 +74,10 @@ uint32_t bpf_map_handler::get_userspace_value_size() const
 	auto result = value_size;
 	if ((type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY) ||
 	    (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH)) {
-		result *= sysconf(_SC_NPROCESSORS_ONLN);
+		// libbpf's layout: a value per possible CPU, each rounded up to
+		// 8 bytes (the maps convert from their packed values).
+		result = percpu_userspace_stride(value_size) *
+			 bpftime_num_possible_cpus();
 	}
 #ifdef BPFTIME_BUILD_WITH_LIBBPF
 	if (type == bpf_map_type::BPF_MAP_TYPE_KERNEL_USER_PERCPU_ARRAY) {
