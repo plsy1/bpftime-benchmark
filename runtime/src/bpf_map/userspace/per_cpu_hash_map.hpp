@@ -193,7 +193,8 @@ class per_cpu_hash_map_impl {
 	// must not index past it.
 	bool valid_cpu(int cpu) const
 	{
-		return cpu >= 0 && cpu < ncpu;
+		// One unsigned compare covers -1 too.
+		return __builtin_expect((unsigned)cpu < (unsigned)ncpu, 1);
 	}
 	bool uses_uint32_keys() const
 	{
