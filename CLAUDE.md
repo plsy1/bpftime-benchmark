@@ -656,6 +656,15 @@ cpp expand every `__NR_` name (x86 output unchanged, byte for byte), and the
 header depends on the script so existing build directories regenerate it.
 Test: "System call names map to their numbers" (needs no tracefs).
 
+## Path Helpers
+
+`bpftime_get_abs_path` (1003) and `bpftime_path_join` (1004) in
+`runtime/extension/extension_helper.cpp` are in the ufunc group. From 2bcf61f3
+(2023-12) to 2026-10 they sat under `#if BPFTIME_ENABLE_FS_HELPER`, which
+nothing defined: a program calling one failed to JIT and was disabled
+(benchmark/fuse's fs-cache never cached). Each call of 1003 makes a `getcwd`
+system call (`std::filesystem::absolute`). Test: `[helpers]`.
+
 ## Per-CPU Hash Maps
 
 Only the values of `per_cpu_hash_map_impl` are per CPU: the key index (Boost
