@@ -17,6 +17,7 @@
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/allocators/allocator.hpp>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <spdlog/fmt/bin_to_hex.h>
 #include <atomic>
 #include <cerrno>
@@ -115,6 +116,16 @@ uint64_t next_software_perf_event_generation()
 	uint64_t generation =
 		next_generation.fetch_add(1, std::memory_order_relaxed);
 	return ((uint64_t)(uint32_t)getpid() << 32) ^ generation;
+}
+
+uint64_t current_pid_namespace()
+{
+#if __linux__
+	struct stat st;
+	if (stat("/proc/self/ns/pid", &st) == 0)
+		return (uint64_t)st.st_ino;
+#endif
+	return 0;
 }
 
 bool is_thread_alive(int pid, int64_t tid)
@@ -610,6 +621,7 @@ software_perf_event_shard &software_perf_event_data::get_current_thread_shard()
 				     manager,
 				     consumer_buffer.mmap_buffer.size());
 	auto &shard = producer_shards.back();
+	shard.pid_namespace = current_pid_namespace();
 	if (software_perf_event_shard_cache.size() >=
 	    max_software_perf_event_shard_cache_entries) {
 		software_perf_event_shard_cache.clear();
@@ -647,10 +659,16 @@ void software_perf_event_data::maybe_reclaim_inactive_producer_shards_locked()
 
 void software_perf_event_data::reclaim_inactive_producer_shards_locked()
 {
+	// A thread of another pid namespace cannot be probed by its pid from
+	// here (tgkill fails with ESRCH or hits an unrelated thread): its shard
+	// stays, with its lost-sample count, until a reclaimer of its namespace
+	// finds it dead.
+	const uint64_t pid_namespace = current_pid_namespace();
 	for (auto itr = producer_shards.begin();
 	     itr != producer_shards.end();) {
 		auto &shard = *itr;
 		if (!shard.buffer.has_data() &&
+		    shard.pid_namespace == pid_namespace &&
 		    !is_thread_alive(shard.pid, shard.tid)) {
 			itr = producer_shards.erase(itr);
 		} else {
