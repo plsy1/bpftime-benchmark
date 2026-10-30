@@ -150,3 +150,38 @@ TEST_CASE("Threads using both namespaces' keys exit cleanly")
 			return bad + agent.wrong() + wrong_process_values(keys);
 		}) == 0);
 }
+
+// pthread_atfork in the agent registers with the agent namespace's libc,
+// which the application's fork (main libc) never runs: children kept the
+// parent's cached pid, perf shard and probe pid. The transformer forwards
+// the main libc's fork handlers to the agent's bpftime_agent_fork_hook.
+TEST_CASE("Fork handlers of an agent in its own namespace run in fork children")
+{
+	int code = in_child([] {
+		void *handle = bpftime::load_agent_in_new_namespace(
+			FAKE_AGENT_FORK_PATH);
+		if (handle == nullptr) {
+			fprintf(stderr, "load: %s\n", dlerror());
+			return 2;
+		}
+		auto cached_pid =
+			(pid_t (*)())dlsym(handle, "fake_agent_cached_pid");
+		auto counts = (int (*)())dlsym(handle, "fake_agent_fork_counts");
+		if (!cached_pid || !counts || cached_pid() != getpid())
+			return 3;
+		if (!bpftime::install_agent_fork_hook(handle))
+			return 4;
+		fflush(nullptr);
+		pid_t pid = fork();
+		if (pid == 0)
+			_exit(cached_pid() == getpid() ? 0 : 5);
+		int status = 0;
+		if (waitpid(pid, &status, 0) != pid || !WIFEXITED(status))
+			return 6;
+		if (WEXITSTATUS(status) != 0)
+			return WEXITSTATUS(status);
+		// One prepare and one parent handler ran here.
+		return counts() == 11 && cached_pid() == getpid() ? 0 : 7;
+	});
+	REQUIRE(code == 0);
+}

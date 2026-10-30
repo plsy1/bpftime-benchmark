@@ -91,9 +91,10 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 		SPDLOG_ERROR("Failed to open agent: {}", dlerror());
 		return;
 	}
-	// Set the `injected_with_frida` flag when the agent exports it. The
-	// syscall-server does not, so a missing symbol only skips the assignment;
-	// returning here would also skip seccomp setup and break rootless tracing.
+	if (!bpftime::install_agent_fork_hook(next_handle))
+		SPDLOG_WARN(
+			"Agent has no bpftime_agent_fork_hook: its fork handlers will not run in fork children");
+	// Set the flag `injected_with_frida` for agent
 	bool *injected_with_frida__agent =
 		(bool *)dlsym(next_handle, "injected_with_frida");
 	if (injected_with_frida__agent)
