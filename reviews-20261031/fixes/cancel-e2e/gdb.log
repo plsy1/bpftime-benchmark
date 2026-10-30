@@ -1,0 +1,36 @@
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+[2026-10-31 03:06:47.025] [stderr] [info] [text_segment_transformer.cpp:1649] Rewrote 568 of 568 svc instructions
+[New Thread 0xffffe35ec120 (LWP 991100)]
+[New Thread 0xffffe2ddc120 (LWP 991101)]
+[New Thread 0xffffe256c120 (LWP 991102)]
+
+Thread 4 "cancel" received signal SIGABRT, Aborted.
+[Switching to Thread 0xffffe256c120 (LWP 991102)]
+__pthread_kill_implementation (threadid=281474479079712, signo=signo@entry=6, no_tid=no_tid@entry=0) at ./nptl/pthread_kill.c:44
+warning: 44	./nptl/pthread_kill.c: No such file or directory
+#0  __pthread_kill_implementation (threadid=281474479079712, signo=signo@entry=6, no_tid=no_tid@entry=0) at ./nptl/pthread_kill.c:44
+#1  0x0000fffff7897540 in __pthread_kill_internal (signo=6, threadid=<optimized out>) at ./nptl/pthread_kill.c:78
+#2  0x0000fffff784cb3c in __GI_raise (sig=sig@entry=6) at ../sysdeps/posix/raise.c:26
+#3  0x0000fffff7837e00 in __GI_abort () at ./stdlib/abort.c:79
+#4  0x0000fffff3e849a8 in _Unwind_SetGR () from /lib/aarch64-linux-gnu/libgcc_s.so.1
+#5  0x0000fffff3f59b50 [PAC] in __gxx_personality_v0 () from /lib/aarch64-linux-gnu/libstdc++.so.6
+#6  0x0000fffff7c5741c [PAC] in ?? () from /lib/aarch64-linux-gnu/libgcc_s.so.1
+#7  0x0000fffff7c57810 [PAC] in _Unwind_ForcedUnwind () from /lib/aarch64-linux-gnu/libgcc_s.so.1
+#8  0x0000fffff7b0e938 [PAC] in __GI___pthread_unwind (buf=<optimized out>) at ./nptl/unwind.c:130
+#9  0x0000fffff7b038c8 in __do_cancel () at ../sysdeps/nptl/pthreadP.h:271
+#10 sigcancel_handler (sig=32, si=<optimized out>, ctx=<optimized out>) at ./nptl/pthread_cancel.c:65
+#11 sigcancel_handler (sig=<optimized out>, si=<optimized out>, ctx=<optimized out>) at ./nptl/pthread_cancel.c:32
+#12 <signal handler called>
+#13 0x0000fffff7f47710 in call_orig_syscall () from /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/attach/text_segment_transformer/libbpftime-agent-transformer.so
+#14 0x0000fffff7f47d30 in call_unguarded_syscall (sys_nr=<optimized out>, arg1=<optimized out>, arg2=<optimized out>, arg3=<optimized out>, arg4=<optimized out>, arg5=<optimized out>, arg6=<optimized out>) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/attach/text_segment_transformer/text_segment_transformer.cpp:91
+#15 0x0000fffff48779d8 in bpftime::attach::syscall_trace_attach_impl::dispatch_syscall (arg6=281474479079712, arg5=0, arg4=0, arg3=1, arg2=281474479077447, arg1=8, sys_nr=63, this=0xfffff3da62c0) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/attach/syscall_trace_attach_impl/src/syscall_trace_attach_impl.cpp:42
+#16 syscall_callback (sys_nr=63, arg1=8, arg2=281474479077447, arg3=1, arg4=0, arg5=0, arg6=281474479079712) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/agent/agent.cpp:1238
+#17 0x0000fffff7f4ecb8 in syscall_hooker_cxx (sys_nr=<optimized out>, arg1=<optimized out>, arg2=<optimized out>, arg3=<optimized out>, arg4=<optimized out>, arg5=<optimized out>, arg6=<optimized out>) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/attach/text_segment_transformer/text_segment_transformer.cpp:513
+#18 0x0000fffff7f47634 in syscall_hooker_asm () from /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/attach/text_segment_transformer/libbpftime-agent-transformer.so
+#19 0x0000fffff7b61134 in __GI___libc_read (nbytes=1, buf=0xffffe256b847, fd=8) at ../sysdeps/unix/sysv/linux/read.c:26
+#20 __GI___libc_read (fd=8, buf=0xffffe256b847, nbytes=1) at ../sysdeps/unix/sysv/linux/read.c:24
+#21 0x0000aaaaaaaa0cd8 in reader(void*) ()
+#22 0x0000fffff7b0582c in start_thread (arg=0xfffff7ff3760) at ./nptl/pthread_create.c:447
+#23 0x0000fffff7b6ba0c in thread_start () at ../sysdeps/unix/sysv/linux/aarch64/clone3.S:76
+pc             0xfffff78974d8      0xfffff78974d8 <__pthread_kill_implementation+312>

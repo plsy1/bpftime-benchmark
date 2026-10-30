@@ -27,3 +27,7 @@ stripe-relaxed stripe-tokens + relaxed probe-bound loads + dmb ishst before writ
 stripe-view   stripe-tokens + shared vectors resolved to plain pointers once per operation (candidate.diff; candidate build-jetson-daily)
 stripe-line   stripe-view + one-line stripe state holding the probe bound (11 tracked distances) (candidate.diff; candidate build-jetson-daily)
 f4fdcbcd: dev/uprobe-official-177a1dc465ff commit f4fdcbcd (hash map: per-stripe tokens, one-line stripe state, resolved views); binaries identical to stripe-line.
+hash-fmix     dev b9c849fb + hash map: MurmurHash3 finalizers for 4/8-byte keys, token batches (candidate.diff; candidate build-jetson-daily)
+dev-b9c849fb  dev b9c849fb (review fixes A-E; B1 hash value alignment) (candidate build-jetson-daily)
+hash-fmix4    dev b9c849fb + hash map: MurmurHash3 finalizer for 4-byte keys only, token batches (candidate.diff; candidate build-jetson-daily)
+dev-8c108309  dev 8c108309 (all review fixes; candidate build-jetson-daily)
