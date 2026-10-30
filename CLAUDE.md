@@ -499,7 +499,19 @@ Each site is one aligned word store plus an I-cache flush; `svc` -> `b` is a
 permitted concurrent modification. Failures (including restoring a page's
 protection) skip the site or mapping and log; they never end the host. The asm lives in file-scope blocks
 and `syscall_hooker_cxx` is `used`: LTO dropped them from executables.
-Code loaded later (dlopen, JIT) is not rewritten. Tests:
+Code that becomes executable later is rewritten when it is mapped:
+after a hooked `mmap`, `mprotect` or `pkey_mprotect` succeeds with
+`PROT_EXEC`, `after_hooked_syscall` rescans just that range (inside the
+re-entrancy guard, under `rescan_mutex`, which an atfork handler keeps from
+being inherited locked), so a library loaded with dlopen is rewritten before
+it runs. JIT code (anonymous) is covered only with
+`BPFTIME_SYSCALL_REWRITE_ANON=1`. The rescan runs inside ld.so's dlopen with
+the loader lock held: never call `dl_iterate_phdr`, `dlsym` or `dlopen`
+there. Trampoline regions are recorded and never scanned. The agent's
+namespace is loaded inside an `unhooked_scope`, so its own libc stays
+unrewritten; a library the agent itself dlopens later in its namespace
+would be rewritten (it does not today). Gates of an unloaded library are
+left mapped. Tests:
 `bpftime_text_segment_transformer_tests` (aarch64; each case rewrites a
 forked child): register preservation, arguments/results/override, threads,
 fork/clone/posix_spawn, signals, own restorer.
