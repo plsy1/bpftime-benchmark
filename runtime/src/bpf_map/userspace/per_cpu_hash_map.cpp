@@ -60,7 +60,7 @@ per_cpu_hash_map_impl::per_cpu_hash_map_impl(
 	boost::interprocess::managed_shared_memory &memory, uint32_t key_size,
 	uint32_t value_size, uint32_t max_entries)
 	: per_cpu_hash_map_impl(memory, key_size, value_size, max_entries,
-				sysconf(_SC_NPROCESSORS_ONLN))
+				bpftime_num_possible_cpus())
 {
 }
 
@@ -165,7 +165,7 @@ per_cpu_hash_map_impl::elem_lookup(const void *key)
 {
 	int cpu = my_sched_getcpu();
 	SPDLOG_DEBUG("Run per cpu hash lookup at cpu {}", cpu);
-	if (key == nullptr) {
+	if (key == nullptr || !valid_cpu(cpu)) {
 		errno = ENOENT;
 		return nullptr;
 	}
@@ -234,12 +234,10 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
 		return -1;
 	flags &= 0xFFFFFFFFULL;
 	int cpu = my_sched_getcpu();
-	SPDLOG_DEBUG(
-		"Per cpu update, key {}, value {}",
-		spdlog::to_hex((const uint8_t *)key,
-			       (const uint8_t *)key + key_size),
-		spdlog::to_hex((const uint8_t *)value,
-			       (const uint8_t *)value + value_size));
+	if (!valid_cpu(cpu)) {
+		errno = EINVAL;
+		return -1;
+	}
 
 	SPDLOG_DEBUG("Run per cpu hash update at cpu {}", cpu);
 	const auto mode = get_map_production_ab_mode();
@@ -330,6 +328,10 @@ long per_cpu_hash_map_impl::elem_delete(const void *key)
 {
 	int cpu = my_sched_getcpu();
 	SPDLOG_DEBUG("Run per cpu hash delete at cpu {}", cpu);
+	if (!valid_cpu(cpu)) {
+		errno = EINVAL;
+		return -1;
+	}
 	if (uses_uint32_keys()) {
 		uint32_t key_value;
 		std::memcpy(&key_value, key, sizeof(key_value));
