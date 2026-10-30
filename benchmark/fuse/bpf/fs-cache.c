@@ -32,6 +32,19 @@ static void sig_int(int signo)
 	exiting = 1;
 }
 
+static bool tracepoint_exists(const char *event)
+{
+	char path[256];
+
+	snprintf(path, sizeof(path),
+		 "/sys/kernel/tracing/events/syscalls/%s/id", event);
+	if (access(path, F_OK) == 0)
+		return true;
+	snprintf(path, sizeof(path),
+		 "/sys/kernel/debug/tracing/events/syscalls/%s/id", event);
+	return access(path, F_OK) == 0;
+}
+
 int main(int argc, char **argv)
 {
 	LIBBPF_OPTS(bpf_object_open_opts, open_opts);
@@ -48,6 +61,15 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	/* initialize global data (filtering options) */
+
+	/* aarch64 and other new architectures have no open(2), so no
+	 * syscalls/sys_{enter,exit}_open tracepoints (as opensnoop does) */
+	if (!tracepoint_exists("sys_enter_open")) {
+		bpf_program__set_autoload(
+			obj->progs.tracepoint__syscalls__sys_enter_open, false);
+		bpf_program__set_autoload(
+			obj->progs.tracepoint__syscalls__sys_exit_open, false);
+	}
 
 	err = fs_cache_bpf__load(obj);
 	if (err)
