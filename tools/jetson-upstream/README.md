@@ -268,6 +268,18 @@ contention, exact capacity, wrap-around, processes mapping the segment at
 different addresses) are in the focused filter through `[bpftime_hash_map]`.
 Results: `uprobe/hash-striped-writers-20261030` in the results branch.
 
+Nine commits accepted 2026-10-30 close coverage gaps of the aarch64 system
+call rewriting: tests for what it misses (`e430ea53`; the JIT case stays
+`[!shouldfail]`), the hook not hooking its own calls (`014935f6`, a python3
+crash under syscount), only ELF code sections scanned (`38d92964`; anonymous
+mappings with `BPFTIME_SYSCALL_REWRITE_ANON=1`), rescans of code mapped
+executable later (`74c215a7`, decided from the call's arguments in
+`7722084c`), the vDSO's fallback `svc` (`d9c4f1b6`), a short hook common
+path (`166c6016`), and an opt-in seccomp lazy mode (`BPFTIME_SYSCALL_LAZY=1`,
+`d807ef93`) that refuses execve (`2ecc32cb`). Their tests are in
+`bpftime_text_segment_transformer_tests` (22 cases, `[lazy]` among them).
+Results: `syscall/coverage-20261030` in the results branch.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
