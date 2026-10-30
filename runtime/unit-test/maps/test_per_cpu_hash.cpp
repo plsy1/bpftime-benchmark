@@ -196,9 +196,11 @@ TEST_CASE("per-cpu hash preserves arbitrary key and value bytes",
 			auto *all_values = static_cast<uint8_t *>(
 				map.elem_lookup_userspace(key.data()));
 			REQUIRE(all_values != nullptr);
+			// The bpf() layout: each CPU's value rounded up to 8
+			// bytes.
+			const size_t stride = (value_size + 7) & ~7u;
 			for (int slot = 0; slot < ncpu; ++slot) {
-				const auto *actual =
-					all_values + slot * value_size;
+				const auto *actual = all_values + slot * stride;
 				if (slot == cpu) {
 					REQUIRE(std::memcmp(actual, updated.data(),
 							    value_size) == 0);

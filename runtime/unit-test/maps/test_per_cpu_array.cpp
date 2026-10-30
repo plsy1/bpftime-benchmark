@@ -148,11 +148,13 @@ TEST_CASE("Per-CPU array production lookup follows CPU affinity changes",
 	for (uint32_t value_size : { 1U, 8U, 24U, 257U }) {
 		CAPTURE(value_size);
 		per_cpu_array_map_impl map(mem, value_size, 4, ncpu);
+		// The bpf() layout: each CPU's value rounded up to 8 bytes.
+		const size_t stride = (value_size + 7) & ~7u;
 		for (uint32_t key : { 0U, 3U }) {
-			std::vector<uint8_t> values(ncpu * value_size);
+			std::vector<uint8_t> values(ncpu * stride);
 			for (int cpu = 0; cpu < ncpu; ++cpu)
 				for (uint32_t byte = 0; byte < value_size; ++byte)
-					values[cpu * value_size + byte] =
+					values[cpu * stride + byte] =
 						static_cast<uint8_t>(key * 17 + cpu * 29 + byte);
 			REQUIRE(map.elem_update_userspace(&key, values.data(), BPF_ANY) == 0);
 		}
