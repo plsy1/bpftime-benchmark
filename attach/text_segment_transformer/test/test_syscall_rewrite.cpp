@@ -13,6 +13,8 @@
 #include <cstring>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <fstream>
+#include <string>
 #include <initializer_list>
 #include <pthread.h>
 #include <sched.h>
@@ -374,6 +376,122 @@ TEST_CASE("a library loaded while unhooked is not rewritten",
 			return 4;
 		return 0;
 	});
+	REQUIRE(code == 0);
+}
+
+// A library whose file changed under a running process (a package upgrade
+// renames a new file over it): the maps line says " (deleted)" and the path
+// cannot be opened. The section table must come from the mapped file itself
+// (/proc/self/map_files), never from whatever the path names now.
+namespace
+{
+long (*moved_getppid)();
+std::string moved_dir, moved_path;
+
+bool copy_file(const char *from, const std::string &to)
+{
+	std::ifstream in(from, std::ios::binary);
+	std::ofstream out(to, std::ios::binary);
+	out << in.rdbuf();
+	return in.good() && out.good();
+}
+
+// Copies the svc module to a fresh directory and loads the copy.
+bool load_module_copy()
+{
+	char dir[] = "/tmp/bpftime-maps-XXXXXX";
+	if (mkdtemp(dir) == nullptr)
+		return false;
+	moved_dir = dir;
+	moved_path = moved_dir + "/module.so";
+	if (!copy_file(RAW_SVC_MODULE_PATH, moved_path))
+		return false;
+	void *lib = dlopen(moved_path.c_str(), RTLD_NOW);
+	if (lib == nullptr)
+		return false;
+	moved_getppid = reinterpret_cast<long (*)()>(
+		dlsym(lib, "bpftime_test_raw_getppid"));
+	return moved_getppid != nullptr;
+}
+
+// Calls the module's own svc; 1 when the call went through the hook.
+int module_call_hooked()
+{
+	uint64_t before = calls[SYS_getppid];
+	if (moved_getppid() != getppid())
+		return -1;
+	// getppid() itself is one call through the rewritten libc.
+	return (int)(calls[SYS_getppid] - before) - 1;
+}
+
+void remove_module_copy()
+{
+	unlink(moved_path.c_str());
+	rmdir(moved_dir.c_str());
+}
+} // namespace
+
+TEST_CASE("a deleted library is rewritten from the mapped file when allowed",
+	  "[syscall-rewrite][coverage]")
+{
+	int code = in_rewritten_child(
+		[] {
+			if (!load_module_copy())
+				_exit(2);
+			unlink(moved_path.c_str());
+		},
+		[] {
+			int hooked = module_call_hooked();
+			remove_module_copy();
+			// /proc/self/map_files needs CAP_CHECKPOINT_RESTORE.
+			int expected = geteuid() == 0 ? 1 : 0;
+			return hooked == expected ? 0 : 3;
+		});
+	REQUIRE(code == 0);
+}
+
+namespace
+{
+std::string shared_code_path;
+long (*shared_fn)();
+int shared_fd = -1;
+} // namespace
+
+TEST_CASE("shared executable file mappings are not rewritten",
+	  "[syscall-rewrite][coverage]")
+{
+	int code = in_rewritten_child(
+		[] {
+			// Word scanning, so a file without sections is scanned.
+			setenv("BPFTIME_SYSCALL_REWRITE_ANON", "1", 1);
+			char path[] = "/tmp/bpftime-shared-code-XXXXXX";
+			shared_fd = mkstemp(path);
+			if (shared_fd < 0)
+				_exit(2);
+			shared_code_path = path;
+			uint32_t words[1024] = { mov_x8(SYS_getppid), SVC_0, RET };
+			if (pwrite(shared_fd, words, sizeof(words), 0) !=
+			    (ssize_t)sizeof(words))
+				_exit(3);
+			void *code = mmap(nullptr, sizeof(words),
+					  PROT_READ | PROT_EXEC, MAP_SHARED,
+					  shared_fd, 0);
+			if (code == MAP_FAILED)
+				_exit(4);
+			shared_fn = reinterpret_cast<long (*)()>(code);
+		},
+		[] {
+			uint64_t before = calls[SYS_getppid];
+			if (shared_fn() != getppid())
+				return 5;
+			uint32_t word = 0;
+			pread(shared_fd, &word, sizeof(word), 4);
+			unlink(shared_code_path.c_str());
+			if (!is_svc_word(word))
+				return 6; // the file was changed
+			// Untraced, like any skipped mapping.
+			return calls[SYS_getppid] == before + 1 ? 0 : 7;
+		});
 	REQUIRE(code == 0);
 }
 
