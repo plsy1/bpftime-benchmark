@@ -727,6 +727,17 @@ by the current CPU now checks it (lookup: ENOENT, update/delete: EINVAL), like
 the JIT binding `lookup_bound` already did. Test: `[cpu-bounds]` (maps made for
 one CPU, the thread pinned to CPU 1).
 
+Through `bpf()` (the syscall server, `elem_*_userspace`, `lookup_and_delete`)
+per-CPU values use libbpf's and the kernel's layout: one slot per possible CPU,
+each value rounded up to 8 bytes (`get_userspace_value_size`,
+`percpu_values_to_userspace`/`from_userspace` in `map_common_def.hpp`). The
+maps keep their values packed at `value_size` (the JIT paths depend on it) and
+convert; a lookup returns a per-thread buffer when `value_size` is not a
+multiple of 8. They used to copy `value_size` times the online CPUs packed: a
+tool reading 4-byte per-CPU counters took CPU 1's value from CPU 0's padding.
+`KERNEL_USER_PERCPU_ARRAY` already used the kernel layout. Test:
+`[percpu-layout]`.
+
 ## Cgroup Array And bpf_current_task_under_cgroup
 
 `BPF_MAP_TYPE_CGROUP_ARRAY` (`cgroup_array_map_impl`) stores, per slot, the
