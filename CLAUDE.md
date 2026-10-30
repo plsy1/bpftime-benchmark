@@ -525,6 +525,39 @@ left mapped. Tests:
 forked child): register preservation, arguments/results/override, threads,
 fork/clone/posix_spawn, signals, own restorer.
 
+## aarch64 Lazy System Call Rewriting (seccomp, research)
+
+`BPFTIME_SYSCALL_LAZY=1` adds a fallback for `svc` the rewriting never saw
+(JIT code without anonymous scanning, sites without trampoline space): after
+the agent is loaded, `enable_lazy_rewriting` sets `no_new_privs` and installs
+a seccomp filter on all threads (TSYNC) that allows `rt_sigreturn`, `clone`
+and `clone3` by number (the gate's direct path), calls from
+`call_orig_syscall`'s page and from the agent's namespace
+(`namespace_code_ranges`, which must stay unrewritten), and turns every
+other system call into SIGSYS. `on_sigsys` takes the site at `pc - 4` (the
+kernel reports the address after `svc` and restores x0), gives it a gate
+from a fixed pool of 64 KiB regions mapped near it with raw
+`MAP_FIXED_NOREPLACE` probes, writes gate and branch through
+`/proc/self/mem` (no protection change or `/proc/self/maps` read: with them
+a first trap cost 90 us, now about 13 us), and sets `pc` back to the site,
+which runs again through the gate and the normal dispatch; no BPF program
+runs in the handler. With no gate it makes the call untraced and counts it.
+Everything the handler does is raw system calls via `orig_syscall_direct`
+(allowed by the filter) and fixed storage; code patching is serialized with
+rescans by `patch_owner`, a spin lock that refuses its own thread (the call
+is then made untraced). While active, the hook removes SIGSYS from
+`rt_sigprocmask` sets and `rt_sigaction` masks and answers `rt_sigaction`
+for SIGSYS itself, keeping the application's action without installing it:
+a trap with SIGSYS blocked or ignored kills the process. Costs: about
++120 ns per system call (the filter compares the instruction pointer, so
+the kernel's per-number cache cannot skip it). Not for general use: the
+filter cannot be removed and survives execve, where nothing handles SIGSYS,
+so an exec-ed program is killed at its first system call (a preloaded
+`taskset` exec-ing its target died this way); non-seccomp SIGSYS and the
+application's own SIGSYS handler are not run. Tests: `[lazy]` cases (first
+trap rewrites once, threads trapping on one site, SIGSYS kept deliverable,
+fork children).
+
 ## System Call Hook Re-entrancy
 
 `syscall_hooker_cxx` (both architectures) runs the hook at most once per
