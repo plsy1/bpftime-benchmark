@@ -25,7 +25,6 @@
 
 using namespace std;
 
-#if BPFTIME_ENABLE_FS_HELPER
 uint64_t bpftime_get_abs_path(const char *filename, const char *buffer,
 			      uint64_t size)
 {
@@ -42,7 +41,6 @@ uint64_t bpftime_path_join(const char *filename1, const char *filename2,
 	return (uint64_t)(uintptr_t)strncpy((char *)(uintptr_t)buffer,
 					    path.c_str(), size);
 }
-#endif
 
 namespace bpftime
 {
@@ -145,7 +143,6 @@ const bpftime_helper_group &get_extension_helper_group()
 			  .name = "__ebpf_call_ufunc_dispatcher",
 			  .fn = (void *)__ebpf_call_ufunc_dispatcher,
 		  } },
-#if BPFTIME_ENABLE_FS_HELPER
 		{ EXTENDED_HELPER_GET_ABS_PATH_ID,
 		  bpftime_helper_info{
 			  .index = EXTENDED_HELPER_GET_ABS_PATH_ID,
@@ -158,7 +155,6 @@ const bpftime_helper_group &get_extension_helper_group()
 			  .name = "bpftime_path_join",
 			  .fn = (void *)bpftime_path_join,
 		  } },
-#endif
 #if defined (BPFTIME_ENABLE_IOURING_EXT) && __linux__
 	{ EXTENDED_UFUNC_IOURING_INIT,
 	  bpftime_helper_info{
