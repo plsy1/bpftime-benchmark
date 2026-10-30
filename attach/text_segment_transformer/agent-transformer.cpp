@@ -38,7 +38,9 @@ extern "C" int __libc_start_main(int (*main)(int, char **, char **), int argc,
 				 void *stack_end)
 {
 	injected_with_frida = false;
-	SPDLOG_INFO("Entering bpftime syscal transformer agent");
+	// Before bpftime_agent_main sets the stderr logger, spdlog's default
+	// logger writes to the host's stdout.
+	SPDLOG_DEBUG("Entering bpftime syscal transformer agent");
 	orig_main_func = main;
 	using this_func_t = decltype(&__libc_start_main);
 	this_func_t orig = (this_func_t)dlsym(RTLD_NEXT, "__libc_start_main");
@@ -80,8 +82,13 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 	unhooked.emplace();
 	auto next_handle = bpftime::load_agent_in_new_namespace(agent_so);
 	if (next_handle == nullptr) {
-		SPDLOG_ERROR("Failed to open agent: {}", dlerror());
-		exit(1);
+		// The code is already rewritten; the default hook passes every
+		// call through, so the process runs on untraced (host-process
+		// contract: never exit or crash it).
+		const char *error = dlerror();
+		SPDLOG_ERROR("Failed to open agent {}: {}; system calls are not traced",
+			     agent_so, error ? error : "unknown error");
+		return;
 	}
 	if (!bpftime::install_agent_fork_hook(next_handle))
 		SPDLOG_WARN(
@@ -92,8 +99,9 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 	if (!injected_with_frida__agent) {
 		SPDLOG_WARN(
 			"Agent does not expose a symbol named injected_with_frida, so we can't let agent know whether it was loaded using frida");
+	} else {
+		*injected_with_frida__agent = injected_with_frida;
 	}
-	*injected_with_frida__agent = injected_with_frida;
 	auto entry_func = (void (*)(syscall_hooker_func_t *))dlsym(
 		next_handle, "_bpftime__setup_syscall_trace_callback");
 
