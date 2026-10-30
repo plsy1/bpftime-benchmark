@@ -89,12 +89,21 @@ struct per_cpu_bytes_vec_equal {
 };
 
 class per_cpu_hash_map_impl {
-	using bi_map_value_ty = std::pair<const bytes_vec, bytes_vec>;
+	// A key's values for every CPU: a slot in the value chunks. Deleting a
+	// key returns the slot to the free list and never frees it, so a
+	// program still holding the value pointer after the lock is released
+	// writes into a slot (as with the kernel's preallocated htab), not
+	// into memory the segment allocator handed out again.
+	struct uint32_value_ref {
+		boost::interprocess::offset_ptr<uint8_t> data;
+		uint32_t slot;
+	};
+	using bi_map_value_ty = std::pair<const bytes_vec, uint32_value_ref>;
 	using bi_map_allocator = boost::interprocess::allocator<
 		bi_map_value_ty,
 		boost::interprocess::managed_shared_memory::segment_manager>;
 	using shm_hash_map =
-		boost::unordered_map<bytes_vec, bytes_vec,
+		boost::unordered_map<bytes_vec, uint32_value_ref,
 				     per_cpu_bytes_vec_hasher,
 				     per_cpu_bytes_vec_equal, bi_map_allocator>;
 	struct uint32_key_hasher {
@@ -118,10 +127,6 @@ class per_cpu_hash_map_impl {
 #endif
 			return lhs == rhs;
 		}
-	};
-	struct uint32_value_ref {
-		boost::interprocess::offset_ptr<uint8_t> data;
-		uint32_t slot;
 	};
 	using bi_uint32_map_value_ty =
 		std::pair<const uint32_t, uint32_value_ref>;
@@ -168,9 +173,9 @@ class per_cpu_hash_map_impl {
 
 	bytes_vec value_template;
 	bytes_vec_vec key_templates, single_value_templates;
-	// Four-byte-key maps keep values in stable, reusable chunks. Hash nodes
-	// contain only a pointer and slot number, so erasing a node does not also
-	// destroy and deallocate a separately owned bytes_vec.
+	// Values live in stable, reusable chunks (for every key size). Hash
+	// nodes contain only a pointer and slot number, so erasing a node does
+	// not also destroy and deallocate a separately owned bytes_vec.
 	bytes_vec_vec uint32_value_chunks;
 	uint32_vec uint32_free_next;
 	// Keep extracted nodes alive so a later insertion can relink them without
