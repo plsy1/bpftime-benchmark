@@ -105,6 +105,10 @@ template <typename F> int in_rewritten_child(F body)
 
 constexpr uint32_t SVC_0 = 0xd4000001;
 constexpr uint32_t RET = 0xd65f03c0;
+bool is_svc_word(uint32_t w)
+{
+	return (w & 0xffe0001fu) == SVC_0;
+}
 // movz x8, #nr
 constexpr uint32_t mov_x8(uint32_t nr)
 {
@@ -565,6 +569,136 @@ TEST_CASE("system calls the hook itself makes are not hooked again",
 		if (handler_calls != 1)
 			return 6;
 		return 0;
+	});
+	REQUIRE(code == 0);
+}
+
+// Lazy mode (seccomp): a system call from code never rewritten traps once,
+// its site is rewritten, and it runs through the hook from then on.
+
+namespace
+{
+using code_fn = long (*)();
+
+code_fn getpid_code()
+{
+	return reinterpret_cast<code_fn>(
+		map_code({ mov_x8(SYS_getpid), SVC_0, RET }));
+}
+
+void request_lazy()
+{
+	setenv("BPFTIME_SYSCALL_LAZY", "1", 1);
+}
+} // namespace
+
+TEST_CASE("lazy mode rewrites JIT code at its first system call",
+	  "[syscall-rewrite][lazy]")
+{
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		code_fn fn = getpid_code();
+		if (fn == nullptr)
+			return 3;
+		uint64_t before = calls[SYS_getpid];
+		for (int i = 0; i < 3; i++)
+			if (fn() != getpid())
+				return 4;
+		// Three calls of fn and three of getpid().
+		if (calls[SYS_getpid] != before + 6)
+			return 5;
+		auto stats = bpftime::get_lazy_rewrite_stats();
+		if (stats.traps != 1 || stats.rewritten != 1 || stats.emulated != 0)
+			return 6;
+		if (is_svc_word(((const uint32_t *)fn)[1]))
+			return 7; // still svc
+		return 0;
+	});
+	REQUIRE(code == 0);
+}
+
+TEST_CASE("lazy mode rewrites a site that threads trap on at once",
+	  "[syscall-rewrite][lazy]")
+{
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		static code_fn fn = getpid_code();
+		static std::atomic<int> go{ 0 }, wrong{ 0 };
+		constexpr int n = 8, per_thread = 1000;
+		uint64_t before = calls[SYS_getpid];
+		pthread_t threads[n];
+		for (auto &t : threads)
+			pthread_create(
+				&t, nullptr,
+				[](void *) -> void * {
+					while (go == 0) {
+					}
+					for (int i = 0; i < per_thread; i++)
+						wrong += fn() <= 0;
+					return nullptr;
+				},
+				nullptr);
+		go = 1;
+		for (auto &t : threads)
+			pthread_join(t, nullptr);
+		if (wrong != 0)
+			return 3;
+		if (calls[SYS_getpid] - before != (uint64_t)n * per_thread)
+			return 4;
+		auto stats = bpftime::get_lazy_rewrite_stats();
+		if (stats.rewritten != 1 || stats.emulated != 0)
+			return 5;
+		return 0;
+	});
+	REQUIRE(code == 0);
+}
+
+TEST_CASE("lazy mode keeps SIGSYS deliverable",
+	  "[syscall-rewrite][lazy]")
+{
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		// The application blocks everything and installs its own SIGSYS
+		// handler: a trap must still reach ours.
+		sigset_t all;
+		sigfillset(&all);
+		if (sigprocmask(SIG_BLOCK, &all, nullptr) != 0)
+			return 3;
+		struct sigaction mine = {}, back = {};
+		mine.sa_handler = [](int) { _exit(9); };
+		if (sigaction(SIGSYS, &mine, nullptr) != 0 ||
+		    sigaction(SIGSYS, nullptr, &back) != 0 ||
+		    back.sa_handler != mine.sa_handler)
+			return 4; // its view of the action is kept
+		sigset_t now;
+		if (sigprocmask(SIG_BLOCK, nullptr, &now) != 0 ||
+		    sigismember(&now, SIGSYS))
+			return 5;
+		code_fn fn = getpid_code();
+		if (fn == nullptr || fn() != getpid())
+			return 6;
+		return bpftime::get_lazy_rewrite_stats().rewritten == 1 ? 0 : 7;
+	});
+	REQUIRE(code == 0);
+}
+
+TEST_CASE("lazy mode works in fork children", "[syscall-rewrite][lazy]")
+{
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		code_fn fn = getpid_code();
+		pid_t pid = fork();
+		if (pid == 0)
+			_exit(fn() == getpid() ? 0 : 3);
+		int status = 0;
+		if (waitpid(pid, &status, 0) != pid || !WIFEXITED(status) ||
+		    WEXITSTATUS(status) != 0)
+			return 4;
+		return fn() == getpid() ? 0 : 5;
 	});
 	REQUIRE(code == 0);
 }

@@ -102,6 +102,9 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 	syscall_hooker_func_t orig_syscall_hooker_func =
 		bpftime::get_call_hook();
 	entry_func(&orig_syscall_hooker_func);
+	if (bpftime::lazy_rewriting_requested())
+		bpftime::enable_lazy_rewriting(
+			bpftime::namespace_code_ranges(next_handle));
 	unhooked.reset();
 	bpftime::set_call_hook(orig_syscall_hooker_func);
 	SPDLOG_DEBUG("Transformer exiting, syscall trace is usable now");
