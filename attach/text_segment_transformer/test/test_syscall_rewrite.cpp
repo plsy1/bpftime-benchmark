@@ -405,3 +405,71 @@ TEST_CASE("svc in code made executable after rewriting is hooked",
 	});
 	REQUIRE(code == 0);
 }
+
+namespace
+{
+std::atomic<uint64_t> lazy_hook_entries{ 0 };
+thread_local bool lazy_ready = false;
+
+// Like the agent in a new thread: the first hooked call sets up per-thread
+// state with a system call through the rewritten libc (ld.so allocating the
+// agent's dynamic TLS: malloc creates an arena and reads sysfs).
+int64_t lazy_state_hook(int64_t nr, int64_t a1, int64_t a2, int64_t a3,
+			int64_t a4, int64_t a5, int64_t a6)
+{
+	lazy_hook_entries++;
+	if (nr >= 0 && nr < 512)
+		calls[nr]++;
+	if (!lazy_ready) {
+		getpid();
+		lazy_ready = true;
+	}
+	return next_hook(nr, a1, a2, a3, a4, a5, a6);
+}
+} // namespace
+
+TEST_CASE("system calls the hook itself makes are not hooked again",
+	  "[syscall-rewrite]")
+{
+	int code = in_rewritten_child([] {
+		bpftime::set_call_hook(&lazy_state_hook);
+		static std::atomic<int> result{ -1 };
+		pthread_t thread;
+		if (pthread_create(
+			    &thread, nullptr,
+			    [](void *) -> void * {
+				    uint64_t before = lazy_hook_entries;
+				    syscall(SYS_getppid);
+				    // One entry: the getpid inside it was not hooked.
+				    result = lazy_hook_entries - before == 1 ? 0 : 3;
+				    return nullptr;
+			    },
+			    nullptr) != 0)
+			return 2;
+		pthread_join(thread, nullptr);
+		if (result != 0)
+			return result.load();
+		// The hook's own system call (here a blocking one) is made
+		// outside the guard: a signal handler interrupting it is hooked.
+		static std::atomic<uint64_t> handler_calls{ 0 };
+		struct sigaction sa = {};
+		sa.sa_handler = [](int) {
+			uint64_t before = calls[SYS_getpid];
+			syscall(SYS_getpid);
+			handler_calls = calls[SYS_getpid] - before;
+		};
+		sigemptyset(&sa.sa_mask);
+		if (sigaction(SIGALRM, &sa, nullptr) != 0)
+			return 4;
+		itimerval timer = {};
+		timer.it_value.tv_usec = 20000;
+		setitimer(ITIMER_REAL, &timer, nullptr);
+		timespec ts = { 5, 0 };
+		if (nanosleep(&ts, nullptr) != -1 || errno != EINTR)
+			return 5;
+		if (handler_calls != 1)
+			return 6;
+		return 0;
+	});
+	REQUIRE(code == 0);
+}

@@ -501,6 +501,23 @@ Code loaded later (dlopen, JIT) is not rewritten. Tests:
 forked child): register preservation, arguments/results/override, threads,
 fork/clone/posix_spawn, signals, own restorer.
 
+## System Call Hook Re-entrancy
+
+`syscall_hooker_cxx` (both architectures) runs the hook at most once per
+thread at a time: a thread-local, initial-exec flag (`in_hook`) sends any
+system call the hook's own work makes through rewritten code straight to
+the kernel, untraced, like the agent's other work. The system call itself
+is made through `call_unguarded_syscall` (the "original" the agent gets
+from `get_call_hook`), which clears the flag around it, so a signal handler
+interrupting a blocking call is traced as usual. Without it a new thread's
+first traced call crashed with programs attached: the agent's dynamic TLS is
+allocated by ld.so with the main namespace's malloc, whose new arena reads
+`/sys/devices/system/cpu/online` through the rewritten libc, which entered
+the hook again before the TLS existed, until the stack overflowed (python3
+with four threads under syscount). Keep the flag initial-exec: a dynamic TLS
+access in the hook would allocate. Test: `system calls the hook itself makes
+are not hooked again`.
+
 ## x86-64 System Call Hook Registers
 
 The zpoline hook (`syscall_hooker_asm`, x86-64) must leave every register as
