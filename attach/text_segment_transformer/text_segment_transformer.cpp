@@ -9,6 +9,8 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <fstream>
+#include <pthread.h>
+#include <sys/syscall.h>
 #include <sys/mman.h>
 #include <vector>
 #include <cstdint>
@@ -78,6 +80,14 @@ static int64_t call_unguarded_syscall(int64_t sys_nr, int64_t arg1,
 }
 
 static syscall_hooker_func_t call_hook = &call_unguarded_syscall;
+
+namespace bpftime
+{
+// After the system call, inside the guard: rewrites code that became
+// executable (aarch64).
+static void after_hooked_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
+				 int64_t arg3, int64_t ret);
+} // namespace bpftime
 
 #if defined(__x86_64__)
 // XSAVE components the hook preserves: x87, SSE, AVX, opmask, ZMM_Hi256 and
@@ -391,9 +401,17 @@ extern "C" __attribute__((used)) int64_t syscall_hooker_cxx(int64_t sys_nr, int6
 					 arg6);
 	in_hook = true;
 	int64_t ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
+	bpftime::after_hooked_syscall(sys_nr, arg1, arg2, arg3, ret);
 	in_hook = false;
 	return ret;
 }
+
+#if !defined(__aarch64__)
+static void bpftime::after_hooked_syscall(int64_t, int64_t, int64_t, int64_t,
+					  int64_t)
+{
+}
+#endif
 
 #if defined(__x86_64__)
 static inline void rewrite_segment(uint8_t *code, size_t len, int perm)
@@ -474,6 +492,16 @@ syscall_hooker_func_t get_call_hook()
 void set_call_hook(syscall_hooker_func_t hook)
 {
 	call_hook = hook;
+}
+
+unhooked_scope::unhooked_scope() : previous(in_hook)
+{
+	in_hook = true;
+}
+
+unhooked_scope::~unhooked_scope()
+{
+	in_hook = previous;
 }
 
 #if defined(__x86_64__)
@@ -640,6 +668,16 @@ std::vector<ExecMap> read_maps()
 // BPFTIME_SYSCALL_REWRITE_ANON=1: a constant equal to an svc encoding in a
 // literal pool would be rewritten into a branch, corrupting the data.
 bool scan_anonymous = false;
+
+// Trampoline regions, never scanned themselves (each gate holds an svc).
+// Rescans of code mapped later are serialized; they run inside the hook's
+// guard, so their own system calls bypass the hook.
+struct trampoline_span {
+	uint64_t begin, end;
+};
+std::vector<trampoline_span> trampolines;
+pthread_mutex_t rescan_mutex = PTHREAD_MUTEX_INITIALIZER;
+bool rescan_enabled = false;
 
 bool is_svc(uint32_t insn)
 {
@@ -815,6 +853,7 @@ size_t install_region(const std::vector<uint64_t> &sites, int code_prot)
 		return 0;
 	}
 	const uint64_t base = (uint64_t)region;
+	trampolines.push_back({ base, base + size });
 	region[0] = 0x58000051u; // ldr x17, #8
 	region[1] = 0xd61f0220u; // br x17
 	uint64_t hook = (uint64_t)&syscall_hooker_asm;
@@ -866,37 +905,109 @@ size_t install_region(const std::vector<uint64_t> &sites, int code_prot)
 	restore_code_page(open_page, page, code_prot);
 	return rewritten;
 }
+
+bool special_mapping(const ExecMap &map)
+{
+	return map.path == "[vdso]" || map.path == "[vsyscall]" ||
+	       map.path == "[stack]" || map.path == "[uprobes]";
+}
+
+// Rewrites the svc instructions found in `map` (one region per 64 MiB of
+// code keeps every gate in reach). Adds to `found` and `rewritten`.
+void rewrite_mapping(const ExecMap &map, size_t &found, size_t &rewritten,
+		     size_t &skipped_maps)
+{
+	bool skipped;
+	auto sites = find_svcs(map, skipped);
+	skipped_maps += skipped;
+	found += sites.size();
+	size_t begin = 0;
+	while (begin < sites.size()) {
+		size_t end = begin;
+		while (end < sites.size() && sites[end] - sites[begin] < 0x4000000)
+			end++;
+		std::vector<uint64_t> chunk(sites.begin() + begin,
+					    sites.begin() + end);
+		rewritten += install_region(chunk, map.prot);
+		begin = end;
+	}
+}
+
+// Code that became executable in [addr, addr + len): a library loaded later
+// (dlopen maps it), or code a JIT made executable (with anonymous scanning).
+// Runs on the thread that mapped it, before that code can be called (another
+// thread could already run code made executable by mprotect: svc -> b stays
+// a permitted concurrent modification). It runs inside ld.so's dlopen, which
+// holds the loader lock: nothing here may take it (dl_iterate_phdr, dlsym).
+// malloc is safe: ld.so allocates with it there too, and no allocator maps
+// executable memory while holding its own lock.
+void rescan(uint64_t addr, uint64_t len)
+{
+	const uint64_t page = (uint64_t)sysconf(_SC_PAGESIZE);
+	uint64_t lo = addr & ~(page - 1), hi = (addr + len + page - 1) & ~(page - 1);
+	size_t found = 0, rewritten = 0, skipped_maps = 0;
+	pthread_mutex_lock(&rescan_mutex);
+	for (auto map : read_maps()) {
+		if (!(map.prot & PROT_EXEC) || map.end <= lo || map.begin >= hi ||
+		    special_mapping(map))
+			continue;
+		bool own = false;
+		for (const auto &t : trampolines)
+			own |= t.begin < map.end && map.begin < t.end;
+		if (own)
+			continue;
+		uint64_t begin = std::max(map.begin, lo), end = std::min(map.end, hi);
+		map.offset += begin - map.begin;
+		map.begin = begin;
+		map.end = end;
+		rewrite_mapping(map, found, rewritten, skipped_maps);
+	}
+	pthread_mutex_unlock(&rescan_mutex);
+	if (found != 0)
+		SPDLOG_DEBUG("Rewrote {} of {} svc instructions mapped at {:x}-{:x}",
+			     rewritten, found, lo, hi);
+}
 } // namespace
+
+static void after_hooked_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
+				 int64_t arg3, int64_t ret)
+{
+	if (!rescan_enabled)
+		return;
+	uint64_t addr;
+	if (sys_nr == SYS_mmap && (uint64_t)ret < (uint64_t)-4095 &&
+	    (arg3 & PROT_EXEC))
+		addr = (uint64_t)ret;
+	else if ((sys_nr == SYS_mprotect || sys_nr == SYS_pkey_mprotect) &&
+		 ret == 0 && (arg3 & PROT_EXEC))
+		addr = (uint64_t)arg1;
+	else
+		return;
+	rescan(addr, (uint64_t)arg2);
+}
 
 void setup_syscall_tracer()
 {
+	// The rewriting's own system calls go through libc while its sites
+	// are being rewritten: keep them out of the hook and of rescans.
+	unhooked_scope unhooked;
 	const char *anon = getenv("BPFTIME_SYSCALL_REWRITE_ANON");
 	scan_anonymous = anon != nullptr && strcmp(anon, "1") == 0;
 	size_t found = 0, rewritten = 0, skipped_maps = 0;
+	pthread_mutex_lock(&rescan_mutex);
 	for (const auto &map : read_maps()) {
-		if (!(map.prot & PROT_EXEC) || map.path == "[vdso]" ||
-		    map.path == "[vsyscall]" || map.path == "[stack]" ||
-		    map.path == "[uprobes]")
+		if (!(map.prot & PROT_EXEC) || special_mapping(map))
 			continue;
-		bool skipped;
-		auto sites = find_svcs(map, skipped);
-		skipped_maps += skipped;
-		if (sites.empty())
-			continue;
-		found += sites.size();
-		// One region per 64 MiB of code keeps every gate in reach.
-		size_t begin = 0;
-		while (begin < sites.size()) {
-			size_t end = begin;
-			while (end < sites.size() &&
-			       sites[end] - sites[begin] < 0x4000000)
-				end++;
-			std::vector<uint64_t> chunk(sites.begin() + begin,
-						    sites.begin() + end);
-			rewritten += install_region(chunk, map.prot);
-			begin = end;
-		}
+		rewrite_mapping(map, found, rewritten, skipped_maps);
 	}
+	if (!rescan_enabled) {
+		// A child must not inherit the lock held by another thread.
+		pthread_atfork([] { pthread_mutex_lock(&rescan_mutex); },
+			       [] { pthread_mutex_unlock(&rescan_mutex); },
+			       [] { pthread_mutex_unlock(&rescan_mutex); });
+		rescan_enabled = true;
+	}
+	pthread_mutex_unlock(&rescan_mutex);
 	SPDLOG_INFO("Rewrote {} of {} svc instructions", rewritten, found);
 	if (skipped_maps != 0)
 		SPDLOG_INFO(
