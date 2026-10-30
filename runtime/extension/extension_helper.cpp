@@ -23,6 +23,23 @@
 
 using namespace std;
 
+uint64_t bpftime_get_abs_path(const char *filename, const char *buffer,
+			      uint64_t size)
+{
+	auto path = std::filesystem::absolute(filename);
+	return (uint64_t)(uintptr_t)strncpy((char *)(uintptr_t)buffer,
+					    path.c_str(), size);
+}
+
+uint64_t bpftime_path_join(const char *filename1, const char *filename2,
+			   const char *buffer, uint64_t size)
+{
+	auto path = std::filesystem::path(filename1) /
+		    std::filesystem::path(filename2);
+	return (uint64_t)(uintptr_t)strncpy((char *)(uintptr_t)buffer,
+					    path.c_str(), size);
+}
+
 namespace bpftime
 {
 /*
@@ -123,6 +140,18 @@ const bpftime_helper_group &get_extension_helper_group()
 			  .index = UFUNC_HELPER_ID_DISPATCHER,
 			  .name = "__ebpf_call_ufunc_dispatcher",
 			  .fn = (void *)__ebpf_call_ufunc_dispatcher,
+		  } },
+		{ EXTENDED_HELPER_GET_ABS_PATH_ID,
+		  bpftime_helper_info{
+			  .index = EXTENDED_HELPER_GET_ABS_PATH_ID,
+			  .name = "bpftime_get_abs_path",
+			  .fn = (void *)bpftime_get_abs_path,
+		  } },
+		{ EXTENDED_HELPER_PATH_JOIN_ID,
+		  bpftime_helper_info{
+			  .index = EXTENDED_HELPER_PATH_JOIN_ID,
+			  .name = "bpftime_path_join",
+			  .fn = (void *)bpftime_path_join,
 		  } },
 #if defined (BPFTIME_ENABLE_IOURING_EXT) && __linux__
 	{ EXTENDED_UFUNC_IOURING_INIT,
