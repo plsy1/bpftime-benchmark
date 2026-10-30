@@ -1,5 +1,6 @@
 #include "agent_namespace.hpp"
 #include "spdlog/spdlog.h"
+#include <cstring>
 #include <dlfcn.h>
 #include <gnu/lib-names.h>
 #include <link.h>
@@ -62,5 +63,44 @@ void *load_agent_in_new_namespace(const char *path)
 	SPDLOG_DEBUG("Reserved {} pthread keys for the agent's namespace ({} taken there)",
 		     agent_keys.size(), taken);
 	return dlmopen(lmid, path, RTLD_NOW | RTLD_LOCAL);
+}
+// The executable segments of every object in the namespace of `handle`.
+std::vector<std::pair<uint64_t, uint64_t> > namespace_code_ranges(void *handle)
+{
+	struct link_map *lm = nullptr;
+	if (dlinfo(handle, RTLD_DI_LINKMAP, &lm) != 0 || lm == nullptr)
+		return {};
+	while (lm->l_prev != nullptr)
+		lm = lm->l_prev;
+	struct search {
+		std::vector<struct link_map *> objects;
+		std::vector<std::pair<uint64_t, uint64_t> > ranges;
+	} ctx;
+	for (; lm != nullptr; lm = lm->l_next)
+		ctx.objects.push_back(lm);
+	// dl_iterate_phdr visits every namespace; an object is ours when its
+	// load address and name match (ld.so is shared by the namespaces).
+	dl_iterate_phdr(
+		[](struct dl_phdr_info *info, size_t, void *data) {
+			auto *ctx = (search *)data;
+			for (auto *obj : ctx->objects) {
+				if (obj->l_addr != info->dlpi_addr ||
+				    strcmp(obj->l_name ? obj->l_name : "",
+					   info->dlpi_name ? info->dlpi_name : "") != 0)
+					continue;
+				for (int i = 0; i < info->dlpi_phnum; i++) {
+					const auto &ph = info->dlpi_phdr[i];
+					if (ph.p_type == PT_LOAD && (ph.p_flags & PF_X))
+						ctx->ranges.push_back(
+							{ info->dlpi_addr + ph.p_vaddr,
+							  info->dlpi_addr + ph.p_vaddr +
+								  ph.p_memsz });
+				}
+				break;
+			}
+			return 0;
+		},
+		&ctx);
+	return ctx.ranges;
 }
 } // namespace bpftime
