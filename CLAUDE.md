@@ -223,7 +223,14 @@ the tracking entry and the regression coverage in the same pull request.
    a victim segfault is a hard failure, never a retried flake
    (issue #743).
 
-## Trap and RISC-V backend constraints
+The syscall-trace transformer (`agent-transformer.cpp`) follows it too: an
+agent that cannot be loaded, or lacks `injected_with_frida`, leaves the host
+running untraced (it called `exit(1)` and dereferenced the missing symbol), and
+its entry message is debug level (spdlog's default logger, before the stderr
+logger is set, wrote it to the host's stdout). Test: "The transformer leaves
+the host running when the agent is unusable".
+
+## Repository Documentation
 
 Trap callbacks execute inside SIGTRAP. Runtime-managed BPF links must reject
 programs whose concrete helper implementations have not been audited as
