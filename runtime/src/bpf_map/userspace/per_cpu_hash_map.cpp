@@ -201,7 +201,7 @@ per_cpu_hash_map_impl::elem_lookup(const void *key)
 		std::memcpy(key_vec.data(), key, key_size);
 		auto itr = impl.find(key_vec);
 		if (itr != impl.end())
-			result = itr->second.data() + value_size * cpu;
+			result = itr->second.data.get() + value_size * cpu;
 	}
 	if (result != nullptr) {
 		if (collect_stats) {
@@ -263,7 +263,7 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
 		std::memcpy(key_vec.data(), key, key_size);
 		auto itr = impl.find(key_vec);
 		if (itr != impl.end())
-			existing_value = itr->second.data();
+			existing_value = itr->second.data.get();
 	}
 	// Kernel percpu htab: BPF_NOEXIST on an existing key fails with EEXIST,
 	// BPF_EXIST on a missing key with ENOENT, a new key in a full map with
@@ -311,11 +311,15 @@ long per_cpu_hash_map_impl::elem_update(const void *key, const void *value,
 				errno = E2BIG;
 				return -1;
 			}
-			bytes_vec full_value_vec = this->value_template;
-			std::memcpy(full_value_vec.data() + cpu * value_size,
+			auto value_ref = acquire_uint32_value();
+			if (value_ref.data == nullptr)
+				return -1;
+			std::memcpy(value_ref.data.get() + cpu * value_size,
 				    value, value_size);
-			impl.insert(bi_map_value_ty(key_templates[cpu],
-						    full_value_vec));
+			if (!impl.insert(bi_map_value_ty(key_templates[cpu],
+							 value_ref))
+				     .second)
+				release_uint32_value(value_ref.slot);
 		}
 	}
 
@@ -356,6 +360,7 @@ long per_cpu_hash_map_impl::elem_delete(const void *key)
 			errno = ENOENT;
 			return -1;
 		}
+		const uint32_t slot = itr->second.slot;
 		if (get_map_production_ab_mode() ==
 		    map_production_ab_mode::percpu_hash_delete_defer_reclaim) {
 			auto node = impl.extract(itr);
@@ -363,6 +368,7 @@ long per_cpu_hash_map_impl::elem_delete(const void *key)
 		} else {
 			impl.erase(itr);
 		}
+		release_uint32_value(slot);
 	}
 	return 0;
 }
@@ -441,7 +447,7 @@ void *per_cpu_hash_map_impl::elem_lookup_userspace(const void *key)
 		std::memcpy(key_vec.data(), key, key_size);
 		auto itr = impl.find(key_vec);
 		if (itr != impl.end())
-			result = itr->second.data();
+			result = itr->second.data.get();
 	}
 	if (result != nullptr) {
 		SPDLOG_TRACE("Exit elem lookup of hash map");
@@ -504,13 +510,23 @@ long per_cpu_hash_map_impl::elem_update_userspace(const void *key,
 			}
 		}
 	} else {
-		bytes_vec value_vec = this->value_template;
-		value_vec.assign((uint8_t *)value,
-				 (uint8_t *)value + value_size * ncpu);
-		if (elem_exists)
-			generic_itr->second = value_vec;
-		else
-			impl.insert(bi_map_value_ty(key_templates[0], value_vec));
+		if (elem_exists) {
+			std::memcpy(generic_itr->second.data.get(), value,
+				    static_cast<size_t>(value_size) * ncpu);
+		} else {
+			auto value_ref = acquire_uint32_value();
+			if (value_ref.data == nullptr)
+				return -1;
+			std::memcpy(value_ref.data.get(), value,
+				    static_cast<size_t>(value_size) * ncpu);
+			if (!impl.insert(bi_map_value_ty(key_templates[0],
+							 value_ref))
+				     .second) {
+				release_uint32_value(value_ref.slot);
+				errno = EEXIST;
+				return -1;
+			}
+		}
 	}
 	return 0;
 }
@@ -535,7 +551,9 @@ long per_cpu_hash_map_impl::elem_delete_userspace(const void *key)
 			errno = ENOENT;
 			return -1;
 		}
+		const uint32_t slot = itr->second.slot;
 		impl.erase(itr);
+		release_uint32_value(slot);
 	}
 	return 0;
 }
@@ -563,8 +581,10 @@ long per_cpu_hash_map_impl::lookup_and_delete_userspace(const void *key,
 			errno = ENOENT;
 			return -1;
 		}
-		memcpy(value, itr->second.data(), ncpu * value_size);
+		memcpy(value, itr->second.data.get(), ncpu * value_size);
+		const uint32_t slot = itr->second.slot;
 		impl.erase(itr);
+		release_uint32_value(slot);
 	}
 	return 0;
 }
