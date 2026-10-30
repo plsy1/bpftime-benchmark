@@ -328,7 +328,7 @@ TEST_CASE("a program's own signal restorer returns through rt_sigreturn",
 // Coverage: system calls whose svc is not in the code rewritten at start-up.
 
 TEST_CASE("a library dlopen-ed after rewriting has its svc hooked",
-	  "[syscall-rewrite][coverage][!shouldfail]")
+	  "[syscall-rewrite][coverage]")
 {
 	int code = in_rewritten_child([] {
 		void *lib = dlopen(RAW_SVC_MODULE_PATH, RTLD_NOW);
@@ -344,6 +344,30 @@ TEST_CASE("a library dlopen-ed after rewriting has its svc hooked",
 		// getppid() itself is one call through the rewritten libc.
 		if (calls[SYS_getppid] != before + 2)
 			return 5;
+		return 0;
+	});
+	REQUIRE(code == 0);
+}
+
+TEST_CASE("a library loaded while unhooked is not rewritten",
+	  "[syscall-rewrite][coverage]")
+{
+	int code = in_rewritten_child([] {
+		void *lib;
+		{
+			// As the agent's own namespace is loaded.
+			bpftime::unhooked_scope unhooked;
+			lib = dlopen(RAW_SVC_MODULE_PATH, RTLD_NOW);
+		}
+		if (lib == nullptr)
+			return 2;
+		auto raw_getppid = reinterpret_cast<long (*)()>(
+			dlsym(lib, "bpftime_test_raw_getppid"));
+		uint64_t before = calls[SYS_getppid];
+		if (raw_getppid == nullptr || raw_getppid() != getppid())
+			return 3;
+		if (calls[SYS_getppid] != before + 1)
+			return 4;
 		return 0;
 	});
 	REQUIRE(code == 0);
@@ -398,6 +422,26 @@ TEST_CASE("anonymous code is scanned word by word when asked to",
 			fn = map_code({ mov_x8(SYS_getpid), SVC_0, RET });
 		},
 		[] {
+			if (fn == nullptr)
+				return 2;
+			uint64_t before = calls[SYS_getpid];
+			if (reinterpret_cast<long (*)()>(fn)() != getpid())
+				return 3;
+			if (calls[SYS_getpid] != before + 2)
+				return 4;
+			return 0;
+		});
+	REQUIRE(code == 0);
+}
+
+TEST_CASE("anonymous code made executable later is rewritten when asked to",
+	  "[syscall-rewrite][coverage]")
+{
+	int code = in_rewritten_child(
+		[] { setenv("BPFTIME_SYSCALL_REWRITE_ANON", "1", 1); },
+		[] {
+			// A JIT: write code, then mprotect it executable.
+			uint32_t *fn = map_code({ mov_x8(SYS_getpid), SVC_0, RET });
 			if (fn == nullptr)
 				return 2;
 			uint64_t before = calls[SYS_getpid];
