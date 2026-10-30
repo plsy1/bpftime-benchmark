@@ -1,3 +1,4 @@
+#include <optional>
 #include "spdlog/cfg/env.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/stdout_sinks.h"
@@ -81,6 +82,10 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 	SPDLOG_DEBUG("Using agent {}", agent_so);
 	bpftime::setup_syscall_tracer();
 	SPDLOG_DEBUG("Loading dynamic library..");
+	// The agent's namespace (its own libc included) must not be rewritten
+	// as code mapped later.
+	std::optional<bpftime::unhooked_scope> unhooked;
+	unhooked.emplace();
 	auto next_handle = bpftime::load_agent_in_new_namespace(agent_so);
 	if (next_handle == nullptr) {
 		SPDLOG_ERROR("Failed to open agent: {}", dlerror());
@@ -113,19 +118,10 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 			"Malformed agent so: no syscall callback entry point");
 		return;
 	}
-	// This transformer serves the in-process uprobe text-segment path only.
-	// Rootless seccomp capture is owned by bpftime-syscall-server now; do not
-	// install it here (loading frida/capstone on that path was the hang).
-	// BPFTIME_SKIP_TEXT_SEGMENT_TRACER is an explicit rootless opt-out: the
-	// unprivileged bundle captures syscalls through seccomp USER_NOTIF in the
-	// syscall-server and memory events through the agent frida uprobe, so no
-	// process needs the global text-segment syscall rewrite. That rewrite hangs
-	// in torch/CUDA init (futex deadlock, GPU stays at 0%). The classic
-	// in-process frida deployment leaves this unset and keeps the full rewrite.
-	if (getenv("BPFTIME_SKIP_TEXT_SEGMENT_TRACER") == nullptr) {
-		bpftime::setup_syscall_tracer();
-		SPDLOG_DEBUG("Transformer exiting, syscall trace is usable now");
-	} else {
-		SPDLOG_INFO("Rootless opt-out: skipping text-segment syscall tracer");
-	}
+	syscall_hooker_func_t orig_syscall_hooker_func =
+		bpftime::get_call_hook();
+	entry_func(&orig_syscall_hooker_func);
+	unhooked.reset();
+	bpftime::set_call_hook(orig_syscall_hooker_func);
+	SPDLOG_DEBUG("Transformer exiting, syscall trace is usable now");
 }
