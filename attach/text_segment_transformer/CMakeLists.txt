@@ -59,6 +59,9 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     )
 endif()
 add_library(bpftime_test_fake_agent_keys MODULE test/fake_agent_keys.c)
+add_library(bpftime_test_fake_agent_fork MODULE test/fake_agent_fork.cpp
+    ${CMAKE_SOURCE_DIR}/runtime/src/fork_handlers.cpp)
+target_include_directories(bpftime_test_fake_agent_fork PRIVATE ${CMAKE_SOURCE_DIR}/runtime/src)
 add_executable(bpftime_text_segment_transformer_tests ${TRANSFORMER_TEST_SOURCES})
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
     # A library with its own svc, dlopen-ed after rewriting.
@@ -76,9 +79,10 @@ if(${ENABLE_EBPF_VERIFIER} AND NOT TARGET Catch2)
     )
     FetchContent_MakeAvailable(Catch2)
 endif()
-add_dependencies(bpftime_text_segment_transformer_tests Catch2 bpftime_text_segment_transformer_core bpftime_test_fake_agent_keys)
+add_dependencies(bpftime_text_segment_transformer_tests Catch2 bpftime_text_segment_transformer_core bpftime_test_fake_agent_keys bpftime_test_fake_agent_fork)
 target_compile_definitions(bpftime_text_segment_transformer_tests PRIVATE
-    FAKE_AGENT_KEYS_PATH="$<TARGET_FILE:bpftime_test_fake_agent_keys>")
+    FAKE_AGENT_KEYS_PATH="$<TARGET_FILE:bpftime_test_fake_agent_keys>"
+    FAKE_AGENT_FORK_PATH="$<TARGET_FILE:bpftime_test_fake_agent_fork>")
 target_link_libraries(bpftime_text_segment_transformer_tests PRIVATE Catch2::Catch2WithMain bpftime_text_segment_transformer_core pthread)
 target_include_directories(bpftime_text_segment_transformer_tests PRIVATE ${Catch2_INCLUDE})
 set_property(TARGET bpftime_text_segment_transformer_tests PROPERTY CXX_STANDARD 20)

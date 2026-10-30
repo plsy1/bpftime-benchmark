@@ -630,6 +630,23 @@ more keys than were free, its `pthread_key_create` fails rather than sharing
 a slot. Tests: `test_agent_namespace.cpp` (stand-in agent, keys created
 before loading, threads using both).
 
+Fork handlers have the same split: `pthread_atfork` in the agent registers
+with the agent namespace's libc (`__register_atfork`), and the application
+forks through the main libc, so none ran. Children kept the parent's cached
+pid/tid (`bpf_get_current_pid_tgid`), wrote into the parent's perf producer
+shard (torn records), used the parent's pid for probe read/write checks, and
+kept stale cgroup, array binding and map usage state. Runtime code registers
+through `bpftime::register_fork_handlers` (`runtime/src/fork_handlers.cpp`):
+pthread_atfork as before plus a table, run by the agent's exported
+`bpftime_agent_fork_hook`, which `install_agent_fork_hook` registers with the
+main libc after loading (never twice: the namespace libc's copies do not run
+on the application's fork). Use it instead of `pthread_atfork` in any code
+the agent links. Not covered: the agent namespace libc's own fork handling
+(its malloc and stdio locks); a thread inside the agent's malloc at the fork
+leaves the child's agent allocator locked. Test: "Fork handlers of an agent
+in its own namespace run in fork children" (stand-in agent
+`test/fake_agent_fork.cpp`).
+
 ## System Call Dispatch
 
 `syscall_trace_attach_impl::dispatch_syscall` runs for every system call of a
