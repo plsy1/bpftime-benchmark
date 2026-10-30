@@ -451,7 +451,12 @@ void *per_cpu_hash_map_impl::elem_lookup_userspace(const void *key)
 	}
 	if (result != nullptr) {
 		SPDLOG_TRACE("Exit elem lookup of hash map");
-		return result;
+		if (value_size % 8 == 0)
+			return result;
+		uint8_t *out = percpu_userspace_buffer(
+			percpu_userspace_stride(value_size) * ncpu);
+		percpu_values_to_userspace(out, result, value_size, ncpu);
+		return out;
 	} else {
 		SPDLOG_TRACE("Exit elem lookup of hash map");
 		errno = ENOENT;
@@ -495,14 +500,16 @@ long per_cpu_hash_map_impl::elem_update_userspace(const void *key,
 	}
 	if (uses_uint32_keys()) {
 		if (elem_exists) {
-			std::memcpy(uint32_itr->second.data.get(), value,
-				    static_cast<size_t>(value_size) * ncpu);
+			percpu_values_from_userspace(
+				uint32_itr->second.data.get(),
+				(const uint8_t *)value, value_size, ncpu);
 		} else {
 			auto value_ref = acquire_uint32_value();
 			if (value_ref.data == nullptr)
 				return -1;
-			std::memcpy(value_ref.data.get(), value,
-				    static_cast<size_t>(value_size) * ncpu);
+			percpu_values_from_userspace(value_ref.data.get(),
+						     (const uint8_t *)value,
+						     value_size, ncpu);
 			if (!insert_uint32_value(key_value, value_ref)) {
 				release_uint32_value(value_ref.slot);
 				errno = EEXIST;
@@ -511,14 +518,16 @@ long per_cpu_hash_map_impl::elem_update_userspace(const void *key,
 		}
 	} else {
 		if (elem_exists) {
-			std::memcpy(generic_itr->second.data.get(), value,
-				    static_cast<size_t>(value_size) * ncpu);
+			percpu_values_from_userspace(
+				generic_itr->second.data.get(),
+				(const uint8_t *)value, value_size, ncpu);
 		} else {
 			auto value_ref = acquire_uint32_value();
 			if (value_ref.data == nullptr)
 				return -1;
-			std::memcpy(value_ref.data.get(), value,
-				    static_cast<size_t>(value_size) * ncpu);
+			percpu_values_from_userspace(value_ref.data.get(),
+						     (const uint8_t *)value,
+						     value_size, ncpu);
 			if (!impl.insert(bi_map_value_ty(key_templates[0],
 							 value_ref))
 				     .second) {
@@ -569,7 +578,9 @@ long per_cpu_hash_map_impl::lookup_and_delete_userspace(const void *key,
 			errno = ENOENT;
 			return -1;
 		}
-		memcpy(value, itr->second.data.get(), ncpu * value_size);
+		percpu_values_to_userspace((uint8_t *)value,
+					   itr->second.data.get(), value_size,
+					   ncpu);
 		const uint32_t slot = itr->second.slot;
 		recycle_uint32_node(itr);
 		release_uint32_value(slot);
@@ -581,7 +592,9 @@ long per_cpu_hash_map_impl::lookup_and_delete_userspace(const void *key,
 			errno = ENOENT;
 			return -1;
 		}
-		memcpy(value, itr->second.data.get(), ncpu * value_size);
+		percpu_values_to_userspace((uint8_t *)value,
+					   itr->second.data.get(), value_size,
+					   ncpu);
 		const uint32_t slot = itr->second.slot;
 		impl.erase(itr);
 		release_uint32_value(slot);

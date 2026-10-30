@@ -191,7 +191,12 @@ void *per_cpu_array_map_impl::elem_lookup_userspace(const void *key)
 		errno = ENOENT;
 		return nullptr;
 	}
-	return data_at(key_val, 0);
+	if (value_size % 8 == 0)
+		return data_at(key_val, 0);
+	uint8_t *out = percpu_userspace_buffer(
+		percpu_userspace_stride(value_size) * ncpu);
+	percpu_values_to_userspace(out, data_at(key_val, 0), value_size, ncpu);
+	return out;
 }
 
 long per_cpu_array_map_impl::elem_update_userspace(const void *key,
@@ -213,8 +218,8 @@ long per_cpu_array_map_impl::elem_update_userspace(const void *key,
 		errno = E2BIG;
 		return -1;
 	}
-	std::copy((uint8_t *)value, (uint8_t *)value + ncpu * value_size,
-		  data_at(key_val, 0));
+	percpu_values_from_userspace(data_at(key_val, 0), (const uint8_t *)value,
+				     value_size, ncpu);
 	return 0;
 }
 
