@@ -2,7 +2,7 @@
 # perf profile of the allowed open workload under bpftime (where do +9 us go).
 set -u
 B=/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate
-F=${B}/benchmark/fuse; BUILD=${B}/build-fuse-exp
+F=${B}/benchmark/fuse; BUILD=${BUILD:-${B}/build-fuse-exp}
 D=/home/jetson/src/results/syscall/fuse-20261030; W=${D}/work
 export BPFTIME_GLOBAL_SHM_NAME=fusebench_shm
 timeout 600 taskset -c 4 "${F}/fs/passthrough" "${W}/src" "${W}/mnt" > "${W}/fuse-prof.log" 2>&1 &
