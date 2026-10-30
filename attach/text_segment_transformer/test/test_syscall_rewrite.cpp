@@ -3,6 +3,7 @@
 // and reports through the exit status. A hook counts the calls and deliberately
 // clobbers caller-saved registers, as the agent's C++ dispatch does.
 #include "text_segment_transformer.hpp"
+#include "agent_namespace.hpp"
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <cerrno>
@@ -13,6 +14,8 @@
 #include <cstring>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <unwind.h>
+#include <cfenv>
 #include <fstream>
 #include <string>
 #include <initializer_list>
@@ -263,6 +266,167 @@ TEST_CASE("fork, clone and posix_spawn children return to the call site",
 		    WEXITSTATUS(status) != 0)
 			return 5;
 		return 0;
+	});
+	REQUIRE(code == 0);
+}
+
+namespace
+{
+int64_t rounding_hook(int64_t nr, int64_t a1, int64_t a2, int64_t a3,
+		      int64_t a4, int64_t a5, int64_t a6)
+{
+	fesetround(FE_UPWARD); // FPCR.RMode, as hook code might
+	return next_hook(nr, a1, a2, a3, a4, a5, a6);
+}
+} // namespace
+
+TEST_CASE("the hook's floating-point control changes do not reach the caller",
+	  "[syscall-rewrite]")
+{
+	int code = in_rewritten_child([] {
+		fesetround(FE_TONEAREST);
+		bpftime::set_call_hook(&rounding_hook);
+		syscall(SYS_getppid);
+		const int mode = fegetround(); // FPCR, as svc preserves it
+		bpftime::set_call_hook(&recording_hook);
+		return mode == FE_TONEAREST ? 0 : 2;
+	});
+	REQUIRE(code == 0);
+}
+
+// The hook's assembly had no unwind information: unwinding from a hooked
+// call stopped there. pthread_cancel of a thread blocked in a hooked read
+// then skipped every destructor up to the thread start, and backtraces from
+// signal handlers stopped at the hook.
+namespace
+{
+int unwind_pipe[2];
+std::atomic<bool> cleaned_up{ false };
+struct cleanup_flag {
+	~cleanup_flag()
+	{
+		cleaned_up = true;
+	}
+};
+
+void *cancelled_reader(void *)
+{
+	cleanup_flag flag;
+	char c;
+	read(unwind_pipe[0], &c, 1);
+	return nullptr;
+}
+
+void *frames[64];
+volatile int frame_count = 0;
+
+__attribute__((noinline)) void *traced_reader(void *)
+{
+	char c;
+	read(unwind_pipe[0], &c, 1);
+	asm volatile("" ::: "memory"); // keep the frame
+	return nullptr;
+}
+} // namespace
+
+TEST_CASE("a thread cancelled in a hooked blocking call runs its cleanups",
+	  "[syscall-rewrite]")
+{
+	int code = in_rewritten_child([] {
+		if (pipe(unwind_pipe) != 0)
+			return 2;
+		pthread_t thread;
+		if (pthread_create(&thread, nullptr, cancelled_reader,
+				   nullptr) != 0)
+			return 3;
+		usleep(100000); // blocked in read
+		pthread_cancel(thread);
+		void *result = nullptr;
+		pthread_join(thread, &result);
+		if (result != PTHREAD_CANCELED)
+			return 4;
+		return cleaned_up ? 0 : 5;
+	});
+	REQUIRE(code == 0);
+}
+
+// The same through a callback in its own link-map namespace with a
+// try/catch, as the agent's syscall_callback: its personality uses that
+// namespace's libgcc_s, which must have unwound once (the agent does it when
+// set up) or the forced unwind aborts the process.
+TEST_CASE("a cancel unwinds through a hook in another namespace",
+	  "[syscall-rewrite]")
+{
+	int code = in_rewritten_child([] {
+		void *agent = bpftime::load_agent_in_new_namespace(
+			FAKE_AGENT_UNWIND_PATH);
+		if (agent == nullptr)
+			return 2;
+		auto set_next = (void (*)(syscall_hooker_func_t))dlsym(
+			agent, "fake_agent_set_next");
+		auto init = (void (*)())dlsym(agent, "fake_agent_init_unwinder");
+		auto hook = (syscall_hooker_func_t)dlsym(agent, "fake_agent_hook");
+		if (!set_next || !init || !hook)
+			return 3;
+		set_next(bpftime::get_call_hook());
+		init();
+		bpftime::set_call_hook(hook);
+		if (pipe(unwind_pipe) != 0)
+			return 4;
+		pthread_t thread;
+		if (pthread_create(&thread, nullptr, cancelled_reader,
+				   nullptr) != 0)
+			return 5;
+		usleep(100000); // blocked in read
+		pthread_cancel(thread);
+		void *result = nullptr;
+		pthread_join(thread, &result);
+		if (result != PTHREAD_CANCELED)
+			return 6;
+		return cleaned_up ? 0 : 7;
+	});
+	REQUIRE(code == 0);
+}
+
+// _Unwind_Backtrace, as C++ exceptions and forced unwinding use (the test
+// binary carries its own weak `backtrace`).
+TEST_CASE("backtraces from a signal handler pass the hook",
+	  "[syscall-rewrite]")
+{
+	int code = in_rewritten_child([] {
+		if (pipe(unwind_pipe) != 0)
+			return 2;
+		struct sigaction sa = {};
+		sa.sa_handler = [](int) {
+			_Unwind_Backtrace(
+				[](_Unwind_Context *ctx, void *) {
+					if (frame_count < 64)
+						frames[frame_count++] =
+							(void *)_Unwind_GetIP(ctx);
+					return _URC_NO_REASON;
+				},
+				nullptr);
+		};
+		sa.sa_flags = SA_RESTART;
+		sigemptyset(&sa.sa_mask);
+		if (sigaction(SIGUSR1, &sa, nullptr) != 0)
+			return 3;
+		pthread_t thread;
+		if (pthread_create(&thread, nullptr, traced_reader, nullptr) !=
+		    0)
+			return 4;
+		usleep(100000); // blocked in read
+		pthread_kill(thread, SIGUSR1);
+		usleep(100000);
+		write(unwind_pipe[1], "x", 1);
+		pthread_join(thread, nullptr);
+		const auto lo = reinterpret_cast<uintptr_t>(&traced_reader);
+		for (int i = 0; i < frame_count; i++) {
+			const auto pc = reinterpret_cast<uintptr_t>(frames[i]);
+			if (pc > lo && pc < lo + 256)
+				return 0;
+		}
+		return 5;
 	});
 	REQUIRE(code == 0);
 }
