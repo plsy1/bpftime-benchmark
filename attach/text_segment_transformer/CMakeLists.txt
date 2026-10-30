@@ -60,6 +60,13 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
 endif()
 add_library(bpftime_test_fake_agent_keys MODULE test/fake_agent_keys.c)
 add_executable(bpftime_text_segment_transformer_tests ${TRANSFORMER_TEST_SOURCES})
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+    # A library with its own svc, dlopen-ed after rewriting.
+    add_library(bpftime_test_raw_svc_module MODULE test/raw_svc_module.c)
+    add_dependencies(bpftime_text_segment_transformer_tests bpftime_test_raw_svc_module)
+    target_compile_definitions(bpftime_text_segment_transformer_tests PRIVATE
+        RAW_SVC_MODULE_PATH="$<TARGET_FILE:bpftime_test_raw_svc_module>")
+endif()
 if(${ENABLE_EBPF_VERIFIER} AND NOT TARGET Catch2)
     Include(FetchContent)
     FetchContent_Declare(
