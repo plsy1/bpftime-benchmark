@@ -645,6 +645,17 @@ pointer, so it never allocates; keep it that small. Numbers outside the
 them read neighbouring members (-1 ran global exit programs at entry) or past
 the object (600 crashed). Tests count `operator new` per dispatch.
 
+Syscall tracepoints map names to numbers through `syscall_id_list.h`, made by
+`generate_syscall_id_table.sh` from `<sys/syscall.h>`. asm-generic targets
+(aarch64, riscv) define some numbers through another macro
+(`__NR_fcntl __NR3264_fcntl`): the script keeps only lines ending in a digit,
+so aarch64 lacked `fcntl`, `newfstatat`, `fstat`, `lseek`, `mmap`, `statfs`,
+`fstatfs`, `truncate`, `ftruncate`, `sendfile` (their programs failed to attach,
+logged, the rest attached) and had `fadvise64 __NR3264_fadvise64`. It now lets
+cpp expand every `__NR_` name (x86 output unchanged, byte for byte), and the
+header depends on the script so existing build directories regenerate it.
+Test: "System call names map to their numbers" (needs no tracefs).
+
 ## Per-CPU Hash Maps
 
 Only the values of `per_cpu_hash_map_impl` are per CPU: the key index (Boost
