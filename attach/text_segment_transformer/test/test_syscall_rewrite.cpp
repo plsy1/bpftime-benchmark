@@ -23,6 +23,9 @@
 #include <sched.h>
 #include <spawn.h>
 #include <sys/mman.h>
+#include <vector>
+#include <ucontext.h>
+#include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
 #include <sys/wait.h>
@@ -1009,6 +1012,175 @@ TEST_CASE("lazy mode refuses execve", "[syscall-rewrite][lazy]")
 				environ) != EPERM)
 			return 7;
 		return 0;
+	});
+	REQUIRE(code == 0);
+}
+
+// A fork while another thread held the patch lock left the child's lock
+// owned by a thread it does not have: its first trap spun forever.
+TEST_CASE("lazy mode fork children never inherit the patch lock",
+	  "[syscall-rewrite][lazy]")
+{
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		static std::atomic<bool> stop{ false };
+		pthread_t patcher;
+		// Fresh sites, each taking the lock for its rewrite.
+		pthread_create(
+			&patcher, nullptr,
+			[](void *) -> void * {
+				while (!stop) {
+					code_fn fn = getpid_code();
+					if (fn)
+						fn();
+				}
+				return nullptr;
+			},
+			nullptr);
+		int hung = 0;
+		for (int i = 0; i < 40; i++) {
+			pid_t pid = fork();
+			if (pid == 0) {
+				alarm(5);
+				code_fn fn = getpid_code();
+				_exit(fn && fn() == getpid() ? 0 : 3);
+			}
+			int status = 0;
+			waitpid(pid, &status, 0);
+			if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+				hung++;
+		}
+		stop = true;
+		pthread_join(patcher, nullptr);
+		return hung == 0 ? 0 : 4;
+	});
+	REQUIRE(code == 0);
+}
+
+// The filter applies to every thread; enabling unblocked SIGSYS only on the
+// calling one. A thread that had blocked all signals died (SIGSYS) at its
+// first trap: enabling is refused then.
+TEST_CASE("lazy mode is refused while a thread blocks SIGSYS",
+	  "[syscall-rewrite][lazy]")
+{
+	int code = in_rewritten_child(request_lazy, [] {
+		static int go[2];
+		if (pipe(go) != 0)
+			return 2;
+		pthread_t blocked;
+		pthread_create(
+			&blocked, nullptr,
+			[](void *) -> void * {
+				sigset_t all;
+				sigfillset(&all);
+				pthread_sigmask(SIG_BLOCK, &all, nullptr);
+				char c;
+				read(go[0], &c, 1);
+				// Untraced code, as a JIT's: traps if enabled.
+				code_fn fn = getpid_code();
+				if (fn)
+					fn();
+				return nullptr;
+			},
+			nullptr);
+		usleep(50000);
+		const bool enabled = bpftime::enable_lazy_rewriting({});
+		write(go[1], "x", 1);
+		pthread_join(blocked, nullptr);
+		return enabled ? 3 : 0;
+	});
+	REQUIRE(code == 0);
+}
+
+// The SIGSYS frame (about 5 KiB) went on the trapping thread's stack even
+// when it had an alternate signal stack, as every Go thread does.
+TEST_CASE("lazy mode traps use the alternate signal stack",
+	  "[syscall-rewrite][lazy]")
+{
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		static std::vector<char> alt(64 * 1024);
+		stack_t ss = {};
+		ss.ss_sp = alt.data();
+		ss.ss_size = alt.size();
+		if (sigaltstack(&ss, nullptr) != 0)
+			return 3;
+		// 4 KiB of stack above a guard page: the hook's frames fit,
+		// the trap's signal frame does not.
+		const size_t page = getpagesize();
+		auto *mem = static_cast<char *>(
+			mmap(nullptr, 2 * page, PROT_READ | PROT_WRITE,
+			     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+		if (mem == MAP_FAILED || mprotect(mem, page, PROT_NONE) != 0)
+			return 4;
+		static code_fn fn = getpid_code();
+		static long result = 0;
+		static ucontext_t main_ctx, small_ctx;
+		getcontext(&small_ctx);
+		small_ctx.uc_stack.ss_sp = mem + page;
+		small_ctx.uc_stack.ss_size = page;
+		small_ctx.uc_link = &main_ctx;
+		makecontext(&small_ctx, [] { result = fn(); }, 0);
+		if (swapcontext(&main_ctx, &small_ctx) != 0)
+			return 5;
+		return result == getpid() ? 0 : 6;
+	});
+	REQUIRE(code == 0);
+}
+
+// The kernel reports the address after the svc: an svc in the last word of
+// an allowed range (the agent's code) was trapped and rewritten.
+TEST_CASE("lazy mode allows an svc in the last word of an allowed range",
+	  "[syscall-rewrite][lazy]")
+{
+	int code = in_rewritten_child(request_lazy, [] {
+		const size_t page = getpagesize();
+		auto *mem = static_cast<uint8_t *>(
+			mmap(nullptr, 2 * page, PROT_READ | PROT_WRITE,
+			     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+		if (mem == MAP_FAILED)
+			return 2;
+		auto *words = reinterpret_cast<uint32_t *>(mem);
+		const size_t last = page / 4 - 1;
+		words[last - 1] = mov_x8(SYS_getpid);
+		words[last] = SVC_0;
+		words[last + 1] = RET;
+		__builtin___clear_cache((char *)mem, (char *)mem + 2 * page);
+		if (mprotect(mem, 2 * page, PROT_READ | PROT_EXEC) != 0)
+			return 3;
+		// Only the first page is allowed code.
+		if (!bpftime::enable_lazy_rewriting(
+			    { { (uint64_t)mem, (uint64_t)mem + page } }))
+			return 4;
+		auto fn = reinterpret_cast<code_fn>(&words[last - 1]);
+		if (fn() != getpid())
+			return 5;
+		if (bpftime::get_lazy_rewrite_stats().traps != 0)
+			return 6;
+		return is_svc_word(words[last]) ? 0 : 7;
+	});
+	REQUIRE(code == 0);
+}
+
+// Not dumpable (setuid programs, daemons after PR_SET_DUMPABLE 0), the
+// process cannot write /proc/self/mem: every trap was emulated untraced.
+TEST_CASE("lazy mode rewrites in processes that are not dumpable",
+	  "[syscall-rewrite][lazy]")
+{
+	int code = in_rewritten_child(request_lazy, [] {
+		if (prctl(PR_SET_DUMPABLE, 0) != 0)
+			return 2;
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 3;
+		code_fn fn = getpid_code();
+		if (fn == nullptr || fn() != getpid() || fn() != getpid())
+			return 4;
+		auto stats = bpftime::get_lazy_rewrite_stats();
+		if (stats.rewritten != 1 || stats.emulated != 0)
+			return 5;
+		return is_svc_word(((const uint32_t *)fn)[1]) ? 6 : 0;
 	});
 	REQUIRE(code == 0);
 }

@@ -22,6 +22,7 @@
 #include <sys/mman.h>
 #include <sys/uio.h>
 #include <sys/stat.h>
+#include <dirent.h>
 #include <vector>
 #include <cstdint>
 #include <unistd.h>
@@ -803,6 +804,11 @@ bool rescan_enabled = false;
 bool lazy_requested = false;
 std::atomic<bool> lazy_active{ false };
 std::atomic<uint64_t> lazy_traps{ 0 }, lazy_rewritten{ 0 }, lazy_emulated{ 0 };
+// execve calls the handler refused on its emulation path, reported by the
+// next hooked call (the handler cannot log).
+std::atomic<uint64_t> lazy_execs_refused_in_handler{ 0 };
+bool sanitize_signal_call(int64_t sys_nr, int64_t &arg1, int64_t &arg2,
+			  int64_t &arg3, uint64_t *scratch, int64_t &ret);
 uint64_t page_size = 4096; // set by setup_syscall_tracer
 // Thread id holding the code-patching lock (0: free). Rescans and the
 // handler both patch code pages; the handler cannot wait for a pthread mutex.
@@ -818,16 +824,20 @@ inline int64_t raw_syscall(int64_t nr, int64_t a1 = 0, int64_t a2 = 0,
 }
 
 // False when this thread already holds it (a handler interrupting a patch).
+// Yields while it waits: a SCHED_FIFO thread spinning on the CPU of a
+// preempted holder would never let it finish.
 bool patch_lock()
 {
 	const int64_t self = raw_syscall(SYS_gettid);
-	for (;;) {
+	for (unsigned spins = 0;; spins++) {
 		int64_t expected = 0;
 		if (patch_owner.compare_exchange_weak(expected, self,
 						      std::memory_order_acquire))
 			return true;
 		if (expected == self)
 			return false;
+		if (spins % 64 == 63)
+			raw_syscall(SYS_sched_yield);
 	}
 }
 
@@ -1268,12 +1278,95 @@ void rescan(uint64_t addr, uint64_t len)
 // trap of a site cost 90 us. Opened for each write, so that a fork child
 // writes its own memory. A site is one aligned word (the kernel copies it
 // with a word store; svc -> b stays a permitted concurrent modification).
+// The protection of the mapping holding `addr`, from /proc/self/maps with
+// raw system calls and a fixed buffer (the handler's context); -1 if not
+// found.
+int page_prot(uint64_t addr)
+{
+	int fd = (int)raw_syscall(SYS_openat, AT_FDCWD,
+				  (int64_t) "/proc/self/maps", O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return -1;
+	char buf[4096];
+	size_t have = 0;
+	int prot = -1;
+	for (;;) {
+		int64_t n = raw_syscall(SYS_read, fd, (int64_t)(buf + have),
+					(int64_t)(sizeof(buf) - have));
+		if (n <= 0)
+			break;
+		have += n;
+		size_t start = 0;
+		for (size_t i = 0; i < have; i++) {
+			if (buf[i] != '\n')
+				continue;
+			// "begin-end perms ...": hex, '-', hex, ' ', rwxp
+			uint64_t begin = 0, end = 0;
+			size_t j = start;
+			auto hex = [&](uint64_t &v) {
+				for (; j < i; j++) {
+					char c = buf[j];
+					int d = c >= '0' && c <= '9' ? c - '0' :
+						c >= 'a' && c <= 'f' ? c - 'a' + 10 :
+								       -1;
+					if (d < 0)
+						break;
+					v = v * 16 + d;
+				}
+			};
+			hex(begin);
+			j++; // '-'
+			hex(end);
+			j++; // ' '
+			if (addr >= begin && addr < end && j + 3 <= i) {
+				prot = (buf[j] == 'r' ? PROT_READ : 0) |
+				       (buf[j + 1] == 'w' ? PROT_WRITE : 0) |
+				       (buf[j + 2] == 'x' ? PROT_EXEC : 0);
+				break;
+			}
+			start = i + 1;
+		}
+		if (prot != -1)
+			break;
+		// Keep a partial last line.
+		memmove(buf, buf + start, have - start);
+		have -= start;
+		if (have == sizeof(buf))
+			have = 0;
+	}
+	raw_syscall(SYS_close, fd);
+	return prot;
+}
+
+// For processes that may not write /proc/self/mem (not dumpable: setuid
+// programs, sshd and other daemons after PR_SET_DUMPABLE 0): make the page
+// writable for the store, then restore its protection. Code stays
+// executable throughout.
+bool write_code_mprotect(uint64_t addr, const void *data, size_t len)
+{
+	const uint64_t page = addr & ~(page_size - 1);
+	if (((addr + len - 1) & ~(page_size - 1)) != page)
+		return false;
+	int prot = page_prot(addr);
+	if (prot < 0 || raw_syscall(SYS_mprotect, page, page_size,
+				    prot | PROT_WRITE) != 0)
+		return false;
+	if (len == 4)
+		__atomic_store_n((uint32_t *)addr, *(const uint32_t *)data,
+				 __ATOMIC_RELEASE);
+	else
+		memcpy((void *)addr, data, len);
+	__builtin___clear_cache((char *)addr, (char *)addr + len);
+	raw_syscall(SYS_mprotect, page, page_size, prot);
+	return true;
+}
+
 bool write_code(uint64_t addr, const void *data, size_t len)
 {
 	int fd = (int)raw_syscall(SYS_openat, AT_FDCWD, (int64_t) "/proc/self/mem",
 				  O_RDWR | O_CLOEXEC);
 	if (fd < 0)
-		return false;
+		return write_code_mprotect(addr, data, len);
 	int64_t n = raw_syscall(SYS_pwrite64, fd, (int64_t)data, (int64_t)len,
 				(int64_t)addr);
 	raw_syscall(SYS_close, fd);
@@ -1407,10 +1500,22 @@ void on_sigsys(int, siginfo_t *info, void *context)
 		uc->uc_mcontext.pc = site; // again, through the gate
 		return;
 	}
-	// No gate: make the call here, untraced.
+	// No gate: make the call here, untraced, with the checks the hook
+	// applies (no logging in the handler).
 	lazy_emulated++;
-	regs[0] = raw_syscall(regs[8], regs[0], regs[1], regs[2], regs[3],
-			      regs[4], regs[5]);
+	const int64_t nr = regs[8];
+	if (nr == SYS_execve || nr == SYS_execveat) {
+		lazy_execs_refused_in_handler++;
+		regs[0] = -EPERM;
+		return;
+	}
+	int64_t a1 = regs[0], a2 = regs[1], a3 = regs[2], ret = 0;
+	uint64_t scratch[4];
+	if (sanitize_signal_call(nr, a1, a2, a3, scratch, ret)) {
+		regs[0] = ret;
+		return;
+	}
+	regs[0] = raw_syscall(nr, a1, a2, a3, regs[3], regs[4], regs[5]);
 }
 } // namespace
 
@@ -1463,6 +1568,10 @@ static bool before_hooked_syscall(int64_t sys_nr, int64_t &arg1, int64_t &arg2,
 {
 	if (!lazy_active.load(std::memory_order_relaxed))
 		return false;
+	if (uint64_t refused = lazy_execs_refused_in_handler.exchange(0))
+		SPDLOG_WARN("Lazy rewriting: {} execve calls without a gate "
+			    "refused (EPERM)",
+			    refused);
 	if (sys_nr == SYS_execve || sys_nr == SYS_execveat) {
 		// The filter survives execve, our handler does not: the new
 		// program would be killed at its first system call.
@@ -1470,7 +1579,18 @@ static bool before_hooked_syscall(int64_t sys_nr, int64_t &arg1, int64_t &arg2,
 		ret = -EPERM;
 		return true;
 	}
-	// A trap with SIGSYS blocked or ignored kills the process.
+	return sanitize_signal_call(sys_nr, arg1, arg2, arg3, scratch, ret);
+}
+
+namespace
+{
+// A trap with SIGSYS blocked or ignored kills the process: keeps SIGSYS out
+// of the application's masks and answers rt_sigaction for SIGSYS itself.
+// True when the call is answered (`ret`). No logging: the SIGSYS handler's
+// emulation path uses it too.
+bool sanitize_signal_call(int64_t sys_nr, int64_t &arg1, int64_t &arg2,
+			  int64_t &arg3, uint64_t *scratch, int64_t &ret)
+{
 	const uint64_t sigsys = 1ull << (SIGSYS - 1);
 	if (sys_nr == SYS_rt_sigprocmask) {
 		if (arg2 != 0 && arg1 != SIG_UNBLOCK) {
@@ -1498,11 +1618,11 @@ static bool before_hooked_syscall(int64_t sys_nr, int64_t &arg1, int64_t &arg2,
 	return false;
 }
 
-namespace
-{
 // Allows rt_sigreturn, clone and clone3 by number (they take the gate's
-// direct path, never traced), calls made from call_orig_syscall's page or
-// from `allowed`, and other architectures; traps the rest.
+// direct path, never traced), calls made by call_orig_syscall's svc or from
+// the code ranges `allowed`, and other architectures; traps the rest. The
+// kernel reports the address after the svc, so a range [lo, hi) of code is
+// allowed as [lo + 4, hi + 4): an svc in its last word stays allowed.
 bool install_lazy_filter(const std::vector<std::pair<uint64_t, uint64_t> > &allowed)
 {
 	std::vector<sock_filter> f;
@@ -1521,9 +1641,11 @@ bool install_lazy_filter(const std::vector<std::pair<uint64_t, uint64_t> > &allo
 	jeq_allow(SYS_rt_sigreturn);
 	jeq_allow(SYS_clone);
 	jeq_allow(SYS_clone3);
-	std::vector<std::pair<uint64_t, uint64_t> > ranges = allowed;
-	uint64_t orig = (uint64_t)&syscall_addr & ~(page_size - 1);
-	ranges.push_back({ orig, orig + page_size });
+	std::vector<std::pair<uint64_t, uint64_t> > ranges;
+	for (auto [lo, hi] : allowed)
+		ranges.push_back({ lo + 4, hi + 4 });
+	const uint64_t orig = (uint64_t)&syscall_addr;
+	ranges.push_back({ orig + 4, orig + 8 });
 	const uint32_t ip = offsetof(seccomp_data, instruction_pointer);
 	for (auto [lo, hi] : ranges) {
 		while (lo < hi) {
@@ -1582,13 +1704,46 @@ bool lazy_rewriting_requested()
 	return lazy_requested;
 }
 
+namespace
+{
+// A thread of this process whose signal mask has SIGSYS, or 0.
+int thread_blocking_sigsys()
+{
+	DIR *dir = opendir("/proc/self/task");
+	if (dir == nullptr)
+		return 0;
+	int found = 0;
+	while (dirent *entry = readdir(dir)) {
+		if (entry->d_name[0] == '.')
+			continue;
+		std::ifstream status(std::string("/proc/self/task/") +
+				     entry->d_name + "/status");
+		std::string line;
+		while (std::getline(status, line)) {
+			if (line.rfind("SigBlk:", 0) != 0)
+				continue;
+			uint64_t mask = strtoull(line.c_str() + 7, nullptr, 16);
+			if (mask & (1ull << (SIGSYS - 1)))
+				found = atoi(entry->d_name);
+			break;
+		}
+		if (found != 0)
+			break;
+	}
+	closedir(dir);
+	return found;
+}
+} // namespace
+
 bool enable_lazy_rewriting(const std::vector<std::pair<uint64_t, uint64_t> > &allowed)
 {
 	if (!lazy_requested || lazy_active.load())
 		return false;
 	struct sigaction sa = {};
 	sa.sa_sigaction = on_sigsys;
-	sa.sa_flags = SA_SIGINFO | SA_NODEFER;
+	// SA_ONSTACK: a thread with an alternate signal stack (every Go thread)
+	// takes the trap's 5 KiB frame there, not on a small stack.
+	sa.sa_flags = SA_SIGINFO | SA_NODEFER | SA_ONSTACK;
 	sigemptyset(&sa.sa_mask);
 	sigset_t sigsys;
 	sigemptyset(&sigsys);
@@ -1598,6 +1753,27 @@ bool enable_lazy_rewriting(const std::vector<std::pair<uint64_t, uint64_t> > &al
 		return false;
 	// Sanitize masks from here on: the filter may trap any thread.
 	lazy_active = true;
+	// The filter applies to every thread, the unblock above only to this
+	// one: a thread that blocked SIGSYS before would die at its first trap.
+	if (int tid = thread_blocking_sigsys(); tid != 0) {
+		SPDLOG_WARN("Lazy rewriting not enabled: thread {} blocks SIGSYS",
+			    tid);
+		lazy_active = false;
+		return false;
+	}
+	static bool fork_handlers_installed = false;
+	if (!fork_handlers_installed) {
+		// A child must not inherit the lock held by a thread it does
+		// not have: take it around the fork.
+		static bool held_for_fork = false;
+		pthread_atfork([] { held_for_fork = patch_lock(); },
+			       [] {
+				       if (held_for_fork)
+					       patch_unlock();
+			       },
+			       [] { patch_owner.store(0); });
+		fork_handlers_installed = true;
+	}
 	if (!install_lazy_filter(allowed)) {
 		lazy_active = false;
 		return false;
