@@ -47,6 +47,7 @@ set(TEST_SOURCES
     test_shm_allocation_failure.cpp
     test_prog_after_shm_release.cpp
     test_prog_jit_load.cpp
+    test_extension_helpers.cpp
     test_trace_printk.cpp
     test_ratelimited_log.cpp
     test_software_perf_event.cpp
