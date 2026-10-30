@@ -529,6 +529,16 @@ sections (no constants of a shared segment taken for code). Mappings without
 section headers (anonymous code, unreadable files) are skipped and counted in
 the log unless `BPFTIME_SYSCALL_REWRITE_ANON=1`: scanned word by word, a
 literal-pool constant equal to `svc #0` was rewritten into a branch.
+The section table comes from the mapped file itself: a file renamed over or
+unlinked under a running process (a package upgrade, then `bpftime attach`)
+shows as "path (deleted)" and is opened through `/proc/self/map_files`
+(needs `CAP_CHECKPOINT_RESTORE`, so root; otherwise skipped with a warning
+naming the mapping); any other path must still have the mapped inode. Before,
+"(deleted)" mappings were always skipped (untraced). `MAP_SHARED` executable
+mappings are skipped: rewriting a writable file's mapping stored branches to
+this process's gates into the file. Tests: "a deleted library is rewritten
+from the mapped file when allowed" (rewritten as root, skipped otherwise),
+"shared executable file mappings are not rewritten".
 The vDSO's fallback `svc` sites (clock_gettime, clock_getres, gettimeofday:
 CPU-time clocks always take them) are rewritten from its in-memory ELF image
 (the write makes the process's own copy of the page), except
