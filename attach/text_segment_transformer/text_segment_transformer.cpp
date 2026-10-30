@@ -1,5 +1,6 @@
 #include "spdlog/spdlog.h"
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cstddef>
 #include <cstdio>
@@ -10,7 +11,13 @@
 #include <fcntl.h>
 #include <fstream>
 #include <pthread.h>
+#include <linux/audit.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
+#include <csignal>
 #include <sys/auxv.h>
+#include <sys/prctl.h>
+#include <ucontext.h>
 #include <sys/syscall.h>
 #include <sys/mman.h>
 #include <vector>
@@ -94,6 +101,12 @@ namespace bpftime
 static void after_hooked_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
 				 int64_t arg3, int64_t arg4, int64_t arg5,
 				 int64_t ret);
+// Before rt_sigaction and rt_sigprocmask in lazy mode (aarch64): keeps SIGSYS
+// deliverable. May point an argument at `scratch` (32 bytes); returns true
+// with `ret` set when the call is answered without being made.
+static bool before_hooked_syscall(int64_t sys_nr, int64_t &arg1, int64_t &arg2,
+				  int64_t &arg3, uint64_t *scratch,
+				  int64_t &ret);
 } // namespace bpftime
 
 #if defined(__x86_64__)
@@ -404,15 +417,20 @@ __asm__(".pushsection .text\n\t"
 #error "Unsupported architecture"
 #endif
 
-// The calls that can make code executable, out of line: keeping their
-// arguments for the rescan made every other system call save them (and,
-// with the rescan inlined, check a stack canary): +43 instructions per call.
+// The calls that can make code executable (rescanned after) or block SIGSYS
+// (sanitized before, in lazy mode), out of line: keeping their arguments made
+// every other system call save them (and, with the rescan inlined, check a
+// stack canary): +43 instructions per call.
 __attribute__((noinline, cold)) static int64_t
-hook_mapping_call(int64_t sys_nr, int64_t arg1, int64_t arg2, int64_t arg3,
+hook_special_call(int64_t sys_nr, int64_t arg1, int64_t arg2, int64_t arg3,
 		  int64_t arg4, int64_t arg5, int64_t arg6)
 {
 	in_hook = true;
-	int64_t ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
+	uint64_t scratch[4];
+	int64_t ret;
+	if (!bpftime::before_hooked_syscall(sys_nr, arg1, arg2, arg3, scratch,
+					    ret))
+		ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
 	bpftime::after_hooked_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5, ret);
 	in_hook = false;
 	return ret;
@@ -427,9 +445,11 @@ extern "C" __attribute__((used)) int64_t syscall_hooker_cxx(int64_t sys_nr, int6
 		return orig_syscall_direct(sys_nr, arg1, arg2, arg3, arg4, arg5,
 					   arg6);
 	if (__builtin_expect(sys_nr == SYS_mmap || sys_nr == SYS_mprotect ||
-				     sys_nr == SYS_pkey_mprotect,
+				     sys_nr == SYS_pkey_mprotect ||
+				     sys_nr == SYS_rt_sigaction ||
+				     sys_nr == SYS_rt_sigprocmask,
 			     0))
-		return hook_mapping_call(sys_nr, arg1, arg2, arg3, arg4, arg5,
+		return hook_special_call(sys_nr, arg1, arg2, arg3, arg4, arg5,
 					 arg6);
 	in_hook = true;
 	int64_t ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
@@ -441,6 +461,11 @@ extern "C" __attribute__((used)) int64_t syscall_hooker_cxx(int64_t sys_nr, int6
 static void bpftime::after_hooked_syscall(int64_t, int64_t, int64_t, int64_t,
 					  int64_t, int64_t, int64_t)
 {
+}
+static bool bpftime::before_hooked_syscall(int64_t, int64_t &, int64_t &,
+					   int64_t &, uint64_t *, int64_t &)
+{
+	return false;
 }
 #endif
 
@@ -710,6 +735,46 @@ std::vector<trampoline_span> trampolines;
 pthread_mutex_t rescan_mutex = PTHREAD_MUTEX_INITIALIZER;
 bool rescan_enabled = false;
 
+// Lazy mode (BPFTIME_SYSCALL_LAZY=1): a seccomp filter turns every system
+// call not made from call_orig_syscall (or by the agent's namespace) into
+// SIGSYS; the handler rewrites that svc and runs it again through its gate.
+// Everything the handler uses is raw system calls and fixed storage.
+bool lazy_requested = false;
+std::atomic<bool> lazy_active{ false };
+std::atomic<uint64_t> lazy_traps{ 0 }, lazy_rewritten{ 0 }, lazy_emulated{ 0 };
+uint64_t page_size = 4096; // set by setup_syscall_tracer
+// Thread id holding the code-patching lock (0: free). Rescans and the
+// handler both patch code pages; the handler cannot wait for a pthread mutex.
+std::atomic<int64_t> patch_owner{ 0 };
+// The application's SIGSYS action, as it set it: never installed.
+uint64_t app_sigsys_action[4];
+
+inline int64_t raw_syscall(int64_t nr, int64_t a1 = 0, int64_t a2 = 0,
+			   int64_t a3 = 0, int64_t a4 = 0, int64_t a5 = 0,
+			   int64_t a6 = 0)
+{
+	return orig_syscall_direct(nr, a1, a2, a3, a4, a5, a6);
+}
+
+// False when this thread already holds it (a handler interrupting a patch).
+bool patch_lock()
+{
+	const int64_t self = raw_syscall(SYS_gettid);
+	for (;;) {
+		int64_t expected = 0;
+		if (patch_owner.compare_exchange_weak(expected, self,
+						      std::memory_order_acquire))
+			return true;
+		if (expected == self)
+			return false;
+	}
+}
+
+void patch_unlock()
+{
+	patch_owner.store(0, std::memory_order_release);
+}
+
 bool is_svc(uint32_t insn)
 {
 	return (insn & 0xffe0001fu) == 0xd4000001u;
@@ -861,6 +926,33 @@ void *map_near(uint64_t lo, uint64_t hi, size_t size)
 	return nullptr;
 }
 
+void write_region_header(uint32_t *region)
+{
+	region[0] = 0x58000051u; // ldr x17, #8
+	region[1] = 0xd61f0220u; // br x17
+	uint64_t hook = (uint64_t)&syscall_hooker_asm;
+	memcpy(&region[2], &hook, sizeof(hook));
+}
+
+// The eight instructions of the gate at `gate` for `site` (region `base`),
+// written to `g`.
+void gate_code(uint32_t *g, uint64_t base, uint64_t gate, uint64_t site)
+{
+	g[0] = 0xa9bf47f0u; // stp x16, x17, [sp, #-16]!
+	g[1] = 0x10fffff0u; // adr x16, gate (pc - 4)
+	g[2] = encode_b(gate + 8, base);
+	g[3] = 0xa8c147f0u; // ldp x16, x17, [sp], #16
+	g[4] = encode_b(gate + 16, site + 4);
+	g[5] = 0xa8c147f0u; // ldp x16, x17, [sp], #16
+	g[6] = 0xd4000001u; // svc #0
+	g[7] = encode_b(gate + 28, site + 4);
+}
+
+void write_gate(uint64_t base, uint64_t gate, uint64_t site)
+{
+	gate_code((uint32_t *)gate, base, gate, site);
+}
+
 void restore_code_page(uint64_t page_addr, uint64_t page, int code_prot)
 {
 	if (page_addr != 0 && mprotect((void *)page_addr, page, code_prot) < 0)
@@ -885,22 +977,10 @@ size_t install_region(const std::vector<uint64_t> &sites, int code_prot)
 	}
 	const uint64_t base = (uint64_t)region;
 	trampolines.push_back({ base, base + size });
-	region[0] = 0x58000051u; // ldr x17, #8
-	region[1] = 0xd61f0220u; // br x17
-	uint64_t hook = (uint64_t)&syscall_hooker_asm;
-	memcpy(&region[2], &hook, sizeof(hook));
-	for (size_t i = 0; i < sites.size(); i++) {
-		uint64_t gate = base + REGION_HEADER_SIZE + GATE_SIZE * i;
-		uint32_t *g = (uint32_t *)gate;
-		g[0] = 0xa9bf47f0u; // stp x16, x17, [sp, #-16]!
-		g[1] = 0x10fffff0u; // adr x16, gate (pc - 4)
-		g[2] = encode_b(gate + 8, base);
-		g[3] = 0xa8c147f0u; // ldp x16, x17, [sp], #16
-		g[4] = encode_b(gate + 16, sites[i] + 4);
-		g[5] = 0xa8c147f0u; // ldp x16, x17, [sp], #16
-		g[6] = 0xd4000001u; // svc #0
-		g[7] = encode_b(gate + 28, sites[i] + 4);
-	}
+	write_region_header(region);
+	for (size_t i = 0; i < sites.size(); i++)
+		write_gate(base, base + REGION_HEADER_SIZE + GATE_SIZE * i,
+			   sites[i]);
 	__builtin___clear_cache((char *)region, (char *)region + size);
 	if (mprotect(region, size, PROT_READ | PROT_EXEC) < 0) {
 		SPDLOG_WARN("Failed to make the trampoline executable: {}",
@@ -910,6 +990,7 @@ size_t install_region(const std::vector<uint64_t> &sites, int code_prot)
 	}
 	// Each site is one aligned word: svc -> b is a permitted concurrent
 	// modification, so threads already running stay correct.
+	const bool locked = lazy_active.load() && patch_lock();
 	size_t rewritten = 0;
 	uint64_t open_page = 0;
 	for (size_t i = 0; i < sites.size(); i++) {
@@ -934,6 +1015,8 @@ size_t install_region(const std::vector<uint64_t> &sites, int code_prot)
 		rewritten++;
 	}
 	restore_code_page(open_page, page, code_prot);
+	if (locked)
+		patch_unlock();
 	return rewritten;
 }
 
@@ -1030,6 +1113,8 @@ void rewrite_mapping(const ExecMap &map, size_t &found, size_t &rewritten,
 	}
 }
 
+bool lazy_region_holds(uint64_t begin, uint64_t end);
+
 // Code that became executable in [addr, addr + len): a library loaded later
 // (dlopen maps it), or code a JIT made executable (with anonymous scanning).
 // Runs on the thread that mapped it, before that code can be called (another
@@ -1048,7 +1133,7 @@ void rescan(uint64_t addr, uint64_t len)
 		if (!(map.prot & PROT_EXEC) || map.end <= lo || map.begin >= hi ||
 		    special_mapping(map))
 			continue;
-		bool own = false;
+		bool own = lazy_region_holds(map.begin, map.end);
 		for (const auto &t : trampolines)
 			own |= t.begin < map.end && map.begin < t.end;
 		if (own)
@@ -1063,6 +1148,159 @@ void rescan(uint64_t addr, uint64_t len)
 	if (found != 0)
 		SPDLOG_DEBUG("Rewrote {} of {} svc instructions mapped at {:x}-{:x}",
 			     rewritten, found, lo, hi);
+}
+
+// ---- Lazy mode: signal-handler side (raw system calls, no allocation) ----
+
+// Writes code through /proc/self/mem: the kernel writes a private read-only
+// page (copying it) with no protection change, so the handler needs neither
+// the page's protection (/proc/self/maps) nor mprotect: with them the first
+// trap of a site cost 90 us. Opened for each write, so that a fork child
+// writes its own memory. A site is one aligned word (the kernel copies it
+// with a word store; svc -> b stays a permitted concurrent modification).
+bool write_code(uint64_t addr, const void *data, size_t len)
+{
+	int fd = (int)raw_syscall(SYS_openat, AT_FDCWD, (int64_t) "/proc/self/mem",
+				  O_RDWR | O_CLOEXEC);
+	if (fd < 0)
+		return false;
+	int64_t n = raw_syscall(SYS_pwrite64, fd, (int64_t)data, (int64_t)len,
+				(int64_t)addr);
+	raw_syscall(SYS_close, fd);
+	__builtin___clear_cache((char *)addr, (char *)addr + len);
+	return n == (int64_t)len;
+}
+
+// Gate pool for lazily rewritten sites: regions of LAZY_REGION_SIZE, gates
+// handed out in order, never freed.
+constexpr size_t MAX_LAZY_REGIONS = 256;
+constexpr uint64_t LAZY_REGION_SIZE = 64 * 1024;
+struct lazy_region {
+	uint64_t base;
+	uint64_t used; // gates handed out
+};
+lazy_region lazy_regions[MAX_LAZY_REGIONS];
+std::atomic<size_t> lazy_region_count{ 0 };
+
+bool gate_reaches(uint64_t site, uint64_t gate)
+{
+	// Same margin as map_near: 112 MiB of the 128 MiB of `b`.
+	return (gate > site ? gate - site : site - gate) < 0x7000000;
+}
+
+bool lazy_region_holds(uint64_t begin, uint64_t end)
+{
+	size_t n = lazy_region_count.load(std::memory_order_acquire);
+	for (size_t i = 0; i < n; i++)
+		if (lazy_regions[i].base < end &&
+		    begin < lazy_regions[i].base + LAZY_REGION_SIZE)
+			return true;
+	return false;
+}
+
+// A new region within reach of `site`: probes 2 MiB steps on both sides
+// (MAP_FIXED_NOREPLACE never replaces a mapping; no /proc parsing here).
+uint64_t map_lazy_region(uint64_t site)
+{
+	const uint64_t step = 0x200000, base = site & ~(step - 1);
+	for (uint64_t k = 1; k * step < 0x6000000; k++) {
+		for (int side = 0; side < 2; side++) {
+			uint64_t addr = side == 0 ? base + k * step :
+						    base - k * step;
+			if (addr < step || (side == 1 && base < k * step))
+				continue;
+			int64_t got = raw_syscall(SYS_mmap, (int64_t)addr,
+						  LAZY_REGION_SIZE,
+						  PROT_READ | PROT_WRITE,
+						  MAP_PRIVATE | MAP_ANONYMOUS |
+							  MAP_FIXED_NOREPLACE,
+						  -1, 0);
+			if (got == (int64_t)addr)
+				return addr;
+			if ((uint64_t)got < (uint64_t)-4095)
+				raw_syscall(SYS_munmap, got, LAZY_REGION_SIZE);
+		}
+	}
+	return 0;
+}
+
+// Under the patch lock. Sets `region` to the gate's region.
+uint64_t lazy_gate(uint64_t site, uint64_t &region)
+{
+	const uint64_t per_region =
+		(LAZY_REGION_SIZE - REGION_HEADER_SIZE) / GATE_SIZE;
+	size_t n = lazy_region_count.load(std::memory_order_relaxed);
+	for (size_t i = 0; i < n; i++) {
+		auto &r = lazy_regions[i];
+		uint64_t gate = r.base + REGION_HEADER_SIZE + GATE_SIZE * r.used;
+		if (r.used < per_region && gate_reaches(site, gate)) {
+			r.used++;
+			region = r.base;
+			return gate;
+		}
+	}
+	if (n == MAX_LAZY_REGIONS)
+		return 0;
+	uint64_t base = map_lazy_region(site);
+	if (base == 0)
+		return 0;
+	write_region_header((uint32_t *)base);
+	__builtin___clear_cache((char *)base, (char *)base + REGION_HEADER_SIZE);
+	if (raw_syscall(SYS_mprotect, base, LAZY_REGION_SIZE,
+			PROT_READ | PROT_EXEC) != 0) {
+		raw_syscall(SYS_munmap, base, LAZY_REGION_SIZE);
+		return 0;
+	}
+	lazy_regions[n] = { base, 1 };
+	lazy_region_count.store(n + 1, std::memory_order_release);
+	region = base;
+	return base + REGION_HEADER_SIZE;
+}
+
+// Rewrites the svc at `site` (trapped there). True when the caller can run
+// `site` again (rewritten now, or by another thread meanwhile).
+bool lazy_rewrite_site(uint64_t site)
+{
+	if (!is_svc(*(volatile uint32_t *)site))
+		return true;
+	if (!patch_lock())
+		return false;
+	bool ok = !is_svc(*(volatile uint32_t *)site);
+	if (!ok) {
+		uint64_t region = 0;
+		uint64_t gate = lazy_gate(site, region);
+		uint32_t code[GATE_SIZE / 4];
+		if (gate != 0) {
+			gate_code(code, region, gate, site);
+			uint32_t branch = encode_b(site, gate);
+			if (write_code(gate, code, sizeof(code)) &&
+			    write_code(site, &branch, sizeof(branch))) {
+				ok = true;
+				lazy_rewritten++;
+			}
+		}
+	}
+	patch_unlock();
+	return ok;
+}
+
+void on_sigsys(int, siginfo_t *info, void *context)
+{
+	if (info->si_code != 1 /* SYS_SECCOMP */)
+		return; // not a trap of ours; the application's action is not run
+	auto *uc = (ucontext_t *)context;
+	auto &regs = uc->uc_mcontext.regs;
+	lazy_traps++;
+	// The pc is after the svc; the kernel restored x0.
+	uint64_t site = uc->uc_mcontext.pc - 4;
+	if (lazy_rewrite_site(site)) {
+		uc->uc_mcontext.pc = site; // again, through the gate
+		return;
+	}
+	// No gate: make the call here, untraced.
+	lazy_emulated++;
+	regs[0] = raw_syscall(regs[8], regs[0], regs[1], regs[2], regs[3],
+			      regs[4], regs[5]);
 }
 } // namespace
 
@@ -1090,6 +1328,153 @@ static void after_hooked_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
 	rescan(addr, (uint64_t)arg2);
 }
 
+static bool before_hooked_syscall(int64_t sys_nr, int64_t &arg1, int64_t &arg2,
+				  int64_t &arg3, uint64_t *scratch, int64_t &ret)
+{
+	if (!lazy_active.load(std::memory_order_relaxed))
+		return false;
+	// A trap with SIGSYS blocked or ignored kills the process.
+	const uint64_t sigsys = 1ull << (SIGSYS - 1);
+	if (sys_nr == SYS_rt_sigprocmask) {
+		if (arg2 != 0 && arg1 != SIG_UNBLOCK) {
+			scratch[0] = *(const uint64_t *)arg2 & ~sigsys;
+			arg2 = (int64_t)scratch;
+		}
+	} else if (sys_nr == SYS_rt_sigaction) {
+		// The kernel's struct: handler, flags, restorer, mask.
+		if (arg1 == SIGSYS) {
+			if (arg3 != 0)
+				memcpy((void *)arg3, app_sigsys_action,
+				       sizeof(app_sigsys_action));
+			if (arg2 != 0)
+				memcpy(app_sigsys_action, (const void *)arg2,
+				       sizeof(app_sigsys_action));
+			ret = 0;
+			return true;
+		}
+		if (arg2 != 0) {
+			memcpy(scratch, (const void *)arg2, 4 * sizeof(uint64_t));
+			scratch[3] &= ~sigsys;
+			arg2 = (int64_t)scratch;
+		}
+	}
+	return false;
+}
+
+namespace
+{
+// Allows rt_sigreturn, clone and clone3 by number (they take the gate's
+// direct path, never traced), calls made from call_orig_syscall's page or
+// from `allowed`, and other architectures; traps the rest.
+bool install_lazy_filter(const std::vector<std::pair<uint64_t, uint64_t> > &allowed)
+{
+	std::vector<sock_filter> f;
+	std::vector<std::pair<size_t, bool> > to_allow; // jump, on true
+	auto ld = [&](uint32_t off) {
+		f.push_back(BPF_STMT(BPF_LD | BPF_W | BPF_ABS, off));
+	};
+	auto jeq_allow = [&](uint32_t k) {
+		to_allow.push_back({ f.size(), true });
+		f.push_back(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, k, 0, 0));
+	};
+	ld(offsetof(seccomp_data, arch));
+	to_allow.push_back({ f.size(), false });
+	f.push_back(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_AARCH64, 0, 0));
+	ld(offsetof(seccomp_data, nr));
+	jeq_allow(SYS_rt_sigreturn);
+	jeq_allow(SYS_clone);
+	jeq_allow(SYS_clone3);
+	std::vector<std::pair<uint64_t, uint64_t> > ranges = allowed;
+	uint64_t orig = (uint64_t)&syscall_addr & ~(page_size - 1);
+	ranges.push_back({ orig, orig + page_size });
+	const uint32_t ip = offsetof(seccomp_data, instruction_pointer);
+	for (auto [lo, hi] : ranges) {
+		while (lo < hi) {
+			// One 4 GiB half at a time: compare the high word, then the low.
+			uint64_t half_end = (lo | 0xffffffffull) + 1;
+			uint64_t end = std::min(hi, half_end);
+			ld(ip + 4);
+			f.push_back(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K,
+					     (uint32_t)(lo >> 32), 0,
+					     end == half_end ? 2 : 3));
+			ld(ip);
+			if (end == half_end) {
+				to_allow.push_back({ f.size(), true });
+				f.push_back(BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K,
+						     (uint32_t)lo, 0, 0));
+			} else {
+				f.push_back(BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K,
+						     (uint32_t)lo, 0, 1));
+				to_allow.push_back({ f.size(), false });
+				f.push_back(BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K,
+						     (uint32_t)end, 0, 0));
+			}
+			lo = end;
+		}
+	}
+	f.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP));
+	const size_t allow = f.size();
+	f.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW));
+	for (auto [i, on_true] : to_allow) {
+		size_t off = allow - (i + 1);
+		if (off > 255) {
+			SPDLOG_WARN("Lazy rewriting: too many allowed code ranges ({})",
+				    ranges.size());
+			return false;
+		}
+		(on_true ? f[i].jt : f[i].jf) = (uint8_t)off;
+	}
+	sock_fprog prog = { (unsigned short)f.size(), f.data() };
+	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
+		SPDLOG_WARN("Lazy rewriting: no_new_privs: {}", strerror(errno));
+		return false;
+	}
+	long r = syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER,
+			 SECCOMP_FILTER_FLAG_TSYNC, &prog);
+	if (r != 0) {
+		SPDLOG_WARN("Lazy rewriting: seccomp filter not installed ({}, {})",
+			    r, strerror(errno));
+		return false;
+	}
+	return true;
+}
+} // namespace
+
+bool lazy_rewriting_requested()
+{
+	return lazy_requested;
+}
+
+bool enable_lazy_rewriting(const std::vector<std::pair<uint64_t, uint64_t> > &allowed)
+{
+	if (!lazy_requested || lazy_active.load())
+		return false;
+	struct sigaction sa = {};
+	sa.sa_sigaction = on_sigsys;
+	sa.sa_flags = SA_SIGINFO | SA_NODEFER;
+	sigemptyset(&sa.sa_mask);
+	sigset_t sigsys;
+	sigemptyset(&sigsys);
+	sigaddset(&sigsys, SIGSYS);
+	if (sigaction(SIGSYS, &sa, nullptr) != 0 ||
+	    pthread_sigmask(SIG_UNBLOCK, &sigsys, nullptr) != 0)
+		return false;
+	// Sanitize masks from here on: the filter may trap any thread.
+	lazy_active = true;
+	if (!install_lazy_filter(allowed)) {
+		lazy_active = false;
+		return false;
+	}
+	SPDLOG_INFO("Lazy rewriting enabled: system calls from code never "
+		    "rewritten trap (SIGSYS) and are rewritten then");
+	return true;
+}
+
+lazy_rewrite_stats get_lazy_rewrite_stats()
+{
+	return { lazy_traps.load(), lazy_rewritten.load(), lazy_emulated.load() };
+}
+
 void setup_syscall_tracer()
 {
 	// The rewriting's own system calls go through libc while its sites
@@ -1097,6 +1482,9 @@ void setup_syscall_tracer()
 	unhooked_scope unhooked;
 	const char *anon = getenv("BPFTIME_SYSCALL_REWRITE_ANON");
 	scan_anonymous = anon != nullptr && strcmp(anon, "1") == 0;
+	const char *lazy = getenv("BPFTIME_SYSCALL_LAZY");
+	lazy_requested = lazy != nullptr && strcmp(lazy, "1") == 0;
+	page_size = (uint64_t)sysconf(_SC_PAGESIZE);
 	size_t found = 0, rewritten = 0, skipped_maps = 0;
 	pthread_mutex_lock(&rescan_mutex);
 	for (const auto &map : read_maps()) {
@@ -1129,4 +1517,18 @@ void setup_syscall_tracer()
 }
 #endif
 
+#if !defined(__aarch64__)
+bool lazy_rewriting_requested()
+{
+	return false;
+}
+bool enable_lazy_rewriting(const std::vector<std::pair<uint64_t, uint64_t> > &)
+{
+	return false;
+}
+lazy_rewrite_stats get_lazy_rewrite_stats()
+{
+	return {};
+}
+#endif
 } // namespace bpftime
