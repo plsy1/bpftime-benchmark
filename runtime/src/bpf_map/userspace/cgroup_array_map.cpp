@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 #include "spdlog/spdlog.h"
+#include "fork_handlers.hpp"
 #include <bpf_map/userspace/cgroup_array_map.hpp>
 #include <atomic>
 #include <cerrno>
@@ -122,7 +123,8 @@ void invalidate_cgroup_files_in_child()
 }
 
 [[maybe_unused]] const int cgroup_atfork_registered =
-	pthread_atfork(nullptr, nullptr, invalidate_cgroup_files_in_child);
+	bpftime::register_fork_handlers(nullptr, nullptr,
+					invalidate_cgroup_files_in_child);
 
 ssize_t read_thread_cgroup_file(char *buf, size_t size)
 {

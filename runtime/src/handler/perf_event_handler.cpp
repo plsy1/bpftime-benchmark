@@ -8,6 +8,7 @@
 #elif __APPLE__
 #include "bpftime_epoll.h"
 #endif
+#include "fork_handlers.hpp"
 #include "spdlog/spdlog.h"
 #include <boost/interprocess/detail/segment_manager_helper.hpp>
 #include <boost/interprocess/smart_ptr/shared_ptr.hpp>
@@ -152,7 +153,7 @@ thread_local std::unordered_map<const software_perf_event_data *,
 thread_local int cached_producer_pid = -1;
 thread_local int64_t cached_producer_tid = -1;
 const int producer_identity_atfork_status =
-	pthread_atfork(nullptr, nullptr, [] {
+	bpftime::register_fork_handlers(nullptr, nullptr, [] {
 		cached_producer_pid = -1;
 		cached_producer_tid = -1;
 	});
