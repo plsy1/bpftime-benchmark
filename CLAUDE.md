@@ -514,10 +514,12 @@ still did, both branches being unsigned int: -EEXIST came back as 0xffffffef).
 to its own 32-byte gate in a trampoline region mapped within the +-128 MiB
 reach of `b` (`MAP_FIXED_NOREPLACE`, closest free gap), after svc-hook
 (Middleware 2025) and ASC-Hook. The gate saves only x16/x17 on the stack and
-passes its own address (`adr`); `syscall_hooker_asm` saves x0-x30, NZCV, FPSR
-and q0-q31, calls `syscall_hooker_cxx`, restores everything (x0 = result) and
-branches to the gate's return stub, which restores x16/x17 and branches to the
-site + 4. The kernel preserves every register but x0 across `svc`, so nothing
+passes its own address (`adr`); `syscall_hooker_asm` saves x0-x30, NZCV, FPSR,
+FPCR and q0-q31 (a 784-byte frame below the gate's 16 bytes), calls
+`syscall_hooker_cxx`, restores everything (x0 = result; FPCR written back
+only if the hook changed it, as the kernel preserves it and a write can
+serialize) and branches to the gate's return stub, which restores x16/x17 and
+branches to the site + 4. The kernel preserves every register but x0 across `svc`, so nothing
 may be clobbered: svc-hook's x6/x14/x15 scratch registers and unsaved SIMD
 registers would corrupt callers. `rt_sigreturn`, `clone` and `clone3` take the
 gate's direct stub: all registers and sp restored, `svc` issued in the gate,
@@ -545,6 +547,28 @@ CPU-time clocks always take them) are rewritten from its in-memory ELF image
 `__kernel_rt_sigreturn`, found by its dynamic symbol: unwinders recognize
 signal frames by its code. `[stack]` and the transformer's own
 `syscall_addr` are skipped.
+
+`syscall_hooker_asm` and `call_orig_syscall` carry unwind information. The
+hook frame's CFA is the application's sp at the svc; its return address
+column is x17 (the gate's scratch register), a DWARF expression decoding the
+gate's `b site + 4` at +16 from the gate address (x16, then its slot, then
+x16 - x17 after the return offset is added), so the caller's frame is the
+function that issued the svc with its own x30. Without it, unwinding stopped
+at the hook: `pthread_cancel` of a thread blocked in a hooked read skipped
+every destructor up to the thread start (glibc then longjmps there), and
+backtraces from signal handlers stopped. The agent (dlmopen) has its own
+libgcc_s: its frames' personality called that copy's `_Unwind_SetGR`, which
+aborted on its never-filled register size table, so
+`_bpftime__setup_syscall_trace_callback` unwinds once at setup, and
+`syscall_callback` rethrows `abi::__forced_unwind` from its catch-all
+(swallowing it aborts). Not covered: a cancel arriving while a program runs
+stops at the JIT frames (no unwind information) and longjmps as before; the
+gate stub itself has none either. Tests: "a thread cancelled in a hooked
+blocking call runs its cleanups", "a cancel unwinds through a hook in another
+namespace" (stand-in agent `test/fake_agent_unwind.cpp`; without the setup
+unwind it aborts), "backtraces from a signal handler pass the hook", "the
+hook's floating-point control changes do not reach the caller"; end to end
+with the real agent: results `reviews-20261031/fixes/cancel-e2e`.
 Each site is one aligned word store plus an I-cache flush; `svc` -> `b` is a
 permitted concurrent modification. Failures (including restoring a page's
 protection) skip the site or mapping and log; they never end the host. The asm lives in file-scope blocks

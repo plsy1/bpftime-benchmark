@@ -275,9 +275,9 @@ by one 32-byte gate per site:
   +28  b   site + 4
 
 The kernel preserves every register except x0 across a system call, so the
-hook saves x0-x30 (x16 holds the gate), NZCV, FPSR and q0-q31 on the
-application stack (aarch64 Linux has no red zone) and restores them all; x0
-becomes the result. rt_sigreturn, clone and clone3 take the direct path: the
+hook saves x0-x30 (x16 holds the gate), NZCV, FPSR, FPCR and q0-q31 on the
+application stack (aarch64 Linux has no red zone; 16 + 784 bytes) and restores
+them all; x0 becomes the result. rt_sigreturn, clone and clone3 take the direct path: the
 system call is issued from the gate with the application's registers and sp,
 so a child resuming on a fresh stack returns to the site by a plain branch,
 without any frame of the C hook.
@@ -290,13 +290,25 @@ static_assert(GATE_RETURN_OFFSET == 12 && GATE_DIRECT_OFFSET == 20,
 	      "syscall_hooker_asm adds these offsets as immediates");
 
 // File-scope asm: LTO drops an unreferenced holder function in executables.
+// Unwind information (pthread_cancel of a thread blocked in a hooked call,
+// backtraces from signal handlers): the frame's caller is the function that
+// issued the svc, its CFA the sp it had, and its return address site + 4,
+// read from the gate's `b site + 4` at +16 (return column x17, which the
+// gate uses as scratch): from x16 (the gate) while it is live, then from its
+// slot, then from x16 - x17 once the return offset is added.
 __asm__(".pushsection .text\n\t"
 	".p2align 2\n\t"
 	".globl syscall_hooker_asm\n\t"
 		".type syscall_hooker_asm, %function\n\t"
 		"syscall_hooker_asm:\n\t"
+		".cfi_startproc\n\t"
+		".cfi_return_column 17\n\t"
+		".cfi_def_cfa sp, 16\n\t"
+		".cfi_offset x16, -16\n\t" // the gate saved x16 and x17
+		".cfi_escape 0x16, 0x11, 0x16, 0x80, 0x00, 0x12, 0x23, 0x10, 0x94, 0x04, 0x0c, 0xff, 0xff, 0xff, 0x03, 0x1a, 0x08, 0x26, 0x24, 0x08, 0x24, 0x26, 0x22, 0x23, 0x10\n\t"
 		"hint #36\n\t" // bti j: entered by `br x17`
-		"sub sp, sp, #768\n\t"
+		"sub sp, sp, #784\n\t"
+		".cfi_def_cfa_offset 800\n\t"
 		"stp x0, x1, [sp, #0]\n\t"
 		"stp x2, x3, [sp, #16]\n\t"
 		"stp x4, x5, [sp, #32]\n\t"
@@ -306,15 +318,31 @@ __asm__(".pushsection .text\n\t"
 		"stp x12, x13, [sp, #96]\n\t"
 		"stp x14, x15, [sp, #112]\n\t"
 		"stp x16, x18, [sp, #128]\n\t" // x16: the gate
+		".cfi_escape 0x16, 0x11, 0x18, 0x8f, 0x80, 0x01, 0x06, 0x12, 0x23, 0x10, 0x94, 0x04, 0x0c, 0xff, 0xff, 0xff, 0x03, 0x1a, 0x08, 0x26, 0x24, 0x08, 0x24, 0x26, 0x22, 0x23, 0x10\n\t"
+		".cfi_offset x18, -664\n\t"
 		"stp x19, x20, [sp, #144]\n\t"
+		".cfi_offset x19, -656\n\t"
+		".cfi_offset x20, -648\n\t"
 		"stp x21, x22, [sp, #160]\n\t"
+		".cfi_offset x21, -640\n\t"
+		".cfi_offset x22, -632\n\t"
 		"stp x23, x24, [sp, #176]\n\t"
+		".cfi_offset x23, -624\n\t"
+		".cfi_offset x24, -616\n\t"
 		"stp x25, x26, [sp, #192]\n\t"
+		".cfi_offset x25, -608\n\t"
+		".cfi_offset x26, -600\n\t"
 		"stp x27, x28, [sp, #208]\n\t"
+		".cfi_offset x27, -592\n\t"
+		".cfi_offset x28, -584\n\t"
 		"stp x29, x30, [sp, #224]\n\t"
+		".cfi_offset x29, -576\n\t"
+		".cfi_offset x30, -568\n\t"
 		"mrs x9, nzcv\n\t"
 		"mrs x10, fpsr\n\t"
 		"stp x9, x10, [sp, #240]\n\t"
+		"mrs x9, fpcr\n\t"
+		"str x9, [sp, #768]\n\t"
 		"add x9, sp, #256\n\t"
 		"stp q0, q1, [x9, #0]\n\t"
 		"stp q2, q3, [x9, #32]\n\t"
@@ -369,6 +397,14 @@ __asm__(".pushsection .text\n\t"
 		"ldp q26, q27, [x9, #416]\n\t"
 		"ldp q28, q29, [x9, #448]\n\t"
 		"ldp q30, q31, [x9, #480]\n\t"
+		// FPCR: written back only if the hook changed it (a write can
+		// serialize); before NZCV, which the compare changes.
+		"ldr x9, [sp, #768]\n\t"
+		"mrs x10, fpcr\n\t"
+		"cmp x9, x10\n\t"
+		"b.eq 4f\n\t"
+		"msr fpcr, x9\n\t"
+		"4:\n\t"
 		"ldp x9, x10, [sp, #240]\n\t"
 		"msr nzcv, x9\n\t"
 		"msr fpsr, x10\n\t"
@@ -381,15 +417,31 @@ __asm__(".pushsection .text\n\t"
 		"ldp x12, x13, [sp, #96]\n\t"
 		"ldp x14, x15, [sp, #112]\n\t"
 		"ldp x16, x18, [sp, #128]\n\t"
+		".cfi_restore x18\n\t"
 		"ldp x19, x20, [sp, #144]\n\t"
+		".cfi_restore x19\n\t"
+		".cfi_restore x20\n\t"
 		"ldp x21, x22, [sp, #160]\n\t"
+		".cfi_restore x21\n\t"
+		".cfi_restore x22\n\t"
 		"ldp x23, x24, [sp, #176]\n\t"
+		".cfi_restore x23\n\t"
+		".cfi_restore x24\n\t"
 		"ldp x25, x26, [sp, #192]\n\t"
+		".cfi_restore x25\n\t"
+		".cfi_restore x26\n\t"
 		"ldp x27, x28, [sp, #208]\n\t"
+		".cfi_restore x27\n\t"
+		".cfi_restore x28\n\t"
 		"ldp x29, x30, [sp, #224]\n\t"
+		".cfi_restore x29\n\t"
+		".cfi_restore x30\n\t"
 		"add x16, x16, x17\n\t"
-		"add sp, sp, #768\n\t"
+		".cfi_escape 0x16, 0x11, 0x19, 0x80, 0x00, 0x81, 0x00, 0x1c, 0x12, 0x23, 0x10, 0x94, 0x04, 0x0c, 0xff, 0xff, 0xff, 0x03, 0x1a, 0x08, 0x26, 0x24, 0x08, 0x24, 0x26, 0x22, 0x23, 0x10\n\t"
+		"add sp, sp, #784\n\t"
+		".cfi_def_cfa_offset 16\n\t"
 		"br x16\n\t"
+		".cfi_endproc\n\t"
 		".size syscall_hooker_asm, .-syscall_hooker_asm\n\t"
 	".popsection\n\t");
 
@@ -401,6 +453,7 @@ __asm__(".pushsection .text\n\t"
 		".hidden orig_syscall_direct\n\t"
 		"orig_syscall_direct:\n\t"
 		"call_orig_syscall:\n\t"
+		".cfi_startproc\n\t" // a leaf: CFA = sp, return address in x30
 		"hint #34\n\t" // bti c: the default hook, called through a pointer
 		"mov x8, x0\n\t"
 		"mov x0, x1\n\t"
@@ -413,6 +466,7 @@ __asm__(".pushsection .text\n\t"
 		"syscall_addr:\n\t"
 		"svc #0\n\t"
 		"ret\n\t"
+		".cfi_endproc\n\t"
 		".size call_orig_syscall, .-call_orig_syscall\n\t"
 	".popsection\n\t");
 #else
