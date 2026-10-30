@@ -549,14 +549,22 @@ is then made untraced). While active, the hook removes SIGSYS from
 `rt_sigprocmask` sets and `rt_sigaction` masks and answers `rt_sigaction`
 for SIGSYS itself, keeping the application's action without installing it:
 a trap with SIGSYS blocked or ignored kills the process. Costs: about
-+120 ns per system call (the filter compares the instruction pointer, so
++60 ns per system call (the filter compares the instruction pointer, so
 the kernel's per-number cache cannot skip it). Not for general use: the
 filter cannot be removed and survives execve, where nothing handles SIGSYS,
-so an exec-ed program is killed at its first system call (a preloaded
-`taskset` exec-ing its target died this way); non-seccomp SIGSYS and the
-application's own SIGSYS handler are not run. Tests: `[lazy]` cases (first
+so an exec-ed program would be killed at its first system call (a preloaded
+`taskset` exec-ing its target died this way, rc 159). So while active the
+hook refuses `execve` and `execveat` with EPERM and a warning naming the
+path (read with `process_vm_readv`, a bad pointer logs "?"): `system`,
+`posix_spawn` and shells fail visibly instead. Making exec work needs a
+fixed-address allowed page plus a loader or a ptrace helper re-arming the
+new image (as K23 does on x86, where SUD is cleared on exec); arm64 6.8 has
+no SUD. Not done. Non-seccomp SIGSYS and the application's own SIGSYS handler
+are not run; temporary masks of `ppoll`, `pselect6`, `epoll_pwait` and
+`rt_sigsuspend` are not stripped of SIGSYS (a handler interrupting the wait
+that reaches a never-rewritten `svc` is killed). Tests: `[lazy]` cases (first
 trap rewrites once, threads trapping on one site, SIGSYS kept deliverable,
-fork children).
+fork children, execve/fexecve/posix_spawn refused).
 
 ## System Call Hook Re-entrancy
 
