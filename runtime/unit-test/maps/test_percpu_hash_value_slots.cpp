@@ -1,0 +1,75 @@
+// A program keeps the value pointer of a per-CPU hash lookup after the map
+// lock is released. Keys other than 4 bytes kept their values in separately
+// allocated vectors that a delete freed at once: the program's next write
+// went into memory the segment allocator owned again (its free-block
+// links), corrupting every process sharing the segment.
+#include <boost/interprocess/managed_shared_memory.hpp>
+#include <bpf_map/userspace/per_cpu_hash_map.hpp>
+#include <catch2/catch_test_macros.hpp>
+#include <cstdint>
+#include <cstring>
+#include <string>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <vector>
+#include "platform_utils.hpp"
+
+using namespace boost::interprocess;
+using namespace bpftime;
+
+TEST_CASE("Per-CPU hash values outlive a delete without freeing memory",
+	  "[percpu-hash]")
+{
+	const std::string name =
+		"bpftime_percpu_slots_" + std::to_string(getpid());
+	shared_memory_object::remove(name.c_str());
+	fflush(nullptr);
+	// In a child: the failure mode is a corrupted allocator, often a crash.
+	pid_t pid = fork();
+	if (pid == 0) {
+		alarm(60);
+		managed_shared_memory segment(create_only, name.c_str(),
+					      4 << 20);
+		constexpr uint32_t value_size = 64;
+		per_cpu_hash_map_impl map(segment, 8, value_size, 64);
+		uint64_t key = 1;
+		std::vector<uint8_t> value(value_size, 0);
+		if (map.elem_update(&key, value.data(), 0) != 0)
+			_exit(2);
+		auto *p = static_cast<uint8_t *>(map.elem_lookup(&key));
+		if (p == nullptr)
+			_exit(3);
+		if (map.elem_delete(&key) != 0)
+			_exit(4);
+		// Other users of the segment allocate blocks of the value's size
+		// (the freed value, if it was freed, is handed out again) ...
+		const size_t block = value_size * bpftime_num_possible_cpus();
+		std::vector<uint8_t *> blocks;
+		for (int i = 0; i < 64; i++) {
+			auto *mem = static_cast<uint8_t *>(
+				segment.allocate(block));
+			std::memset(mem, 0x11, block);
+			blocks.push_back(mem);
+		}
+		// ... and the program, still running, writes its value.
+		std::memset(p, 0xa5, value_size);
+		for (auto *mem : blocks)
+			for (size_t i = 0; i < block; i++)
+				if (mem[i] != 0x11)
+					_exit(5);
+		if (!segment.check_sanity())
+			_exit(8);
+		for (auto *mem : blocks)
+			segment.deallocate(mem);
+		for (uint64_t k = 2; k < 40; k++)
+			if (map.elem_update(&k, value.data(), 0) != 0)
+				_exit(6);
+		_exit(segment.check_sanity() ? 0 : 7);
+	}
+	int status = 0;
+	REQUIRE(waitpid(pid, &status, 0) == pid);
+	shared_memory_object::remove(name.c_str());
+	INFO("status " << status);
+	REQUIRE(WIFEXITED(status));
+	REQUIRE(WEXITSTATUS(status) == 0);
+}
