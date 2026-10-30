@@ -92,7 +92,8 @@ namespace bpftime
 // After an mmap, mprotect or pkey_mprotect, inside the guard: rewrites code
 // that became executable (aarch64).
 static void after_hooked_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
-				 int64_t arg3, int64_t ret);
+				 int64_t arg3, int64_t arg4, int64_t arg5,
+				 int64_t ret);
 } // namespace bpftime
 
 #if defined(__x86_64__)
@@ -412,7 +413,7 @@ hook_mapping_call(int64_t sys_nr, int64_t arg1, int64_t arg2, int64_t arg3,
 {
 	in_hook = true;
 	int64_t ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
-	bpftime::after_hooked_syscall(sys_nr, arg1, arg2, arg3, ret);
+	bpftime::after_hooked_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5, ret);
 	in_hook = false;
 	return ret;
 }
@@ -438,7 +439,7 @@ extern "C" __attribute__((used)) int64_t syscall_hooker_cxx(int64_t sys_nr, int6
 
 #if !defined(__aarch64__)
 static void bpftime::after_hooked_syscall(int64_t, int64_t, int64_t, int64_t,
-					  int64_t)
+					  int64_t, int64_t, int64_t)
 {
 }
 #endif
@@ -1066,19 +1067,26 @@ void rescan(uint64_t addr, uint64_t len)
 } // namespace
 
 static void after_hooked_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
-				 int64_t arg3, int64_t ret)
+				 int64_t arg3, int64_t arg4, int64_t arg5,
+				 int64_t ret)
 {
-	if (!rescan_enabled)
+	if (!rescan_enabled || !(arg3 & PROT_EXEC))
 		return;
+	// Decided from the arguments: reading /proc/self/maps for every
+	// mprotect of a JIT cost 190 us per call. ld.so maps a library's code
+	// with mmap from its file, executable from the start; anonymous code and
+	// mprotect-ed code are rescanned only with anonymous scanning on.
 	uint64_t addr;
-	if (sys_nr == SYS_mmap && (uint64_t)ret < (uint64_t)-4095 &&
-	    (arg3 & PROT_EXEC))
+	if (sys_nr == SYS_mmap && (uint64_t)ret < (uint64_t)-4095) {
 		addr = (uint64_t)ret;
-	else if ((sys_nr == SYS_mprotect || sys_nr == SYS_pkey_mprotect) &&
-		 ret == 0 && (arg3 & PROT_EXEC))
+		if (!scan_anonymous && ((arg4 & MAP_ANONYMOUS) || arg5 < 0))
+			return;
+	} else if ((sys_nr == SYS_mprotect || sys_nr == SYS_pkey_mprotect) &&
+		   ret == 0 && scan_anonymous) {
 		addr = (uint64_t)arg1;
-	else
+	} else {
 		return;
+	}
 	rescan(addr, (uint64_t)arg2);
 }
 
