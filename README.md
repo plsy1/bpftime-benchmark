@@ -1,47 +1,71 @@
-# bpftime 源码阅读指南
+# bpftime 源码阅读指南（学习版）
 
-针对 [bpftime](https://github.com/eunomia-bpf/bpftime) 的深度阅读指南，
-面向第一次读大型系统代码的读者。**基线是官方上游 master 的 `177a1dc465ff`
-（2026-10-18）**，文中路径、函数名、行号和代码选段都按这一提交核对，描述的是官方
-代码本身的行为。
+这是一份带你读懂 [bpftime](https://github.com/eunomia-bpf/bpftime) 源码的指南。
+读者设定：**略懂 eBPF**（听说过 map、prog、helper、uprobe），但没读过 bpftime，
+也不一定熟 libbpf 和 C++ 的 boost::interprocess。
 
-> 本指南初稿写于七月，对照的是 `ead56c9`（上游 `6bd5319d` + 我们的三个修复）。此后
-> 上游又合入 58 个提交：perf record 对齐修复已以 #612 合入，probe_read 改为 no-fault
-> 拷贝（#642），每事件绑核仍保留；另新增 riscv64 的 trap uprobe 后端（#665）、宿主进程
-> 契约（#634）、`agent_config` → `runtime_config` 改名（#562）等。正文以官方现状为准，
-> 七月工作只在相关处以一两句注明。
+全书只讲官方上游代码，基线是 master 的 `177a1dc465ff`（2026-10-18）。代码路径和函数名
+都按这个提交核对过；上游往后演进时，用函数名 grep 定位就行。
 
-**组织方式**：以 ssl-nginx 场景（nginx + sslsniff uprobe 追踪）为锚点，
-先纵向跟完一个事件的完整生命周期，再横向逐子系统展开。每章含注释版代码选段、
-mermaid 图、关键调用链、易误解点，以及带答案（折叠块）的自测题。
+## bpftime 一句话
 
-## 阅读策略
+bpftime 把内核里那套 eBPF 对象（prog、map、link、perf buffer）搬到**用户态共享内存**里
+重新实现了一遍。两个 LD_PRELOAD 的动态库各管一侧：
 
-1. **验证式阅读远快于干读**：每读一段就动手验证——`bpftimetool export` 看
-   共享内存、加一行日志重编、跑个短测。第 8 章给了具体实验。
-2. 主线（第 1 章）一天可走完；六个子系统章每章半天到一天，按依赖顺序。
-3. 行号对应 `177a1dc465ff`，会随上游演进漂移，用函数名 grep 定位；`.hpp` 先于 `.cpp`。
-4. 各章末尾的自测题答不上来 = 该段没读透，答案在折叠块里。
+- `syscall-server.so` 装进 **loader**（比如 sslsniff）。它冒充内核，把 `bpf(2)` 这类调用
+  变成"往共享内存里写一条对象记录"。
+- `agent.so` 装进**目标进程**（比如 nginx）。它从共享内存读出程序，JIT 成本机码，
+  再用 inline hook 挂到目标函数上。
+
+事件发生时，程序直接在目标进程里跑，不进内核。这就是 bpftime 快的原因。
+
+## 怎么读
+
+```mermaid
+graph LR
+    C0["第 0 章<br/>全景 + eBPF 预备知识"] --> C1["第 1 章<br/>一个事件的生命周期（主线）"]
+    C1 --> C2["第 2 章<br/>共享内存与 handler"]
+    C2 --> C3["第 3 章<br/>agent 与 syscall-server"]
+    C3 --> C4["第 4 章<br/>attach / Frida"]
+    C3 --> C5["第 5 章<br/>VM 与 JIT"]
+    C4 --> C6["第 6 章<br/>map 与 helper"]
+    C5 --> C6
+    C6 --> C7["第 7 章<br/>外围组件（选读）"]
+    C1 -.边读边做.-> C8["第 8 章<br/>动手实践"]
+```
+
+1. **必读：第 0 章和第 1 章。** 第 0 章给地图，第 1 章跟着一个真实事件
+   （nginx 里一次 `SSL_read` 被 sslsniff 抓到）从头走到尾。读完这两章，你就知道每个部件
+   在整条链路的什么位置。
+2. **第 2–6 章按需深入。** 每章放大第 1 章里的一段。箭头是推荐顺序，第 4、5 章可以互换。
+3. **第 7 章选读。** daemon、verifier、命令行工具、单测都在这里。
+4. **第 8 章边读边做。** 里面有按章节编排的小实验。动手验证比干读快得多。
+
+每章的结构都一样：
+
+- **本章要回答的问题**：先知道要找什么。
+- **正文**：先讲直觉和设计理由，再看精简过的关键代码。
+- **小结**、**动手验证**、**自测题**（答案折叠起来）。
+- **深入参考**（折叠）：精确行号、实现细节和坑、上游变更史。第一遍可以完全跳过。
 
 ## 目录
 
-| 章节 | 内容 |
-|---|---|
-| [0. 全景架构](00-architecture.md) | bpftime 是什么、组件关系图（含 Frida/trap 两种 uprobe 后端）、宿主进程契约、目录导览、术语表 |
-| [1. 一个事件的完整生命周期](01-lifecycle.md) | **主线必读**：13 步从 syscall 拦截到消费者，配时序图 |
-| [2. runtime 核心：共享内存与 handler 注册表](02-runtime-shm.md) | "内核替身"：假 fd、handler_variant、epoch seqlock |
-| [3. agent 与 syscall-server](03-agent-syscall-server.md) | 两个 LD_PRELOAD 入口层：符号拦截、fail-open 兜底与 attach 装配 |
-| [4. attach：Frida uprobe（附 trap 后端）](04-attach-frida.md) | inline hook、pt_regs 构造、override/replace 机制；riscv64 的断点 + SIGTRAP 后端 |
-| [5. vm：执行引擎与 LLVM JIT](05-vm-llvm-jit.md) | 字节码→本机码、helper 符号绑定、bpf-to-bpf 调用、惰性 JIT 与已知问题 |
-| [6. bpf_map 与 bpf_helper](06-maps-helpers.md) | per-CPU 模拟、perf event output 全文带读（官方仍逐事件绑核）、no-fault probe_read（`process_vm_readv`） |
-| [7. 外围](07-periphery.md) | daemon 内核劫持、verifier、bpftimetool/cli、单测 |
-| [8. 实践](08-practice.md) | 阅读节奏、验证实验、**PR 状态清单**（七月三个修复的上游去向，去绑核提案的论据）、代码-注释不一致清单 |
+| 章节 | 内容 | |
+|---|---|---|
+| [0. 全景架构](00-architecture.md) | eBPF 预备知识；bpftime 是什么、由哪些部件组成；术语表 | 必读 |
+| [1. 一个事件的完整生命周期](01-lifecycle.md) | 13 步：从 loader 加载程序，到 nginx 里触发，再到 sslsniff 打印 | 必读 |
+| [2. 共享内存与 handler 注册表](02-runtime-shm.md) | 用户态的"内核对象表"：共享内存布局、假 fd、会话与清理 | |
+| [3. agent 与 syscall-server](03-agent-syscall-server.md) | 两个 LD_PRELOAD 库：怎么拦截调用、怎么装配 attach | |
+| [4. attach：Frida uprobe](04-attach-frida.md) | inline hook、寄存器转换、override / replace；附 trap 后端 | |
+| [5. VM 与 LLVM JIT](05-vm-llvm-jit.md) | 字节码怎么变成本机码，helper 怎么绑定 | |
+| [6. map 与 helper](06-maps-helpers.md) | map 分发、per-CPU 模拟、perf 输出、probe_read | |
+| [7. 外围组件](07-periphery.md) | daemon、verifier、bpftimetool / cli、单测 | 选读 |
+| [8. 动手实践](08-practice.md) | 学习路线、环境准备、按章节的验证实验 | 边读边做 |
+| [附录：研究笔记](09-appendix-research-notes.md) | 性能研究与 PR 状态记录，代码与注释不一致清单 | 学习可跳过 |
 
 ## 相关文档
 
-- 我们优化分支（dev 分支）相对官方的改动与实测：分支
-  [`summry/jetson`](../../tree/summry/jetson) 的
-  [`realprog/`](../../tree/summry/jetson/realprog) 报告；本指南不重复这些内容
-- 性能调查战役的结论与方法论：同在 [`summry/jetson`](../../tree/summry/jetson)
-  （根因报告、bug 修复记录、性能分析 playbook）
-- benchmark 运行方式：分支 [`main`](../../tree/main) 的 README
+- 我们的优化分支相对官方的改动和实测：分支 [`summry/jetson`](../../tree/summry/jetson)
+  的 [`realprog/`](../../tree/summry/jetson/realprog)。本指南不重复这些内容。
+- 性能调查的结论和方法论：同在 [`summry/jetson`](../../tree/summry/jetson)。
+- benchmark 怎么跑：分支 [`main`](../../tree/main) 的 README。
