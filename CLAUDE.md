@@ -536,7 +536,13 @@ allocated by ld.so with the main namespace's malloc, whose new arena reads
 the hook again before the TLS existed, until the stack overflowed (python3
 with four threads under syscount). Keep the flag initial-exec: a dynamic TLS
 access in the hook would allocate. Test: `system calls the hook itself makes
-are not hooked again`.
+are not hooked again`. The guard costs 31 instructions per system call
+(+5 ns rewritten, +7 ns with the agent and no program; dispatch without
+programs 28 -> 35 ns over the untraced call). Keep `syscall_hooker_cxx`'s
+common path a few instructions long: `mmap`, `mprotect` and `pkey_mprotect`
+(the rescan) go to the out-of-line `hook_mapping_call`, and the real call is
+`orig_syscall_direct` (hidden, no PLT). With the rescan inlined every call
+saved ten registers and checked a stack canary (+43 instructions, +10 ns).
 
 ## x86-64 System Call Hook Registers
 
