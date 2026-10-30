@@ -55,7 +55,29 @@ extern "C" int64_t call_orig_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
 extern "C" void syscall_addr();
 
 static const int NR_syscalls = 512;
-static syscall_hooker_func_t call_hook = &call_orig_syscall;
+
+// Set while this thread runs the hook's own work. A system call the hook makes
+// through rewritten code (the main namespace's libc: ld.so allocating the
+// agent's dynamic TLS in a new thread calls malloc, whose first arena reads
+// /sys/devices/system/cpu/online) goes straight to the kernel: tracing it ran
+// the hook again before the TLS existed, recursing until the stack overflowed.
+// Initial-exec: a dynamic TLS access here could allocate and recurse itself.
+static __thread bool in_hook __attribute__((tls_model("initial-exec")));
+
+// The system call itself, as the hook makes it: outside the guard, so that the
+// system calls of a signal handler interrupting a blocking call are traced.
+static int64_t call_unguarded_syscall(int64_t sys_nr, int64_t arg1,
+				      int64_t arg2, int64_t arg3, int64_t arg4,
+				      int64_t arg5, int64_t arg6)
+{
+	in_hook = false;
+	int64_t ret =
+		call_orig_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
+	in_hook = true;
+	return ret;
+}
+
+static syscall_hooker_func_t call_hook = &call_unguarded_syscall;
 
 #if defined(__x86_64__)
 // XSAVE components the hook preserves: x87, SSE, AVX, opmask, ZMM_Hi256 and
@@ -364,7 +386,13 @@ extern "C" __attribute__((used)) int64_t syscall_hooker_cxx(int64_t sys_nr, int6
 				      int64_t arg2, int64_t arg3, int64_t arg4,
 				      int64_t arg5, int64_t arg6)
 {
-	return call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
+	if (in_hook)
+		return call_orig_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5,
+					 arg6);
+	in_hook = true;
+	int64_t ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
+	in_hook = false;
+	return ret;
 }
 
 #if defined(__x86_64__)
