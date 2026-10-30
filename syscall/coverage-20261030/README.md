@@ -94,7 +94,15 @@ jitbench (1000 distinct JIT sites, `mov x8,#getppid; svc; ret`, dummy agent; med
 - Before 7722084c the default transformer's mprotect cost 189 us (a /proc/self/maps read).
 - **exec**: the filter survives execve and nothing handles SIGSYS there, so an exec-ed program
   dies at its first system call. Reproduced by accident: `LD_PRELOAD=... taskset -c 5 jitbench`
-  preloaded taskset, which exec-ed jitbench (rc 159). Open decision.
+  preloaded taskset, which exec-ed jitbench (rc 159). Decided (user, 10-30): refuse. The follow-up
+  dev commit makes `execve`/`execveat` return EPERM with a warning naming the path while lazy
+  mode is active (test: execve, fexecve, posix_spawn; mutation without the refusal: the test
+  child dies of SIGSYS, rc 159). The hook's common path gains two compares (execve 221 shares
+  mmap's range check; execveat 281 one `ccmp`). Making exec work (fixed-address allowed page
+  plus a loader, or a ptrace helper as K23 uses on x86) is not done.
+- python3 and ls under lazy mode (`audit-lazy*.jsonl`): same coverage as the default mode
+  (python3 2144-2149 of 2225-2231): neither has JIT code, and what is left (calls before the
+  agent, clone3) the filter cannot see either.
 
 ## Comparison with the other implementations (svc-hook paper, Cortex-A72; ours on the Orin)
 
