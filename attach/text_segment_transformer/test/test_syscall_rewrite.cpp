@@ -11,10 +11,13 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <dlfcn.h>
 #include <fcntl.h>
+#include <initializer_list>
 #include <pthread.h>
 #include <sched.h>
 #include <spawn.h>
+#include <sys/mman.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
 #include <sys/wait.h>
@@ -75,15 +78,16 @@ void install()
 	bpftime::set_call_hook(&recording_hook);
 }
 
-// Runs `body` in a child process after rewriting it; returns its exit code,
-// or 128 + the signal that ended it.
-template <typename F> int in_rewritten_child(F body)
+// Runs `prepare` and then, after rewriting, `body` in a child process; returns
+// the child's exit code, or 128 + the signal that ended it.
+template <typename P, typename F> int in_rewritten_child(P prepare, F body)
 {
 	fflush(stdout); // the child would print the parent's buffered output
 	fflush(stderr);
 	pid_t pid = fork();
 	if (pid == 0) {
 		alarm(30);
+		prepare();
 		install();
 		_exit(body());
 	}
@@ -92,6 +96,36 @@ template <typename F> int in_rewritten_child(F body)
 	if (WIFSIGNALED(status))
 		return 128 + WTERMSIG(status);
 	return WEXITSTATUS(status);
+}
+
+template <typename F> int in_rewritten_child(F body)
+{
+	return in_rewritten_child([] {}, body);
+}
+
+constexpr uint32_t SVC_0 = 0xd4000001;
+constexpr uint32_t RET = 0xd65f03c0;
+// movz x8, #nr
+constexpr uint32_t mov_x8(uint32_t nr)
+{
+	return 0xd2800008 | (nr << 5);
+}
+
+// An anonymous executable page holding `words` (a JIT's code).
+uint32_t *map_code(std::initializer_list<uint32_t> words)
+{
+	void *page = mmap(nullptr, 4096, PROT_READ | PROT_WRITE,
+			  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (page == MAP_FAILED)
+		return nullptr;
+	auto *code = static_cast<uint32_t *>(page);
+	size_t i = 0;
+	for (uint32_t w : words)
+		code[i++] = w;
+	__builtin___clear_cache((char *)code, (char *)(code + i));
+	if (mprotect(page, 4096, PROT_READ | PROT_EXEC) != 0)
+		return nullptr;
+	return code;
 }
 } // namespace
 
@@ -286,6 +320,87 @@ TEST_CASE("a program's own signal restorer returns through rt_sigreturn",
 				(unsigned long long)(calls[SYS_getpid] - before));
 			return 3;
 		}
+		return 0;
+	});
+	REQUIRE(code == 0);
+}
+
+// Coverage: system calls whose svc is not in the code rewritten at start-up.
+
+TEST_CASE("a library dlopen-ed after rewriting has its svc hooked",
+	  "[syscall-rewrite][coverage][!shouldfail]")
+{
+	int code = in_rewritten_child([] {
+		void *lib = dlopen(RAW_SVC_MODULE_PATH, RTLD_NOW);
+		if (lib == nullptr)
+			return 2;
+		auto raw_getppid = reinterpret_cast<long (*)()>(
+			dlsym(lib, "bpftime_test_raw_getppid"));
+		if (raw_getppid == nullptr)
+			return 3;
+		uint64_t before = calls[SYS_getppid];
+		if (raw_getppid() != getppid())
+			return 4;
+		// getppid() itself is one call through the rewritten libc.
+		if (calls[SYS_getppid] != before + 2)
+			return 5;
+		return 0;
+	});
+	REQUIRE(code == 0);
+}
+
+TEST_CASE("svc fallbacks in the vDSO are hooked",
+	  "[syscall-rewrite][coverage][!shouldfail]")
+{
+	int code = in_rewritten_child([] {
+		// The vDSO has no CPU-time clocks: __kernel_clock_gettime falls
+		// back to its own svc.
+		uint64_t before = calls[SYS_clock_gettime];
+		timespec ts;
+		if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts) != 0)
+			return 2;
+		if (calls[SYS_clock_gettime] != before + 1)
+			return 3;
+		return 0;
+	});
+	REQUIRE(code == 0);
+}
+
+TEST_CASE("data that looks like svc in anonymous code is left alone",
+	  "[syscall-rewrite][coverage][!shouldfail]")
+{
+	static uint32_t *code = nullptr;
+	int result = in_rewritten_child(
+		[] {
+			// A literal pool: code, then a constant equal to svc #0
+			// that is loaded, never executed.
+			code = map_code({ RET, SVC_0, 0x12345678 });
+		},
+		[] {
+			if (code == nullptr)
+				return 2;
+			if (code[1] != SVC_0) {
+				fprintf(stderr, "data word now %#x\n", code[1]);
+				return 3;
+			}
+			return 0;
+		});
+	REQUIRE(result == 0);
+}
+
+TEST_CASE("svc in code made executable after rewriting is hooked",
+	  "[syscall-rewrite][coverage][!shouldfail]")
+{
+	int code = in_rewritten_child([] {
+		// A JIT: write code, then mprotect it executable.
+		uint32_t *fn = map_code({ mov_x8(SYS_getpid), SVC_0, RET });
+		if (fn == nullptr)
+			return 2;
+		uint64_t before = calls[SYS_getpid];
+		if (reinterpret_cast<long (*)()>(fn)() != getpid())
+			return 3;
+		if (calls[SYS_getpid] != before + 2)
+			return 4;
 		return 0;
 	});
 	REQUIRE(code == 0);
