@@ -160,6 +160,13 @@ must remain a guest of that process:
 - Add regression coverage for failure paths and for the default absence of host
   termination and stdio side effects.
 
+The syscall-trace transformer (`agent-transformer.cpp`) follows it too: an
+agent that cannot be loaded, or lacks `injected_with_frida`, leaves the host
+running untraced (it called `exit(1)` and dereferenced the missing symbol), and
+its entry message is debug level (spdlog's default logger, before the stderr
+logger is set, wrote it to the host's stdout). Test: "The transformer leaves
+the host running when the agent is unusable".
+
 ## Repository Documentation
 
 Trap callbacks execute inside SIGTRAP. Runtime-managed BPF links must reject

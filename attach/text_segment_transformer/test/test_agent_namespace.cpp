@@ -10,6 +10,7 @@
 #include <dlfcn.h>
 #include <pthread.h>
 #include <set>
+#include <string>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -184,4 +185,31 @@ TEST_CASE("Fork handlers of an agent in its own namespace run in fork children")
 		return counts() == 11 && cached_pid() == getpid() ? 0 : 7;
 	});
 	REQUIRE(code == 0);
+}
+
+// Injected-agent contract: a transformer whose agent cannot be loaded, or is
+// not a bpftime agent, must leave the host running (untraced). It called
+// exit(1), dereferenced a missing injected_with_frida symbol, and logged its
+// entry to the host's stdout.
+TEST_CASE("The transformer leaves the host running when the agent is unusable")
+{
+	for (const char *agent :
+	     { "/nonexistent/libbpftime-agent.so", FAKE_AGENT_KEYS_PATH }) {
+		INFO(agent);
+		std::string command =
+			std::string("env LD_PRELOAD=") + TRANSFORMER_SO_PATH +
+			" AGENT_SO=" + agent +
+			" sh -c 'echo transformer-host-ok' 2>/dev/null";
+		FILE *out = popen(command.c_str(), "r");
+		REQUIRE(out != nullptr);
+		// The host's stdout carries its own output only.
+		std::string text;
+		char buf[256];
+		while (fgets(buf, sizeof(buf), out) != nullptr)
+			text += buf;
+		const int status = pclose(out);
+		CHECK(text == "transformer-host-ok\n");
+		CHECK(WIFEXITED(status));
+		CHECK(WEXITSTATUS(status) == 0);
+	}
 }
