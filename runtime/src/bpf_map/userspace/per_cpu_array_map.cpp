@@ -28,7 +28,7 @@ per_cpu_array_map_impl::per_cpu_array_map_impl(
 	boost::interprocess::managed_shared_memory &memory, uint32_t value_size,
 	uint32_t max_entries)
 	: per_cpu_array_map_impl(memory, value_size, max_entries,
-				 sysconf(_SC_NPROCESSORS_ONLN))
+				 bpftime_num_possible_cpus())
 {
 }
 
@@ -45,9 +45,9 @@ void *per_cpu_array_map_impl::elem_lookup(const void *key)
 		const bool fixed_cpu =
 			mode == map_production_ab_mode::percpu_array_fixed_cpu ||
 			mode == map_production_ab_mode::percpu_array_lookup_fixed_cpu_no_address;
-		const int cpu = fixed_cpu ?
-				5 : my_sched_getcpu();
-		if (key == nullptr) {
+		const int cpu = fixed_cpu ? std::min(5, ncpu - 1) :
+					    my_sched_getcpu();
+		if (key == nullptr || cpu < 0 || cpu >= ncpu) {
 			errno = ENOENT;
 			return nullptr;
 		}
@@ -83,10 +83,14 @@ long per_cpu_array_map_impl::elem_update(const void *key, const void *value,
 			mode == map_production_ab_mode::percpu_array_fixed_cpu ||
 			mode == map_production_ab_mode::percpu_array_update_fixed_cpu_address_only ||
 			mode == map_production_ab_mode::percpu_array_update_fixed_cpu_no_address;
-		const int cpu = fixed_cpu ?
-				5 : my_sched_getcpu();
+		const int cpu = fixed_cpu ? std::min(5, ncpu - 1) :
+					    my_sched_getcpu();
 		if (key == nullptr) {
 			errno = ENOENT;
+			return -1;
+		}
+		if (cpu < 0 || cpu >= ncpu) {
+			errno = EINVAL;
 			return -1;
 		}
 		const uint32_t key_val = *(uint32_t *)key;
@@ -128,9 +132,12 @@ long per_cpu_array_map_impl::elem_update_checked(const void *key,
 					  const void *value, uint64_t flags)
 {
 	return ensure_on_current_cpu<long>([&](int cpu) -> long {
-		// return impl[cpu].elem_update(key, value, flags);
 		if (key == nullptr) {
 			errno = ENOENT;
+			return -1;
+		}
+		if (cpu < 0 || cpu >= ncpu) {
+			errno = EINVAL;
 			return -1;
 		}
 		uint32_t key_val = *(uint32_t *)key;

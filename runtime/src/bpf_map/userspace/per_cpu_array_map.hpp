@@ -66,7 +66,7 @@ class per_cpu_array_map_impl {
 	__attribute__((always_inline)) void *elem_lookup_base(const void *key)
 	{
 		return ensure_on_current_cpu<void *>([&](int cpu) -> void * {
-			if (key == nullptr) {
+			if (key == nullptr || cpu < 0 || cpu >= ncpu) {
 				errno = ENOENT;
 				return nullptr;
 			}

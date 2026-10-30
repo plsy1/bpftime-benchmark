@@ -184,6 +184,12 @@ class per_cpu_hash_map_impl {
 	static std::vector<node_type> &diagnostic_deferred_nodes();
 	static std::vector<uint32_node_type> &
 	diagnostic_deferred_uint32_nodes();
+	// sched_getcpu() can fail (-1) and, with the count fixed at creation,
+	// must not index past it.
+	bool valid_cpu(int cpu) const
+	{
+		return cpu >= 0 && cpu < ncpu;
+	}
 	bool uses_uint32_keys() const
 	{
 		return key_size == sizeof(uint32_t);
