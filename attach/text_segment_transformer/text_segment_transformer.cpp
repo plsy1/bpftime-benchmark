@@ -21,6 +21,7 @@
 #include <sys/syscall.h>
 #include <sys/mman.h>
 #include <sys/uio.h>
+#include <sys/stat.h>
 #include <vector>
 #include <cstdint>
 #include <unistd.h>
@@ -693,7 +694,9 @@ namespace
 {
 struct ExecMap {
 	uint64_t begin, end, offset;
+	uint64_t inode = 0;
 	int prot;
+	bool shared = false; // MAP_SHARED ('s'): a store goes to the file
 	std::string path;
 };
 
@@ -708,13 +711,14 @@ std::vector<ExecMap> read_maps()
 		int path_pos = 0;
 		if (sscanf(line.c_str(),
 			   "%" SCNx64 "-%" SCNx64 " %4s %" SCNx64
-			   " %*s %*d %n",
+			   " %*s %" SCNu64 " %n",
 			   &map.begin, &map.end, perms, &map.offset,
-			   &path_pos) < 4)
+			   &map.inode, &path_pos) < 5)
 			continue;
 		map.prot = (perms[0] == 'r' ? PROT_READ : 0) |
 			   (perms[1] == 'w' ? PROT_WRITE : 0) |
 			   (perms[2] == 'x' ? PROT_EXEC : 0);
+		map.shared = perms[3] == 's';
 		if (path_pos > 0 && (size_t)path_pos < line.size())
 			map.path = line.substr(path_pos);
 		result.push_back(std::move(map));
@@ -797,10 +801,47 @@ bool b_reaches(uint64_t from, uint64_t to)
 // File ranges of the executable sections (SHF_EXECINSTR) of an ELF file, so
 // that constants in a read-only section sharing the executable segment are
 // never taken for instructions. Empty when the file has no section headers.
-std::vector<std::pair<uint64_t, uint64_t> > exec_sections(const std::string &path)
+// The file mapped at `map`, or -1. A file renamed over (a package upgrade
+// under a running server) or unlinked shows as "path (deleted)": open the
+// mapped file itself through /proc/self/map_files, which needs
+// CAP_CHECKPOINT_RESTORE. Any other path is checked to still be the mapped
+// file by its inode (overlayfs reports the underlying device in maps but its
+// own to stat, so not the device).
+int open_mapped_file(const ExecMap &map)
+{
+	auto same_file = [&](int fd) {
+		struct stat st;
+		return fstat(fd, &st) == 0 && (uint64_t)st.st_ino == map.inode;
+	};
+	static const std::string deleted = " (deleted)";
+	const bool is_deleted =
+		map.path.size() > deleted.size() &&
+		map.path.compare(map.path.size() - deleted.size(),
+				 deleted.size(), deleted) == 0;
+	if (!is_deleted) {
+		int fd = open(map.path.c_str(), O_RDONLY | O_CLOEXEC);
+		if (fd >= 0 && same_file(fd))
+			return fd;
+		if (fd >= 0)
+			close(fd);
+	}
+	char link[64];
+	snprintf(link, sizeof(link), "/proc/self/map_files/%" PRIx64 "-%" PRIx64,
+		 map.begin, map.end);
+	int fd = open(link, O_RDONLY | O_CLOEXEC);
+	if (fd >= 0 && same_file(fd))
+		return fd;
+	if (fd >= 0)
+		close(fd);
+	return -1;
+}
+
+std::vector<std::pair<uint64_t, uint64_t> > exec_sections(const ExecMap &map,
+							   bool &unverified)
 {
 	std::vector<std::pair<uint64_t, uint64_t> > result;
-	int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+	int fd = open_mapped_file(map);
+	unverified = fd < 0;
 	if (fd < 0)
 		return result;
 	Elf64_Ehdr ehdr;
@@ -830,9 +871,21 @@ std::vector<std::pair<uint64_t, uint64_t> > exec_sections(const std::string &pat
 std::vector<uint64_t> find_svcs(const ExecMap &map, bool &skipped)
 {
 	skipped = false;
+	if (map.shared) {
+		// Rewriting would store branches to this process's gates into
+		// the file (for a writable one) and every process mapping it.
+		skipped = true;
+		return {};
+	}
 	std::vector<std::pair<uint64_t, uint64_t> > ranges;
 	if (!map.path.empty() && map.path[0] == '/') {
-		auto sections = exec_sections(map.path);
+		bool unverified;
+		auto sections = exec_sections(map, unverified);
+		if (unverified && map.path.rfind("/memfd:", 0) != 0)
+			SPDLOG_WARN("Cannot open the file mapped at {:x}-{:x} ({}, "
+				    "replaced or deleted): its system calls are "
+				    "not rewritten",
+				    map.begin, map.end, map.path);
 		for (auto [lo, hi] : sections) {
 			uint64_t file_end = map.offset + (map.end - map.begin);
 			lo = std::max(lo, map.offset);
