@@ -186,7 +186,7 @@ class bpftime_hash_map {
 
 	inline uint8_t *value_at(const view &v, size_t index) const
 	{
-		return key_at(v, index) + _key_size;
+		return v.data + index * _elem_size + _value_offset;
 	}
 
 	static inline uint32_t load_word(const view &v, const uint32_t *word,
@@ -426,7 +426,8 @@ class bpftime_hash_map {
 						if (load_word(v, word_ptr,
 							      std::memory_order_relaxed) ==
 						    word)
-							return bucket_key + _key_size;
+							return bucket_key - 4 +
+							       _value_offset;
 						changed = true;
 						break;
 					}
@@ -501,7 +502,8 @@ class bpftime_hash_map {
 	// from the stripes and the token pool that writers change.
 	size_t _key_size;
 	size_t _value_size;
-	size_t _elem_size; // state word + key + value, a multiple of 4
+	size_t _value_offset; // from the element start, value_align aligned
+	size_t _elem_size; // a multiple of value_align (and of 4)
 	size_t _num_buckets; // Adjusted number of buckets (prime)
 	size_t _bucket_reciprocal; // Precomputed for fast initial bucket mapping
 	size_t _max_element_count; // Maximum number of elements based on the
@@ -511,16 +513,30 @@ class bpftime_hash_map {
 
 	// The data is stored in a contiguous memory region.
 	// The layout of elem is:
-	// 4 bytes state and generation
-	// key_size bytes for the key
-	// value_size bytes for the value
-	// padding to a multiple of 4 bytes (the state word is atomic)
+	// 4 bytes state and generation (atomic, so 4-aligned)
+	// key_size bytes for the key, at 4
+	// padding to value_align, then value_size bytes for the value
+	// padding to a multiple of value_align
+	// value_align is 8 for values of 8 bytes or more, else 4: programs
+	// use 8-byte atomics on values (BPF atomic add, __sync_fetch_and_add)
+	// and aarch64 faults on one crossing a 16-byte boundary. The kernel
+	// aligns values to 8. The data buffer starts 16-aligned (boost).
 	bytes_vec data_buffer;
 	bytes_vec stripe_buffer; // stripe_state per stripe, line aligned
 
 	char _read_mostly_end[CACHE_LINE] = {};
 	int64_t _pool_tokens; // tokens held by no stripe
 	char _pool_end[CACHE_LINE] = {};
+
+	static constexpr size_t value_align(size_t value_size)
+	{
+		return value_size >= 8 ? 8 : 4;
+	}
+
+	static constexpr size_t round_up(size_t n, size_t align)
+	{
+		return (n + align - 1) & ~(align - 1);
+	}
 
 	static size_t stripe_shift_for(size_t num_buckets)
 	{
@@ -535,7 +551,9 @@ class bpftime_hash_map {
 	bpftime_hash_map(managed_shared_memory &memory, size_t num_buckets,
 			 size_t key_size, size_t value_size)
 		: _key_size(key_size), _value_size(value_size),
-		  _elem_size((4 + key_size + value_size + 3) & ~size_t{ 3 }),
+		  _value_offset(round_up(4 + key_size, value_align(value_size))),
+		  _elem_size(round_up(_value_offset + value_size,
+				      value_align(value_size))),
 		  // Twice the capacity keeps the load at most about 50%, so
 		  // linear probing finds an empty bucket quickly on a miss.
 		  _num_buckets(bpftime_hasher::next_prime(2 * num_buckets)),
