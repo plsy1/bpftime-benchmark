@@ -488,13 +488,18 @@ registers would corrupt callers. `rt_sigreturn`, `clone` and `clone3` take the
 gate's direct stub: all registers and sp restored, `svc` issued in the gate,
 plain `b` back, so a child on a fresh stack never returns into C frames (they
 are not traced, as on x86). glibc returns from signal handlers through the
-vDSO (not rewritten); musl and Go use their own restorer, covered by a test.
+vDSO's `__kernel_rt_sigreturn` (never rewritten); musl and Go use their own restorer, covered by a test.
 Sites are found per executable mapping by its ELF file's `SHF_EXECINSTR`
 sections (no constants of a shared segment taken for code). Mappings without
 section headers (anonymous code, unreadable files) are skipped and counted in
 the log unless `BPFTIME_SYSCALL_REWRITE_ANON=1`: scanned word by word, a
 literal-pool constant equal to `svc #0` was rewritten into a branch.
-`[vdso]`, `[stack]` and the transformer's own `syscall_addr` are skipped.
+The vDSO's fallback `svc` sites (clock_gettime, clock_getres, gettimeofday:
+CPU-time clocks always take them) are rewritten from its in-memory ELF image
+(the write makes the process's own copy of the page), except
+`__kernel_rt_sigreturn`, found by its dynamic symbol: unwinders recognize
+signal frames by its code. `[stack]` and the transformer's own
+`syscall_addr` are skipped.
 Each site is one aligned word store plus an I-cache flush; `svc` -> `b` is a
 permitted concurrent modification. Failures (including restoring a page's
 protection) skip the site or mapping and log; they never end the host. The asm lives in file-scope blocks
