@@ -56,6 +56,11 @@ extern "C" int64_t call_orig_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
 				     int64_t arg3, int64_t arg4, int64_t arg5,
 				     int64_t arg6);
 extern "C" void syscall_addr();
+// call_orig_syscall itself, called directly from this library (not through
+// the PLT): the hook's own path.
+extern "C" __attribute__((visibility("hidden"))) int64_t
+orig_syscall_direct(int64_t sys_nr, int64_t arg1, int64_t arg2, int64_t arg3,
+		    int64_t arg4, int64_t arg5, int64_t arg6);
 
 static const int NR_syscalls = 512;
 
@@ -75,7 +80,7 @@ static int64_t call_unguarded_syscall(int64_t sys_nr, int64_t arg1,
 {
 	in_hook = false;
 	int64_t ret =
-		call_orig_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
+		orig_syscall_direct(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
 	in_hook = true;
 	return ret;
 }
@@ -84,8 +89,8 @@ static syscall_hooker_func_t call_hook = &call_unguarded_syscall;
 
 namespace bpftime
 {
-// After the system call, inside the guard: rewrites code that became
-// executable (aarch64).
+// After an mmap, mprotect or pkey_mprotect, inside the guard: rewrites code
+// that became executable (aarch64).
 static void after_hooked_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
 				 int64_t arg3, int64_t ret);
 } // namespace bpftime
@@ -190,6 +195,9 @@ __asm__(".pushsection .data\n\t"
 		"lea 120(%rsp), %rsp\n\t"
 		"ret\n\t"
 	".globl call_orig_syscall\n\t"
+		".globl orig_syscall_direct\n\t"
+		".hidden orig_syscall_direct\n\t"
+		"orig_syscall_direct:\n\t"
 		"call_orig_syscall:\n\t"
 		"movq %rdi, %rax \n\t"
 		"movq %rsi, %rdi \n\t"
@@ -373,6 +381,9 @@ __asm__(".pushsection .text\n\t"
 	".p2align 2\n\t"
 	".globl call_orig_syscall\n\t"
 		".type call_orig_syscall, %function\n\t"
+		".globl orig_syscall_direct\n\t"
+		".hidden orig_syscall_direct\n\t"
+		"orig_syscall_direct:\n\t"
 		"call_orig_syscall:\n\t"
 		"hint #34\n\t" // bti c: the default hook, called through a pointer
 		"mov x8, x0\n\t"
@@ -392,17 +403,35 @@ __asm__(".pushsection .text\n\t"
 #error "Unsupported architecture"
 #endif
 
+// The calls that can make code executable, out of line: keeping their
+// arguments for the rescan made every other system call save them (and,
+// with the rescan inlined, check a stack canary): +43 instructions per call.
+__attribute__((noinline, cold)) static int64_t
+hook_mapping_call(int64_t sys_nr, int64_t arg1, int64_t arg2, int64_t arg3,
+		  int64_t arg4, int64_t arg5, int64_t arg6)
+{
+	in_hook = true;
+	int64_t ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
+	bpftime::after_hooked_syscall(sys_nr, arg1, arg2, arg3, ret);
+	in_hook = false;
+	return ret;
+}
+
 // Called only from the assembly hook: keep it through LTO.
 extern "C" __attribute__((used)) int64_t syscall_hooker_cxx(int64_t sys_nr, int64_t arg1,
 				      int64_t arg2, int64_t arg3, int64_t arg4,
 				      int64_t arg5, int64_t arg6)
 {
-	if (in_hook)
-		return call_orig_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5,
+	if (__builtin_expect(in_hook, 0))
+		return orig_syscall_direct(sys_nr, arg1, arg2, arg3, arg4, arg5,
+					   arg6);
+	if (__builtin_expect(sys_nr == SYS_mmap || sys_nr == SYS_mprotect ||
+				     sys_nr == SYS_pkey_mprotect,
+			     0))
+		return hook_mapping_call(sys_nr, arg1, arg2, arg3, arg4, arg5,
 					 arg6);
 	in_hook = true;
 	int64_t ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
-	bpftime::after_hooked_syscall(sys_nr, arg1, arg2, arg3, ret);
 	in_hook = false;
 	return ret;
 }
