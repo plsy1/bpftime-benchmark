@@ -315,3 +315,38 @@ TEST_CASE("bpftime_hash_map probe bound shrinks after far elements are deleted",
 	REQUIRE(*static_cast<uint64_t *>(map.elem_lookup(&keys[2])) == 2);
 	shared_memory_object::remove("bpftime_hash_map_bound_test");
 }
+
+// A stripe with no tokens left, once the shared pool was empty, took one
+// token from another stripe per insert, locking every stripe each time; it
+// now takes a batch.
+TEST_CASE("bpftime_hash_map moves tokens to a stripe in batches",
+	  "[bpftime_hash_map][tokens]")
+{
+	shared_memory_object::remove("bpftime_hash_map_tokens_test");
+	managed_shared_memory segment(create_only, "bpftime_hash_map_tokens_test",
+				      1 << 20);
+	bpftime_hash_map map(segment, 128, 4, 8);
+	REQUIRE(map.stripe_count() > 4);
+	auto stripe_of = [&](uint32_t key) {
+		return bpftime_hasher::hash_func(&key, 4) % map.bucket_count() /
+		       map.buckets_per_stripe();
+	};
+	// Drain the pool into the first stripes that see an insert.
+	std::vector<bool> used(map.stripe_count());
+	uint64_t value = 1;
+	uint32_t key = 1;
+	for (; map.pool_tokens() > 0; key++) {
+		used[stripe_of(key)] = true;
+		REQUIRE(map.elem_update(&key, &value));
+	}
+	// A key homing in a stripe that has no tokens.
+	for (;; key++) {
+		const size_t s = stripe_of(key);
+		if (used[s] || map.stripe_tokens(s) != 0)
+			continue;
+		REQUIRE(map.elem_update(&key, &value));
+		CHECK(map.stripe_tokens(s) > 1);
+		break;
+	}
+	shared_memory_object::remove("bpftime_hash_map_tokens_test");
+}
