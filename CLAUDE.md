@@ -707,7 +707,15 @@ crashed or hung the traced process (shared counters, 64 keys, 2-6 threads: 6 of
 `BPF_NOEXIST` on an existing key fails with `EEXIST` (it used to overwrite the
 calling CPU's value), `BPF_EXIST` on a missing key with `ENOENT`, a new key in a
 full map with `E2BIG` (eight-byte and larger keys had no limit). Lookups still
-return a pointer used after the lock is released, as for hash maps.
+return a pointer used after the lock is released, as for hash maps. Values of
+every key size live in slots of shared chunks (`acquire_uint32_value`, a free
+list): a delete returns the slot and frees nothing, so a stale pointer writes
+into a slot, as with the kernel's preallocated htab. Keys other than 4 bytes
+used to own a separately allocated value that a delete freed at once: the
+program's next write landed in memory the segment allocator had handed out
+again (reproduced on the old code: a block allocated after the delete was
+overwritten, on every CPU). Test: "Per-CPU hash values outlive a delete
+without freeing memory".
 
 Per-CPU maps (hash and array) hold `bpftime_num_possible_cpus()` values per
 key: the highest number in `/sys/devices/system/cpu/possible` plus one, as
