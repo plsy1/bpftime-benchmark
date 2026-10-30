@@ -344,19 +344,27 @@ class bpftime_hash_map {
 	}
 
 	// With every stripe locked: a token from the home stripe, the pool or
-	// any other stripe. False only when the map is full.
+	// other stripes. False only when the map is full. Moves up to a batch
+	// to the home stripe, so that its next inserts take its own lock only
+	// (with one token at a time, a stripe without tokens locked every
+	// stripe on every insert once the pool was empty).
 	bool take_token_any(const view &v, size_t stripe_index)
 	{
 		if (take_token(v, stripe_index))
 			return true;
-		for (size_t s = 0; s < _num_stripes; s++) {
+		auto &home = v.stripes[stripe_index];
+		uint32_t moved = 0;
+		for (size_t s = 0; s < _num_stripes && moved < TOKEN_BATCH; s++) {
 			auto &st = v.stripes[s];
-			if (st.tokens > 0) {
-				st.tokens--;
-				return true;
-			}
+			const uint32_t take =
+				std::min<uint32_t>(st.tokens, TOKEN_BATCH - moved);
+			st.tokens -= take;
+			moved += take;
 		}
-		return false;
+		if (moved == 0)
+			return false;
+		home.tokens += moved - 1;
+		return true;
 	}
 
 	// Under the home stripe's lock.
@@ -792,6 +800,18 @@ class bpftime_hash_map {
 	static constexpr size_t tracked_displacements()
 	{
 		return TRACKED_DISPLACEMENTS;
+	}
+
+	// Tokens a stripe holds, and tokens in the shared pool (tests; exact
+	// when no writer runs).
+	uint32_t stripe_tokens(size_t stripe) const
+	{
+		return resolve().stripes[stripe].tokens;
+	}
+
+	int64_t pool_tokens() const
+	{
+		return _pool_tokens;
 	}
 
 	// Largest probe bound over all stripes.
