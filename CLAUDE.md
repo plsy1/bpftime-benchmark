@@ -437,6 +437,18 @@ while no delete runs), `test_hash_map_striped_writers.cpp` (threads against a re
 with clustered keys, exact capacity, probe runs wrapping past the last
 stripe, processes mapping the segment at different addresses).
 
+Element layout: state word at 0, key at 4, value at `round_up(4 + key_size,
+A)`, element size a multiple of A, where A is 8 for values of 8 bytes or
+more and 4 otherwise. The value used to follow the key directly in elements
+rounded to 4: with an 8-byte key and value a quarter of the values crossed a
+16-byte boundary, and a BPF atomic add on one (the JIT emits `ldaddal`) died
+with SIGBUS on aarch64 (x86 tolerates it). u32 keys with 4- or 8-byte values
+keep their size; u64 key and value grew from 20 to 24 bytes. Arrays, per-CPU
+arrays and per-CPU hash values keep a `value_size` stride: a naturally aligned
+C struct with an 8-byte member has a size that is a multiple of 8, so only
+packed structs could misalign there. Test: `[alignment]` (key sizes 1-64,
+value sizes 4-24, an atomic add on every value).
+
 ## llvmbpf Local Call Overlay
 
 `vm/compat/llvm-vm/local-call-return-block.patch` generates
