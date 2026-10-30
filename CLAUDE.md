@@ -489,12 +489,15 @@ gate's direct stub: all registers and sp restored, `svc` issued in the gate,
 plain `b` back, so a child on a fresh stack never returns into C frames (they
 are not traced, as on x86). glibc returns from signal handlers through the
 vDSO (not rewritten); musl and Go use their own restorer, covered by a test.
-Sites are found per executable mapping: ELF files by their `SHF_EXECINSTR`
-sections (no constants of a shared segment taken for code), other mappings
-word by word; `[vdso]`, `[stack]` and the transformer's own `syscall_addr`
-are skipped. Each site is one aligned word store plus an I-cache flush;
-`svc` -> `b` is a permitted concurrent modification. Failures skip the site or
-mapping and log; they never end the host. The asm lives in file-scope blocks
+Sites are found per executable mapping by its ELF file's `SHF_EXECINSTR`
+sections (no constants of a shared segment taken for code). Mappings without
+section headers (anonymous code, unreadable files) are skipped and counted in
+the log unless `BPFTIME_SYSCALL_REWRITE_ANON=1`: scanned word by word, a
+literal-pool constant equal to `svc #0` was rewritten into a branch.
+`[vdso]`, `[stack]` and the transformer's own `syscall_addr` are skipped.
+Each site is one aligned word store plus an I-cache flush; `svc` -> `b` is a
+permitted concurrent modification. Failures (including restoring a page's
+protection) skip the site or mapping and log; they never end the host. The asm lives in file-scope blocks
 and `syscall_hooker_cxx` is `used`: LTO dropped them from executables.
 Code loaded later (dlopen, JIT) is not rewritten. Tests:
 `bpftime_text_segment_transformer_tests` (aarch64; each case rewrites a

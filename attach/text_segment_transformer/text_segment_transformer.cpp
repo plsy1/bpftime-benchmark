@@ -635,6 +635,12 @@ std::vector<ExecMap> read_maps()
 	return result;
 }
 
+// Executable mappings without ELF section headers (anonymous code such as a
+// JIT's, or a file that cannot be read) are scanned word by word only when
+// BPFTIME_SYSCALL_REWRITE_ANON=1: a constant equal to an svc encoding in a
+// literal pool would be rewritten into a branch, corrupting the data.
+bool scan_anonymous = false;
+
 bool is_svc(uint32_t insn)
 {
 	return (insn & 0xffe0001fu) == 0xd4000001u;
@@ -682,9 +688,11 @@ std::vector<std::pair<uint64_t, uint64_t> > exec_sections(const std::string &pat
 	return result;
 }
 
-// Addresses of the svc instructions of one executable mapping.
-std::vector<uint64_t> find_svcs(const ExecMap &map)
+// Addresses of the svc instructions of one executable mapping. Sets
+// `skipped` when the mapping has no section headers and is not scanned.
+std::vector<uint64_t> find_svcs(const ExecMap &map, bool &skipped)
 {
+	skipped = false;
 	std::vector<std::pair<uint64_t, uint64_t> > ranges;
 	if (!map.path.empty() && map.path[0] == '/') {
 		auto sections = exec_sections(map.path);
@@ -699,8 +707,13 @@ std::vector<uint64_t> find_svcs(const ExecMap &map)
 		if (ranges.empty() && !sections.empty())
 			return {}; // no executable section in this mapping
 	}
-	if (ranges.empty())
+	if (ranges.empty()) {
+		if (!scan_anonymous) {
+			skipped = true;
+			return {};
+		}
 		ranges.emplace_back(map.begin, map.end);
+	}
 	bool unreadable = !(map.prot & PROT_READ);
 	if (unreadable &&
 	    mprotect((void *)map.begin, map.end - map.begin,
@@ -715,8 +728,10 @@ std::vector<uint64_t> find_svcs(const ExecMap &map)
 				result.push_back(addr);
 		}
 	}
-	if (unreadable)
-		mprotect((void *)map.begin, map.end - map.begin, map.prot);
+	if (unreadable &&
+	    mprotect((void *)map.begin, map.end - map.begin, map.prot) < 0)
+		SPDLOG_WARN("Cannot restore the protection of {:x}-{:x}: {}",
+			    map.begin, map.end, strerror(errno));
 	std::sort(result.begin(), result.end());
 	return result;
 }
@@ -777,6 +792,13 @@ void *map_near(uint64_t lo, uint64_t hi, size_t size)
 	return nullptr;
 }
 
+void restore_code_page(uint64_t page_addr, uint64_t page, int code_prot)
+{
+	if (page_addr != 0 && mprotect((void *)page_addr, page, code_prot) < 0)
+		SPDLOG_WARN("Cannot restore the protection of code page {:x}: {}",
+			    page_addr, strerror(errno));
+}
+
 // Builds the region for `sites` (all within reach of one region) and
 // rewrites them. Returns the number of rewritten sites.
 size_t install_region(const std::vector<uint64_t> &sites, int code_prot)
@@ -825,8 +847,7 @@ size_t install_region(const std::vector<uint64_t> &sites, int code_prot)
 		uint64_t gate = base + REGION_HEADER_SIZE + GATE_SIZE * i;
 		uint64_t site_page = site & ~(page - 1);
 		if (site_page != open_page) {
-			if (open_page != 0)
-				mprotect((void *)open_page, page, code_prot);
+			restore_code_page(open_page, page, code_prot);
 			open_page = 0;
 			if (mprotect((void *)site_page, page,
 				     PROT_READ | PROT_WRITE | PROT_EXEC) < 0) {
@@ -842,21 +863,24 @@ size_t install_region(const std::vector<uint64_t> &sites, int code_prot)
 		__builtin___clear_cache((char *)site, (char *)site + 4);
 		rewritten++;
 	}
-	if (open_page != 0)
-		mprotect((void *)open_page, page, code_prot);
+	restore_code_page(open_page, page, code_prot);
 	return rewritten;
 }
 } // namespace
 
 void setup_syscall_tracer()
 {
-	size_t found = 0, rewritten = 0;
+	const char *anon = getenv("BPFTIME_SYSCALL_REWRITE_ANON");
+	scan_anonymous = anon != nullptr && strcmp(anon, "1") == 0;
+	size_t found = 0, rewritten = 0, skipped_maps = 0;
 	for (const auto &map : read_maps()) {
 		if (!(map.prot & PROT_EXEC) || map.path == "[vdso]" ||
 		    map.path == "[vsyscall]" || map.path == "[stack]" ||
 		    map.path == "[uprobes]")
 			continue;
-		auto sites = find_svcs(map);
+		bool skipped;
+		auto sites = find_svcs(map, skipped);
+		skipped_maps += skipped;
 		if (sites.empty())
 			continue;
 		found += sites.size();
@@ -874,6 +898,10 @@ void setup_syscall_tracer()
 		}
 	}
 	SPDLOG_INFO("Rewrote {} of {} svc instructions", rewritten, found);
+	if (skipped_maps != 0)
+		SPDLOG_INFO(
+			"Skipped {} executable mappings without ELF sections (BPFTIME_SYSCALL_REWRITE_ANON=1 scans them word by word)",
+			skipped_maps);
 }
 #endif
 
