@@ -322,6 +322,56 @@ TEST_CASE("Software perf event fork child writes to its own producer shard",
 	CHECK(parent_shards == 1);
 }
 
+// Idle shards of dead threads are reclaimed by probing (pid, tid) with
+// tgkill. A producer in another pid namespace (a container sharing /dev/shm
+// with the tool) has pids that mean nothing here: its live, idle shard was
+// reclaimed, discarding its lost-sample count.
+TEST_CASE("Software perf event shards of another pid namespace are not reclaimed",
+	  "[perf_event][software_perf_event]")
+{
+	const std::string shared_memory_name =
+		"SoftwarePerfEventPidNsTestShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(shared_memory_name) };
+	boost::interprocess::managed_shared_memory shm(
+		boost::interprocess::create_only, shared_memory_name.c_str(),
+		16 * 1024 * 1024);
+	auto *perf = shm.construct<bpftime::software_perf_event_data>(
+		"perf")(0, 0, 0, shm);
+	REQUIRE(perf != nullptr);
+	REQUIRE(perf->ensure_mmap_buffer(getpagesize() + 64 * 1024) !=
+		nullptr);
+	// The parent's own shard, so the namespace recorded is this one.
+	event_payload payload{ 1, 0 };
+	REQUIRE(perf->output_data(&payload, sizeof(payload)) == 0);
+	const uint64_t here = perf->producer_shards.front().pid_namespace;
+	REQUIRE(here != 0);
+	// A pid with no thread: a reaped child's.
+	pid_t dead = fork();
+	REQUIRE(dead >= 0);
+	if (dead == 0)
+		_exit(0);
+	REQUIRE(waitpid(dead, nullptr, 0) == dead);
+	auto *manager = shm.get_segment_manager();
+	for (uint64_t ns : { here, here + 1 }) {
+		perf->producer_shards.emplace_back(dead, dead, 1000 + ns, 0,
+						   getpagesize(), manager,
+						   getpagesize() + 4096);
+		perf->producer_shards.back().pid_namespace = ns;
+	}
+	// Draining reclaims idle shards every 64 drains.
+	for (int i = 0; i < 130; i++)
+		(void)perf->has_data();
+	size_t same_namespace = 0, other_namespace = 0;
+	for (auto &shard : perf->producer_shards) {
+		if (shard.pid != dead)
+			continue;
+		same_namespace += shard.pid_namespace == here;
+		other_namespace += shard.pid_namespace == here + 1;
+	}
+	CHECK(same_namespace == 0);
+	CHECK(other_namespace == 1);
+}
+
 TEST_CASE("Software perf event records wrap on aligned boundaries after resize",
 	  "[perf_event][software_perf_event]")
 {
