@@ -65,6 +65,27 @@ void *load_agent_in_new_namespace(const char *path)
 	return dlmopen(lmid, path, RTLD_NOW | RTLD_LOCAL);
 }
 // The executable segments of every object in the namespace of `handle`.
+namespace
+{
+using agent_fork_hook_t = void (*)(int);
+agent_fork_hook_t agent_fork_hook;
+} // namespace
+
+bool install_agent_fork_hook(void *handle)
+{
+	auto hook = (agent_fork_hook_t)dlsym(handle, "bpftime_agent_fork_hook");
+	if (hook == nullptr)
+		return false;
+	// Once per process: the agent is loaded once.
+	if (agent_fork_hook != nullptr)
+		return true;
+	agent_fork_hook = hook;
+	// The phases are bpftime::fork_phase: prepare 0, parent 1, child 2.
+	return pthread_atfork([] { agent_fork_hook(0); },
+			      [] { agent_fork_hook(1); },
+			      [] { agent_fork_hook(2); }) == 0;
+}
+
 std::vector<std::pair<uint64_t, uint64_t> > namespace_code_ranges(void *handle)
 {
 	struct link_map *lm = nullptr;

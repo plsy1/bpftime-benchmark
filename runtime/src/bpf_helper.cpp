@@ -5,6 +5,7 @@
  */
 #include "bpf_attach_ctx.hpp"
 #include "bpftime_ratelimited_log.hpp"
+#include "fork_handlers.hpp"
 #if BPFTIME_HAVE_TRAP_UPROBE_ATTACH
 #include "trap_uprobe_attach_impl.hpp"
 #endif
@@ -76,7 +77,7 @@ extern "C" {
 #if __linux__ && \
 	(defined(ENABLE_PROBE_READ_CHECK) || defined(ENABLE_PROBE_WRITE_CHECK))
 static pid_t probe_access_pid = getpid();
-static const int probe_access_atfork_status = pthread_atfork(
+static const int probe_access_atfork_status = bpftime::register_fork_handlers(
 	nullptr, nullptr, [] { probe_access_pid = getpid(); });
 #endif
 
@@ -304,8 +305,9 @@ static void bpftime_refresh_cached_identity_in_child()
 #endif
 }
 
-static const int bpftime_identity_atfork_status = pthread_atfork(
-	nullptr, nullptr, bpftime_refresh_cached_identity_in_child);
+static const int bpftime_identity_atfork_status =
+	bpftime::register_fork_handlers(nullptr, nullptr,
+					bpftime_refresh_cached_identity_in_child);
 
 uint64_t bpftime_get_current_pid_tgid(uint64_t, uint64_t, uint64_t, uint64_t,
 				      uint64_t)

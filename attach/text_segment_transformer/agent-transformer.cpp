@@ -83,6 +83,9 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 		SPDLOG_ERROR("Failed to open agent: {}", dlerror());
 		exit(1);
 	}
+	if (!bpftime::install_agent_fork_hook(next_handle))
+		SPDLOG_WARN(
+			"Agent has no bpftime_agent_fork_hook: its fork handlers will not run in fork children");
 	// Set the flag `injected_with_frida` for agent
 	bool *injected_with_frida__agent =
 		(bool *)dlsym(next_handle, "injected_with_frida");

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 #include "array_map_binding.hpp"
+#include "fork_handlers.hpp"
 #include <handler/handler_manager.hpp>
 #include <mutex>
 #include <unordered_set>
@@ -32,7 +33,7 @@ bool initialize_array_binding_fork_handlers()
 			// it, so it needs its own shared reference. Taking it before the
 			// fork leaves no window in which the parent could free the map.
 			// A failed fork, or a child that execs or _exits, leaks them.
-			status = pthread_atfork(
+			status = bpftime::register_fork_handlers(
 				[] {
 					pthread_mutex_lock(&live_bindings_lock);
 					for (auto *binding : live_bindings())

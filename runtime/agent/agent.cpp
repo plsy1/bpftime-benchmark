@@ -13,6 +13,7 @@
 #include "spdlog/common.h"
 #include "bpftime_config.hpp"
 #include "bpftime_logger.hpp"
+#include "fork_handlers.hpp"
 #include <chrono>
 #include <csignal>
 #include <cstdio>
@@ -1241,6 +1242,15 @@ extern "C" int64_t syscall_callback(int64_t sys_nr, int64_t arg1, int64_t arg2,
 	if (orig_hooker != nullptr)
 		return orig_hooker(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
 	return -ENOSYS;
+}
+
+// The syscall-trace transformer loads this library with dlmopen: its
+// pthread_atfork handlers then live in the agent namespace's libc, which the
+// application's fork never runs. The transformer calls this from the main
+// libc's handlers instead.
+extern "C" void bpftime_agent_fork_hook(int phase)
+{
+	bpftime::run_fork_handlers(static_cast<bpftime::fork_phase>(phase));
 }
 
 extern "C" void
