@@ -280,6 +280,14 @@ path (`166c6016`), and an opt-in seccomp lazy mode (`BPFTIME_SYSCALL_LAZY=1`,
 `bpftime_text_segment_transformer_tests` (22 cases, `[lazy]` among them).
 Results: `syscall/coverage-20261030` in the results branch.
 
+Three commits accepted 2026-10-31 make `benchmark/fuse` run on ARM64: the
+syscall table gains the aarch64 calls asm-generic defines through
+`__NR3264_*` (`9b5ff475`: `fcntl`, `newfstatat`, `fstat`, `mmap` ...; test in
+`bpftime_syscall_trace_attach_tests`), the path helpers 1003/1004 are compiled
+again (`9a0274f2`, compiled out since 2023-12; `[helpers]`, added to the
+focused filter), and fs-cache skips the `open` tracepoints aarch64 lacks
+(`5062cb97`). Results: `syscall/fuse-20261030` in the results branch.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
