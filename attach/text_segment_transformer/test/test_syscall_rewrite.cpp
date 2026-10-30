@@ -367,7 +367,7 @@ TEST_CASE("svc fallbacks in the vDSO are hooked",
 }
 
 TEST_CASE("data that looks like svc in anonymous code is left alone",
-	  "[syscall-rewrite][coverage][!shouldfail]")
+	  "[syscall-rewrite][coverage]")
 {
 	static uint32_t *code = nullptr;
 	int result = in_rewritten_child(
@@ -386,6 +386,28 @@ TEST_CASE("data that looks like svc in anonymous code is left alone",
 			return 0;
 		});
 	REQUIRE(result == 0);
+}
+
+TEST_CASE("anonymous code is scanned word by word when asked to",
+	  "[syscall-rewrite][coverage]")
+{
+	static uint32_t *fn = nullptr;
+	int code = in_rewritten_child(
+		[] {
+			setenv("BPFTIME_SYSCALL_REWRITE_ANON", "1", 1);
+			fn = map_code({ mov_x8(SYS_getpid), SVC_0, RET });
+		},
+		[] {
+			if (fn == nullptr)
+				return 2;
+			uint64_t before = calls[SYS_getpid];
+			if (reinterpret_cast<long (*)()>(fn)() != getpid())
+				return 3;
+			if (calls[SYS_getpid] != before + 2)
+				return 4;
+			return 0;
+		});
+	REQUIRE(code == 0);
 }
 
 TEST_CASE("svc in code made executable after rewriting is hooked",
