@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <pthread.h>
+#include <sys/auxv.h>
 #include <sys/syscall.h>
 #include <sys/mman.h>
 #include <vector>
@@ -906,6 +907,72 @@ size_t install_region(const std::vector<uint64_t> &sites, int code_prot)
 	return rewritten;
 }
 
+// The svc instructions of the vDSO's code sections, read from its in-memory
+// ELF image, except the one of __kernel_rt_sigreturn: unwinders recognize a
+// signal frame by that code. The others are the fallbacks of clock_gettime,
+// clock_getres and gettimeofday (CPU-time clocks always take them).
+std::vector<uint64_t> vdso_svcs(const ExecMap &map)
+{
+	std::vector<uint64_t> result;
+	const uint64_t base = getauxval(AT_SYSINFO_EHDR);
+	const uint64_t size = map.end - map.begin;
+	if (base != map.begin || size < sizeof(Elf64_Ehdr))
+		return result;
+	auto in_image = [&](uint64_t off, uint64_t len) {
+		return off <= size && len <= size - off;
+	};
+	const auto *ehdr = (const Elf64_Ehdr *)base;
+	if (memcmp(ehdr->e_ident, ELFMAG, SELFMAG) != 0 ||
+	    ehdr->e_shentsize != sizeof(Elf64_Shdr) ||
+	    !in_image(ehdr->e_shoff, (uint64_t)ehdr->e_shnum * sizeof(Elf64_Shdr)))
+		return result;
+	const auto *shdrs = (const Elf64_Shdr *)(base + ehdr->e_shoff);
+	// Symbol values and section addresses share the link-time base.
+	uint64_t sigreturn_lo = 0, sigreturn_hi = 0;
+	for (int i = 0; i < ehdr->e_shnum; i++) {
+		const auto &sh = shdrs[i];
+		if (sh.sh_type != SHT_DYNSYM || sh.sh_link >= ehdr->e_shnum ||
+		    sh.sh_entsize != sizeof(Elf64_Sym) ||
+		    !in_image(sh.sh_offset, sh.sh_size))
+			continue;
+		const auto &strtab = shdrs[sh.sh_link];
+		if (!in_image(strtab.sh_offset, strtab.sh_size))
+			continue;
+		const auto *syms = (const Elf64_Sym *)(base + sh.sh_offset);
+		const char *strs = (const char *)(base + strtab.sh_offset);
+		for (uint64_t j = 0; j < sh.sh_size / sizeof(Elf64_Sym); j++) {
+			if (syms[j].st_name < strtab.sh_size &&
+			    strnlen(strs + syms[j].st_name,
+				    strtab.sh_size - syms[j].st_name) <
+				    strtab.sh_size - syms[j].st_name &&
+			    strcmp(strs + syms[j].st_name,
+				   "__kernel_rt_sigreturn") == 0) {
+				sigreturn_lo = syms[j].st_value;
+				// mov x8, #139; svc #0 at least.
+				sigreturn_hi = syms[j].st_value +
+					       std::max<uint64_t>(syms[j].st_size, 8);
+			}
+		}
+	}
+	if (sigreturn_hi == 0)
+		return result; // cannot tell the sigreturn svc: leave it all
+	for (int i = 0; i < ehdr->e_shnum; i++) {
+		const auto &sh = shdrs[i];
+		if (sh.sh_type != SHT_PROGBITS || !(sh.sh_flags & SHF_EXECINSTR) ||
+		    !in_image(sh.sh_offset, sh.sh_size))
+			continue;
+		for (uint64_t off = (sh.sh_offset + 3) & ~3ull;
+		     off + 4 <= sh.sh_offset + sh.sh_size; off += 4) {
+			uint64_t vaddr = sh.sh_addr + (off - sh.sh_offset);
+			if (vaddr >= sigreturn_lo && vaddr < sigreturn_hi)
+				continue;
+			if (is_svc(*(const uint32_t *)(base + off)))
+				result.push_back(base + off);
+		}
+	}
+	return result;
+}
+
 bool special_mapping(const ExecMap &map)
 {
 	return map.path == "[vdso]" || map.path == "[vsyscall]" ||
@@ -996,6 +1063,15 @@ void setup_syscall_tracer()
 	size_t found = 0, rewritten = 0, skipped_maps = 0;
 	pthread_mutex_lock(&rescan_mutex);
 	for (const auto &map : read_maps()) {
+		if (map.path == "[vdso]" && (map.prot & PROT_EXEC)) {
+			// One page: within reach of one region. Writing it makes
+			// the process's own copy.
+			auto sites = vdso_svcs(map);
+			found += sites.size();
+			if (!sites.empty())
+				rewritten += install_region(sites, map.prot);
+			continue;
+		}
 		if (!(map.prot & PROT_EXEC) || special_mapping(map))
 			continue;
 		rewrite_mapping(map, found, rewritten, skipped_maps);
