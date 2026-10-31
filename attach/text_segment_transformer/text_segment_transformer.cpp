@@ -21,6 +21,7 @@
 #include <sys/syscall.h>
 #include <sys/mman.h>
 #include <sys/uio.h>
+#include <mutex>
 #include <sched.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -887,6 +888,34 @@ bool patch_lock()
 void patch_unlock()
 {
 	patch_owner.store(0, std::memory_order_release);
+}
+
+// A child must not inherit a lock held by a thread it does not have, so a
+// fork takes both. One set of handlers, in the rescan's order (rescan_mutex,
+// then the patch lock, which install_region takes): as two sets, glibc ran
+// the later one's prepare first, and a fork racing a dlopen deadlocked (the
+// rescan holding rescan_mutex waited for the patch lock, the fork holding it
+// for rescan_mutex). Registered once, at setup, before lazy mode can start.
+void install_transformer_fork_handlers()
+{
+	static std::once_flag once;
+	std::call_once(once, [] {
+		static bool held_for_fork = false;
+		pthread_atfork(
+			[] {
+				pthread_mutex_lock(&rescan_mutex);
+				held_for_fork = lazy_active.load() && patch_lock();
+			},
+			[] {
+				if (held_for_fork)
+					patch_unlock();
+				pthread_mutex_unlock(&rescan_mutex);
+			},
+			[] {
+				patch_owner.store(0);
+				pthread_mutex_unlock(&rescan_mutex);
+			});
+	});
 }
 
 bool is_svc(uint32_t insn)
@@ -1804,19 +1833,6 @@ bool enable_lazy_rewriting(const std::vector<std::pair<uint64_t, uint64_t> > &al
 		lazy_active = false;
 		return false;
 	}
-	static bool fork_handlers_installed = false;
-	if (!fork_handlers_installed) {
-		// A child must not inherit the lock held by a thread it does
-		// not have: take it around the fork.
-		static bool held_for_fork = false;
-		pthread_atfork([] { held_for_fork = patch_lock(); },
-			       [] {
-				       if (held_for_fork)
-					       patch_unlock();
-			       },
-			       [] { patch_owner.store(0); });
-		fork_handlers_installed = true;
-	}
 	if (!install_lazy_filter(allowed)) {
 		lazy_active = false;
 		return false;
@@ -1858,10 +1874,7 @@ void setup_syscall_tracer()
 		rewrite_mapping(map, found, rewritten, skipped_maps);
 	}
 	if (!rescan_enabled) {
-		// A child must not inherit the lock held by another thread.
-		pthread_atfork([] { pthread_mutex_lock(&rescan_mutex); },
-			       [] { pthread_mutex_unlock(&rescan_mutex); },
-			       [] { pthread_mutex_unlock(&rescan_mutex); });
+		install_transformer_fork_handlers();
 		rescan_enabled = true;
 	}
 	pthread_mutex_unlock(&rescan_mutex);

@@ -740,6 +740,14 @@ Fixed after an independent review (results `reviews-20261031`), each with a
 - `patch_lock` yields every 64 spins (a SCHED_FIFO spinner on the holder's
   CPU).
 
+Fixed after the second review (results `reviews-20261031/rereview`):
+- One set of transformer fork handlers (`install_transformer_fork_handlers`,
+  registered once at setup) takes `rescan_mutex` and then the patch lock, the
+  rescan's order. The patch lock's handlers were a second, later set, whose
+  prepare glibc runs first: a fork racing a dlopen (rescan holding
+  `rescan_mutex`, waiting for the patch lock in `install_region`) deadlocked
+  within a second. Test: "lazy mode survives a dlopen racing a fork".
+
 Known limits of the aarch64 rewriting (documented, not fixed):
 - A hooked call pushes 16 + 784 bytes before the C dispatch, about 1.3 KiB
   with the agent's callback, plus the BPF stack when programs run; `svc`
