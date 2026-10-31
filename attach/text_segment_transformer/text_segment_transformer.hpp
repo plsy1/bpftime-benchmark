@@ -39,6 +39,12 @@ bool lazy_rewriting_requested();
 bool enable_lazy_rewriting(
 	const std::vector<std::pair<uint64_t, uint64_t> > &allowed);
 lazy_rewrite_stats get_lazy_rewrite_stats();
+// Whether a file (its stat inode and device, its statfs f_type) is the one
+// /proc/self/maps shows with this inode and device: both equal, or on btrfs
+// the inode alone (stat reports the subvolume's anonymous device there, maps
+// the superblock's).
+bool same_mapped_file(uint64_t st_ino, uint64_t st_dev, long fs_magic,
+		      uint64_t inode, unsigned dev_major, unsigned dev_minor);
 // Tests: opens the file of the mapping [begin, end) of `path` as the
 // rewriter does, if it still is the file with this device and inode; -1
 // otherwise (aarch64).
