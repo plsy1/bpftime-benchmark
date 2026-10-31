@@ -1021,8 +1021,11 @@ mean the same through bpf()".
 Map creation (`bpf_map_handler::map_init`) checks sizes as the kernel's
 `map_alloc_check` does for hash, per-CPU hash, LRU hash, array, per-CPU
 array, queue and stack: 0 entries, 0-byte values (and keys for hashes) are
-EINVAL; keys over 512 bytes, per-CPU values over 32 KiB and a lower bound of
-the size above the segment are E2BIG. An allocation that throws is ENOMEM.
+EINVAL; keys over 512 bytes, values over the kernel's KMALLOC_MAX_SIZE
+limits (4 MiB with 4 KiB pages), per-CPU values over 32 KiB and a size that
+overflows are E2BIG. A lower bound of the size above the segment, and an
+allocation that throws, are ENOMEM (the syscall server's exhaustion contract,
+"Syscall server reports map allocation failure instead of using the kernel").
 The handler is removed and creation returns -1 with errno (`set_handler`
 used to ignore `map_init`'s result and keep an empty handler). Before, a
 size that wrapped allocated a small buffer that accesses overran (a hash of
