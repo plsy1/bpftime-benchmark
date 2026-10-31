@@ -401,18 +401,20 @@ busy and its owner is a thread of the tool's pid namespace that is gone
 since tgkill finds an unreaped thread-group leader), the record is marked
 discarded and the ones behind it are delivered. Submit reads the slot from
 the header before publishing (afterwards, a lap later, the bytes may be
-another record's header or padding, and it freed that slot), checks that the
-slot still holds this record (position within the ring, pid, tid; else
-recovery took it and the submit touches nothing), publishes with a CAS from
-BUSY and releases the slot with a CAS from its own position. A slot whose
-record was consumed is free (a producer killed between publishing and
-releasing leaked it). Tests: "Ringbuf submit releases only its own owner
-slot", "Ringbuf submit leaves a recovered record alone", "Ringbuf owner
+another record's header or padding, and it freed that slot), publishes
+with one exchange and releases the slot only if the record was still BUSY
+(else recovery took it and freed the slot). A slot whose record was
+consumed a lap ago is free (a producer killed between publishing and
+releasing leaked it); a lap, because submit releases with a plain store
+right after publishing. Keep submit to the header exchange and that store:
+an ownership check reading the owner slot before the exchange (a646180d)
+made single-thread output 12% slower in about 40% of runs with the
+consumer on the other CPU cluster (results `reviews-20261031/refixes2`).
+Tests: "Ringbuf submit leaves a recovered record alone", "Ringbuf owner
 slots of consumed records are reused", "Ringbuf recovers a dead producer
-before it is reaped". Not covered: a record recovered (a stale identity) and
-lapped between submit's check and its CAS; a record without a slot (table
-full) cannot be checked, so its late submit can still clear another
-record's BUSY after a lap, as before.
+before it is reaped". Not covered: a live producer whose record was
+recovered (a stale identity) and lapped before its submit clears another
+record's BUSY, as before the owner table.
 A producer killed between `bpf_ringbuf_reserve` and submit used to hold
 back every later record forever, with no error (the kernel cannot have
 this). Still wedged: an owner in another pid namespace, a full table, and a
