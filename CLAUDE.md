@@ -868,6 +868,14 @@ tool reading 4-byte per-CPU counters took CPU 1's value from CPU 0's padding.
 `[percpu-layout]` (with an injected "0,2-3" mask), "Possible CPUs are counted
 as libbpf does" (the parser on masks with holes).
 
+`BPF_MAP_LOOKUP_AND_DELETE_ELEM` (`bpftime_map_lookup_and_delete_elem`) used
+to ignore the key and pop: hash maps returned ENOTSUP, so libbpf's
+`bpf_map_lookup_and_delete_elem` failed on them. It now pops queues and
+stacks and removes the key's element of hash, per-CPU hash and LRU hash maps
+in one step (the striped hash copies the value under its stripe lock, the
+others under the handler lock); other types return ENOTSUP like the kernel.
+Test: "bpf() lookup and delete takes the key of hash maps".
+
 ## Cgroup Array And bpf_current_task_under_cgroup
 
 `BPF_MAP_TYPE_CGROUP_ARRAY` (`cgroup_array_map_impl`) stores, per slot, the
