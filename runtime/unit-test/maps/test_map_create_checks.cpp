@@ -14,6 +14,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
+#include <dirent.h>
 #include <string>
 #include <unistd.h>
 
@@ -198,6 +199,48 @@ TEST_CASE("Unsupported map types fail with EINVAL", "[map-create]")
 					    .max_ents = 4 }) == -1);
 		CHECK(errno == EINVAL);
 	}
+	shm_holder.global_shared_memory.reset_server_state();
+	bpftime_destroy_global_shm();
+	shared_memory_object::remove(name.c_str());
+	bpftime_initialize_global_shm(shm_open_type::SHM_NO_CREATE);
+	if (had)
+		setenv("BPFTIME_GLOBAL_SHM_NAME", previous.c_str(), 1);
+	else
+		unsetenv("BPFTIME_GLOBAL_SHM_NAME");
+}
+
+static int open_descriptors()
+{
+	int n = 0;
+	DIR *dir = opendir("/proc/self/fd");
+	while (dir != nullptr && readdir(dir) != nullptr)
+		n++;
+	if (dir != nullptr)
+		closedir(dir);
+	return n;
+}
+
+// Without a descriptor the shm opens one for the map (the syscall server's
+// BPF_MAP_CREATE): a rejected creation kept it open.
+TEST_CASE("A rejected map creation closes its descriptor", "[map-create]")
+{
+	const std::string name =
+		"bpftime-map-create-fd-" + std::to_string(getpid());
+	const char *had = getenv("BPFTIME_GLOBAL_SHM_NAME");
+	const std::string previous = had ? had : "";
+	bpftime_destroy_global_shm();
+	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+	bpftime_initialize_global_shm(shm_open_type::SHM_REMOVE_AND_CREATE);
+	const int before = open_descriptors();
+	for (int i = 0; i < 20; i++) {
+		CHECK(bpftime_maps_create(-1, "rejected",
+					  { .type = BPF_MAP_TYPE_HASH,
+					    .key_size = 0,
+					    .value_size = 8,
+					    .max_ents = 4 }) == -1);
+		CHECK(errno == EINVAL);
+	}
+	CHECK(open_descriptors() == before);
 	shm_holder.global_shared_memory.reset_server_state();
 	bpftime_destroy_global_shm();
 	shared_memory_object::remove(name.c_str());

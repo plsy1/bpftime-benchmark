@@ -1326,16 +1326,26 @@ int bpftime_shm::translate_shared_map_type_to_kernel_map_type(int type)
 int bpftime_shm::add_bpf_map(int fd, const char *name,
 			     bpftime::bpf_map_attr attr)
 {
-	bool fd_self_allocated = false;
-	if (fd < 0) {
+	const bool own_fd = fd < 0;
+	if (own_fd) {
 		// if fd is negative, we need to create a new fd for allocating
 		fd = open_fake_fd();
 		fd_self_allocated = true;
 		if (fd < 0)
 			return fd;
 	}
+	// A rejected map must not keep the descriptor opened for it (libbpf
+	// retries a failed creation once: two leaked per map).
+	const auto fail = [&](int ret) {
+		if (own_fd && fd >= 0) {
+			const int err = errno;
+			close(fd);
+			errno = err;
+		}
+		return ret;
+	};
 	if (!manager) {
-		return -1;
+		return fail(-1);
 	}
 #ifdef ENABLE_BPFTIME_VERIFIER
 	auto helpers = verifier::get_map_descriptors();
@@ -1354,14 +1364,9 @@ int bpftime_shm::add_bpf_map(int fd, const char *name,
 			"Creating map handler at {}, which must destroy the existing handler");
 		manager->clear_id_at(fd, segment);
 	}
-	int rc = manager->set_handler(
+	const int ret = manager->set_handler(
 		fd, bpftime::bpf_map_handler(fd, name, segment, attr), segment);
-	if (rc < 0 && fd_self_allocated) {
-		// set_handler already rolled back the handler slot; close the OS
-		// fd allocated in this call so failed creates do not leak fds.
-		close(fd);
-	}
-	return rc;
+	return ret < 0 ? fail(ret) : ret;
 }
 
 int bpftime_shm::dup_bpf_map(int oldfd, int newfd)
