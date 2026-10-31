@@ -12,6 +12,7 @@
 extern "C" {
 uint64_t bpftime_get_current_pid_tgid(uint64_t, uint64_t, uint64_t, uint64_t,
 				      uint64_t);
+extern uint64_t bpftime_identity_epoch;
 }
 
 static uint64_t call_helper()
@@ -84,3 +85,42 @@ TEST_CASE("bpf_get_current_pid_tgid reports the calling process after fork")
 	// The parent's own cached identity must be unaffected by the children.
 	REQUIRE(helper_matches_this_process());
 }
+
+#if __linux__
+#include <thread>
+
+// A vfork child shares its parent thread's memory and TLS, and no fork
+// handler runs for it. The syscall-trace transformer bumps
+// bpftime_identity_epoch before such a clone; done by hand here.
+static bool vfork_child_and_parent_see_their_own_ids()
+{
+	static volatile uint64_t in_child;
+	__atomic_fetch_add(&bpftime_identity_epoch, 1, __ATOMIC_RELAXED);
+	pid_t child = vfork();
+	if (child == 0) {
+		in_child = call_helper();
+		_exit(0);
+	}
+	int status = -1;
+	if (child < 0 || waitpid(child, &status, 0) != child)
+		return false;
+	const uint64_t in_parent = call_helper();
+	return helper_tgid(in_child) == (uint32_t)child &&
+	       helper_tid(in_child) == (uint32_t)child &&
+	       helper_tgid(in_parent) == (uint32_t)getpid() &&
+	       helper_tid(in_parent) == current_tid();
+}
+
+TEST_CASE("bpf_get_current_pid_tgid in a vfork child and its parent after it",
+	  "[pid_tgid]")
+{
+	// The parent thread's identity cached before the vfork.
+	REQUIRE(helper_tid(call_helper()) == current_tid());
+	CHECK(vfork_child_and_parent_see_their_own_ids());
+	// Nothing cached yet: the child must not fill the thread's cache.
+	bool ok = false;
+	std::thread([&] { ok = vfork_child_and_parent_see_their_own_ids(); })
+		.join();
+	CHECK(ok);
+}
+#endif
