@@ -1,0 +1,66 @@
+ringbuf output, 1 thread, ns per call per run (perf stat: user cycles/instructions per call); slow = over 700 ns
+
+perfstat.jsonl: f73a45f1 (as committed)
+  opt-identity2    median  666.9  runs 666, 658, 674, 655, 668, 672  slow 0/6  instr 1661
+  dev-f73a45f1     median  667.3  runs 665, 669, 761, 666, 664, 744  slow 2/6  instr 1702
+
+perfstat2.jsonl: header updated with one fetch_and
+  opt-identity2    median  666.6  runs 676, 669, 675, 664, 673, 653, 661, 663  slow 0/8  instr 1661
+  dev-fetchand     median  711.3  runs 760, 753, 662, 665, 758, 666, 670, 753  slow 4/8  instr 1699
+
+perfstat3.jsonl: 9aeb2863 ringbuf_map.cpp in the f73a45f1 tree
+  opt-identity2    median  664.5  runs 682, 658, 673, 666, 665, 656, 665, 661  slow 0/8  instr 1661
+  dev-oldrb        median  658.7  runs 656, 662, 671, 659, 654, 667, 658, 659  slow 0/8  instr 1641
+
+perfstat4.jsonl: plain store release, slot reuse a lap later
+  opt-identity2    median  673.0  runs 654, 676, 673, 660, 673, 664, 680, 685  slow 0/8  instr 1661
+  dev-plainstore   median  710.9  runs 680, 742, 754, 715, 678, 716, 674, 707  slow 5/8  instr 1689
+
+perfstat5.jsonl: no ownership check in submit
+  opt-identity2    median  669.0  runs 671, 664, 670, 672, 667, 669, 670, 665  slow 0/8  instr 1661
+  dev-nocheck      median  690.4  runs 680, 737, 699, 753, 675, 691, 690, 673  slow 2/8  instr 1652
+
+perfstat6.jsonl: relaxed owner load in submit
+  opt-identity2    median  664.3  runs 664, 664, 663, 651, 669, 667, 671, 658  slow 0/8  instr 1661
+  dev-noldar       median  685.5  runs 686, 685, 680, 762, 677, 681, 756, 758  slow 3/8  instr 1689
+
+perfstat7.jsonl: is_thread_alive instead of is_thread_gone
+  opt-identity2    median  663.5  runs 663, 676, 660, 672, 662, 657, 672, 664  slow 0/8  instr 1661
+  dev-alive        median  702.3  runs 663, 659, 720, 738, 659, 699, 705, 752  slow 4/8  instr 1702
+
+perfstat8.jsonl: mixed: new agent + old server / old agent + new server
+  opt-identity2    median  662.8  runs 658, 666, 674, 663, 662, 665, 659  slow 0/7  instr 1661
+  mix-newagent     median  669.0  runs 753, 669, 662, 715, 754, 659, 651  slow 3/7  instr 1702
+  mix-newserver    median  675.1  runs 675, 690, 676, 664, 672, 664, 688  slow 0/7  instr 1661
+
+perfstat9.jsonl: identity read inside the reserve lock
+  opt-identity2    median  665.2  runs 666, 665, 659, 668, 684, 661, 665, 669  slow 0/8  instr 1661
+  mix-inlock       median  697.4  runs 731, 752, 748, 664, 762, 649, 650, 651  slow 4/8  instr 1702
+
+perfstat10.jsonl: old ringbuf code + the new (unused) test functions: layout
+  opt-identity2    median  666.2  runs 641, 688, 677, 662, 657, 650, 676, 671  slow 0/8  instr 1661
+  mix-oldpad       median  661.8  runs 660, 662, 662, 663, 644, 661, 664, 661  slow 0/8  instr 1641
+
+perfstat11.jsonl: publish with exchange
+  opt-identity2    median  666.7  runs 657, 663, 667, 674, 684, 661, 670, 667  slow 0/8  instr 1661
+  mix-swap         median  730.2  runs 749, 747, 679, 654, 713, 755, 750, 664  slow 5/8  instr 1698
+
+perfstat12.jsonl: old claim logic
+  opt-identity2    median  669.8  runs 664, 665, 672, 669, 670, 664, 682, 676  slow 0/8  instr 1661
+  mix-oldclaim     median  750.7  runs 756, 635, 755, 754, 645, 757, 650, 748  slow 5/8  instr 1696
+
+perfstat13.jsonl: old ringbuf code + only the new submit (mix-s1)
+  opt-identity2    median  663.0  runs 664, 679, 647, 711, 656, 663, 647, 663  slow 1/8  instr 1661
+  mix-s1           median  664.7  runs 665, 758, 664, 735, 656, 733, 646, 655  slow 3/8  instr 1703
+
+perfstat14.jsonl: claim stores the slot position relaxed, submit loads relaxed
+  opt-identity2    median  662.4  runs 669, 671, 655, 655, 666, 660, 661, 664  slow 0/8  instr 1661
+  mix-relaxedclaim median  694.2  runs 752, 662, 659, 753, 663, 658, 771, 726  slow 4/8  instr 1702
+
+pinned-cpu4.jsonl: tool pinned to cpu4 (producer cluster)
+  opt-identity2    median  426.8  runs 427, 427, 427, 427  slow 0/4  instr 1660
+  dev-f73a45f1     median  437.0  runs 437, 437, 437, 437  slow 0/4  instr 1701
+
+pinned-cpu0.jsonl: tool pinned to cpu0 (other cluster)
+  opt-identity2    median  672.0  runs 674, 672, 672, 661  slow 0/4  instr 1661
+  dev-f73a45f1     median  702.4  runs 739, 659, 665, 742  slow 2/4  instr 1702

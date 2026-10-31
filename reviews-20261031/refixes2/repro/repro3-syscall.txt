@@ -1,0 +1,18 @@
+mode n: epoch after posix_spawn (clone3) = 1 (expected 1)
+mode n: epoch after vfork (clone) = 2 (expected 2)
+pvr n exit=0
+mode e: epoch after posix_spawn (clone3) = 1 (expected 1)
+mode e: epoch after vfork (clone) = 2 (expected 2)
+pvr e exit=0
+mode k: epoch after posix_spawn (clone3) = 1 (expected 1)
+mode k: epoch after vfork (clone) = 2 (expected 2)
+pvr k exit=0
+P first call: getppid=1296277 (1296277) word1=14012003 traps=1 rewritten=1 shared_skipped=0
+after mremap: P word1=d4000001 (svc again, from the shared file)
+P second call: getppid=1296277 word1=d4000001 FILE word at 4 = d4000001 (svc: file intact) traps=2 rewritten=1 shared_skipped=1
+mode n action h: read -> 1 errno=0 (ok) handler runs=1
+mode n action i: read -> 1 errno=0 (ok) handler runs=0
+mode r action h: read -> 1 errno=0 (ok) handler runs=1
+mode r action i: read -> 1 errno=0 (ok) handler runs=0
+mode l action h: read -> 1 errno=0 (ok) handler runs=1
+mode l action i: read -> 1 errno=0 (ok) handler runs=0

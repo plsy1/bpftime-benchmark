@@ -1,0 +1,45 @@
+== 128 percpu_key
+create pcpu256      type=5 key=256 value=8 max=100000 -> 3 errno=0 (Success)
+create pcpu64       type=5 key=64 value=8 max=400000 -> 4 errno=0 (Success)
+create hash256      type=1 key=256 value=8 max=100000 -> 5 errno=0 (Success)
+exit=0
+== 128 unsupported
+create sockhash     type=18 key=4 value=4 max=4 -> -1 errno=22 (Invalid argument)
+create lrupcpu      type=10 key=4 value=4 max=4 -> -1 errno=22 (Invalid argument)
+create bloomkey     type=30 key=4 value=4 max=4 -> -1 errno=22 (Invalid argument)
+exit=0
+== 128 fdleak
+fds before 6 after 6 (200 rejected creations)
+exit=0
+== 16 lenerr 0
+create biglen       type=1 key=8 value=8 max=600000 -> -1 errno=12 (Cannot allocate memory)
+fds before 6 after 6
+create small        type=1 key=8 value=8 max=1000 -> 3 errno=0 (Success)
+small -> 3
+lookup on stale fd 2 ...
+lookup stale -> -1 errno=2 (No such file or directory)
+exit=0
+== 128 lad
+create arr          type=2 key=4 value=8 max=4 -> 3 errno=0 (Success)
+array lookup_and_delete -> -1 errno=524
+create lru          type=9 key=4 value=8 max=4 -> 4 errno=0 (Success)
+lru update -> 0 errno=0
+lru lookup_and_delete -> 0 errno=0 value=77
+lru lookup_and_delete again -> -1 errno=2
+create hash         type=1 key=4 value=8 max=4 -> 5 errno=0 (Success)
+hash lookup_and_delete -> 0 errno=0 value=99
+hash lookup_and_delete again -> -1 errno=2
+hash lookup_and_delete flags=8 -> -1 errno=22
+exit=0
+create type 1 -> 4
+lookup_and_delete key=NULL -> -1 errno=14
+create type 1 -> 4
+lookup_and_delete value=NULL -> -1 errno=14
+create type 5 -> 4
+lookup_and_delete key=NULL -> -1 errno=14
+create type 5 -> 4
+lookup_and_delete value=NULL -> -1 errno=14
+create type 9 -> 4
+lookup_and_delete key=NULL -> -1 errno=14
+create type 9 -> 4
+lookup_and_delete value=NULL -> -1 errno=14

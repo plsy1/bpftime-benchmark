@@ -35,3 +35,5 @@ dev-7553abb8  dev 7553abb8 (second-review fixes; candidate build-jetson-daily)
 cpucheck-unsigned dev f2d6ae7d's tree, built just before that commit (one unsigned CPU compare; candidate build-jetson-daily)
 opt-identity  dev 7553abb8 + inline identity fast path (__thread), ringbuf owner slot from the tid (candidate.diff; candidate build-jetson-daily)
 opt-identity2 opt-identity with the identity cache in one __thread struct (candidate.diff; candidate build-jetson-daily)
+dev-f73a45f1  dev f73a45f1 (third-review fixes; candidate build-jetson-daily)
+mix-s1        diagnostic: agent of 9aeb2863's tree with only ringbuf::submit from f73a45f1 (shows the cross-cluster ringbuf slowdown); server and bpftimetool of opt-identity2
