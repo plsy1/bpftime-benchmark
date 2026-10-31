@@ -6,6 +6,8 @@
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <bpf_map/userspace/per_cpu_hash_map.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <linux/bpf.h>
+#include <cerrno>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -72,4 +74,36 @@ TEST_CASE("Per-CPU hash values outlive a delete without freeing memory",
 	INFO("status " << status);
 	REQUIRE(WIFEXITED(status));
 	REQUIRE(WEXITSTATUS(status) == 0);
+}
+
+TEST_CASE("Per-CPU hash update flags mean the same through bpf()",
+	  "[percpu-hash]")
+{
+	// bpftime's own operations use the high 32 bits of the flags; the
+	// program path compared the low ones, bpf() the whole value.
+	const std::string name =
+		"bpftime_percpu_flags_" + std::to_string(getpid());
+	shared_memory_object::remove(name.c_str());
+	{
+		managed_shared_memory segment(create_only, name.c_str(),
+					      8 << 20);
+		per_cpu_hash_map_impl map(segment, 4, 8, 4);
+		std::vector<uint8_t> value(
+			8 * (size_t)bpftime_num_possible_cpus(), 1);
+		const uint32_t key = 3;
+		const uint64_t high = 1ULL << 32;
+		REQUIRE(map.elem_update_userspace(&key, value.data(), 0) == 0);
+		errno = 0;
+		CHECK(map.elem_update_userspace(&key, value.data(),
+						high | BPF_NOEXIST) == -1);
+		CHECK(errno == EEXIST);
+		const uint32_t missing = 4;
+		errno = 0;
+		CHECK(map.elem_update_userspace(&missing, value.data(),
+						high | BPF_EXIST) == -1);
+		CHECK(errno == ENOENT);
+		CHECK(map.elem_update(&key, value.data(), high | BPF_NOEXIST) ==
+		      -1);
+	}
+	shared_memory_object::remove(name.c_str());
 }
