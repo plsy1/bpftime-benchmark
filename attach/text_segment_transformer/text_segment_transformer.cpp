@@ -103,32 +103,40 @@ static syscall_hooker_func_t call_hook = &call_unguarded_syscall;
 // The agent's bpftime_identity_epoch (runtime producer_identity.cpp), or null.
 static uint64_t *identity_epoch;
 
-// Called by the aarch64 hook before a clone or clone3 takes the direct path.
-// A child that shares the calling thread's memory and TLS (CLONE_VM without
-// CLONE_SETTLS: vfork, posix_spawn) would run the agent on that thread's
-// cached pid and tid, and no fork handler runs for it: bump the epoch, so the
-// agent checks its cached identities again. Threads have CLONE_SETTLS.
+// Called by the aarch64 hook before a clone or clone3 takes the direct path,
+// with the application's sp. Bumps the epoch, so the agent checks its cached
+// pid and tid again, for a child that runs no fork handler on a copy or the
+// same memory of the calling thread: one that shares its memory and TLS
+// (CLONE_VM without CLONE_SETTLS: vfork, posix_spawn) or any child that is
+// not a thread (a raw clone(SIGCHLD) or glibc's clone() keep the forking
+// thread's cached ids; glibc's fork bumps too, harmlessly). Threads have
+// CLONE_THREAD and CLONE_SETTLS. No system call here: an application's
+// seccomp filter may deny one (Docker's default profile denies
+// process_vm_readv, which read clone3's flags: the bump was lost) or kill
+// the process for it (it then died creating a thread).
 // Referenced only from the hook's asm: `used`, or LTO drops it.
 extern "C" __attribute__((visibility("hidden"), used)) void
-note_clone_syscall(uint64_t arg0, int64_t sys_nr)
+note_clone_syscall(uint64_t arg0, int64_t sys_nr, uint64_t app_sp)
 {
 	uint64_t *epoch = __atomic_load_n(&identity_epoch, __ATOMIC_ACQUIRE);
 	if (epoch == nullptr)
 		return;
 	uint64_t flags = arg0;
 	if (sys_nr == SYS_clone3) {
-		// struct clone_args starts with the flags. A bad pointer is the
-		// kernel's EFAULT to report, not a fault here.
-		iovec local = { &flags, sizeof(flags) },
-		      remote = { (void *)arg0, sizeof(flags) };
-		const int64_t pid =
-			orig_syscall_direct(SYS_getpid, 0, 0, 0, 0, 0, 0);
-		if (orig_syscall_direct(SYS_process_vm_readv, pid,
-					(int64_t)&local, 1, (int64_t)&remote, 1,
-					0) != (int64_t)sizeof(flags))
+		// struct clone_args starts with the flags. glibc keeps it in
+		// the caller's frame (pthread_create, posix_spawn): read it
+		// only within the 1 KiB above the application's sp, the live
+		// part of its stack, mapped. Anywhere else the flags are
+		// unknown (a bad pointer is the kernel's EFAULT to report, not
+		// a fault here): bump, which costs only a re-read per thread.
+		if ((arg0 & 7) != 0 || arg0 < app_sp || arg0 - app_sp >= 1024) {
+			__atomic_fetch_add(epoch, 1, __ATOMIC_RELAXED);
 			return;
+		}
+		flags = *(const volatile uint64_t *)arg0;
 	}
-	if ((flags & CLONE_VM) && !(flags & CLONE_SETTLS))
+	if (!(flags & CLONE_THREAD) ||
+	    ((flags & CLONE_VM) && !(flags & CLONE_SETTLS)))
 		__atomic_fetch_add(epoch, 1, __ATOMIC_RELAXED);
 }
 
@@ -422,6 +430,7 @@ __asm__(".pushsection .text\n\t"
 		// the frame, so a call before it changes nothing the child sees.
 		"5:\n\t"
 		"mov x1, x8\n\t"
+		"add x2, sp, #800\n\t" // the application's sp
 		"bl note_clone_syscall\n\t"
 		"2:\n\t"
 		"mov x17, #20\n\t" // GATE_DIRECT_OFFSET

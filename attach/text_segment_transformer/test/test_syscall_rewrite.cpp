@@ -310,17 +310,68 @@ TEST_CASE("clones that share the thread's TLS bump the identity epoch",
 				   nullptr) != 0 ||
 		    pthread_join(thread, nullptr) != 0 || epoch != 2)
 			return 5;
+		// Children that are not threads run no fork handler on a copy
+		// of this thread when made by a raw clone: they bump too (and
+		// so does glibc's fork).
 		pid = fork();
 		if (pid == 0)
 			_exit(0);
-		if (pid < 0 || waitpid(pid, &status, 0) != pid || epoch != 2)
+		if (pid < 0 || waitpid(pid, &status, 0) != pid || epoch != 3)
 			return 6;
+		pid = (pid_t)syscall(SYS_clone, SIGCHLD, 0, 0, 0, 0);
+		if (pid == 0)
+			_exit(0);
+		if (pid < 0 || waitpid(pid, &status, 0) != pid || epoch != 4)
+			return 7;
 		// A bad clone_args pointer: the kernel's EFAULT, no fault in
-		// the hook.
+		// the hook; the flags are unknown, so it bumps.
 		errno = 0;
 		if (syscall(SYS_clone3, (void *)8, 88) != -1 ||
-		    errno != EFAULT || epoch != 2)
-			return 7;
+		    errno != EFAULT || epoch != 5)
+			return 8;
+		return 0;
+	});
+	REQUIRE(code == 0);
+}
+
+TEST_CASE("the clone hook makes no system call an application may forbid",
+	  "[syscall-rewrite]")
+{
+	// clone3's flags were read with process_vm_readv: under a seccomp
+	// filter that kills on it the process died creating a thread (one
+	// that denies it, as Docker's default profile, lost the bump).
+	int code = in_rewritten_child([] {
+		static uint64_t epoch = 0;
+		bpftime::set_identity_epoch(&epoch);
+		sock_filter f[] = {
+			BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+				 offsetof(seccomp_data, nr)),
+			BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_process_vm_readv,
+				 0, 1),
+			BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+			BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+		};
+		sock_fprog prog = { sizeof(f) / sizeof(f[0]), f };
+		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 ||
+		    syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &prog) != 0)
+			return 2;
+		pthread_t thread;
+		if (pthread_create(&thread, nullptr,
+				   [](void *) -> void * { return nullptr; },
+				   nullptr) != 0 ||
+		    pthread_join(thread, nullptr) != 0)
+			return 3;
+		// pthread_create's clone_args were read: a thread, no bump.
+		if (epoch != 0)
+			return 4;
+		char arg0[] = "true";
+		char *argv[] = { arg0, nullptr };
+		pid_t pid;
+		int status = 0;
+		if (posix_spawn(&pid, "/bin/true", nullptr, nullptr, argv,
+				environ) != 0 ||
+		    waitpid(pid, &status, 0) != pid || epoch != 1)
+			return 5;
 		return 0;
 	});
 	REQUIRE(code == 0);
