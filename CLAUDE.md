@@ -767,11 +767,21 @@ pthread_atfork as before plus a table, run by the agent's exported
 `bpftime_agent_fork_hook`, which `install_agent_fork_hook` registers with the
 main libc after loading (never twice: the namespace libc's copies do not run
 on the application's fork). Use it instead of `pthread_atfork` in any code
-the agent links. Not covered: the agent namespace libc's own fork handling
-(its malloc and stdio locks); a thread inside the agent's malloc at the fork
-leaves the child's agent allocator locked. Test: "Fork handlers of an agent
-in its own namespace run in fork children" (stand-in agent
-`test/fake_agent_fork.cpp`).
+the agent links, and only from a static initializer (as every caller does):
+a child forked while another thread was between reserving and publishing an
+entry inherits `published < reserved`, and a registration in that child would
+wait for an entry nobody completes. Registering while the runtime loads
+means a child never registers; the wait is also bounded (2^20 tries, then
+pthread_atfork only). The array binding and map usage handlers used to
+register at first use. Tests: "Fork handlers are registered before the first
+array binding", "Fork handler registration returns over an unpublished
+entry". Not covered: the agent namespace libc's own fork handling (its
+malloc and stdio locks); a thread inside the agent's malloc at the fork
+leaves the child's agent allocator locked. glibc 2.39 exports none of the
+functions that would run it (`__run_prefork_handlers`, the malloc fork
+locks are hidden; only `__libc_fork`, fork itself, is GLIBC_PRIVATE). Test:
+"Fork handlers of an agent in its own namespace run in fork children"
+(stand-in agent `test/fake_agent_fork.cpp`).
 
 ## System Call Dispatch
 

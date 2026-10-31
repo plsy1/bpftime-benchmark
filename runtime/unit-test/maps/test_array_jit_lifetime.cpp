@@ -7,6 +7,7 @@
 #include <bpftime_vm_compat.hpp>
 #include <bpftime_internal.h>
 #include <bpf_map/array_map_binding.hpp>
+#include <fork_handlers.hpp>
 #include <linux/bpf.h>
 #include <atomic>
 #include <cerrno>
@@ -1199,4 +1200,38 @@ TEST_CASE("Typed hash delete helper matches the generic helper for other handles
 		REQUIRE(bpftime_map_delete_elem_helper(fd, key_arg, 0, 0, 0) == static_cast<uint64_t>(-1));
 		REQUIRE(errno == ENOENT);
 	}
+}
+
+TEST_CASE("Fork handlers are registered before the first array binding",
+	"[array-jit-lifetime][fork-handlers]")
+{
+	// Registering later would let a fork in another thread leave a child
+	// whose table never completes the entry (fork_handlers.cpp).
+	isolated_shm fixture;
+	const int before = bpftime::fork_handler_count();
+	int fd = create_array(7);
+	auto prog = make_program(fd);
+	REQUIRE(*reinterpret_cast<uint64_t *>(lookup(*prog, 1)) == 7);
+	REQUIRE(bpftime::fork_handler_count() == before);
+	prog.reset();
+	bpftime_close(fd);
+}
+
+TEST_CASE("Fork handler registration returns over an unpublished entry",
+	"[fork-handlers]")
+{
+	// The state of a child forked between another thread's reservation
+	// and its publication.
+	pid_t child = fork();
+	REQUIRE(child >= 0);
+	if (child == 0) {
+		alarm(20);
+		bpftime::fork_handlers_leave_reservation_unpublished_for_test();
+		bpftime::register_fork_handlers(nullptr, nullptr, nullptr);
+		_exit(0);
+	}
+	int status = -1;
+	REQUIRE(waitpid(child, &status, 0) == child);
+	REQUIRE(WIFEXITED(status));
+	REQUIRE(WEXITSTATUS(status) == 0);
 }
