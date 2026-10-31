@@ -21,7 +21,8 @@ TEST_CASE("Hash map values are aligned for atomics",
 		"bpftime_hash_align_test_" + std::to_string(getpid());
 	constexpr size_t entries = 1024;
 	for (size_t key_size : { 1, 3, 4, 8, 16, 64 }) {
-		for (size_t value_size : { 4, 8, 16, 24 }) {
+		for (size_t value_size :
+		     { 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24 }) {
 			INFO("key " << key_size << " value " << value_size);
 			shared_memory_object::remove(name.c_str());
 			managed_shared_memory segment(create_only, name.c_str(),
@@ -49,12 +50,27 @@ TEST_CASE("Hash map values are aligned for atomics",
 					__atomic_fetch_add(
 						reinterpret_cast<uint64_t *>(p), 1,
 						__ATOMIC_SEQ_CST);
-				else
+				else if (value_size >= 4)
 					__atomic_fetch_add(
 						reinterpret_cast<uint32_t *>(p), 1,
 						__ATOMIC_SEQ_CST);
+				// The whole value, to its last byte.
+				for (size_t b = 1; b < value_size; b++)
+					p[b] = 0xff;
 			}
 			REQUIRE(map.get_elem_count() == inserted);
+			// No value write reached a neighbour's key or value.
+			for (size_t i = 0; i < inserted; i++) {
+				std::memset(key.data(), 0, key_size);
+				std::memcpy(key.data(), &i,
+					    std::min(key_size, sizeof(i)));
+				auto *p = static_cast<uint8_t *>(
+					map.elem_lookup(key.data()));
+				REQUIRE(p != nullptr);
+				CHECK(p[0] == (value_size >= 4 ? 1 : 0));
+				for (size_t b = 1; b < value_size; b++)
+					REQUIRE(p[b] == 0xff);
+			}
 			shared_memory_object::remove(name.c_str());
 		}
 	}
