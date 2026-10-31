@@ -221,6 +221,17 @@ TEST_CASE("bpf() lookup and delete takes the key of hash maps",
 		REQUIRE(bpftime_map_update_elem(m.fd, &key, in.data(), 0) == 0);
 		REQUIRE(bpftime_map_update_elem(m.fd, &other, in.data(), 0) ==
 			0);
+		// A null key or value is EFAULT and removes nothing (a null
+		// key crashed the hash paths; a null value deleted the key).
+		errno = 0;
+		CHECK(bpftime_map_lookup_and_delete_elem(m.fd, nullptr,
+							 out.data()) == -1);
+		CHECK(errno == EFAULT);
+		errno = 0;
+		CHECK(bpftime_map_lookup_and_delete_elem(m.fd, &key, nullptr) ==
+		      -1);
+		CHECK(errno == EFAULT);
+		CHECK(bpftime_map_lookup_elem(m.fd, &key) != nullptr);
 		REQUIRE(bpftime_map_lookup_and_delete_elem(m.fd, &key,
 							   out.data()) == 0);
 		CHECK(out == in);
@@ -240,6 +251,9 @@ TEST_CASE("bpf() lookup and delete takes the key of hash maps",
 	const uint64_t pushed = 42;
 	uint64_t popped = 0;
 	REQUIRE(bpftime_map_push_elem(103, &pushed, 0) == 0);
+	errno = 0;
+	CHECK(bpftime_map_lookup_and_delete_elem(103, nullptr, nullptr) == -1);
+	CHECK(errno == EFAULT);
 	REQUIRE(bpftime_map_lookup_and_delete_elem(103, nullptr, &popped) ==
 		0);
 	CHECK(popped == 42);
@@ -251,7 +265,7 @@ TEST_CASE("bpf() lookup and delete takes the key of hash maps",
 	const uint32_t index = 1;
 	errno = 0;
 	CHECK(bpftime_map_lookup_and_delete_elem(104, &index, &popped) == -1);
-	CHECK(errno == ENOTSUP);
+	CHECK(errno == 524); // the kernel's ENOTSUPP
 	shm_holder.global_shared_memory.reset_server_state();
 	bpftime_destroy_global_shm();
 	shared_memory_object::remove(name.c_str());
