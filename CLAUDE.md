@@ -694,8 +694,9 @@ Everything the handler does is raw system calls via `orig_syscall_direct`
 rescans by `patch_owner`, a spin lock that refuses its own thread (the call
 is then made untraced). While active, the hook removes SIGSYS from
 `rt_sigprocmask` sets and `rt_sigaction` masks and answers `rt_sigaction`
-for SIGSYS itself, keeping the application's action without installing it:
-a trap with SIGSYS blocked or ignored kills the process. Costs: about
+for SIGSYS itself, keeping the application's action without installing it (it runs for
+SIGSYS that is not ours, below): a trap with SIGSYS blocked or ignored kills
+the process. Costs: about
 +60 ns per system call (the filter compares the instruction pointer, so
 the kernel's per-number cache cannot skip it). Not for general use: the
 filter cannot be removed and survives execve, where nothing handles SIGSYS,
@@ -747,6 +748,25 @@ Fixed after the second review (results `reviews-20261031/rereview`):
   prepare glibc runs first: a fork racing a dlopen (rescan holding
   `rescan_mutex`, waiting for the patch lock in `install_region`) deadlocked
   within a second. Test: "lazy mode survives a dlopen racing a fork".
+- Our filter's traps carry `SECCOMP_RET_DATA` `LAZY_TRAP_DATA` (0xb7e5,
+  reported in `si_errno`; with several filters returning TRAP the kernel
+  keeps the newest one's data). Any other SIGSYS goes to the application's
+  action (`forward_sigsys`): its handler runs with the original siginfo and
+  context (the x0 it sets is the call's result), `SA_RESETHAND` and its mask
+  applied, SIGSYS left deliverable; with `SIG_DFL` (or `SIG_IGN` for a
+  seccomp trap, which the kernel forces) SIGSYS is restored to its default
+  and raised, ending the process as without bpftime. An action set before
+  lazy mode starts is read then. `lazy_rewrite_site` refuses the hook's own
+  svc and the allowed ranges. The handler took every seccomp trap as its
+  own: the application's filter trapping the hook's own svc made it rewrite
+  that svc into a branch to a gate, and the hook recursed until the stack
+  overflowed (SIGSEGV instead of SIGSYS). Either install order works: the
+  application's filter newer, its data wins at a new site (forwarded, the
+  site stays unrewritten); ours newer, the site is rewritten and the hook's
+  svc then traps with the application's data. An application filter using
+  0xb7e5 as its data would be taken for ours. Tests: "lazy mode passes the
+  application's seccomp traps to its handler" (both orders), "lazy mode
+  leaves the application's untrapped seccomp SIGSYS fatal".
 
 Known limits of the aarch64 rewriting (documented, not fixed):
 - A hooked call pushes 16 + 784 bytes before the C dispatch, about 1.3 KiB
