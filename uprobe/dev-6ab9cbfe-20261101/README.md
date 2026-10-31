@@ -61,7 +61,8 @@ lookup at the ends, uprobe and hash within ±0.3%).
   striped writers cost +7.4% on single-thread churn (`../hash-striped-writers-20261030`),
   about +14 ns per call over three map operations, and per-CPU hash took the map lock on every
   operation for correctness (`../percpu-hash-fix-20261028`). This suite's map loops, 1,000
-  operations on 1,000 keys per call, show a larger share of that cost. Which commits account
-  for how much is not measured here; the frozen builds of each step are in
-  `../ssl-nginx-2x2-20261023/builds/`.
+  operations on 1,000 keys per call, show a larger share of that cost. Attributed in
+  `hash-bisect/`: per-CPU hash to cdc05f67/c98951a4 (map lock on every operation), hash lookup
+  to 9c3e0345 (lookups without a lock), hash update and delete to cb3f29d2/f4fdcbcd (striped
+  writers). Nothing after f4fdcbcd changed them.
 - ssl-nginx's -1.6% at 16 B is small but consistent (16/20 reps); not attributed.
