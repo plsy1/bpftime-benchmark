@@ -67,7 +67,9 @@ class ringbuf {
 	};
 	static constexpr int reservation_owner_slots = 256;
 	reservation_owner owners[reservation_owner_slots];
-	int32_t claim_owner_slot(unsigned long position);
+	int32_t claim_owner_slot(unsigned long position, unsigned long cons_pos,
+				 int pid, int64_t tid, uint64_t pid_namespace);
+	static bool discard_reserved(struct ringbuf_hdr *hdr, uint32_t len);
 
     public:
 	bool has_data() const;
@@ -78,6 +80,14 @@ class ringbuf {
 	void *reserve(size_t size, int self_fd);
 	void submit(const void *sample, bool discard);
 	int fetch_data(int (*)(void *ctx, void *data, size_t len), void *ctx);
+	// Tests only: the record's owner slot, as in its header; overwrite
+	// it; whether a slot is held; what recover_dead_reservation does to a
+	// record; a submit that dies before releasing its slot.
+	int32_t owner_slot_for_test(const void *sample) const;
+	void set_owner_slot_for_test(const void *sample, int32_t slot);
+	bool owner_slot_claimed_for_test(int32_t slot) const;
+	bool discard_for_test(const void *sample);
+	void publish_keeping_slot_for_test(const void *sample);
 	ringbuf(uint32_t max_ent,
 		boost::interprocess::managed_shared_memory &memory);
 	friend class ringbuf_map_impl;
