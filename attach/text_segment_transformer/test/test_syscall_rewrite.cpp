@@ -1328,6 +1328,73 @@ TEST_CASE("lazy mode restarts calls across a SIGSYS as the application's action"
 	}
 }
 
+namespace
+{
+std::atomic<int> forks_in_handler{ 0 };
+// The application's SIGSYS handler for its filter below: makes the open
+// itself (with O_CLOEXEC, which the filter lets through) and, once, forks,
+// as crash reporters do from signal handlers.
+void forking_open_handler(int, siginfo_t *info, void *context)
+{
+	auto *uc = (ucontext_t *)context;
+	auto &regs = uc->uc_mcontext.regs;
+	if (info->si_code != 1 /* SYS_SECCOMP */) {
+		return;
+	}
+	regs[0] = syscall(SYS_openat, (int)regs[0], (const char *)regs[1],
+			  (int)regs[2] | O_CLOEXEC, (int)regs[3]);
+	if ((long)regs[0] < 0)
+		regs[0] = -errno;
+	if (forks_in_handler++ == 0) {
+		pid_t pid = fork();
+		if (pid == 0)
+			_exit(0);
+		int status;
+		waitpid(pid, &status, 0);
+	}
+}
+} // namespace
+
+TEST_CASE("lazy mode lets the application's SIGSYS handler fork during a rescan",
+	  "[syscall-rewrite][lazy]")
+{
+	// The rescan after a dlopen reads /proc/self/maps holding
+	// rescan_mutex; the application's filter traps that open, and its
+	// handler (forwarded) forks: the fork handler waited for the mutex
+	// its own thread held.
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		struct sigaction sa = {};
+		sa.sa_sigaction = forking_open_handler;
+		sa.sa_flags = SA_SIGINFO;
+		if (sigaction(SIGSYS, &sa, nullptr) != 0)
+			return 3;
+		// openat with flags exactly O_RDONLY traps: the rescan's
+		// ifstream, not dlopen's (O_CLOEXEC).
+		sock_filter f[] = {
+			BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+				 offsetof(seccomp_data, nr)),
+			BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_openat, 0, 3),
+			BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+				 offsetof(seccomp_data, args[2])),
+			BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, O_RDONLY, 0, 1),
+			BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP),
+			BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+		};
+		sock_fprog prog = { sizeof(f) / sizeof(f[0]), f };
+		if (syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &prog) !=
+		    0)
+			return 4;
+		alarm(10); // a deadlock ends the child with SIGALRM
+		void *lib = dlopen(RAW_SVC_MODULE_PATH, RTLD_NOW);
+		if (lib == nullptr)
+			return 5;
+		return forks_in_handler >= 1 ? 0 : 6;
+	});
+	REQUIRE(code == 0);
+}
+
 // Patching writes through /proc/self/mem (FOLL_FORCE) or after mprotect: in
 // MAP_SHARED code the branch to this process's gate landed in the file and in
 // every process mapping it.

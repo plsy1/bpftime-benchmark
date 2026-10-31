@@ -891,7 +891,22 @@ struct trampoline_span {
 };
 std::vector<trampoline_span> trampolines;
 pthread_mutex_t rescan_mutex = PTHREAD_MUTEX_INITIALIZER;
+// The thread holding rescan_mutex (0: none), for the fork handler: a fork
+// from a signal handler (the application's SIGSYS handler, which lazy mode
+// forwards) that interrupted a rescan must not wait for its own thread.
+std::atomic<int64_t> rescan_owner{ 0 };
 bool rescan_enabled = false;
+void rescan_lock()
+{
+	pthread_mutex_lock(&rescan_mutex);
+	rescan_owner.store(orig_syscall_direct(SYS_gettid, 0, 0, 0, 0, 0, 0),
+			   std::memory_order_relaxed);
+}
+void rescan_unlock()
+{
+	rescan_owner.store(0, std::memory_order_relaxed);
+	pthread_mutex_unlock(&rescan_mutex);
+}
 
 // Lazy mode (BPFTIME_SYSCALL_LAZY=1): a seccomp filter turns every system
 // call not made from call_orig_syscall (or by the agent's namespace) into
@@ -979,20 +994,30 @@ void install_transformer_fork_handlers()
 {
 	static std::once_flag once;
 	std::call_once(once, [] {
-		static bool held_for_fork = false;
+		static bool held_for_fork = false, rescan_for_fork = false;
 		pthread_atfork(
 			[] {
-				pthread_mutex_lock(&rescan_mutex);
+				// Held by this thread: a fork from a signal handler
+				// interrupting its rescan, which goes on after
+				// the handler and unlocks it (in the child too).
+				rescan_for_fork =
+					rescan_owner.load(std::memory_order_relaxed) !=
+					orig_syscall_direct(SYS_gettid, 0, 0, 0, 0, 0,
+							    0);
+				if (rescan_for_fork)
+					rescan_lock();
 				held_for_fork = lazy_active.load() && patch_lock();
 			},
 			[] {
 				if (held_for_fork)
 					patch_unlock();
-				pthread_mutex_unlock(&rescan_mutex);
+				if (rescan_for_fork)
+					rescan_unlock();
 			},
 			[] {
 				patch_owner.store(0);
-				pthread_mutex_unlock(&rescan_mutex);
+				if (rescan_for_fork)
+					rescan_unlock();
 			});
 	});
 }
@@ -1442,7 +1467,7 @@ void rescan(uint64_t addr, uint64_t len)
 		SPDLOG_WARN("Lazy rewriting: {} execve calls without a gate "
 			    "refused (EPERM)",
 			    refused);
-	pthread_mutex_lock(&rescan_mutex);
+	rescan_lock();
 	for (auto map : read_maps()) {
 		if (!(map.prot & PROT_EXEC) || map.end <= lo || map.begin >= hi ||
 		    special_mapping(map))
@@ -1458,7 +1483,7 @@ void rescan(uint64_t addr, uint64_t len)
 		map.end = end;
 		rewrite_mapping(map, found, rewritten, skipped_maps);
 	}
-	pthread_mutex_unlock(&rescan_mutex);
+	rescan_unlock();
 	if (found != 0)
 		SPDLOG_DEBUG("Rewrote {} of {} svc instructions mapped at {:x}-{:x}",
 			     rewritten, found, lo, hi);
@@ -2155,7 +2180,7 @@ void setup_syscall_tracer()
 	lazy_requested = lazy != nullptr && strcmp(lazy, "1") == 0;
 	page_size = (uint64_t)sysconf(_SC_PAGESIZE);
 	size_t found = 0, rewritten = 0, skipped_maps = 0;
-	pthread_mutex_lock(&rescan_mutex);
+	rescan_lock();
 	for (const auto &map : read_maps()) {
 		if (map.path == "[vdso]" && (map.prot & PROT_EXEC)) {
 			// One page: within reach of one region. Writing it makes
@@ -2174,7 +2199,7 @@ void setup_syscall_tracer()
 		install_transformer_fork_handlers();
 		rescan_enabled = true;
 	}
-	pthread_mutex_unlock(&rescan_mutex);
+	rescan_unlock();
 	SPDLOG_INFO("Rewrote {} of {} svc instructions", rewritten, found);
 	if (skipped_maps != 0)
 		SPDLOG_INFO(
