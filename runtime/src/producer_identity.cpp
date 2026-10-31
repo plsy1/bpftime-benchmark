@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -57,12 +58,32 @@ int64_t current_thread_id()
 
 uint64_t current_pid_namespace()
 {
+	return pid_namespace_id("/proc/self/ns/pid");
+}
+
+uint64_t pid_namespace_id(const char *ns_path)
+{
 #if __linux__
 	struct stat st;
-	if (stat("/proc/self/ns/pid", &st) == 0)
+	if (stat(ns_path, &st) == 0)
 		return (uint64_t)st.st_ino;
 #endif
-	return 0;
+	// Unknown (no /proc): a value no other process has, so that neither
+	// shards nor dead-owner recovery take another namespace's pids for
+	// this one's (0 for every such process made them equal). Inode
+	// numbers do not use the top bit.
+	uint64_t id = 0;
+#if __linux__
+	if (syscall(SYS_getrandom, &id, sizeof(id), 0x1 /* GRND_NONBLOCK */) !=
+	    (long)sizeof(id))
+#endif
+	{
+		struct timespec ts;
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		id = ((uint64_t)ts.tv_sec * 1000000000ull + ts.tv_nsec) ^
+		     ((uint64_t)getpid() << 40) ^ (uint64_t)(uintptr_t)&ts;
+	}
+	return id | (1ull << 63);
 }
 
 bool is_thread_alive(int pid, int64_t tid)

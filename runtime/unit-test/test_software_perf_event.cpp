@@ -17,6 +17,7 @@
 #include <utility>
 #include <unistd.h>
 #include <vector>
+#include "producer_identity.hpp"
 
 #if __linux__
 #include <linux/bpf.h>
@@ -702,6 +703,37 @@ TEST_CASE("Software perf event shard caches are not inherited by fork children",
 	bpftime::software_perf_event_fork_child_for_test();
 	REQUIRE(perf->output_data(&payload, sizeof(payload)) == 0);
 	CHECK(perf->producer_shards.size() == 2);
+}
+
+TEST_CASE("An unknown pid namespace equals no other process's",
+	  "[perf_event][software_perf_event]")
+{
+	// Without /proc every process's namespace was 0: producers of two
+	// namespaces shared shards by (pid, tid), and a tool without /proc
+	// recovered other namespaces' ringbuf records by their pids.
+	struct stat st;
+	REQUIRE(stat("/proc/self/ns/pid", &st) == 0);
+	CHECK(bpftime::pid_namespace_id("/proc/self/ns/pid") ==
+	      (uint64_t)st.st_ino);
+	int fds[2];
+	REQUIRE(pipe(fds) == 0);
+	pid_t child = fork();
+	REQUIRE(child >= 0);
+	if (child == 0) {
+		uint64_t id = bpftime::pid_namespace_id("/nonexistent/ns/pid");
+		_exit(write(fds[1], &id, sizeof(id)) == sizeof(id) ? 0 : 1);
+	}
+	uint64_t theirs = 0;
+	REQUIRE(read(fds[0], &theirs, sizeof(theirs)) == sizeof(theirs));
+	int status = -1;
+	REQUIRE(waitpid(child, &status, 0) == child);
+	close(fds[0]);
+	close(fds[1]);
+	const uint64_t mine = bpftime::pid_namespace_id("/nonexistent/ns/pid");
+	CHECK(mine != 0);
+	CHECK(mine != theirs);
+	CHECK((mine >> 63) == 1);
+	CHECK((theirs >> 63) == 1);
 }
 
 TEST_CASE("Producers in two pid namespaces with the same pid write apart",
