@@ -36,6 +36,7 @@
 #include <sys/syscall.h>
 #include <sys/time.h>
 #include <sys/wait.h>
+#include <sys/sysmacros.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -769,6 +770,21 @@ TEST_CASE("shared executable file mappings are not rewritten",
 // A mapping's file is opened again by path only if it still has the device
 // and the inode of the mapping: an inode number alone may exist on another
 // filesystem mounted over the path.
+TEST_CASE("a mapped file on btrfs is recognized by its inode",
+	  "[syscall-rewrite]")
+{
+	// maps shows the superblock's device, stat a btrfs subvolume's
+	// anonymous one: with the device compared every library on a btrfs
+	// root was skipped.
+	const uint64_t dev = makedev(8, 2), subvolume = makedev(0, 47);
+	constexpr long ext4 = 0xEF53, btrfs = 0x9123683E;
+	CHECK(bpftime::same_mapped_file(42, dev, ext4, 42, 8, 2));
+	CHECK_FALSE(bpftime::same_mapped_file(42, subvolume, ext4, 42, 8, 2));
+	CHECK(bpftime::same_mapped_file(42, subvolume, btrfs, 42, 8, 2));
+	CHECK_FALSE(bpftime::same_mapped_file(43, subvolume, btrfs, 42, 8, 2));
+	CHECK_FALSE(bpftime::same_mapped_file(43, dev, ext4, 42, 8, 2));
+}
+
 TEST_CASE("a mapped file is the same file only with its device and inode",
 	  "[syscall-rewrite]")
 {
