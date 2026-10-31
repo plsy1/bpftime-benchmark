@@ -876,6 +876,18 @@ in one step (the striped hash copies the value under its stripe lock, the
 others under the handler lock); other types return ENOTSUP like the kernel.
 Test: "bpf() lookup and delete takes the key of hash maps".
 
+Map creation (`bpf_map_handler::map_init`) checks sizes as the kernel's
+`map_alloc_check` does for hash, per-CPU hash, LRU hash, array, per-CPU
+array, queue and stack: 0 entries, 0-byte values (and keys for hashes) are
+EINVAL; keys over 512 bytes, per-CPU values over 32 KiB and a lower bound of
+the size above the segment are E2BIG. An allocation that throws is ENOMEM.
+The handler is removed and creation returns -1 with errno (`set_handler`
+used to ignore `map_init`'s result and keep an empty handler). Before, a
+size that wrapped allocated a small buffer that accesses overran (a hash of
+4294922064 entries of 2 GiB values got 97 MiB and its first lookup SIGSEGV;
+the per-CPU array computed `max_entries * ncpu * value_size` in 32 bits),
+and a 0-byte hash key matched every key. Tests: `[map-create]`.
+
 ## Cgroup Array And bpf_current_task_under_cgroup
 
 `BPF_MAP_TYPE_CGROUP_ARRAY` (`cgroup_array_map_impl`) stores, per slot, the

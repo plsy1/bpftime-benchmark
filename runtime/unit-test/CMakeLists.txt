@@ -26,6 +26,7 @@ set(TEST_SOURCES
     maps/test_percpu_cpu_bounds.cpp
     maps/test_percpu_hash_value_slots.cpp
     maps/test_percpu_userspace_layout.cpp
+    maps/test_map_create_checks.cpp
     maps/test_hash_map_lockfree_lookup.cpp
     maps/test_hash_map_striped_writers.cpp
     maps/test_fix_hash_map.cpp
