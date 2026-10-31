@@ -25,6 +25,8 @@ struct lazy_rewrite_stats {
 	// Traps in MAP_SHARED code, made untraced (patching would write the
 	// file); also counted in emulated.
 	uint64_t shared_skipped;
+	// execve calls refused in the handler (no gate, so made there).
+	uint64_t execs_refused;
 };
 // Whether BPFTIME_SYSCALL_LAZY=1 was set at setup_syscall_tracer (aarch64).
 bool lazy_rewriting_requested();
