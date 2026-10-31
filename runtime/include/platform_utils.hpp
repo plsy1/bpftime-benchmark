@@ -2,6 +2,7 @@
 #define PLATFORM_UTIL_H
 #include <cstdlib>
 #include <functional>
+#include <vector>
 
 #if __linux__
 #include <sched.h>
@@ -28,7 +29,18 @@
 #endif
 
 int my_sched_getcpu(); 
-// Number of possible CPUs (highest possible CPU number + 1), as libbpf counts
-// them for per-CPU map values: CPUs can come online after a map is created.
+// Possible CPUs (/sys/devices/system/cpu/possible): CPUs can come online
+// after a map is created. The mask may have holes ("0,2-3").
+// The possible CPU numbers, ascending.
+const std::vector<int> &bpftime_possible_cpu_ids();
+// How many there are, as libbpf counts them (libbpf_num_possible_cpus): the
+// number of per-CPU values in the bpf() syscall layout.
 int bpftime_num_possible_cpus();
+// Highest possible CPU number + 1: the bound of sched_getcpu() results, the
+// size of per-CPU arrays indexed by CPU number.
+int bpftime_cpu_index_limit();
+// "0-5", "0,2-3\n" -> CPU numbers; false if malformed or empty.
+bool bpftime_parse_cpu_list(const char *text, std::vector<int> &ids);
+// Tests: use this list instead of the system's.
+void bpftime_set_possible_cpus_for_test(const std::vector<int> &ids);
 #endif
