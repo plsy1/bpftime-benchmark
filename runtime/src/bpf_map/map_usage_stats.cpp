@@ -77,13 +77,14 @@ void forget_parent_counts()
 		table->clear();
 }
 
+// Registered while the runtime loads: fork handlers are registered only
+// from static initializers (fork_handlers.cpp).
+const int forget_parent_counts_atfork_status =
+	bpftime::register_fork_handlers(nullptr, nullptr, forget_parent_counts);
+
 void install_exit_hooks()
 {
-	std::call_once(exit_hooks_once, [] {
-		atexit(dump_at_exit);
-		bpftime::register_fork_handlers(nullptr, nullptr,
-						forget_parent_counts);
-	});
+	std::call_once(exit_hooks_once, [] { atexit(dump_at_exit); });
 }
 
 std::string json_escape(const std::string &text)
