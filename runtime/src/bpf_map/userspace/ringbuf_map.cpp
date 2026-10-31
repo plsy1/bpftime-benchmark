@@ -384,7 +384,7 @@ bool ringbuf::recover_dead_reservation()
 	if (owner.position_plus_one.load(std::memory_order_acquire) !=
 		    cons_pos + 1 ||
 	    owner.pid_namespace != producer_pid_namespace() ||
-	    is_thread_alive(owner.pid, owner.tid))
+	    !is_thread_gone(owner.pid, owner.tid))
 		return false;
 	// The owner is gone: nothing else writes this header.
 	const int32_t owner_pid = owner.pid, owner_tid = owner.tid;

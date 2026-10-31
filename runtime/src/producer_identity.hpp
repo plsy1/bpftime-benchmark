@@ -53,6 +53,9 @@ int64_t current_thread_id();
 // tgkill(pid, tid, 0): alive unless ESRCH (EPERM: alive). Meaningful only
 // for a thread of the caller's pid namespace.
 bool is_thread_alive(int pid, int64_t tid);
+// Exited, by tgkill (ESRCH) or, for a thread-group leader not yet reaped,
+// by its state in /proc (Z, X). A file read: not for hot paths.
+bool is_thread_gone(int pid, int64_t tid);
 } // namespace bpftime
 
 #endif
