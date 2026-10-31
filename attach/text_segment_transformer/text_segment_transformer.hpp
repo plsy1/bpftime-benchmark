@@ -39,6 +39,12 @@ bool lazy_rewriting_requested();
 bool enable_lazy_rewriting(
 	const std::vector<std::pair<uint64_t, uint64_t> > &allowed);
 lazy_rewrite_stats get_lazy_rewrite_stats();
+// Tests: opens the file of the mapping [begin, end) of `path` as the
+// rewriter does, if it still is the file with this device and inode; -1
+// otherwise (aarch64).
+int open_mapped_file_for_test(uint64_t begin, uint64_t end, unsigned dev_major,
+			      unsigned dev_minor, uint64_t inode,
+			      const char *path);
 // While one exists, this thread's system calls bypass the hook, and code it
 // maps is not rewritten (aarch64): for loading the agent's own namespace.
 class unhooked_scope {

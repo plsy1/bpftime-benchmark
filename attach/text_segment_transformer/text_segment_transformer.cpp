@@ -24,6 +24,7 @@
 #include <mutex>
 #include <sched.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <dirent.h>
 #include <vector>
 #include <cstdint>
@@ -794,6 +795,7 @@ namespace
 struct ExecMap {
 	uint64_t begin, end, offset;
 	uint64_t inode = 0;
+	unsigned dev_major = 0, dev_minor = 0;
 	int prot;
 	bool shared = false; // MAP_SHARED ('s'): a store goes to the file
 	std::string path;
@@ -810,9 +812,10 @@ std::vector<ExecMap> read_maps()
 		int path_pos = 0;
 		if (sscanf(line.c_str(),
 			   "%" SCNx64 "-%" SCNx64 " %4s %" SCNx64
-			   " %*s %" SCNu64 " %n",
+			   " %x:%x %" SCNu64 " %n",
 			   &map.begin, &map.end, perms, &map.offset,
-			   &map.inode, &path_pos) < 5)
+			   &map.dev_major, &map.dev_minor, &map.inode,
+			   &path_pos) < 7)
 			continue;
 		map.prot = (perms[0] == 'r' ? PROT_READ : 0) |
 			   (perms[1] == 'w' ? PROT_WRITE : 0) |
@@ -954,9 +957,13 @@ bool b_reaches(uint64_t from, uint64_t to)
 // own to stat, so not the device).
 int open_mapped_file(const ExecMap &map)
 {
+	// Device and inode: an inode number alone may also exist on another
+	// filesystem mounted over the path.
 	auto same_file = [&](int fd) {
 		struct stat st;
-		return fstat(fd, &st) == 0 && (uint64_t)st.st_ino == map.inode;
+		return fstat(fd, &st) == 0 && (uint64_t)st.st_ino == map.inode &&
+		       major(st.st_dev) == map.dev_major &&
+		       minor(st.st_dev) == map.dev_minor;
 	};
 	static const std::string deleted = " (deleted)";
 	const bool is_deleted =
@@ -981,6 +988,24 @@ int open_mapped_file(const ExecMap &map)
 	return -1;
 }
 
+} // namespace
+
+int open_mapped_file_for_test(uint64_t begin, uint64_t end, unsigned dev_major,
+			      unsigned dev_minor, uint64_t inode,
+			      const char *path)
+{
+	ExecMap map;
+	map.begin = begin;
+	map.end = end;
+	map.dev_major = dev_major;
+	map.dev_minor = dev_minor;
+	map.inode = inode;
+	map.path = path;
+	return open_mapped_file(map);
+}
+
+namespace
+{
 std::vector<std::pair<uint64_t, uint64_t> > exec_sections(const ExecMap &map,
 							   bool &unverified)
 {
@@ -1470,20 +1495,34 @@ bool site_in_shared_mapping(uint64_t site)
 // executable throughout.
 bool write_code_mprotect(uint64_t addr, const void *data, size_t len)
 {
-	const uint64_t page = addr & ~(page_size - 1);
-	if (((addr + len - 1) & ~(page_size - 1)) != page)
+	// At most two pages (a gate may cross a page: every 128th one), each
+	// with its own protection.
+	const uint64_t first = addr & ~(page_size - 1),
+		       last = (addr + len - 1) & ~(page_size - 1);
+	const int pages = first == last ? 1 : 2;
+	if (last - first > page_size)
 		return false;
-	int prot = page_prot(addr);
-	if (prot < 0 || raw_syscall(SYS_mprotect, page, page_size,
-				    prot | PROT_WRITE) != 0)
-		return false;
+	int prot[2];
+	for (int i = 0; i < pages; i++) {
+		prot[i] = page_prot(first + i * page_size);
+		if (prot[i] < 0 ||
+		    raw_syscall(SYS_mprotect, first + i * page_size, page_size,
+				prot[i] | PROT_WRITE) != 0) {
+			while (i-- > 0)
+				raw_syscall(SYS_mprotect, first + i * page_size,
+					    page_size, prot[i]);
+			return false;
+		}
+	}
 	if (len == 4)
 		__atomic_store_n((uint32_t *)addr, *(const uint32_t *)data,
 				 __ATOMIC_RELEASE);
 	else
 		memcpy((void *)addr, data, len);
 	__builtin___clear_cache((char *)addr, (char *)addr + len);
-	raw_syscall(SYS_mprotect, page, page_size, prot);
+	for (int i = 0; i < pages; i++)
+		raw_syscall(SYS_mprotect, first + i * page_size, page_size,
+			    prot[i]);
 	return true;
 }
 
@@ -1938,9 +1977,16 @@ bool enable_lazy_rewriting(const std::vector<std::pair<uint64_t, uint64_t> > &al
 	if (raw_syscall(SYS_rt_sigaction, SIGSYS, 0, (int64_t)app_sigsys_action,
 			8) != 0)
 		return false;
+	// On failure the application's SIGSYS action is put back.
+	auto restore = [] {
+		raw_syscall(SYS_rt_sigaction, SIGSYS, (int64_t)app_sigsys_action,
+			    0, 8);
+	};
 	if (sigaction(SIGSYS, &sa, nullptr) != 0 ||
-	    pthread_sigmask(SIG_UNBLOCK, &sigsys, nullptr) != 0)
+	    pthread_sigmask(SIG_UNBLOCK, &sigsys, nullptr) != 0) {
+		restore();
 		return false;
+	}
 	// Sanitize masks from here on: the filter may trap any thread.
 	lazy_active = true;
 	// The filter applies to every thread, the unblock above only to this
@@ -1949,10 +1995,12 @@ bool enable_lazy_rewriting(const std::vector<std::pair<uint64_t, uint64_t> > &al
 		SPDLOG_WARN("Lazy rewriting not enabled: thread {} blocks SIGSYS",
 			    tid);
 		lazy_active = false;
+		restore();
 		return false;
 	}
 	if (!install_lazy_filter(allowed)) {
 		lazy_active = false;
+		restore();
 		return false;
 	}
 	SPDLOG_INFO("Lazy rewriting enabled: system calls from code never "
