@@ -37,3 +37,4 @@ opt-identity  dev 7553abb8 + inline identity fast path (__thread), ringbuf owner
 opt-identity2 opt-identity with the identity cache in one __thread struct (candidate.diff; candidate build-jetson-daily)
 dev-f73a45f1  dev f73a45f1 (third-review fixes; candidate build-jetson-daily)
 mix-s1        diagnostic: agent of 9aeb2863's tree with only ringbuf::submit from f73a45f1 (shows the cross-cluster ringbuf slowdown); server and bpftimetool of opt-identity2
+dev-6ab9cbfe  dev 6ab9cbfe (ringbuf submit back to one exchange; review rounds ended; candidate build-jetson-daily)
