@@ -5,6 +5,7 @@
  */
 #ifndef _RINGBUF_MAP_HPP
 #define _RINGBUF_MAP_HPP
+#include <atomic>
 #include <boost/interprocess/allocators/allocator.hpp>
 #include <boost/interprocess/interprocess_fwd.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
@@ -52,8 +53,29 @@ class ringbuf {
 	// raw buffer
 	buf_vec_unique_ptr raw_buffer;
 
+	// Who holds each outstanding reservation, so that a consumer can skip
+	// the record of a producer that died before submitting it (every later
+	// record would wait behind it forever). The record header's second
+	// word (the kernel's pg_off, unread by libbpf) holds the slot, or -1
+	// when the table was full.
+	struct reservation_owner {
+		// The record's position + 1; 0 when the slot is free.
+		std::atomic<uint64_t> position_plus_one{ 0 };
+		int32_t pid = 0;
+		int32_t tid = 0;
+		uint64_t pid_namespace = 0;
+	};
+	static constexpr int reservation_owner_slots = 256;
+	reservation_owner owners[reservation_owner_slots];
+	uint32_t next_owner_slot = 0;
+	int32_t claim_owner_slot(unsigned long position);
+
     public:
 	bool has_data() const;
+	// The tool's poll: if the next record is still reserved by a thread
+	// of this pid namespace that no longer exists, mark it discarded.
+	// True if it did.
+	bool recover_dead_reservation();
 	void *reserve(size_t size, int self_fd);
 	void submit(const void *sample, bool discard);
 	int fetch_data(int (*)(void *ctx, void *data, size_t len), void *ctx);

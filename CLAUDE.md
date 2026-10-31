@@ -340,6 +340,21 @@ handled: a tool that calls `perf_buffer__consume()` without epoll never
 triggers a drain, and mapping the consumer buffer a second time with a
 larger size reallocates it under libbpf (tools map it once).
 
+A ringbuf reservation records its owner (pid, tid, pid namespace) in a
+256-slot table in the ring (`reservation_owner`); the record header's second
+word (the kernel's pg_off, unread by libbpf) holds the slot, -1 when the
+table is full. Submit and discard free the slot. The tool's epoll wait calls
+`recover_dead_reservation()` before `has_data()`: if the next record is still
+busy and its owner is a thread of the tool's pid namespace that tgkill finds
+gone, the record is marked discarded and the ones behind it are delivered.
+A producer killed between `bpf_ringbuf_reserve` and submit used to hold
+back every later record forever, with no error (the kernel cannot have
+this). Still wedged: an owner in another pid namespace, a full table, and a
+tool that calls `ring_buffer__consume()` without polling (libbpf reads the
+ring itself). The owner identity comes from `producer_identity.cpp`, shared
+with perf output. Test: "Ringbuf skips the record of a producer that died
+before submitting".
+
 Not handled (documented): a process killed while holding `shard_lock`, the
 ringbuf's `reserve_spin_lock` or a map's `map_lock` (per-CPU hash: every
 operation) leaves every later user spinning, like the hash map stripes. A
