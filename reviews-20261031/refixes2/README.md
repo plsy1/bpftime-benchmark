@@ -85,3 +85,24 @@ All runs had cpu5 at 1728000 before and after. Medians of 5.
 (`/usr/lib/linux-tools/6.8.0-1020-nvidia-tegra/perf`): the BTF kernel has no
 matching linux-tools package. Run 1 of the output A/B (`out-run1.jsonl`) had a
 compile running during part of it; `out.jsonl` is the clean rerun.
+
+## Update (2026-11-01): ringbuf submit simplified (6ab9cbfe)
+
+The cross-cluster slowdown was caused by reading the owner slot before the
+header exchange in submit. 6ab9cbfe returns submit to one exchange: it
+reads the slot from the header before publishing, and releases the slot
+with a plain store only if the record was still BUSY. A consumed record's
+slot is reused only a lap later.
+
+`output-ab/simple-*.jsonl`, against opt-identity2, 1 thread, ns per call,
+medians of 6:
+
+| Run | opt-identity2 | 6ab9cbfe | Change |
+|---|---|---|---|
+| tool pinned to cpu0 | 657.5 | 675.7 | +2.8%, every run between 669 and 685 |
+| unpinned | 668.5 | 683.2 | +2.2% |
+| 6 threads, unpinned | 6803.8 | 6639.0 | −2.4% |
+
+The slow mode (720–770 ns) no longer appears.
+
+The fourth review (`../rereview3/`) found nothing that meets its bar.
