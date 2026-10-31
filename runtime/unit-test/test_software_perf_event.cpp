@@ -784,6 +784,44 @@ TEST_CASE("Software perf event output fails cleanly when shared memory is full",
 	CHECK(errno == ENOSPC);
 }
 
+TEST_CASE("Software perf event output retries a shard whose data did not fit",
+	  "[perf_event][software_perf_event]")
+{
+	// Room for a shard's list node and header page but not its 64 KiB of
+	// data: the shard was kept without data, and its thread got ENOSPC
+	// from then on.
+	const std::string shared_memory_name =
+		"SoftwarePerfEventShardDataShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(shared_memory_name) };
+	boost::interprocess::managed_shared_memory shm(
+		boost::interprocess::create_only, shared_memory_name.c_str(),
+		1024 * 1024);
+	auto *perf = shm.construct<bpftime::software_perf_event_data>(
+		"perf")(0, 0, 0, shm);
+	REQUIRE(perf->ensure_mmap_buffer(getpagesize() + 64 * 1024) !=
+		nullptr);
+	std::vector<void *> filler;
+	while (shm.get_free_memory() > 24 * 1024) {
+		size_t want = shm.get_free_memory() - 24 * 1024;
+		if (want > 64 * 1024)
+			want = 64 * 1024;
+		try {
+			filler.push_back(shm.allocate(want));
+		} catch (const boost::interprocess::bad_alloc &) {
+			break;
+		}
+	}
+	event_payload payload{ 1, 0 };
+	errno = 0;
+	CHECK(perf->output_data(&payload, sizeof(payload)) == -1);
+	CHECK(errno == ENOSPC);
+	CHECK(perf->producer_shards.empty());
+	for (void *p : filler)
+		shm.deallocate(p);
+	CHECK(perf->output_data(&payload, sizeof(payload)) == 0);
+	CHECK(perf->producer_shards.size() == 1);
+}
+
 #if __linux__
 TEST_CASE("bpf_perf_event_output returns -ENOSPC when the ring is full",
 	  "[perf_event][perf-lost]")
