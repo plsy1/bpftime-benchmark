@@ -3,6 +3,7 @@
  * Copyright (c) 2022, eunomia-bpf org
  * All rights reserved.
  */
+#include "producer_identity.hpp"
 #include <boost/interprocess/interprocess_fwd.hpp>
 #include <boost/interprocess/smart_ptr/shared_ptr.hpp>
 #include <boost/interprocess/sync/interprocess_mutex.hpp>
@@ -320,12 +321,68 @@ void *ringbuf::reserve(size_t size, int self_fd)
 	}
 	auto header = (ringbuf_hdr *)(uintptr_t)(data.get() + off);
 	header->len = size | BPF_RINGBUF_BUSY_BIT;
-	header->fd = self_fd;
+	header->fd = claim_owner_slot(prod_pos);
 	smp_store_release_ul(producer_pos.get(), prod_pos + total_size);
 	auto ptr = data.get() + off + BPF_RINGBUF_HDR_SZ;
 	SPDLOG_TRACE("ringbuf: reserved {} bytes at {}, fd {}", size,
 		     (void *)ptr, self_fd);
 	return ptr;
+}
+
+// Under reserve_spin_lock.
+int32_t ringbuf::claim_owner_slot(unsigned long position)
+{
+	for (int i = 0; i < reservation_owner_slots; i++) {
+		const uint32_t slot =
+			(next_owner_slot + i) % reservation_owner_slots;
+		auto &owner = owners[slot];
+		if (owner.position_plus_one.load(std::memory_order_acquire) !=
+		    0)
+			continue;
+		int pid;
+		int64_t tid;
+		current_producer_identity(pid, tid);
+		owner.pid = pid;
+		owner.tid = (int32_t)tid;
+		owner.pid_namespace = producer_pid_namespace();
+		owner.position_plus_one.store(position + 1,
+					      std::memory_order_release);
+		next_owner_slot = slot + 1;
+		return (int32_t)slot;
+	}
+	return -1; // not recoverable, as before
+}
+
+bool ringbuf::recover_dead_reservation()
+{
+	auto cons_pos = smp_load_acquire_ul(consumer_pos.get());
+	auto prod_pos = smp_load_acquire_ul(producer_pos.get());
+	if (cons_pos >= prod_pos)
+		return false;
+	auto hdr = (ringbuf_hdr *)(uintptr_t)(data.get() + (cons_pos & mask()));
+	uint32_t len = __atomic_load_n(&hdr->len, __ATOMIC_ACQUIRE);
+	if ((len & BPF_RINGBUF_BUSY_BIT) == 0)
+		return false;
+	const int32_t slot = hdr->fd;
+	if (slot < 0 || slot >= reservation_owner_slots)
+		return false;
+	auto &owner = owners[slot];
+	if (owner.position_plus_one.load(std::memory_order_acquire) !=
+		    cons_pos + 1 ||
+	    owner.pid_namespace != producer_pid_namespace() ||
+	    is_thread_alive(owner.pid, owner.tid))
+		return false;
+	// The owner is gone: nothing else writes this header.
+	uint32_t discarded =
+		(len & ~BPF_RINGBUF_BUSY_BIT) | BPF_RINGBUF_DISCARD_BIT;
+	if (!__atomic_compare_exchange_n(&hdr->len, &len, discarded, false,
+					 __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+		return false;
+	owner.position_plus_one.store(0, std::memory_order_release);
+	SPDLOG_WARN("ringbuf: discarded a record reserved by thread {} of "
+		    "process {}, which exited before submitting it",
+		    owner.tid, owner.pid);
+	return true;
 }
 
 void ringbuf::submit(const void *sample, bool discard)
@@ -339,6 +396,10 @@ void ringbuf::submit(const void *sample, bool discard)
 	if (discard)
 		new_len |= BPF_RINGBUF_DISCARD_BIT;
 	__atomic_exchange_n(&hdr->len, new_len, __ATOMIC_ACQ_REL);
+	const int32_t slot = hdr->fd;
+	if (slot >= 0 && slot < reservation_owner_slots)
+		owners[slot].position_plus_one.store(0,
+						     std::memory_order_release);
 }
 ringbuf::~ringbuf()
 {
