@@ -287,6 +287,12 @@ void *ringbuf::reserve(size_t size, int self_fd)
 			size, self_fd);
 		return nullptr;
 	}
+	// Outside the lock every producer shares: the identity's slow path
+	// and the namespace's first read are system calls.
+	int pid;
+	int64_t tid;
+	current_producer_identity(pid, tid);
+	const uint64_t pid_namespace = producer_pid_namespace();
 	spin_lock_guard guard(reserve_spin_lock);
 	auto cons_pos = smp_load_acquire_ul(consumer_pos.get());
 	auto prod_pos = smp_load_acquire_ul(producer_pos.get());
@@ -321,7 +327,8 @@ void *ringbuf::reserve(size_t size, int self_fd)
 	}
 	auto header = (ringbuf_hdr *)(uintptr_t)(data.get() + off);
 	header->len = size | BPF_RINGBUF_BUSY_BIT;
-	header->fd = claim_owner_slot(prod_pos);
+	header->fd = claim_owner_slot(prod_pos, cons_pos, pid, tid,
+				      pid_namespace);
 	smp_store_release_ul(producer_pos.get(), prod_pos + total_size);
 	auto ptr = data.get() + off + BPF_RINGBUF_HDR_SZ;
 	SPDLOG_TRACE("ringbuf: reserved {} bytes at {}, fd {}", size,
@@ -330,22 +337,29 @@ void *ringbuf::reserve(size_t size, int self_fd)
 }
 
 // Under reserve_spin_lock.
-int32_t ringbuf::claim_owner_slot(unsigned long position)
+int32_t ringbuf::claim_owner_slot(unsigned long position,
+				  unsigned long cons_pos, int pid, int64_t tid,
+				  uint64_t pid_namespace)
 {
-	int pid;
-	int64_t tid;
-	current_producer_identity(pid, tid);
 	// Starting at the thread's own slot keeps each thread on its own
 	// cache line (a shared next-slot cursor cost 8% at 6 threads).
 	for (int i = 0; i < reservation_owner_slots; i++) {
 		const uint32_t slot = ((uint32_t)tid + i) % reservation_owner_slots;
 		auto &owner = owners[slot];
-		if (owner.position_plus_one.load(std::memory_order_acquire) !=
-		    0)
+		uint64_t held =
+			owner.position_plus_one.load(std::memory_order_acquire);
+		// A record already consumed is over: its slot is free even if
+		// its producer died before releasing it (256 such would have
+		// made every later record unrecoverable).
+		if (held != 0 && held - 1 >= cons_pos)
+			continue;
+		if (held != 0 &&
+		    !owner.position_plus_one.compare_exchange_strong(
+			    held, 0, std::memory_order_acq_rel))
 			continue;
 		owner.pid = pid;
 		owner.tid = (int32_t)tid;
-		owner.pid_namespace = producer_pid_namespace();
+		owner.pid_namespace = pid_namespace;
 		owner.position_plus_one.store(position + 1,
 					      std::memory_order_release);
 		return (int32_t)slot;
@@ -373,16 +387,25 @@ bool ringbuf::recover_dead_reservation()
 	    is_thread_alive(owner.pid, owner.tid))
 		return false;
 	// The owner is gone: nothing else writes this header.
-	uint32_t discarded =
-		(len & ~BPF_RINGBUF_BUSY_BIT) | BPF_RINGBUF_DISCARD_BIT;
-	if (!__atomic_compare_exchange_n(&hdr->len, &len, discarded, false,
-					 __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+	const int32_t owner_pid = owner.pid, owner_tid = owner.tid;
+	if (!discard_reserved(hdr, len))
 		return false;
-	owner.position_plus_one.store(0, std::memory_order_release);
+	uint64_t held = cons_pos + 1;
+	owner.position_plus_one.compare_exchange_strong(
+		held, 0, std::memory_order_acq_rel);
 	SPDLOG_WARN("ringbuf: discarded a record reserved by thread {} of "
 		    "process {}, which exited before submitting it",
-		    owner.tid, owner.pid);
+		    owner_tid, owner_pid);
 	return true;
+}
+
+// BUSY to DISCARD, unless the owner submitted first.
+bool ringbuf::discard_reserved(ringbuf_hdr *hdr, uint32_t len)
+{
+	uint32_t discarded =
+		(len & ~BPF_RINGBUF_BUSY_BIT) | BPF_RINGBUF_DISCARD_BIT;
+	return __atomic_compare_exchange_n(&hdr->len, &len, discarded, false,
+					   __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 }
 
 void ringbuf::submit(const void *sample, bool discard)
@@ -392,14 +415,72 @@ void ringbuf::submit(const void *sample, bool discard)
 	auto hdr =
 		(ringbuf_hdr *)((uintptr_t)data.get() + (hdr_offset & mask()));
 
-	auto new_len = hdr->len & ~BPF_RINGBUF_BUSY_BIT;
+	// The slot is read while the record is still this thread's: once
+	// published, the consumer may move on and, a lap later, another
+	// record's header (or padding) occupies these bytes. Reading it after
+	// publishing freed whatever slot that header named.
+	const int32_t slot = hdr->fd;
+	uint64_t held = 0;
+	if (slot >= 0 && slot < reservation_owner_slots) {
+		int pid;
+		int64_t tid;
+		current_producer_identity(pid, tid);
+		auto &owner = owners[slot];
+		held = owner.position_plus_one.load(std::memory_order_acquire);
+		// Not this record's any more: recover_dead_reservation took
+		// it for a dead thread's (a stale identity), and its slot and
+		// bytes may belong to another record now.
+		if (held == 0 || ((held - 1) & mask()) != (hdr_offset & mask()) ||
+		    owner.pid != pid || owner.tid != (int32_t)tid)
+			return;
+	}
+	uint32_t len = __atomic_load_n(&hdr->len, __ATOMIC_ACQUIRE);
+	if ((len & BPF_RINGBUF_BUSY_BIT) == 0)
+		return;
+	uint32_t new_len = len & ~BPF_RINGBUF_BUSY_BIT;
 	if (discard)
 		new_len |= BPF_RINGBUF_DISCARD_BIT;
-	__atomic_exchange_n(&hdr->len, new_len, __ATOMIC_ACQ_REL);
+	// Fails only if the record was discarded meanwhile.
+	if (!__atomic_compare_exchange_n(&hdr->len, &len, new_len, false,
+					 __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+		return;
+	if (held != 0)
+		owners[slot].position_plus_one.compare_exchange_strong(
+			held, 0, std::memory_order_acq_rel);
+}
+
+int32_t ringbuf::owner_slot_for_test(const void *sample) const
+{
+	return ((const ringbuf_hdr *)((const uint8_t *)sample -
+				      BPF_RINGBUF_HDR_SZ))
+		->fd;
+}
+
+void ringbuf::set_owner_slot_for_test(const void *sample, int32_t slot)
+{
+	((ringbuf_hdr *)((uint8_t *)sample - BPF_RINGBUF_HDR_SZ))->fd = slot;
+}
+
+bool ringbuf::owner_slot_claimed_for_test(int32_t slot) const
+{
+	return owners[slot].position_plus_one.load() != 0;
+}
+
+bool ringbuf::discard_for_test(const void *sample)
+{
+	auto hdr = (ringbuf_hdr *)((uint8_t *)sample - BPF_RINGBUF_HDR_SZ);
 	const int32_t slot = hdr->fd;
-	if (slot >= 0 && slot < reservation_owner_slots)
-		owners[slot].position_plus_one.store(0,
-						     std::memory_order_release);
+	if (!discard_reserved(hdr, __atomic_load_n(&hdr->len, __ATOMIC_ACQUIRE)))
+		return false;
+	if (slot >= 0)
+		owners[slot].position_plus_one.store(0);
+	return true;
+}
+
+void ringbuf::publish_keeping_slot_for_test(const void *sample)
+{
+	auto hdr = (ringbuf_hdr *)((uint8_t *)sample - BPF_RINGBUF_HDR_SZ);
+	__atomic_fetch_and(&hdr->len, ~BPF_RINGBUF_BUSY_BIT, __ATOMIC_ACQ_REL);
 }
 ringbuf::~ringbuf()
 {
