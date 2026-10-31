@@ -41,13 +41,16 @@ inline void current_producer_identity(int &pid, int64_t &tid)
 	identity_detail::read_identity(pid, tid);
 }
 
-// The process's pid namespace (inode of /proc/self/ns/pid; 0 if unknown):
-// pids mean something only within it. Cached; cleared in fork children (a
-// child forked after unshare(CLONE_NEWPID) is in another one).
+// The process's pid namespace (inode of /proc/self/ns/pid; unknown: a
+// random id with the top bit set, equal to no other process's): pids mean
+// something only within it. Cached; cleared in fork children (a child
+// forked after unshare(CLONE_NEWPID) is in another one).
 uint64_t producer_pid_namespace();
 
 // Uncached.
 uint64_t current_pid_namespace();
+// The namespace file's inode, or a new random id with the top bit set.
+uint64_t pid_namespace_id(const char *ns_path);
 int64_t current_thread_id();
 
 // tgkill(pid, tid, 0): alive unless ESRCH (EPERM: alive). Meaningful only
