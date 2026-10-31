@@ -31,3 +31,7 @@ hash-fmix     dev b9c849fb + hash map: MurmurHash3 finalizers for 4/8-byte keys,
 dev-b9c849fb  dev b9c849fb (review fixes A-E; B1 hash value alignment) (candidate build-jetson-daily)
 hash-fmix4    dev b9c849fb + hash map: MurmurHash3 finalizer for 4-byte keys only, token batches (candidate.diff; candidate build-jetson-daily)
 dev-8c108309  dev 8c108309 (all review fixes; candidate build-jetson-daily)
+dev-7553abb8  dev 7553abb8 (second-review fixes; candidate build-jetson-daily)
+cpucheck-unsigned dev f2d6ae7d's tree, built just before that commit (one unsigned CPU compare; candidate build-jetson-daily)
+opt-identity  dev 7553abb8 + inline identity fast path (__thread), ringbuf owner slot from the tid (candidate.diff; candidate build-jetson-daily)
+opt-identity2 opt-identity with the identity cache in one __thread struct (candidate.diff; candidate build-jetson-daily)
