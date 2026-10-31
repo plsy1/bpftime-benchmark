@@ -318,24 +318,41 @@ to it). On aarch64 the syscall-trace hook calls `note_clone_syscall` before
 clone and clone3 take the direct path (the direct path restores every
 register from the frame, so the call is invisible to the child); for such a
 clone it bumps the agent's exported `bpftime_identity_epoch` (found with
-dlsym after loading; clone3's flags read with `process_vm_readv`, so a bad
-pointer is still the kernel's EFAULT). A cached identity older than the epoch
+dlsym after loading). It also bumps for any clone without `CLONE_THREAD`: a
+raw `clone(SIGCHLD)` or glibc's `clone()` runs no fork handler, and its child
+kept the forking thread's ids (its perf output went to that thread's shard,
+and once that thread exited the tool recovered the child's live ringbuf
+reservation as a dead thread's); glibc's fork bumps too (one re-read per
+thread). The hook makes no system call there: clone3's flags are read
+directly when `clone_args` lies 8-byte aligned within the 1 KiB above the
+application's sp (the caller's frame, where glibc keeps it; live, mapped
+stack), and anywhere else the epoch is bumped (a bad pointer stays the
+kernel's EFAULT). It used `getpid` and `process_vm_readv`, which an
+application's seccomp filter sees: a filter killing on `process_vm_readv`
+killed the process at `pthread_create`, one denying it (Docker's default
+profile) lost the bump (test "the clone hook makes no system call an
+application may forbid"). A cached identity older than the epoch
 is read again, and cached only if its pid is the process's (`process_pid`,
 refreshed in fork children only, so in a vfork child still the parent's):
-the child gets its own ids uncached, the parent refreshes once. The fast
+the child gets its own ids uncached (a raw-clone child: on every call),
+the parent refreshes once. The fast
 path is inline (`producer_identity.hpp`) on one `__thread` struct: in the
 dlmopen-ed agent each TLS variable needs a descriptor call, and three
 separate `thread_local`s in another file cost 8 ns per
 `bpf_get_current_pid_tgid` (results `reviews-20261031/refixes/output-ab`).
 Costs: about 4.5 ns per identity read on the Jetson (the epoch load and
-compare), and per thread creation a `getpid` and a `process_vm_readv`. Not covered: uprobe (Frida) mode and x86, which have no
-such marker; a vfork child there still uses its parent thread's identity.
+compare). Not covered: uprobe (Frida) mode and x86, which have no
+such marker; a vfork or raw-clone child there still uses its parent
+thread's identity.
 Tests: "bpf_get_current_pid_tgid in a vfork child and its parent after it"
 (runtime, the bump by hand), "clones that share the thread's TLS bump the
 identity epoch" (transformer).
 
 Idle shards of dead threads are reclaimed by probing (pid, tid) with tgkill.
-Each shard records its producer's pid namespace (inode of `/proc/self/ns/pid`);
+Each shard records its producer's pid namespace (inode of `/proc/self/ns/pid`;
+without /proc a random id with the top bit set, drawn per process: 0 for
+every such process made two namespaces' producers share shards, test "An
+unknown pid namespace equals no other process's");
 a reclaimer probes only shards of its own namespace. A producer in a container
 sharing `/dev/shm` with the tool used to lose its live, idle shard (tgkill from
 the host: ESRCH) and the lost-sample count in it. Test: "Software perf event
@@ -345,16 +362,22 @@ The shard search compares the namespace too (cached per process, cleared in
 fork children: a child forked after `unshare(CLONE_NEWPID)` is in another
 one). Matching (pid, tid) alone put two containers' pid 1 into one
 single-producer ring: torn samples delivered as valid, garbage LOST counts,
-shards dropped as invalid. The per-thread shard cache needs no namespace: an
-entry is made by its thread for its own namespace, and a reused shard has a
-new generation. Tests: "Software perf event shards are matched within a pid
+shards dropped as invalid. The per-thread shard cache is matched by pid and
+tid, so its entries carry a fork generation that the fork child handler
+bumps: a pid 1 forking after `unshare(CLONE_NEWPID)` has a pid 1 child, and
+the inherited entry put it into its parent's ring (test "Software perf event
+shard caches are not inherited by fork children"). Tests: "Software perf event shards are matched within a pid
 namespace", "Producers in two pid namespaces with the same pid write apart"
 (root: two `unshare` children's pid 1 writing at once).
 
 Shards of other pid namespaces are never reclaimed (above), so shared memory
 can run out. A shard that cannot be allocated makes the output fail with
 ENOSPC (no shard, so no lost count); Boost's `bad_alloc` used to escape the
-helper into the traced process. Safely reclaiming a live foreign producer's
+helper into the traced process. A shard whose data area does not fit (the
+shard catches that allocation itself) is removed at once and the next
+output tries again: it was kept and cached without data, and its thread got
+ENOSPC for ever (test "Software perf event output retries a shard whose
+data did not fit"). Safely reclaiming a live foreign producer's
 idle shard would need an atomic flag on every output. Test: "Software perf
 event output fails cleanly when shared memory is full".
 
@@ -371,10 +394,25 @@ A ringbuf reservation records its owner (pid, tid, pid namespace) in a
 the thread's tid (a shared next-slot cursor made 6-thread output 7% slower);
 the record header's second
 word (the kernel's pg_off, unread by libbpf) holds the slot, -1 when the
-table is full. Submit and discard free the slot. The tool's epoll wait calls
+table is full. The tool's epoll wait calls
 `recover_dead_reservation()` before `has_data()`: if the next record is still
-busy and its owner is a thread of the tool's pid namespace that tgkill finds
-gone, the record is marked discarded and the ones behind it are delivered.
+busy and its owner is a thread of the tool's pid namespace that is gone
+(`is_thread_gone`: tgkill ESRCH, or Z/X in `/proc/<pid>/task/<tid>/stat`,
+since tgkill finds an unreaped thread-group leader), the record is marked
+discarded and the ones behind it are delivered. Submit reads the slot from
+the header before publishing (afterwards, a lap later, the bytes may be
+another record's header or padding, and it freed that slot), checks that the
+slot still holds this record (position within the ring, pid, tid; else
+recovery took it and the submit touches nothing), publishes with a CAS from
+BUSY and releases the slot with a CAS from its own position. A slot whose
+record was consumed is free (a producer killed between publishing and
+releasing leaked it). Tests: "Ringbuf submit releases only its own owner
+slot", "Ringbuf submit leaves a recovered record alone", "Ringbuf owner
+slots of consumed records are reused", "Ringbuf recovers a dead producer
+before it is reaped". Not covered: a record recovered (a stale identity) and
+lapped between submit's check and its CAS; a record without a slot (table
+full) cannot be checked, so its late submit can still clear another
+record's BUSY after a lap, as before.
 A producer killed between `bpf_ringbuf_reserve` and submit used to hold
 back every later record forever, with no error (the kernel cannot have
 this). Still wedged: an owner in another pid namespace, a full table, and a
@@ -628,7 +666,11 @@ shows as "path (deleted)" and is opened through `/proc/self/map_files`
 naming the mapping); any other path must still have the mapped device and
 inode (the device too: an inode number alone may exist on another filesystem
 mounted over the path; test "a mapped file is the same file only with its
-device and inode"). Before, "(deleted)" mappings were always skipped
+device and inode"). On btrfs the inode alone (`same_mapped_file`): maps
+shows the superblock's device and stat the subvolume's anonymous one, so
+every library there was skipped (test "a mapped file on btrfs is recognized
+by its inode"). Not handled: overlayfs on kernels before `file_user_inode`
+(6.8), whose maps show the underlying file's device and inode. Before, "(deleted)" mappings were always skipped
 (untraced). `MAP_SHARED` executable
 mappings are skipped: rewriting a writable file's mapping stored branches to
 this process's gates into the file. Tests: "a deleted library is rewritten
@@ -782,23 +824,47 @@ Fixed after the second review (results `reviews-20261031/rereview`):
   0xb7e5 as its data would be taken for ours. Tests: "lazy mode passes the
   application's seccomp traps to its handler" (both orders), "lazy mode
   leaves the application's untrapped seccomp SIGSYS fatal".
+  The kernel decides from the installed action, ours, whether a call
+  interrupted by a SIGSYS sent with kill restarts: whenever the
+  application's action changes our handler is reinstalled (raw
+  rt_sigaction, from its installed form) with the application's SA_RESTART
+  (always for SIG_DFL and SIG_IGN); without it a read blocked under an
+  SA_RESTART handler, or with SIGSYS ignored, returned EINTR (test "lazy
+  mode restarts calls across a SIGSYS as the application's action"). Still
+  different: with SIG_IGN natively nothing is interrupted, while calls that
+  never restart (poll, epoll_wait, a relative nanosleep) return EINTR under
+  our handler. The application's action is published whole (written into
+  the next of eight copies, then made current): a plain array copied by one
+  thread's rt_sigaction while another's handler read it could pair a new
+  handler with old flags. `rescan_mutex` records its holder, and the fork
+  prepare handler does not take it when the holder is the forking thread: a
+  fork from the application's SIGSYS handler that interrupted a rescan (its
+  filter trapping the rescan's open of /proc/self/maps) deadlocked (test
+  "lazy mode lets the application's SIGSYS handler fork during a rescan").
 - MAP_SHARED code is not patched (`site_in_shared_mapping`, counted in
   `shared_skipped` and made untraced each time): through `/proc/self/mem`
   (FOLL_FORCE) or `mprotect`, the branch to this process's gate landed in
   the file and in every process mapping it (the default mode skipped shared
   mappings since 3d7ada3d). The handler keeps the mapping it looked up last
   (a maps read is about 75 us, so a JIT mapping's first trap pays it once);
-  hooked or emulated `mmap`/`mprotect` (and emulated `munmap`/`mremap`)
-  clear it, and a new mapping is reachable only after its mmap returned
-  through one of them. Test: "lazy mode leaves shared code mappings
-  unpatched" (memfd, RWX, MAP_SHARED).
+  every call that changes mappings (`mmap`, `mprotect`, `pkey_mprotect`,
+  `munmap`, `mremap`, `shmat`, `remap_file_pages`) forgets it after the
+  change is made, through the hook's out-of-line path (a bitmap of special
+  numbers), its in_hook pass-through and the emulation path. Only
+  mmap/mprotect used to reach the hook's: a MAP_SHARED file mremap-ed over a
+  patched private JIT page was taken for that page and the next trap wrote
+  the branch into the file. Tests: "lazy mode leaves shared code mappings
+  unpatched" (memfd, RWX, MAP_SHARED), "lazy mode notices a shared mapping
+  moved over patched code".
 - execve calls the handler refused are reported by the next `rescan` (after
   an mmap or mprotect, which are not async-signal-safe) and counted in
   `execs_refused`. The next hooked call reported them: possibly an
   `rt_sigaction` in a signal handler that interrupted malloc, while logging
   allocates and takes locks. Test: "lazy mode reports refused execve outside
   signal handlers" (the signal sent from untraced code, so the handler's
-  sigaction is the first hooked call after the refusal).
+  sigaction is the first hooked call after the refusal). A process that
+  never maps code again after a refusal logs nothing (the count stays in
+  `execs_refused`).
 - The `mprotect` fallback (not dumpable) writes a gate that crosses a page
   (every 128th: header 16 bytes, gates 32) by unprotecting both pages, each
   restored to its own protection; it refused such gates, and their sites
@@ -807,6 +873,7 @@ Fixed after the second review (results `reviews-20261031/rereview`):
 - When enabling fails after the SIGSYS handler was installed (a thread
   blocks SIGSYS, the filter cannot be installed), the previous SIGSYS action
   is put back. Test: "lazy mode is refused while a thread blocks SIGSYS".
+  `no_new_privs`, set before the filter, cannot be undone and stays.
 
 Known limits of the aarch64 rewriting (documented, not fixed):
 - A hooked call pushes 16 + 784 bytes before the C dispatch, about 1.3 KiB
@@ -914,7 +981,9 @@ a child forked while another thread was between reserving and publishing an
 entry inherits `published < reserved`, and a registration in that child would
 wait for an entry nobody completes. Registering while the runtime loads
 means a child never registers; the wait is also bounded (2^20 tries, then
-pthread_atfork only). The array binding and map usage handlers used to
+pthread_atfork only: `published` never passes that entry, so it and every
+later registration are missing from the table, and a dlmopen-ed agent's
+fork hook would not run them). The array binding and map usage handlers used to
 register at first use. Tests: "Fork handlers are registered before the first
 array binding", "Fork handler registration returns over an unpublished
 entry". Not covered: the agent namespace libc's own fork handling (its
@@ -1015,7 +1084,11 @@ to ignore the key and pop: hash maps returned ENOTSUP, so libbpf's
 `bpf_map_lookup_and_delete_elem` failed on them. It now pops queues and
 stacks and removes the key's element of hash, per-CPU hash and LRU hash maps
 in one step (the striped hash copies the value under its stripe lock, the
-others under the handler lock); other types return ENOTSUP like the kernel.
+others under the handler lock); other types return ENOTSUPP (524) like the
+kernel. A null key (hashes) or value is EFAULT and removes nothing (a null
+key crashed the hash paths, a null value deleted the key without returning
+it), and any flag is EINVAL in the syscall server (the kernel takes only
+BPF_F_LOCK, for values with a spin lock, which bpftime's maps lack).
 Test: "bpf() lookup and delete takes the key of hash maps".
 
 The per-CPU hash's `bpf()` update compares the low 32 bits of the flags with
@@ -1024,16 +1097,30 @@ operations use the high bits); it compared the whole value, so a flag with
 a high bit set skipped the checks there. Test: "Per-CPU hash update flags
 mean the same through bpf()".
 
-Map creation (`bpf_map_handler::map_init`) checks sizes as the kernel's
-`map_alloc_check` does for hash, per-CPU hash, LRU hash, array, per-CPU
-array, queue and stack: 0 entries, 0-byte values (and keys for hashes) are
-EINVAL; keys over 512 bytes, values over the kernel's KMALLOC_MAX_SIZE
-limits (4 MiB with 4 KiB pages), per-CPU values over 32 KiB and a size that
-overflows are E2BIG. A lower bound of the size above the segment, and an
-allocation that throws, are ENOMEM (the syscall server's exhaustion contract,
-"Syscall server reports map allocation failure instead of using the kernel").
-The handler is removed and creation returns -1 with errno (`set_handler`
-used to ignore `map_init`'s result and keep an empty handler). Before, a
+Map creation (`bpf_map_handler::map_init`) checks sizes as Linux 6.8's
+`htab_map_alloc_check`, `array_map_alloc_check` and
+`queue_stack_map_alloc_check` do (checked against v6.8 sources; bf1af650 had
+an older kernel's 512-byte key limit and value limits): hashes (plain,
+per-CPU, LRU) EINVAL for 0 entries or a 0-byte key or value, E2BIG for key +
+value >= 4 MiB - sizeof(htab_elem) (48); arrays and per-CPU arrays EINVAL
+for 0 entries, a key other than 4 bytes or a 0-byte value, E2BIG for a value
+over INT_MAX; queues and stacks EINVAL for 0 entries, a key or a 0-byte
+value, E2BIG for a value over 4 MiB; a per-CPU value over 32 KiB rounded to
+8 is ENOMEM (the kernel's percpu allocation fails); a size that overflows
+is E2BIG. A lower bound of the size (keys once, values per CPU for per-CPU
+maps; the key times the CPUs refused per-CPU hashes with large keys) above
+the segment, and an allocation that throws, are ENOMEM (the syscall
+server's exhaustion contract, "Syscall server reports map allocation
+failure instead of using the kernel"): Boost's container length_error is
+not a std::length_error, and escaped map_init leaving a handler without a
+map (a lookup on it crashed the tool); other constructor refusals are
+EINVAL. The handler is removed whatever map_init throws, creation returns
+-1 with errno (EINVAL when an implementation set none: unsupported types
+returned errno 0, which libbpf takes as fd 0), and a descriptor the shm
+opened for the map is closed (`set_handler` used to ignore `map_init`'s
+result and keep an empty handler). Other types (ringbuf, stack trace,
+perf event array, map-in-map, LPM trie, bloom filter...) keep their own
+checks, which may accept what the kernel refuses. Before, a
 size that wrapped allocated a small buffer that accesses overran (a hash of
 4294922064 entries of 2 GiB values got 97 MiB and its first lookup SIGSEGV;
 the per-CPU array computed `max_entries * ncpu * value_size` in 32 bits),
