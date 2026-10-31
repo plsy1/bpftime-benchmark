@@ -715,6 +715,44 @@ TEST_CASE("shared executable file mappings are not rewritten",
 	REQUIRE(code == 0);
 }
 
+// A mapping's file is opened again by path only if it still has the device
+// and the inode of the mapping: an inode number alone may exist on another
+// filesystem mounted over the path.
+TEST_CASE("a mapped file is the same file only with its device and inode",
+	  "[syscall-rewrite]")
+{
+	void *lib = dlopen(RAW_SVC_MODULE_PATH, RTLD_NOW);
+	REQUIRE(lib != nullptr);
+	std::ifstream maps("/proc/self/maps");
+	std::string line;
+	bool checked = false;
+	while (std::getline(maps, line)) {
+		if (line.find(RAW_SVC_MODULE_PATH) == std::string::npos)
+			continue;
+		uint64_t begin, end, offset, inode;
+		unsigned major_dev, minor_dev;
+		char perms[5];
+		REQUIRE(sscanf(line.c_str(),
+			       "%" SCNx64 "-%" SCNx64 " %4s %" SCNx64
+			       " %x:%x %" SCNu64,
+			       &begin, &end, perms, &offset, &major_dev,
+			       &minor_dev, &inode) == 7);
+		int fd = bpftime::open_mapped_file_for_test(
+			begin, end, major_dev, minor_dev, inode,
+			RAW_SVC_MODULE_PATH);
+		CHECK(fd >= 0);
+		if (fd >= 0)
+			close(fd);
+		CHECK(bpftime::open_mapped_file_for_test(
+			      begin, end, major_dev, minor_dev + 1, inode,
+			      RAW_SVC_MODULE_PATH) == -1);
+		checked = true;
+		break;
+	}
+	CHECK(checked);
+	dlclose(lib);
+}
+
 TEST_CASE("svc fallbacks in the vDSO are hooked",
 	  "[syscall-rewrite][coverage]")
 {
@@ -1403,6 +1441,11 @@ TEST_CASE("lazy mode is refused while a thread blocks SIGSYS",
 			nullptr);
 		usleep(50000);
 		const bool enabled = bpftime::enable_lazy_rewriting({});
+		// The refusal puts the SIGSYS action back (it was the default).
+		struct sigaction sa;
+		if (sigaction(SIGSYS, nullptr, &sa) != 0 ||
+		    sa.sa_handler != SIG_DFL)
+			return 4;
 		write(go[1], "x", 1);
 		pthread_join(blocked, nullptr);
 		return enabled ? 3 : 0;
@@ -1497,7 +1540,17 @@ TEST_CASE("lazy mode rewrites in processes that are not dumpable",
 		auto stats = bpftime::get_lazy_rewrite_stats();
 		if (stats.rewritten != 1 || stats.emulated != 0)
 			return 5;
-		return is_svc_word(((const uint32_t *)fn)[1]) ? 6 : 0;
+		if (is_svc_word(((const uint32_t *)fn)[1]))
+			return 6;
+		// Gate 128 of a region (offset 4080) crosses a page; it was
+		// refused and its site made untraced.
+		for (int i = 0; i < 129; i++) {
+			code_fn more = getpid_code();
+			if (more == nullptr || more() != getpid())
+				return 7;
+		}
+		stats = bpftime::get_lazy_rewrite_stats();
+		return stats.rewritten == 130 && stats.emulated == 0 ? 0 : 8;
 	});
 	REQUIRE(code == 0);
 }
