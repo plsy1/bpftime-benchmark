@@ -21,6 +21,7 @@
 #include <sys/syscall.h>
 #include <sys/mman.h>
 #include <sys/uio.h>
+#include <array>
 #include <sys/vfs.h>
 #include <linux/magic.h>
 #include <mutex>
@@ -149,6 +150,9 @@ void set_identity_epoch(uint64_t *epoch)
 	__atomic_store_n(&identity_epoch, epoch, __ATOMIC_RELEASE);
 }
 
+// After a call that changes mappings (aarch64, lazy mode): the mapping the
+// SIGSYS handler looked up last may not be there any more.
+static void forget_lazy_mapping(int64_t sys_nr);
 // After an mmap, mprotect or pkey_mprotect, inside the guard: rewrites code
 // that became executable (aarch64).
 static void after_hooked_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
@@ -549,21 +553,52 @@ hook_special_call(int64_t sys_nr, int64_t arg1, int64_t arg2, int64_t arg3,
 	return ret;
 }
 
+namespace
+{
+// The calls hook_special_call takes, as a bitmap by number (one test,
+// whatever the set's size): code becoming executable (rescans), signal
+// masks and actions and exec (lazy mode), and on aarch64 every other change
+// of mappings, which invalidates lazy mode's last looked-up mapping.
+constexpr int special_call_limit = 512;
+constexpr std::array<uint64_t, special_call_limit / 64> special_call_bits()
+{
+	std::array<uint64_t, special_call_limit / 64> bits{};
+	for (int nr : { SYS_mmap, SYS_mprotect, SYS_pkey_mprotect,
+			SYS_rt_sigaction, SYS_rt_sigprocmask, SYS_execve,
+			SYS_execveat
+#if defined(__aarch64__)
+			,
+			SYS_munmap, SYS_mremap, SYS_shmat, SYS_remap_file_pages
+#endif
+	     })
+		bits[nr / 64] |= 1ull << (nr % 64);
+	return bits;
+}
+constexpr auto special_calls = special_call_bits();
+
+inline bool is_special_call(int64_t sys_nr)
+{
+	return (uint64_t)sys_nr < (uint64_t)special_call_limit &&
+	       ((special_calls[(uint64_t)sys_nr / 64] >> (sys_nr % 64)) & 1);
+}
+} // namespace
+
 // Called only from the assembly hook: keep it through LTO.
 extern "C" __attribute__((used)) int64_t syscall_hooker_cxx(int64_t sys_nr, int64_t arg1,
 				      int64_t arg2, int64_t arg3, int64_t arg4,
 				      int64_t arg5, int64_t arg6)
 {
-	if (__builtin_expect(in_hook, 0))
-		return orig_syscall_direct(sys_nr, arg1, arg2, arg3, arg4, arg5,
-					   arg6);
-	if (__builtin_expect(sys_nr == SYS_mmap || sys_nr == SYS_mprotect ||
-				     sys_nr == SYS_pkey_mprotect ||
-				     sys_nr == SYS_rt_sigaction ||
-				     sys_nr == SYS_rt_sigprocmask ||
-				     sys_nr == SYS_execve ||
-				     sys_nr == SYS_execveat,
-			     0))
+	if (__builtin_expect(in_hook, 0)) {
+		const int64_t ret = orig_syscall_direct(sys_nr, arg1, arg2,
+							arg3, arg4, arg5, arg6);
+		// A mapping changed by a signal handler interrupting the hook:
+		// forgotten after the change is made, so that no trap caches
+		// the old mapping again in between.
+		if (__builtin_expect(is_special_call(sys_nr), 0))
+			bpftime::forget_lazy_mapping(sys_nr);
+		return ret;
+	}
+	if (__builtin_expect(is_special_call(sys_nr), 0))
 		return hook_special_call(sys_nr, arg1, arg2, arg3, arg4, arg5,
 					 arg6);
 	in_hook = true;
@@ -573,6 +608,9 @@ extern "C" __attribute__((used)) int64_t syscall_hooker_cxx(int64_t sys_nr, int6
 }
 
 #if !defined(__aarch64__)
+static void bpftime::forget_lazy_mapping(int64_t)
+{
+}
 static void bpftime::after_hooked_syscall(int64_t, int64_t, int64_t, int64_t,
 					  int64_t, int64_t, int64_t)
 {
@@ -1745,9 +1783,6 @@ void on_sigsys(int, siginfo_t *info, void *context)
 	// applies (no logging in the handler).
 	lazy_emulated++;
 	const int64_t nr = regs[8];
-	if (nr == SYS_mmap || nr == SYS_mprotect || nr == SYS_pkey_mprotect ||
-	    nr == SYS_mremap || nr == SYS_munmap)
-		lazy_last_mapping_valid.store(false, std::memory_order_release);
 	if (nr == SYS_execve || nr == SYS_execveat) {
 		lazy_execs_refused_in_handler++;
 		lazy_execs_refused_total++;
@@ -1761,17 +1796,31 @@ void on_sigsys(int, siginfo_t *info, void *context)
 		return;
 	}
 	regs[0] = raw_syscall(nr, a1, a2, a3, regs[3], regs[4], regs[5]);
+	// After the change: a trap in between would cache the old mapping.
+	bpftime::forget_lazy_mapping(nr);
 }
 } // namespace
+
+static void forget_lazy_mapping(int64_t sys_nr)
+{
+	if (sys_nr == SYS_mmap || sys_nr == SYS_mprotect ||
+	    sys_nr == SYS_pkey_mprotect || sys_nr == SYS_munmap ||
+	    sys_nr == SYS_mremap || sys_nr == SYS_shmat ||
+	    sys_nr == SYS_remap_file_pages)
+		lazy_last_mapping_valid.store(false, std::memory_order_release);
+}
 
 static void after_hooked_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
 				 int64_t arg3, int64_t arg4, int64_t arg5,
 				 int64_t ret)
 {
-	// Called for mmap, mprotect and pkey_mprotect (and other special calls).
-	if (sys_nr == SYS_mmap || sys_nr == SYS_mprotect ||
-	    sys_nr == SYS_pkey_mprotect)
-		lazy_last_mapping_valid.store(false, std::memory_order_release);
+	// Called for the special calls. Any change of mappings (an mremap of
+	// a shared file over a private JIT page left the old mapping cached,
+	// and the next trap there patched the file).
+	forget_lazy_mapping(sys_nr);
+	if (sys_nr != SYS_mmap && sys_nr != SYS_mprotect &&
+	    sys_nr != SYS_pkey_mprotect)
+		return;
 	if (!rescan_enabled || !(arg3 & PROT_EXEC))
 		return;
 	// Decided from the arguments: reading /proc/self/maps for every
