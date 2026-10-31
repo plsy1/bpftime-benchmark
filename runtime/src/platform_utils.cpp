@@ -40,31 +40,75 @@ int sched_setaffinity([[maybe_unused]]pid_t pid, [[maybe_unused]]size_t cpusetsi
 #include <cstdio>
 #endif
 
-int bpftime_num_possible_cpus()
+bool bpftime_parse_cpu_list(const char *text, std::vector<int> &ids)
 {
-    static const int count = [] {
+    ids.clear();
+    const char *p = text;
+    while (*p != 0 && *p != '\n') {
+        char *end;
+        long first = strtol(p, &end, 10), last = first;
+        if (end == p || first < 0)
+            return false;
+        p = end;
+        if (*p == '-') {
+            last = strtol(p + 1, &end, 10);
+            if (end == p + 1 || last < first)
+                return false;
+            p = end;
+        }
+        if (!ids.empty() && first <= ids.back())
+            return false;
+        for (long cpu = first; cpu <= last; cpu++)
+            ids.push_back((int)cpu);
+        if (*p == ',')
+            p++;
+        else if (*p != 0 && *p != '\n')
+            return false;
+    }
+    return !ids.empty();
+}
+
+namespace {
+std::vector<int> &possible_cpu_ids()
+{
+    static std::vector<int> ids = [] {
+        std::vector<int> result;
 #if __linux__
-        // "0-5", "0,2-3": the highest number listed, plus one.
         if (FILE *f = fopen("/sys/devices/system/cpu/possible", "re")) {
-            int highest = -1, a = 0, b = 0;
-            char sep = 0;
-            while (fscanf(f, "%d", &a) == 1) {
-                b = a;
-                if (fscanf(f, "%c", &sep) == 1 && sep == '-' &&
-                    fscanf(f, "%d", &b) == 1)
-                    fscanf(f, "%c", &sep);
-                if (b > highest)
-                    highest = b;
-                if (sep != ',')
-                    break;
-            }
+            char line[4096];
+            bool ok = fgets(line, sizeof(line), f) != nullptr &&
+                      bpftime_parse_cpu_list(line, result);
             fclose(f);
-            if (highest >= 0)
-                return highest + 1;
+            if (ok)
+                return result;
         }
 #endif
         const long conf = sysconf(_SC_NPROCESSORS_CONF);
-        return conf > 0 ? (int)conf : 1;
+        result.clear();
+        for (long cpu = 0; cpu < (conf > 0 ? conf : 1); cpu++)
+            result.push_back((int)cpu);
+        return result;
     }();
-    return count;
+    return ids;
+}
+} // namespace
+
+const std::vector<int> &bpftime_possible_cpu_ids()
+{
+    return possible_cpu_ids();
+}
+
+int bpftime_num_possible_cpus()
+{
+    return (int)possible_cpu_ids().size();
+}
+
+int bpftime_cpu_index_limit()
+{
+    return possible_cpu_ids().back() + 1;
+}
+
+void bpftime_set_possible_cpus_for_test(const std::vector<int> &ids)
+{
+    possible_cpu_ids() = ids;
 }

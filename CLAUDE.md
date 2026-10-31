@@ -841,9 +841,9 @@ again (reproduced on the old code: a block allocated after the delete was
 overwritten, on every CPU). Test: "Per-CPU hash values outlive a delete
 without freeing memory".
 
-Per-CPU maps (hash and array) hold `bpftime_num_possible_cpus()` values per
-key: the highest number in `/sys/devices/system/cpu/possible` plus one, as
-libbpf counts. It used to be `_SC_NPROCESSORS_ONLN` at creation, and nothing
+Per-CPU maps (hash and array) hold `bpftime_cpu_index_limit()` values per
+key: the highest number in `/sys/devices/system/cpu/possible` plus one, the
+bound of `sched_getcpu()`. It used to be `_SC_NPROCESSORS_ONLN` at creation, and nothing
 checked `sched_getcpu()` against it: a CPU numbered at or above the online
 count (a core a power mode had offlined, back online) read and wrote past the
 values, and a failed `sched_getcpu()` (-1) before them. Every path indexing
@@ -853,14 +853,20 @@ one CPU, the thread pinned to CPU 1).
 
 Through `bpf()` (the syscall server, `elem_*_userspace`, `lookup_and_delete`)
 per-CPU values use libbpf's and the kernel's layout: one slot per possible CPU,
-each value rounded up to 8 bytes (`get_userspace_value_size`,
+in CPU order, each value rounded up to 8 bytes (`get_userspace_value_size`,
 `percpu_values_to_userspace`/`from_userspace` in `map_common_def.hpp`). The
-maps keep their values packed at `value_size` (the JIT paths depend on it) and
-convert; a lookup returns a per-thread buffer when `value_size` is not a
-multiple of 8. They used to copy `value_size` times the online CPUs packed: a
+number of slots is `bpftime_num_possible_cpus()`, the CPUs in the mask, as
+`libbpf_num_possible_cpus` counts them; with holes ("0,2-3") that is less than
+the index limit and slot i holds CPU `bpftime_possible_cpu_ids()[i]`. Counting
+highest + 1 there (as 6f1e73d9 did) copied 4 slots into libbpf's 3-slot
+buffer, a heap overflow in the tool. The maps keep their values packed at
+`value_size` and indexed by CPU number (the JIT paths depend on it) and
+convert; a lookup returns a per-thread buffer unless the storage already is
+the syscall layout (`value_size` a multiple of 8, no holes). They used to copy `value_size` times the online CPUs packed: a
 tool reading 4-byte per-CPU counters took CPU 1's value from CPU 0's padding.
-`KERNEL_USER_PERCPU_ARRAY` already used the kernel layout. Test:
-`[percpu-layout]`.
+`KERNEL_USER_PERCPU_ARRAY` already used the kernel layout. Tests:
+`[percpu-layout]` (with an injected "0,2-3" mask), "Possible CPUs are counted
+as libbpf does" (the parser on masks with holes).
 
 ## Cgroup Array And bpf_current_task_under_cgroup
 

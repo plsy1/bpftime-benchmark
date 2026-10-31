@@ -98,22 +98,42 @@ static inline bool check_update_flags(uint64_t flags)
 	return true;
 }
 // Per-CPU values in the bpf() syscall (libbpf, the kernel): one slot per
-// possible CPU, each value rounded up to 8 bytes. Maps keep them packed at
-// value_size; these convert.
+// possible CPU, in CPU order, each value rounded up to 8 bytes. With holes in
+// the possible mask ("0,2-3") slot i holds CPU ids[i]. Maps keep values
+// packed at value_size and indexed by CPU number (up to ncpu); these convert.
+// A map made for fewer CPUs (tests) leaves the other slots zero.
 inline size_t percpu_userspace_stride(uint32_t value_size)
 {
 	return (static_cast<size_t>(value_size) + 7) & ~size_t{ 7 };
+}
+
+inline size_t percpu_userspace_size(uint32_t value_size)
+{
+	return percpu_userspace_stride(value_size) *
+	       bpftime_num_possible_cpus();
+}
+
+// The maps' storage is the syscall layout itself: no padding, no holes.
+inline bool percpu_userspace_is_packed_storage(uint32_t value_size, int ncpu)
+{
+	return value_size % 8 == 0 && bpftime_num_possible_cpus() == ncpu &&
+	       bpftime_cpu_index_limit() == ncpu;
 }
 
 inline void percpu_values_to_userspace(uint8_t *dst, const uint8_t *src,
 				       uint32_t value_size, int ncpu)
 {
 	const size_t stride = percpu_userspace_stride(value_size);
-	for (int cpu = 0; cpu < ncpu; cpu++) {
-		std::memcpy(dst + cpu * stride, src + (size_t)cpu * value_size,
-			    value_size);
-		std::memset(dst + cpu * stride + value_size, 0,
-			    stride - value_size);
+	const auto &ids = bpftime_possible_cpu_ids();
+	for (size_t i = 0; i < ids.size(); i++) {
+		uint8_t *slot = dst + i * stride;
+		size_t copied = 0;
+		if (ids[i] < ncpu) {
+			std::memcpy(slot, src + (size_t)ids[i] * value_size,
+				    value_size);
+			copied = value_size;
+		}
+		std::memset(slot + copied, 0, stride - copied);
 	}
 }
 
@@ -121,9 +141,11 @@ inline void percpu_values_from_userspace(uint8_t *dst, const uint8_t *src,
 					 uint32_t value_size, int ncpu)
 {
 	const size_t stride = percpu_userspace_stride(value_size);
-	for (int cpu = 0; cpu < ncpu; cpu++)
-		std::memcpy(dst + (size_t)cpu * value_size, src + cpu * stride,
-			    value_size);
+	const auto &ids = bpftime_possible_cpu_ids();
+	for (size_t i = 0; i < ids.size(); i++)
+		if (ids[i] < ncpu)
+			std::memcpy(dst + (size_t)ids[i] * value_size,
+				    src + i * stride, value_size);
 }
 
 // A per-thread buffer for a lookup result in the syscall layout: the

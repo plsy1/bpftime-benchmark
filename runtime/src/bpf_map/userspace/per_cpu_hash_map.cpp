@@ -60,7 +60,7 @@ per_cpu_hash_map_impl::per_cpu_hash_map_impl(
 	boost::interprocess::managed_shared_memory &memory, uint32_t key_size,
 	uint32_t value_size, uint32_t max_entries)
 	: per_cpu_hash_map_impl(memory, key_size, value_size, max_entries,
-				bpftime_num_possible_cpus())
+				bpftime_cpu_index_limit())
 {
 }
 
@@ -451,10 +451,10 @@ void *per_cpu_hash_map_impl::elem_lookup_userspace(const void *key)
 	}
 	if (result != nullptr) {
 		SPDLOG_TRACE("Exit elem lookup of hash map");
-		if (value_size % 8 == 0)
+		if (percpu_userspace_is_packed_storage(value_size, ncpu))
 			return result;
-		uint8_t *out = percpu_userspace_buffer(
-			percpu_userspace_stride(value_size) * ncpu);
+		uint8_t *out =
+			percpu_userspace_buffer(percpu_userspace_size(value_size));
 		percpu_values_to_userspace(out, result, value_size, ncpu);
 		return out;
 	} else {
