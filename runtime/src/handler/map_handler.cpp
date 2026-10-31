@@ -934,15 +934,18 @@ static uint64_t get_thread_count(const bpf_map_attr &attr)
 	return thread_count;
 }
 
-// The kernel's creation checks (map_alloc_check) for the common types, and
-// a lower bound of the size, so that a size computation cannot wrap into a
-// small allocation that accesses then overrun. Value sizes are limited as by
-// the kernel's KMALLOC_MAX_SIZE (4 MiB with 4 KiB pages); a map larger than
-// the segment is ENOMEM, as when the segment runs out.
+// The creation checks of Linux 6.8 (htab_map_alloc_check,
+// array_map_alloc_check, queue_stack_map_alloc_check) for the common types,
+// and a lower bound of the size, so that a size computation cannot wrap into
+// a small allocation that accesses then overrun. A per-CPU value over 32 KiB
+// (PCPU_MIN_UNIT_SIZE) fails the kernel's percpu allocation: ENOMEM. A map
+// larger than the segment is ENOMEM, as when the segment runs out.
 int bpf_map_handler::check_map_attr(const managed_shared_memory &memory) const
 {
 	constexpr uint64_t kmalloc_max_size = 4ull << 20;
-	uint64_t per_entry = value_size, copies = 1;
+	constexpr uint64_t htab_elem_size = 48; // sizeof(struct htab_elem)
+	constexpr uint64_t pcpu_min_unit_size = 32768;
+	uint64_t copies = 1, key_bytes = 0;
 	switch (type) {
 	case bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH:
 		copies = bpftime_cpu_index_limit();
@@ -951,20 +954,23 @@ int bpf_map_handler::check_map_attr(const managed_shared_memory &memory) const
 	case bpf_map_type::BPF_MAP_TYPE_LRU_HASH:
 		if (max_entries == 0 || key_size == 0 || value_size == 0)
 			return EINVAL;
-		if (key_size > 512) // MAX_BPF_STACK
+		if ((uint64_t)key_size + value_size >=
+		    kmalloc_max_size - htab_elem_size)
 			return E2BIG;
-		// htab: KMALLOC_MAX_SIZE - MAX_BPF_STACK - sizeof(htab_elem)
-		if (value_size >= kmalloc_max_size - 512 - 64)
-			return E2BIG;
-		per_entry += key_size;
+		key_bytes = key_size;
 		break;
 	case bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY:
 		copies = bpftime_cpu_index_limit();
 		[[fallthrough]];
 	case bpf_map_type::BPF_MAP_TYPE_ARRAY:
+		if (max_entries == 0 || key_size != 4 || value_size == 0)
+			return EINVAL;
+		if (value_size > INT32_MAX)
+			return E2BIG;
+		break;
 	case bpf_map_type::BPF_MAP_TYPE_QUEUE:
 	case bpf_map_type::BPF_MAP_TYPE_STACK:
-		if (max_entries == 0 || value_size == 0)
+		if (max_entries == 0 || key_size != 0 || value_size == 0)
 			return EINVAL;
 		if (value_size > kmalloc_max_size)
 			return E2BIG;
@@ -972,11 +978,14 @@ int bpf_map_handler::check_map_attr(const managed_shared_memory &memory) const
 	default:
 		return 0;
 	}
-	if (copies > 1 && value_size > 32768) // PCPU_MIN_UNIT_SIZE
-		return E2BIG;
-	uint64_t bytes;
-	if (__builtin_mul_overflow(per_entry, (uint64_t)max_entries, &bytes) ||
-	    __builtin_mul_overflow(bytes, copies, &bytes))
+	if (copies > 1 && (((uint64_t)value_size + 7) & ~7ull) >
+				  pcpu_min_unit_size)
+		return ENOMEM;
+	// One key per entry (hashes only), a value per CPU for per-CPU maps.
+	uint64_t values, bytes;
+	if (__builtin_mul_overflow((uint64_t)value_size, copies, &values) ||
+	    __builtin_mul_overflow(key_bytes + values, (uint64_t)max_entries,
+				   &bytes))
 		return E2BIG;
 	if (bytes > memory.get_size())
 		return ENOMEM;
