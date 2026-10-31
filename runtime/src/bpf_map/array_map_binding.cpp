@@ -23,32 +23,25 @@ struct live_bindings_guard {
 	~live_bindings_guard() { pthread_mutex_unlock(&live_bindings_lock); }
 };
 }
+// The child inherits a copy of every binding and will release it, so it
+// needs its own shared reference. Taking it before the fork leaves no window
+// in which the parent could free the map. A failed fork, or a child that
+// execs or _exits, leaks them. Registered while the runtime loads: fork
+// handlers are registered only from static initializers (fork_handlers.cpp).
+const int array_binding_atfork_status = bpftime::register_fork_handlers(
+	[] {
+		pthread_mutex_lock(&live_bindings_lock);
+		for (auto *binding : live_bindings())
+			binding->pin_for_fork();
+	},
+	[] { pthread_mutex_unlock(&live_bindings_lock); },
+	[] {
+		// Only this thread exists; the lock owner was the parent's.
+		pthread_mutex_init(&live_bindings_lock, nullptr);
+	});
 bool initialize_array_binding_fork_handlers()
 {
-	static std::once_flag once;
-	static int status = -1;
-	try {
-		std::call_once(once, [] {
-			// The child inherits a copy of every binding and will release
-			// it, so it needs its own shared reference. Taking it before the
-			// fork leaves no window in which the parent could free the map.
-			// A failed fork, or a child that execs or _exits, leaks them.
-			status = bpftime::register_fork_handlers(
-				[] {
-					pthread_mutex_lock(&live_bindings_lock);
-					for (auto *binding : live_bindings())
-						binding->pin_for_fork();
-				},
-				[] { pthread_mutex_unlock(&live_bindings_lock); },
-				[] {
-					// Only this thread exists; the lock owner was the parent's.
-					pthread_mutex_init(&live_bindings_lock, nullptr);
-				});
-		});
-	} catch (...) {
-		return false;
-	}
-	return status == 0;
+	return array_binding_atfork_status == 0;
 }
 }
 
