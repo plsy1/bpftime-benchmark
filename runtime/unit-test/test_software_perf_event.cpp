@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <utility>
 #include <unistd.h>
@@ -591,6 +592,196 @@ TEST_CASE("Software perf event reports dropped samples with PERF_RECORD_LOST",
 	CHECK(records[0] ==
 	      perf_record(PERF_RECORD_LOST, 1));
 	CHECK(records[1].first == PERF_RECORD_SAMPLE);
+}
+
+TEST_CASE("Software perf event drains start at a different shard each time",
+	  "[perf_event][software_perf_event][perf-lost]")
+{
+	// A full consumer ring takes the shards drained first; always the
+	// same order starved the threads behind them.
+	const std::string shared_memory_name =
+		"SoftwarePerfEventDrainOrderShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(shared_memory_name) };
+	boost::interprocess::managed_shared_memory shm(
+		boost::interprocess::create_only, shared_memory_name.c_str(),
+		16 * 1024 * 1024);
+	auto *perf = shm.construct<bpftime::software_perf_event_data>(
+		"perf")(0, 0, 0, shm);
+	const size_t ring_size = 4096; // four samples
+	void *raw_buffer = perf->ensure_mmap_buffer(getpagesize() + ring_size);
+	REQUIRE(raw_buffer != nullptr);
+	auto fill = [&](int first) {
+		large_payload payload{};
+		for (int i = 0; i < 4; i++) {
+			payload.sequence = first + i;
+			REQUIRE(perf->output_data(&payload, sizeof(payload)) ==
+				0);
+		}
+	};
+	fill(0); // this thread's shard, the first one
+	std::thread([&] { fill(100); }).join();
+	REQUIRE(perf->producer_shards.size() == 2);
+	int from_first = 0, from_second = 0;
+	for (int round = 0; round < 2; round++) {
+		REQUIRE(perf->has_data());
+		for (auto &record : consume_perf_records(raw_buffer, ring_size))
+			(record.second >= 100 ? from_second : from_first)++;
+		if (round == 0)
+			fill(4); // the first thread keeps producing
+	}
+	CHECK(from_first == 4);
+	CHECK(from_second == 4);
+}
+
+TEST_CASE("Software perf event shards are matched within a pid namespace",
+	  "[perf_event][software_perf_event]")
+{
+	// A producer in another pid namespace with the same pid and tid (two
+	// containers' pid 1) must get its own single-producer ring.
+	const std::string shared_memory_name =
+		"SoftwarePerfEventNsMatchShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(shared_memory_name) };
+	boost::interprocess::managed_shared_memory shm(
+		boost::interprocess::create_only, shared_memory_name.c_str(),
+		16 * 1024 * 1024);
+	auto *perf = shm.construct<bpftime::software_perf_event_data>(
+		"perf")(0, 0, 0, shm);
+	REQUIRE(perf->ensure_mmap_buffer(getpagesize() + 64 * 1024) !=
+		nullptr);
+	struct stat st;
+	REQUIRE(stat("/proc/self/ns/pid", &st) == 0);
+	// Same identity as the thread below, other namespace.
+	std::atomic<int64_t> tid{ 0 };
+	std::thread producer([&] {
+		tid = syscall(SYS_gettid);
+		while (tid.load() > 0) {
+		}
+		event_payload payload{ 1, 0 };
+		REQUIRE(perf->output_data(&payload, sizeof(payload)) == 0);
+	});
+	while (tid.load() == 0) {
+	}
+	const int64_t producer_tid = tid.load();
+	perf->producer_shards.emplace_back(
+		getpid(), producer_tid, 999, perf->producer_buffer_generation,
+		getpagesize(), shm.get_segment_manager(),
+		getpagesize() + 64 * 1024);
+	perf->producer_shards.back().pid_namespace = st.st_ino + 1;
+	tid = -1;
+	producer.join();
+	REQUIRE(perf->producer_shards.size() == 2);
+	for (auto &shard : perf->producer_shards) {
+		INFO("namespace " << shard.pid_namespace);
+		CHECK(shard.buffer.has_data() ==
+		      (shard.pid_namespace == st.st_ino));
+	}
+}
+
+TEST_CASE("Producers in two pid namespaces with the same pid write apart",
+	  "[perf_event][software_perf_event]")
+{
+	// Two children each unshare a pid namespace and fork its pid 1; both
+	// pid-1 producers write at the same time.
+	if (geteuid() != 0)
+		SKIP("needs root (CLONE_NEWPID)");
+	const std::string shared_memory_name =
+		"SoftwarePerfEventTwoNsShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(shared_memory_name) };
+	boost::interprocess::managed_shared_memory shm(
+		boost::interprocess::create_only, shared_memory_name.c_str(),
+		16 * 1024 * 1024);
+	auto *perf = shm.construct<bpftime::software_perf_event_data>(
+		"perf")(0, 0, 0, shm);
+	const size_t ring_size = 256 * 1024;
+	void *raw_buffer = perf->ensure_mmap_buffer(getpagesize() + ring_size);
+	REQUIRE(raw_buffer != nullptr);
+	constexpr int per_producer = 100;
+	auto *go = shm.construct<std::atomic<int>>("go")(0);
+	pid_t children[2];
+	for (int producer = 0; producer < 2; producer++) {
+		children[producer] = fork();
+		REQUIRE(children[producer] >= 0);
+		if (children[producer] != 0)
+			continue;
+		if (unshare(CLONE_NEWPID) != 0)
+			_exit(10);
+		pid_t init = fork();
+		if (init == 0) {
+			if (getpid() != 1)
+				_exit(11);
+			go->fetch_add(1);
+			while (go->load() < 2) {
+			}
+			large_payload payload{};
+			for (int i = 0; i < per_producer; i++) {
+				payload.sequence = producer * 1000 + i;
+				if (perf->output_data(&payload,
+						      sizeof(payload)) != 0)
+					_exit(12);
+			}
+			_exit(0);
+		}
+		int status = -1;
+		if (init < 0 || waitpid(init, &status, 0) != init)
+			_exit(13);
+		_exit(WIFEXITED(status) ? WEXITSTATUS(status) : 14);
+	}
+	for (pid_t child : children) {
+		int status = -1;
+		REQUIRE(waitpid(child, &status, 0) == child);
+		REQUIRE(WIFEXITED(status));
+		REQUIRE(WEXITSTATUS(status) == 0);
+	}
+	size_t pid1_shards = 0;
+	for (auto &shard : perf->producer_shards)
+		pid1_shards += shard.pid == 1;
+	CHECK(pid1_shards == 2);
+	REQUIRE(perf->has_data());
+	int seen[2] = { 0, 0 };
+	for (auto &record : consume_perf_records(raw_buffer, ring_size)) {
+		REQUIRE(record.first == PERF_RECORD_SAMPLE);
+		seen[record.second / 1000]++;
+	}
+	CHECK(seen[0] == per_producer);
+	CHECK(seen[1] == per_producer);
+}
+
+TEST_CASE("Software perf event output fails cleanly when shared memory is full",
+	  "[perf_event][software_perf_event]")
+{
+	// Shards of other pid namespaces are never reclaimed, so shared
+	// memory can run out; Boost's bad_alloc escaped into the traced
+	// process.
+	const std::string shared_memory_name =
+		"SoftwarePerfEventShmFullShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(shared_memory_name) };
+	boost::interprocess::managed_shared_memory shm(
+		boost::interprocess::create_only, shared_memory_name.c_str(),
+		1024 * 1024);
+	auto *perf = shm.construct<bpftime::software_perf_event_data>(
+		"perf")(0, 0, 0, shm);
+	REQUIRE(perf->ensure_mmap_buffer(getpagesize() + 64 * 1024) !=
+		nullptr);
+	struct stat st;
+	REQUIRE(stat("/proc/self/ns/pid", &st) == 0);
+	try {
+		for (int i = 1;; i++) {
+			perf->producer_shards.emplace_back(
+				i, i, 1000 + i,
+				perf->producer_buffer_generation,
+				getpagesize(), shm.get_segment_manager(),
+				getpagesize() + 64 * 1024);
+			perf->producer_shards.back().pid_namespace =
+				st.st_ino + 1;
+		}
+	} catch (const boost::interprocess::bad_alloc &) {
+	}
+	event_payload payload{ 1, 0 };
+	errno = 0;
+	int ret = -2;
+	REQUIRE_NOTHROW(ret = perf->output_data(&payload, sizeof(payload)));
+	CHECK(ret == -1);
+	CHECK(errno == ENOSPC);
 }
 
 #if __linux__

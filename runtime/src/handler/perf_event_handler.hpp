@@ -151,6 +151,7 @@ struct software_perf_event_data {
 	mutable pthread_spinlock_t shard_lock;
 	uint64_t next_shard_generation = 1;
 	uint64_t drains_since_reclaim = 0;
+	uint64_t drain_start = 0;
 	software_perf_event_shard_list producer_shards;
 	software_perf_event_data(
 		int cpu, int64_t config, int32_t sample_type,
@@ -165,7 +166,8 @@ struct software_perf_event_data {
 	bool has_data();
 
     private:
-	software_perf_event_shard &get_current_thread_shard();
+	// nullptr if a new shard cannot be allocated.
+	software_perf_event_shard *get_current_thread_shard();
 	void drain_producer_shards();
 	void maybe_reclaim_inactive_producer_shards_locked();
 	void reclaim_inactive_producer_shards_locked();
