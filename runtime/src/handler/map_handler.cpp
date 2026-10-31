@@ -1747,6 +1747,19 @@ long bpf_map_handler::map_lookup_and_delete_elem(const void *key,
 		std::memcpy(value, found, value_size);
 		return impl->elem_delete(key);
 	};
+	// The kernel copies key and value from and to the caller: a bad
+	// pointer is EFAULT, and nothing is removed. A null key crashed the
+	// hash paths, and a null value deleted the key without returning it
+	// (null is the striped hash's "no copy").
+	const bool keyed = type == bpf_map_type::BPF_MAP_TYPE_HASH ||
+			   type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH ||
+			   type == bpf_map_type::BPF_MAP_TYPE_LRU_HASH;
+	const bool popped = type == bpf_map_type::BPF_MAP_TYPE_QUEUE ||
+			    type == bpf_map_type::BPF_MAP_TYPE_STACK;
+	if ((keyed && key == nullptr) || ((keyed || popped) && value == nullptr)) {
+		errno = EFAULT;
+		return -1;
+	}
 	switch (type) {
 	case bpf_map_type::BPF_MAP_TYPE_QUEUE:
 	case bpf_map_type::BPF_MAP_TYPE_STACK:
@@ -1770,8 +1783,9 @@ long bpf_map_handler::map_lookup_and_delete_elem(const void *key,
 		return under_lock(
 			static_cast<lru_var_hash_map_impl *>(map_impl_ptr.get()));
 	default:
-		// The kernel: ENOTSUPP for the other map types.
-		errno = ENOTSUP;
+		// The kernel: ENOTSUPP (524, kernel-internal, not ENOTSUP) for
+		// the other map types.
+		errno = 524;
 		return -1;
 	}
 }
