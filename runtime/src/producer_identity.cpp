@@ -18,11 +18,13 @@ __attribute__((visibility("default"))) uint64_t bpftime_identity_epoch = 0;
 
 namespace bpftime
 {
+namespace identity_detail
+{
+__thread identity_cache cache;
+} // namespace identity_detail
+using namespace identity_detail;
 namespace
 {
-thread_local int cached_producer_pid = -1;
-thread_local int64_t cached_producer_tid = -1;
-thread_local uint64_t cached_producer_epoch = 0;
 // This process's pid, refreshed in fork children only: in a vfork child it
 // is still the parent's.
 int process_pid = getpid();
@@ -31,8 +33,8 @@ std::atomic<uint64_t> cached_producer_namespace{ UINT64_MAX };
 const int producer_identity_atfork_status =
 	register_fork_handlers(nullptr, nullptr, [] {
 		process_pid = getpid();
-		cached_producer_pid = -1;
-		cached_producer_tid = -1;
+		cache.pid = -1;
+		cache.tid = -1;
 		cached_producer_namespace.store(UINT64_MAX,
 						std::memory_order_relaxed);
 	});
@@ -84,30 +86,21 @@ uint64_t producer_pid_namespace()
 	return ns;
 }
 
-void current_producer_identity(int &pid, int64_t &tid)
+// The slow path of current_producer_identity: a cache miss, or registering
+// the fork handler failed (then nothing is cached).
+void identity_detail::read_identity(int &pid, int64_t &tid)
 {
-	if (producer_identity_atfork_status != 0) {
-		pid = getpid();
-		tid = current_thread_id();
-		return;
-	}
-	const uint64_t epoch =
-		__atomic_load_n(&bpftime_identity_epoch, __ATOMIC_RELAXED);
-	if (__builtin_expect(cached_producer_pid != -1 &&
-				     cached_producer_epoch == epoch,
-			     1)) {
-		pid = cached_producer_pid;
-		tid = cached_producer_tid;
-		return;
-	}
 	pid = getpid();
 	tid = current_thread_id();
+	if (producer_identity_atfork_status != 0)
+		return;
 	// Another pid than the process's: a vfork child, whose ids are not
 	// this thread's. Cache only the thread's own.
 	if (pid == process_pid) {
-		cached_producer_pid = pid;
-		cached_producer_tid = tid;
-		cached_producer_epoch = epoch;
+		cache.pid = pid;
+		cache.tid = tid;
+		cache.epoch =
+			__atomic_load_n(&bpftime_identity_epoch, __ATOMIC_RELAXED);
 	}
 }
 } // namespace bpftime
