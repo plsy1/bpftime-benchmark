@@ -26,6 +26,9 @@
 #include <vector>
 #include <ucontext.h>
 #include <sys/prctl.h>
+#include <linux/audit.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
 #include <sys/wait.h>
@@ -1060,6 +1063,101 @@ TEST_CASE("lazy mode refuses execve", "[syscall-rewrite][lazy]")
 		return 0;
 	});
 	REQUIRE(code == 0);
+}
+
+namespace
+{
+// The application's own seccomp filter: getppid traps (SECCOMP_RET_TRAP,
+// data 0), as in sandboxes and syscall emulators.
+bool install_app_getppid_trap()
+{
+	sock_filter f[] = {
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+			 offsetof(seccomp_data, nr)),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_getppid, 0, 1),
+		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP),
+		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+	};
+	sock_fprog prog = { sizeof(f) / sizeof(f[0]), f };
+	return prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0 &&
+	       syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &prog) == 0;
+}
+
+std::atomic<int> app_sigsys_calls{ 0 };
+std::atomic<int> app_sigsys_nr{ -1 };
+
+void app_sigsys_handler(int, siginfo_t *info, void *context)
+{
+	app_sigsys_calls++;
+	app_sigsys_nr = info->si_syscall;
+	((ucontext_t *)context)->uc_mcontext.regs[0] = 42; // the result
+}
+
+bool install_app_sigsys_handler()
+{
+	struct sigaction sa = {};
+	sa.sa_sigaction = app_sigsys_handler;
+	sa.sa_flags = SA_SIGINFO;
+	return sigaction(SIGSYS, &sa, nullptr) == 0;
+}
+
+code_fn getppid_code()
+{
+	return reinterpret_cast<code_fn>(
+		map_code({ mov_x8(SYS_getppid), SVC_0, RET }));
+}
+} // namespace
+
+// The SIGSYS handler took every seccomp trap for its own: the application's
+// filter trapping the hook's own svc made it rewrite that svc into a branch to
+// a gate, and the hook recursed until the stack overflowed. Now our filter's
+// traps carry LAZY_TRAP_DATA; the others go to the application's handler.
+TEST_CASE("lazy mode passes the application's seccomp traps to its handler",
+	  "[syscall-rewrite][lazy]")
+{
+	// The application's filter after ours: its data wins at a new site.
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		if (!install_app_sigsys_handler() || !install_app_getppid_trap())
+			return 3;
+		if (getppid() != 42)
+			return 4; // a rewritten libc site: the hook's own svc traps
+		code_fn fn = getppid_code();
+		if (fn == nullptr || fn() != 42)
+			return 5; // a new site
+		return app_sigsys_calls == 2 && app_sigsys_nr == SYS_getppid ?
+			       0 :
+			       6;
+	});
+	REQUIRE(code == 0);
+	// Ours after the application's: the site is rewritten first.
+	code = in_rewritten_child(request_lazy, [] {
+		if (!install_app_sigsys_handler() || !install_app_getppid_trap())
+			return 3;
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		code_fn fn = getppid_code();
+		if (fn == nullptr || fn() != 42)
+			return 5;
+		return app_sigsys_calls == 1 ? 0 : 6;
+	});
+	REQUIRE(code == 0);
+}
+
+TEST_CASE("lazy mode leaves the application's untrapped seccomp SIGSYS fatal",
+	  "[syscall-rewrite][lazy]")
+{
+	// No handler: the kernel's default action, as without bpftime (159),
+	// not a stack overflow (139).
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}) ||
+		    !install_app_getppid_trap())
+			return 2;
+		getppid();
+		return 3;
+	});
+	REQUIRE(code == 128 + SIGSYS);
 }
 
 // A dlopen rescans holding rescan_mutex and takes the patch lock to install

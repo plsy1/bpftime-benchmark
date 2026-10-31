@@ -857,8 +857,16 @@ uint64_t page_size = 4096; // set by setup_syscall_tracer
 // Thread id holding the code-patching lock (0: free). Rescans and the
 // handler both patch code pages; the handler cannot wait for a pthread mutex.
 std::atomic<int64_t> patch_owner{ 0 };
-// The application's SIGSYS action, as it set it: never installed.
+// The application's SIGSYS action, as it set it: never installed; SIGSYS
+// that is not our filter's trap is passed to it (forward_sigsys).
 uint64_t app_sigsys_action[4];
+// SECCOMP_RET_DATA of our filter's traps (16 bits): the kernel reports it in
+// si_errno. With several filters returning TRAP, the newest one's data wins.
+constexpr uint32_t LAZY_TRAP_DATA = 0xb7e5;
+// The code ranges our filter allows (handler: never rewrite there).
+constexpr size_t MAX_LAZY_ALLOWED = 16;
+std::pair<uint64_t, uint64_t> lazy_allowed[MAX_LAZY_ALLOWED];
+size_t lazy_allowed_count = 0;
 
 inline int64_t raw_syscall(int64_t nr, int64_t a1 = 0, int64_t a2 = 0,
 			   int64_t a3 = 0, int64_t a4 = 0, int64_t a5 = 0,
@@ -1536,6 +1544,13 @@ uint64_t lazy_gate(uint64_t site, uint64_t &region)
 // `site` again (rewritten now, or by another thread meanwhile).
 bool lazy_rewrite_site(uint64_t site)
 {
+	// Never the hook's own svc or allowed code (our filter does not trap
+	// there; a trap there is another filter's).
+	if (site == (uint64_t)&syscall_addr)
+		return false;
+	for (size_t i = 0; i < lazy_allowed_count; i++)
+		if (site >= lazy_allowed[i].first && site < lazy_allowed[i].second)
+			return false;
 	if (!is_svc(*(volatile uint32_t *)site))
 		return true;
 	if (!patch_lock())
@@ -1559,10 +1574,49 @@ bool lazy_rewrite_site(uint64_t site)
 	return ok;
 }
 
+// A SIGSYS that is not our filter's trap (the application's own seccomp
+// filter, or a signal sent to it) goes to the application's action, as the
+// kernel would have delivered it. Its handler sees the original siginfo and
+// context; for a seccomp trap the x0 it sets is the call's result.
+void forward_sigsys(siginfo_t *info, void *context)
+{
+	const uint64_t sigsys = 1ull << (SIGSYS - 1);
+	const uint64_t handler = app_sigsys_action[0],
+		       flags = app_sigsys_action[1];
+	if (handler == (uint64_t)SIG_DFL ||
+	    (handler == (uint64_t)SIG_IGN && info->si_code == 1)) {
+		// The default action (a seccomp SIGSYS cannot be ignored):
+		// raised again with nothing to catch it. SA_NODEFER: not
+		// blocked here, so it ends the process on the way back.
+		uint64_t dfl[4] = { (uint64_t)SIG_DFL, 0, 0, 0 };
+		raw_syscall(SYS_rt_sigaction, SIGSYS, (int64_t)dfl, 0, 8);
+		raw_syscall(SYS_tgkill, raw_syscall(SYS_getpid),
+			    raw_syscall(SYS_gettid), SIGSYS);
+		return;
+	}
+	if (handler == (uint64_t)SIG_IGN)
+		return;
+	if (flags & SA_RESETHAND)
+		app_sigsys_action[0] = (uint64_t)SIG_DFL;
+	// Its mask while it runs; SIGSYS stays deliverable for our traps.
+	uint64_t mask = app_sigsys_action[3] & ~sigsys, old = 0;
+	raw_syscall(SYS_rt_sigprocmask, SIG_BLOCK, (int64_t)&mask,
+		    (int64_t)&old, 8);
+	if (flags & SA_SIGINFO)
+		((void (*)(int, siginfo_t *, void *))handler)(SIGSYS, info,
+							      context);
+	else
+		((void (*)(int))handler)(SIGSYS);
+	raw_syscall(SYS_rt_sigprocmask, SIG_SETMASK, (int64_t)&old, 0, 8);
+}
+
 void on_sigsys(int, siginfo_t *info, void *context)
 {
-	if (info->si_code != 1 /* SYS_SECCOMP */)
-		return; // not a trap of ours; the application's action is not run
+	if (info->si_code != 1 /* SYS_SECCOMP */ ||
+	    (uint32_t)info->si_errno != LAZY_TRAP_DATA) {
+		forward_sigsys(info, context);
+		return;
+	}
 	auto *uc = (ucontext_t *)context;
 	auto &regs = uc->uc_mcontext.regs;
 	lazy_traps++;
@@ -1714,8 +1768,12 @@ bool install_lazy_filter(const std::vector<std::pair<uint64_t, uint64_t> > &allo
 	jeq_allow(SYS_clone);
 	jeq_allow(SYS_clone3);
 	std::vector<std::pair<uint64_t, uint64_t> > ranges;
-	for (auto [lo, hi] : allowed)
+	lazy_allowed_count = 0;
+	for (auto [lo, hi] : allowed) {
 		ranges.push_back({ lo + 4, hi + 4 });
+		if (lazy_allowed_count < MAX_LAZY_ALLOWED)
+			lazy_allowed[lazy_allowed_count++] = { lo, hi };
+	}
 	const uint64_t orig = (uint64_t)&syscall_addr;
 	ranges.push_back({ orig + 4, orig + 8 });
 	const uint32_t ip = offsetof(seccomp_data, instruction_pointer);
@@ -1743,7 +1801,7 @@ bool install_lazy_filter(const std::vector<std::pair<uint64_t, uint64_t> > &allo
 			lo = end;
 		}
 	}
-	f.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP));
+	f.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP | LAZY_TRAP_DATA));
 	const size_t allow = f.size();
 	f.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW));
 	for (auto [i, on_true] : to_allow) {
@@ -1820,6 +1878,11 @@ bool enable_lazy_rewriting(const std::vector<std::pair<uint64_t, uint64_t> > &al
 	sigset_t sigsys;
 	sigemptyset(&sigsys);
 	sigaddset(&sigsys, SIGSYS);
+	// A SIGSYS action the application set before: from now on it is kept
+	// aside (sanitize_signal_call) and run for SIGSYS that is not ours.
+	if (raw_syscall(SYS_rt_sigaction, SIGSYS, 0, (int64_t)app_sigsys_action,
+			8) != 0)
+		return false;
 	if (sigaction(SIGSYS, &sa, nullptr) != 0 ||
 	    pthread_sigmask(SIG_UNBLOCK, &sigsys, nullptr) != 0)
 		return false;
