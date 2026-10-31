@@ -677,6 +677,33 @@ TEST_CASE("Software perf event shards are matched within a pid namespace",
 	}
 }
 
+TEST_CASE("Software perf event shard caches are not inherited by fork children",
+	  "[perf_event][software_perf_event]")
+{
+	// A pid 1 that forks after unshare(CLONE_NEWPID) has a pid 1 child
+	// in the new namespace: the thread's cached shard (the parent's,
+	// matched by pid and tid) was used without the namespace check.
+	// Here the cached shard is made the other namespace's, as the
+	// parent's is for that child.
+	const std::string shared_memory_name =
+		"SoftwarePerfEventForkCacheShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(shared_memory_name) };
+	boost::interprocess::managed_shared_memory shm(
+		boost::interprocess::create_only, shared_memory_name.c_str(),
+		16 * 1024 * 1024);
+	auto *perf = shm.construct<bpftime::software_perf_event_data>(
+		"perf")(0, 0, 0, shm);
+	REQUIRE(perf->ensure_mmap_buffer(getpagesize() + 64 * 1024) !=
+		nullptr);
+	event_payload payload{ 1, 0 };
+	REQUIRE(perf->output_data(&payload, sizeof(payload)) == 0);
+	REQUIRE(perf->producer_shards.size() == 1);
+	perf->producer_shards.front().pid_namespace ^= 1;
+	bpftime::software_perf_event_fork_child_for_test();
+	REQUIRE(perf->output_data(&payload, sizeof(payload)) == 0);
+	CHECK(perf->producer_shards.size() == 2);
+}
+
 TEST_CASE("Producers in two pid namespaces with the same pid write apart",
 	  "[perf_event][software_perf_event]")
 {
