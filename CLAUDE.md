@@ -736,8 +736,8 @@ Fixed after an independent review (results `reviews-20261031`), each with a
   around the store instead, the page's protection read from
   `/proc/self/maps` with raw system calls; every trap was emulated untraced.
   The emulation path (no gate space) refuses execve too and sanitizes signal
-  masks (`sanitize_signal_call`), counting refusals for the next hooked call
-  to log.
+  masks (`sanitize_signal_call`), counting refusals (reported by the next
+  rescan; see below).
 - `patch_lock` yields every 64 spins (a SCHED_FIFO spinner on the holder's
   CPU).
 
@@ -777,6 +777,13 @@ Fixed after the second review (results `reviews-20261031/rereview`):
   clear it, and a new mapping is reachable only after its mmap returned
   through one of them. Test: "lazy mode leaves shared code mappings
   unpatched" (memfd, RWX, MAP_SHARED).
+- execve calls the handler refused are reported by the next `rescan` (after
+  an mmap or mprotect, which are not async-signal-safe) and counted in
+  `execs_refused`. The next hooked call reported them: possibly an
+  `rt_sigaction` in a signal handler that interrupted malloc, while logging
+  allocates and takes locks. Test: "lazy mode reports refused execve outside
+  signal handlers" (the signal sent from untraced code, so the handler's
+  sigaction is the first hooked call after the refusal).
 
 Known limits of the aarch64 rewriting (documented, not fixed):
 - A hooked call pushes 16 + 784 bytes before the C dispatch, about 1.3 KiB

@@ -26,6 +26,10 @@
 #include <vector>
 #include <ucontext.h>
 #include <sys/prctl.h>
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/base_sink.h>
+#include <mutex>
+#include <thread>
 #include <linux/audit.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
@@ -1191,6 +1195,96 @@ TEST_CASE("lazy mode leaves shared code mappings unpatched",
 		return bpftime::get_lazy_rewrite_stats().shared_skipped == 3 ?
 			       0 :
 			       7;
+	});
+	REQUIRE(code == 0);
+}
+
+namespace
+{
+struct counting_sink : spdlog::sinks::base_sink<std::mutex> {
+	std::atomic<int> messages{ 0 }, refused_reports{ 0 };
+
+    protected:
+	void sink_it_(const spdlog::details::log_msg &msg) override
+	{
+		messages++;
+		std::string text(msg.payload.data(), msg.payload.size());
+		if (text.find("execve calls without a gate") !=
+		    std::string::npos)
+			refused_reports++;
+	}
+	void flush_() override
+	{
+	}
+};
+
+std::shared_ptr<counting_sink> lazy_log_sink;
+std::atomic<int> messages_in_handler{ -1 };
+std::atomic<bool> handled{ false };
+
+void sigaction_in_handler(int)
+{
+	const int before = lazy_log_sink->messages;
+	struct sigaction sa;
+	sigaction(SIGUSR2, nullptr, &sa); // async-signal-safe, hooked
+	messages_in_handler = lazy_log_sink->messages - before;
+	handled = true;
+}
+
+using syscall3_fn = long (*)(long, long, long);
+syscall3_fn shared_exec, shared_tgkill;
+long target_tid;
+} // namespace
+
+// The handler cannot log, so it counted execve calls it refused, and the next
+// hooked call logged them: possibly an rt_sigaction in a signal handler that
+// interrupted malloc (logging allocates and takes locks). Now a rescan (after
+// mmap or mprotect, never in a signal handler) reports them.
+TEST_CASE("lazy mode reports refused execve outside signal handlers",
+	  "[syscall-rewrite][lazy]")
+{
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		lazy_log_sink = std::make_shared<counting_sink>();
+		spdlog::default_logger()->sinks().push_back(lazy_log_sink);
+		// Calls from shared code are made in the handler, untraced:
+		// execve is refused there, tgkill reaches no hook.
+		int fd = memfd_create("bpftime-shared-calls", MFD_CLOEXEC);
+		const uint32_t words[] = { mov_x8(SYS_execve), SVC_0, RET, 0,
+					   mov_x8(SYS_tgkill), SVC_0, RET };
+		if (fd < 0 || ftruncate(fd, 4096) != 0 ||
+		    pwrite(fd, words, sizeof(words), 0) != sizeof(words))
+			return 3;
+		auto *code = (char *)mmap(nullptr, 4096, PROT_READ | PROT_EXEC,
+					  MAP_SHARED, fd, 0);
+		if (code == MAP_FAILED)
+			return 4;
+		shared_exec = reinterpret_cast<syscall3_fn>(code);
+		shared_tgkill = reinterpret_cast<syscall3_fn>(code + 16);
+		signal(SIGUSR1, sigaction_in_handler);
+		target_tid = gettid();
+		// Nothing hooked between the refusal and the handler: the
+		// handler's sigaction is the first hooked call after it.
+		std::thread([] {
+			static char *argv[] = { (char *)"true", nullptr };
+			if (shared_exec((long)"/bin/true", (long)argv,
+					(long)environ) != -EPERM)
+				_exit(5);
+			shared_tgkill(getpid(), target_tid, SIGUSR1);
+			while (!handled) {
+			}
+		}).detach();
+		while (!handled) {
+		}
+		if (bpftime::get_lazy_rewrite_stats().execs_refused != 1)
+			return 6;
+		if (messages_in_handler != 0)
+			return 7; // logged in the handler
+		void *lib = dlopen(RAW_SVC_MODULE_PATH, RTLD_NOW); // a rescan
+		if (lib == nullptr || lazy_log_sink->refused_reports != 1)
+			return 8;
+		return 0;
 	});
 	REQUIRE(code == 0);
 }

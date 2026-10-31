@@ -848,9 +848,10 @@ bool rescan_enabled = false;
 bool lazy_requested = false;
 std::atomic<bool> lazy_active{ false };
 std::atomic<uint64_t> lazy_traps{ 0 }, lazy_rewritten{ 0 }, lazy_emulated{ 0 };
-// execve calls the handler refused on its emulation path, reported by the
-// next hooked call (the handler cannot log).
+// execve calls the handler refused on its emulation path: reported by the
+// next rescan (the handler cannot log), and in total in the stats.
 std::atomic<uint64_t> lazy_execs_refused_in_handler{ 0 };
+std::atomic<uint64_t> lazy_execs_refused_total{ 0 };
 bool sanitize_signal_call(int64_t sys_nr, int64_t &arg1, int64_t &arg2,
 			  int64_t &arg3, uint64_t *scratch, int64_t &ret);
 uint64_t page_size = 4096; // set by setup_syscall_tracer
@@ -1328,6 +1329,13 @@ void rescan(uint64_t addr, uint64_t len)
 	const uint64_t page = (uint64_t)sysconf(_SC_PAGESIZE);
 	uint64_t lo = addr & ~(page - 1), hi = (addr + len + page - 1) & ~(page - 1);
 	size_t found = 0, rewritten = 0, skipped_maps = 0;
+	// Here, not in the next hooked call: that could be an rt_sigaction in
+	// a signal handler that interrupted malloc, and logging allocates.
+	// mmap and mprotect, which lead here, are not async-signal-safe.
+	if (uint64_t refused = lazy_execs_refused_in_handler.exchange(0))
+		SPDLOG_WARN("Lazy rewriting: {} execve calls without a gate "
+			    "refused (EPERM)",
+			    refused);
 	pthread_mutex_lock(&rescan_mutex);
 	for (auto map : read_maps()) {
 		if (!(map.prot & PROT_EXEC) || map.end <= lo || map.begin >= hi ||
@@ -1678,6 +1686,7 @@ void on_sigsys(int, siginfo_t *info, void *context)
 		lazy_last_mapping_valid.store(false, std::memory_order_release);
 	if (nr == SYS_execve || nr == SYS_execveat) {
 		lazy_execs_refused_in_handler++;
+		lazy_execs_refused_total++;
 		regs[0] = -EPERM;
 		return;
 	}
@@ -1744,10 +1753,6 @@ static bool before_hooked_syscall(int64_t sys_nr, int64_t &arg1, int64_t &arg2,
 {
 	if (!lazy_active.load(std::memory_order_relaxed))
 		return false;
-	if (uint64_t refused = lazy_execs_refused_in_handler.exchange(0))
-		SPDLOG_WARN("Lazy rewriting: {} execve calls without a gate "
-			    "refused (EPERM)",
-			    refused);
 	if (sys_nr == SYS_execve || sys_nr == SYS_execveat) {
 		// The filter survives execve, our handler does not: the new
 		// program would be killed at its first system call.
@@ -1958,7 +1963,7 @@ bool enable_lazy_rewriting(const std::vector<std::pair<uint64_t, uint64_t> > &al
 lazy_rewrite_stats get_lazy_rewrite_stats()
 {
 	return { lazy_traps.load(), lazy_rewritten.load(), lazy_emulated.load(),
-		 lazy_shared_skipped.load() };
+		 lazy_shared_skipped.load(), lazy_execs_refused_total.load() };
 }
 
 void setup_syscall_tracer()
