@@ -37,12 +37,20 @@ TEST_CASE("Map creation rejects sizes the kernel rejects", "[map-create]")
 		  4294922064u, E2BIG },
 		{ "per-CPU array larger than the segment",
 		  BPF_MAP_TYPE_PERCPU_ARRAY, 4, 32768, 1u << 20, ENOMEM },
-		{ "array value over 4 MiB", BPF_MAP_TYPE_ARRAY, 4,
+		{ "array value over INT_MAX", BPF_MAP_TYPE_ARRAY, 4,
+		  0x80000000u, 1, E2BIG },
+		{ "array key other than 4 bytes", BPF_MAP_TYPE_ARRAY, 8, 8, 4,
+		  EINVAL },
+		{ "per-CPU array value over 32 KiB", BPF_MAP_TYPE_PERCPU_ARRAY,
+		  4, 32769, 4, ENOMEM },
+		{ "per-CPU hash value over 32 KiB", BPF_MAP_TYPE_PERCPU_HASH, 4,
+		  32769, 4, ENOMEM },
+		{ "hash key and value at 4 MiB - 48", BPF_MAP_TYPE_HASH, 48,
+		  (4u << 20) - 96, 1, E2BIG },
+		{ "queue value over 4 MiB", BPF_MAP_TYPE_QUEUE, 0,
 		  (4u << 20) + 1, 1, E2BIG },
-		{ "per-CPU value over 32 KiB", BPF_MAP_TYPE_PERCPU_ARRAY, 4,
-		  65536, 4, E2BIG },
-		{ "hash key over 512 bytes", BPF_MAP_TYPE_HASH, 513, 8, 4,
-		  E2BIG },
+		{ "queue with a key", BPF_MAP_TYPE_QUEUE, 4, 8, 4, EINVAL },
+		{ "stack with a key", BPF_MAP_TYPE_STACK, 4, 8, 4, EINVAL },
 		{ "hash key of 0 bytes", BPF_MAP_TYPE_HASH, 0, 8, 4, EINVAL },
 		{ "hash value of 0 bytes", BPF_MAP_TYPE_HASH, 4, 0, 4, EINVAL },
 		{ "hash of 0 entries", BPF_MAP_TYPE_HASH, 4, 8, 0, EINVAL },
@@ -65,6 +73,31 @@ TEST_CASE("Map creation rejects sizes the kernel rejects", "[map-create]")
 					      .key_size = 4,
 					      .value_size = 8,
 					      .max_ents = 4 }) == 100);
+		bpftime_close(100);
+	}
+	// Sizes the kernel (6.8) accepts: no key limit of its own for hashes
+	// (bf1af650 refused keys over 512 bytes), and a
+	// per-CPU hash's key counted once, not per CPU (one with 256-byte keys
+	// and 100,000 entries was refused with ENOMEM on a 128 MB segment).
+	struct {
+		const char *what;
+		int type;
+		uint32_t key_size, value_size, max_entries;
+	} accepted[] = {
+		{ "hash key over 512 bytes", BPF_MAP_TYPE_HASH, 513, 8, 4 },
+		{ "per-CPU hash with 256-byte keys", BPF_MAP_TYPE_PERCPU_HASH,
+		  256, 8, 100000 },
+		{ "per-CPU array value of 32 KiB", BPF_MAP_TYPE_PERCPU_ARRAY, 4,
+		  32768, 1 },
+	};
+	for (auto &c : accepted) {
+		INFO(c.what);
+		errno = 0;
+		CHECK(bpftime_maps_create(100, "accepted",
+					  { .type = c.type,
+					    .key_size = c.key_size,
+					    .value_size = c.value_size,
+					    .max_ents = c.max_entries }) == 100);
 		bpftime_close(100);
 	}
 	shm_holder.global_shared_memory.reset_server_state();
