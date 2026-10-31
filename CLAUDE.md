@@ -322,9 +322,13 @@ dlsym after loading; clone3's flags read with `process_vm_readv`, so a bad
 pointer is still the kernel's EFAULT). A cached identity older than the epoch
 is read again, and cached only if its pid is the process's (`process_pid`,
 refreshed in fork children only, so in a vfork child still the parent's):
-the child gets its own ids uncached, the parent refreshes once. Costs: one
-compare per identity read, and per thread creation a `getpid` and a
-`process_vm_readv`. Not covered: uprobe (Frida) mode and x86, which have no
+the child gets its own ids uncached, the parent refreshes once. The fast
+path is inline (`producer_identity.hpp`) on one `__thread` struct: in the
+dlmopen-ed agent each TLS variable needs a descriptor call, and three
+separate `thread_local`s in another file cost 8 ns per
+`bpf_get_current_pid_tgid` (results `reviews-20261031/refixes/output-ab`).
+Costs: about 4.5 ns per identity read on the Jetson (the epoch load and
+compare), and per thread creation a `getpid` and a `process_vm_readv`. Not covered: uprobe (Frida) mode and x86, which have no
 such marker; a vfork child there still uses its parent thread's identity.
 Tests: "bpf_get_current_pid_tgid in a vfork child and its parent after it"
 (runtime, the bump by hand), "clones that share the thread's TLS bump the
@@ -363,7 +367,9 @@ triggers a drain, and mapping the consumer buffer a second time with a
 larger size reallocates it under libbpf (tools map it once).
 
 A ringbuf reservation records its owner (pid, tid, pid namespace) in a
-256-slot table in the ring (`reservation_owner`); the record header's second
+256-slot table in the ring (`reservation_owner`), searched from the slot of
+the thread's tid (a shared next-slot cursor made 6-thread output 7% slower);
+the record header's second
 word (the kernel's pg_off, unread by libbpf) holds the slot, -1 when the
 table is full. Submit and discard free the slot. The tool's epoll wait calls
 `recover_dead_reservation()` before `has_data()`: if the next record is still

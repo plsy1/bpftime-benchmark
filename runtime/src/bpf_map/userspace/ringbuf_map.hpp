@@ -67,7 +67,6 @@ class ringbuf {
 	};
 	static constexpr int reservation_owner_slots = 256;
 	reservation_owner owners[reservation_owner_slots];
-	uint32_t next_owner_slot = 0;
 	int32_t claim_owner_slot(unsigned long position);
 
     public:
