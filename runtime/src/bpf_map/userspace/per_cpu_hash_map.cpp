@@ -484,11 +484,13 @@ long per_cpu_hash_map_impl::elem_update_userspace(const void *key,
 		generic_itr = impl.find(key_vec);
 		elem_exists = generic_itr != impl.end();
 	}
-	if (flags == BPF_NOEXIST && elem_exists) {
+	// The low 32 bits, as the program path: the high ones are bpftime's.
+	const uint64_t base_flags = flags & 0xFFFFFFFFULL;
+	if (base_flags == BPF_NOEXIST && elem_exists) {
 		errno = EEXIST;
 		return -1;
 	}
-	if (flags == BPF_EXIST && !elem_exists) {
+	if (base_flags == BPF_EXIST && !elem_exists) {
 		errno = ENOENT;
 		return -1;
 	}
