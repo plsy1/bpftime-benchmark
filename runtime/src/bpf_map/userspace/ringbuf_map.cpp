@@ -348,10 +348,12 @@ int32_t ringbuf::claim_owner_slot(unsigned long position,
 		auto &owner = owners[slot];
 		uint64_t held =
 			owner.position_plus_one.load(std::memory_order_acquire);
-		// A record already consumed is over: its slot is free even if
+		// A record consumed a lap ago is over: its slot is free even if
 		// its producer died before releasing it (256 such would have
-		// made every later record unrecoverable).
-		if (held != 0 && held - 1 >= cons_pos)
+		// made every later record unrecoverable). A lap, not at once:
+		// submit releases the slot with a plain store right after
+		// publishing.
+		if (held != 0 && held - 1 + max_ent > cons_pos)
 			continue;
 		if (held != 0 &&
 		    !owner.position_plus_one.compare_exchange_strong(
@@ -420,33 +422,22 @@ void ringbuf::submit(const void *sample, bool discard)
 	// record's header (or padding) occupies these bytes. Reading it after
 	// publishing freed whatever slot that header named.
 	const int32_t slot = hdr->fd;
-	uint64_t held = 0;
-	if (slot >= 0 && slot < reservation_owner_slots) {
-		int pid;
-		int64_t tid;
-		current_producer_identity(pid, tid);
-		auto &owner = owners[slot];
-		held = owner.position_plus_one.load(std::memory_order_acquire);
-		// Not this record's any more: recover_dead_reservation took
-		// it for a dead thread's (a stale identity), and its slot and
-		// bytes may belong to another record now.
-		if (held == 0 || ((held - 1) & mask()) != (hdr_offset & mask()) ||
-		    owner.pid != pid || owner.tid != (int32_t)tid)
-			return;
-	}
-	uint32_t len = __atomic_load_n(&hdr->len, __ATOMIC_ACQUIRE);
-	if ((len & BPF_RINGBUF_BUSY_BIT) == 0)
-		return;
-	uint32_t new_len = len & ~BPF_RINGBUF_BUSY_BIT;
+	auto new_len = hdr->len & ~BPF_RINGBUF_BUSY_BIT;
 	if (discard)
 		new_len |= BPF_RINGBUF_DISCARD_BIT;
-	// Fails only if the record was discarded meanwhile.
-	if (!__atomic_compare_exchange_n(&hdr->len, &len, new_len, false,
-					 __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+	// No BUSY before: recover_dead_reservation discarded the record (its
+	// owner looked dead) and freed the slot, which may be another
+	// record's now; the record stays discarded (new_len keeps the bit).
+	// Discarded between the read and the exchange, it is published after
+	// all: it is complete, and its owner alive. Nothing else is read here: loads of the owner slot before the
+	// exchange (an ownership check) made single-thread output 12% slower
+	// in about 40% of runs with the consumer on the other CPU cluster.
+	if ((__atomic_exchange_n(&hdr->len, new_len, __ATOMIC_ACQ_REL) &
+	     BPF_RINGBUF_BUSY_BIT) == 0)
 		return;
-	if (held != 0)
-		owners[slot].position_plus_one.compare_exchange_strong(
-			held, 0, std::memory_order_acq_rel);
+	if (slot >= 0 && slot < reservation_owner_slots)
+		owners[slot].position_plus_one.store(0,
+						     std::memory_order_release);
 }
 
 int32_t ringbuf::owner_slot_for_test(const void *sample) const
