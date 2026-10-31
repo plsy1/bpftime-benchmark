@@ -338,6 +338,9 @@ class bpf_map_handler {
 			   bool from_syscall = false) const;
 
 	long map_pop_elem(void *value, bool from_syscall = false) const;
+	// BPF_MAP_LOOKUP_AND_DELETE_ELEM: a pop for queues and stacks, the
+	// element of `key` for hash maps (value in the syscall layout).
+	long map_lookup_and_delete_elem(const void *key, void *value) const;
 
 	long map_peek_elem(void *value, bool from_syscall = false) const;
 

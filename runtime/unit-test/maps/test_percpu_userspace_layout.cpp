@@ -188,3 +188,76 @@ TEST_CASE("bpf() copies per-CPU values in libbpf's size",
 	else
 		unsetenv("BPFTIME_GLOBAL_SHM_NAME");
 }
+
+TEST_CASE("bpf() lookup and delete takes the key of hash maps",
+	  "[percpu-layout][lookup-and-delete]")
+{
+	const std::string name =
+		"bpftime-lookup-delete-shm-" + std::to_string(getpid());
+	const char *had = getenv("BPFTIME_GLOBAL_SHM_NAME");
+	const std::string previous = had ? had : "";
+	bpftime_destroy_global_shm();
+	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+	bpftime_initialize_global_shm(shm_open_type::SHM_REMOVE_AND_CREATE);
+	const size_t ncpu = bpftime_num_possible_cpus();
+	struct {
+		int fd;
+		int type;
+		size_t value_bytes;
+	} maps[] = { { 100, BPF_MAP_TYPE_HASH, 8 },
+		     { 101, BPF_MAP_TYPE_PERCPU_HASH, 8 * ncpu },
+		     { 102, BPF_MAP_TYPE_LRU_HASH, 8 } };
+	for (auto &m : maps) {
+		INFO("map type " << m.type);
+		REQUIRE(bpftime_maps_create(m.fd, "lookup_delete",
+					    { .type = m.type,
+					      .key_size = 8,
+					      .value_size = 8,
+					      .max_ents = 16 }) == m.fd);
+		std::vector<uint8_t> in(m.value_bytes), out(m.value_bytes, 0);
+		for (size_t i = 0; i < in.size(); i++)
+			in[i] = (uint8_t)(i + 1);
+		const uint64_t key = 7, other = 8;
+		REQUIRE(bpftime_map_update_elem(m.fd, &key, in.data(), 0) == 0);
+		REQUIRE(bpftime_map_update_elem(m.fd, &other, in.data(), 0) ==
+			0);
+		REQUIRE(bpftime_map_lookup_and_delete_elem(m.fd, &key,
+							   out.data()) == 0);
+		CHECK(out == in);
+		CHECK(bpftime_map_lookup_elem(m.fd, &key) == nullptr);
+		CHECK(bpftime_map_lookup_elem(m.fd, &other) != nullptr);
+		errno = 0;
+		CHECK(bpftime_map_lookup_and_delete_elem(m.fd, &key,
+							 out.data()) == -1);
+		CHECK(errno == ENOENT);
+	}
+	// Queues pop; other types have no lookup and delete.
+	REQUIRE(bpftime_maps_create(103, "lookup_delete_queue",
+				    { .type = BPF_MAP_TYPE_QUEUE,
+				      .key_size = 0,
+				      .value_size = 8,
+				      .max_ents = 4 }) == 103);
+	const uint64_t pushed = 42;
+	uint64_t popped = 0;
+	REQUIRE(bpftime_map_push_elem(103, &pushed, 0) == 0);
+	REQUIRE(bpftime_map_lookup_and_delete_elem(103, nullptr, &popped) ==
+		0);
+	CHECK(popped == 42);
+	REQUIRE(bpftime_maps_create(104, "lookup_delete_array",
+				    { .type = BPF_MAP_TYPE_ARRAY,
+				      .key_size = 4,
+				      .value_size = 8,
+				      .max_ents = 4 }) == 104);
+	const uint32_t index = 1;
+	errno = 0;
+	CHECK(bpftime_map_lookup_and_delete_elem(104, &index, &popped) == -1);
+	CHECK(errno == ENOTSUP);
+	shm_holder.global_shared_memory.reset_server_state();
+	bpftime_destroy_global_shm();
+	shared_memory_object::remove(name.c_str());
+	bpftime_initialize_global_shm(shm_open_type::SHM_NO_CREATE);
+	if (had)
+		setenv("BPFTIME_GLOBAL_SHM_NAME", previous.c_str(), 1);
+	else
+		unsetenv("BPFTIME_GLOBAL_SHM_NAME");
+}
