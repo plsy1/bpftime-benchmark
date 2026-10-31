@@ -1,9 +1,9 @@
-# 附录：研究笔记
+# 附录 A 研究笔记
 
 > **这部分面向参与 bpftime 性能研究的人**：七月我们在上游 `6bd5319d` 上做的三个修复、它们在
 > 官方 `177a1dc` 里的去向、向上游提 PR 时的辩护论据、研究用实验的环境和数据，以及读代码时
-> 发现的代码与注释不一致之处。**学习 bpftime 本身可以跳过整篇附录**，正文各章和
-> [第 8 章](08-practice.md) 不依赖这里的任何内容。
+> 发现的代码与注释不一致之处（这部分已并入[附录 B](B-known-issues.md)）。**学习 bpftime 本身可以跳过整篇附录**，正文各章和
+> [第 12 章](12-practice.md) 不依赖这里的任何内容。
 >
 > 这里是研究记录，信息密度高，保留了行号和 PR 号。行号基于官方 `177a1dc`（不含我们的任何修改）。
 
@@ -11,17 +11,19 @@
 
 | 想查什么 | 去哪一节 |
 |---|---|
-| 三个修复各自的上游结局，一张表 | [A.1](#a1-背景七月的三个修复与上游结局) |
-| 七月读过的代码，官方版本里哪几处变了 | [A.2](#a2-重读提醒官方代码里已经变了的三处) |
-| 三个修复各钉在热路径的哪一环 | [A.3](#a3-全景三个修复在热路径上的位置) |
+| 三个修复各自的上游结局，一张表 | [A.1](#a1) |
+| 七月读过的代码，官方版本里哪几处变了 | [A.2](#a2) |
+| 三个修复各钉在热路径的哪一环 | [A.3](#a3) |
 | 对齐修复（已合入 #612）的官方实现与差异 | [A.4.1](#a41-修复-1software-perf-record-8-字节对齐0fcdb0e--上游-612) |
 | 去绑核提案（仍开放）的审稿人问答 | [A.4.2](#a42-修复-2删除每事件-affinity-绑核076e3e4仍开放) |
 | SIGSEGV 修复为什么被 #642 取代 | [A.4.3](#a43-修复-3sigsegv-handler-每线程装一次ead56c9--被上游-642-取代) |
-| Jetson 构建路径、benchmark 脚本、消融数据 | [A.5](#a5-研究用实验与环境备注) |
-| 代码与注释不一致的九处 | [A.6](#a6-已知代码与注释不一致清单已在-177a1dc-重新核实) |
-| 研究向自测题 | [A.7](#a7-研究向自测题) |
+| Jetson 构建路径、benchmark 脚本、消融数据 | [A.5](#a5) |
+| 代码与注释不一致的九处（已并入附录 B） | [A.6](#a6) |
+| 研究向自测题 | [A.7](#a7) |
 
 ---
+
+<a id="a1"></a>
 
 ## A.1 背景：七月的三个修复与上游结局
 
@@ -48,16 +50,20 @@
 
 ---
 
+<a id="a2"></a>
+
 ## A.2 重读提醒：官方代码里已经变了的三处
 
 原阅读节奏把 maps/helpers 放在最后，理由之一是我们在 benchmark 工作里已经把 `bpf_helper.cpp`
-的热路径段读得很熟。但**熟的是 7 月的版本**。官方 `177a1dc` 里这几处已经变了，读第 6 章时专门重读：
+的热路径段读得很熟。但**熟的是 7 月的版本**。官方 `177a1dc` 里这几处已经变了，读[第 7 章](07-helpers.md)时专门重读：
 
 - `runtime/src/bpf_helper.cpp:97-177`：probe 读写（#642 后改为 `process_vm_readv` / `writev`）；
 - `runtime/src/bpf_helper.cpp:487-553`：`bpf_perf_event_output`（#678 加了 `goto restore_affinity`）；
 - `runtime/src/handler/perf_event_handler.cpp:318-388`：`append_record_parts` / `output_data`（#612 的对齐）。
 
 ---
+
+<a id="a3"></a>
 
 ## A.3 全景：三个修复在热路径上的位置
 
@@ -93,6 +99,8 @@ sequenceDiagram
 变成"每次一个 syscall、但不碰信号"）；修复 2 仍在等论证——"删掉的东西保护不了任何东西"。
 
 ---
+
+<a id="a4"></a>
 
 ## A.4 PR 状态与辩护清单
 
@@ -165,7 +173,7 @@ int software_perf_event_buffer::output_data(const void *buf, size_t size)
 
 	append_record_parts(&header, sizeof(header), buf, size,
 			    header.size - size);         // padding 只占位，不写
-	return 0;                        // append 失败（环满）照样返回 0，见 A.6
+	return 0;                        // append 失败（环满）照样返回 0，见附录 B.6.2
 }
 ```
 
@@ -281,7 +289,7 @@ nginx worker `nr_migrations = 0`。cpu 值只影响 perf_buffer 回调的 cpu �
 **Q6：#678 的测试会不会因此失败？**
 按代码推断不会（未实测）：它的三个 SECTION 断言的是返回值、errno（`ENOENT` / `EINVAL` 来自 map
 查询失败）和"调用前后 affinity 相同"（`test_software_perf_event.cpp:113-123`）；去掉绑核后
-affinity 根本不被改动。实测方法见 [A.5](#a5-研究用实验与环境备注) 的"去绑核后跑 `[affinity]`"。
+affinity 根本不被改动。实测方法见 [A.5](#a5) 的"去绑核后跑 `[affinity]`"。
 
 **Q7：性能数字可信吗？**
 要先声明测量顺序——对齐 bug 不修，吞吐数据被隐藏丢事件污染（这是修复 1 必须先合入的原因，
@@ -292,7 +300,7 @@ affinity 根本不被改动。实测方法见 [A.5](#a5-研究用实验与环境
   事件守恒 2.001/请求零丢失；x64 同 VM A/B 吞吐 +37%～41%，kernel 腿 Δ≤0.7% 证明控制干净。
 - 10 月在官方 `177a1dc` 上只加这一处改动复测（`benchmark-results/jetson` 分支
   `uprobe/ssl-nginx-2x2-20261023/README.md`）：16B 下官方 −12.0% vs kernel，去绑核后 +7.0%，
-  即比官方 +21.6%。256KB 的对比不等价（所有 bpftime 构建都只交付约一半事件，见 [A.6](#a6-已知代码与注释不一致清单已在-177a1dc-重新核实) 第 5 条），
+  即比官方 +21.6%。256KB 的对比不等价（所有 bpftime 构建都只交付约一半事件，见 [A.6](#a6) 的实测数据和[附录 B.6.2](B-known-issues.md#b-helpers)），
   PR 里只引 16B。
 
 ### A.4.3 修复 3：SIGSEGV handler 每线程装一次（`ead56c9` → 被上游 #642 取代）
@@ -326,7 +334,7 @@ affinity 根本不被改动。实测方法见 [A.5](#a5-研究用实验与环境
 2. **成本模型变了**：开检查时每次 `bpf_probe_read` 恰好一个 `process_vm_readv` syscall。
    对比：7 月原始代码每次 2 个 `rt_sigaction` + memcpy，我们的修复在首次之后 0 个 syscall。
    官方方案在 Jetson ssl-nginx 热路径上的成本我们没有单独测过（TODO：如需引用，按 A.5 的
-   "probe check 消融"测；第 8 章 [实验 6.3](08-practice.md#实验-63probe_read-的两种实现) 给了计数 syscall 的方法）。
+   "probe check 消融"测；[第 12 章里对应第 7 章的实验](12-practice.md#exp-7)给了计数 syscall 的方法）。
 3. **错误语义更接近内核**：读失败返回 `-EFAULT`（`:129-131`），而不是靠 fault 恢复。
 
 #### 如果有人问"你们当时的方案为什么没进"
@@ -336,9 +344,11 @@ affinity 根本不被改动。实测方法见 [A.5](#a5-研究用实验与环境
 
 ---
 
+<a id="a5"></a>
+
 ## A.5 研究用实验与环境备注
 
-第 8 章的验证实验是通用写法。这里保留原第 8 章实验部分里和研究环境、研究数据相关的内容。
+[第 12 章](12-practice.md)的验证实验是通用写法。这里保留旧版实践章实验部分里和研究环境、研究数据相关的内容。
 
 ### 源码与构建（Jetson）
 
@@ -349,7 +359,7 @@ affinity 根本不被改动。实测方法见 [A.5](#a5-研究用实验与环境
   且没有编出 `bpftime_runtime_tests`。
 - 需要单测或 probe check 时，在官方树的副本里 `make build-unit-test`（`Makefile:35-37`，Debug，两个 check 都开）。
 - 7 月用的 `bpftime-offical-no-btf/build-alignment-test` 已不存在，且它是 `ead56c9`，不是官方代码。
-- x86 NUC 上对应的现成构建见第 8 章"深入参考"的最后一块。
+- x86 NUC 上对应的现成构建见第 12 章的"深入参考"。
 
 ### 实验：dump handler 表
 
@@ -364,7 +374,7 @@ python3 -m json.tool /tmp/shm.json | less
 **更正**：官方 `177a1dc` 的 loader 正常退出时，若共享内存由它创建且已无活着的 agent，会在
 `atexit` 里删掉共享内存（`runtime/syscall-server/syscall_server_utils.cpp` 的
 `remove_syscall_server_global_shm`）。所以 benchmark 正常结束后通常已经没有共享内存可导出，
-要在 loader 运行期间导出（第 8 章 [实验 2.1](08-practice.md#实验-21导出-handler-表逐行认类型) 已按此改写并实测）。
+要在 loader 运行期间导出（[第 12 章里对应第 2 章的实验](12-practice.md#exp-2)已按此改写并实测）。
 只有 loader 被 `kill -9` 或崩溃时，残留的共享内存才能事后导出。
 
 JSON 的类型字符串见 `runtime/src/bpftime_shm_json.cpp:276-368`，`handler_variant` 的 7 个成员见
@@ -432,101 +442,39 @@ grep PROBE <build>/CMakeCache.txt
 多线程 shard 隔离（含 `E2BIG` 边界）、mmap resize 后的对齐回绕、shm 耗尽时 `ENOMEM`；
 `[affinity]`（`:23`）是 #678 的绑核恢复测试。两个练习：
 
-1. 改一处 `output_data` 的 `alignment`，观察哪些断言炸（第 8 章 [实验 6.2](08-practice.md#实验-62故意破坏-8-字节对齐) 有通用写法）。
+1. 改一处 `output_data` 的 `alignment`，观察哪些断言炸（[第 12 章里对应第 7 章的实验](12-practice.md#exp-7)有通用写法）。
 2. **去绑核后跑 `[affinity]`**：把 A.4.2 的去绑核改动打上去，确认 `[affinity]` 仍然通过
    （A.4.2 Q6 里"按代码推断不会失败"的实测版）。
 
 ---
 
-## A.6 已知代码与注释不一致清单（已在 `177a1dc` 重新核实）
+<a id="a6"></a>
 
-阅读时以代码为准。7 月清单里的 7 条逐条在官方 `177a1dc` 上重新核对：**没有一条被上游修掉**，
-全部保留（行号已更新）；另补两条新发现。
+## A.6 代码与注释不一致清单（已并入附录 B）
 
-| # | 位置 | 一句话 | 状态 |
-|---|---|---|---|
-| 1 | `frida_uprobe_attach_impl.hpp:20-25` | UPROBE / URETPROBE 注释写反 | 仍存在 |
-| 2 | `vm/vm-core/include/ebpf-vm.h:151` | 自称 interpreter，实为惰性 JIT | 仍存在 |
-| 3 | `per_cpu_hash_map.cpp:122-124` | 一条注释两处失实 | 仍存在 |
-| 4 | `per_cpu_hash_map.cpp:96-107` | `elem_delete` 清零范围与意图相反 | 仍存在 |
-| 5 | `perf_event_handler.cpp:385-387` | `output_data` 把丢弃当成功 | 仍存在 |
-| 6 | `bpf_helper.cpp:487` | `flags` 参数整个被忽略 | 仍存在 |
-| 7 | `syscall_context.cpp:1005-1007` | mocked mmap 兜底连调两次 | 仍存在，不确定是否有意 |
-| 8 | `tools/bpftimetool/main.cpp:183` vs `:200-202` | `load` 用法说"文件"，实际要 JSON 文本 | 新发现 |
-| 9 | `daemon/test/test_daemon.cpp:8-10` 等 | `#error Only supports x86_64` 永不触发 | 新发现 |
+7 月清单的 7 条加上 10 月新发现的 2 条，已在官方 `177a1dc` 上重新核对，**没有一条被上游修掉**。
+这 9 条现在统一放在[附录 B 已知问题清单](B-known-issues.md)里，按模块归类，条目里注明"原附录 A.6"：
 
-### A.6.1 UPROBE / URETPROBE 注释写反
+| 原编号 | 一句话 | 现在的位置 |
+|---|---|---|
+| A.6.1 | UPROBE / URETPROBE 注释写反 | [B.3.8](B-known-issues.md#b-attach) |
+| A.6.2 | `ebpf-vm.h` 自称 interpreter，实为惰性 JIT | [B.5.16](B-known-issues.md#b-vm) |
+| A.6.3 | `per_cpu_hash_map` 一条注释两处失实 | [B.7.9](B-known-issues.md#b-maps) |
+| A.6.4 | per-CPU hash `elem_delete` 清零范围与意图相反 | [B.7.7](B-known-issues.md#b-maps) |
+| A.6.5 | `output_data` 把丢弃当成功 | [B.6.2](B-known-issues.md#b-helpers) |
+| A.6.6 | `bpf_perf_event_output` 的 `flags` 被忽略 | [B.6.1](B-known-issues.md#b-helpers) |
+| A.6.7 | mocked mmap 兜底路径连调两次 | [B.2.5](B-known-issues.md#b-entry) |
+| A.6.8 | `bpftimetool load` 用法说"文件"，实际要 JSON 文本 | [B.9.12](B-known-issues.md#b-periphery) |
+| A.6.9 | `#error Only supports x86_64` 永不触发 | [B.10.9](B-known-issues.md#b-build-test) |
 
-`attach/frida_uprobe_attach_impl/include/frida_uprobe_attach_impl.hpp:20-25`（仍存在）。
-`ATTACH_UPROBE = 6` 顶着"invoked when the attached function **return**"的注释，
-`ATTACH_URETPROBE = 7` 顶着"invoked when the attached function was **invoked**"。
-
-实现侧语义正常：`ensure_listener`（`frida_internal_attach_entry.cpp:117-127`）给 uprobe 挂 `on_enter`、
-给 uretprobe 挂 `on_leave`；`on_enter`（`:293-308`）调 `iterate_uprobe_callbacks`，`on_leave`
-（`:310-318`）调 `iterate_uretprobe_callbacks`。
-
-### A.6.2 "interpreter" 注释
-
-仍存在。自称 interpreter 的是 VM 抽象层的 `vm/vm-core/include/ebpf-vm.h:151`
-（"Execute a BPF program in the VM using **the interpreter**"）。
-
-LLVM 后端下调用链是 `ebpf_exec`（`vm/vm-core/src/ebpf-vm.cpp:57-61`）→ `bpftime_llvm_vm::exec`
-（`vm/compat/llvm-vm/compat_llvm.cpp:35-37`）→ `llvmbpf_vm::exec`（`vm/llvm-jit/src/vm.cpp:145-172`），
-实为**惰性 JIT**：首调用 compile 后缓存函数指针再执行。`vm/llvm-jit/include/llvmbpf.hpp:79-82`
-的注释反而是对的。
-
-调用侧 `bpftime_prog_exec`（`runtime/src/bpftime_prog.cpp:238-276`）的 `jitted` 分支（`:260-270`）
-区分的是"预先显式 compile 过"与"没 compile 过"，后者对 LLVM 后端同样落到 JIT。
-
-### A.6.3 `per_cpu_hash_map` 的一条注释两处失实
-
-`runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:122-124`（仍存在）。注释称"Allocate as a
-**local variable** to make it thread safe, since we use **sharable lock**"，实际：
-
-- (a) 用的是共享成员 `this->key_templates[0]`（`:124`），不是局部变量；
-- (b) `per_cpu_hash_map.hpp:52` 明确 `should_lock = false`，全类无锁。
-
-### A.6.4 `elem_delete` 清零范围与意图相反
-
-`per_cpu_hash_map.cpp:96-107`（仍存在）。
-`std::fill(itr->second.begin(), itr->second.begin() + cpu * value_size, 0)`（`:103-104`）
-清的是 CPU `0..cpu-1` 的切片，不是当前 CPU 的 `[cpu*value_size, (cpu+1)*value_size)`；
-在 CPU 0 上调用则什么都不清。对照 `elem_update` 的写法（`:83-84`，`begin() + cpu * value_size`
-作为**起点**）即可确认这是笔误。
-
-### A.6.5 `output_data` 把丢弃当成功
-
-`perf_event_handler.cpp:385-387`（仍存在）。`append_record_parts` 的返回值被忽略，函数返回 0；
-#612 之后唯一会报错的是 payload 过大（`:371-374`，`E2BIG`）。全 runtime 不生成 `PERF_RECORD_LOST`
-（只在 `runtime/include/bpftime_epoll.h:314` 有枚举定义）。环满丢弃对 BPF 程序和消费者双向不可见。
-
-10 月在 `177a1dc` 上实测到了后果：256KB 响应时 kernel 每请求 17.0 个 SSL_write 事件，官方 bpftime
-只有约 8.6 个（`benchmark-results/jetson` 分支 `uprobe/ssl-nginx-2x2-20261023/README.md` Finding 3）。
-
-### A.6.6 `bpf_perf_event_output` 的 `flags` 被忽略
-
-`bpf_helper.cpp:487`（仍存在，`:487-553` 内没有任何对 `flags` 的使用）。`BPF_F_INDEX_MASK` 显式索引
-会被当 current-cpu 处理（对照 kernel 语义应取 `flags & BPF_F_INDEX_MASK` 作 map index）。上游可单独立项。
-
-### A.6.7 mocked mmap 兜底路径连调两次（不确定是否有意）
-
-`runtime/syscall-server/syscall_context.cpp:1005-1007`（仍存在）。兜底路径连调两次 `orig_mmap64_fn`，
-第一次的匿名映射返回值 `ptr` 直接丢弃（泄漏一块映射）。看不出第一次调用的意图，标记待查。
-
-### A.6.8 `bpftimetool load` 的用法说明（新发现）
-
-`tools/bpftimetool/main.cpp:183` vs `:200-202`：`load` 的用法说明写"Load a JSON file"，代码却把
-`argv[3]` 当 JSON 文本直接解析（`bpftime_import_shm_handler_from_json` → `json::parse(json_string)`，
-`runtime/src/bpftime_shm_json.cpp:223-228`）；#682 的测试 `test_load.py` 传的也是 JSON 文本。
-导入文件用的是 `import` 子命令。
-
-### A.6.9 永不触发的 `#error Only supports x86_64`（新发现）
-
-`daemon/test/test_daemon.cpp:8-10` 等。条件是 `!defined(__x86_64__) && defined(_M_X64)`，而 `_M_X64`
-是 MSVC 的宏，GCC / Clang 下不会定义，所以这条"只支持 x86_64"的守卫实际不起作用（7 月底稿第 7 章
-把它当成了有效限制）。`test_daemon_driver.cpp:14-16` 是同一写法。
+研究相关的实测数据留在这里：A.6.5 的后果 10 月在 `177a1dc` 上实测到了——256KB 响应时 kernel 每请求
+17.0 个 SSL_write 事件，官方 bpftime 只有约 8.6 个（`benchmark-results/jetson` 分支
+`uprobe/ssl-nginx-2x2-20261023/README.md` Finding 3）。环满丢弃对 BPF 程序和消费者双向不可见，
+所以 256KB 的吞吐对比不等价（见 A.4.2 Q7）。
 
 ---
+
+<a id="a7"></a>
 
 ## A.7 研究向自测题
 
