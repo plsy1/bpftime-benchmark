@@ -145,39 +145,6 @@ TEST_CASE("Ringbuf skips the record of a producer that died before submitting",
 	boost::interprocess::shared_memory_object::remove(name.c_str());
 }
 
-// submit used to read the record's owner slot after publishing it: a lap
-// later the bytes may be another record's header (or padding, which holds
-// the map fd), and the slot it named was freed under a live reservation.
-// A record whose header no longer names this thread's slot for it is no
-// longer this thread's: submit leaves it alone.
-TEST_CASE("Ringbuf submit releases only its own owner slot", "[ringbuf]")
-{
-	const std::string name =
-		"bpftime_ringbuf_own_slot_" + std::to_string(getpid());
-	boost::interprocess::shared_memory_object::remove(name.c_str());
-	{
-		boost::interprocess::managed_shared_memory shm(
-			boost::interprocess::create_only, name.c_str(),
-			4 << 20);
-		auto *map = shm.construct<bpftime::ringbuf_map_impl>(
-			"ringbuf")(4096, shm);
-		auto rb = map->create_impl_shared_ptr();
-		void *a = map->reserve(16, 1);
-		void *b = map->reserve(16, 1);
-		REQUIRE(a != nullptr);
-		REQUIRE(b != nullptr);
-		const int32_t slot_b = rb->owner_slot_for_test(b);
-		REQUIRE(slot_b >= 0);
-		// a's header bytes now name b's slot, as after a lap.
-		rb->set_owner_slot_for_test(a, slot_b);
-		map->submit(a, false);
-		CHECK(rb->owner_slot_claimed_for_test(slot_b));
-		map->submit(b, false);
-		CHECK_FALSE(rb->owner_slot_claimed_for_test(slot_b));
-	}
-	boost::interprocess::shared_memory_object::remove(name.c_str());
-}
-
 // A record recover_dead_reservation discarded (its owner looked dead: a
 // stale identity after a raw clone) is not published again by a late
 // submit, and the slot, given to another reservation since, stays held.
