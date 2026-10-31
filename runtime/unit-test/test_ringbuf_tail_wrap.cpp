@@ -243,3 +243,48 @@ TEST_CASE("Ringbuf owner slots of consumed records are reused", "[ringbuf]")
 	}
 	boost::interprocess::shared_memory_object::remove(name.c_str());
 }
+
+// tgkill finds a thread-group leader until its parent reaps it: the record
+// of a single-threaded producer that died stayed in the way until then (for
+// ever if the parent never waits).
+TEST_CASE("Ringbuf recovers a dead producer before it is reaped", "[ringbuf]")
+{
+	const std::string name =
+		"bpftime_ringbuf_zombie_" + std::to_string(getpid());
+	boost::interprocess::shared_memory_object::remove(name.c_str());
+	{
+		boost::interprocess::managed_shared_memory shm(
+			boost::interprocess::create_only, name.c_str(),
+			4 << 20);
+		auto *map = shm.construct<bpftime::ringbuf_map_impl>(
+			"ringbuf")(4096, shm);
+		auto rb = map->create_impl_shared_ptr();
+		pid_t child = fork();
+		REQUIRE(child >= 0);
+		if (child == 0)
+			_exit(map->reserve(16, 1) != nullptr ? 0 : 1);
+		// Until the child is a zombie (not reaped).
+		char state = 0;
+		for (int i = 0; i < 5000 && state != 'Z'; i++) {
+			const std::string path =
+				"/proc/" + std::to_string(child) + "/stat";
+			FILE *f = fopen(path.c_str(), "r");
+			if (f != nullptr) {
+				char buf[512] = {};
+				fread(buf, 1, sizeof(buf) - 1, f);
+				fclose(f);
+				const char *end = strrchr(buf, ')');
+				if (end != nullptr)
+					state = end[2];
+			}
+			if (state != 'Z')
+				usleep(1000);
+		}
+		REQUIRE(state == 'Z');
+		CHECK(rb->recover_dead_reservation());
+		int status = -1;
+		REQUIRE(waitpid(child, &status, 0) == child);
+		CHECK(WEXITSTATUS(status) == 0);
+	}
+	boost::interprocess::shared_memory_object::remove(name.c_str());
+}

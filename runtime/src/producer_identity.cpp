@@ -2,6 +2,8 @@
 #include "fork_handlers.hpp"
 #include <atomic>
 #include <cerrno>
+#include <cstdio>
+#include <cstring>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -73,6 +75,33 @@ bool is_thread_alive(int pid, int64_t tid)
 	(void)pid;
 	(void)tid;
 	return true;
+#endif
+}
+
+bool is_thread_gone(int pid, int64_t tid)
+{
+#if __linux__
+	if (syscall(SYS_tgkill, pid, (pid_t)tid, 0) != 0)
+		return errno == ESRCH;
+	// tgkill finds a thread-group leader until its parent reaps it: a
+	// main thread that exited is a zombie (Z) or dead (X).
+	char path[64];
+	snprintf(path, sizeof(path), "/proc/%d/task/%d/stat", pid, (int)tid);
+	FILE *f = fopen(path, "re");
+	if (f == nullptr)
+		return false;
+	char buf[512];
+	const size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+	fclose(f);
+	buf[n] = 0;
+	// "pid (comm) S ...": comm may contain spaces and parentheses.
+	const char *end = strrchr(buf, ')');
+	return end != nullptr && end[1] == ' ' &&
+	       (end[2] == 'Z' || end[2] == 'X');
+#else
+	(void)pid;
+	(void)tid;
+	return false;
 #endif
 }
 
