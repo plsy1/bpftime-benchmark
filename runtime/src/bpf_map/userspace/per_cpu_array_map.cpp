@@ -21,7 +21,8 @@ per_cpu_array_map_impl::per_cpu_array_map_impl(
 	: data(memory.get_segment_manager()), ncpu(ncpu),
 	  value_size(value_size), max_ent(max_entries)
 {
-	data.resize(max_entries * ncpu * value_size);
+	// 64-bit: the 32-bit product wrapped (65536 x 65536 gave 0 bytes).
+	data.resize((size_t)max_entries * ncpu * value_size);
 }
 
 per_cpu_array_map_impl::per_cpu_array_map_impl(
