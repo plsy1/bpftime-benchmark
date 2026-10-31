@@ -1062,6 +1062,50 @@ TEST_CASE("lazy mode refuses execve", "[syscall-rewrite][lazy]")
 	REQUIRE(code == 0);
 }
 
+// A dlopen rescans holding rescan_mutex and takes the patch lock to install
+// gates; fork's prepare handlers took them the other way round, and the two
+// deadlocked within a second.
+TEST_CASE("lazy mode survives a dlopen racing a fork",
+	  "[syscall-rewrite][lazy]")
+{
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		alarm(15); // a deadlock ends the child here
+		static std::atomic<bool> stop{ false };
+		static std::atomic<int> opens{ 0 };
+		pthread_t opener;
+		pthread_create(
+			&opener, nullptr,
+			[](void *) -> void * {
+				while (!stop) {
+					void *lib = dlopen(RAW_SVC_MODULE_PATH,
+							   RTLD_NOW);
+					if (lib)
+						dlclose(lib);
+					opens++;
+				}
+				return nullptr;
+			},
+			nullptr);
+		int forks = 0;
+		const time_t end = time(nullptr) + 3;
+		while (time(nullptr) < end) {
+			pid_t pid = fork();
+			if (pid == 0)
+				_exit(0);
+			int status = 0;
+			if (pid < 0 || waitpid(pid, &status, 0) != pid)
+				return 3;
+			forks++;
+		}
+		stop = true;
+		pthread_join(opener, nullptr);
+		return forks > 10 && opens > 10 ? 0 : 4;
+	});
+	REQUIRE(code == 0);
+}
+
 // A fork while another thread held the patch lock left the child's lock
 // owned by a thread it does not have: its first trap spun forever.
 TEST_CASE("lazy mode fork children never inherit the patch lock",
