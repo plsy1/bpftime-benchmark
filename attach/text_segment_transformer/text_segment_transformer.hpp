@@ -22,6 +22,9 @@ void set_call_hook(syscall_hooker_func_t hook);
 void set_identity_epoch(uint64_t *epoch);
 struct lazy_rewrite_stats {
 	uint64_t traps, rewritten, emulated;
+	// Traps in MAP_SHARED code, made untraced (patching would write the
+	// file); also counted in emulated.
+	uint64_t shared_skipped;
 };
 // Whether BPFTIME_SYSCALL_LAZY=1 was set at setup_syscall_tracer (aarch64).
 bool lazy_rewriting_requested();
