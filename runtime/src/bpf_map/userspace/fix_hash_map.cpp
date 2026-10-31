@@ -73,6 +73,16 @@ long fix_size_hash_map_impl::elem_delete(const void *key)
 	return 0;
 }
 
+long fix_size_hash_map_impl::lookup_and_delete_userspace(const void *key,
+							 void *value)
+{
+	if (!map_impl.elem_delete(key, value)) {
+		errno = ENOENT;
+		return -1;
+	}
+	return 0;
+}
+
 int fix_size_hash_map_impl::map_get_next_key(const void *key, void *next_key)
 {
 	SPDLOG_TRACE("Peform map get next key of hash map");
