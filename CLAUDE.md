@@ -613,8 +613,11 @@ The section table comes from the mapped file itself: a file renamed over or
 unlinked under a running process (a package upgrade, then `bpftime attach`)
 shows as "path (deleted)" and is opened through `/proc/self/map_files`
 (needs `CAP_CHECKPOINT_RESTORE`, so root; otherwise skipped with a warning
-naming the mapping); any other path must still have the mapped inode. Before,
-"(deleted)" mappings were always skipped (untraced). `MAP_SHARED` executable
+naming the mapping); any other path must still have the mapped device and
+inode (the device too: an inode number alone may exist on another filesystem
+mounted over the path; test "a mapped file is the same file only with its
+device and inode"). Before, "(deleted)" mappings were always skipped
+(untraced). `MAP_SHARED` executable
 mappings are skipped: rewriting a writable file's mapping stored branches to
 this process's gates into the file. Tests: "a deleted library is rewritten
 from the mapped file when allowed" (rewritten as root, skipped otherwise),
@@ -784,6 +787,14 @@ Fixed after the second review (results `reviews-20261031/rereview`):
   allocates and takes locks. Test: "lazy mode reports refused execve outside
   signal handlers" (the signal sent from untraced code, so the handler's
   sigaction is the first hooked call after the refusal).
+- The `mprotect` fallback (not dumpable) writes a gate that crosses a page
+  (every 128th: header 16 bytes, gates 32) by unprotecting both pages, each
+  restored to its own protection; it refused such gates, and their sites
+  were made untraced. Test: "lazy mode rewrites in processes that are not
+  dumpable" (130 sites).
+- When enabling fails after the SIGSYS handler was installed (a thread
+  blocks SIGSYS, the filter cannot be installed), the previous SIGSYS action
+  is put back. Test: "lazy mode is refused while a thread blocks SIGSYS".
 
 Known limits of the aarch64 rewriting (documented, not fixed):
 - A hooked call pushes 16 + 784 bytes before the C dispatch, about 1.3 KiB
