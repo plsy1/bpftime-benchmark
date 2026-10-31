@@ -572,6 +572,15 @@ software_perf_event_shard *software_perf_event_data::get_current_thread_shard()
 		return nullptr;
 	}
 	auto &shard = producer_shards.back();
+	// The data area is allocated (and its failure caught) inside the
+	// shard; a shard without it was kept and cached, and the thread got
+	// ENOSPC on every output from then on, memory freed or not.
+	const size_t wanted = consumer_buffer.mmap_buffer.size();
+	if (wanted > (size_t)pagesize && shard.buffer.mmap_buffer.size() < wanted) {
+		producer_shards.pop_back();
+		errno = ENOSPC;
+		return nullptr;
+	}
 	shard.pid_namespace = pid_namespace;
 	if (software_perf_event_shard_cache.size() >=
 	    max_software_perf_event_shard_cache_entries) {
