@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstring>
+#include <stdexcept>
 #include <pthread.h>
 
 namespace bpftime
@@ -577,7 +578,10 @@ class bpftime_hash_map {
 		  stripe_buffer(memory.get_segment_manager()),
 		  _pool_tokens((int64_t)num_buckets)
 	{
-		data_buffer.resize(_num_buckets * _elem_size, 0);
+		size_t data_size;
+		if (__builtin_mul_overflow(_num_buckets, _elem_size, &data_size))
+			throw std::length_error("hash map size overflows");
+		data_buffer.resize(data_size, 0);
 		stripe_buffer.resize(_num_stripes * sizeof(stripe_state) +
 					     CACHE_LINE,
 				     0);
