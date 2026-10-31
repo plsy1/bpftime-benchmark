@@ -83,9 +83,20 @@ int handler_manager::set_handler(int fd, handler_variant &&handler,
 	handlers[fd] = std::move(handler);
 	if (std::holds_alternative<bpf_map_handler>(handlers[fd])) {
 		auto &map_handler = std::get<bpf_map_handler>(handlers[fd]);
-		if (!map_handler.has_map_impl() &&
-		    map_handler.map_init(memory) < 0) {
-			const int err = errno;
+		int ret = 0;
+		if (!map_handler.has_map_impl()) {
+			errno = 0;
+			try {
+				ret = map_handler.map_init(memory);
+			} catch (...) {
+				// Nothing may leave a handler without its map.
+				ret = -1;
+				errno = EINVAL;
+			}
+		}
+		if (ret < 0) {
+			// An implementation that failed without saying why.
+			const int err = errno != 0 ? errno : EINVAL;
 			clear_id_at(fd, memory);
 			errno = err;
 			return -1;
