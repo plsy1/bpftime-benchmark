@@ -163,11 +163,26 @@ thread_local std::unordered_map<const software_perf_event_data *,
 // clears it. If registering the handler failed, query on every call.
 thread_local int cached_producer_pid = -1;
 thread_local int64_t cached_producer_tid = -1;
+// The process's pid namespace; a child forked after unshare(CLONE_NEWPID)
+// is in another one. UINT64_MAX: not read yet.
+std::atomic<uint64_t> cached_producer_namespace{ UINT64_MAX };
 const int producer_identity_atfork_status =
 	bpftime::register_fork_handlers(nullptr, nullptr, [] {
 		cached_producer_pid = -1;
 		cached_producer_tid = -1;
+		cached_producer_namespace.store(UINT64_MAX,
+						std::memory_order_relaxed);
 	});
+
+uint64_t producer_pid_namespace()
+{
+	uint64_t ns = cached_producer_namespace.load(std::memory_order_relaxed);
+	if (ns == UINT64_MAX || producer_identity_atfork_status != 0) {
+		ns = current_pid_namespace();
+		cached_producer_namespace.store(ns, std::memory_order_relaxed);
+	}
+	return ns;
+}
 
 void current_producer_identity(int &pid, int64_t &tid)
 {
@@ -571,7 +586,7 @@ software_perf_event_data::~software_perf_event_data()
 	pthread_spin_destroy(&shard_lock);
 }
 
-software_perf_event_shard &software_perf_event_data::get_current_thread_shard()
+software_perf_event_shard *software_perf_event_data::get_current_thread_shard()
 {
 	int pid;
 	int64_t tid;
@@ -588,7 +603,9 @@ software_perf_event_shard &software_perf_event_data::get_current_thread_shard()
 			   entry.shard->generation == entry.shard_generation &&
 			   entry.shard->buffer_generation ==
 				   current_buffer_generation) {
-			return *entry.shard;
+			// The entry was made by this thread for its own
+			// namespace, and the generation changes on reuse.
+			return entry.shard;
 		} else {
 			software_perf_event_shard_cache.erase(itr);
 		}
@@ -600,8 +617,12 @@ software_perf_event_shard &software_perf_event_data::get_current_thread_shard()
 	    software_perf_event_reclaim_shard_threshold) {
 		reclaim_inactive_producer_shards_locked();
 	}
+	// (pid, tid) mean something only within a pid namespace: two
+	// containers' pid 1 must not share one single-producer ring.
+	const uint64_t pid_namespace = producer_pid_namespace();
 	for (auto &shard : producer_shards) {
 		if (shard.pid == pid && shard.tid == tid &&
+		    shard.pid_namespace == pid_namespace &&
 		    shard.buffer_generation == current_buffer_generation) {
 			if (software_perf_event_shard_cache.size() >=
 			    max_software_perf_event_shard_cache_entries) {
@@ -611,17 +632,24 @@ software_perf_event_shard &software_perf_event_data::get_current_thread_shard()
 				event_generation, current_buffer_generation,
 				shard.generation, &shard
 			};
-			return shard;
+			return &shard;
 		}
 	}
 
 	auto *manager = producer_shards.get_allocator().get_segment_manager();
-	producer_shards.emplace_back(pid, tid, next_shard_generation++,
-				     current_buffer_generation, pagesize,
-				     manager,
-				     consumer_buffer.mmap_buffer.size());
+	try {
+		producer_shards.emplace_back(
+			pid, tid, next_shard_generation++,
+			current_buffer_generation, pagesize, manager,
+			consumer_buffer.mmap_buffer.size());
+	} catch (const boost::interprocess::bad_alloc &) {
+		// Shared memory is full (shards of other pid namespaces are
+		// never reclaimed here): no shard, so no lost count either.
+		// The exception must not reach the traced process.
+		return nullptr;
+	}
 	auto &shard = producer_shards.back();
-	shard.pid_namespace = current_pid_namespace();
+	shard.pid_namespace = pid_namespace;
 	if (software_perf_event_shard_cache.size() >=
 	    max_software_perf_event_shard_cache_entries) {
 		software_perf_event_shard_cache.clear();
@@ -629,15 +657,27 @@ software_perf_event_shard &software_perf_event_data::get_current_thread_shard()
 	software_perf_event_shard_cache[this] = { event_generation,
 						  current_buffer_generation,
 						  shard.generation, &shard };
-	return shard;
+	return &shard;
 }
 
 void software_perf_event_data::drain_producer_shards()
 {
 	spin_lock_guard guard(shard_lock);
-	for (auto &shard : producer_shards) {
-		while (shard.buffer.copy_next_record_to(consumer_buffer)) {
-		}
+	// Start one shard further each time: when the consumer ring fills up,
+	// the shards drained last drop their samples, and that must not be
+	// the same threads every time.
+	const size_t count = producer_shards.size();
+	if (count != 0) {
+		auto first = producer_shards.begin();
+		std::advance(first, drain_start++ % count);
+		auto itr = first;
+		do {
+			while (itr->buffer.copy_next_record_to(
+				consumer_buffer)) {
+			}
+			if (++itr == producer_shards.end())
+				itr = producer_shards.begin();
+		} while (itr != first);
 	}
 	maybe_reclaim_inactive_producer_shards_locked();
 }
@@ -663,7 +703,7 @@ void software_perf_event_data::reclaim_inactive_producer_shards_locked()
 	// here (tgkill fails with ESRCH or hits an unrelated thread): its shard
 	// stays, with its lost-sample count, until a reclaimer of its namespace
 	// finds it dead.
-	const uint64_t pid_namespace = current_pid_namespace();
+	const uint64_t pid_namespace = producer_pid_namespace();
 	for (auto itr = producer_shards.begin();
 	     itr != producer_shards.end();) {
 		auto &shard = *itr;
@@ -692,8 +732,14 @@ software_perf_event_data::get_header_ref_const() const
 int software_perf_event_data::output_data(const void *buf, size_t size,
 					  bool *wakeup_consumer)
 {
-	return get_current_thread_shard().buffer.output_data(buf, size,
-							      wakeup_consumer);
+	auto *shard = get_current_thread_shard();
+	if (shard == nullptr) {
+		if (wakeup_consumer)
+			*wakeup_consumer = false;
+		errno = ENOSPC;
+		return -1;
+	}
+	return shard->buffer.output_data(buf, size, wakeup_consumer);
 }
 
 perf_event_mmap_page &software_perf_event_data::get_header_ref()
