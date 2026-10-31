@@ -303,6 +303,19 @@ the focused filter (the hash map and perf tests run through
 `[bpftime_hash_map]`, `[percpu-hash]` and `[perf_event]`). Results:
 `reviews-20261031` in the results branch.
 
+Fifteen more commits (`9aeb2863..f73a45f1`, accepted 2026-10-31) fix what a
+third review of those 28 found: map creation rules checked against Linux
+6.8 (per-CPU hash keys counted once), no handler left without its map, no
+leaked descriptor and EINVAL for unsupported types, lookup-and-delete
+pointers and flags, perf shards whose data did not fit, ringbuf submit and
+slot ownership, a dead main thread recovered before its reap, shard caches
+in fork children, unknown pid namespaces, a clone hook without system calls
+(and fork-like clones), btrfs mappings, and lazy-mode mapping changes,
+SA_RESTART and fork from a forwarded handler. Their tests run under the
+existing filter tags. Known cost: single-thread ringbuf output +2.4%, and
++12% in about 40% of runs with the tool on the other CPU cluster (not
+explained). Results: `reviews-20261031/refixes2`.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
