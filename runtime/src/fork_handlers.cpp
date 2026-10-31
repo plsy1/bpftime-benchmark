@@ -15,10 +15,15 @@ struct fork_handler_entry {
 
 // Constant-initialized: static initializers register before any
 // constructor of this file could run. Entries are published in order, so
-// a reader of `published` sees complete entries only. Registration is
-// rare (static init, call_once); running takes no lock, so a fork while
-// another thread registers cannot deadlock the child.
+// a reader of `published` sees complete entries only. Running takes no
+// lock, so a fork while another thread registers cannot deadlock the child.
+// Registration happens only in static initializers (while the runtime
+// loads): a child forked between another thread's reservation and its
+// publication inherits `published < reserved`, and a later registration
+// there would wait for an entry nobody completes. The wait is bounded as a
+// last resort; such an entry then runs only through pthread_atfork.
 constexpr int max_fork_handlers = 32;
+constexpr int max_publish_spins = 1 << 20;
 fork_handler_entry fork_handlers[max_fork_handlers];
 std::atomic<int> reserved{ 0 };
 std::atomic<int> published{ 0 };
@@ -32,11 +37,26 @@ int register_fork_handlers(void (*prepare)(), void (*parent)(),
 		return ENOMEM;
 	fork_handlers[index] = { prepare, parent, child };
 	int expected = index;
-	while (!published.compare_exchange_weak(expected, index + 1,
-						std::memory_order_release,
-						std::memory_order_relaxed))
+	for (int spins = 0;
+	     !published.compare_exchange_weak(expected, index + 1,
+					      std::memory_order_release,
+					      std::memory_order_relaxed);
+	     spins++) {
+		if (spins == max_publish_spins)
+			break;
 		expected = index;
+	}
 	return pthread_atfork(prepare, parent, child);
+}
+
+int fork_handler_count()
+{
+	return published.load(std::memory_order_acquire);
+}
+
+void fork_handlers_leave_reservation_unpublished_for_test()
+{
+	reserved.fetch_add(1, std::memory_order_relaxed);
 }
 
 void run_fork_handlers(fork_phase phase)

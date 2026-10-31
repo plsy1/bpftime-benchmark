@@ -11,9 +11,17 @@ enum fork_phase { fork_prepare = 0, fork_parent = 1, fork_child = 2 };
 // namespace's libc, which never sees the application's fork. The
 // transformer runs the table from the main libc instead
 // (bpftime_agent_fork_hook). Returns pthread_atfork's result, or ENOMEM
-// when the table is full (nothing registered then).
+// when the table is full (nothing registered then). Call it only from
+// static initializers (see fork_handlers.cpp).
 int register_fork_handlers(void (*prepare)(), void (*parent)(),
 			   void (*child)());
+
+// Entries the table runs.
+int fork_handler_count();
+
+// Tests: the state a child inherits when it was forked while another
+// thread was between reserving and publishing an entry.
+void fork_handlers_leave_reservation_unpublished_for_test();
 
 // Runs the table in pthread_atfork's order: prepare handlers last
 // registered first, parent and child handlers first registered first.
