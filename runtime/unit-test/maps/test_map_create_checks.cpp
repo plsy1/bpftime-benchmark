@@ -7,6 +7,8 @@
 #include <bpf_map/userspace/per_cpu_array_map.hpp>
 #include <bpftime_shm.hpp>
 #include <bpftime_shm_internal.hpp>
+#include <bpf_map/array_map_binding.hpp>
+#include <handler/handler_manager.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <linux/bpf.h>
 #include <cerrno>
@@ -122,4 +124,86 @@ TEST_CASE("Per-CPU array size is computed in 64 bits", "[map-create]")
 		CHECK_THROWS(per_cpu_array_map_impl(segment, 65536, 65536, 1));
 	}
 	shared_memory_object::remove(name.c_str());
+}
+
+// A map whose lower bound fits the segment but whose implementation does not
+// (the striped hash allocates about three times the bound): Boost's container
+// length_error, not a std::length_error, escaped map_init and left the
+// descriptor holding a handler without a map; a later lookup on it crashed
+// the tool.
+TEST_CASE("A map the segment cannot hold leaves no handler", "[map-create]")
+{
+	const std::string name =
+		"bpftime_map_create_oom_" + std::to_string(getpid());
+	shared_memory_object::remove(name.c_str());
+	{
+		managed_shared_memory segment(create_only, name.c_str(),
+					      16 << 20);
+		auto *manager = segment.construct<handler_manager>(
+			"handler_manager")(segment, MIN_MAX_FD_COUNT);
+		(void)map_binding_mutex(segment);
+		errno = 0;
+		CHECK(manager->set_handler(
+			      3,
+			      bpf_map_handler(3, "too_big", segment,
+					      { .type = BPF_MAP_TYPE_HASH,
+						.key_size = 8,
+						.value_size = 8,
+						.max_ents = 600000 }),
+			      segment) == -1);
+		CHECK(errno == ENOMEM);
+		CHECK_FALSE(manager->is_allocated(3));
+		// The descriptor is free for a map that fits.
+		CHECK(manager->set_handler(
+			      3,
+			      bpf_map_handler(3, "fits", segment,
+					      { .type = BPF_MAP_TYPE_HASH,
+						.key_size = 8,
+						.value_size = 8,
+						.max_ents = 1000 }),
+			      segment) == 3);
+		manager->clear_id_at(3, segment);
+	}
+	shared_memory_object::remove(name.c_str());
+}
+
+// Types bpftime does not implement failed with errno 0, which libbpf's
+// bpf_map_create turns into fd 0 and bpf_object__create_map takes as
+// success. The kernel returns EINVAL for what it does not support here.
+TEST_CASE("Unsupported map types fail with EINVAL", "[map-create]")
+{
+	const std::string name =
+		"bpftime-map-create-unsupported-" + std::to_string(getpid());
+	const char *had = getenv("BPFTIME_GLOBAL_SHM_NAME");
+	const std::string previous = had ? had : "";
+	bpftime_destroy_global_shm();
+	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+	bpftime_initialize_global_shm(shm_open_type::SHM_REMOVE_AND_CREATE);
+	struct {
+		const char *what;
+		int type;
+		uint32_t key_size;
+	} cases[] = {
+		{ "sockhash", BPF_MAP_TYPE_SOCKHASH, 4 },
+		{ "LRU per-CPU hash", BPF_MAP_TYPE_LRU_PERCPU_HASH, 4 },
+		{ "bloom filter with a key", BPF_MAP_TYPE_BLOOM_FILTER, 4 },
+	};
+	for (auto &c : cases) {
+		INFO(c.what);
+		errno = 0;
+		CHECK(bpftime_maps_create(100, "unsupported",
+					  { .type = c.type,
+					    .key_size = c.key_size,
+					    .value_size = 4,
+					    .max_ents = 4 }) == -1);
+		CHECK(errno == EINVAL);
+	}
+	shm_holder.global_shared_memory.reset_server_state();
+	bpftime_destroy_global_shm();
+	shared_memory_object::remove(name.c_str());
+	bpftime_initialize_global_shm(shm_open_type::SHM_NO_CREATE);
+	if (had)
+		setenv("BPFTIME_GLOBAL_SHM_NAME", previous.c_str(), 1);
+	else
+		unsetenv("BPFTIME_GLOBAL_SHM_NAME");
 }
