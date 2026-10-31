@@ -470,7 +470,8 @@ keep their size; u64 key and value grew from 20 to 24 bytes. Arrays, per-CPU
 arrays and per-CPU hash values keep a `value_size` stride: a naturally aligned
 C struct with an 8-byte member has a size that is a multiple of 8, so only
 packed structs could misalign there. Test: `[alignment]` (key sizes 1-64,
-value sizes 4-24, an atomic add on every value).
+value sizes 1-8, 12, 16, 20, 24, an atomic add on every value of 4 bytes or
+more, every value written to its last byte without reaching a neighbour).
 
 A stripe without tokens, once the pool is empty, takes a batch (up to
 `TOKEN_BATCH`) from other stripes while it holds every stripe, instead of one
@@ -875,6 +876,12 @@ stacks and removes the key's element of hash, per-CPU hash and LRU hash maps
 in one step (the striped hash copies the value under its stripe lock, the
 others under the handler lock); other types return ENOTSUP like the kernel.
 Test: "bpf() lookup and delete takes the key of hash maps".
+
+The per-CPU hash's `bpf()` update compares the low 32 bits of the flags with
+`BPF_NOEXIST`/`BPF_EXIST`, as its program path does (bpftime's own
+operations use the high bits); it compared the whole value, so a flag with
+a high bit set skipped the checks there. Test: "Per-CPU hash update flags
+mean the same through bpf()".
 
 Map creation (`bpf_map_handler::map_init`) checks sizes as the kernel's
 `map_alloc_check` does for hash, per-CPU hash, LRU hash, array, per-CPU
