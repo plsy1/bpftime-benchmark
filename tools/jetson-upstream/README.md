@@ -312,9 +312,14 @@ slot ownership, a dead main thread recovered before its reap, shard caches
 in fork children, unknown pid namespaces, a clone hook without system calls
 (and fork-like clones), btrfs mappings, and lazy-mode mapping changes,
 SA_RESTART and fork from a forwarded handler. Their tests run under the
-existing filter tags. Known cost: single-thread ringbuf output +2.4%, and
-+12% in about 40% of runs with the tool on the other CPU cluster (not
-explained). Results: `reviews-20261031/refixes2`.
+existing filter tags. Results: `reviews-20261031/refixes2`.
+
+6ab9cbfe (accepted 2026-11-01) puts the ringbuf submit back to one exchange:
+reading the owner slot before publishing made output about 12% slower in
+some runs with the tool on the other CPU cluster. A consumed record's slot is
+reused a lap later. Known cost against 9aeb2863: single-thread ringbuf output
++2-3%, 6 threads -2.4%. A fourth review with a severity bar found nothing
+more to fix (`reviews-20261031/rereview3`).
 
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
