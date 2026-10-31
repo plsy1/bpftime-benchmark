@@ -138,6 +138,9 @@ using software_perf_event_shard_list =
 	boost::interprocess::list<software_perf_event_shard,
 				  software_perf_event_shard_allocator>;
 
+// Tests only: what the fork child handler does to the thread's shard cache.
+void software_perf_event_fork_child_for_test();
+
 struct software_perf_event_data {
 	int cpu;
 	// Field `config` of perf_event_attr
