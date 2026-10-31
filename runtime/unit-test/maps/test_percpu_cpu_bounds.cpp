@@ -76,23 +76,32 @@ TEST_CASE("Per-CPU maps reject a CPU beyond their count",
 
 TEST_CASE("Possible CPUs are counted as libbpf does", "[cpu-bounds]")
 {
+	// libbpf_num_possible_cpus counts the CPUs in the mask; the index bound
+	// is the highest one + 1. They differ when the mask has holes.
+	struct {
+		const char *text;
+		int count, limit;
+	} cases[] = { { "0-5\n", 6, 6 },
+		      { "0,2-3", 3, 4 },
+		      { "0", 1, 1 },
+		      { "0-3,8-11\n", 8, 12 } };
+	const auto saved = bpftime_possible_cpu_ids();
+	for (auto &c : cases) {
+		INFO(c.text);
+		std::vector<int> ids;
+		REQUIRE(bpftime_parse_cpu_list(c.text, ids));
+		bpftime_set_possible_cpus_for_test(ids);
+		CHECK(bpftime_num_possible_cpus() == c.count);
+		CHECK(bpftime_cpu_index_limit() == c.limit);
+	}
+	bpftime_set_possible_cpus_for_test(saved);
+	std::vector<int> ids;
+	for (const char *bad : { "", "x", "3-1", "0,0", "1-" })
+		CHECK_FALSE(bpftime_parse_cpu_list(bad, ids));
+
 	std::ifstream f("/sys/devices/system/cpu/possible");
 	std::string text;
 	REQUIRE(std::getline(f, text));
-	// The highest number in "0-5" or "0,2-3".
-	int highest = -1, n = 0;
-	bool in_number = false;
-	for (char c : text) {
-		if (c >= '0' && c <= '9') {
-			n = (in_number ? n * 10 : 0) + (c - '0');
-			in_number = true;
-		} else {
-			if (in_number && n > highest)
-				highest = n;
-			in_number = false;
-		}
-	}
-	if (in_number && n > highest)
-		highest = n;
-	REQUIRE(bpftime_num_possible_cpus() == highest + 1);
+	REQUIRE(bpftime_parse_cpu_list(text.c_str(), ids));
+	CHECK(bpftime_possible_cpu_ids() == ids);
 }
