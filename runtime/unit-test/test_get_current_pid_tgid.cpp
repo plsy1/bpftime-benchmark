@@ -12,6 +12,7 @@
 extern "C" {
 uint64_t bpftime_get_current_pid_tgid(uint64_t, uint64_t, uint64_t, uint64_t,
 				      uint64_t);
+extern uint64_t bpftime_identity_epoch;
 }
 
 static uint64_t call_helper()
@@ -86,105 +87,40 @@ TEST_CASE("bpf_get_current_pid_tgid reports the calling process after fork")
 }
 
 #if __linux__
-#include <boost/scope_exit.hpp>
-#include <filesystem>
-#include <fstream>
 #include <thread>
-#include <linux/bpf_common.h>
-#include <linux/seccomp.h>
-#include <sys/prctl.h>
 
-TEST_CASE("PID namespace identity translates on cache fill and refreshes on fork")
+// A vfork child shares its parent thread's memory and TLS, and no fork
+// handler runs for it. The syscall-trace transformer bumps
+// bpftime_identity_epoch before such a clone; done by hand here.
+static bool vfork_child_and_parent_see_their_own_ids()
 {
-	char dir[] = "/tmp/bpftime-nspid-XXXXXX";
-	REQUIRE(mkdtemp(dir) != nullptr);
-	const std::filesystem::path root(dir);
-	BOOST_SCOPE_EXIT_ALL(=) { std::filesystem::remove_all(root); };
-	std::filesystem::create_directory(root / "self");
-	std::filesystem::create_directory(root / "thread-self");
-	{
-		std::ofstream status(root / "self/status");
-		status << "Groups:";
-		for (int i = 0; i < 1024; ++i)
-			status << " 12345";
-		status << "\nNSpid:\t40001\t1\n";
-	}
-	std::ofstream(root / "thread-self/status") << "NSpid:\t40002\t2\n";
-	pid_t child = fork();
-	REQUIRE(child >= 0);
+	static volatile uint64_t in_child;
+	__atomic_fetch_add(&bpftime_identity_epoch, 1, __ATOMIC_RELAXED);
+	pid_t child = vfork();
 	if (child == 0) {
-		if (setenv("BPFTIME_HOST_PROCFS", dir, 1) != 0)
-			_exit(1);
-		const uint64_t first = (uint64_t(40001) << 32) | 40002;
-		if (call_helper() != first)
-			_exit(2);
-		std::ofstream(root / "self/status") << "NSpid:\t50001\t1\n";
-		std::ofstream(root / "thread-self/status") << "NSpid:\t50002\t2\n";
-		if (call_helper() != first)
-			_exit(3);
-		const uint64_t next = (uint64_t(50001) << 32) | 50002;
-		uint64_t threaded = 0;
-		std::thread worker([&] { threaded = call_helper(); });
-		worker.join();
-		if (threaded != next)
-			_exit(4);
-		pid_t grandchild = fork();
-		if (grandchild == 0)
-			_exit(call_helper() == next ? 0 : 5);
-		int status = 0;
-		_exit(grandchild > 0 && waitpid(grandchild, &status, 0) == grandchild &&
-		      WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : 6);
-	}
-	int status = 0;
-	REQUIRE(waitpid(child, &status, 0) == child);
-	REQUIRE(WIFEXITED(status));
-	REQUIRE(WEXITSTATUS(status) == 0);
-}
-
-TEST_CASE("PID namespace identity falls back when procfs is unavailable")
-{
-	pid_t child = fork();
-	REQUIRE(child >= 0);
-	if (child == 0) {
-		setenv("BPFTIME_HOST_PROCFS", "/nonexistent/bpftime-procfs", 1);
-		_exit(helper_matches_this_process() ? 0 : 1);
-	}
-	int status = 0;
-	REQUIRE(waitpid(child, &status, 0) == child);
-	REQUIRE(WIFEXITED(status));
-	REQUIRE(WEXITSTATUS(status) == 0);
-}
-
-TEST_CASE("PID namespace identity hot path makes no system calls")
-{
-	pid_t child = fork();
-	REQUIRE(child >= 0);
-	if (child == 0) {
-		const uint64_t expected = call_helper();
-		// After warming the cache, permit only process exit. Any helper
-		// syscall (including libc getpid) terminates this test child.
-		// libbpf ships an internal linux/filter.h, so describe the
-		// classic BPF UAPI layout here instead of including that header.
-		struct instruction { uint16_t code; uint8_t jt, jf; uint32_t k; };
-		instruction filter[] = {
-			{ BPF_LD | BPF_W | BPF_ABS, 0, 0, offsetof(struct seccomp_data, nr) },
-			{ BPF_JMP | BPF_JEQ | BPF_K, 2, 0, SYS_exit_group },
-			{ BPF_JMP | BPF_JEQ | BPF_K, 1, 0, SYS_exit },
-			{ BPF_RET | BPF_K, 0, 0, SECCOMP_RET_KILL_PROCESS },
-			{ BPF_RET | BPF_K, 0, 0, SECCOMP_RET_ALLOW },
-		};
-		struct { unsigned short len; instruction *filter; } program = { 5, filter };
-		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 ||
-		    prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) != 0)
-			_exit(2);
-		for (int i = 0; i < 10000; ++i)
-			if (call_helper() != expected)
-				_exit(3);
+		in_child = call_helper();
 		_exit(0);
 	}
-	int status = 0;
-	REQUIRE(waitpid(child, &status, 0) == child);
-	REQUIRE(WIFEXITED(status));
-	REQUIRE(WEXITSTATUS(status) == 0);
+	int status = -1;
+	if (child < 0 || waitpid(child, &status, 0) != child)
+		return false;
+	const uint64_t in_parent = call_helper();
+	return helper_tgid(in_child) == (uint32_t)child &&
+	       helper_tid(in_child) == (uint32_t)child &&
+	       helper_tgid(in_parent) == (uint32_t)getpid() &&
+	       helper_tid(in_parent) == current_tid();
+}
+
+TEST_CASE("bpf_get_current_pid_tgid in a vfork child and its parent after it",
+	  "[pid_tgid]")
+{
+	// The parent thread's identity cached before the vfork.
+	REQUIRE(helper_tid(call_helper()) == current_tid());
+	CHECK(vfork_child_and_parent_see_their_own_ids());
+	// Nothing cached yet: the child must not fill the thread's cache.
+	bool ok = false;
+	std::thread([&] { ok = vfork_child_and_parent_see_their_own_ids(); })
+		.join();
+	CHECK(ok);
 }
 #endif

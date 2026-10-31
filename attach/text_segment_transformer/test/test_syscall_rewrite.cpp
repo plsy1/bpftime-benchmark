@@ -273,6 +273,52 @@ TEST_CASE("fork, clone and posix_spawn children return to the call site",
 	REQUIRE(code == 0);
 }
 
+TEST_CASE("clones that share the thread's TLS bump the identity epoch",
+	  "[syscall-rewrite]")
+{
+	// A vfork or posix_spawn child runs the agent on its parent thread's
+	// TLS; the agent re-checks its cached pid and tid after a bump.
+	// Threads (CLONE_SETTLS) and fork children (no CLONE_VM) do not bump.
+	int code = in_rewritten_child([] {
+		static uint64_t epoch = 0;
+		bpftime::set_identity_epoch(&epoch);
+		char arg0[] = "true";
+		char *argv[] = { arg0, nullptr };
+		pid_t pid;
+		int status = 0;
+		if (posix_spawn(&pid, "/bin/true", nullptr, nullptr, argv,
+				environ) != 0 ||
+		    waitpid(pid, &status, 0) != pid)
+			return 2;
+		if (epoch != 1)
+			return 3;
+		pid = vfork();
+		if (pid == 0)
+			_exit(0);
+		if (pid < 0 || waitpid(pid, &status, 0) != pid || epoch != 2)
+			return 4;
+		pthread_t thread;
+		if (pthread_create(&thread, nullptr,
+				   [](void *) -> void * { return nullptr; },
+				   nullptr) != 0 ||
+		    pthread_join(thread, nullptr) != 0 || epoch != 2)
+			return 5;
+		pid = fork();
+		if (pid == 0)
+			_exit(0);
+		if (pid < 0 || waitpid(pid, &status, 0) != pid || epoch != 2)
+			return 6;
+		// A bad clone_args pointer: the kernel's EFAULT, no fault in
+		// the hook.
+		errno = 0;
+		if (syscall(SYS_clone3, (void *)8, 88) != -1 ||
+		    errno != EFAULT || epoch != 2)
+			return 7;
+		return 0;
+	});
+	REQUIRE(code == 0);
+}
+
 namespace
 {
 int64_t rounding_hook(int64_t nr, int64_t a1, int64_t a2, int64_t a3,

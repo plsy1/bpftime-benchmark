@@ -63,6 +63,7 @@
 #include <vector>
 #include <utility>
 #include <bpftime_shm_internal.hpp>
+#include "producer_identity.hpp"
 #include <chrono>
 #include <thread>
 
@@ -408,275 +409,22 @@ uint64_t bpftime_ktime_get_boot_ns(uint64_t, uint64_t, uint64_t, uint64_t,
 	return spec.tv_sec * (uint64_t)1000000000 + spec.tv_nsec;
 }
 
-#if __linux__
-static int get_host_nspid(const char *procfs, const char *entry, int fallback)
-{
-	if (procfs == nullptr || procfs[0] == '\0')
-		return fallback;
-	char path[PATH_MAX];
-	int length = snprintf(path, sizeof(path), "%s/%s/status", procfs, entry);
-	if (length < 0 || static_cast<size_t>(length) >= sizeof(path))
-		return fallback;
-	FILE *file = fopen(path, "re");
-	if (file == nullptr)
-		return fallback;
-	char *line = nullptr;
-	size_t capacity = 0;
-	int result = fallback;
-	// The Groups line can be arbitrarily long and precedes NSpid in procfs.
-	// getline also avoids accepting a PID truncated at a read boundary.
-	while (getline(&line, &capacity, file) >= 0) {
-		if (strncmp(line, "NSpid:", 6) != 0)
-			continue;
-		char *end = nullptr;
-		errno = 0;
-		long value = strtol(line + 6, &end, 10);
-		if (errno == 0 && end != line + 6 && value > 0 &&
-		    value <= INT32_MAX && (*end == ' ' || *end == '\t' ||
-					  *end == '\n' || *end == '\0'))
-			result = static_cast<int>(value);
-		break;
-	}
-	free(line);
-	fclose(file);
-	return result;
-}
-static thread_local uint64_t bpftime_cached_host_identity = 0;
-#endif
-
-// bpf_get_current_pid_tgid caches the identity so it does not pay a syscall on
-// every call. The cache cannot be function-local: a forked child inherits the
-// parent's cached values, and would report the parent's pid and tid. These live
-// at file scope so the fork handler can refresh them in the child.
-static pid_t bpftime_cached_tgid = getpid();
-#if __linux__
-static thread_local int bpftime_cached_tid = -1;
-#elif __APPLE__
-static thread_local uint64_t bpftime_cached_tid = UINT64_MAX;
-#endif
-
-static void bpftime_refresh_cached_identity_in_child()
-{
-	bpftime_cached_tgid = getpid();
-	bpftime_invalidate_credential_cache();
-	// tid is meaningless in the child; the next helper call refills it.
-#if __linux__
-	bpftime_cached_tid = -1;
-#elif __APPLE__
-	bpftime_cached_tid = UINT64_MAX;
-#endif
-}
-
-static const int bpftime_identity_atfork_status =
+// The identity is cached (producer_identity.cpp): per thread, cleared in fork
+// children, checked again after a vfork-like clone.
+static const int bpftime_credential_atfork_status =
 	bpftime::register_fork_handlers(nullptr, nullptr,
-					bpftime_refresh_cached_identity_in_child);
+					bpftime_invalidate_credential_cache);
 
 uint64_t bpftime_get_current_pid_tgid(uint64_t, uint64_t, uint64_t, uint64_t,
 				      uint64_t)
 {
-	// If registering the fork handler failed, the cache is still the
-	// parent's after a fork, so read the identity directly. The probe
-	// access cache above falls back the same way. This exceptional path
-	// also recomputes procfs translation on each call.
-	if (bpftime_identity_atfork_status != 0) {
-#if __linux__
-		const char *procfs = getenv("BPFTIME_HOST_PROCFS");
-		return (uint64_t(get_host_nspid(procfs, "self", getpid())) << 32) |
-		       uint32_t(get_host_nspid(procfs, "thread-self",
-					      syscall(SYS_gettid)));
-#elif __APPLE__
-		uint64_t tid = 0;
-		pthread_threadid_np(NULL, &tid);
-		return ((uint64_t)getpid() << 32) | tid;
-#endif
-	}
-#if __linux__
-	if (bpftime_cached_tid == -1) {
-		bpftime_cached_tid = static_cast<int>(syscall(SYS_gettid));
-		const char *procfs = getenv("BPFTIME_HOST_PROCFS");
-		bpftime_cached_host_identity =
-			(uint64_t(get_host_nspid(procfs, "self", bpftime_cached_tgid)) << 32) |
-			uint32_t(get_host_nspid(procfs, "thread-self", bpftime_cached_tid));
-	}
-#elif __APPLE__
-	if (bpftime_cached_tid == UINT64_MAX) {
-		pthread_threadid_np(NULL, &bpftime_cached_tid);
-	}
-#endif
-#if __linux__
-	return bpftime_cached_host_identity;
+	int pid;
+	int64_t tid;
+	bpftime::current_producer_identity(pid, tid);
+#if __APPLE__
+	return ((uint64_t)pid << 32) | (uint64_t)tid;
 #else
-	return ((uint64_t)bpftime_cached_tgid << 32) | bpftime_cached_tid;
-#endif
-}
-
-#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__)) && \
-	defined(BPFTIME_BUILD_WITH_LIBBPF)
-// Byte offset of member `name` in struct/union `type_id`, looking through
-// anonymous members. On success *member_type is the member's resolved type.
-// Read the BTF UAPI fields directly instead of libbpf's static inline
-// accessors in bpf/btf.h: those calls make GCC record the ExternalProject
-// build-tree header (build/libbpf/bpf/btf.h) in this TU's gcno, while the
-// integrated-test jobs only receive the gcno/gcda artifacts; lcov 2.x then
-// aborts coverage capture because the header is absent there.
-static long btf_member_offset(const struct btf *btf, int type_id,
-			      const char *name, int *member_type)
-{
-	const struct btf_type *type = btf__type_by_id(btf, type_id);
-	if (type == nullptr ||
-	    (BTF_INFO_KIND(type->info) != BTF_KIND_STRUCT &&
-	     BTF_INFO_KIND(type->info) != BTF_KIND_UNION))
-		return -1;
-	const struct btf_member *member =
-		(const struct btf_member *)(type + 1);
-	const uint32_t member_count = BTF_INFO_VLEN(type->info);
-	for (uint32_t i = 0; i < member_count; i++, member++) {
-		const uint32_t bit_offset =
-			BTF_INFO_KFLAG(type->info) ?
-				BTF_MEMBER_BIT_OFFSET(member->offset) :
-				member->offset;
-		const long offset = (long)(bit_offset / 8);
-		const int resolved = btf__resolve_type(btf, member->type);
-		const char *member_name =
-			btf__name_by_offset(btf, member->name_off);
-		if (member_name != nullptr && member_name[0] != '\0') {
-			if (strcmp(member_name, name) != 0)
-				continue;
-			*member_type = resolved;
-			return offset;
-		}
-		const long inner =
-			btf_member_offset(btf, resolved, name, member_type);
-		if (inner >= 0)
-			return offset + inner;
-	}
-	return -1;
-}
-#endif
-
-#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
-// Kernel BTF may hold several task_struct structs (empty forwards on 5.4
-// kernels), so scan every non-empty candidate instead of a name lookup.
-static const std::pair<size_t, long> &resolve_task_layout()
-{
-	static const std::pair<size_t, long> layout = []() {
-		std::pair<size_t, long> result{ 64 * 1024, -1 };
-#ifdef BPFTIME_BUILD_WITH_LIBBPF
-		struct btf *btf = btf__parse_raw("/sys/kernel/btf/vmlinux");
-		if (btf != nullptr && libbpf_get_error(btf) == 0) {
-#if defined(__x86_64__)
-			const char *path[] = { "thread", "fsbase" };
-#else
-			const char *path[] = { "thread", "uw", "tp_value" };
-#endif
-			for (__u32 id = 1; id < btf__type_cnt(btf); id++) {
-				const struct btf_type *type =
-					btf__type_by_id(btf, id);
-				if (type == nullptr ||
-				    BTF_INFO_KIND(type->info) !=
-					    BTF_KIND_STRUCT ||
-				    BTF_INFO_VLEN(type->info) == 0)
-					continue;
-				const char *name =
-					btf__name_by_offset(btf, type->name_off);
-				if (name == nullptr ||
-				    strcmp(name, "task_struct") != 0)
-					continue;
-				int64_t size = btf__resolve_size(btf, (int)id);
-				if (size >= (int64_t)sizeof(void *))
-					result.first = (size_t)size;
-				long offset = 0;
-				int type_id = (int)id;
-				for (const char *member : path) {
-					long m = btf_member_offset(
-						btf, type_id, member,
-						&type_id);
-					if (m < 0) {
-						offset = -1;
-						break;
-					}
-					offset += m;
-				}
-				result.second = offset;
-				if (offset >= 0)
-					break;
-			}
-			btf__free(btf);
-		}
-#endif
-		return result;
-	}();
-	return layout;
-}
-
-long bpftime_get_current_task_tpbase_offset() noexcept
-{
-	long offset = resolve_task_layout().second;
-	if (offset >= 0)
-		return offset;
-#if defined(__x86_64__)
-	return 0x14d0;
-#else
-	return 0x8c0;
-#endif
-}
-#endif
-
-uint64_t bpftime_get_current_task(uint64_t, uint64_t, uint64_t, uint64_t,
-				  uint64_t)
-{
-#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
-	// Keep the per-thread task storage on the heap through a pthread key
-	// instead of a thread_local buffer. This library can be linked into a
-	// dlopen'ed module that carries initial-exec TLS; a multi-KB thread_local
-	// would land in its static TLS block and exhaust the limited static TLS
-	// surplus ("cannot allocate memory in static TLS block").
-	// Size and thread-pointer slot of the synthetic task_struct, from kernel
-	// BTF when available so programs that read the TLS base through
-	// task_struct (thread.fsbase / thread.uw.tp_value) see the real value.
-	static const auto &task_layout = resolve_task_layout();
-	static const size_t task_storage_size = task_layout.first;
-	static pthread_key_t task_key;
-	static const int task_key_status = pthread_key_create(&task_key, free);
-	if (task_key_status != 0)
-		return 0;
-	uint8_t *task = static_cast<uint8_t *>(pthread_getspecific(task_key));
-	if (task == nullptr) {
-		void *raw = nullptr;
-		if (posix_memalign(&raw, 64, task_storage_size) != 0)
-			return 0;
-		task = static_cast<uint8_t *>(raw);
-		memset(task, 0, task_storage_size);
-		if (pthread_setspecific(task_key, task) != 0) {
-			free(task);
-			return 0;
-		}
-	}
-	static const size_t tpbase_offset = [] {
-		const char *text =
-			getenv("BPFTIME_SYSTEM_ANALYSIS_TPBASE_OFFSET");
-		if (text != nullptr) {
-			char *end = nullptr;
-			errno = 0;
-			unsigned long value = strtoul(text, &end, 0);
-			if (errno == 0 && end != text && *end == '\0' &&
-			    value <= task_storage_size - sizeof(void *))
-				return (size_t)value;
-		}
-		long resolved = bpftime_get_current_task_tpbase_offset();
-		return (size_t)resolved <=
-				       task_storage_size - sizeof(void *) ?
-			       (size_t)resolved :
-			       SIZE_MAX;
-	}();
-	if (tpbase_offset != SIZE_MAX) {
-		void *thread_pointer = __builtin_thread_pointer();
-		memcpy(task + tpbase_offset, &thread_pointer,
-		       sizeof(thread_pointer));
-	}
-	return (uint64_t)(uintptr_t)task;
-#else
-	return 0;
+	return ((uint64_t)pid << 32) | static_cast<uint32_t>(tid);
 #endif
 }
 
