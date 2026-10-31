@@ -5,6 +5,8 @@
  */
 
 #include <stdexcept>
+#include <boost/container/throw_exception.hpp>
+#include <boost/interprocess/exceptions.hpp>
 #include <cstring>
 #include "bpf_map/userspace/lru_var_hash_map.hpp"
 #include "bpftime_ratelimited_log.hpp"
@@ -1006,10 +1008,21 @@ int bpf_map_handler::map_init(managed_shared_memory &memory)
 	}
 	try {
 		return map_init_checked(memory);
-	} catch (const std::length_error &) {
-		errno = E2BIG;
-	} catch (const boost::interprocess::bad_alloc &) {
-		errno = ENOMEM;
+	} catch (const std::exception &e) {
+		// Sizes that overflow were refused above: what remains is the
+		// segment running out. Boost's container length_error
+		// ("allocator's max size reached") is not a std::length_error
+		// unless BOOST_CONTAINER_USE_STD_EXCEPTIONS; it escaped here and
+		// left a handler without a map in the table. Other refusals of
+		// an implementation's constructor are EINVAL.
+		const bool out_of_memory =
+			dynamic_cast<const boost::interprocess::bad_alloc *>(
+				&e) != nullptr ||
+			dynamic_cast<const std::bad_alloc *>(&e) != nullptr ||
+			dynamic_cast<const std::length_error *>(&e) != nullptr ||
+			dynamic_cast<const boost::container::length_error_t *>(
+				&e) != nullptr;
+		errno = out_of_memory ? ENOMEM : EINVAL;
 	}
 	SPDLOG_ERROR("Unable to allocate map {} ({})", (int)type,
 		     strerror(errno));
@@ -1127,6 +1140,7 @@ int bpf_map_handler::map_init_checked(managed_shared_memory &memory)
 		if (key_size != 0) {
 			SPDLOG_ERROR("Bloom filter key_size must be 0, got {}",
 				     key_size);
+			errno = EINVAL;
 			return -1;
 		}
 		// Extract nr_hashes from map_extra (lower 4 bits)
@@ -1402,6 +1416,7 @@ int bpf_map_handler::map_init_checked(managed_shared_memory &memory)
 		} else {
 			SPDLOG_ERROR("[map_init] Unsupported map type: {}",
 				     (int)type);
+			errno = EINVAL;
 			return -1;
 		}
 	}
