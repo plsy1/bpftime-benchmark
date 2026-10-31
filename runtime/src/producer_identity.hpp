@@ -4,11 +4,12 @@
 
 namespace bpftime
 {
-// The calling thread's (pid, tid) for records in shared buffers (perf output
-// shards, ringbuf reservations). getpid() and gettid() are system calls
+// The calling thread's (pid, tid): bpf_get_current_pid_tgid, perf output
+// shards, ringbuf reservations. getpid() and gettid() are system calls
 // (glibc caches neither), so they are kept per thread; the fork child
-// handler clears them. If registering the handler failed, they are queried
-// on every call.
+// handler clears them, and a vfork-like clone (bpftime_identity_epoch, bumped
+// by the syscall-trace transformer) makes them checked again. If registering
+// the handler failed, they are queried on every call.
 void current_producer_identity(int &pid, int64_t &tid);
 
 // The process's pid namespace (inode of /proc/self/ns/pid; 0 if unknown):

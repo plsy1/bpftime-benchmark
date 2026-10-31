@@ -93,6 +93,9 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 	if (!bpftime::install_agent_fork_hook(next_handle))
 		SPDLOG_WARN(
 			"Agent has no bpftime_agent_fork_hook: its fork handlers will not run in fork children");
+	if (auto *epoch =
+		    (uint64_t *)dlsym(next_handle, "bpftime_identity_epoch"))
+		bpftime::set_identity_epoch(epoch);
 	// Set the flag `injected_with_frida` for agent
 	bool *injected_with_frida__agent =
 		(bool *)dlsym(next_handle, "injected_with_frida");
