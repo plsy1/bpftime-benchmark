@@ -483,6 +483,9 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 					    std::get<ringbuf_weak_ptr>(p.file)
 						    .lock();
 				    ptr) {
+					// A dead producer's reservation would
+					// hold back every later record.
+					ptr->recover_dead_reservation();
 					if (ptr->has_data() &&
 					    next_id < max_evt) {
 						out_evts[next_id++] =
