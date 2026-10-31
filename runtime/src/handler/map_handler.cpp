@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+#include <stdexcept>
+#include <cstring>
 #include "bpf_map/userspace/lru_var_hash_map.hpp"
 #include "bpftime_ratelimited_log.hpp"
 #include "bpf_map/userspace/per_cpu_array_map.hpp"
@@ -932,7 +934,71 @@ static uint64_t get_thread_count(const bpf_map_attr &attr)
 	return thread_count;
 }
 
+// The kernel's creation checks (map_alloc_check) for the common types, and
+// a lower bound of the size, so that a size computation cannot wrap into a
+// small allocation that accesses then overrun.
+int bpf_map_handler::check_map_attr(const managed_shared_memory &memory) const
+{
+	uint64_t per_entry = value_size, copies = 1;
+	switch (type) {
+	case bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH:
+		copies = bpftime_cpu_index_limit();
+		[[fallthrough]];
+	case bpf_map_type::BPF_MAP_TYPE_HASH:
+	case bpf_map_type::BPF_MAP_TYPE_LRU_HASH:
+		if (max_entries == 0 || key_size == 0 || value_size == 0)
+			return EINVAL;
+		if (key_size > 512) // MAX_BPF_STACK
+			return E2BIG;
+		per_entry += key_size;
+		break;
+	case bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY:
+		copies = bpftime_cpu_index_limit();
+		[[fallthrough]];
+	case bpf_map_type::BPF_MAP_TYPE_ARRAY:
+	case bpf_map_type::BPF_MAP_TYPE_QUEUE:
+	case bpf_map_type::BPF_MAP_TYPE_STACK:
+		if (max_entries == 0 || value_size == 0)
+			return EINVAL;
+		break;
+	default:
+		return 0;
+	}
+	if (copies > 1 && value_size > 32768) // PCPU_MIN_UNIT_SIZE
+		return E2BIG;
+	uint64_t bytes;
+	if (__builtin_mul_overflow(per_entry, (uint64_t)max_entries, &bytes) ||
+	    __builtin_mul_overflow(bytes, copies, &bytes) ||
+	    bytes > memory.get_size())
+		return E2BIG;
+	return 0;
+}
+
 int bpf_map_handler::map_init(managed_shared_memory &memory)
+{
+	if (map_impl_ptr.get() != nullptr)
+		return 0;
+	if (int err = check_map_attr(memory)) {
+		SPDLOG_ERROR("Unable to create map {}: key size {}, value size "
+			     "{}, max entries {}: {}",
+			     (int)type, key_size, value_size, max_entries,
+			     strerror(err));
+		errno = err;
+		return -1;
+	}
+	try {
+		return map_init_checked(memory);
+	} catch (const std::length_error &) {
+		errno = E2BIG;
+	} catch (const boost::interprocess::bad_alloc &) {
+		errno = ENOMEM;
+	}
+	SPDLOG_ERROR("Unable to allocate map {} ({})", (int)type,
+		     strerror(errno));
+	return -1;
+}
+
+int bpf_map_handler::map_init_checked(managed_shared_memory &memory)
 {
 #if defined(BPFTIME_ENABLE_CUDA_ATTACH)
 	static CUcontext context;
@@ -987,6 +1053,7 @@ int bpf_map_handler::map_init(managed_shared_memory &memory)
 			SPDLOG_ERROR(
 				"Failed to create ringbuf map, max_entries must be a power of 2, current: {}",
 				max_entries);
+			errno = EINVAL;
 			return -1;
 		}
 		map_impl_ptr = memory.construct<ringbuf_map_impl>(
