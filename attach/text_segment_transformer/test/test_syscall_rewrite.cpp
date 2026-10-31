@@ -1304,6 +1304,53 @@ TEST_CASE("lazy mode leaves shared code mappings unpatched",
 	REQUIRE(code == 0);
 }
 
+TEST_CASE("lazy mode notices a shared mapping moved over patched code",
+	  "[syscall-rewrite][lazy]")
+{
+	// The handler keeps the mapping it looked up last. Only mmap and
+	// mprotect forgot it: a MAP_SHARED file mremap-ed over a private JIT
+	// page the handler had just patched was taken for that private page,
+	// and its next trap wrote the branch into the file.
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		const uint32_t words[] = { mov_x8(SYS_getppid), SVC_0, RET };
+		auto *jit = (uint32_t *)mmap(nullptr, 4096,
+					     PROT_READ | PROT_WRITE | PROT_EXEC,
+					     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		int fd = memfd_create("bpftime-moved-code", MFD_CLOEXEC);
+		if (jit == MAP_FAILED || fd < 0 || ftruncate(fd, 4096) != 0 ||
+		    pwrite(fd, words, sizeof(words), 0) != sizeof(words))
+			return 3;
+		// Mapped before the first trap, so its mmap is not the last
+		// mapping change.
+		void *shared = mmap(nullptr, 4096,
+				    PROT_READ | PROT_WRITE | PROT_EXEC,
+				    MAP_SHARED, fd, 0);
+		if (shared == MAP_FAILED)
+			return 4;
+		std::memcpy(jit, words, sizeof(words));
+		__builtin___clear_cache((char *)jit, (char *)jit + 12);
+		if (reinterpret_cast<code_fn>(jit)() != getppid())
+			return 5;
+		if (mremap(shared, 4096, 4096, MREMAP_MAYMOVE | MREMAP_FIXED,
+			   jit) != jit)
+			return 6;
+		__builtin___clear_cache((char *)jit, (char *)jit + 12);
+		if (reinterpret_cast<code_fn>(jit)() != getppid())
+			return 7;
+		uint32_t word = 0;
+		if (pread(fd, &word, sizeof(word), 4) != sizeof(word))
+			return 8;
+		if (word != SVC_0)
+			return 9; // the branch went into the file
+		return bpftime::get_lazy_rewrite_stats().shared_skipped == 1 ?
+			       0 :
+			       10;
+	});
+	REQUIRE(code == 0);
+}
+
 namespace
 {
 struct counting_sink : spdlog::sinks::base_sink<std::mutex> {
