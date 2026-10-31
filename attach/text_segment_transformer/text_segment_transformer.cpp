@@ -1358,18 +1358,24 @@ void rescan(uint64_t addr, uint64_t len)
 // trap of a site cost 90 us. Opened for each write, so that a fork child
 // writes its own memory. A site is one aligned word (the kernel copies it
 // with a word store; svc -> b stays a permitted concurrent modification).
-// The protection of the mapping holding `addr`, from /proc/self/maps with
-// raw system calls and a fixed buffer (the handler's context); -1 if not
-// found.
-int page_prot(uint64_t addr)
+// The mapping holding `addr` (protection, MAP_SHARED, bounds), from
+// /proc/self/maps with raw system calls and a fixed buffer (the handler's
+// context); prot -1 if not found.
+struct mapping_info {
+	int prot = -1;
+	bool shared = false;
+	uint64_t begin = 0, end = 0;
+};
+mapping_info find_mapping(uint64_t addr)
 {
+	mapping_info found;
 	int fd = (int)raw_syscall(SYS_openat, AT_FDCWD,
 				  (int64_t) "/proc/self/maps", O_RDONLY | O_CLOEXEC);
 	if (fd < 0)
-		return -1;
+		return found;
 	char buf[4096];
 	size_t have = 0;
-	int prot = -1;
+	int &prot = found.prot;
 	for (;;) {
 		int64_t n = raw_syscall(SYS_read, fd, (int64_t)(buf + have),
 					(int64_t)(sizeof(buf) - have));
@@ -1398,10 +1404,13 @@ int page_prot(uint64_t addr)
 			j++; // '-'
 			hex(end);
 			j++; // ' '
-			if (addr >= begin && addr < end && j + 3 <= i) {
+			if (addr >= begin && addr < end && j + 4 <= i) {
 				prot = (buf[j] == 'r' ? PROT_READ : 0) |
 				       (buf[j + 1] == 'w' ? PROT_WRITE : 0) |
 				       (buf[j + 2] == 'x' ? PROT_EXEC : 0);
+				found.shared = buf[j + 3] == 's';
+				found.begin = begin;
+				found.end = end;
 				break;
 			}
 			start = i + 1;
@@ -1415,7 +1424,36 @@ int page_prot(uint64_t addr)
 			have = 0;
 	}
 	raw_syscall(SYS_close, fd);
-	return prot;
+	return found;
+}
+
+int page_prot(uint64_t addr)
+{
+	return find_mapping(addr).prot;
+}
+
+// The mapping the handler looked up last (written and read under the patch
+// lock): sites cluster in a JIT's mappings, and a maps read costs about
+// 75 us. A mapping new at those addresses comes from an mmap (or mprotect)
+// that returns through the hook or the emulation path first, which clear it.
+mapping_info lazy_last_mapping;
+std::atomic<bool> lazy_last_mapping_valid{ false };
+std::atomic<uint64_t> lazy_shared_skipped{ 0 };
+
+// MAP_SHARED code is not patched: through /proc/self/mem (FOLL_FORCE) or
+// mprotect, a branch to this process's gate would land in the file and in
+// every process mapping it. Unknown counts as shared.
+bool site_in_shared_mapping(uint64_t site)
+{
+	if (!lazy_last_mapping_valid.load(std::memory_order_acquire) ||
+	    site < lazy_last_mapping.begin || site >= lazy_last_mapping.end) {
+		lazy_last_mapping = find_mapping(site);
+		lazy_last_mapping_valid.store(lazy_last_mapping.prot >= 0,
+					      std::memory_order_release);
+		if (lazy_last_mapping.prot < 0)
+			return true;
+	}
+	return lazy_last_mapping.shared;
 }
 
 // For processes that may not write /proc/self/mem (not dumpable: setuid
@@ -1556,6 +1594,11 @@ bool lazy_rewrite_site(uint64_t site)
 	if (!patch_lock())
 		return false;
 	bool ok = !is_svc(*(volatile uint32_t *)site);
+	if (!ok && site_in_shared_mapping(site)) {
+		lazy_shared_skipped++;
+		patch_unlock();
+		return false; // made untraced, each time
+	}
 	if (!ok) {
 		uint64_t region = 0;
 		uint64_t gate = lazy_gate(site, region);
@@ -1630,6 +1673,9 @@ void on_sigsys(int, siginfo_t *info, void *context)
 	// applies (no logging in the handler).
 	lazy_emulated++;
 	const int64_t nr = regs[8];
+	if (nr == SYS_mmap || nr == SYS_mprotect || nr == SYS_pkey_mprotect ||
+	    nr == SYS_mremap || nr == SYS_munmap)
+		lazy_last_mapping_valid.store(false, std::memory_order_release);
 	if (nr == SYS_execve || nr == SYS_execveat) {
 		lazy_execs_refused_in_handler++;
 		regs[0] = -EPERM;
@@ -1649,6 +1695,10 @@ static void after_hooked_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
 				 int64_t arg3, int64_t arg4, int64_t arg5,
 				 int64_t ret)
 {
+	// Called for mmap, mprotect and pkey_mprotect (and other special calls).
+	if (sys_nr == SYS_mmap || sys_nr == SYS_mprotect ||
+	    sys_nr == SYS_pkey_mprotect)
+		lazy_last_mapping_valid.store(false, std::memory_order_release);
 	if (!rescan_enabled || !(arg3 & PROT_EXEC))
 		return;
 	// Decided from the arguments: reading /proc/self/maps for every
@@ -1907,7 +1957,8 @@ bool enable_lazy_rewriting(const std::vector<std::pair<uint64_t, uint64_t> > &al
 
 lazy_rewrite_stats get_lazy_rewrite_stats()
 {
-	return { lazy_traps.load(), lazy_rewritten.load(), lazy_emulated.load() };
+	return { lazy_traps.load(), lazy_rewritten.load(), lazy_emulated.load(),
+		 lazy_shared_skipped.load() };
 }
 
 void setup_syscall_tracer()
