@@ -112,20 +112,18 @@ struct software_perf_event_shard_cache_entry {
 	uint64_t buffer_generation;
 	uint64_t shard_generation;
 	software_perf_event_shard *shard;
-	const software_perf_event_data *owner;
+	uint64_t fork_generation;
 };
 
-// Six entries keep the per-thread initial-exec footprint at 240 bytes. A
-// larger table exhausted the static TLS surplus when this runtime is
-// dlopen()ed after startup: the Nginx attach example failed with
-// "cannot allocate memory in static TLS block". The cache stays
-// allocation-free; exceeding the capacity reuses the bounded eviction path.
-constexpr size_t max_software_perf_event_shard_cache_entries = 6;
-static_assert(
-	sizeof(software_perf_event_shard_cache_entry) *
-			max_software_perf_event_shard_cache_entries <=
-		256,
-	"initial-exec shard cache must fit the late-dlopen static TLS budget");
+// Bumped in fork children (no allocation there): the forking thread's
+// entries name its parent's shards. A child usually has another pid, but
+// a pid 1 that forks after unshare(CLONE_NEWPID) has a pid 1 child: the
+// inherited entry matched, and both wrote one single-producer ring.
+uint64_t shard_cache_fork_generation = 0;
+const int shard_cache_atfork_status = register_fork_handlers(
+	nullptr, nullptr, [] { shard_cache_fork_generation++; });
+
+constexpr size_t max_software_perf_event_shard_cache_entries = 64;
 constexpr uint64_t software_perf_event_reclaim_drain_interval = 64;
 constexpr size_t software_perf_event_reclaim_shard_threshold = 64;
 
@@ -135,16 +133,11 @@ thread_local std::unordered_map<const software_perf_event_data *,
 
 } // namespace
 
-#if defined(BPFTIME_UNIT_TESTING)
-size_t cached_software_perf_event_shard_count()
+void software_perf_event_fork_child_for_test()
 {
-	size_t cached = 0;
-	for (const auto &entry : software_perf_event_shard_cache)
-		if (entry.owner != nullptr)
-			++cached;
-	return cached;
+	(void)shard_cache_atfork_status;
+	shard_cache_fork_generation++;
 }
-#endif
 
 bpf_perf_event_handler::bpf_perf_event_handler(
 	int type, const char *attach_arg,
@@ -543,8 +536,9 @@ software_perf_event_shard *software_perf_event_data::get_current_thread_shard()
 		if (entry.owner != this)
 			continue;
 		if (entry.event_generation != event_generation ||
-		    entry.buffer_generation != current_buffer_generation) {
-			entry.owner = nullptr;
+		    entry.buffer_generation != current_buffer_generation ||
+		    entry.fork_generation != shard_cache_fork_generation) {
+			software_perf_event_shard_cache.erase(itr);
 		} else if (entry.shard->pid == pid && entry.shard->tid == tid &&
 			   entry.shard->generation == entry.shard_generation &&
 			   entry.shard->buffer_generation ==
@@ -573,7 +567,8 @@ software_perf_event_shard *software_perf_event_data::get_current_thread_shard()
 		    shard.buffer_generation == current_buffer_generation) {
 			cache_software_perf_event_shard({
 				event_generation, current_buffer_generation,
-				shard.generation, &shard
+				shard.generation, &shard,
+				shard_cache_fork_generation
 			};
 			return &shard;
 		}
@@ -608,7 +603,8 @@ software_perf_event_shard *software_perf_event_data::get_current_thread_shard()
 	}
 	software_perf_event_shard_cache[this] = { event_generation,
 						  current_buffer_generation,
-						  shard.generation, &shard };
+						  shard.generation, &shard,
+						  shard_cache_fork_generation };
 	return &shard;
 }
 
