@@ -105,6 +105,57 @@ TEST_CASE("Per-CPU values use libbpf's layout through bpf()",
 	shared_memory_object::remove(name.c_str());
 }
 
+TEST_CASE("Per-CPU values of a possible mask with holes pack its CPUs",
+	  "[percpu-hash][percpu-array][percpu-layout]")
+{
+	// "0,2-3": libbpf allocates three slots, for CPUs 0, 2 and 3.
+	if (sysconf(_SC_NPROCESSORS_ONLN) < 4)
+		SKIP("needs CPUs 2 and 3");
+	const auto saved = bpftime_possible_cpu_ids();
+	bpftime_set_possible_cpus_for_test({ 0, 2, 3 });
+	const std::string name =
+		"bpftime_percpu_holes_" + std::to_string(getpid());
+	shared_memory_object::remove(name.c_str());
+	{
+		managed_shared_memory segment(create_only, name.c_str(),
+					      8 << 20);
+		for (uint32_t value_size : { 4u, 8u }) {
+			INFO("value size " << value_size);
+			const size_t stride = (value_size + 7) & ~7u;
+			// Slot i: CPU ids[i]; byte j is 16 * ids[i] + j + 1.
+			const int ids[] = { 0, 2, 3 };
+			std::vector<uint8_t> in(stride * 3, 0);
+			for (int i = 0; i < 3; i++)
+				for (uint32_t j = 0; j < value_size; j++)
+					in[i * stride + j] =
+						(uint8_t)(16 * ids[i] + j + 1);
+			uint32_t key4 = 1;
+			uint64_t key8 = 1;
+			per_cpu_array_map_impl array(segment, value_size, 4);
+			per_cpu_hash_map_impl hash8(segment, 8, value_size, 4);
+			REQUIRE(array.elem_update_userspace(&key4, in.data(),
+							    0) == 0);
+			REQUIRE(hash8.elem_update_userspace(&key8, in.data(),
+							    0) == 0);
+			for (int cpu : { 2, 3 }) {
+				CHECK(program_sees(array, &key4, value_size,
+						   cpu));
+				CHECK(program_sees(hash8, &key8, value_size,
+						   cpu));
+			}
+			for (const void *got :
+			     { array.elem_lookup_userspace(&key4),
+			       hash8.elem_lookup_userspace(&key8) }) {
+				REQUIRE(got != nullptr);
+				CHECK(std::memcmp(got, in.data(), in.size()) ==
+				      0);
+			}
+		}
+	}
+	shared_memory_object::remove(name.c_str());
+	bpftime_set_possible_cpus_for_test(saved);
+}
+
 TEST_CASE("bpf() copies per-CPU values in libbpf's size",
 	  "[percpu-layout]")
 {
