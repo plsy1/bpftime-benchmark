@@ -315,6 +315,31 @@ sharing `/dev/shm` with the tool used to lose its live, idle shard (tgkill from
 the host: ESRCH) and the lost-sample count in it. Test: "Software perf event
 shards of another pid namespace are not reclaimed".
 
+The shard search compares the namespace too (cached per process, cleared in
+fork children: a child forked after `unshare(CLONE_NEWPID)` is in another
+one). Matching (pid, tid) alone put two containers' pid 1 into one
+single-producer ring: torn samples delivered as valid, garbage LOST counts,
+shards dropped as invalid. The per-thread shard cache needs no namespace: an
+entry is made by its thread for its own namespace, and a reused shard has a
+new generation. Tests: "Software perf event shards are matched within a pid
+namespace", "Producers in two pid namespaces with the same pid write apart"
+(root: two `unshare` children's pid 1 writing at once).
+
+Shards of other pid namespaces are never reclaimed (above), so shared memory
+can run out. A shard that cannot be allocated makes the output fail with
+ENOSPC (no shard, so no lost count); Boost's `bad_alloc` used to escape the
+helper into the traced process. Safely reclaiming a live foreign producer's
+idle shard would need an atomic flag on every output. Test: "Software perf
+event output fails cleanly when shared memory is full".
+
+Each drain starts one shard further (`drain_start`). When the consumer ring
+fills up, the shards drained last keep their samples and then drop new ones
+(ENOSPC, LOST); a fixed order starved the same threads every time. Test:
+"Software perf event drains start at a different shard each time". Not
+handled: a tool that calls `perf_buffer__consume()` without epoll never
+triggers a drain, and mapping the consumer buffer a second time with a
+larger size reallocates it under libbpf (tools map it once).
+
 Not handled (documented): a process killed while holding `shard_lock`, the
 ringbuf's `reserve_spin_lock` or a map's `map_lock` (per-CPU hash: every
 operation) leaves every later user spinning, like the hash map stripes. A
