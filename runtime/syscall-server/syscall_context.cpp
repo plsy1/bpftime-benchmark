@@ -626,6 +626,12 @@ long syscall_context::handle_sysbpf(int cmd, union bpf_attr *attr, size_t size)
 					       (long)(uintptr_t)attr,
 					       (long)size);
 		}
+		// The kernel takes only BPF_F_LOCK, and that only for values
+		// with a spin lock, which bpftime's maps do not have.
+		if (attr->flags != 0) {
+			errno = EINVAL;
+			return -1;
+		}
 		return bpftime_map_lookup_and_delete_elem(
 			attr->map_fd, (const void *)(uintptr_t)attr->key,
 			(void *)(uintptr_t)attr->value);
