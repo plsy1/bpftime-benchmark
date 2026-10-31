@@ -70,6 +70,7 @@ set(sources
   src/bpf_helper.cpp
   src/platform_utils.cpp
   src/fork_handlers.cpp
+  src/producer_identity.cpp
 
   src/bpf_map/userspace/array_map.cpp
   src/bpf_map/array_map_binding.cpp
