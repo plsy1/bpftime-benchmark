@@ -21,6 +21,8 @@
 #include <sys/syscall.h>
 #include <sys/mman.h>
 #include <sys/uio.h>
+#include <sys/vfs.h>
+#include <linux/magic.h>
 #include <mutex>
 #include <sched.h>
 #include <sys/stat.h>
@@ -962,17 +964,18 @@ bool b_reaches(uint64_t from, uint64_t to)
 // under a running server) or unlinked shows as "path (deleted)": open the
 // mapped file itself through /proc/self/map_files, which needs
 // CAP_CHECKPOINT_RESTORE. Any other path is checked to still be the mapped
-// file by its inode (overlayfs reports the underlying device in maps but its
-// own to stat, so not the device).
+// file by its device and inode (same_mapped_file).
 int open_mapped_file(const ExecMap &map)
 {
-	// Device and inode: an inode number alone may also exist on another
-	// filesystem mounted over the path.
 	auto same_file = [&](int fd) {
 		struct stat st;
-		return fstat(fd, &st) == 0 && (uint64_t)st.st_ino == map.inode &&
-		       major(st.st_dev) == map.dev_major &&
-		       minor(st.st_dev) == map.dev_minor;
+		if (fstat(fd, &st) != 0)
+			return false;
+		struct statfs fs;
+		const long magic = fstatfs(fd, &fs) == 0 ? (long)fs.f_type : 0;
+		return same_mapped_file((uint64_t)st.st_ino, (uint64_t)st.st_dev,
+					magic, map.inode, map.dev_major,
+					map.dev_minor);
 	};
 	static const std::string deleted = " (deleted)";
 	const bool is_deleted =
@@ -998,6 +1001,19 @@ int open_mapped_file(const ExecMap &map)
 }
 
 } // namespace
+
+bool same_mapped_file(uint64_t st_ino, uint64_t st_dev, long fs_magic,
+		      uint64_t inode, unsigned dev_major, unsigned dev_minor)
+{
+	if (st_ino != inode)
+		return false;
+	// The device too: an inode number alone may also exist on another
+	// filesystem mounted over the path. Except on btrfs, where stat
+	// reports the subvolume's anonymous device and maps the
+	// superblock's: every library there was skipped (untraced).
+	return (major(st_dev) == dev_major && minor(st_dev) == dev_minor) ||
+	       fs_magic == (long)BTRFS_SUPER_MAGIC;
+}
 
 int open_mapped_file_for_test(uint64_t begin, uint64_t end, unsigned dev_major,
 			      unsigned dev_minor, uint64_t inode,
