@@ -288,6 +288,21 @@ again (`9a0274f2`, compiled out since 2023-12; `[helpers]`, added to the
 focused filter), and fs-cache skips the `open` tracepoints aarch64 lacks
 (`5062cb97`). Results: `syscall/fuse-20261030` in the results branch.
 
+Twenty-eight commits accepted 2026-10-31 fix what two independent reviews of
+the concurrent code found (`208c99ca..9aeb2863`): fork handlers of the agent
+loaded with dlmopen, hash value alignment for 8-byte atomics, per-CPU CPU
+checks, slots and libbpf's value layout (CPUs counted as libbpf does),
+lookup-and-delete by key, map size checks at creation, perf shards per pid
+namespace, a dead producer's ringbuf reservation, the cached pid/tid in
+vfork children (`bpftime_identity_epoch`, bumped by the aarch64 hook), CFI
+and FPCR in the aarch64 hook, deleted and shared mappings, and the lazy
+mode's fork, seccomp, shared-code and signal-handler problems. Each has a
+test that fails without it; `[cpu-bounds]`, `[percpu-layout]`,
+`[map-create]`, `[ringbuf]`, `[pid_tgid]` and `[fork-handlers]` are added to
+the focused filter (the hash map and perf tests run through
+`[bpftime_hash_map]`, `[percpu-hash]` and `[perf_event]`). Results:
+`reviews-20261031` in the results branch.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results

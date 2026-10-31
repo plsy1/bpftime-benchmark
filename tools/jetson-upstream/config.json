@@ -125,7 +125,35 @@
       {"sha": "2ecc32cb60eccdd7b77f7be75f1d3e2fc82c6a99", "kind": "runtime-fix", "subject": "text segment transformer: refuse execve in lazy mode"},
       {"sha": "9b5ff47500ffb1119769c256fc1137133129c28a", "kind": "runtime-fix", "subject": "syscall trace: map asm-generic system call numbers on aarch64"},
       {"sha": "9a0274f2194275be68429664d17c2e7caab1e99a", "kind": "runtime-fix", "subject": "extension helpers: compile the path helpers again"},
-      {"sha": "5062cb97dbe6985d4e425cdf86f2d32ba8a7bf7d", "kind": "benchmark", "subject": "benchmark/fuse: skip the open tracepoints where open(2) does not exist"}
+      {"sha": "5062cb97dbe6985d4e425cdf86f2d32ba8a7bf7d", "kind": "benchmark", "subject": "benchmark/fuse: skip the open tracepoints where open(2) does not exist"},
+      {"sha": "208c99ca911b50543969bc9cf0edd87a8114da94", "kind": "runtime-fix", "subject": "agent: run the runtime's fork handlers when loaded with dlmopen"},
+      {"sha": "56b1bcf96bd65665faaa3eb67a55384d8d3bd9c4", "kind": "runtime-fix", "subject": "hash map: align values for 8-byte atomics"},
+      {"sha": "6f1e73d99b0fb9daeea1b653ff0cf028ed2d1b71", "kind": "runtime-fix", "subject": "per-CPU maps: count possible CPUs and check the current CPU"},
+      {"sha": "913870ed796f2275a18d62f54851d4af09feeffe", "kind": "runtime-fix", "subject": "per-CPU hash: keep every key's values in reusable slots"},
+      {"sha": "31d57486054e2fd214cd7bf907016279b05ebdbf", "kind": "runtime-fix", "subject": "per-CPU maps: use libbpf's value layout through bpf()"},
+      {"sha": "d0d9adfad51f17c380bc0a84c1c31be2aa780bd4", "kind": "runtime-fix", "subject": "perf output: reclaim only shards of the reclaimer's pid namespace"},
+      {"sha": "eb26ba432ff32a12ea482503288dd1379150abbb", "kind": "runtime-fix", "subject": "text segment transformer: keep the host running when the agent is unusable"},
+      {"sha": "3d7ada3db9d613691be876bd58f6881c541ccad6", "kind": "runtime-fix", "subject": "text segment transformer: read deleted files' sections from the mapping, skip shared code"},
+      {"sha": "4bafc51418a11a9f41e69a034d0025927c9c26b9", "kind": "runtime-fix", "subject": "text segment transformer: unwind information for the aarch64 hook, keep FPCR"},
+      {"sha": "b9c849fb6cab42db660b79171181b2f22f489d74", "kind": "runtime-fix", "subject": "text segment transformer: lazy mode fixes from the independent review"},
+      {"sha": "8c10830902a14855db053ff309385b24ee3b0aea", "kind": "optimization", "subject": "hash map: move tokens to a stripe in batches when the pool is empty"},
+      {"sha": "f2d6ae7d709aed7b48d817b377e1a46e2dc6464b", "kind": "optimization", "subject": "per-CPU maps: check the current CPU with one unsigned compare"},
+      {"sha": "a1633b5181288b2a86d0799b5de7e7d084be360e", "kind": "runtime-fix", "subject": "fork handlers: register only while the runtime loads"},
+      {"sha": "040ab4ed51b3124165886effea6cbb409a368a96", "kind": "runtime-fix", "subject": "per-CPU maps: count possible CPUs as libbpf does"},
+      {"sha": "a6fdd74070d23d4a375d75f1dbe0527d9922236d", "kind": "runtime-fix", "subject": "bpf(): lookup and delete takes the key of hash maps"},
+      {"sha": "bf1af650742de2f978686ee2eb441d964b90b362", "kind": "runtime-fix", "subject": "maps: check sizes at creation as the kernel does"},
+      {"sha": "faba3c39ea888baa90497db3419eb68110655281", "kind": "runtime-fix", "subject": "per-CPU hash: same update flags through bpf(); wider alignment test"},
+      {"sha": "e3e7d72137495078cfdf89777d4d0bbaea6b252c", "kind": "runtime-fix", "subject": "perf output: match shards per pid namespace, survive full shm, rotate drains"},
+      {"sha": "5920d5f904f122997ff9661eb9e525b96493e4ed", "kind": "runtime-fix", "subject": "ringbuf: skip the record of a producer that died before submitting"},
+      {"sha": "dd3ee34d6b8ff17c8be58f128f61dc5b4afa5cda", "kind": "runtime-fix", "subject": "identity: re-check cached pid/tid after a vfork-like clone"},
+      {"sha": "285287219779d715377e093816088c4f19946444", "kind": "runtime-fix", "subject": "lazy mode: one set of fork handlers, in the rescan's lock order"},
+      {"sha": "de09b3dc65d61f441664684eb50463a16efb74e4", "kind": "runtime-fix", "subject": "lazy mode: pass the application's own seccomp traps to its handler"},
+      {"sha": "632969a88785633d4b953a54b1ab05dcd19013c9", "kind": "runtime-fix", "subject": "lazy mode: leave MAP_SHARED code unpatched"},
+      {"sha": "dae7d0259c21e26a8a406918060112f4b5c8ba9c", "kind": "runtime-fix", "subject": "lazy mode: report refused execve from a rescan, not a signal handler"},
+      {"sha": "41eb8e9da861327c61d1d0f7262d48986ce63496", "kind": "runtime-fix", "subject": "text segment transformer: page-crossing gates, SIGSYS restore, device check"},
+      {"sha": "592b0eddb8c8f9d19e646b7377e501a0ff9f638f", "kind": "docs", "subject": "CLAUDE.md: limits noted by the second review"},
+      {"sha": "7553abb8b9a1f92b5a3ecd5bff912a3258809398", "kind": "runtime-fix", "subject": "maps: ENOMEM for a map larger than shared memory, kernel value limits"},
+      {"sha": "9aeb286322f840f78d7347133c942c2e3d343c49", "kind": "optimization", "subject": "identity, ringbuf: inline identity fast path, owner slot from the tid"}
     ],
     "cmake_args": ["-DBUILD_BPFTIME_DAEMON=ON"],
     "test_suites": [
@@ -159,7 +187,7 @@
       "simple-benchmark-with-embed-ebpf-calling",
       "bpftime_runtime_tests"
     ],
-    "test_filter": "[array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent,[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps][map_in_map],Test bpftime runtime_config,Allow external maps from the environment,Select Frida*,Test basic operations of external hash map ops,[perf_event],[epoll],[uid_gid],[shm_release],[jit_load],[helpers],[stack_trace],Test stack trace map*,[cgroup_array],[trace_printk],[ratelimit],get_stackid returns errors as negative 64-bit values"
+    "test_filter": "[array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent,[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps][map_in_map],Test bpftime runtime_config,Allow external maps from the environment,Select Frida*,Test basic operations of external hash map ops,[perf_event],[epoll],[uid_gid],[shm_release],[jit_load],[helpers],[stack_trace],Test stack trace map*,[cgroup_array],[trace_printk],[ratelimit],get_stackid returns errors as negative 64-bit values,[cpu-bounds],[percpu-layout],[map-create],[ringbuf],[pid_tgid],[fork-handlers]"
   },
   "benchmark": {
     "cpu": 5,
