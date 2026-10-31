@@ -296,6 +296,7 @@ class bpf_map_handler {
 	int bpf_map_get_next_key(const void *key, void *next_key,
 				 bool from_syscall = false) const;
 	void map_free(boost::interprocess::managed_shared_memory &memory) const;
+	// -1 with errno (EINVAL, E2BIG, ENOMEM) when the map cannot be made.
 	int map_init(boost::interprocess::managed_shared_memory &memory);
 	uint32_t get_userspace_value_size() const;
 	std::optional<ringbuf_map_impl *> try_get_ringbuf_map_impl() const;
@@ -354,6 +355,9 @@ class bpf_map_handler {
 	// The underlying data structure of the map
 	mutable general_map_impl_ptr map_impl_ptr;
 	mutable map_refcount_ptr map_refcnt_ptr = nullptr;
+	int check_map_attr(
+		const boost::interprocess::managed_shared_memory &memory) const;
+	int map_init_checked(boost::interprocess::managed_shared_memory &memory);
 	uint32_t max_entries = 0;
 	[[maybe_unused]] uint64_t flags = 0;
 	uint32_t key_size = 0;
