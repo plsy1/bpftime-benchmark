@@ -548,7 +548,13 @@ homing there probes the whole run. MurmurHash3's 32-bit finalizer brought it
 under 64 but made 6-thread churn 1.2-1.4% slower in two runs; its 64-bit
 finalizer made a 900K-entry table of u64 address keys 3.1% slower (they rely
 on `hash_func`'s locality). Neither was committed (results
-`reviews-20261031/fixes/hash-ab`, `hash-ab2`).
+`reviews-20261031/fixes/hash-ab`, `hash-ab2`). The same hash maps small u32
+keys (pids under 65536) onto about 8,160 homes, and tables above about 3.9M
+entries never use their upper buckets as homes (4-byte `hash_func` stays
+under 7,849,920). A stripe returns tokens to the pool only at 64, so up to 63
+park per stripe: a 20,000-entry map of 626 stripes can have its whole pool
+parked, and an insert into a dry stripe then takes every lock (32 tokens at a
+time). Correct; a cliff near capacity (second review).
 
 ## llvmbpf Local Call Overlay
 
@@ -810,6 +816,17 @@ Known limits of the aarch64 rewriting (documented, not fixed):
   of running programs is unsupported anyway (map locks may be held); a
   stack-pointer check instead would let handlers on an alternate stack
   re-enter the hook.
+- Section-based scanning still matches data inside `SHF_EXECINSTR` sections
+  (literal pools, constant tables some libraries keep in .text): a word
+  equal to an `svc` encoding there (1 in 65536 random words) is rewritten.
+- `run_callbacks` (syscall_trace_attach_impl.cpp) is `noexcept` and catches
+  `...`: a forced unwind reaching it aborts ("exception not rethrown"). The
+  LLVM JIT's frames have no unwind information, so with the default backend
+  the unwind stops before it and the cancel ends the thread by longjmp, as
+  documented above; an interpreter backend with full CFI would abort.
+- `lazy_rewrite_site` reads the trapping word without checking it is
+  readable: on Armv8.7 EPAN hardware an execute-only mapping would fault in
+  the handler (Orin has no EPAN).
 
 ## System Call Hook Re-entrancy
 
