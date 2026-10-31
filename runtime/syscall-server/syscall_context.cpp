@@ -973,8 +973,6 @@ long syscall_context::handle_sysbpf(int cmd, union bpf_attr *attr, size_t size)
 					       (long)(uintptr_t)attr,
 					       (long)size);
 		}
-		// Keyed for the hash map types (the kernel reads attr->key for
-		// those), keyless for queue/stack where it is a pop.
 		return bpftime_map_lookup_and_delete_elem(
 			attr->map_fd, (const void *)(uintptr_t)attr->key,
 			(void *)(uintptr_t)attr->value);

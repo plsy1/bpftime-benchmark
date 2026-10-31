@@ -720,7 +720,9 @@ class bpftime_hash_map {
 		return update(key, value, update_mode::any) == update_result::ok;
 	}
 
-	bool elem_delete(const void *key)
+	// value_out: the value is copied there first, under the stripe lock
+	// (lookup and delete as one step, like the kernel's).
+	bool elem_delete(const void *key, void *value_out = nullptr)
 	{
 		const view v = resolve();
 		const size_t home = home_bucket(key);
@@ -742,6 +744,10 @@ class bpftime_hash_map {
 					return false; // Key not found
 				if (state == BUCKET_FILLED &&
 				    keys_equal(key_at(v, index), key)) {
+					if (value_out != nullptr)
+						std::memcpy(value_out,
+							    value_at(v, index),
+							    _value_size);
 					set_state(v, index, BUCKET_DELETED,
 						  GENERATION_STEP,
 						  std::memory_order_relaxed);

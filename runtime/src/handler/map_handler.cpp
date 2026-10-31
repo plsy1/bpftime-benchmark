@@ -1736,73 +1736,44 @@ long bpf_map_handler::map_pop_elem(void *value, bool from_syscall) const
 	}
 }
 
-long bpf_map_handler::map_lookup_and_delete_elem(const void *key, void *value,
-						 bool from_syscall) const
+long bpf_map_handler::map_lookup_and_delete_elem(const void *key,
+						 void *value) const
 {
-	// The kernel dispatches by map type: queue/stack take the keyless pop
-	// path, the hash variants (HASH, PERCPU_HASH, LRU_HASH,
-	// LRU_PERCPU_HASH, STACK_TRACE) take a keyed lookup-then-delete. See
-	// map_lookup_and_delete_elem() in kernel/bpf/syscall.c.
-	const auto do_lookup_and_delete = [&](auto *impl) -> long {
-		if (impl->should_lock) {
-			bpftime_lock_guard guard(map_lock);
-			return impl->lookup_and_delete(key, value, from_syscall);
-		} else {
-			return impl->lookup_and_delete(key, value, from_syscall);
+	// Maps under the handler lock: the lookup and the delete as one step.
+	const auto under_lock = [&](auto *impl) -> long {
+		bpftime_lock_guard guard(map_lock);
+		const void *found = impl->elem_lookup(key);
+		if (found == nullptr) {
+			errno = ENOENT;
+			return -1;
 		}
+		std::memcpy(value, found, value_size);
+		return impl->elem_delete(key);
 	};
-	const auto do_lookup_and_delete_userspace = [&](auto *impl)
-		-> long {
-		if (impl->should_lock) {
-			bpftime_lock_guard guard(map_lock);
-			return impl->lookup_and_delete_userspace(key, value);
-		} else {
-			return impl->lookup_and_delete_userspace(key, value);
-		}
-	};
-	// Queue and stack take the keyless pop, and both declare
-	// should_lock = true: the handler owns their lock.
-	const auto do_pop = [&](auto *impl) -> long {
-		if (impl->should_lock) {
-			bpftime_lock_guard guard(map_lock);
-			return impl->map_pop_elem(value);
-		} else {
-			return impl->map_pop_elem(value);
-		}
-	};
-
 	switch (type) {
+	case bpf_map_type::BPF_MAP_TYPE_QUEUE:
+	case bpf_map_type::BPF_MAP_TYPE_STACK:
+		return map_pop_elem(value, true);
 	case bpf_map_type::BPF_MAP_TYPE_HASH: {
 		auto impl = static_cast<hash_map_impl *>(map_impl_ptr.get());
-		return do_lookup_and_delete(impl);
+#ifdef BPFTIME_USE_VAR_HASH_MAP
+		return under_lock(impl);
+#else
+		// Locks its stripes itself.
+		return impl->lookup_and_delete_userspace(key, value);
+#endif
 	}
 	case bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH: {
 		auto impl = static_cast<per_cpu_hash_map_impl *>(
 			map_impl_ptr.get());
-		return do_lookup_and_delete_userspace(impl);
+		bpftime_lock_guard guard(map_lock);
+		return impl->lookup_and_delete_userspace(key, value);
 	}
-	case bpf_map_type::BPF_MAP_TYPE_LRU_HASH: {
-		auto impl = static_cast<lru_var_hash_map_impl *>(
-			map_impl_ptr.get());
-		return do_lookup_and_delete(impl);
-	}
-	case bpf_map_type::BPF_MAP_TYPE_STACK_TRACE: {
-		auto impl =
-			static_cast<stack_trace_map_impl *>(map_impl_ptr.get());
-		return do_lookup_and_delete(impl);
-	}
-	case bpf_map_type::BPF_MAP_TYPE_QUEUE: {
-		auto impl = static_cast<queue_map_impl *>(map_impl_ptr.get());
-		return do_pop(impl);
-	}
-	case bpf_map_type::BPF_MAP_TYPE_STACK: {
-		auto impl = static_cast<stack_map_impl *>(map_impl_ptr.get());
-		return do_pop(impl);
-	}
+	case bpf_map_type::BPF_MAP_TYPE_LRU_HASH:
+		return under_lock(
+			static_cast<lru_var_hash_map_impl *>(map_impl_ptr.get()));
 	default:
-		SPDLOG_ERROR(
-			"map_lookup_and_delete_elem not supported for map type: {}",
-			(int)type);
+		// The kernel: ENOTSUPP for the other map types.
 		errno = ENOTSUP;
 		return -1;
 	}

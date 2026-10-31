@@ -40,8 +40,7 @@ class fix_size_hash_map_impl {
 
 	long elem_delete(const void *key);
 
-	int lookup_and_delete(const void *key, void *value_out,
-			      bool from_syscall = false);
+	long lookup_and_delete_userspace(const void *key, void *value);
 
 	int map_get_next_key(const void *key, void *next_key);
 };

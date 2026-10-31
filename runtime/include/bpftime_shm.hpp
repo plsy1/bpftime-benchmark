@@ -360,8 +360,8 @@ long bpftime_map_update_elem_with_origin(int fd, const void *key,
 long bpftime_map_delete_elem_with_origin(int fd, const void *key,
 					 bool from_syscall);
 
-// use from bpf syscall to look up and delete the elem: keyed for the hash
-// map types, keyless (a pop) for queue/stack maps
+// BPF_MAP_LOOKUP_AND_DELETE_ELEM: pops a queue or stack (key unused), or
+// removes key's element of a hash map and returns its value.
 long bpftime_map_lookup_and_delete_elem(int fd, const void *key, void *value);
 
 // Queue/stack map helper functions for push/pop/peek operations
