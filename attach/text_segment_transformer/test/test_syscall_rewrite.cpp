@@ -1269,6 +1269,65 @@ TEST_CASE("lazy mode leaves the application's untrapped seccomp SIGSYS fatal",
 	REQUIRE(code == 128 + SIGSYS);
 }
 
+namespace
+{
+std::atomic<int> restart_handler_runs{ 0 };
+void restart_handler(int, siginfo_t *, void *)
+{
+	restart_handler_runs++;
+}
+
+// A read blocked in this thread while another thread sends it SIGSYS (not
+// a seccomp trap): with `restart`, an SA_RESTART handler, else SIG_IGN.
+int read_across_sent_sigsys(bool restart)
+{
+	struct sigaction sa = {};
+	if (restart) {
+		sa.sa_sigaction = restart_handler;
+		sa.sa_flags = SA_SIGINFO | SA_RESTART;
+	} else {
+		sa.sa_handler = SIG_IGN;
+	}
+	static int fds[2];
+	static pid_t reader;
+	if (sigaction(SIGSYS, &sa, nullptr) != 0 || pipe(fds) != 0)
+		return -100;
+	reader = (pid_t)syscall(SYS_gettid);
+	std::thread sender([] {
+		usleep(100000);
+		syscall(SYS_tgkill, getpid(), reader, SIGSYS);
+		usleep(100000);
+		char c = 'x';
+		(void)!write(fds[1], &c, 1);
+	});
+	char c;
+	errno = 0;
+	ssize_t n = read(fds[0], &c, 1);
+	sender.join();
+	return n == 1 ? 0 : errno;
+}
+} // namespace
+
+TEST_CASE("lazy mode restarts calls across a SIGSYS as the application's action",
+	  "[syscall-rewrite][lazy]")
+{
+	// The kernel decides from the installed action, ours: without
+	// SA_RESTART on it, a read under an SA_RESTART handler (or with
+	// SIGSYS ignored) returned EINTR when another thread sent SIGSYS.
+	for (bool restart : { true, false }) {
+		INFO((restart ? "SA_RESTART handler" : "SIG_IGN"));
+		int code = in_rewritten_child(request_lazy, [restart] {
+			if (!bpftime::enable_lazy_rewriting({}))
+				return 2;
+			int err = read_across_sent_sigsys(restart);
+			if (err != 0)
+				return err == EINTR ? 3 : 4;
+			return restart && restart_handler_runs != 1 ? 5 : 0;
+		});
+		CHECK(code == 0);
+	}
+}
+
 // Patching writes through /proc/self/mem (FOLL_FORCE) or after mprotect: in
 // MAP_SHARED code the branch to this process's gate landed in the file and in
 // every process mapping it.

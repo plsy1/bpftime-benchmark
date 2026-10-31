@@ -910,9 +910,27 @@ uint64_t page_size = 4096; // set by setup_syscall_tracer
 // Thread id holding the code-patching lock (0: free). Rescans and the
 // handler both patch code pages; the handler cannot wait for a pthread mutex.
 std::atomic<int64_t> patch_owner{ 0 };
-// The application's SIGSYS action, as it set it: never installed; SIGSYS
-// that is not our filter's trap is passed to it (forward_sigsys).
-uint64_t app_sigsys_action[4];
+// The application's SIGSYS action, as it set it (the kernel's layout:
+// handler, flags, restorer, mask): never installed; SIGSYS that is not our
+// filter's trap is passed to it (forward_sigsys). Set from any thread (its
+// rt_sigaction is answered by the hook) and read in the handler, so it is
+// published whole: written into the next of a few copies, then made
+// current (a plain array let a handler see a new handler with old flags).
+struct sigsys_action {
+	uint64_t words[4];
+};
+constexpr uint32_t sigsys_action_copies = 8;
+sigsys_action app_sigsys_actions[sigsys_action_copies];
+std::atomic<uint32_t> app_sigsys_current{ 0 }, app_sigsys_next{ 0 };
+// Our handler's action as installed (the kernel's layout).
+uint64_t our_sigsys_action[4];
+sigsys_action app_sigsys_action()
+{
+	return app_sigsys_actions[app_sigsys_current.load(
+					  std::memory_order_acquire) %
+				  sigsys_action_copies];
+}
+void set_app_sigsys_action(const uint64_t *words);
 // SECCOMP_RET_DATA of our filter's traps (16 bits): the kernel reports it in
 // si_errno. With several filters returning TRAP, the newest one's data wins.
 constexpr uint32_t LAZY_TRAP_DATA = 0xb7e5;
@@ -1727,6 +1745,31 @@ bool lazy_rewrite_site(uint64_t site)
 	return ok;
 }
 
+// Publishes the application's new SIGSYS action, and reinstalls our handler
+// with its SA_RESTART: the kernel decides from the installed action whether
+// a call interrupted by a SIGSYS sent with kill restarts, and without it a
+// read blocked under an SA_RESTART (or ignoring) application returned EINTR.
+// Raw system calls only: it runs in the handler and in hooked rt_sigaction.
+void set_app_sigsys_action(const uint64_t *words)
+{
+	const uint32_t slot = (app_sigsys_next.fetch_add(
+				       1, std::memory_order_relaxed) +
+			       1) %
+			      sigsys_action_copies;
+	memcpy(app_sigsys_actions[slot].words, words,
+	       sizeof(app_sigsys_actions[slot].words));
+	app_sigsys_current.store(slot, std::memory_order_release);
+	const bool restart = words[0] == (uint64_t)SIG_DFL ||
+			     words[0] == (uint64_t)SIG_IGN ||
+			     (words[1] & SA_RESTART);
+	uint64_t ours[4];
+	memcpy(ours, our_sigsys_action, sizeof(ours));
+	if (ours[0] == 0)
+		return; // not installed yet
+	ours[1] = restart ? (ours[1] | SA_RESTART) : (ours[1] & ~(uint64_t)SA_RESTART);
+	raw_syscall(SYS_rt_sigaction, SIGSYS, (int64_t)ours, 0, 8);
+}
+
 // A SIGSYS that is not our filter's trap (the application's own seccomp
 // filter, or a signal sent to it) goes to the application's action, as the
 // kernel would have delivered it. Its handler sees the original siginfo and
@@ -1734,8 +1777,8 @@ bool lazy_rewrite_site(uint64_t site)
 void forward_sigsys(siginfo_t *info, void *context)
 {
 	const uint64_t sigsys = 1ull << (SIGSYS - 1);
-	const uint64_t handler = app_sigsys_action[0],
-		       flags = app_sigsys_action[1];
+	const sigsys_action action = app_sigsys_action();
+	const uint64_t handler = action.words[0], flags = action.words[1];
 	if (handler == (uint64_t)SIG_DFL ||
 	    (handler == (uint64_t)SIG_IGN && info->si_code == 1)) {
 		// The default action (a seccomp SIGSYS cannot be ignored):
@@ -1749,10 +1792,12 @@ void forward_sigsys(siginfo_t *info, void *context)
 	}
 	if (handler == (uint64_t)SIG_IGN)
 		return;
-	if (flags & SA_RESETHAND)
-		app_sigsys_action[0] = (uint64_t)SIG_DFL;
+	if (flags & SA_RESETHAND) {
+		const uint64_t dfl[4] = { (uint64_t)SIG_DFL, 0, 0, 0 };
+		set_app_sigsys_action(dfl);
+	}
 	// Its mask while it runs; SIGSYS stays deliverable for our traps.
-	uint64_t mask = app_sigsys_action[3] & ~sigsys, old = 0;
+	uint64_t mask = action.words[3] & ~sigsys, old = 0;
 	raw_syscall(SYS_rt_sigprocmask, SIG_BLOCK, (int64_t)&mask,
 		    (int64_t)&old, 8);
 	if (flags & SA_SIGINFO)
@@ -1894,12 +1939,14 @@ bool sanitize_signal_call(int64_t sys_nr, int64_t &arg1, int64_t &arg2,
 	} else if (sys_nr == SYS_rt_sigaction) {
 		// The kernel's struct: handler, flags, restorer, mask.
 		if (arg1 == SIGSYS) {
-			if (arg3 != 0)
-				memcpy((void *)arg3, app_sigsys_action,
-				       sizeof(app_sigsys_action));
+			if (arg3 != 0) {
+				const sigsys_action current =
+					app_sigsys_action();
+				memcpy((void *)arg3, current.words,
+				       sizeof(current.words));
+			}
 			if (arg2 != 0)
-				memcpy(app_sigsys_action, (const void *)arg2,
-				       sizeof(app_sigsys_action));
+				set_app_sigsys_action((const uint64_t *)arg2);
 			ret = 0;
 			return true;
 		}
@@ -2048,16 +2095,25 @@ bool enable_lazy_rewriting(const std::vector<std::pair<uint64_t, uint64_t> > &al
 	sigaddset(&sigsys, SIGSYS);
 	// A SIGSYS action the application set before: from now on it is kept
 	// aside (sanitize_signal_call) and run for SIGSYS that is not ours.
-	if (raw_syscall(SYS_rt_sigaction, SIGSYS, 0, (int64_t)app_sigsys_action,
-			8) != 0)
+	uint64_t previous[4];
+	if (raw_syscall(SYS_rt_sigaction, SIGSYS, 0, (int64_t)previous, 8) !=
+	    0)
 		return false;
 	// On failure the application's SIGSYS action is put back.
 	auto restore = [] {
-		raw_syscall(SYS_rt_sigaction, SIGSYS, (int64_t)app_sigsys_action,
-			    0, 8);
+		const sigsys_action current = app_sigsys_action();
+		raw_syscall(SYS_rt_sigaction, SIGSYS, (int64_t)current.words, 0,
+			    8);
 	};
 	if (sigaction(SIGSYS, &sa, nullptr) != 0 ||
-	    pthread_sigmask(SIG_UNBLOCK, &sigsys, nullptr) != 0) {
+	    raw_syscall(SYS_rt_sigaction, SIGSYS, 0,
+			(int64_t)our_sigsys_action, 8) != 0) {
+		raw_syscall(SYS_rt_sigaction, SIGSYS, (int64_t)previous, 0, 8);
+		return false;
+	}
+	// Installs ours with the application's SA_RESTART.
+	set_app_sigsys_action(previous);
+	if (pthread_sigmask(SIG_UNBLOCK, &sigsys, nullptr) != 0) {
 		restore();
 		return false;
 	}
