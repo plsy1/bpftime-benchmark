@@ -17,6 +17,9 @@ void setup_syscall_tracer();
 syscall_hooker_func_t get_call_hook();
 // Set the syscall callback function
 void set_call_hook(syscall_hooker_func_t hook);
+// The agent's bpftime_identity_epoch, bumped before every vfork-like clone
+// (aarch64; see note_clone_syscall).
+void set_identity_epoch(uint64_t *epoch);
 struct lazy_rewrite_stats {
 	uint64_t traps, rewritten, emulated;
 };

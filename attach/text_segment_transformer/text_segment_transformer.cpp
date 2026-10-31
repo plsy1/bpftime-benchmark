@@ -21,6 +21,7 @@
 #include <sys/syscall.h>
 #include <sys/mman.h>
 #include <sys/uio.h>
+#include <sched.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <vector>
@@ -97,8 +98,45 @@ static int64_t call_unguarded_syscall(int64_t sys_nr, int64_t arg1,
 
 static syscall_hooker_func_t call_hook = &call_unguarded_syscall;
 
+// The agent's bpftime_identity_epoch (runtime producer_identity.cpp), or null.
+static uint64_t *identity_epoch;
+
+// Called by the aarch64 hook before a clone or clone3 takes the direct path.
+// A child that shares the calling thread's memory and TLS (CLONE_VM without
+// CLONE_SETTLS: vfork, posix_spawn) would run the agent on that thread's
+// cached pid and tid, and no fork handler runs for it: bump the epoch, so the
+// agent checks its cached identities again. Threads have CLONE_SETTLS.
+// Referenced only from the hook's asm: `used`, or LTO drops it.
+extern "C" __attribute__((visibility("hidden"), used)) void
+note_clone_syscall(uint64_t arg0, int64_t sys_nr)
+{
+	uint64_t *epoch = __atomic_load_n(&identity_epoch, __ATOMIC_ACQUIRE);
+	if (epoch == nullptr)
+		return;
+	uint64_t flags = arg0;
+	if (sys_nr == SYS_clone3) {
+		// struct clone_args starts with the flags. A bad pointer is the
+		// kernel's EFAULT to report, not a fault here.
+		iovec local = { &flags, sizeof(flags) },
+		      remote = { (void *)arg0, sizeof(flags) };
+		const int64_t pid =
+			orig_syscall_direct(SYS_getpid, 0, 0, 0, 0, 0, 0);
+		if (orig_syscall_direct(SYS_process_vm_readv, pid,
+					(int64_t)&local, 1, (int64_t)&remote, 1,
+					0) != (int64_t)sizeof(flags))
+			return;
+	}
+	if ((flags & CLONE_VM) && !(flags & CLONE_SETTLS))
+		__atomic_fetch_add(epoch, 1, __ATOMIC_RELAXED);
+}
+
 namespace bpftime
 {
+void set_identity_epoch(uint64_t *epoch)
+{
+	__atomic_store_n(&identity_epoch, epoch, __ATOMIC_RELEASE);
+}
+
 // After an mmap, mprotect or pkey_mprotect, inside the guard: rewrites code
 // that became executable (aarch64).
 static void after_hooked_syscall(int64_t sys_nr, int64_t arg1, int64_t arg2,
@@ -364,9 +402,9 @@ __asm__(".pushsection .text\n\t"
 		"cmp x8, #139\n\t" // rt_sigreturn
 		"b.eq 2f\n\t"
 		"cmp x8, #220\n\t" // clone
-		"b.eq 2f\n\t"
+		"b.eq 5f\n\t"
 		"cmp x8, #435\n\t" // clone3
-		"b.eq 2f\n\t"
+		"b.eq 5f\n\t"
 		"mov x6, x5\n\t"
 		"mov x5, x4\n\t"
 		"mov x4, x3\n\t"
@@ -378,6 +416,11 @@ __asm__(".pushsection .text\n\t"
 		"str x0, [sp, #0]\n\t"
 		"mov x17, #12\n\t" // GATE_RETURN_OFFSET
 		"b 3f\n\t"
+		// clone, clone3: the direct path restores every register from
+		// the frame, so a call before it changes nothing the child sees.
+		"5:\n\t"
+		"mov x1, x8\n\t"
+		"bl note_clone_syscall\n\t"
 		"2:\n\t"
 		"mov x17, #20\n\t" // GATE_DIRECT_OFFSET
 		"3:\n\t"
