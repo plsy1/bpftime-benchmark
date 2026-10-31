@@ -767,6 +767,16 @@ Fixed after the second review (results `reviews-20261031/rereview`):
   0xb7e5 as its data would be taken for ours. Tests: "lazy mode passes the
   application's seccomp traps to its handler" (both orders), "lazy mode
   leaves the application's untrapped seccomp SIGSYS fatal".
+- MAP_SHARED code is not patched (`site_in_shared_mapping`, counted in
+  `shared_skipped` and made untraced each time): through `/proc/self/mem`
+  (FOLL_FORCE) or `mprotect`, the branch to this process's gate landed in
+  the file and in every process mapping it (the default mode skipped shared
+  mappings since 3d7ada3d). The handler keeps the mapping it looked up last
+  (a maps read is about 75 us, so a JIT mapping's first trap pays it once);
+  hooked or emulated `mmap`/`mprotect` (and emulated `munmap`/`mremap`)
+  clear it, and a new mapping is reachable only after its mmap returned
+  through one of them. Test: "lazy mode leaves shared code mappings
+  unpatched" (memfd, RWX, MAP_SHARED).
 
 Known limits of the aarch64 rewriting (documented, not fixed):
 - A hooked call pushes 16 + 784 bytes before the C dispatch, about 1.3 KiB
