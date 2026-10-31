@@ -306,7 +306,29 @@ Segments without the wakeup object (older servers) fall back to polling.
 A producer finds its shard by (pid, tid) on every sample. Both are cached per
 thread (getpid and gettid are system calls); the atfork child handler clears
 the cache, and the shard match still compares pid and tid. Keep both, or a
-fork child would write into its parent's shard.
+fork child would write into its parent's shard. The cache
+(`producer_identity.cpp`) also serves `bpf_get_current_pid_tgid` and ringbuf
+reservations.
+
+A vfork or posix_spawn child (CLONE_VM without CLONE_SETTLS) shares its parent
+thread's memory and TLS, and no fork handler runs for it: it reported its
+parent thread's ids, or filled an empty cache with its own, which the parent
+then kept (its perf shard keyed to the dead child was reclaimed while it wrote
+to it). On aarch64 the syscall-trace hook calls `note_clone_syscall` before
+clone and clone3 take the direct path (the direct path restores every
+register from the frame, so the call is invisible to the child); for such a
+clone it bumps the agent's exported `bpftime_identity_epoch` (found with
+dlsym after loading; clone3's flags read with `process_vm_readv`, so a bad
+pointer is still the kernel's EFAULT). A cached identity older than the epoch
+is read again, and cached only if its pid is the process's (`process_pid`,
+refreshed in fork children only, so in a vfork child still the parent's):
+the child gets its own ids uncached, the parent refreshes once. Costs: one
+compare per identity read, and per thread creation a `getpid` and a
+`process_vm_readv`. Not covered: uprobe (Frida) mode and x86, which have no
+such marker; a vfork child there still uses its parent thread's identity.
+Tests: "bpf_get_current_pid_tgid in a vfork child and its parent after it"
+(runtime, the bump by hand), "clones that share the thread's TLS bump the
+identity epoch" (transformer).
 
 Idle shards of dead threads are reclaimed by probing (pid, tid) with tgkill.
 Each shard records its producer's pid namespace (inode of `/proc/self/ns/pid`);

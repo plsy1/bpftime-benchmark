@@ -58,6 +58,7 @@
 #include <spdlog/spdlog.h>
 #include <vector>
 #include <bpftime_shm_internal.hpp>
+#include "producer_identity.hpp"
 #include <chrono>
 #include <thread>
 
@@ -282,59 +283,23 @@ uint64_t bpftime_ktime_get_boot_ns(uint64_t, uint64_t, uint64_t, uint64_t,
 	return spec.tv_sec * (uint64_t)1000000000 + spec.tv_nsec;
 }
 
-// bpf_get_current_pid_tgid caches the identity so it does not pay a syscall on
-// every call. The cache cannot be function-local: a forked child inherits the
-// parent's cached values, and would report the parent's pid and tid. These live
-// at file scope so the fork handler can refresh them in the child.
-static pid_t bpftime_cached_tgid = getpid();
-#if __linux__
-static thread_local int bpftime_cached_tid = -1;
-#elif __APPLE__
-static thread_local uint64_t bpftime_cached_tid = UINT64_MAX;
-#endif
-
-static void bpftime_refresh_cached_identity_in_child()
-{
-	bpftime_cached_tgid = getpid();
-	bpftime_invalidate_credential_cache();
-	// tid is meaningless in the child; the next helper call refills it.
-#if __linux__
-	bpftime_cached_tid = -1;
-#elif __APPLE__
-	bpftime_cached_tid = UINT64_MAX;
-#endif
-}
-
-static const int bpftime_identity_atfork_status =
+// The identity is cached (producer_identity.cpp): per thread, cleared in fork
+// children, checked again after a vfork-like clone.
+static const int bpftime_credential_atfork_status =
 	bpftime::register_fork_handlers(nullptr, nullptr,
-					bpftime_refresh_cached_identity_in_child);
+					bpftime_invalidate_credential_cache);
 
 uint64_t bpftime_get_current_pid_tgid(uint64_t, uint64_t, uint64_t, uint64_t,
 				      uint64_t)
 {
-	// If registering the fork handler failed, the cache is still the
-	// parent's after a fork, so read the identity directly. The probe
-	// access cache above falls back the same way.
-	if (bpftime_identity_atfork_status != 0) {
-#if __linux__
-		return ((uint64_t)getpid() << 32) |
-		       static_cast<uint32_t>(syscall(SYS_gettid));
-#elif __APPLE__
-		uint64_t tid = 0;
-		pthread_threadid_np(NULL, &tid);
-		return ((uint64_t)getpid() << 32) | tid;
+	int pid;
+	int64_t tid;
+	bpftime::current_producer_identity(pid, tid);
+#if __APPLE__
+	return ((uint64_t)pid << 32) | (uint64_t)tid;
+#else
+	return ((uint64_t)pid << 32) | static_cast<uint32_t>(tid);
 #endif
-	}
-#if __linux__
-	if (bpftime_cached_tid == -1) {
-		bpftime_cached_tid = static_cast<int>(syscall(SYS_gettid));
-	}
-#elif __APPLE__
-	if (bpftime_cached_tid == UINT64_MAX) {
-		pthread_threadid_np(NULL, &bpftime_cached_tid);
-	}
-#endif
-	return ((uint64_t)bpftime_cached_tgid << 32) | bpftime_cached_tid;
 }
 
 // Credentials can change after startup. Without the agent's set*id
