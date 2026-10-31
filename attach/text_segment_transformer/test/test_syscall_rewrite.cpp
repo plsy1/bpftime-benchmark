@@ -1160,6 +1160,41 @@ TEST_CASE("lazy mode leaves the application's untrapped seccomp SIGSYS fatal",
 	REQUIRE(code == 128 + SIGSYS);
 }
 
+// Patching writes through /proc/self/mem (FOLL_FORCE) or after mprotect: in
+// MAP_SHARED code the branch to this process's gate landed in the file and in
+// every process mapping it.
+TEST_CASE("lazy mode leaves shared code mappings unpatched",
+	  "[syscall-rewrite][lazy]")
+{
+	int code = in_rewritten_child(request_lazy, [] {
+		if (!bpftime::enable_lazy_rewriting({}))
+			return 2;
+		int fd = memfd_create("bpftime-shared-code", MFD_CLOEXEC);
+		const uint32_t words[] = { mov_x8(SYS_getpid), SVC_0, RET };
+		if (fd < 0 || ftruncate(fd, 4096) != 0 ||
+		    pwrite(fd, words, sizeof(words), 0) != sizeof(words))
+			return 3;
+		void *code = mmap(nullptr, 4096,
+				  PROT_READ | PROT_WRITE | PROT_EXEC,
+				  MAP_SHARED, fd, 0);
+		auto *view = (const uint32_t *)mmap(nullptr, 4096, PROT_READ,
+						    MAP_SHARED, fd, 0);
+		if (code == MAP_FAILED || view == MAP_FAILED)
+			return 4;
+		__builtin___clear_cache((char *)code, (char *)code + 12);
+		auto fn = reinterpret_cast<code_fn>(code);
+		for (int i = 0; i < 3; i++)
+			if (fn() != getpid())
+				return 5;
+		if (std::memcmp(view, words, sizeof(words)) != 0)
+			return 6; // patched: the file changed
+		return bpftime::get_lazy_rewrite_stats().shared_skipped == 3 ?
+			       0 :
+			       7;
+	});
+	REQUIRE(code == 0);
+}
+
 // A dlopen rescans holding rescan_mutex and takes the patch lock to install
 // gates; fork's prepare handlers took them the other way round, and the two
 // deadlocked within a second.
