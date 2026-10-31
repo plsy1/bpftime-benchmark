@@ -12,6 +12,10 @@
 #include <string>
 #include <unistd.h>
 #include <vector>
+#include <cstring>
+#include <sys/wait.h>
+#include <boost/interprocess/managed_shared_memory.hpp>
+#include <bpf_map/userspace/ringbuf_map.hpp>
 
 // Ringbuf records are 8-byte headers followed by the payload, both kept
 // adjacent in a power-of-two data area. When a header lands in the very
@@ -90,3 +94,53 @@ TEST_CASE("ringbuf keeps tail-straddling records contiguous and consumable",
 }
 
 #endif /* __linux__ */
+
+TEST_CASE("Ringbuf skips the record of a producer that died before submitting",
+	  "[ringbuf]")
+{
+	// The kernel cannot have a reservation outlive its program; here a
+	// traced process killed between bpf_ringbuf_reserve and submit left a
+	// busy header that held back every later record, silently.
+	const std::string name =
+		"bpftime_ringbuf_dead_owner_" + std::to_string(getpid());
+	boost::interprocess::shared_memory_object::remove(name.c_str());
+	{
+		boost::interprocess::managed_shared_memory shm(
+			boost::interprocess::create_only, name.c_str(),
+			4 << 20);
+		auto *map = shm.construct<bpftime::ringbuf_map_impl>(
+			"ringbuf")(4096, shm);
+		auto rb = map->create_impl_shared_ptr();
+		auto count = [&] {
+			return rb->fetch_data(
+				[](void *, void *, size_t) { return 0; },
+				nullptr);
+		};
+		// A live producer's reservation is not taken away.
+		void *mine = map->reserve(16, 1);
+		REQUIRE(mine != nullptr);
+		CHECK_FALSE(rb->recover_dead_reservation());
+		map->submit(mine, false);
+		CHECK(count() == 1);
+
+		pid_t child = fork();
+		REQUIRE(child >= 0);
+		if (child == 0)
+			_exit(map->reserve(16, 1) != nullptr ? 0 : 1);
+		int status = -1;
+		REQUIRE(waitpid(child, &status, 0) == child);
+		REQUIRE(WEXITSTATUS(status) == 0);
+		for (int i = 0; i < 10; i++) {
+			void *p = map->reserve(16, 1);
+			REQUIRE(p != nullptr);
+			std::memset(p, 0x5a, 16);
+			map->submit(p, false);
+		}
+		CHECK(count() == 0);
+		CHECK_FALSE(rb->has_data());
+		CHECK(rb->recover_dead_reservation());
+		CHECK(rb->has_data());
+		CHECK(count() == 10);
+	}
+	boost::interprocess::shared_memory_object::remove(name.c_str());
+}

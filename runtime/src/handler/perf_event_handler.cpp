@@ -9,6 +9,7 @@
 #include "bpftime_epoll.h"
 #endif
 #include "fork_handlers.hpp"
+#include "producer_identity.hpp"
 #include "spdlog/spdlog.h"
 #include <boost/interprocess/detail/segment_manager_helper.hpp>
 #include <boost/interprocess/smart_ptr/shared_ptr.hpp>
@@ -98,95 +99,12 @@ struct spin_lock_guard {
 	spin_lock_guard &operator=(const spin_lock_guard &) = delete;
 };
 
-#if __linux__
-// gettid() has not been cached by glibc since 2.25, so every software perf
-// output paid a real gettid syscall before the shard cache was even looked
-// up. Cache it in thread-local storage: a cache hit is then a single TLS
-// load, never a syscall, on the hot path. The value is a trivial int64_t, so
-// no destructor is registered (the output path must stay allocation-free,
-// see #726).
-//
-// The storage model is initial-exec, not default global-dynamic: this file is
-// part of the runtime target, which is compiled with
-// `-ftls-model=initial-exec` (runtime/CMakeLists.txt), so the compiler emits
-// a direct %fs-relative access with no __tls_get_addr call. That removes the
-// dynamic-linker lookup from the hot path, at the cost of 8 bytes of static
-// TLS per thread counted against the same surplus budget #726 shrank its shard
-// cache for. Keep this variable small for that reason.
-//
-// Boundaries:
-//  - An initial-exec access is async-signal-safe, but software perf output
-//    (helper 25) is still not in the trap backend's audited helper set
-//    (helper_is_async_signal_safe in bpf_helper.cpp), so it never runs in
-//    SIGTRAP context; admitting it there would require a new audit.
-//  - pthread_atfork covers fork/pthread_create/posix_spawn (the last execs
-//    immediately). A raw clone()/vfork() that bypasses pthread_atfork is not
-//    a supported runtime entry; such a child must not call this helper.
-//  - The -1 sentinel cannot collide with a real tid, which is always
-//    positive.
-
-thread_local int64_t bpftime_cached_tid = -1;
-
-void bpftime_refresh_cached_tid_in_child()
-{
-	// Only the forking thread survives in the child, but its TLS copy still
-	// carries the parent's tid; force the next call to resolve the child's.
-	bpftime_cached_tid = -1;
-}
-
-const int bpftime_tid_atfork_status =
-	pthread_atfork(nullptr, nullptr, bpftime_refresh_cached_tid_in_child);
-#endif
-
-int64_t current_thread_id()
-{
-#if __linux__
-	// If the fork handler could not be registered, a forked child would keep
-	// the parent's tid, so resolve every call directly.
-	if (bpftime_tid_atfork_status != 0)
-		return (int64_t)syscall(SYS_gettid);
-	if (bpftime_cached_tid == -1)
-		bpftime_cached_tid = (int64_t)syscall(SYS_gettid);
-	return bpftime_cached_tid;
-#elif __APPLE__
-	uint64_t tid = 0;
-	pthread_threadid_np(nullptr, &tid);
-	return (int64_t)tid;
-#else
-	return 0;
-#endif
-}
-
 uint64_t next_software_perf_event_generation()
 {
 	static std::atomic<uint64_t> next_generation{ 1 };
 	uint64_t generation =
 		next_generation.fetch_add(1, std::memory_order_relaxed);
 	return ((uint64_t)(uint32_t)getpid() << 32) ^ generation;
-}
-
-uint64_t current_pid_namespace()
-{
-#if __linux__
-	struct stat st;
-	if (stat("/proc/self/ns/pid", &st) == 0)
-		return (uint64_t)st.st_ino;
-#endif
-	return 0;
-}
-
-bool is_thread_alive(int pid, int64_t tid)
-{
-#if __linux__
-	if (syscall(SYS_tgkill, pid, (pid_t)tid, 0) == 0) {
-		return true;
-	}
-	return errno == EPERM;
-#else
-	(void)pid;
-	(void)tid;
-	return true;
-#endif
 }
 
 struct software_perf_event_shard_cache_entry {
@@ -215,47 +133,6 @@ thread_local std::unordered_map<const software_perf_event_data *,
 				software_perf_event_shard_cache_entry>
 	software_perf_event_shard_cache;
 
-// A producer finds its shard by (pid, tid) on every sample. getpid() and the
-// thread id are system calls (glibc caches neither), so keep them per thread.
-// A fork child starts with the forking thread's copy; the atfork child handler
-// clears it. If registering the handler failed, query on every call.
-thread_local int cached_producer_pid = -1;
-thread_local int64_t cached_producer_tid = -1;
-// The process's pid namespace; a child forked after unshare(CLONE_NEWPID)
-// is in another one. UINT64_MAX: not read yet.
-std::atomic<uint64_t> cached_producer_namespace{ UINT64_MAX };
-const int producer_identity_atfork_status =
-	bpftime::register_fork_handlers(nullptr, nullptr, [] {
-		cached_producer_pid = -1;
-		cached_producer_tid = -1;
-		cached_producer_namespace.store(UINT64_MAX,
-						std::memory_order_relaxed);
-	});
-
-uint64_t producer_pid_namespace()
-{
-	uint64_t ns = cached_producer_namespace.load(std::memory_order_relaxed);
-	if (ns == UINT64_MAX || producer_identity_atfork_status != 0) {
-		ns = current_pid_namespace();
-		cached_producer_namespace.store(ns, std::memory_order_relaxed);
-	}
-	return ns;
-}
-
-void current_producer_identity(int &pid, int64_t &tid)
-{
-	if (producer_identity_atfork_status != 0) {
-		pid = getpid();
-		tid = current_thread_id();
-		return;
-	}
-	if (cached_producer_pid == -1) {
-		cached_producer_pid = getpid();
-		cached_producer_tid = current_thread_id();
-	}
-	pid = cached_producer_pid;
-	tid = cached_producer_tid;
-}
 } // namespace
 
 #if defined(BPFTIME_UNIT_TESTING)
