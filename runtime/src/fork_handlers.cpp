@@ -21,7 +21,9 @@ struct fork_handler_entry {
 // loads): a child forked between another thread's reservation and its
 // publication inherits `published < reserved`, and a later registration
 // there would wait for an entry nobody completes. The wait is bounded as a
-// last resort; such an entry then runs only through pthread_atfork.
+// last resort: `published` then never passes that entry, so it and every
+// later registration are missing from the table (they run only through
+// pthread_atfork, which a dlmopen-ed agent's application never calls).
 constexpr int max_fork_handlers = 32;
 constexpr int max_publish_spins = 1 << 20;
 fork_handler_entry fork_handlers[max_fork_handlers];
