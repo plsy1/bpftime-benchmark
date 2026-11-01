@@ -54,11 +54,11 @@ class bpftime_lock_guard {
 	explicit bpftime_lock_guard(volatile pthread_spinlock_t &spinlock)
 		: spinlock(spinlock)
 	{
-		pthread_spin_lock(&spinlock);
+		bpftime_spin_lock(&spinlock);
 	}
 	~bpftime_lock_guard()
 	{
-		pthread_spin_unlock(&spinlock);
+		bpftime_spin_unlock(&spinlock);
 	}
 	// Delete copy constructor and assignment operator
 	bpftime_lock_guard(const bpftime_lock_guard &) = delete;
