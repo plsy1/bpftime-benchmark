@@ -51,7 +51,10 @@ bpftime below the kernel there.
    b. then finer write locking (lock stripes over bucket ranges, with care for probe runs that
       cross a stripe) for insert and delete.
    Re-run churn, tracking table and counters after each step; single-thread cost must not get
-   worse.
+   worse. **Done 2026-10-30** (dev `9c3e0345` lookups without a lock, `cb3f29d2` and `f4fdcbcd`
+   striped writers; `hash-lockfree-lookup-20261030`, `hash-striped-writers-20261030`).
+   Single-thread churn ended +7.4%, accepted then; its full size in the official suite is
+   problem 8 (step 7).
 3. **Problems 2 and 6, Frida** (large, outside bpftime). bpftime links the prebuilt frida-gum
    16.1.2 devkit; both costs are in Frida's interceptor (still present in Frida main). First a
    feasibility step: build frida-gum 16.1.2 from source on the Jetson and link bpftime against
@@ -66,5 +69,23 @@ bpftime below the kernel there.
    Revisit only if step 2 changes the update path anyway.
 
 6. **Problem 7, per-CPU maps with unpinned threads** (found after this plan): recorded, not fixed (user decision 2026-10-28); option in `percpu-unpinned-20261028`.
+
+7. **Problem 8, hash maps' single-thread cost** (medium, bpftime only; added 2026-11-02). Goal:
+   the official uprobe suite's hash cases back near a7d54d7e (hash update/lookup/delete
+   27/23/28 ns, per-CPU hash 45/28/100 ns per operation) without giving back the multi-thread
+   gains of step 2 or the correctness of step 1. Candidates to measure, none tested yet:
+   a. the spinlocks call out-of-line atomics (`__aarch64_swp4_acq`): build with LSE atomics
+      inline (`-march=armv8.2-a`, the Orin's level, or `-mno-outline-atomics`), which also
+      affects every other lock in the runtime;
+   b. update and delete read the home stripe's bound with load-acquire before locking and read
+      it again under the lock: the first read can be relaxed;
+   c. a fast path when the probe run stays inside the home stripe: one lock, no range
+      computation;
+   d. lookups: fewer acquire loads per probe (one acquire on the bucket word and a fence on
+      the re-check), or `ldapr` instead of `ldar`;
+   e. per-CPU hash: move onto the open-addressing table with lock-free lookups (step 1's
+      alternative), so lookups take no lock.
+   Gate for each change: the suite's hash cases (`hash-bisect/run_hash.py`), churn, tracking
+   table and counters at 1 and 6 threads, the per-CPU concurrency test.
 
 Not in this plan: the ARM64 syscall trampoline (next phase), upstream PRs (deferred).
