@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""Phase 1 gate: total us per call per thread (medians of 3; the threads column is per thread)
+and map cost (object minus control on the same backend); suite cases in ns per operation."""
+import collections, json, statistics as st
+from pathlib import Path
+
+D = Path(__file__).resolve().parent
+B = ['dev-6ab9cbfe', 'dev-5b28dae5']
+
+
+def load(name, key):
+    d = collections.defaultdict(list)
+    rows = [json.loads(l) for l in open(D / name)]
+    for r in rows:
+        if r.get('ok'):
+            d[key(r)].append(r['ops_per_sec'])
+    bad = sum(1 for r in rows if not r.get('ok'))
+    return {k: k[-1] / st.median(v) * 1e6 for k, v in d.items()}, len(rows), bad
+
+
+def table(title, data, obj, ctl, rest):
+    print(f'\n{title}: total | map cost (us per call)')
+    print('| Threads | ' + ' | '.join(f'{b} total' for b in B) + ' | change | ' +
+          ' | '.join(f'{b} map' for b in B) + ' |')
+    print('|---:|' + '---:|' * (2 * len(B) + 1))
+    for t in (1, 6):
+        tot = [data[(b, obj, *rest, t)] for b in B]
+        m = [data[(b, obj, *rest, t)] - data[(b, ctl, *rest, t)] for b in B]
+        print(f'| {t} | ' + ' | '.join(f'{x:.3f}' for x in tot) +
+              f' | {tot[1] / tot[0] * 100 - 100:+.1f}% | ' + ' | '.join(f'{x:.3f}' for x in m) + ' |')
+
+
+ch, n1, b1 = load('churn.jsonl', lambda r: (r['backend'], r['obj'], r['threads']))
+table('Churn, 4 B key, 8 B value', ch, 'churn-k4-v8.bpf.o', 'control.bpf.o', ())
+tr, n2, b2 = load('track.jsonl', lambda r: (r['backend'], r['obj'], r['live'], r['threads']))
+for live in (1000, 900000):
+    table(f'Tracking table, {live} live', tr, 'track.bpf.o', 'track-control.bpf.o', (live,))
+cn, n3, b3 = load('count.jsonl', lambda r: (r['backend'], r['obj'], r['nkeys'], r['threads']))
+for obj in ('count-hash.bpf.o', 'count-percpu-hash.bpf.o'):
+    for k in (1, 64):
+        table(f'Shared counters, {obj[6:-6]}, NKEYS {k}', cn, obj, 'count-control.bpf.o', (k,))
+print(f'\nruns: churn {n1} ({b1} not ok), track {n2} ({b2}), count {n3} ({b3})')
+
+s = collections.defaultdict(lambda: collections.defaultdict(list))
+for l in open(D / 'suite.jsonl'):
+    r = json.loads(l)
+    for k, v in r['samples'].items():
+        s[r['build']][k].append(v)
+order = ['a7d54d7e', 'dev-6ab9cbfe', 'dev-5b28dae5']
+print('\nOfficial suite, userspace leg, ns per map operation (medians of 3)\n')
+print('| Case | ' + ' | '.join(order) + ' | 5b28dae5 vs 6ab9cbfe | 5b28dae5 vs a7d54d7e |')
+print('|---|' + '---:|' * (len(order) + 2))
+for name in s['a7d54d7e']:
+    m = [st.median(s[b][name]) for b in order]
+    print(f'| {name[8:]} | ' + ' | '.join(f'{x / 1000:.2f}' for x in m) +
+          f' | {m[2] / m[1] * 100 - 100:+.1f}% | {m[2] / m[0] * 100 - 100:+.1f}% |')

@@ -1,0 +1,884 @@
+ Percent |	Source code & Disassembly of libbpftime-agent.so for instructions:u (3042 samples, percent: local period)
+-------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3      Disassembly of section .text:
+         :
+         : 5      00000000005199a0 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)>:
+    0.13 :   5199a0: stp     x29, x30, [sp, #-192]!
+         :
+         : 8      long fix_size_hash_map_impl::elem_update(const void *key, const void *value,
+         : 9      uint64_t flags)
+         : 10     {
+         : 11     // Kernel htab semantics. BPF_F_LOCK is ignored as before.
+         : 12     const uint64_t mode = flags & ~static_cast<uint64_t>(BPF_F_LOCK);
+    0.07 :   5199a4: and     x3, x3, #0xfffffffffffffffb
+         : 14     {
+    0.36 :   5199a8: mov     x29, sp
+    0.23 :   5199ac: str     x1, [sp, #144]
+    0.13 :   5199b0: str     x2, [sp, #184]
+         : 18     if (mode > BPF_EXIST) {
+    0.16 :   5199b4: cmp     x3, #0x2
+    0.00 :   5199b8: b.hi    51a228 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x888>  // b.pmore
+    0.10 :   5199bc: stp     x19, x20, [sp, #16]
+    0.16 :   5199c0: mov     x20, x0
+         : 23     // The existence check and the update are one locked operation.
+         : 24     // BPF_EXIST matters to lookup-then-update counters: a key deleted in
+         : 25     // between must not come back with its old count.
+         : 26     using update_mode = bpftime_hash_map::update_mode;
+         : 27     using update_result = bpftime_hash_map::update_result;
+         : 28     switch (map_impl.update(key, value,
+    0.00 :   5199c4: mov     w0, #0x1                        // #1
+    0.16 :   5199c8: stp     x21, x22, [sp, #32]
+    0.16 :   5199cc: stp     x23, x24, [sp, #48]
+    0.10 :   5199d0: stp     x25, x26, [sp, #64]
+    0.13 :   5199d4: stp     x27, x28, [sp, #80]
+    0.20 :   5199d8: str     w0, [sp, #164]
+    0.16 :   5199dc: cmp     x3, #0x1
+    0.00 :   5199e0: b.eq    5199f4 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x54>  // b.none
+         : 37     mode == BPF_NOEXIST ? update_mode::no_exist :
+         : 38     mode == BPF_EXIST   ? update_mode::exist :
+    0.26 :   5199e4: cmp     x3, #0x2
+    0.00 :   5199e8: cset    w0, eq  // eq = none
+    0.36 :   5199ec: lsl     w0, w0, #1
+    0.20 :   5199f0: str     w0, [sp, #164]
+         : 43     {}
+         :
+         : 45     //!Obtains raw pointer from offset.
+         : 46     //!Never throws.
+         : 47     BOOST_INTERPROCESS_FORCEINLINE pointer get() const BOOST_NOEXCEPT
+         : 48     {  return static_cast<pointer>(ipcdetail::offset_ptr_to_raw_pointer(this, this->internal.m_offset));   }
+    0.36 :   5199f4: ldr     x0, [x20, #112]
+    0.56 :   5199f8: add     x1, x20, #0x70
+    0.23 :   5199fc: ldr     x2, [x20, #80]
+         : 52     OffsetType mask = offset == 1;
+    0.20 :   519a00: cmp     x0, #0x1
+    0.00 :   519a04: cset    x24, eq // eq = none
+         : 55     OffsetType target_offset = caster_t(this_ptr).offset() + offset;
+    0.07 :   519a08: add     x1, x1, x0
+         : 57     }
+         :
+         : 59     inline size_t home_bucket(const void *key) const
+         : 60     {
+         : 61     return bpftime_hasher::fast_modulo(
+         : 62     bpftime_hasher::hash_func(key, _key_size), _num_buckets,
+    0.16 :   519a0c: ldr     x0, [x20]
+         : 64     --mask;
+    0.16 :   519a10: sub     x24, x24, #0x1
+         : 66     target_offset &= mask;
+    0.23 :   519a14: and     x24, x24, x1
+         : 68     OffsetType mask = offset == 1;
+    0.20 :   519a18: cmp     x2, #0x1
+         : 70     {  return static_cast<pointer>(ipcdetail::offset_ptr_to_raw_pointer(this, this->internal.m_offset));   }
+    0.03 :   519a1c: add     x1, x20, #0x50
+         : 72     (stripes + CACHE_LINE - 1) &
+    0.43 :   519a20: add     x24, x24, #0x3f
+         : 74     OffsetType target_offset = caster_t(this_ptr).offset() + offset;
+    0.00 :   519a24: add     x1, x1, x2
+         : 76     --mask;
+    0.16 :   519a28: csetm   x21, ne // ne = any
+    0.20 :   519a2c: and     x24, x24, #0xffffffffffffffc0
+         : 79     target_offset &= mask;
+    0.10 :   519a30: and     x21, x21, x1
+         : 81     if (key_size == sizeof(uint32_t)) {
+    0.33 :   519a34: cmp     x0, #0x4
+    0.00 :   519a38: b.eq    51a144 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x7a4>  // b.none
+         : 84     for (size_t i = 0; i < key_size; i++) {
+    0.00 :   519a3c: mov     x2, #0x0                        // #0
+    0.00 :   519a40: cbz     x0, 519a74 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0xd4>
+    0.00 :   519a44: ldr     x2, [sp, #144]
+    0.00 :   519a48: mov     x1, x2
+    0.00 :   519a4c: add     x4, x0, x2
+         : 90     size_t hash = 0;
+    0.00 :   519a50: mov     x0, #0x0                        // #0
+    0.00 :   519a54: nop
+         : 93     hash = hash * 31 + ((uint8_t *)key)[i];
+    0.00 :   519a58: ldrb    w2, [x1], #1
+    0.00 :   519a5c: lsl     x3, x0, #5
+    0.00 :   519a60: sub     x0, x3, x0
+    0.00 :   519a64: add     x0, x2, x0
+         : 98     for (size_t i = 0; i < key_size; i++) {
+    0.00 :   519a68: cmp     x4, x1
+    0.00 :   519a6c: b.ne    519a58 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0xb8>  // b.any
+         : 101    (static_cast<unsigned __int128>(value) * reciprocal) >> 64);
+    0.00 :   519a70: mov     x2, x0
+    0.16 :   519a74: ldp     x1, x28, [x20, #32]
+    0.23 :   519a78: umulh   x28, x28, x2
+         : 105    return bucket >> _stripe_shift;
+    0.03 :   519a7c: ldr     x2, [x20, #56]
+         : 107    size_t remainder = value - quotient * divisor;
+    0.16 :   519a80: msub    x0, x1, x28, x0
+         : 109    remainder -= divisor;
+    0.00 :   519a84: cmp     x1, x0
+    0.00 :   519a88: sub     x1, x0, x1
+    0.00 :   519a8c: csel    x1, x1, x0, ls  // ls = plast
+    0.03 :   519a90: str     x1, [sp, #168]
+         : 114    return bucket >> _stripe_shift;
+    0.03 :   519a94: lsr     x0, x1, x2
+         : 116    return std::atomic_ref<uint32_t>(v.stripes[stripe_index].bound)
+    0.00 :   519a98: add     x0, x24, x0, lsl #6
+    0.07 :   519a9c: str     x0, [sp, #152]
+         : 119    _GLIBCXX_ALWAYS_INLINE _Val<_Tp>
+         : 120    load(const _Tp* __ptr, memory_order __m) noexcept
+         : 121    {
+         : 122    alignas(_Tp) unsigned char __buf[sizeof(_Tp)];
+         : 123    auto* __dest = reinterpret_cast<_Val<_Tp>*>(__buf);
+         : 124    __atomic_load(__ptr, __dest, int(__m));
+    0.13 :   519aa0: add     x0, x0, #0x4
+    0.03 :   519aa4: ldar    w26, [x0]
+         :
+         : 128    // Stripes covering the buckets home .. home + span - 1 (span <= table).
+         : 129    stripe_range range_for(size_t home, size_t span) const
+         : 130    {
+         : 131    if (span >= _num_buckets)
+         : 132    return { 0, _num_stripes };
+   47.67 :   519aa8: ldr     x23, [x20, #64]
+         : 134    {
+         : 135    const view v = resolve();
+         : 136    const size_t home = home_bucket(key);
+         : 137    const size_t home_stripe = stripe_of(home);
+         : 138    // Buckets from home that the locked range must cover.
+         : 139    size_t span = load_bound(v, home_stripe) + 1;
+    0.03 :   519aac: add     x0, x26, #0x1
+    0.36 :   519ab0: str     x0, [sp, #136]
+         : 142    bucket += distance;
+    0.23 :   519ab4: sub     x0, x1, #0x1
+    0.43 :   519ab8: str     x0, [sp, #176]
+         : 145    if (span >= _num_buckets)
+    0.36 :   519abc: ldr     x1, [x20, #32]
+    0.59 :   519ac0: ldr     x0, [sp, #136]
+   18.70 :   519ac4: cmp     x0, x1
+    0.00 :   519ac8: b.cs    519cbc <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x31c>  // b.hs, b.nlast
+         : 150    bucket += distance;
+    3.67 :   519acc: ldr     x3, [sp, #136]
+    0.36 :   519ad0: ldr     x0, [sp, #176]
+         : 153    return bucket >> _stripe_shift;
+    0.26 :   519ad4: ldr     x2, [x20, #56]
+         : 155    bucket += distance;
+    0.03 :   519ad8: add     x0, x0, x3
+         : 157    return bucket >> _stripe_shift;
+    0.20 :   519adc: ldr     x3, [sp, #168]
+    0.20 :   519ae0: lsr     x19, x3, x2
+         : 160    return bucket >= _num_buckets ? bucket - _num_buckets : bucket;
+    0.26 :   519ae4: cmp     x0, x1
+    0.00 :   519ae8: b.cc    519f54 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x5b4>  // b.lo, b.ul, b.last
+    0.00 :   519aec: sub     x0, x0, x1
+         : 164    return bucket >> _stripe_shift;
+    0.00 :   519af0: lsr     x0, x0, x2
+         : 166    const size_t count = wraps ? _num_stripes - first + last + 1 :
+    0.00 :   519af4: add     x0, x0, x23
+    0.00 :   519af8: sub     x0, x0, x19
+    0.00 :   519afc: add     x25, x0, #0x1
+         : 170    if (count >= _num_stripes)
+    0.46 :   519b00: cmp     x25, x23
+    0.00 :   519b04: b.cs    519cbc <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x31c>  // b.hs, b.nlast
+         : 173    const size_t end = range.first + range.count;
+    3.62 :   519b08: add     x22, x19, x25
+         : 175    if (end > _num_stripes) {
+    0.13 :   519b0c: cmp     x22, x23
+    0.00 :   519b10: b.ls    51a23c <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x89c>  // b.plast
+    0.00 :   519b14: mov     x27, x24
+         : 179    for (size_t s = 0; s < end - _num_stripes; s++)
+    0.00 :   519b18: mov     x23, #0x0                       // #0
+    0.00 :   519b1c: nop
+         : 182    pthread_spin_lock(&v.stripes[s].lock);
+    0.00 :   519b20: mov     x0, x27
+    0.00 :   519b24: bl      4acc30 <pthread_spin_lock@plt>
+         : 185    for (size_t s = 0; s < end - _num_stripes; s++)
+    0.00 :   519b28: ldr     x0, [x20, #64]
+    0.00 :   519b2c: add     x23, x23, #0x1
+    0.00 :   519b30: add     x27, x27, #0x40
+    0.00 :   519b34: sub     x2, x22, x0
+    0.00 :   519b38: cmp     x23, x2
+    0.00 :   519b3c: b.cc    519b20 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x180>  // b.lo, b.ul, b.last
+    0.00 :   519b40: add     x27, x24, x19, lsl #6
+         : 193    for (size_t s = range.first; s < _num_stripes; s++)
+    0.00 :   519b44: mov     x23, x19
+    0.00 :   519b48: cmp     x0, x19
+    0.00 :   519b4c: b.ls    519b6c <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x1cc>  // b.plast
+         : 197    pthread_spin_lock(&v.stripes[s].lock);
+    0.00 :   519b50: mov     x0, x27
+    0.00 :   519b54: bl      4acc30 <pthread_spin_lock@plt>
+         : 200    for (size_t s = range.first; s < _num_stripes; s++)
+    0.00 :   519b58: ldr     x0, [x20, #64]
+    0.00 :   519b5c: add     x23, x23, #0x1
+    0.00 :   519b60: add     x27, x27, #0x40
+    0.00 :   519b64: cmp     x23, x0
+    0.00 :   519b68: b.cc    519b50 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x1b0>  // b.lo, b.ul, b.last
+    0.00 :   519b6c: mov     x23, x25
+         : 207    for (;;) {
+         : 208    const stripe_range locked = range_for(home, span);
+         : 209    range_guard guard(*this, v, locked);
+         : 210    const size_t bound = v.stripes[home_stripe].bound;
+    0.00 :   519b70: ldr     x0, [sp, #152]
+         : 212    if (bound + 1 > span && locked.count < _num_stripes) {
+    0.00 :   519b74: ldr     x1, [sp, #136]
+         : 214    const size_t bound = v.stripes[home_stripe].bound;
+    0.07 :   519b78: ldr     w9, [x0, #4]
+         : 216    if (bound + 1 > span && locked.count < _num_stripes) {
+    0.07 :   519b7c: add     x0, x9, #0x1
+    0.00 :   519b80: cmp     x0, x1
+    0.00 :   519b84: b.ls    519b94 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x1f4>  // b.plast
+    0.00 :   519b88: ldr     x4, [x20, #64]
+    0.00 :   519b8c: cmp     x4, x23
+    0.00 :   519b90: b.hi    519eb4 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x514>  // b.pmore
+         : 223    span = bound + 1; // Grew before we locked.
+         : 224    continue;
+         : 225    }
+         : 226    size_t index = home;
+         : 227    size_t free_slot = _num_buckets;
+    0.07 :   519b94: ldp     x8, x26, [x20, #24]
+         : 229    size_t free_distance = 0;
+    0.07 :   519b98: mov     x25, #0x0                       // #0
+         : 231    size_t index = home;
+    0.00 :   519b9c: ldr     x3, [sp, #168]
+         : 233    size_t probe = 0;
+    0.03 :   519ba0: mov     x4, #0x0                        // #0
+         : 235    size_t free_slot = _num_buckets;
+    0.07 :   519ba4: mov     x27, x26
+         : 237    // An existing key is within the bound of its home bucket.
+         : 238    for (; probe <= bound; ++probe) {
+    0.00 :   519ba8: b       519bd0 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x230>
+         : 240    const auto state = state_at(v, index);
+         : 241    if (state != BUCKET_FILLED &&
+    0.00 :   519bac: cmp     x26, x27
+    0.00 :   519bb0: b.eq    519cf4 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x354>  // b.none
+         : 244    free_slot == _num_buckets) {
+         : 245    free_slot = index;
+         : 246    free_distance = probe;
+         : 247    }
+         : 248    if (state == BUCKET_EMPTY)
+    0.00 :   519bb4: cbz     w0, 519e70 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x4d0>
+         : 250    bucket += distance;
+    0.00 :   519bb8: add     x3, x3, #0x1
+         : 252    for (; probe <= bound; ++probe) {
+    0.00 :   519bbc: add     x4, x4, #0x1
+         : 254    return bucket >= _num_buckets ? bucket - _num_buckets : bucket;
+    0.00 :   519bc0: subs    x0, x3, x26
+    0.00 :   519bc4: csel    x3, x0, x3, cs  // cs = hs, nlast
+         : 257    for (; probe <= bound; ++probe) {
+    0.00 :   519bc8: cmp     x9, x4
+    0.00 :   519bcc: b.cc    519d00 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x360>  // b.lo, b.ul, b.last
+         : 260    return reinterpret_cast<uint32_t *>(v.data + index * _elem_size);
+    0.00 :   519bd0: mul     x28, x3, x8
+    0.00 :   519bd4: add     x0, x21, x28
+    0.13 :   519bd8: ldr     w0, [x0]
+         : 264    STATE_MASK;
+    0.00 :   519bdc: and     w0, w0, #0x3
+         : 266    if (state != BUCKET_FILLED &&
+    0.13 :   519be0: cmp     w0, #0x1
+    0.00 :   519be4: b.ne    519bac <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x20c>  // b.any
+         : 269    return v.data + index * _elem_size + 4;
+    0.07 :   519be8: ldr     x2, [x20]
+    0.00 :   519bec: add     x1, x28, #0x4
+    0.07 :   519bf0: add     x0, x21, x1
+         : 273    if (_key_size == sizeof(uint32_t)) {
+    0.00 :   519bf4: cmp     x2, #0x4
+    0.00 :   519bf8: b.eq    519e38 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x498>  // b.none
+         : 276    return std::memcmp(lhs, rhs, _key_size) == 0;
+    0.00 :   519bfc: ldr     x1, [sp, #144]
+    0.00 :   519c00: stp     x9, x4, [sp, #104]
+    0.00 :   519c04: stp     x3, x8, [sp, #120]
+    0.00 :   519c08: bl      4ad300 <memcmp@plt>
+    0.00 :   519c0c: cmp     w0, #0x0
+    0.00 :   519c10: ldp     x9, x4, [sp, #104]
+    0.00 :   519c14: cset    w0, eq  // eq = none
+    0.00 :   519c18: ldp     x3, x8, [sp, #120]
+         : 285    break;
+         : 286    if (state == BUCKET_FILLED &&
+    0.00 :   519c1c: cbz     w0, 519bb8 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x218>
+         : 288    keys_equal(key_at(v, index), key)) {
+         : 289    if (mode == update_mode::no_exist)
+    0.03 :   519c20: ldr     w0, [sp, #164]
+    0.00 :   519c24: cmp     w0, #0x1
+    0.00 :   519c28: b.ne    51a18c <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x7ec>  // b.any
+         : 293    if (end > _num_stripes) {
+    0.00 :   519c2c: ldr     x0, [x20, #64]
+    0.00 :   519c30: cmp     x0, x22
+    0.00 :   519c34: b.cs    51a180 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x7e0>  // b.hs, b.nlast
+         : 297    for (size_t s = range.first; s < _num_stripes; s++)
+    0.00 :   519c38: cmp     x0, x19
+    0.00 :   519c3c: b.ls    519c60 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x2c0>  // b.plast
+         : 300    pthread_spin_unlock(&v.stripes[s].lock);
+    0.00 :   519c40: add     x0, x24, x19, lsl #6
+    0.00 :   519c44: bl      4ac4a0 <pthread_spin_unlock@plt>
+         : 303    for (size_t s = range.first; s < _num_stripes; s++)
+    0.00 :   519c48: ldr     x0, [x20, #64]
+    0.00 :   519c4c: add     x19, x19, #0x1
+    0.00 :   519c50: cmp     x19, x0
+    0.00 :   519c54: b.cc    519c40 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x2a0>  // b.lo, b.ul, b.last
+         : 308    for (size_t s = 0; s < end - _num_stripes; s++)
+    0.00 :   519c58: cmp     x0, x22
+    0.00 :   519c5c: b.eq    519c84 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x2e4>  // b.none
+    0.00 :   519c60: mov     x19, #0x0                       // #0
+    0.00 :   519c64: nop
+         : 313    pthread_spin_unlock(&v.stripes[s].lock);
+    0.00 :   519c68: add     x0, x24, x19, lsl #6
+    0.00 :   519c6c: bl      4ac4a0 <pthread_spin_unlock@plt>
+         : 316    for (size_t s = 0; s < end - _num_stripes; s++)
+    0.00 :   519c70: ldr     x0, [x20, #64]
+    0.00 :   519c74: add     x19, x19, #0x1
+    0.00 :   519c78: sub     x0, x22, x0
+    0.00 :   519c7c: cmp     x19, x0
+    0.00 :   519c80: b.cc    519c68 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x2c8>  // b.lo, b.ul, b.last
+         : 322    switch (map_impl.update(key, value,
+    0.00 :   519c84: ldr     w0, [sp, #164]
+    0.00 :   519c88: cmp     w0, #0x1
+    0.00 :   519c8c: b.eq    51a0a0 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x700>  // b.none
+    0.07 :   519c90: cmp     w0, #0x2
+    0.00 :   519c94: b.eq    51a110 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x770>  // b.none
+    0.00 :   519c98: cbnz    w0, 51a0e0 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x740>
+    0.03 :   519c9c: ldp     x19, x20, [sp, #16]
+         : 330    update_mode::any)) {
+         : 331    case update_result::ok:
+         : 332    return 0;
+    0.03 :   519ca0: mov     x0, #0x0                        // #0
+    0.10 :   519ca4: ldp     x21, x22, [sp, #32]
+    0.07 :   519ca8: ldp     x23, x24, [sp, #48]
+    0.03 :   519cac: ldp     x25, x26, [sp, #64]
+    0.07 :   519cb0: ldp     x27, x28, [sp, #80]
+         : 338    case update_result::full:
+         : 339    break;
+         : 340    }
+         : 341    errno = E2BIG; // full: max_entries reached
+         : 342    return -1;
+         : 343    }
+    0.03 :   519cb4: ldp     x29, x30, [sp], #192
+    0.00 :   519cb8: ret
+    0.00 :   519cbc: mov     x22, x23
+         : 347    if (end > _num_stripes) {
+    0.00 :   519cc0: mov     x19, #0x0                       // #0
+         : 349    for (size_t s = range.first; s < end; s++)
+    0.30 :   519cc4: cmp     x19, x22
+    0.00 :   519cc8: b.cs    519b70 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x1d0>  // b.hs, b.nlast
+    0.69 :   519ccc: add     x27, x24, x19, lsl #6
+    0.13 :   519cd0: mov     x25, x19
+    0.10 :   519cd4: nop
+         : 355    pthread_spin_lock(&v.stripes[s].lock);
+    0.00 :   519cd8: mov     x0, x27
+         : 357    for (size_t s = range.first; s < end; s++)
+    0.10 :   519cdc: add     x25, x25, #0x1
+         : 359    pthread_spin_lock(&v.stripes[s].lock);
+    0.16 :   519ce0: bl      4acc30 <pthread_spin_lock@plt>
+         : 361    for (size_t s = range.first; s < end; s++)
+    0.16 :   519ce4: add     x27, x27, #0x40
+    0.00 :   519ce8: cmp     x25, x22
+    0.00 :   519cec: b.cc    519cd8 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x338>  // b.lo, b.ul, b.last
+    0.03 :   519cf0: b       519b70 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x1d0>
+         : 366    free_distance = probe;
+    0.00 :   519cf4: mov     x25, x4
+         : 368    free_slot = index;
+    0.00 :   519cf8: mov     x27, x3
+         : 370    if (state == BUCKET_EMPTY)
+    0.00 :   519cfc: cbnz    w0, 519bb8 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x218>
+         : 372    _value_size);
+         : 373    return update_result::ok;
+         : 374    }
+         : 375    index = advance(index, 1);
+         : 376    }
+         : 377    if (mode == update_mode::exist)
+    0.00 :   519d00: ldr     w0, [sp, #164]
+    0.00 :   519d04: cmp     w0, #0x2
+    0.00 :   519d08: b.eq    519e7c <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x4dc>  // b.none
+         : 381    return update_result::missing;
+         : 382    // No free bucket within the bound: take the next one.
+         : 383    for (; free_slot == _num_buckets && probe < _num_buckets;
+    0.00 :   519d0c: cmp     x27, x26
+    0.00 :   519d10: mov     x1, x26
+    0.00 :   519d14: ccmp    x4, x26, #0x2, eq       // eq = none
+    0.00 :   519d18: b.cc    519d38 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x398>  // b.lo, b.ul, b.last
+    0.00 :   519d1c: b       519d6c <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x3cc>
+         : 389    ++probe) {
+         : 390    if (state_at(v, index) != BUCKET_FILLED) {
+         : 391    free_slot = index;
+         : 392    free_distance = probe;
+    0.00 :   519d20: mov     x25, x4
+         : 394    for (; free_slot == _num_buckets && probe < _num_buckets;
+    0.00 :   519d24: add     x4, x4, #0x1
+         : 396    free_slot = index;
+    0.00 :   519d28: mov     x27, x3
+         : 398    for (; free_slot == _num_buckets && probe < _num_buckets;
+    0.00 :   519d2c: cmp     x4, x26
+    0.00 :   519d30: ccmp    x27, x26, #0x0, cc      // cc = lo, ul, last
+    0.00 :   519d34: b.ne    519d6c <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x3cc>  // b.any
+    0.00 :   519d38: madd    x0, x3, x8, x21
+    0.00 :   519d3c: ldr     w0, [x0]
+         : 404    STATE_MASK;
+    0.00 :   519d40: and     w0, w0, #0x3
+         : 406    return bucket >= _num_buckets ? bucket - _num_buckets : bucket;
+    0.00 :   519d44: mov     x1, x26
+         : 408    if (state_at(v, index) != BUCKET_FILLED) {
+    0.00 :   519d48: cmp     w0, #0x1
+    0.00 :   519d4c: b.ne    519d20 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x380>  // b.any
+         : 411    bucket += distance;
+    0.00 :   519d50: add     x3, x3, #0x1
+         : 413    for (; free_slot == _num_buckets && probe < _num_buckets;
+    0.00 :   519d54: add     x4, x4, #0x1
+         : 415    return bucket >= _num_buckets ? bucket - _num_buckets : bucket;
+    0.00 :   519d58: subs    x0, x3, x26
+    0.00 :   519d5c: csel    x3, x0, x3, cs  // cs = hs, nlast
+         : 418    for (; free_slot == _num_buckets && probe < _num_buckets;
+    0.00 :   519d60: cmp     x4, x26
+    0.00 :   519d64: ccmp    x27, x26, #0x0, cc      // cc = lo, ul, last
+    0.00 :   519d68: b.eq    519d38 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x398>  // b.none
+         : 422    }
+         : 423    }
+         : 424    if (free_slot == _num_buckets)
+         : 425    return update_result::full;
+         : 426    if (free_distance + 1 > span &&
+         : 427    locked.count < _num_stripes) {
+    0.00 :   519d6c: ldr     x4, [x20, #64]
+         : 429    if (free_slot == _num_buckets)
+    0.00 :   519d70: cmp     x1, x27
+    0.00 :   519d74: b.eq    51a068 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x6c8>  // b.none
+         : 432    if (free_distance + 1 > span &&
+    0.00 :   519d78: ldr     x1, [sp, #136]
+    0.00 :   519d7c: add     x0, x25, #0x1
+    0.00 :   519d80: cmp     x0, x1
+    0.00 :   519d84: b.ls    519e54 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x4b4>  // b.plast
+    0.00 :   519d88: cmp     x4, x23
+    0.00 :   519d8c: b.hi    519eb4 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x514>  // b.pmore
+         : 439    if (st.tokens > 0) {
+    0.00 :   519d90: ldr     x0, [sp, #152]
+    0.00 :   519d94: ldr     w28, [x0, #8]
+    0.00 :   519d98: cbz     w28, 519f68 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x5c8>
+         : 443    st.tokens--;
+    0.00 :   519d9c: sub     w3, w28, #0x1
+    0.00 :   519da0: ldr     x23, [sp, #152]
+    0.00 :   519da4: str     w3, [x23, #8]
+         : 447    { __atomic_thread_fence(int(__m)); }
+    0.00 :   519da8: dmb     ish
+         : 449    return v.data + index * _elem_size + 4;
+    0.02 :   519dac: ldr     x0, [x20, #24]
+         :
+         : 452    __fortify_function void *
+         : 453    __NTH (memcpy (void *__restrict __dest, const void *__restrict __src,
+         : 454    size_t __len))
+         : 455    {
+         : 456    return __builtin___memcpy_chk (__dest, __src, __len,
+    0.00 :   519db0: ldr     x2, [x20]
+    0.00 :   519db4: ldr     x1, [sp, #144]
+    0.00 :   519db8: madd    x0, x27, x0, x21
+    0.00 :   519dbc: add     x0, x0, #0x4
+    0.00 :   519dc0: bl      4abe90 <memcpy@plt>
+         : 462    return v.data + index * _elem_size + _value_offset;
+    0.00 :   519dc4: ldp     x2, x3, [x20, #8]
+    0.00 :   519dc8: ldr     x0, [x20, #24]
+    0.00 :   519dcc: ldr     x1, [sp, #184]
+    0.00 :   519dd0: madd    x0, x27, x0, x3
+    0.00 :   519dd4: add     x0, x21, x0
+    0.00 :   519dd8: bl      4abe90 <memcpy@plt>
+         : 469    if (distance < TRACKED_DISPLACEMENTS) {
+    0.00 :   519ddc: cmp     x25, #0xa
+    0.00 :   519de0: b.hi    51a1f8 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x858>  // b.pmore
+    0.00 :   519de4: add     x1, x23, x25, lsl #2
+         : 473    st.displacement_counts[distance]++;
+    0.00 :   519de8: ldr     w0, [x1, #20]
+    0.00 :   519dec: add     w0, w0, #0x1
+    0.00 :   519df0: str     w0, [x1, #20]
+         : 477    if (distance > st.bound)
+    0.00 :   519df4: ldr     x0, [sp, #152]
+    0.00 :   519df8: ldr     w0, [x0, #4]
+    0.00 :   519dfc: cmp     x0, x25
+    0.00 :   519e00: b.cc    51a218 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x878>  // b.lo, b.ul, b.last
+         : 482    return reinterpret_cast<uint32_t *>(v.data + index * _elem_size);
+    0.00 :   519e04: ldr     x0, [x20, #24]
+    0.00 :   519e08: madd    x7, x27, x0, x21
+         : 485    __atomic_load(__ptr, __dest, int(__m));
+    0.00 :   519e0c: ldr     w0, [x7]
+         : 487    ref.store(((old & ~STATE_MASK) + generation_step) | state, order);
+    0.00 :   519e10: and     w0, w0, #0xfffffffc
+    0.00 :   519e14: orr     w0, w0, #0x1
+         : 490    __atomic_store(__ptr, __atomic_impl::__clear_padding(__t), int(__m));
+    0.00 :   519e18: stlr    w0, [x7]
+         : 492    if (end > _num_stripes) {
+    0.00 :   519e1c: ldr     x0, [x20, #64]
+    0.00 :   519e20: cmp     x0, x22
+    0.00 :   519e24: b.cc    51a1ac <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x80c>  // b.lo, b.ul, b.last
+         : 496    for (size_t s = range.first; s < end; s++)
+    0.07 :   519e28: cmp     x19, x22
+    0.00 :   519e2c: b.cs    519c9c <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x2fc>  // b.hs, b.nlast
+         : 499    return update_result::ok;
+    0.10 :   519e30: str     wzr, [sp, #164]
+    0.07 :   519e34: b       51a080 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x6e0>
+         : 502    return lhs_value == rhs_value;
+    0.03 :   519e38: ldr     x0, [sp, #144]
+    0.00 :   519e3c: ldr     w1, [x21, x1]
+    0.00 :   519e40: ldr     w0, [x0]
+    0.10 :   519e44: cmp     w1, w0
+    0.00 :   519e48: cset    w0, eq  // eq = none
+         : 508    if (state == BUCKET_FILLED &&
+    0.03 :   519e4c: cbz     w0, 519bb8 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x218>
+    0.03 :   519e50: b       519c20 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x280>
+         : 511    // The free bucket is past the locked stripes.
+         : 512    span = free_distance + 1;
+         : 513    continue;
+         : 514    }
+         : 515    if (!(locked.count < _num_stripes ?
+    0.00 :   519e54: cmp     x4, x23
+    0.00 :   519e58: b.ls    519d90 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x3f0>  // b.plast
+         : 518    if (st.tokens > 0) {
+    0.00 :   519e5c: ldr     x0, [sp, #152]
+    0.00 :   519e60: ldr     w0, [x0, #8]
+    0.00 :   519e64: cbz     w0, 51a010 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x670>
+         : 522    st.tokens--;
+    0.00 :   519e68: sub     w3, w0, #0x1
+    0.00 :   519e6c: b       519da0 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x400>
+         : 525    if (mode == update_mode::exist)
+    0.00 :   519e70: ldr     w0, [sp, #164]
+    0.00 :   519e74: cmp     w0, #0x2
+    0.00 :   519e78: b.ne    51a0cc <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x72c>  // b.any
+         : 529    if (end > _num_stripes) {
+    0.00 :   519e7c: ldr     x4, [x20, #64]
+         : 531    return update_result::missing;
+    0.00 :   519e80: mov     w0, #0x2                        // #2
+    0.00 :   519e84: str     w0, [sp, #164]
+         : 534    if (end > _num_stripes) {
+    0.00 :   519e88: cmp     x4, x22
+    0.00 :   519e8c: b.cs    51a108 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x768>  // b.hs, b.nlast
+         : 537    for (size_t s = range.first; s < _num_stripes; s++)
+    0.00 :   519e90: cmp     x4, x19
+    0.00 :   519e94: b.ls    519c60 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x2c0>  // b.plast
+         : 540    pthread_spin_unlock(&v.stripes[s].lock);
+    0.00 :   519e98: add     x0, x24, x19, lsl #6
+    0.00 :   519e9c: bl      4ac4a0 <pthread_spin_unlock@plt>
+         : 543    for (size_t s = range.first; s < _num_stripes; s++)
+    0.00 :   519ea0: ldr     x0, [x20, #64]
+    0.00 :   519ea4: add     x19, x19, #0x1
+    0.00 :   519ea8: cmp     x19, x0
+    0.00 :   519eac: b.cc    519c40 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x2a0>  // b.lo, b.ul, b.last
+    0.00 :   519eb0: b       519c58 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x2b8>
+         : 549    span = free_distance + 1;
+    0.00 :   519eb4: str     x0, [sp, #136]
+         : 551    if (end > _num_stripes) {
+    0.00 :   519eb8: cmp     x4, x22
+    0.00 :   519ebc: b.cc    519ef0 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x550>  // b.lo, b.ul, b.last
+    0.00 :   519ec0: add     x23, x24, x19, lsl #6
+         : 555    for (size_t s = range.first; s < end; s++)
+    0.00 :   519ec4: cmp     x19, x22
+    0.00 :   519ec8: b.cs    51a1d4 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x834>  // b.hs, b.nlast
+    0.00 :   519ecc: nop
+         : 559    pthread_spin_unlock(&v.stripes[s].lock);
+    0.00 :   519ed0: mov     x0, x23
+         : 561    for (size_t s = range.first; s < end; s++)
+    0.00 :   519ed4: add     x19, x19, #0x1
+         : 563    pthread_spin_unlock(&v.stripes[s].lock);
+    0.00 :   519ed8: bl      4ac4a0 <pthread_spin_unlock@plt>
+         : 565    for (size_t s = range.first; s < end; s++)
+    0.00 :   519edc: add     x23, x23, #0x40
+    0.00 :   519ee0: cmp     x19, x22
+    0.00 :   519ee4: b.cc    519ed0 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x530>  // b.lo, b.ul, b.last
+         : 569    return { 0, _num_stripes };
+    0.00 :   519ee8: ldr     x23, [x20, #64]
+    0.00 :   519eec: b       519abc <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x11c>
+         : 572    for (size_t s = range.first; s < _num_stripes; s++)
+    0.00 :   519ef0: cmp     x4, x19
+    0.00 :   519ef4: b.ls    519f24 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x584>  // b.plast
+    0.00 :   519ef8: add     x25, x24, x19, lsl #6
+    0.00 :   519efc: nop
+         : 577    pthread_spin_unlock(&v.stripes[s].lock);
+    0.00 :   519f00: mov     x0, x25
+    0.00 :   519f04: bl      4ac4a0 <pthread_spin_unlock@plt>
+         : 580    for (size_t s = range.first; s < _num_stripes; s++)
+    0.00 :   519f08: ldr     x23, [x20, #64]
+    0.00 :   519f0c: add     x19, x19, #0x1
+    0.00 :   519f10: add     x25, x25, #0x40
+    0.00 :   519f14: cmp     x19, x23
+    0.00 :   519f18: b.cc    519f00 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x560>  // b.lo, b.ul, b.last
+         : 586    for (size_t s = 0; s < end - _num_stripes; s++)
+    0.00 :   519f1c: cmp     x23, x22
+    0.00 :   519f20: b.eq    51a1bc <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x81c>  // b.none
+         : 589    span = free_distance + 1;
+    0.00 :   519f24: mov     x25, x24
+    0.00 :   519f28: mov     x19, #0x0                       // #0
+    0.00 :   519f2c: nop
+         : 593    pthread_spin_unlock(&v.stripes[s].lock);
+    0.00 :   519f30: mov     x0, x25
+    0.00 :   519f34: bl      4ac4a0 <pthread_spin_unlock@plt>
+         : 596    for (size_t s = 0; s < end - _num_stripes; s++)
+    0.00 :   519f38: ldr     x23, [x20, #64]
+    0.00 :   519f3c: add     x19, x19, #0x1
+    0.00 :   519f40: add     x25, x25, #0x40
+    0.00 :   519f44: sub     x0, x22, x23
+    0.00 :   519f48: cmp     x19, x0
+    0.00 :   519f4c: b.cc    519f30 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x590>  // b.lo, b.ul, b.last
+    0.00 :   519f50: b       519abc <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x11c>
+         : 604    const size_t count = wraps ? _num_stripes - first + last + 1 :
+    2.07 :   519f54: mov     x1, #0x1                        // #1
+    0.03 :   519f58: sub     x1, x1, x19
+         : 607    return bucket >> _stripe_shift;
+    0.56 :   519f5c: lsr     x0, x0, x2
+         : 609    const size_t count = wraps ? _num_stripes - first + last + 1 :
+    0.26 :   519f60: add     x25, x1, x0
+    0.00 :   519f64: b       519b00 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x160>
+         : 612    std::atomic_ref<int64_t> pool(_pool_tokens);
+    0.00 :   519f68: add     x0, x20, #0xc8
+    0.00 :   519f6c: str     x0, [sp, #112]
+         : 615    __atomic_load(__ptr, __dest, int(__m));
+    0.00 :   519f70: ldr     x4, [x0]
+         : 617    while (current > 0) {
+    0.00 :   519f74: b       519fa0 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x600>
+         : 619    min(const _Tp& __a, const _Tp& __b)
+         : 620    {
+         : 621    // concept requirements
+         : 622    __glibcxx_function_requires(_LessThanComparableConcept<_Tp>)
+         : 623    //return __b < __a ? __b : __a;
+         : 624    if (__b < __a)
+    0.00 :   519f78: cmp     x4, #0x20
+    0.00 :   519f7c: mov     x1, #0x20                       // #32
+    0.00 :   519f80: csel    x26, x4, x1, le
+         : 628    return __atomic_compare_exchange(std::__addressof(__val),
+    0.00 :   519f84: str     x4, [sp, #104]
+    0.00 :   519f88: sub     x1, x4, x26
+    0.00 :   519f8c: bl      1f9fb70 <__aarch64_cas8_relax>
+    0.00 :   519f90: ldr     x4, [sp, #104]
+    0.00 :   519f94: cmp     x0, x4
+    0.00 :   519f98: mov     x4, x0
+         : 635    if (pool.compare_exchange_weak(current, current - take,
+    0.00 :   519f9c: b.eq    51a11c <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x77c>  // b.none
+    0.00 :   519fa0: ldr     x2, [sp, #112]
+    0.00 :   519fa4: mov     x0, x4
+         : 639    while (current > 0) {
+    0.00 :   519fa8: cmp     x4, #0x0
+    0.00 :   519fac: b.gt    519f78 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x5d8>
+         : 642    for (size_t s = 0; s < _num_stripes && moved < TOKEN_BATCH; s++) {
+    0.00 :   519fb0: ldr     x4, [x20, #64]
+    0.00 :   519fb4: cbz     x4, 51a1dc <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x83c>
+    0.00 :   519fb8: mov     x2, x24
+    0.00 :   519fbc: mov     x5, #0x0                        // #0
+         : 647    std::min<uint32_t>(st.tokens, TOKEN_BATCH - moved);
+    0.00 :   519fc0: mov     w6, #0x20                       // #32
+    0.00 :   519fc4: nop
+    0.00 :   519fc8: ldr     w0, [x2, #8]
+    0.00 :   519fcc: sub     w1, w6, w28
+         : 652    for (size_t s = 0; s < _num_stripes && moved < TOKEN_BATCH; s++) {
+    0.00 :   519fd0: add     x5, x5, #0x1
+    0.00 :   519fd4: add     x2, x2, #0x40
+    0.00 :   519fd8: cmp     w1, w0
+    0.00 :   519fdc: csel    w1, w1, w0, ls  // ls = plast
+         : 657    st.tokens -= take;
+    0.00 :   519fe0: sub     w0, w0, w1
+         : 659    moved += take;
+    0.00 :   519fe4: add     w28, w28, w1
+         : 661    st.tokens -= take;
+    0.00 :   519fe8: stur    w0, [x2, #-56]
+         : 663    for (size_t s = 0; s < _num_stripes && moved < TOKEN_BATCH; s++) {
+    0.00 :   519fec: cmp     w28, #0x1f
+    0.00 :   519ff0: ccmp    x5, x4, #0x2, ls        // ls = plast
+    0.00 :   519ff4: b.cc    519fc8 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x628>  // b.lo, b.ul, b.last
+         : 667    if (moved == 0)
+    0.00 :   519ff8: cbz     w28, 51a054 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x6b4>
+         : 669    home.tokens += moved - 1;
+    0.00 :   519ffc: ldr     x0, [sp, #152]
+    0.00 :   51a000: ldr     w0, [x0, #8]
+    0.00 :   51a004: sub     w0, w0, #0x1
+    0.00 :   51a008: add     w3, w0, w28
+         : 674    return true;
+    0.00 :   51a00c: b       519da0 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x400>
+         : 676    std::atomic_ref<int64_t> pool(_pool_tokens);
+    0.00 :   51a010: add     x0, x20, #0xc8
+    0.00 :   51a014: str     x0, [sp, #104]
+         : 679    __atomic_load(__ptr, __dest, int(__m));
+    0.00 :   51a018: ldr     x26, [x0]
+         : 681    while (current > 0) {
+    0.00 :   51a01c: b       51a040 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x6a0>
+    0.00 :   51a020: cmp     x26, #0x20
+    0.00 :   51a024: mov     x1, #0x20                       // #32
+    0.00 :   51a028: csel    x28, x26, x1, le
+         : 686    return __atomic_compare_exchange(std::__addressof(__val),
+    0.00 :   51a02c: sub     x1, x26, x28
+    0.00 :   51a030: bl      1f9fb70 <__aarch64_cas8_relax>
+    0.00 :   51a034: cmp     x0, x26
+    0.00 :   51a038: mov     x26, x0
+         : 691    if (pool.compare_exchange_weak(current, current - take,
+    0.00 :   51a03c: b.eq    51a130 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x790>  // b.none
+    0.00 :   51a040: ldr     x2, [sp, #104]
+    0.00 :   51a044: mov     x0, x26
+         : 695    while (current > 0) {
+    0.00 :   51a048: cmp     x26, #0x0
+    0.00 :   51a04c: b.gt    51a020 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x680>
+         : 698    take_token(v, home_stripe) :
+         : 699    take_token_any(v, home_stripe))) {
+         : 700    if (locked.count == _num_stripes)
+    0.00 :   51a050: ldr     x4, [x20, #64]
+    0.00 :   51a054: cmp     x4, x23
+    0.00 :   51a058: b.eq    51a068 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x6c8>  // b.none
+         : 704    return update_result::full;
+         : 705    span = _num_buckets; // Lock every stripe.
+    0.00 :   51a05c: ldr     x0, [x20, #32]
+    0.00 :   51a060: str     x0, [sp, #136]
+         : 708    continue;
+    0.00 :   51a064: b       519eb8 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x518>
+         : 710    void unlock_range(const view &v, const stripe_range &range) const
+    0.00 :   51a068: mov     w0, #0x3                        // #3
+    0.00 :   51a06c: str     w0, [sp, #164]
+         : 713    if (end > _num_stripes) {
+    0.00 :   51a070: cmp     x4, x22
+    0.00 :   51a074: b.cc    519e90 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x4f0>  // b.lo, b.ul, b.last
+         : 716    for (size_t s = range.first; s < end; s++)
+    0.00 :   51a078: cmp     x19, x22
+    0.00 :   51a07c: b.cs    51a0e0 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x740>  // b.hs, b.nlast
+         : 719    pthread_spin_unlock(&v.stripes[s].lock);
+    0.03 :   51a080: add     x0, x24, x19, lsl #6
+         : 721    for (size_t s = range.first; s < end; s++)
+    0.00 :   51a084: add     x19, x19, #0x1
+         : 723    pthread_spin_unlock(&v.stripes[s].lock);
+    0.10 :   51a088: bl      4ac4a0 <pthread_spin_unlock@plt>
+         : 725    for (size_t s = range.first; s < end; s++)
+    0.20 :   51a08c: cmp     x19, x22
+    0.00 :   51a090: b.cc    51a080 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x6e0>  // b.lo, b.ul, b.last
+         : 728    switch (map_impl.update(key, value,
+    0.20 :   51a094: ldr     w0, [sp, #164]
+    0.13 :   51a098: cmp     w0, #0x1
+    0.00 :   51a09c: b.ne    519c90 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x2f0>  // b.any
+         : 732    errno = EEXIST;
+    0.00 :   51a0a0: bl      4abe00 <__errno_location@plt>
+    0.00 :   51a0a4: ldp     x19, x20, [sp, #16]
+    0.00 :   51a0a8: mov     w1, #0x11                       // #17
+    0.00 :   51a0ac: ldp     x21, x22, [sp, #32]
+    0.00 :   51a0b0: ldp     x23, x24, [sp, #48]
+    0.00 :   51a0b4: ldp     x25, x26, [sp, #64]
+    0.00 :   51a0b8: ldp     x27, x28, [sp, #80]
+    0.00 :   51a0bc: str     w1, [x0]
+         : 741    return -1;
+    0.00 :   51a0c0: mov     x0, #0xffffffffffffffff         // #-1
+         : 743    }
+    0.00 :   51a0c4: ldp     x29, x30, [sp], #192
+    0.00 :   51a0c8: ret
+         : 746    for (; free_slot == _num_buckets && probe < _num_buckets;
+    0.00 :   51a0cc: mov     x1, x26
+    0.00 :   51a0d0: b       519d6c <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x3cc>
+         : 749    return update_result::full;
+    0.00 :   51a0d4: mov     w0, #0x3                        // #3
+    0.00 :   51a0d8: str     w0, [sp, #164]
+         : 752    if (end > _num_stripes) {
+    0.00 :   51a0dc: cbnz    x22, 519c60 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x2c0>
+         : 754    errno = E2BIG; // full: max_entries reached
+    0.00 :   51a0e0: bl      4abe00 <__errno_location@plt>
+    0.00 :   51a0e4: mov     w1, #0x7                        // #7
+         : 757    errno = EEXIST;
+    0.00 :   51a0e8: ldp     x19, x20, [sp, #16]
+    0.00 :   51a0ec: ldp     x21, x22, [sp, #32]
+    0.00 :   51a0f0: ldp     x23, x24, [sp, #48]
+    0.00 :   51a0f4: ldp     x25, x26, [sp, #64]
+    0.00 :   51a0f8: ldp     x27, x28, [sp, #80]
+    0.00 :   51a0fc: str     w1, [x0]
+         : 764    return -1;
+    0.00 :   51a100: mov     x0, #0xffffffffffffffff         // #-1
+    0.00 :   51a104: b       51a0c4 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x724>
+         : 767    for (size_t s = range.first; s < end; s++)
+    0.00 :   51a108: cmp     x19, x22
+    0.00 :   51a10c: b.cc    51a080 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x6e0>  // b.lo, b.ul, b.last
+         : 770    errno = ENOENT;
+    0.00 :   51a110: bl      4abe00 <__errno_location@plt>
+    0.00 :   51a114: mov     w1, #0x2                        // #2
+    0.00 :   51a118: b       51a0e8 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x748>
+         : 774    st.tokens += (uint32_t)take - 1;
+    0.00 :   51a11c: ldr     x0, [sp, #152]
+    0.00 :   51a120: ldr     w3, [x0, #8]
+    0.00 :   51a124: sub     w3, w3, #0x1
+    0.00 :   51a128: add     w3, w3, w26
+    0.00 :   51a12c: b       519da0 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x400>
+    0.00 :   51a130: ldr     x0, [sp, #152]
+    0.00 :   51a134: ldr     w3, [x0, #8]
+    0.00 :   51a138: sub     w3, w3, #0x1
+    0.00 :   51a13c: add     w3, w3, w28
+    0.00 :   51a140: b       519da0 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x400>
+         : 785    size_t{ bytes[1] } * 961 +
+    0.10 :   51a144: ldr     x5, [sp, #144]
+         : 787    return size_t{ bytes[0] } * 29791 +
+    0.00 :   51a148: mov     x4, #0x745f                     // #29791
+         : 789    size_t{ bytes[2] } * 31 + bytes[3];
+    0.16 :   51a14c: mov     w2, #0x1f                       // #31
+         : 791    size_t{ bytes[1] } * 961 +
+    0.56 :   51a150: ldrb    w3, [x5, #1]
+         : 793    return size_t{ bytes[0] } * 29791 +
+    4.18 :   51a154: ldrb    w0, [x5]
+         : 795    size_t{ bytes[2] } * 31 + bytes[3];
+    0.07 :   51a158: ldrb    w6, [x5, #2]
+         : 797    size_t{ bytes[1] } * 961 +
+    0.00 :   51a15c: lsl     x1, x3, #4
+         : 799    size_t{ bytes[2] } * 31 + bytes[3];
+    0.16 :   51a160: ldrb    w5, [x5, #3]
+         : 801    size_t{ bytes[1] } * 961 +
+    0.23 :   51a164: sub     x1, x1, x3
+    0.30 :   51a168: add     x1, x3, x1, lsl #6
+         : 804    size_t{ bytes[2] } * 31 + bytes[3];
+    0.00 :   51a16c: umaddl  x2, w2, w6, x5
+    0.00 :   51a170: madd    x0, x0, x4, x1
+    0.03 :   51a174: add     x0, x0, x2
+         : 808    (static_cast<unsigned __int128>(value) * reciprocal) >> 64);
+    0.16 :   51a178: mov     x2, x0
+    0.07 :   51a17c: b       519a74 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0xd4>
+         : 811    for (size_t s = range.first; s < end; s++)
+    0.00 :   51a180: cmp     x19, x22
+    0.00 :   51a184: b.cc    51a080 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x6e0>  // b.lo, b.ul, b.last
+    0.00 :   51a188: b       51a0a0 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x700>
+         : 815    return v.data + index * _elem_size + _value_offset;
+    0.00 :   51a18c: ldp     x2, x0, [x20, #8]
+    0.03 :   51a190: ldr     x1, [sp, #184]
+    0.00 :   51a194: add     x0, x28, x0
+    0.03 :   51a198: add     x0, x21, x0
+    0.03 :   51a19c: bl      4abe90 <memcpy@plt>
+         : 821    if (end > _num_stripes) {
+    0.07 :   51a1a0: ldr     x0, [x20, #64]
+    0.07 :   51a1a4: cmp     x0, x22
+    0.00 :   51a1a8: b.cs    519e28 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x488>  // b.hs, b.nlast
+         : 825    return update_result::ok;
+    0.00 :   51a1ac: str     wzr, [sp, #164]
+         : 827    for (size_t s = range.first; s < _num_stripes; s++)
+    0.00 :   51a1b0: cmp     x0, x19
+    0.00 :   51a1b4: b.hi    519c40 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x2a0>  // b.pmore
+    0.00 :   51a1b8: b       519c60 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x2c0>
+         : 831    if (span >= _num_buckets)
+    0.00 :   51a1bc: ldr     x1, [x20, #32]
+         : 833    return { 0, _num_stripes };
+    0.00 :   51a1c0: mov     x19, #0x0                       // #0
+         : 835    if (span >= _num_buckets)
+    0.00 :   51a1c4: ldr     x0, [sp, #136]
+    0.00 :   51a1c8: cmp     x0, x1
+    0.00 :   51a1cc: b.cs    519ccc <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x32c>  // b.hs, b.nlast
+    0.00 :   51a1d0: b       519acc <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x12c>
+         : 840    for (size_t s = range.first; s < end; s++)
+    0.00 :   51a1d4: mov     x23, x4
+    0.00 :   51a1d8: b       519abc <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x11c>
+         : 843    if (locked.count == _num_stripes)
+    0.00 :   51a1dc: cbz     x23, 51a0d4 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x734>
+         : 845    span = _num_buckets; // Lock every stripe.
+    0.00 :   51a1e0: ldr     x0, [x20, #32]
+    0.00 :   51a1e4: str     x0, [sp, #136]
+         : 848    if (end > _num_stripes) {
+    0.00 :   51a1e8: cbnz    x22, 519f24 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x584>
+         : 850    return { 0, _num_stripes };
+    0.00 :   51a1ec: mov     x19, #0x0                       // #0
+    0.00 :   51a1f0: mov     x23, #0x0                       // #0
+    0.00 :   51a1f4: b       519b70 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x1d0>
+         : 854    st.far_count++;
+    0.00 :   51a1f8: ldr     x2, [sp, #152]
+         : 856    if (distance > st.far_max)
+    0.00 :   51a1fc: ldp     w0, w1, [x2, #12]
+         : 858    st.far_count++;
+    0.00 :   51a200: add     w0, w0, #0x1
+    0.00 :   51a204: str     w0, [x2, #12]
+         : 861    if (distance > st.far_max)
+    0.00 :   51a208: cmp     x1, x25
+    0.00 :   51a20c: b.cs    519df4 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x454>  // b.hs, b.nlast
+         : 864    st.far_max = (uint32_t)distance;
+    0.00 :   51a210: str     w25, [x2, #16]
+    0.00 :   51a214: b       519df4 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x454>
+         : 867    __atomic_store(__ptr, __atomic_impl::__clear_padding(__t), int(__m));
+    0.00 :   51a218: ldr     x0, [sp, #152]
+    0.00 :   51a21c: add     x0, x0, #0x4
+    0.00 :   51a220: stlr    w25, [x0]
+         : 871    }
+    0.00 :   51a224: b       519e04 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x464>
+         : 873    errno = EINVAL;
+    0.00 :   51a228: bl      4abe00 <__errno_location@plt>
+    0.00 :   51a22c: mov     w1, #0x16                       // #22
+    0.00 :   51a230: str     w1, [x0]
+         : 877    return -1;
+    0.00 :   51a234: mov     x0, #0xffffffffffffffff         // #-1
+    0.00 :   51a238: b       51a0c4 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x724>
+    1.68 :   51a23c: mov     x23, x25
+    0.16 :   51a240: b       519cc4 <bpftime::fix_size_hash_map_impl::elem_update(void const*, void const*, unsigned long)+0x324>

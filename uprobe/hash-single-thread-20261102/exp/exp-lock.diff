@@ -1,0 +1,87 @@
+diff --git a/runtime/src/bpf_map/bpftime_hash_map.hpp b/runtime/src/bpf_map/bpftime_hash_map.hpp
+index 8f25d057..a7f96d94 100644
+--- a/runtime/src/bpf_map/bpftime_hash_map.hpp
++++ b/runtime/src/bpf_map/bpftime_hash_map.hpp
+@@ -277,12 +277,12 @@ class bpftime_hash_map {
+ 		const size_t end = range.first + range.count;
+ 		if (end > _num_stripes) {
+ 			for (size_t s = 0; s < end - _num_stripes; s++)
+-				pthread_spin_lock(&v.stripes[s].lock);
++				exp_spin_lock(&v.stripes[s].lock);
+ 			for (size_t s = range.first; s < _num_stripes; s++)
+-				pthread_spin_lock(&v.stripes[s].lock);
++				exp_spin_lock(&v.stripes[s].lock);
+ 		} else {
+ 			for (size_t s = range.first; s < end; s++)
+-				pthread_spin_lock(&v.stripes[s].lock);
++				exp_spin_lock(&v.stripes[s].lock);
+ 		}
+ 	}
+ 
+@@ -291,12 +291,12 @@ class bpftime_hash_map {
+ 		const size_t end = range.first + range.count;
+ 		if (end > _num_stripes) {
+ 			for (size_t s = range.first; s < _num_stripes; s++)
+-				pthread_spin_unlock(&v.stripes[s].lock);
++				exp_spin_unlock(&v.stripes[s].lock);
+ 			for (size_t s = 0; s < end - _num_stripes; s++)
+-				pthread_spin_unlock(&v.stripes[s].lock);
++				exp_spin_unlock(&v.stripes[s].lock);
+ 		} else {
+ 			for (size_t s = range.first; s < end; s++)
+-				pthread_spin_unlock(&v.stripes[s].lock);
++				exp_spin_unlock(&v.stripes[s].lock);
+ 		}
+ 	}
+ 
+diff --git a/runtime/src/bpf_map/map_common_def.hpp b/runtime/src/bpf_map/map_common_def.hpp
+index 62b098d9..9e66d3bb 100644
+--- a/runtime/src/bpf_map/map_common_def.hpp
++++ b/runtime/src/bpf_map/map_common_def.hpp
+@@ -15,11 +15,28 @@
+ #include <utility>
+ #include <cstring>
+ #include <vector>
++#include <pthread.h>
+ #include "platform_utils.hpp"
+ 
+ namespace bpftime
+ {
+ 
++// Experiment: inline spinlock on the pthread_spinlock_t word (glibc's
++// protocol: 0 free, exchange 1 to take, release store 0 to give back).
++static inline void exp_spin_lock(volatile pthread_spinlock_t *l)
++{
++	// pthread_spinlock_t is volatile int in glibc.
++	int *w = (int *)l;
++	while (__atomic_exchange_n(w, 1, __ATOMIC_ACQUIRE) != 0) {
++		while (__atomic_load_n(w, __ATOMIC_RELAXED) != 0)
++			__asm__ __volatile__("yield");
++	}
++}
++static inline void exp_spin_unlock(volatile pthread_spinlock_t *l)
++{
++	__atomic_store_n((int *)l, 0, __ATOMIC_RELEASE);
++}
++
+ using bytes_vec_allocator = boost::interprocess::allocator<
+ 	uint8_t, boost::interprocess::managed_shared_memory::segment_manager>;
+ using bytes_vec = boost::interprocess::vector<uint8_t, bytes_vec_allocator>;
+diff --git a/runtime/src/handler/map_handler.hpp b/runtime/src/handler/map_handler.hpp
+index 47b39ca0..5750ae58 100644
+--- a/runtime/src/handler/map_handler.hpp
++++ b/runtime/src/handler/map_handler.hpp
+@@ -54,11 +54,11 @@ class bpftime_lock_guard {
+ 	explicit bpftime_lock_guard(volatile pthread_spinlock_t &spinlock)
+ 		: spinlock(spinlock)
+ 	{
+-		pthread_spin_lock(&spinlock);
++		bpftime::exp_spin_lock(&spinlock);
+ 	}
+ 	~bpftime_lock_guard()
+ 	{
+-		pthread_spin_unlock(&spinlock);
++		bpftime::exp_spin_unlock(&spinlock);
+ 	}
+ 	// Delete copy constructor and assignment operator
+ 	bpftime_lock_guard(const bpftime_lock_guard &) = delete;

@@ -8,6 +8,8 @@ from pathlib import Path
 
 RUNNER = Path('/home/jetson/src/results/uprobe/dev-6ab9cbfe-20261101/full10-6ab9cbfe/full-runner/bpftime')
 BUILDS = Path('/home/jetson/src/results/uprobe/ssl-nginx-2x2-20261023/builds')
+CASES = 17
+PERF_ARGS = ['record', '-e', 'cycles:u']
 PERF = None  # --perf: record cycles:u of the victim (profiling only, not for timing)
 
 def run_one(build, iters, logdir, tag):
@@ -28,10 +30,12 @@ def run_one(build, iters, logdir, tag):
         time.sleep(2)
         venv = {'PATH': os.environ['PATH'], 'LD_PRELOAD': str(b / 'libbpftime-agent.so'),
                 'BPFTIME_LOG_OUTPUT': 'console', 'BPFTIME_ARRAY_JIT_INLINE': '0'}
+        if os.environ.get('FOCUS'):
+            venv['FOCUS'] = os.environ['FOCUS']  # focus runner: which cases
         cmd = [str(RUNNER / 'benchmark/test'), '1', str(iters)]
         if PERF:
             # perf itself must not run under the agent: preload only the target.
-            cmd = [PERF, 'record', '-e', 'cycles:u', '-o', str(logdir / f'{tag}.perf.data'), '--',
+            cmd = [PERF] + PERF_ARGS + ['-o', str(logdir / f'{tag}.perf.data'), '--',
                    'env', f'LD_PRELOAD={venv.pop("LD_PRELOAD")}'] + cmd
         r = subprocess.run(cmd, cwd=RUNNER, env=venv,
                            capture_output=True, text=True, timeout=600)
@@ -39,7 +43,7 @@ def run_one(build, iters, logdir, tag):
         assert r.returncode == 0, f'{build}: victim rc {r.returncode}'
         samples = dict((n, float(v)) for n, v in re.findall(
             r'Benchmarking (__bench_\w+) in thread 1\nAverage time usage ([\d.]+) ns', r.stdout))
-        assert len(samples) == 17, f'{build}: {len(samples)} cases'
+        assert len(samples) == CASES, f'{build}: {len(samples)} cases'
         return samples
     finally:
         if srv.poll() is None:
@@ -56,9 +60,16 @@ def main():
     ap.add_argument('--iters', type=int, default=100000)
     ap.add_argument('--out', required=True)
     ap.add_argument('--perf')
+    ap.add_argument('--runner', help='runner root with benchmark/test and benchmark/uprobe (default: the full suite)')
+    ap.add_argument('--cases', type=int, default=17, help='cases the victim prints')
+    ap.add_argument('--perf-args', default='record -e cycles:u', help='perf subcommand and options')
     a = ap.parse_args()
-    global PERF
+    global PERF, RUNNER, CASES, PERF_ARGS
     PERF = a.perf
+    CASES = a.cases
+    PERF_ARGS = a.perf_args.split()
+    if a.runner:
+        RUNNER = Path(a.runner)
     builds = a.builds.split(',')
     out = Path(a.out).resolve(); logdir = out.parent / (out.stem + '-logs'); logdir.mkdir(exist_ok=True)
     assert not Path('/dev/shm/bpftime_maps_shm').exists(), 'another run is using the shm'
@@ -68,8 +79,7 @@ def main():
             s = run_one(build, a.iters, logdir, f'r{rep + 1}-{build}')
             with out.open('a') as f:
                 f.write(json.dumps(dict(rep=rep + 1, build=build, iters=a.iters, samples=s)) + '\n')
-            print(f'rep {rep + 1} {build} hash upd {s["__bench_hash_map_update"]:.0f} '
-                  f'lookup {s["__bench_hash_map_lookup"]:.0f} pcpu lookup {s["__bench_per_cpu_hash_map_lookup"]:.0f}', flush=True)
+            print(f'rep {rep + 1} {build} ' + ' '.join(f'{k[8:]} {v:.0f}' for k, v in s.items()), flush=True)
 
 if __name__ == '__main__':
     main()

@@ -1,0 +1,26 @@
+diff --git a/runtime/src/bpf_map/bpftime_hash_map.hpp b/runtime/src/bpf_map/bpftime_hash_map.hpp
+index 8f25d057..b8144a9d 100644
+--- a/runtime/src/bpf_map/bpftime_hash_map.hpp
++++ b/runtime/src/bpf_map/bpftime_hash_map.hpp
+@@ -643,7 +643,9 @@ class bpftime_hash_map {
+ 		const size_t home = home_bucket(key);
+ 		const size_t home_stripe = stripe_of(home);
+ 		// Buckets from home that the locked range must cover.
+-		size_t span = load_bound(v, home_stripe) + 1;
++		size_t span = std::atomic_ref<uint32_t>(v.stripes[home_stripe].bound)
++				      .load(std::memory_order_relaxed) +
++			      1;
+ 		for (;;) {
+ 			const stripe_range locked = range_for(home, span);
+ 			range_guard guard(*this, v, locked);
+@@ -732,7 +734,9 @@ class bpftime_hash_map {
+ 		const size_t home = home_bucket(key);
+ 		const size_t home_stripe = stripe_of(home);
+ 		// The bound plus the bucket after it (release_deleted_run).
+-		size_t span = load_bound(v, home_stripe) + 2;
++		size_t span = std::atomic_ref<uint32_t>(v.stripes[home_stripe].bound)
++				      .load(std::memory_order_relaxed) +
++			      2;
+ 		for (;;) {
+ 			const stripe_range locked = range_for(home, span);
+ 			range_guard guard(*this, v, locked);

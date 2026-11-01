@@ -70,7 +70,11 @@ bpftime below the kernel there.
 
 6. **Problem 7, per-CPU maps with unpinned threads** (found after this plan): recorded, not fixed (user decision 2026-10-28); option in `percpu-unpinned-20261028`.
 
-7. **Problem 8, hash maps' single-thread cost** (medium, bpftime only; added 2026-11-02). Goal:
+7. **Problem 8, hash maps' single-thread cost** (medium, bpftime only; added 2026-11-02).
+   **Phase 1 done 2026-11-02** (`hash-single-thread-20261102`, dev 0ffe368b..68f19c1f): of the
+   candidates below, the inline lock (a, as bpftime's own lock; a compiler flag cannot reach
+   glibc's), the one-stripe fast path (c) and the lookup ordering (d) are in; b had no effect.
+   Hash update and lookup are back at a7d54d7e, delete +9 ns; e (per-CPU hash) not started. Goal:
    the official uprobe suite's hash cases back near a7d54d7e (hash update/lookup/delete
    27/23/28 ns, per-CPU hash 45/28/100 ns per operation) without giving back the multi-thread
    gains of step 2 or the correctness of step 1. Candidates to measure, none tested yet:

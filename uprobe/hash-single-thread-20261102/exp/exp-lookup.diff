@@ -1,0 +1,29 @@
+diff --git a/runtime/src/bpf_map/bpftime_hash_map.hpp b/runtime/src/bpf_map/bpftime_hash_map.hpp
+index 8f25d057..4b2f02b4 100644
+--- a/runtime/src/bpf_map/bpftime_hash_map.hpp
++++ b/runtime/src/bpf_map/bpftime_hash_map.hpp
+@@ -419,10 +419,11 @@ class bpftime_hash_map {
+ 					uint8_t *bucket_key = key_at(v, index);
+ 					bool equal;
+ 					if constexpr (Uint32Key) {
++						// Acquire: the re-read below stays after it.
+ 						equal = std::atomic_ref<uint32_t>(
+ 								*reinterpret_cast<uint32_t *>(
+ 									bucket_key))
+-								.load(std::memory_order_relaxed) ==
++								.load(std::memory_order_acquire) ==
+ 							key_value;
+ 					} else {
+ 						equal = std::memcmp(bucket_key, key,
+@@ -430,8 +431,9 @@ class bpftime_hash_map {
+ 					}
+ 					if (equal) {
+ 						// Order the key reads before the re-read.
+-						std::atomic_thread_fence(
+-							std::memory_order_acquire);
++						if constexpr (!Uint32Key)
++							std::atomic_thread_fence(
++								std::memory_order_acquire);
+ 						if (load_word(v, word_ptr,
+ 							      std::memory_order_relaxed) ==
+ 						    word)

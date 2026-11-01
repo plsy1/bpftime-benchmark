@@ -1,0 +1,767 @@
+ Percent |	Source code & Disassembly of libbpftime-agent.so for cycles:u (1304 samples, percent: local period)
+-------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3      Disassembly of section .text:
+         :
+         : 5      000000000055db64 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]>:
+    0.46 :   55db64: sub     sp, sp, #0xa0
+         : 7      {}
+         :
+         : 9      //!Obtains raw pointer from offset.
+         : 10     //!Never throws.
+         : 11     BOOST_INTERPROCESS_FORCEINLINE pointer get() const BOOST_NOEXCEPT
+         : 12     {  return static_cast<pointer>(ipcdetail::offset_ptr_to_raw_pointer(this, this->internal.m_offset));   }
+    0.00 :   55db68: add     x2, x0, #0x70
+         : 14     {
+         : 15     return update(key, value, update_mode::any) == update_result::ok;
+         : 16     }
+         :
+         : 18     // value_out: the value is copied there first, under the stripe lock
+         : 19     // (lookup and delete as one step, like the kernel's).
+    0.38 :   55db6c: stp     x29, x30, [sp, #64]
+    0.38 :   55db70: add     x29, sp, #0x40
+    0.31 :   55db74: stp     x19, x20, [sp, #80]
+    0.46 :   55db78: mov     x20, x0
+    0.54 :   55db7c: stp     x21, x22, [sp, #96]
+    0.08 :   55db80: stp     x23, x24, [sp, #112]
+    0.38 :   55db84: stp     x25, x26, [sp, #128]
+    0.38 :   55db88: stp     x27, x28, [sp, #144]
+    0.54 :   55db8c: ldr     x4, [x0, #112]
+   13.43 :   55db90: str     x1, [sp]
+    0.31 :   55db94: add     x1, x0, #0x50
+    0.00 :   55db98: adrp    x0, 309f000 <_GLOBAL_OFFSET_TABLE_+0x37c0>
+    0.54 :   55db9c: ldr     x0, [x0, #984]
+         : 33     OffsetType mask = offset == 1;
+    0.38 :   55dba0: cmp     x4, #0x1
+    0.38 :   55dba4: cset    x23, eq // eq = none
+         : 36     OffsetType target_offset = caster_t(this_ptr).offset() + offset;
+    0.15 :   55dba8: add     x2, x2, x4
+    0.31 :   55dbac: ldr     x3, [x0]
+    0.61 :   55dbb0: str     x3, [sp, #56]
+    0.38 :   55dbb4: mov     x3, #0x0                        // #0
+         : 41     --mask;
+    0.00 :   55dbb8: sub     x23, x23, #0x1
+         : 43     {  return static_cast<pointer>(ipcdetail::offset_ptr_to_raw_pointer(this, this->internal.m_offset));   }
+    0.92 :   55dbbc: ldr     x3, [x20, #80]
+         : 45     target_offset &= mask;
+    1.46 :   55dbc0: and     x23, x23, x2
+         : 47     bpftime_hasher::hash_func(key, _key_size), _num_buckets,
+    0.31 :   55dbc4: ldr     x0, [x20]
+         : 49     OffsetType mask = offset == 1;
+    0.00 :   55dbc8: cmp     x3, #0x1
+         : 51     (stripes + CACHE_LINE - 1) &
+    2.07 :   55dbcc: add     x23, x23, #0x3f
+         : 53     OffsetType target_offset = caster_t(this_ptr).offset() + offset;
+    0.00 :   55dbd0: add     x1, x1, x3
+         : 55     --mask;
+    0.31 :   55dbd4: csetm   x21, ne // ne = any
+    0.00 :   55dbd8: and     x23, x23, #0xffffffffffffffc0
+         : 58     target_offset &= mask;
+    0.54 :   55dbdc: and     x21, x21, x1
+         : 60     bool elem_delete(const void *key, void *value_out = nullptr)
+         : 61     {
+    0.38 :   55dbe0: stp     x21, x23, [sp, #40]
+         : 63     if (key_size == sizeof(uint32_t)) {
+    0.69 :   55dbe4: cmp     x0, #0x4
+    0.00 :   55dbe8: b.eq    55e1ac <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x648>  // b.none
+         : 66     for (size_t i = 0; i < key_size; i++) {
+    0.00 :   55dbec: mov     x2, #0x0                        // #0
+    0.00 :   55dbf0: cbz     x0, 55dc24 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0xc0>
+    0.00 :   55dbf4: ldr     x2, [sp]
+    0.00 :   55dbf8: mov     x1, x2
+    0.00 :   55dbfc: add     x4, x0, x2
+         : 72     size_t hash = 0;
+    0.00 :   55dc00: mov     x0, #0x0                        // #0
+    0.00 :   55dc04: nop
+         : 75     hash = hash * 31 + ((uint8_t *)key)[i];
+    0.00 :   55dc08: ldrb    w2, [x1], #1
+    0.00 :   55dc0c: lsl     x3, x0, #5
+    0.00 :   55dc10: sub     x0, x3, x0
+    0.00 :   55dc14: add     x0, x2, x0
+         : 80     for (size_t i = 0; i < key_size; i++) {
+    0.00 :   55dc18: cmp     x4, x1
+    0.00 :   55dc1c: b.ne    55dc08 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0xa4>  // b.any
+         : 83     (static_cast<unsigned __int128>(value) * reciprocal) >> 64);
+    0.00 :   55dc20: mov     x2, x0
+    0.46 :   55dc24: ldp     x1, x19, [x20, #32]
+         : 86     return bucket >> _stripe_shift;
+    0.46 :   55dc28: ldr     x25, [x20, #56]
+         : 88     (static_cast<unsigned __int128>(value) * reciprocal) >> 64);
+    0.00 :   55dc2c: umulh   x19, x19, x2
+         : 90     size_t remainder = value - quotient * divisor;
+    9.82 :   55dc30: msub    x19, x1, x19, x0
+         : 92     remainder -= divisor;
+    0.00 :   55dc34: cmp     x1, x19
+    0.46 :   55dc38: sub     x1, x19, x1
+    0.00 :   55dc3c: csel    x19, x1, x19, ls        // ls = plast
+         : 96     return bucket >> _stripe_shift;
+    0.31 :   55dc40: lsr     x25, x19, x25
+         : 98     {
+    0.00 :   55dc44: lsl     x0, x25, #6
+    0.23 :   55dc48: str     x0, [sp, #8]
+    0.46 :   55dc4c: add     x0, x23, x0
+    0.46 :   55dc50: str     x0, [sp, #16]
+    0.38 :   55dc54: mov     x22, x0
+         : 104    auto &st = v.stripes[home_stripe];
+    0.54 :   55dc58: bl      503b20 <bpftime::bpftime_spin_lock(int volatile*)>
+         : 106    {
+    0.84 :   55dc5c: ldr     x3, [x20, #56]
+    0.84 :   55dc60: add     x0, x25, #0x1
+         : 109    min(const _Tp& __a, const _Tp& __b)
+         : 110    {
+         : 111    // concept requirements
+         : 112    __glibcxx_function_requires(_LessThanComparableConcept<_Tp>)
+         : 113    //return __b < __a ? __b : __a;
+         : 114    if (__b < __a)
+    0.31 :   55dc64: ldr     x2, [x20, #32]
+         : 116    const size_t bound = st.bound;
+    0.00 :   55dc68: add     x1, x19, #0x1
+         : 118    bpftime_spin_lock(&st.lock);
+    0.31 :   55dc6c: ldr     w23, [x22, #4]
+         : 120    {
+    0.00 :   55dc70: lsl     x0, x0, x3
+    0.69 :   55dc74: cmp     x0, x2
+         : 123    const size_t bound = st.bound;
+    0.00 :   55dc78: add     x1, x1, x23
+    0.46 :   55dc7c: csel    x0, x0, x2, ls  // ls = plast
+    0.46 :   55dc80: cmp     x0, x1
+    0.00 :   55dc84: b.ls    55de90 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x32c>  // b.plast
+    0.23 :   55dc88: ldr     x22, [x20, #24]
+         : 129    found = false;
+    0.00 :   55dc8c: mov     x26, #0x0                       // #0
+    0.38 :   55dc90: b       55dca4 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x140>
+    0.00 :   55dc94: add     x26, x26, #0x1
+    0.00 :   55dc98: cmp     x23, x26
+    0.00 :   55dc9c: b.cc    55de28 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x2c4>  // b.lo, b.ul, b.last
+         : 135    return v.data + index * _elem_size + 4;
+    0.00 :   55dca0: ldr     x21, [sp, #40]
+         : 137    for (size_t probe = 0; probe <= bound; ++probe) {
+    0.38 :   55dca4: add     x28, x19, x26
+         : 139    return reinterpret_cast<uint32_t *>(v.data + index * _elem_size);
+    0.23 :   55dca8: mul     x27, x28, x22
+         : 141    _GLIBCXX_ALWAYS_INLINE _Val<_Tp>
+         : 142    load(const _Tp* __ptr, memory_order __m) noexcept
+         : 143    {
+         : 144    alignas(_Tp) unsigned char __buf[sizeof(_Tp)];
+         : 145    auto* __dest = reinterpret_cast<_Val<_Tp>*>(__buf);
+         : 146    __atomic_load(__ptr, __dest, int(__m));
+    0.00 :   55dcac: add     x21, x21, x27
+    0.46 :   55dcb0: ldr     w0, [x21]
+         : 149    const auto state = state_at(v, index);
+    0.00 :   55dcb4: ands    w0, w0, #0x3
+    0.38 :   55dcb8: b.eq    55de28 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x2c4>  // b.none
+         : 152    break;
+    0.38 :   55dcbc: cmp     w0, #0x1
+    0.00 :   55dcc0: b.ne    55dc94 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x130>  // b.any
+    0.61 :   55dcc4: ldr     x2, [x20]
+         : 156    return v.data + index * _elem_size + 4;
+    0.00 :   55dcc8: add     x1, x27, #0x4
+    0.31 :   55dccc: ldr     x24, [sp, #40]
+    0.00 :   55dcd0: add     x0, x24, x1
+         : 160    {
+    0.38 :   55dcd4: cmp     x2, #0x4
+    0.00 :   55dcd8: b.eq    55de74 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x310>  // b.none
+         : 163    }
+    0.00 :   55dcdc: ldr     x1, [sp]
+    0.00 :   55dce0: bl      4ad300 <memcmp@plt>
+    0.00 :   55dce4: cmp     w0, #0x0
+    0.00 :   55dce8: cset    w21, eq // eq = none
+         : 168    break;
+    0.00 :   55dcec: cbz     w21, 55dc94 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x130>
+         : 170    return reinterpret_cast<uint32_t *>(v.data + index * _elem_size);
+    0.61 :   55dcf0: add     x5, x24, x27
+    0.23 :   55dcf4: ldr     w0, [x5]
+         : 173    ref.store(((old & ~STATE_MASK) + generation_step) | state, order);
+    0.00 :   55dcf8: and     w0, w0, #0xfffffffc
+    0.61 :   55dcfc: add     w0, w0, #0x4
+    0.31 :   55dd00: orr     w0, w0, #0x2
+         : 177    __atomic_store(__ptr, __atomic_impl::__clear_padding(__t), int(__m));
+    0.23 :   55dd04: str     w0, [x5]
+         : 179    auto &st = v.stripes[stripe_index];
+    1.07 :   55dd08: ldr     x1, [sp, #8]
+    1.07 :   55dd0c: ldr     x0, [sp, #48]
+    0.00 :   55dd10: add     x0, x0, x1
+         : 183    if (++st.tokens >= 2 * TOKEN_BATCH) {
+    0.54 :   55dd14: ldr     w1, [x0, #8]
+    0.08 :   55dd18: add     w2, w1, #0x1
+    0.77 :   55dd1c: cmp     w2, #0x3f
+    0.00 :   55dd20: b.hi    55e328 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x7c4>  // b.pmore
+    0.92 :   55dd24: str     w2, [x0, #8]
+         : 189    size_t bound;
+    0.38 :   55dd28: cmp     x26, #0xa
+    0.08 :   55dd2c: b.hi    55e290 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x72c>  // b.pmore
+    0.46 :   55dd30: add     x2, x0, x26, lsl #2
+         : 193    // at the current largest distance goes away.
+    1.15 :   55dd34: ldr     w1, [x2, #20]
+    0.00 :   55dd38: sub     w1, w1, #0x1
+    1.46 :   55dd3c: str     w1, [x2, #20]
+    0.23 :   55dd40: cbnz    w1, 55dd80 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x21c>
+         : 198    if (--st.displacement_counts[distance] != 0 ||
+    0.00 :   55dd44: ldr     w1, [x0, #4]
+         : 200    // at the current largest distance goes away.
+    0.31 :   55dd48: cmp     x26, x1
+    0.00 :   55dd4c: b.ne    55dd80 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x21c>  // b.any
+         : 203    }
+    0.00 :   55dd50: cbz     x1, 55dd80 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x21c>
+    0.00 :   55dd54: mov     x3, x1
+    0.00 :   55dd58: add     x4, x0, #0x14
+    0.00 :   55dd5c: b       55dd68 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x204>
+    0.00 :   55dd60: subs    x1, x1, #0x1
+    0.00 :   55dd64: b.eq    55dd70 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x20c>  // b.none
+    0.00 :   55dd68: ldr     w2, [x4, x1, lsl #2]
+    0.00 :   55dd6c: cbz     w2, 55dd60 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x1fc>
+         : 212    bound--;
+    0.00 :   55dd70: cmp     x3, x1
+    0.00 :   55dd74: b.eq    55dd80 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x21c>  // b.none
+    0.00 :   55dd78: add     x0, x0, #0x4
+    0.00 :   55dd7c: stlr    w1, [x0]
+         : 217    return bucket >= _num_buckets ? bucket - _num_buckets : bucket;
+    1.77 :   55dd80: ldr     x2, [x20, #32]
+         : 219    bucket += distance;
+    0.00 :   55dd84: add     x1, x28, #0x1
+         : 221    return bucket >> _stripe_shift;
+    0.31 :   55dd88: ldr     x0, [x20, #56]
+         : 223    return bucket >= _num_buckets ? bucket - _num_buckets : bucket;
+    0.00 :   55dd8c: subs    x2, x1, x2
+    0.38 :   55dd90: csel    x1, x2, x1, cs  // cs = hs, nlast
+         : 226    return bucket >> _stripe_shift;
+    0.00 :   55dd94: lsr     x2, x1, x0
+         : 228    const size_t offset = s >= range.first ?
+    0.84 :   55dd98: cmp     x25, x2
+    0.00 :   55dd9c: b.hi    55e2b0 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x74c>  // b.pmore
+    0.77 :   55dda0: sub     x2, x2, x25
+         : 232    const size_t next = advance(index, 1);
+    0.00 :   55dda4: cbnz    x2, 55de2c <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x2c8>
+         : 234    return reinterpret_cast<uint32_t *>(v.data + index * _elem_size);
+    0.23 :   55dda8: ldr     x3, [x20, #24]
+         : 236    __atomic_load(__ptr, __dest, int(__m));
+    0.23 :   55ddac: ldr     x2, [sp, #40]
+    0.00 :   55ddb0: madd    x1, x1, x3, x2
+    0.15 :   55ddb4: ldr     w1, [x1]
+         : 240    const size_t next = advance(index, 1);
+    0.61 :   55ddb8: tst     x1, #0x3
+    0.00 :   55ddbc: b.ne    55de2c <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x2c8>  // b.any
+         : 243    return bucket >> _stripe_shift;
+    0.23 :   55ddc0: lsr     x0, x28, x0
+         : 245    const size_t offset = s >= range.first ?
+    0.15 :   55ddc4: cmp     x25, x0
+    0.00 :   55ddc8: b.hi    55de18 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x2b4>  // b.pmore
+    0.54 :   55ddcc: sub     x0, x0, x25
+         : 249    return;
+    0.00 :   55ddd0: cbnz    x0, 55de2c <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x2c8>
+         : 251    return reinterpret_cast<uint32_t *>(v.data + index * _elem_size);
+    0.69 :   55ddd4: ldr     x0, [x20, #24]
+    0.84 :   55ddd8: ldr     x1, [sp, #40]
+    1.00 :   55dddc: madd    x0, x28, x0, x1
+    1.15 :   55dde0: ldr     w1, [x0]
+         : 256    STATE_MASK;
+    0.58 :   55dde4: and     w1, w1, #0x3
+         : 258    return;
+    2.05 :   55dde8: cmp     w1, #0x2
+    0.08 :   55ddec: b.ne    55de2c <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x2c8>  // b.any
+    1.69 :   55ddf0: ldr     w1, [x0]
+         : 262    ref.store(((old & ~STATE_MASK) + generation_step) | state, order);
+    0.31 :   55ddf4: and     w1, w1, #0xfffffffc
+         : 264    __atomic_store(__ptr, __atomic_impl::__clear_padding(__t), int(__m));
+    1.15 :   55ddf8: str     w1, [x0]
+         : 266    std::memory_order_relaxed);
+    0.54 :   55ddfc: cbnz    x28, 55e268 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x704>
+    0.00 :   55de00: ldr     x28, [x20, #32]
+    0.00 :   55de04: ldr     x0, [x20, #56]
+    0.00 :   55de08: sub     x28, x28, #0x1
+         : 271    return bucket >> _stripe_shift;
+    0.23 :   55de0c: lsr     x0, x28, x0
+         : 273    const size_t offset = s >= range.first ?
+    0.08 :   55de10: cmp     x25, x0
+    0.00 :   55de14: b.ls    55ddcc <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x268>  // b.plast
+         : 276    _num_stripes - range.first + s;
+    0.08 :   55de18: ldr     x1, [x20, #64]
+    0.00 :   55de1c: sub     x1, x1, x25
+         : 279    const size_t offset = s >= range.first ?
+    0.23 :   55de20: add     x0, x1, x0
+    0.00 :   55de24: b       55ddd0 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x26c>
+         : 282    }
+    0.00 :   55de28: mov     w21, #0x0                       // #0
+         : 284    __attribute__((always_inline)) inline void
+         : 285    bpftime_spin_lock(volatile pthread_spinlock_t *lock)
+         : 286    {
+         : 287    #if defined(__GLIBC__)
+         : 288    int *word = (int *)lock; // glibc: volatile int
+         : 289    while (bpftime_spin_exchange(word) != 0) {
+    1.38 :   55de2c: ldr     x0, [sp, #16]
+    0.69 :   55de30: stlr    wzr, [x0]
+         : 292    return true;
+         : 293    }
+         : 294    index = advance(index, 1);
+         : 295    }
+         : 296    return false; // Key not found
+         : 297    }
+    0.69 :   55de34: adrp    x0, 309f000 <_GLOBAL_OFFSET_TABLE_+0x37c0>
+    0.77 :   55de38: ldr     x0, [x0, #984]
+    0.69 :   55de3c: ldr     x2, [sp, #56]
+    0.38 :   55de40: ldr     x1, [x0]
+    0.08 :   55de44: subs    x2, x2, x1
+    0.84 :   55de48: mov     x1, #0x0                        // #0
+    0.31 :   55de4c: b.ne    55e354 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x7f0>  // b.any
+    0.84 :   55de50: ldp     x29, x30, [sp, #64]
+    0.31 :   55de54: mov     w0, w21
+    0.69 :   55de58: ldp     x19, x20, [sp, #80]
+    0.31 :   55de5c: ldp     x21, x22, [sp, #96]
+    0.38 :   55de60: ldp     x23, x24, [sp, #112]
+    0.54 :   55de64: ldp     x25, x26, [sp, #128]
+    0.38 :   55de68: ldp     x27, x28, [sp, #144]
+    0.84 :   55de6c: add     sp, sp, #0xa0
+    0.00 :   55de70: ret
+         : 314    std::memcpy(&rhs_value, rhs, sizeof(rhs_value));
+    0.31 :   55de74: ldr     x0, [sp]
+    0.61 :   55de78: ldr     w1, [x24, x1]
+    0.61 :   55de7c: ldr     w0, [x0]
+    0.77 :   55de80: cmp     w1, w0
+    0.00 :   55de84: cset    w21, eq // eq = none
+         : 320    break;
+    0.31 :   55de88: cbz     w21, 55dc94 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x130>
+    0.54 :   55de8c: b       55dcf0 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x18c>
+    0.00 :   55de90: ldr     x0, [sp, #16]
+    0.08 :   55de94: stlr    wzr, [x0]
+         : 325    __atomic_load(__ptr, __dest, int(__m));
+    0.00 :   55de98: ldr     x1, [sp, #8]
+    0.08 :   55de9c: ldr     x0, [sp, #48]
+    0.00 :   55dea0: add     x0, x0, x1
+    0.00 :   55dea4: add     x0, x0, #0x4
+    0.00 :   55dea8: ldar    w25, [x0]
+         : 331    range_guard guard(*this, v, locked);
+    0.77 :   55deac: ldr     x22, [sp, #48]
+         : 333    // The bound plus the bucket after it (release_deleted_run).
+    0.00 :   55deb0: add     x25, x25, #0x2
+    0.00 :   55deb4: add     x0, sp, #0x28
+    0.00 :   55deb8: str     x0, [sp, #24]
+         : 337    if (span >= _num_buckets)
+    0.08 :   55debc: ldr     x1, [x20, #32]
+         : 339    return { 0, _num_stripes };
+    0.00 :   55dec0: ldr     x23, [x20, #64]
+         : 341    if (span >= _num_buckets)
+    0.00 :   55dec4: cmp     x25, x1
+    0.00 :   55dec8: b.cs    55df40 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x3dc>  // b.hs, b.nlast
+         : 344    return bucket >> _stripe_shift;
+    0.00 :   55decc: ldr     x2, [x20, #56]
+         : 346    bucket += distance;
+    0.00 :   55ded0: sub     x0, x19, #0x1
+    0.00 :   55ded4: add     x0, x0, x25
+         : 349    return bucket >> _stripe_shift;
+    0.00 :   55ded8: lsr     x28, x19, x2
+         : 351    return bucket >= _num_buckets ? bucket - _num_buckets : bucket;
+    0.00 :   55dedc: cmp     x1, x0
+    0.00 :   55dee0: b.ls    55e1e8 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x684>  // b.plast
+         : 354    const size_t count = wraps ? _num_stripes - first + last + 1 :
+    0.00 :   55dee4: mov     x26, #0x1                       // #1
+    0.00 :   55dee8: sub     x26, x26, x28
+         : 357    return bucket >> _stripe_shift;
+    0.00 :   55deec: lsr     x0, x0, x2
+         : 359    const size_t count = wraps ? _num_stripes - first + last + 1 :
+    0.00 :   55def0: add     x26, x26, x0
+         : 361    if (count >= _num_stripes)
+    0.00 :   55def4: cmp     x26, x23
+    0.00 :   55def8: b.cs    55df40 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x3dc>  // b.hs, b.nlast
+         : 364    const size_t end = range.first + range.count;
+    0.00 :   55defc: add     x27, x28, x26
+         : 366    for (;;) {
+    0.00 :   55df00: str     x26, [sp, #16]
+    0.00 :   55df04: mov     x24, x28
+         : 369    for (size_t s = 0; s < end - _num_stripes; s++)
+    0.00 :   55df08: mov     x21, #0x0                       // #0
+         : 371    if (end > _num_stripes) {
+    0.00 :   55df0c: cmp     x27, x23
+    0.00 :   55df10: b.ls    55e34c <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x7e8>  // b.plast
+    0.00 :   55df14: nop
+         : 375    bpftime_spin_lock(&v.stripes[s].lock);
+    0.00 :   55df18: add     x22, x22, x21, lsl #6
+    0.00 :   55df1c: nop
+         : 378    (void)failed;
+    0.00 :   55df20: mov     x1, x22
+    0.00 :   55df24: mov     w0, #0x1                        // #1
+    0.00 :   55df28: bl      1fa2fb0 <__aarch64_swp4_acq>
+    0.00 :   55df2c: cbz     w0, 55e200 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x69c>
+         : 383    __asm__ __volatile__(".arch_extension lse\n\t"
+    0.00 :   55df30: ldr     w0, [x22]
+    0.00 :   55df34: cbz     w0, 55df20 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x3bc>
+         : 386    : "=&r"(old)
+    0.00 :   55df38: yield
+    0.00 :   55df3c: b       55df30 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x3cc>
+         : 389    for (;;) {
+    0.00 :   55df40: mov     x26, x23
+    0.00 :   55df44: mov     x24, #0x0                       // #0
+    0.00 :   55df48: mov     x28, #0x0                       // #0
+    0.00 :   55df4c: str     x23, [sp, #16]
+         : 394    for (size_t s = range.first; s < end; s++)
+    0.00 :   55df50: mov     x21, x28
+    0.00 :   55df54: cmp     x28, x23
+    0.00 :   55df58: b.cs    55df8c <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x428>  // b.hs, b.nlast
+    0.00 :   55df5c: nop
+         : 399    bpftime_spin_lock(&v.stripes[s].lock);
+    0.00 :   55df60: add     x22, x22, x21, lsl #6
+    0.00 :   55df64: nop
+         : 402    (void)failed;
+    0.00 :   55df68: mov     x1, x22
+    0.00 :   55df6c: mov     w0, #0x1                        // #1
+    0.00 :   55df70: bl      1fa2fb0 <__aarch64_swp4_acq>
+    0.08 :   55df74: cbz     w0, 55e164 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x600>
+         : 407    __asm__ __volatile__(".arch_extension lse\n\t"
+    0.00 :   55df78: ldr     w0, [x22]
+    0.00 :   55df7c: cbz     w0, 55df68 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x404>
+         : 410    : "=&r"(old)
+    0.00 :   55df80: yield
+    0.00 :   55df84: b       55df78 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x414>
+         : 413    range_guard guard(*this, v, locked);
+    0.00 :   55df88: ldr     x22, [sp, #48]
+    0.00 :   55df8c: ldr     x0, [sp, #8]
+    0.00 :   55df90: add     x0, x22, x0
+    0.00 :   55df94: ldr     w27, [x0, #4]
+         : 418    const size_t bound = v.stripes[home_stripe].bound;
+    0.00 :   55df98: add     x21, x27, #0x2
+    0.00 :   55df9c: cmp     x25, x21
+    0.00 :   55dfa0: b.cs    55dfb4 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x450>  // b.hs, b.nlast
+    0.00 :   55dfa4: ldr     x1, [sp, #16]
+    0.00 :   55dfa8: ldr     x0, [x20, #64]
+    0.00 :   55dfac: cmp     x0, x1
+    0.00 :   55dfb0: b.hi    55e274 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x710>  // b.pmore
+    0.08 :   55dfb4: ldr     x22, [x20, #24]
+    0.00 :   55dfb8: mov     x21, #0x0                       // #0
+    0.00 :   55dfbc: ldr     x25, [sp, #40]
+    0.00 :   55dfc0: b       55dfe4 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x480>
+         : 430    return bucket >= _num_buckets ? bucket - _num_buckets : bucket;
+    0.00 :   55dfc4: ldr     x0, [x20, #32]
+         : 432    bucket += distance;
+    0.00 :   55dfc8: add     x19, x19, #0x1
+         : 434    size_t index = home;
+    0.00 :   55dfcc: add     x1, x21, #0x1
+         : 436    return bucket >= _num_buckets ? bucket - _num_buckets : bucket;
+    0.00 :   55dfd0: subs    x0, x19, x0
+    0.00 :   55dfd4: csel    x19, x0, x19, cs        // cs = hs, nlast
+         : 439    size_t index = home;
+    0.00 :   55dfd8: cmp     x27, x21
+    0.00 :   55dfdc: b.eq    55e178 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x614>  // b.none
+    0.00 :   55dfe0: mov     x21, x1
+         : 443    return reinterpret_cast<uint32_t *>(v.data + index * _elem_size);
+    0.00 :   55dfe4: mul     x1, x19, x22
+    0.00 :   55dfe8: add     x23, x25, x1
+    0.00 :   55dfec: ldr     w0, [x23]
+         : 447    const auto state = state_at(v, index);
+    0.00 :   55dff0: ands    w0, w0, #0x3
+    0.00 :   55dff4: b.eq    55e178 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x614>  // b.none
+         : 450    return false; // Key not found
+    0.00 :   55dff8: cmp     w0, #0x1
+    0.00 :   55dffc: b.ne    55dfc4 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x460>  // b.any
+    0.00 :   55e000: ldr     x2, [x20]
+         : 454    return v.data + index * _elem_size + 4;
+    0.00 :   55e004: add     x1, x1, #0x4
+    0.00 :   55e008: add     x0, x25, x1
+         : 457    {
+    0.00 :   55e00c: cmp     x2, #0x4
+    0.00 :   55e010: b.eq    55e194 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x630>  // b.none
+         : 460    }
+    0.00 :   55e014: ldr     x1, [sp]
+    0.00 :   55e018: bl      4ad300 <memcmp@plt>
+         : 463    return false; // Key not found
+    0.00 :   55e01c: cbnz    w0, 55dfc4 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x460>
+    0.00 :   55e020: ldr     w0, [x23]
+         : 466    ref.store(((old & ~STATE_MASK) + generation_step) | state, order);
+    0.00 :   55e024: and     w0, w0, #0xfffffffc
+    0.00 :   55e028: add     w0, w0, #0x4
+    0.00 :   55e02c: orr     w0, w0, #0x2
+         : 470    __atomic_store(__ptr, __atomic_impl::__clear_padding(__t), int(__m));
+    0.08 :   55e030: str     w0, [x23]
+         : 472    auto &st = v.stripes[stripe_index];
+    0.00 :   55e034: ldr     x1, [sp, #8]
+    0.00 :   55e038: ldr     x0, [sp, #48]
+    0.00 :   55e03c: add     x0, x0, x1
+         : 476    if (++st.tokens >= 2 * TOKEN_BATCH) {
+    0.00 :   55e040: ldr     w1, [x0, #8]
+    0.00 :   55e044: add     w2, w1, #0x1
+    0.00 :   55e048: cmp     w2, #0x3f
+    0.00 :   55e04c: b.hi    55e2c0 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x75c>  // b.pmore
+    0.00 :   55e050: str     w2, [x0, #8]
+         : 482    size_t bound;
+    0.00 :   55e054: cmp     x21, #0xa
+    0.00 :   55e058: b.hi    55e308 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x7a4>  // b.pmore
+    0.00 :   55e05c: add     x2, x0, x21, lsl #2
+         : 486    // at the current largest distance goes away.
+    0.00 :   55e060: ldr     w1, [x2, #20]
+    0.00 :   55e064: sub     w1, w1, #0x1
+    0.00 :   55e068: str     w1, [x2, #20]
+    0.00 :   55e06c: cbnz    w1, 55e0ac <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x548>
+         : 491    if (--st.displacement_counts[distance] != 0 ||
+    0.00 :   55e070: ldr     w1, [x0, #4]
+         : 493    // at the current largest distance goes away.
+    0.00 :   55e074: cmp     x21, x1
+    0.00 :   55e078: b.ne    55e0ac <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x548>  // b.any
+         : 496    }
+    0.00 :   55e07c: cbz     x1, 55e0ac <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x548>
+    0.00 :   55e080: mov     x2, x1
+    0.00 :   55e084: add     x3, x0, #0x14
+    0.00 :   55e088: b       55e094 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x530>
+    0.00 :   55e08c: subs    x1, x1, #0x1
+    0.00 :   55e090: b.eq    55e09c <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x538>  // b.none
+    0.00 :   55e094: ldr     w4, [x3, x1, lsl #2]
+    0.00 :   55e098: cbz     w4, 55e08c <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x528>
+         : 505    bound--;
+    0.00 :   55e09c: cmp     x1, x2
+    0.00 :   55e0a0: b.eq    55e0ac <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x548>  // b.none
+    0.00 :   55e0a4: add     x0, x0, #0x4
+    0.00 :   55e0a8: stlr    w1, [x0]
+         : 510    return bucket >= _num_buckets ? bucket - _num_buckets : bucket;
+    0.00 :   55e0ac: ldr     x2, [x20, #32]
+         : 512    bucket += distance;
+    0.00 :   55e0b0: add     x1, x19, #0x1
+         : 514    return bucket >> _stripe_shift;
+    0.00 :   55e0b4: ldr     x0, [x20, #56]
+         : 516    return bucket >= _num_buckets ? bucket - _num_buckets : bucket;
+    0.00 :   55e0b8: subs    x2, x1, x2
+    0.08 :   55e0bc: csel    x1, x2, x1, cs  // cs = hs, nlast
+         : 519    return bucket >> _stripe_shift;
+    0.00 :   55e0c0: lsr     x2, x1, x0
+         : 521    const size_t offset = s >= range.first ?
+    0.00 :   55e0c4: cmp     x2, x24
+    0.00 :   55e0c8: b.cc    55e2f8 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x794>  // b.lo, b.ul, b.last
+    0.00 :   55e0cc: sub     x2, x2, x24
+         : 525    const size_t next = advance(index, 1);
+    0.00 :   55e0d0: ldr     x3, [sp, #16]
+    0.00 :   55e0d4: cmp     x3, x2
+    0.00 :   55e0d8: b.ls    55e2f0 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x78c>  // b.plast
+         : 529    return reinterpret_cast<uint32_t *>(v.data + index * _elem_size);
+    0.00 :   55e0dc: ldr     x3, [x20, #24]
+         : 531    __atomic_load(__ptr, __dest, int(__m));
+    0.00 :   55e0e0: ldr     x2, [sp, #40]
+    0.00 :   55e0e4: madd    x1, x1, x3, x2
+    0.00 :   55e0e8: ldr     w1, [x1]
+         : 535    const size_t next = advance(index, 1);
+    0.08 :   55e0ec: tst     x1, #0x3
+    0.00 :   55e0f0: b.ne    55e2f0 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x78c>  // b.any
+         : 538    return bucket >> _stripe_shift;
+    0.00 :   55e0f4: lsr     x0, x19, x0
+         : 540    const size_t offset = s >= range.first ?
+    0.00 :   55e0f8: cmp     x24, x0
+    0.00 :   55e0fc: b.hi    55e154 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x5f0>  // b.pmore
+    0.00 :   55e100: sub     x0, x0, x24
+         : 544    return;
+    0.15 :   55e104: ldr     x1, [sp, #16]
+    0.00 :   55e108: cmp     x1, x0
+    0.00 :   55e10c: b.ls    55e2f0 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x78c>  // b.plast
+         : 548    return reinterpret_cast<uint32_t *>(v.data + index * _elem_size);
+    0.00 :   55e110: ldr     x0, [x20, #24]
+    0.00 :   55e114: ldr     x1, [sp, #40]
+    0.08 :   55e118: madd    x0, x19, x0, x1
+    0.00 :   55e11c: ldr     w1, [x0]
+         : 553    STATE_MASK;
+    0.00 :   55e120: and     w1, w1, #0x3
+         : 555    return;
+    0.00 :   55e124: cmp     w1, #0x2
+    0.00 :   55e128: b.ne    55e2f0 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x78c>  // b.any
+    0.00 :   55e12c: ldr     w1, [x0]
+         : 559    ref.store(((old & ~STATE_MASK) + generation_step) | state, order);
+    0.00 :   55e130: and     w1, w1, #0xfffffffc
+         : 561    __atomic_store(__ptr, __atomic_impl::__clear_padding(__t), int(__m));
+    0.00 :   55e134: str     w1, [x0]
+         : 563    std::memory_order_relaxed);
+    0.00 :   55e138: cbnz    x19, 55e2e4 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x780>
+    0.00 :   55e13c: ldr     x19, [x20, #32]
+    0.00 :   55e140: ldr     x0, [x20, #56]
+    0.00 :   55e144: sub     x19, x19, #0x1
+         : 568    return bucket >> _stripe_shift;
+    0.00 :   55e148: lsr     x0, x19, x0
+         : 570    const size_t offset = s >= range.first ?
+    0.00 :   55e14c: cmp     x24, x0
+    0.00 :   55e150: b.ls    55e100 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x59c>  // b.plast
+         : 573    _num_stripes - range.first + s;
+    0.00 :   55e154: ldr     x1, [x20, #64]
+    0.00 :   55e158: sub     x1, x1, x24
+         : 576    const size_t offset = s >= range.first ?
+    0.00 :   55e15c: add     x0, x1, x0
+    0.00 :   55e160: b       55e104 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x5a0>
+         : 579    for (size_t s = range.first; s < end; s++)
+    0.00 :   55e164: add     x21, x21, #0x1
+         : 581    range_guard guard(*this, v, locked);
+    0.00 :   55e168: ldr     x22, [sp, #48]
+         : 583    for (size_t s = range.first; s < end; s++)
+    0.00 :   55e16c: cmp     x21, x23
+    0.00 :   55e170: b.cc    55df60 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x3fc>  // b.lo, b.ul, b.last
+    0.00 :   55e174: b       55df8c <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x428>
+         : 587    if (state == BUCKET_EMPTY)
+    0.00 :   55e178: mov     w21, #0x0                       // #0
+         : 589    map.unlock_range(v, range);
+    0.00 :   55e17c: ldr     x1, [sp, #24]
+    0.00 :   55e180: mov     x3, x26
+    0.00 :   55e184: mov     x2, x28
+    0.00 :   55e188: mov     x0, x20
+    0.00 :   55e18c: bl      576d20 <bpftime::bpftime_hash_map::unlock_range(bpftime::bpftime_hash_map::view const&, bpftime::bpftime_hash_map::stripe_range const&) const [clone .isra.0]>
+    0.00 :   55e190: b       55de34 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x2d0>
+         : 596    return false; // Key not found
+    0.00 :   55e194: ldr     x0, [sp]
+    0.00 :   55e198: ldr     w1, [x25, x1]
+    0.00 :   55e19c: ldr     w0, [x0]
+    0.00 :   55e1a0: cmp     w1, w0
+    0.00 :   55e1a4: b.ne    55dfc4 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x460>  // b.any
+    0.00 :   55e1a8: b       55e020 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x4bc>
+         : 603    size_t{ bytes[1] } * 961 +
+    0.54 :   55e1ac: ldr     x5, [sp]
+         : 605    return size_t{ bytes[0] } * 29791 +
+    0.38 :   55e1b0: mov     x4, #0x745f                     // #29791
+         : 607    size_t{ bytes[2] } * 31 + bytes[3];
+    0.23 :   55e1b4: mov     w2, #0x1f                       // #31
+         : 609    size_t{ bytes[1] } * 961 +
+    0.61 :   55e1b8: ldrb    w3, [x5, #1]
+         : 611    return size_t{ bytes[0] } * 29791 +
+    3.22 :   55e1bc: ldrb    w0, [x5]
+         : 613    size_t{ bytes[2] } * 31 + bytes[3];
+    0.46 :   55e1c0: ldrb    w6, [x5, #2]
+         : 615    size_t{ bytes[1] } * 961 +
+    0.00 :   55e1c4: lsl     x1, x3, #4
+         : 617    size_t{ bytes[2] } * 31 + bytes[3];
+    0.61 :   55e1c8: ldrb    w5, [x5, #3]
+         : 619    size_t{ bytes[1] } * 961 +
+    0.23 :   55e1cc: sub     x1, x1, x3
+    1.23 :   55e1d0: add     x1, x3, x1, lsl #6
+         : 622    size_t{ bytes[2] } * 31 + bytes[3];
+    0.00 :   55e1d4: umaddl  x2, w2, w6, x5
+    0.61 :   55e1d8: madd    x0, x0, x4, x1
+    0.08 :   55e1dc: add     x0, x0, x2
+         : 626    (static_cast<unsigned __int128>(value) * reciprocal) >> 64);
+    0.31 :   55e1e0: mov     x2, x0
+    0.00 :   55e1e4: b       55dc24 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0xc0>
+         : 629    return bucket >= _num_buckets ? bucket - _num_buckets : bucket;
+    0.00 :   55e1e8: sub     x0, x0, x1
+         : 631    const size_t count = wraps ? _num_stripes - first + last + 1 :
+    0.00 :   55e1ec: add     x26, x23, #0x1
+         : 633    return bucket >> _stripe_shift;
+    0.00 :   55e1f0: lsr     x0, x0, x2
+         : 635    const size_t count = wraps ? _num_stripes - first + last + 1 :
+    0.00 :   55e1f4: sub     x0, x0, x28
+    0.00 :   55e1f8: add     x26, x0, x26
+    0.00 :   55e1fc: b       55def4 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x390>
+         : 639    for (size_t s = 0; s < end - _num_stripes; s++)
+    0.00 :   55e200: ldr     x0, [x20, #64]
+    0.00 :   55e204: add     x21, x21, #0x1
+         : 642    range_guard guard(*this, v, locked);
+    0.00 :   55e208: ldr     x23, [sp, #48]
+         : 644    for (size_t s = 0; s < end - _num_stripes; s++)
+    0.00 :   55e20c: sub     x1, x27, x0
+         : 646    range_guard guard(*this, v, locked);
+    0.00 :   55e210: mov     x22, x23
+         : 648    for (size_t s = 0; s < end - _num_stripes; s++)
+    0.00 :   55e214: cmp     x21, x1
+    0.00 :   55e218: b.cc    55df18 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x3b4>  // b.lo, b.ul, b.last
+         : 651    for (size_t s = range.first; s < _num_stripes; s++)
+    0.00 :   55e21c: cmp     x0, x28
+    0.00 :   55e220: b.ls    55df8c <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x428>  // b.plast
+    0.00 :   55e224: mov     x21, x28
+         : 655    bpftime_spin_lock(&v.stripes[s].lock);
+    0.00 :   55e228: add     x23, x23, x21, lsl #6
+    0.00 :   55e22c: nop
+         : 658    (void)failed;
+    0.00 :   55e230: mov     x1, x23
+    0.00 :   55e234: mov     w0, #0x1                        // #1
+    0.00 :   55e238: bl      1fa2fb0 <__aarch64_swp4_acq>
+    0.00 :   55e23c: cbz     w0, 55e250 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x6ec>
+         : 663    __asm__ __volatile__(".arch_extension lse\n\t"
+    0.00 :   55e240: ldr     w0, [x23]
+    0.00 :   55e244: cbz     w0, 55e230 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x6cc>
+         : 666    : "=&r"(old)
+    0.00 :   55e248: yield
+    0.00 :   55e24c: b       55e240 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x6dc>
+         : 669    for (size_t s = range.first; s < _num_stripes; s++)
+    0.00 :   55e250: ldr     x0, [x20, #64]
+    0.00 :   55e254: add     x21, x21, #0x1
+    0.00 :   55e258: cmp     x21, x0
+    0.00 :   55e25c: b.cs    55df88 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x424>  // b.hs, b.nlast
+    0.00 :   55e260: ldr     x23, [sp, #48]
+    0.00 :   55e264: b       55e228 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x6c4>
+    0.31 :   55e268: ldr     x0, [x20, #56]
+         : 677    std::memory_order_relaxed);
+    0.00 :   55e26c: sub     x28, x28, #0x1
+    0.54 :   55e270: b       55de0c <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x2a8>
+         : 680    map.unlock_range(v, range);
+    0.00 :   55e274: ldr     x1, [sp, #24]
+    0.00 :   55e278: mov     x3, x26
+    0.00 :   55e27c: mov     x2, x28
+    0.00 :   55e280: mov     x0, x20
+         : 685    if (bound + 2 > span && locked.count < _num_stripes) {
+    0.00 :   55e284: mov     x25, x21
+         : 687    map.unlock_range(v, range);
+    0.00 :   55e288: bl      576d20 <bpftime::bpftime_hash_map::unlock_range(bpftime::bpftime_hash_map::view const&, bpftime::bpftime_hash_map::stripe_range const&) const [clone .isra.0]>
+    0.00 :   55e28c: b       55debc <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x358>
+         : 690    } else {
+    0.00 :   55e290: ldr     w1, [x0, #12]
+    0.00 :   55e294: sub     w1, w1, #0x1
+    0.00 :   55e298: str     w1, [x0, #12]
+    0.00 :   55e29c: cbnz    w1, 55dd80 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x21c>
+         : 695    bound--;
+    0.00 :   55e2a0: ldr     w3, [x0, #4]
+         : 697    st.far_max = 0;
+    0.00 :   55e2a4: mov     x1, #0xa                        // #10
+         : 699    return; // The bound stays at far_max.
+    0.00 :   55e2a8: str     wzr, [x0, #16]
+    0.00 :   55e2ac: b       55dd58 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x1f4>
+         : 702    _num_stripes - range.first + s;
+    0.00 :   55e2b0: ldr     x3, [x20, #64]
+    0.00 :   55e2b4: sub     x3, x3, x25
+         : 705    const size_t offset = s >= range.first ?
+    0.00 :   55e2b8: add     x2, x3, x2
+    0.00 :   55e2bc: b       55dda4 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x240>
+         : 708    st.tokens -= TOKEN_BATCH;
+    0.00 :   55e2c0: sub     w1, w1, #0x1f
+    0.00 :   55e2c4: str     w1, [x0, #8]
+         : 711    #endif // __cpp_lib_atomic_wait
+         :
+         : 713    template<typename _Tp>
+         : 714    _GLIBCXX_ALWAYS_INLINE _Tp
+         : 715    fetch_add(_Tp* __ptr, _Diff<_Tp> __i, memory_order __m) noexcept
+         : 716    { return __atomic_fetch_add(__ptr, __i, int(__m)); }
+    0.00 :   55e2c8: add     x1, x20, #0xc8
+    0.00 :   55e2cc: mov     x0, #0x20                       // #32
+    0.00 :   55e2d0: bl      1fa2f80 <__aarch64_ldadd8_relax>
+         : 720    {
+    0.00 :   55e2d4: ldr     x1, [sp, #8]
+    0.00 :   55e2d8: ldr     x0, [sp, #48]
+    0.00 :   55e2dc: add     x0, x0, x1
+    0.00 :   55e2e0: b       55e054 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x4f0>
+    0.00 :   55e2e4: ldr     x0, [x20, #56]
+         : 726    std::memory_order_relaxed);
+    0.00 :   55e2e8: sub     x19, x19, #0x1
+    0.00 :   55e2ec: b       55e148 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x5e4>
+         : 729    release_deleted_run(v, index, locked);
+    0.00 :   55e2f0: mov     w21, #0x1                       // #1
+    0.00 :   55e2f4: b       55e17c <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x618>
+         : 732    _num_stripes - range.first + s;
+    0.00 :   55e2f8: ldr     x3, [x20, #64]
+    0.00 :   55e2fc: sub     x3, x3, x24
+         : 735    const size_t offset = s >= range.first ?
+    0.00 :   55e300: add     x2, x3, x2
+    0.00 :   55e304: b       55e0d0 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x56c>
+         : 738    } else {
+    0.00 :   55e308: ldr     w1, [x0, #12]
+    0.00 :   55e30c: sub     w1, w1, #0x1
+    0.00 :   55e310: str     w1, [x0, #12]
+    0.00 :   55e314: cbnz    w1, 55e0ac <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x548>
+         : 743    bound--;
+    0.00 :   55e318: ldr     w2, [x0, #4]
+         : 745    st.far_max = 0;
+    0.00 :   55e31c: mov     x1, #0xa                        // #10
+         : 747    return; // The bound stays at far_max.
+    0.00 :   55e320: str     wzr, [x0, #16]
+    0.00 :   55e324: b       55e084 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x520>
+         : 750    st.tokens -= TOKEN_BATCH;
+    0.00 :   55e328: sub     w1, w1, #0x1f
+    0.00 :   55e32c: str     w1, [x0, #8]
+    0.00 :   55e330: add     x1, x20, #0xc8
+    0.00 :   55e334: mov     x0, #0x20                       // #32
+    0.00 :   55e338: bl      1fa2f80 <__aarch64_ldadd8_relax>
+         : 756    {
+    0.00 :   55e33c: ldr     x1, [sp, #8]
+    0.00 :   55e340: ldr     x0, [sp, #48]
+    0.00 :   55e344: add     x0, x0, x1
+    0.00 :   55e348: b       55dd28 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x1c4>
+    0.00 :   55e34c: mov     x23, x27
+    0.00 :   55e350: b       55df50 <bpftime::bpftime_hash_map::elem_delete(void const*, void*) [clone .constprop.0]+0x3ec>
+         : 763    }
+    0.00 :   55e354: bl      4ad220 <__stack_chk_fail@plt>
