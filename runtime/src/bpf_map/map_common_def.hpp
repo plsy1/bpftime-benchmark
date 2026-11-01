@@ -59,6 +59,22 @@ bpftime_spin_unlock(volatile pthread_spinlock_t *lock)
 #endif
 }
 
+// The same lock out of line, for the handler's map lock: inlined there, the
+// per-CPU hash helpers grew (and LTO kept bpftime_lock_guard's constructor
+// out of line around it), 30 more instructions per update and lookup, while
+// the hash map's stripe locks are faster inlined.
+__attribute__((noinline)) inline void
+bpftime_spin_lock_outlined(volatile pthread_spinlock_t *lock)
+{
+	bpftime_spin_lock(lock);
+}
+
+__attribute__((noinline)) inline void
+bpftime_spin_unlock_outlined(volatile pthread_spinlock_t *lock)
+{
+	bpftime_spin_unlock(lock);
+}
+
 using bytes_vec_allocator = boost::interprocess::allocator<
 	uint8_t, boost::interprocess::managed_shared_memory::segment_manager>;
 using bytes_vec = boost::interprocess::vector<uint8_t, bytes_vec_allocator>;

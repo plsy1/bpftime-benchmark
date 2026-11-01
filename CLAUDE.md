@@ -586,6 +586,11 @@ PLT call, glibc's function and its out-of-line atomic: 1-4 ns per map
 operation. The exchange stays `__atomic` (with -moutline-atomics, libgcc's
 LSE helper): an inline `swpa` was no faster on the Orin and an
 `ldaxr`/`stxr` loop 5 ns slower. Other libcs keep pthread_spin_lock.
+The stripes take it inline; `bpftime_lock_guard` calls the out-of-line
+copies (`bpftime_spin_lock_outlined`): forced inline there, the per-CPU
+hash helpers ran 30 more instructions per update and lookup (LTO kept the
+guard's constructor out of line around it), and left to the compiler the
+stripes lost 2 ns per hash update.
 
 Values are still updated in place (readers may see a partly written value,
 as with the kernel without `BPF_F_LOCK`), and a value pointer is only valid
