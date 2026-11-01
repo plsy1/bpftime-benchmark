@@ -277,12 +277,12 @@ class bpftime_hash_map {
 		const size_t end = range.first + range.count;
 		if (end > _num_stripes) {
 			for (size_t s = 0; s < end - _num_stripes; s++)
-				pthread_spin_lock(&v.stripes[s].lock);
+				bpftime_spin_lock(&v.stripes[s].lock);
 			for (size_t s = range.first; s < _num_stripes; s++)
-				pthread_spin_lock(&v.stripes[s].lock);
+				bpftime_spin_lock(&v.stripes[s].lock);
 		} else {
 			for (size_t s = range.first; s < end; s++)
-				pthread_spin_lock(&v.stripes[s].lock);
+				bpftime_spin_lock(&v.stripes[s].lock);
 		}
 	}
 
@@ -291,12 +291,12 @@ class bpftime_hash_map {
 		const size_t end = range.first + range.count;
 		if (end > _num_stripes) {
 			for (size_t s = range.first; s < _num_stripes; s++)
-				pthread_spin_unlock(&v.stripes[s].lock);
+				bpftime_spin_unlock(&v.stripes[s].lock);
 			for (size_t s = 0; s < end - _num_stripes; s++)
-				pthread_spin_unlock(&v.stripes[s].lock);
+				bpftime_spin_unlock(&v.stripes[s].lock);
 		} else {
 			for (size_t s = range.first; s < end; s++)
-				pthread_spin_unlock(&v.stripes[s].lock);
+				bpftime_spin_unlock(&v.stripes[s].lock);
 		}
 	}
 
