@@ -379,6 +379,20 @@ class bpftime_hash_map {
 		}
 	}
 
+	// A key or value copy: with a size known only at run time memcpy is a
+	// call (about 15 instructions on aarch64); 4 and 8 bytes, the common
+	// sizes, are inlined.
+	__attribute__((always_inline)) static inline void
+	copy_bytes(void *dst, const void *src, size_t size)
+	{
+		if (size == 8)
+			std::memcpy(dst, src, 8);
+		else if (size == 4)
+			std::memcpy(dst, src, 4);
+		else
+			std::memcpy(dst, src, size);
+	}
+
 	inline bool keys_equal(const void *lhs, const void *rhs) const
 	{
 		if (_key_size == sizeof(uint32_t)) {
@@ -648,6 +662,10 @@ class bpftime_hash_map {
 		const view v = resolve();
 		const size_t home = home_bucket(key);
 		const size_t home_stripe = stripe_of(home);
+		update_result result;
+		if (update_in_home_stripe(v, key, value, mode, home, home_stripe,
+					  result))
+			return result;
 		// Buckets from home that the locked range must cover.
 		size_t span = load_bound(v, home_stripe) + 1;
 		for (;;) {
@@ -676,7 +694,7 @@ class bpftime_hash_map {
 				    keys_equal(key_at(v, index), key)) {
 					if (mode == update_mode::no_exist)
 						return update_result::exists;
-					std::memcpy(value_at(v, index), value,
+					copy_bytes(value_at(v, index), value,
 						    _value_size);
 					return update_result::ok;
 				}
@@ -714,8 +732,8 @@ class bpftime_hash_map {
 			// sees any of the new bytes must also see the delete's new
 			// generation.
 			std::atomic_thread_fence(std::memory_order_release);
-			std::memcpy(key_at(v, free_slot), key, _key_size);
-			std::memcpy(value_at(v, free_slot), value, _value_size);
+			copy_bytes(key_at(v, free_slot), key, _key_size);
+			copy_bytes(value_at(v, free_slot), value, _value_size);
 			// The bound covers the new bucket before lookups can see it.
 			note_filled(v, home_stripe, free_distance);
 			// Publishes the key and value.
@@ -723,6 +741,115 @@ class bpftime_hash_map {
 				  std::memory_order_release);
 			return update_result::ok;
 		}
+	}
+
+	// End of the stripe (the table's end for the last one).
+	size_t stripe_end(size_t stripe_index) const
+	{
+		return std::min((stripe_index + 1) << _stripe_shift, _num_buckets);
+	}
+
+	// The common case of update: every bucket it reads or writes (the probe
+	// bound and, for a new key, the free bucket it takes) lies in the home
+	// stripe, after home without wrapping. Then the home stripe's lock is
+	// the whole range, and none of the range computation, retries or wrap
+	// checks are needed (they made an update 80 instructions longer than
+	// with one map lock). Same steps as the general path below. False, with
+	// nothing changed and no lock held, when the case does not apply.
+	bool update_in_home_stripe(const view &v, const void *key,
+				   const void *value, update_mode mode,
+				   size_t home, size_t home_stripe,
+				   update_result &result)
+	{
+		const size_t end = stripe_end(home_stripe);
+		auto &st = v.stripes[home_stripe];
+		bpftime_spin_lock(&st.lock);
+		const size_t last = home + st.bound;
+		if (last >= end) {
+			bpftime_spin_unlock(&st.lock);
+			return false;
+		}
+		size_t free_slot = end;
+		size_t index = home;
+		for (; index <= last; ++index) {
+			const auto state = state_at(v, index);
+			if (state == BUCKET_FILLED) {
+				if (!keys_equal(key_at(v, index), key))
+					continue;
+				if (mode == update_mode::no_exist) {
+					result = update_result::exists;
+				} else {
+					copy_bytes(value_at(v, index), value,
+						    _value_size);
+					result = update_result::ok;
+				}
+				bpftime_spin_unlock(&st.lock);
+				return true;
+			}
+			if (free_slot == end)
+				free_slot = index;
+			if (state == BUCKET_EMPTY)
+				break;
+		}
+		if (mode == update_mode::exist) {
+			result = update_result::missing;
+			bpftime_spin_unlock(&st.lock);
+			return true;
+		}
+		for (; free_slot == end && index < end; ++index) {
+			if (state_at(v, index) != BUCKET_FILLED)
+				free_slot = index;
+		}
+		if (free_slot == end || !take_token(v, home_stripe)) {
+			bpftime_spin_unlock(&st.lock);
+			return false;
+		}
+		std::atomic_thread_fence(std::memory_order_release);
+		copy_bytes(key_at(v, free_slot), key, _key_size);
+		copy_bytes(value_at(v, free_slot), value, _value_size);
+		note_filled(v, home_stripe, free_slot - home);
+		set_state(v, free_slot, BUCKET_FILLED, 0, std::memory_order_release);
+		result = update_result::ok;
+		bpftime_spin_unlock(&st.lock);
+		return true;
+	}
+
+	// Delete's common case, as update_in_home_stripe: the bound and the
+	// bucket after it (release_deleted_run) lie in the home stripe.
+	bool delete_in_home_stripe(const view &v, const void *key,
+				   void *value_out, size_t home,
+				   size_t home_stripe, bool &found)
+	{
+		auto &st = v.stripes[home_stripe];
+		bpftime_spin_lock(&st.lock);
+		const size_t bound = st.bound;
+		if (home + bound + 1 >= stripe_end(home_stripe)) {
+			bpftime_spin_unlock(&st.lock);
+			return false;
+		}
+		found = false;
+		for (size_t probe = 0; probe <= bound; ++probe) {
+			const size_t index = home + probe;
+			const auto state = state_at(v, index);
+			if (state == BUCKET_EMPTY)
+				break;
+			if (state == BUCKET_FILLED &&
+			    keys_equal(key_at(v, index), key)) {
+				if (value_out != nullptr)
+					copy_bytes(value_out, value_at(v, index),
+						    _value_size);
+				set_state(v, index, BUCKET_DELETED,
+					  GENERATION_STEP,
+					  std::memory_order_relaxed);
+				return_token(v, home_stripe);
+				note_released(v, home_stripe, probe);
+				release_deleted_run(v, index, { home_stripe, 1 });
+				found = true;
+				break;
+			}
+		}
+		bpftime_spin_unlock(&st.lock);
+		return true;
 	}
 
 	bool elem_update(const void *key, const void *value)
@@ -737,6 +864,10 @@ class bpftime_hash_map {
 		const view v = resolve();
 		const size_t home = home_bucket(key);
 		const size_t home_stripe = stripe_of(home);
+		bool found;
+		if (delete_in_home_stripe(v, key, value_out, home, home_stripe,
+					  found))
+			return found;
 		// The bound plus the bucket after it (release_deleted_run).
 		size_t span = load_bound(v, home_stripe) + 2;
 		for (;;) {
@@ -755,8 +886,8 @@ class bpftime_hash_map {
 				if (state == BUCKET_FILLED &&
 				    keys_equal(key_at(v, index), key)) {
 					if (value_out != nullptr)
-						std::memcpy(value_out,
-							    value_at(v, index),
+						copy_bytes(value_out,
+							   value_at(v, index),
 							    _value_size);
 					set_state(v, index, BUCKET_DELETED,
 						  GENERATION_STEP,
@@ -828,6 +959,17 @@ class bpftime_hash_map {
 	int64_t pool_tokens() const
 	{
 		return _pool_tokens;
+	}
+
+	// Tests: hold a stripe's lock as a writer would.
+	void lock_stripe_for_test(size_t stripe) const
+	{
+		bpftime_spin_lock(&resolve().stripes[stripe].lock);
+	}
+
+	void unlock_stripe_for_test(size_t stripe) const
+	{
+		bpftime_spin_unlock(&resolve().stripes[stripe].lock);
 	}
 
 	// Largest probe bound over all stripes.
