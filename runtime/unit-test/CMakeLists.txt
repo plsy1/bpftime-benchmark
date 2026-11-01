@@ -23,6 +23,7 @@ set(TEST_SOURCES
     maps/test_external_map_ops.cpp
     maps/test_bpftime_hash_map.cpp
     maps/test_hash_map_value_alignment.cpp
+    maps/test_hash_map_home_stripe.cpp
     maps/test_bpftime_spin_lock.cpp
     maps/test_percpu_cpu_bounds.cpp
     maps/test_percpu_hash_value_slots.cpp
