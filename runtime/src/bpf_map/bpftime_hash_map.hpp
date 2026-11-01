@@ -419,19 +419,25 @@ class bpftime_hash_map {
 					uint8_t *bucket_key = key_at(v, index);
 					bool equal;
 					if constexpr (Uint32Key) {
+						// Acquire orders the re-read below
+						// after the key read.
 						equal = std::atomic_ref<uint32_t>(
 								*reinterpret_cast<uint32_t *>(
 									bucket_key))
-								.load(std::memory_order_relaxed) ==
+								.load(std::memory_order_acquire) ==
 							key_value;
 					} else {
 						equal = std::memcmp(bucket_key, key,
 								    _key_size) == 0;
 					}
 					if (equal) {
-						// Order the key reads before the re-read.
-						std::atomic_thread_fence(
-							std::memory_order_acquire);
+						// Order the key reads before the re-read
+						// (a four-byte key's acquire load already
+						// does: the fence, a dmb ishld, cost 5 ns
+						// of a 27 ns lookup on the Jetson).
+						if constexpr (!Uint32Key)
+							std::atomic_thread_fence(
+								std::memory_order_acquire);
 						if (load_word(v, word_ptr,
 							      std::memory_order_relaxed) ==
 						    word)
