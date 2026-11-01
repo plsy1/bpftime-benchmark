@@ -527,7 +527,9 @@ and each bucket's 4-byte word holds the state (low two bits) and a
 generation that every delete increments. Inserts write key and value after a
 release fence and publish the word with a release store; a lookup reads the
 word (acquire), compares the key, fences (acquire) and accepts the match only
-if the word is unchanged, otherwise it starts again. Without the re-check a
+if the word is unchanged, otherwise it starts again. A four-byte key is read
+with an acquire load instead of the fence: the fence (`dmb ishld`) cost 5 ns
+of a 27 ns lookup on the Jetson (official uprobe suite). Without the re-check a
 lookup matched keys half overwritten by the next insert into the bucket
 (18k-291k false matches in 1.5 s). The bucket stride is rounded to 4 bytes
 so the word is aligned.
@@ -558,6 +560,32 @@ added cache/TLB misses with keys spread over many stripes (memleak's
 addresses), and offset_ptr resolution per access added ~300 instructions to
 an insert + lookup + delete. Keep the stripe state one line and the hot path
 free of offset_ptr arithmetic.
+
+Most updates and deletes touch only their home stripe:
+`update_in_home_stripe` / `delete_in_home_stripe` take that one lock and,
+if every bucket the operation reads or writes (the probe bound, an insert's
+free bucket, a delete's next bucket) lies after home inside the stripe
+without wrapping, do the general path's steps there; otherwise they unlock,
+having changed nothing, and the general path runs. The range machinery
+(bound read before locking, range computation, lock loops, re-check, wrap
+checks) made a single-thread update 80 instructions longer than with one
+map lock (official suite: update 27 -> 43 ns, delete 28 -> 44 ns; with the
+fast paths 30 and 37). Four- and eight-byte keys and values are copied
+inline (`copy_bytes`; `memcpy` with a run-time size is a call). Test
+"hash map writers lock every stripe they touch beyond the home stripe"
+(another thread holds the next stripe, or stripe 0 for a run wrapping past
+the partial last stripe, and the operation must wait exactly when it
+touches it).
+
+The stripes and the handler's `map_lock` (`bpftime_lock_guard`) are taken
+with `bpftime_spin_lock` (`map_common_def.hpp`): glibc's protocol on the
+`pthread_spinlock_t` word (exchange 1 to take, release store 0), inline, so
+pthread_spin_lock on the same word still excludes (test "bpftime spin locks
+exclude each other and pthread spin locks"). Through glibc each lock was a
+PLT call, glibc's function and its out-of-line atomic: 1-4 ns per map
+operation. The exchange stays `__atomic` (with -moutline-atomics, libgcc's
+LSE helper): an inline `swpa` was no faster on the Orin and an
+`ldaxr`/`stxr` loop 5 ns slower. Other libcs keep pthread_spin_lock.
 
 Values are still updated in place (readers may see a partly written value,
 as with the kernel without `BPF_F_LOCK`), and a value pointer is only valid
