@@ -1,0 +1,33 @@
+Dump of assembler code for function pthread_spin_lock:
+   0x00000000000998f0 <+0>:	xor    %eax,%eax
+   0x00000000000998f2 <+2>:	lock decl (%rdi)
+   0x00000000000998f5 <+5>:	jne    0x99900 <pthread_spin_lock+16>
+   0x00000000000998f7 <+7>:	ret
+   0x00000000000998f8 <+8>:	nopl   0x0(%rax,%rax,1)
+   0x0000000000099900 <+16>:	pause
+   0x0000000000099902 <+18>:	cmp    %eax,(%rdi)
+   0x0000000000099904 <+20>:	jle    0x99900 <pthread_spin_lock+16>
+   0x0000000000099906 <+22>:	lock decl (%rdi)
+   0x0000000000099909 <+25>:	jne    0x99900 <pthread_spin_lock+16>
+   0x000000000009990b <+27>:	ret
+End of assembler dump.
+Dump of assembler code for function pthread_spin_unlock:
+   0x0000000000099930 <+0>:	movl   $0x1,(%rdi)
+   0x0000000000099936 <+6>:	xor    %eax,%eax
+   0x0000000000099938 <+8>:	ret
+End of assembler dump.
+Dump of assembler code for function pthread_spin_trylock:
+   0x0000000000099910 <+0>:	xor    %ecx,%ecx
+   0x0000000000099912 <+2>:	xchg   %ecx,(%rdi)
+   0x0000000000099914 <+4>:	cmp    $0x1,%ecx
+   0x0000000000099917 <+7>:	jne    0x9991c <pthread_spin_trylock+12>
+   0x0000000000099919 <+9>:	xor    %eax,%eax
+   0x000000000009991b <+11>:	ret
+   0x000000000009991c <+12>:	mov    $0x10,%eax
+   0x0000000000099921 <+17>:	ret
+End of assembler dump.
+pthread_spin_unlock in section .text
+  1551: 0000000000099930     9 FUNC    GLOBAL DEFAULT   15 pthread_spin_unlock@@GLIBC_2.34
+  1553: 0000000000099930     9 FUNC    GLOBAL DEFAULT   15 pthread_spin_unlock@GLIBC_2.2.5
+  3081: 0000000000099930     9 FUNC    GLOBAL DEFAULT   15 pthread_spin_init@@GLIBC_2.34
+  3082: 0000000000099930     9 FUNC    GLOBAL DEFAULT   15 pthread_spin_init@GLIBC_2.2.5

@@ -1,0 +1,7 @@
+after pthread_spin_init:   word = 1
+after pthread_spin_lock:   word = 0
+after pthread_spin_unlock: word = 1
+inline lock takes the free lock made by pthread_spin_init: NO (bpftime_spin_lock would spin forever)
+pthread_spin_trylock after an inline unlock (word 0): EBUSY (pthread sees it held)
+ldd (Debian GLIBC 2.41-12+deb13u4) 2.41
+x86_64

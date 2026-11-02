@@ -1,0 +1,88 @@
+===== File logger is installed before syscall startup (pid 988248)
+--- pid 988248
+Thread 1 (Thread 0x7f8839bf0740 (LWP 988248) "timeout"):
+#0  0x00007f8839c823a7 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007f8839c823cd in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#2  0x00007f8839c32ffd in sigsuspend () from /lib/x86_64-linux-gnu/libc.so.6
+#3  0x00005647e1d02d1c in ?? ()
+#4  0x00007f8839c1cca8 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#5  0x00007f8839c1cd65 in __libc_start_main () from /lib/x86_64-linux-gnu/libc.so.6
+#6  0x00005647e1d02f41 in ?? ()
+--- pid 988250
+Thread 1 (Thread 0x7fb4391609c0 (LWP 988250) "bpftime_runtime"):
+#0  0x00007fb438c9b3a7 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007fb438c9b3cd in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#2  0x00007fb438d0fc26 in read () from /lib/x86_64-linux-gnu/libc.so.6
+#3  0x000056302abfca8f in (anonymous namespace)::run_allocation_helper (mode=<optimized out>, memory_mb=<optimized out>, max_fd_count=<optimized out>, log_output=<optimized out>, log_level=<optimized out>, cleanup_shm=<optimized out>, shm_name_out=<optimized out>, remove_before_start=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/test_shm_allocation_failure.cpp:151
+#4  0x000056302abffb02 in CATCH2_INTERNAL_TEST_10 () at /usr/include/c++/13/bits/basic_string.h:222
+#5  0x000056302acf7f7a in Catch::(anonymous namespace)::TestInvokerAsFunction::invoke (this=<optimized out>) at src/catch2/internal/catch_test_registry.cpp:58
+#6  Catch::TestCaseHandle::invoke (this=<optimized out>) at src/catch2/../catch2/catch_test_case_info.hpp:115
+#7  Catch::RunContext::invokeActiveTestCase (this=0x7ffe08ef78c0) at src/catch2/internal/catch_run_context.cpp:552
+#8  0x000056302acfc460 in Catch::RunContext::runCurrentTest (this=this@entry=0x7ffe08ef78c0, redirectedCout="", redirectedCerr="") at src/catch2/internal/catch_run_context.cpp:515
+#9  0x000056302acfc7db in Catch::RunContext::runTest (this=0x7ffe08ef78c0, testCase=...) at src/catch2/internal/catch_run_context.cpp:239
+===== get_stackid returns errors as negative 64-bit values (pid 988300)
+--- pid 988300
+Thread 1 (Thread 0x7f9ea70a7740 (LWP 988300) "timeout"):
+#0  0x00007f9ea71393a7 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007f9ea71393cd in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#2  0x00007f9ea70e9ffd in sigsuspend () from /lib/x86_64-linux-gnu/libc.so.6
+#3  0x000055f3ad253d1c in ?? ()
+#4  0x00007f9ea70d3ca8 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#5  0x00007f9ea70d3d65 in __libc_start_main () from /lib/x86_64-linux-gnu/libc.so.6
+#6  0x000055f3ad253f41 in ?? ()
+--- pid 988302
+Thread 1 (Thread 0x7fea633949c0 (LWP 988302) "bpftime_runtime"):
+#0  0x000055e49e94d638 in bpftime::bpftime_spin_lock (lock=<optimized out>, lock=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:43
+#1  bpftime::bpftime_spin_lock_outlined (lock=0x7fea5ae0c3bc) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:69
+#2  0x000055e49e9808ca in bpftime::bpftime_lock_guard::bpftime_lock_guard (spinlock=<optimized out>, this=<optimized out>, this=<optimized out>, spinlock=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/handler/map_handler.hpp:57
+#3  bpftime_get_stackid (ctx_raw=<optimized out>, map_raw=3, flags=256) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_helper.cpp:1183
+#4  0x000055e49e915a66 in CATCH2_INTERNAL_TEST_12 () at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/test_get_stack.cpp:195
+#5  0x000055e49ea0ff7a in Catch::(anonymous namespace)::TestInvokerAsFunction::invoke (this=<optimized out>) at src/catch2/internal/catch_test_registry.cpp:58
+#6  Catch::TestCaseHandle::invoke (this=<optimized out>) at src/catch2/../catch2/catch_test_case_info.hpp:115
+#7  Catch::RunContext::invokeActiveTestCase (this=0x7ffe328f6060) at src/catch2/internal/catch_run_context.cpp:552
+#8  0x000055e49ea14460 in Catch::RunContext::runCurrentTest (this=this@entry=0x7ffe328f6060, redirectedCout="", redirectedCerr="") at src/catch2/internal/catch_run_context.cpp:515
+#9  0x000055e49ea147db in Catch::RunContext::runTest (this=0x7ffe328f6060, testCase=...) at src/catch2/internal/catch_run_context.cpp:239
+===== Default array JIT specializes mixed maps with update and unrelated helpers (pid 988362)
+--- pid 988362
+Thread 1 (Thread 0x7fdfbd066740 (LWP 988362) "timeout"):
+#0  0x00007fdfbd0f83a7 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007fdfbd0f83cd in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#2  0x00007fdfbd0a8ffd in sigsuspend () from /lib/x86_64-linux-gnu/libc.so.6
+#3  0x0000558d11b64d1c in ?? ()
+#4  0x00007fdfbd092ca8 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#5  0x00007fdfbd092d65 in __libc_start_main () from /lib/x86_64-linux-gnu/libc.so.6
+#6  0x0000558d11b64f41 in ?? ()
+--- pid 988364
+Thread 1 (Thread 0x7fc1712a79c0 (LWP 988364) "bpftime_runtime"):
+#0  0x00005616b7904888 in bpftime::bpftime_spin_lock (lock=<optimized out>, lock=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:43
+#1  bpftime::bpftime_hash_map::update_in_home_stripe (result=<synthetic pointer>: <optimized out>, home_stripe=0, home=3, mode=<optimized out>, value=0x7ffe2f5dd6b8, key=<optimized out>, v=<synthetic pointer>..., this=0x7fc168f08cc0) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/bpftime_hash_map.hpp:829
+#2  bpftime::bpftime_hash_map::update (mode=<optimized out>, value=0x7ffe2f5dd6b8, key=<optimized out>, this=0x7fc168f08cc0) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/bpftime_hash_map.hpp:729
+#3  bpftime::fix_size_hash_map_impl::elem_update (this=0x7fc168f08cc0, key=<optimized out>, value=0x7ffe2f5dd6b8, flags=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/userspace/fix_hash_map.cpp:52
+#4  0x00005616b78dd124 in bpftime::bpftime_shm::bpf_map_update_elem (from_syscall=true, flags=0, value=0x7ffe2f5dd6b8, key=0x7ffe2f5dd6ac, fd=<optimized out>, this=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpftime_shm_internal.cpp:349
+#5  bpftime_map_update_elem (fd=<optimized out>, key=0x7ffe2f5dd6ac, value=0x7ffe2f5dd6b8, flags=0) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpftime_shm.cpp:136
+#6  0x00005616b77fb1dc in CATCH2_INTERNAL_TEST_30 () at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_array_jit_lifetime.cpp:645
+#7  0x00005616b798ef7a in Catch::(anonymous namespace)::TestInvokerAsFunction::invoke (this=<optimized out>) at src/catch2/internal/catch_test_registry.cpp:58
+#8  Catch::TestCaseHandle::invoke (this=<optimized out>) at src/catch2/../catch2/catch_test_case_info.hpp:115
+#9  Catch::RunContext::invokeActiveTestCase (this=0x7ffe2f5de630) at src/catch2/internal/catch_run_context.cpp:552
+===== bpf_perf_event_output returns -ENOSPC when the ring is full (pid 988439)
+--- pid 988439
+Thread 1 (Thread 0x7f9c1cf57740 (LWP 988439) "timeout"):
+#0  0x00007f9c1cfe93a7 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007f9c1cfe93cd in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#2  0x00007f9c1cf99ffd in sigsuspend () from /lib/x86_64-linux-gnu/libc.so.6
+#3  0x000055953e6b4d1c in ?? ()
+#4  0x00007f9c1cf83ca8 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#5  0x00007f9c1cf83d65 in __libc_start_main () from /lib/x86_64-linux-gnu/libc.so.6
+#6  0x000055953e6b4f41 in ?? ()
+--- pid 988441
+Thread 1 (Thread 0x7fae56b599c0 (LWP 988441) "bpftime_runtime"):
+#0  0x0000559791275638 in bpftime::bpftime_spin_lock (lock=<optimized out>, lock=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:43
+#1  bpftime::bpftime_spin_lock_outlined (lock=lock@entry=0x7fae4e60c3bc) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:69
+#2  0x0000559791276d6d in bpftime::bpftime_lock_guard::bpftime_lock_guard (spinlock=@0x7fae4e60c3bc: 1, this=<synthetic pointer>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/handler/map_handler.hpp:57
+#3  operator()<bpftime::perf_event_array_map_impl> (impl=0x7fae4e708990, __closure=<synthetic pointer>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/handler/map_handler.cpp:447
+#4  bpftime::bpf_map_handler::map_update_elem (this=0x7fae4e60c348, key=0x7ffd54031050, value=0x7ffd540310dc, flags=<optimized out>, from_syscall=true) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/handler/map_handler.cpp:478
+#5  0x0000559791286124 in bpftime::bpftime_shm::bpf_map_update_elem (from_syscall=true, flags=0, value=0x7ffd540310dc, key=0x7ffd54031050, fd=<optimized out>, this=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpftime_shm_internal.cpp:349
+#6  bpftime_map_update_elem (fd=<optimized out>, key=0x7ffd54031050, value=0x7ffd540310dc, flags=0) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpftime_shm.cpp:136
+#7  0x0000559791257a65 in CATCH2_INTERNAL_TEST_32 () at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/test_software_perf_event.cpp:935
+#8  0x0000559791337f7a in Catch::(anonymous namespace)::TestInvokerAsFunction::invoke (this=<optimized out>) at src/catch2/internal/catch_test_registry.cpp:58
+#9  Catch::TestCaseHandle::invoke (this=<optimized out>) at src/catch2/../catch2/catch_test_case_info.hpp:115

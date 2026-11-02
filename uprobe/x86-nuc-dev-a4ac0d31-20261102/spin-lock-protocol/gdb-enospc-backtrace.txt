@@ -1,0 +1,27 @@
+Filters: "bpf_perf_event_output returns -ENOSPC when the ring is full"
+Randomness seeded to: 95810541
+
+Program received signal SIGINT, Interrupt.
+0x0000555555fd4638 in bpftime::bpftime_spin_lock (lock=<optimized out>, lock=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:43
+43				__builtin_ia32_pause();
+
+Thread 1 (Thread 0x7ffff7d7c9c0 (LWP 974893) "bpftime_runtime"):
+#0  0x0000555555fd4638 in bpftime::bpftime_spin_lock (lock=<optimized out>, lock=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:43
+#1  bpftime::bpftime_spin_lock_outlined (lock=lock@entry=0x7fffef80c3bc) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:69
+#2  0x0000555555fd5d6d in bpftime::bpftime_lock_guard::bpftime_lock_guard (spinlock=@0x7fffef80c3bc: 1, this=<synthetic pointer>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/handler/map_handler.hpp:57
+#3  operator()<bpftime::perf_event_array_map_impl> (impl=0x7fffef908990, __closure=<synthetic pointer>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/handler/map_handler.cpp:447
+#4  bpftime::bpf_map_handler::map_update_elem (this=0x7fffef80c348, key=0x7fffffffd4f0, value=0x7fffffffd57c, flags=<optimized out>, from_syscall=true) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/handler/map_handler.cpp:478
+#5  0x0000555555fe5124 in bpftime::bpftime_shm::bpf_map_update_elem (from_syscall=true, flags=0, value=0x7fffffffd57c, key=0x7fffffffd4f0, fd=<optimized out>, this=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpftime_shm_internal.cpp:349
+#6  bpftime_map_update_elem (fd=<optimized out>, key=0x7fffffffd4f0, value=0x7fffffffd57c, flags=0) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpftime_shm.cpp:136
+#7  0x0000555555fb6a65 in CATCH2_INTERNAL_TEST_32 () at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/test_software_perf_event.cpp:935
+#8  0x0000555556096f7a in Catch::(anonymous namespace)::TestInvokerAsFunction::invoke (this=<optimized out>) at src/catch2/internal/catch_test_registry.cpp:58
+#9  Catch::TestCaseHandle::invoke (this=<optimized out>) at src/catch2/../catch2/catch_test_case_info.hpp:115
+#10 Catch::RunContext::invokeActiveTestCase (this=0x7fffffffdb80) at src/catch2/internal/catch_run_context.cpp:552
+#11 0x000055555609b460 in Catch::RunContext::runCurrentTest (this=this@entry=0x7fffffffdb80, redirectedCout="", redirectedCerr="") at src/catch2/internal/catch_run_context.cpp:515
+#12 0x000055555609b7db in Catch::RunContext::runTest (this=0x7fffffffdb80, testCase=...) at src/catch2/internal/catch_run_context.cpp:239
+#13 0x0000555556074f93 in Catch::(anonymous namespace)::TestGroup::execute (this=0x7fffffffdb70) at src/catch2/catch_session.cpp:111
+#14 Catch::Session::runInternal (this=this@entry=0x7fffffffde10) at src/catch2/catch_session.cpp:333
+#15 0x000055555607541f in Catch::Session::run (this=0x7fffffffde10) at src/catch2/catch_session.cpp:264
+#16 0x0000555555e91048 in Catch::Session::run<char> (argv=0x7fffffffe0c8, argc=2, this=0x7fffffffde10) at src/catch2/../catch2/catch_session.hpp:41
+#17 Catch::Session::run<char> (argv=0x7fffffffe0c8, argc=2, this=0x7fffffffde10) at src/catch2/../catch2/catch_session.hpp:36
+#18 main (argc=2, argv=0x7fffffffe0c8) at src/catch2/internal/catch_main.cpp:36

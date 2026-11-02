@@ -1,0 +1,112 @@
+===== pid 977023: bpftime-shm-allocation-test-helper perf-mmap 
+Thread 1 (Thread 0x7f9239e61900 (LWP 977023) "bpftime-shm-all"):
+#0  0x00007f923712bf78 in bpftime::bpftime_spin_lock (lock=0x7f9239ddbd80 <_ZL7context.lto_priv.0+160>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:43
+#1  bpftime::bpftime_spin_lock_outlined (lock=0x7f9239ddbd80 <_ZL7context.lto_priv.0+160>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:69
+#2  0x00007f92371a5699 in bpftime::bpftime_lock_guard::bpftime_lock_guard (spinlock=<optimized out>, this=<synthetic pointer>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/handler/map_handler.hpp:57
+#3  syscall_context::handle_fopen(char const*, char const*) [clone .constprop.0] (pathname=0x556cadab3330 "/sys/bus/event_source/devices/uprobe/type", flags=0x7f923923cfff "re", this=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_context.cpp:1185
+#4  0x00007f9237140691 in operator() (__closure=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:514
+#5  operator() (__closure=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:349
+#6  handle_exceptions<call_with_context_debug<fopen(char const*, char const*)::<lambda()>, fopen(char const*, char const*)::<lambda()>&, char const*, char const*>(fmt::v11::format_string<char const*, char const*>, fopen(char const*, char const*)::<lambda()>&&, fopen(char const*, char const*)::<lambda()>&, char const*&&, char const*&&)::<lambda()>, fopen(char const*, char const*)::<lambda()>&> (fallback=<synthetic pointer>..., f=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:274
+#7  call_with_context<call_with_context_debug<fopen(char const*, char const*)::<lambda()>, fopen(char const*, char const*)::<lambda()>&, char const*, char const*>(fmt::v11::format_string<char const*, char const*>, fopen(char const*, char const*)::<lambda()>&&, fopen(char const*, char const*)::<lambda()>&, char const*&&, char const*&&)::<lambda()>, fopen(char const*, char const*)::<lambda()>&> (fallback=<synthetic pointer>..., f=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:337
+#8  call_with_context_debug<fopen(char const*, char const*)::<lambda()>, fopen(char const*, char const*)::<lambda()>&, char const*, char const*> (fallback=<synthetic pointer>..., f=..., fmt=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:346
+#9  fopen (pathname=<optimized out>, flags=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:512
+#10 0x00007f923714a5fe in bpftime::parse_uint_from_file (file=<optimized out>, fmt=0x7f923925f0dc "%d\n") at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_utils.cpp:248
+#11 0x00007f92371a1c0c in bpftime::determine_uprobe_perf_type () at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_utils.cpp:275
+===== pid 977364: bpftime-shm-allocation-test-helper startup-ok 
+Thread 1 (Thread 0x7f2df689e900 (LWP 977364) "bpftime-shm-all"):
+#0  0x00007f2df3b2bf78 in bpftime::bpftime_spin_lock (lock=0x7f2df67dbd80 <_ZL7context.lto_priv.0+160>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:43
+#1  bpftime::bpftime_spin_lock_outlined (lock=0x7f2df67dbd80 <_ZL7context.lto_priv.0+160>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:69
+#2  0x00007f2df3b3ed92 in bpftime::bpftime_lock_guard::bpftime_lock_guard (spinlock=@0x7f2df67dbd80: 1, this=<synthetic pointer>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/handler/map_handler.hpp:57
+#3  syscall_context::handle_close (this=0x7f2df67dbce0 <_ZL7context.lto_priv.0>, fd=3) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_context.cpp:266
+#4  operator() (__closure=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:455
+#5  operator() (__closure=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:349
+#6  handle_exceptions<call_with_context_debug<close(int)::<lambda()>, close(int)::<lambda()>&, int&>(fmt::v11::format_string<int&>, close(int)::<lambda()>&&, close(int)::<lambda()>&, int&)::<lambda()>, close(int)::<lambda()>&> (fallback=<synthetic pointer>..., f=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:274
+#7  call_with_context<call_with_context_debug<close(int)::<lambda()>, close(int)::<lambda()>&, int&>(fmt::v11::format_string<int&>, close(int)::<lambda()>&&, close(int)::<lambda()>&, int&)::<lambda()>, close(int)::<lambda()>&> (fallback=<synthetic pointer>..., f=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:337
+#8  call_with_context_debug<close(int)::<lambda()>, close(int)::<lambda()>&, int&> (fallback=<synthetic pointer>..., f=..., fmt=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:346
+#9  close (fd=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:453
+#10 0x00005592bc2e6e26 in trigger_startup_ok () at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/assets/shm_allocation_test_helper.c:91
+#11 0x00007f2df3635ca8 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+===== pid 977728: bpftime-shm-allocation-test-helper startup-wait 
+Thread 1 (Thread 0x7fee24469900 (LWP 977728) "bpftime-shm-all"):
+#0  0x00007fee2172bf78 in bpftime::bpftime_spin_lock (lock=0x7fee243dbd80 <_ZL7context.lto_priv.0+160>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:43
+#1  bpftime::bpftime_spin_lock_outlined (lock=0x7fee243dbd80 <_ZL7context.lto_priv.0+160>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:69
+#2  0x00007fee2173ed92 in bpftime::bpftime_lock_guard::bpftime_lock_guard (spinlock=@0x7fee243dbd80: 1, this=<synthetic pointer>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/handler/map_handler.hpp:57
+#3  syscall_context::handle_close (this=0x7fee243dbce0 <_ZL7context.lto_priv.0>, fd=3) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_context.cpp:266
+#4  operator() (__closure=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:455
+#5  operator() (__closure=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:349
+#6  handle_exceptions<call_with_context_debug<close(int)::<lambda()>, close(int)::<lambda()>&, int&>(fmt::v11::format_string<int&>, close(int)::<lambda()>&&, close(int)::<lambda()>&, int&)::<lambda()>, close(int)::<lambda()>&> (fallback=<synthetic pointer>..., f=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:274
+#7  call_with_context<call_with_context_debug<close(int)::<lambda()>, close(int)::<lambda()>&, int&>(fmt::v11::format_string<int&>, close(int)::<lambda()>&&, close(int)::<lambda()>&, int&)::<lambda()>, close(int)::<lambda()>&> (fallback=<synthetic pointer>..., f=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:337
+#8  call_with_context_debug<close(int)::<lambda()>, close(int)::<lambda()>&, int&> (fallback=<synthetic pointer>..., f=..., fmt=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:346
+#9  close (fd=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:453
+#10 0x000055efcffdce26 in trigger_startup_ok () at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/assets/shm_allocation_test_helper.c:91
+#11 0x000055efcffdc419 in trigger_startup_wait () at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/assets/shm_allocation_test_helper.c:100
+===== pid 977912: bpftime-shm-allocation-test-helper mock-tmp 
+Thread 1 (Thread 0x7f59e5852900 (LWP 977912) "bpftime-shm-all"):
+#0  0x00007f59e2b2bf78 in bpftime::bpftime_spin_lock (lock=0x7f59e57dbd80 <_ZL7context.lto_priv.0+160>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:43
+#1  bpftime::bpftime_spin_lock_outlined (lock=0x7f59e57dbd80 <_ZL7context.lto_priv.0+160>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:69
+#2  0x00007f59e2b400c9 in bpftime::bpftime_lock_guard::bpftime_lock_guard (spinlock=@0x7f59e57dbd80: 1, this=<synthetic pointer>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/handler/map_handler.hpp:57
+#3  syscall_context::handle_open (this=0x7f59e57dbce0 <_ZL7context.lto_priv.0>, mode=<optimized out>, oflag=524288, file=0x55949b71d1a0 "/sys/bus/event_source/devices/uprobe/type") at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_context.cpp:333
+#4  operator() (__closure=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:491
+#5  operator() (__closure=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:349
+#6  handle_exceptions<call_with_context_debug<open(char const*, int, ...)::<lambda()>, open(char const*, int, ...)::<lambda()>&, char const*, int&, unsigned int&>(fmt::v11::format_string<char const*, int&, unsigned int&>, open(char const*, int, ...)::<lambda()>&&, open(char const*, int, ...)::<lambda()>&, char const*&&, int&, unsigned int&)::<lambda()>, open(char const*, int, ...)::<lambda()>&> (fallback=..., f=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:274
+#7  call_with_context<call_with_context_debug<open(char const*, int, ...)::<lambda()>, open(char const*, int, ...)::<lambda()>&, char const*, int&, unsigned int&>(fmt::v11::format_string<char const*, int&, unsigned int&>, open(char const*, int, ...)::<lambda()>&&, open(char const*, int, ...)::<lambda()>&, char const*&&, int&, unsigned int&)::<lambda()>, open(char const*, int, ...)::<lambda()>&> (fallback=..., f=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:337
+#8  call_with_context_debug<open(char const*, int, ...)::<lambda()>, open(char const*, int, ...)::<lambda()>&, char const*, int&, unsigned int&> (fallback=..., f=..., fmt=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:346
+#9  open (file=<optimized out>, file@entry=0x55949b71d1a0 "/sys/bus/event_source/devices/uprobe/type", oflag=<optimized out>, oflag@entry=524288) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:489
+#10 0x000055949b71c4bc in trigger_mock_tmp_files () at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/assets/shm_allocation_test_helper.c:129
+#11 main (argc=<optimized out>, argv=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/assets/shm_allocation_test_helper.c:355
+===== pid 978080: bpftime-shm-allocation-test-helper fork-after-startup-close 
+Thread 1 (Thread 0x7f91378be900 (LWP 978080) "bpftime-shm-all"):
+#0  0x00007f9134b65848 in bpftime::bpftime_spin_lock (lock=<optimized out>, lock=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:43
+#1  bpftime::bpftime_hash_map::update_in_home_stripe (result=<synthetic pointer>: <optimized out>, home_stripe=0, home=3, mode=<optimized out>, value=0x7ffd48fbaea0, key=<optimized out>, v=<synthetic pointer>..., this=0x7f9133205dc0) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/bpftime_hash_map.hpp:829
+#2  bpftime::bpftime_hash_map::update (mode=<optimized out>, value=0x7ffd48fbaea0, key=<optimized out>, this=0x7f9133205dc0) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/bpftime_hash_map.hpp:729
+#3  bpftime::fix_size_hash_map_impl::elem_update (this=0x7f9133205dc0, key=<optimized out>, value=0x7ffd48fbaea0, flags=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/userspace/fix_hash_map.cpp:52
+#4  0x00007f9134b9a0c4 in bpftime::bpftime_shm::bpf_map_update_elem (this=<optimized out>, from_syscall=true, flags=0, value=0x7ffd48fbaea0, key=0x7ffd48fbae94, fd=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpftime_shm_internal.cpp:349
+#5  bpftime_map_update_elem (flags=0, value=0x7ffd48fbaea0, key=0x7ffd48fbae94, fd=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpftime_shm.cpp:136
+#6  syscall_context::handle_sysbpf(int, bpf_attr*, unsigned long) [clone .constprop.0] (cmd=<optimized out>, attr=0x7ffd48fbaeb0, size=<optimized out>, this=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_context.cpp:605
+#7  0x00007f9134b40e3c in operator() (__closure=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:567
+#8  handle_bpf_exceptions<syscall(long int, ...)::<lambda()> > (f=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:306
+#9  syscall (sysno=<optimized out>, sysno@entry=321) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:566
+#10 0x0000555737e81712 in sys_bpf (attr=0x7ffd48fbaeb0, cmd=2) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/assets/shm_allocation_test_helper.c:213
+#11 fork_after_startup_close () at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/assets/shm_allocation_test_helper.c:291
+===== pid 978239: bpftime-shm-allocation-test-helper map-exhaustion 
+Thread 1 (Thread 0x7f15f82a1900 (LWP 978239) "bpftime-shm-all"):
+#0  0x00007f15f552bf78 in bpftime::bpftime_spin_lock (lock=0x7f15f81dbd80 <_ZL7context.lto_priv.0+160>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:43
+#1  bpftime::bpftime_spin_lock_outlined (lock=0x7f15f81dbd80 <_ZL7context.lto_priv.0+160>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:69
+#2  0x00007f15f553ed92 in bpftime::bpftime_lock_guard::bpftime_lock_guard (spinlock=@0x7f15f81dbd80: 1, this=<synthetic pointer>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/handler/map_handler.hpp:57
+#3  syscall_context::handle_close (this=0x7f15f81dbce0 <_ZL7context.lto_priv.0>, fd=3) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_context.cpp:266
+#4  operator() (__closure=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:455
+#5  operator() (__closure=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:349
+#6  handle_exceptions<call_with_context_debug<close(int)::<lambda()>, close(int)::<lambda()>&, int&>(fmt::v11::format_string<int&>, close(int)::<lambda()>&&, close(int)::<lambda()>&, int&)::<lambda()>, close(int)::<lambda()>&> (fallback=<synthetic pointer>..., f=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:274
+#7  call_with_context<call_with_context_debug<close(int)::<lambda()>, close(int)::<lambda()>&, int&>(fmt::v11::format_string<int&>, close(int)::<lambda()>&&, close(int)::<lambda()>&, int&)::<lambda()>, close(int)::<lambda()>&> (fallback=<synthetic pointer>..., f=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:337
+#8  call_with_context_debug<close(int)::<lambda()>, close(int)::<lambda()>&, int&> (fallback=<synthetic pointer>..., f=..., fmt=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:346
+#9  close (fd=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:453
+#10 0x00007f15f55a6c9b in operator() (__closure=<optimized out>, ret=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpftime_shm_internal.cpp:1177
+#11 operator() (ret=-1, __closure=<synthetic pointer>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpftime_shm_internal.cpp:1174
+===== pid 978443: bpftime-shm-allocation-test-helper fork-before-startup 
+Thread 1 (Thread 0x7f693188d900 (LWP 978443) "bpftime-shm-all"):
+#0  0x00007f692eb65848 in bpftime::bpftime_spin_lock (lock=<optimized out>, lock=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:43
+#1  bpftime::bpftime_hash_map::update_in_home_stripe (result=<synthetic pointer>: <optimized out>, home_stripe=0, home=3, mode=<optimized out>, value=0x7fffe83f9238, key=<optimized out>, v=<synthetic pointer>..., this=0x7f692d005dc0) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/bpftime_hash_map.hpp:829
+#2  bpftime::bpftime_hash_map::update (mode=<optimized out>, value=0x7fffe83f9238, key=<optimized out>, this=0x7f692d005dc0) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/bpftime_hash_map.hpp:729
+#3  bpftime::fix_size_hash_map_impl::elem_update (this=0x7f692d005dc0, key=<optimized out>, value=0x7fffe83f9238, flags=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/userspace/fix_hash_map.cpp:52
+#4  0x00007f692eb9a0c4 in bpftime::bpftime_shm::bpf_map_update_elem (this=<optimized out>, from_syscall=true, flags=0, value=0x7fffe83f9238, key=0x7fffe83f9230, fd=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpftime_shm_internal.cpp:349
+#5  bpftime_map_update_elem (flags=0, value=0x7fffe83f9238, key=0x7fffe83f9230, fd=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpftime_shm.cpp:136
+#6  syscall_context::handle_sysbpf(int, bpf_attr*, unsigned long) [clone .constprop.0] (cmd=<optimized out>, attr=0x7fffe83f9250, size=<optimized out>, this=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_context.cpp:605
+#7  0x00007f692eb40e3c in operator() (__closure=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:567
+#8  handle_bpf_exceptions<syscall(long int, ...)::<lambda()> > (f=...) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:306
+#9  syscall (sysno=<optimized out>, sysno@entry=321) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/syscall-server/syscall_server_main.cpp:566
+#10 0x0000562290d949d4 in sys_bpf (attr=0x7fffe83f9250, cmd=2) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/assets/shm_allocation_test_helper.c:213
+#11 fork_before_startup () at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/assets/shm_allocation_test_helper.c:254
+===== pid 980961: bpftime_runtime_tests striped hash map is shared by processes mapping it elsewhere 
+Thread 1 (Thread 0x7fe54d5dc9c0 (LWP 980961) "bpftime_runtime"):
+#0  0x0000561abb01a882 in bpftime::bpftime_spin_lock (lock=<optimized out>, lock=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/map_common_def.hpp:39
+#1  bpftime::bpftime_hash_map::update_in_home_stripe (result=<synthetic pointer>: <optimized out>, home_stripe=14, home=920, mode=<optimized out>, value=0x7ffd8f784570, key=<optimized out>, v=<synthetic pointer>..., this=0x7fe5455da118) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/bpftime_hash_map.hpp:829
+#2  bpftime::bpftime_hash_map::update (mode=<optimized out>, value=0x7ffd8f784570, key=<optimized out>, this=0x7fe5455da118) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/bpftime_hash_map.hpp:729
+#3  bpftime::fix_size_hash_map_impl::elem_update (this=0x7fe5455da118, key=<optimized out>, value=0x7ffd8f784570, flags=<optimized out>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/src/bpf_map/userspace/fix_hash_map.cpp:52
+#4  0x0000561abaf5d795 in operator() (p=<optimized out>, __closure=<synthetic pointer>) at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_striped_writers.cpp:325
+#5  CATCH2_INTERNAL_TEST_6 () at /home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_striped_writers.cpp:369
+#6  0x0000561abb0a4f7a in Catch::(anonymous namespace)::TestInvokerAsFunction::invoke (this=<optimized out>) at src/catch2/internal/catch_test_registry.cpp:58
+#7  Catch::TestCaseHandle::invoke (this=<optimized out>) at src/catch2/../catch2/catch_test_case_info.hpp:115
+#8  Catch::RunContext::invokeActiveTestCase (this=0x7ffd8f785ec0) at src/catch2/internal/catch_run_context.cpp:552
+#9  0x0000561abb0a9460 in Catch::RunContext::runCurrentTest (this=this@entry=0x7ffd8f785ec0, redirectedCout="", redirectedCerr="") at src/catch2/internal/catch_run_context.cpp:515
+#10 0x0000561abb0a97db in Catch::RunContext::runTest (this=0x7ffd8f785ec0, testCase=...) at src/catch2/internal/catch_run_context.cpp:239
+#11 0x0000561abb082f93 in Catch::(anonymous namespace)::TestGroup::execute (this=0x7ffd8f785eb0) at src/catch2/catch_session.cpp:111
