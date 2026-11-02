@@ -103,11 +103,12 @@ public:
 // range wraps); when it finds it needs more, it unlocks and starts again with
 // the larger range, so no lock is taken while a higher one is held. Each
 // stripe keeps the probe bound of the keys whose home bucket is in it. The
-// element count is kept as tokens, max_entries in all: each stripe holds some
-// (protected by its lock), the rest are in a shared pool. An insert takes one
-// from its home stripe, refilling a batch from the pool when it has none; a
-// delete returns it there. Only when the pool is empty too does an insert
-// lock every stripe and take a token from any of them.
+// element count is one shared atomic: an insert adds one and takes it back
+// when that passes max_entries (full), a delete subtracts one. It replaced
+// tokens parked per stripe: with more parked than free (a map about two
+// thirds full) the shared pool ran dry and inserts locked every stripe to
+// borrow one, 30 us per churn op at 90% (results
+// uprobe/hash-redesign-survey-20261102).
 //
 // Every operation resolves the two shared-memory vectors (buckets, stripes)
 // to plain pointers once (a view): each offset_ptr access costs a few
@@ -132,10 +133,7 @@ class bpftime_hash_map {
 	// TRACKED_DISPLACEMENTS on are only counted; while any remain, the bound
 	// stays at the largest such distance seen. (At most half the buckets are
 	// filled, so most keys sit within a few buckets of home.)
-	static constexpr size_t TRACKED_DISPLACEMENTS = 11;
-	// Tokens a stripe takes from the shared pool at once, and gives back
-	// when it holds twice as many.
-	static constexpr uint32_t TOKEN_BATCH = 32;
+	static constexpr size_t TRACKED_DISPLACEMENTS = 12;
 
 	// One stripe's state, one cache line. Written under its lock; lookups
 	// read only bound.
@@ -143,7 +141,6 @@ class bpftime_hash_map {
 		pthread_spinlock_t lock;
 		// Probe bound of the keys whose home bucket is in the stripe.
 		uint32_t bound;
-		uint32_t tokens; // element tokens held by this stripe
 		uint32_t far_count;
 		uint32_t far_max;
 		uint32_t displacement_counts[TRACKED_DISPLACEMENTS];
@@ -320,63 +317,23 @@ class bpftime_hash_map {
 		range_guard &operator=(const range_guard &) = delete;
 	};
 
-	// Under the home stripe's lock. False when the stripe and the shared
-	// pool have none left (the caller then locks every stripe and calls
-	// take_token_any).
-	bool take_token(const view &v, size_t stripe_index)
+	// A place for one more element; false when max_entries are in the map.
+	// One atomic on a line of its own: under contention it moves between
+	// the cores of the writers, no lock is taken.
+	bool take_count()
 	{
-		auto &st = v.stripes[stripe_index];
-		if (st.tokens > 0) {
-			st.tokens--;
+		std::atomic_ref<int64_t> count(_count);
+		if (count.fetch_add(1, std::memory_order_relaxed) <
+		    (int64_t)_max_element_count)
 			return true;
-		}
-		std::atomic_ref<int64_t> pool(_pool_tokens);
-		int64_t current = pool.load(std::memory_order_relaxed);
-		while (current > 0) {
-			const int64_t take =
-				std::min<int64_t>(current, TOKEN_BATCH);
-			if (pool.compare_exchange_weak(current, current - take,
-						       std::memory_order_relaxed)) {
-				st.tokens += (uint32_t)take - 1;
-				return true;
-			}
-		}
+		count.fetch_sub(1, std::memory_order_relaxed);
 		return false;
 	}
 
-	// With every stripe locked: a token from the home stripe, the pool or
-	// other stripes. False only when the map is full. Moves up to a batch
-	// to the home stripe, so that its next inserts take its own lock only
-	// (with one token at a time, a stripe without tokens locked every
-	// stripe on every insert once the pool was empty).
-	bool take_token_any(const view &v, size_t stripe_index)
+	void release_count()
 	{
-		if (take_token(v, stripe_index))
-			return true;
-		auto &home = v.stripes[stripe_index];
-		uint32_t moved = 0;
-		for (size_t s = 0; s < _num_stripes && moved < TOKEN_BATCH; s++) {
-			auto &st = v.stripes[s];
-			const uint32_t take =
-				std::min<uint32_t>(st.tokens, TOKEN_BATCH - moved);
-			st.tokens -= take;
-			moved += take;
-		}
-		if (moved == 0)
-			return false;
-		home.tokens += moved - 1;
-		return true;
-	}
-
-	// Under the home stripe's lock.
-	void return_token(const view &v, size_t stripe_index)
-	{
-		auto &st = v.stripes[stripe_index];
-		if (++st.tokens >= 2 * TOKEN_BATCH) {
-			st.tokens -= TOKEN_BATCH;
-			std::atomic_ref<int64_t>(_pool_tokens)
-				.fetch_add(TOKEN_BATCH, std::memory_order_relaxed);
-		}
+		std::atomic_ref<int64_t>(_count).fetch_sub(1,
+							   std::memory_order_relaxed);
 	}
 
 	// A key or value copy: with a size known only at run time memcpy is a
@@ -532,7 +489,7 @@ class bpftime_hash_map {
 	}
 
 	// Read by every lookup and written only at construction: kept apart
-	// from the stripes and the token pool that writers change.
+	// from the stripes and the element count that writers change.
 	size_t _key_size;
 	size_t _value_size;
 	size_t _value_offset; // from the element start, value_align aligned
@@ -558,7 +515,7 @@ class bpftime_hash_map {
 	bytes_vec stripe_buffer; // stripe_state per stripe, line aligned
 
 	char _read_mostly_end[CACHE_LINE] = {};
-	int64_t _pool_tokens; // tokens held by no stripe
+	int64_t _count; // elements in the map (take_count)
 	char _pool_end[CACHE_LINE] = {};
 
 	static constexpr size_t value_align(size_t value_size)
@@ -600,7 +557,7 @@ class bpftime_hash_map {
 			       _stripe_shift),
 		  data_buffer(memory.get_segment_manager()),
 		  stripe_buffer(memory.get_segment_manager()),
-		  _pool_tokens((int64_t)num_buckets)
+		  _count(0)
 	{
 		size_t data_size;
 		if (__builtin_mul_overflow(_num_buckets, _elem_size, &data_size))
@@ -783,14 +740,8 @@ class bpftime_hash_map {
 				span = free_distance + 1;
 				continue;
 			}
-			if (!(locked.count < _num_stripes ?
-				      take_token(v, home_stripe) :
-				      take_token_any(v, home_stripe))) {
-				if (locked.count == _num_stripes)
-					return update_result::full;
-				span = _num_buckets; // Lock every stripe.
-				continue;
-			}
+			if (!take_count())
+				return update_result::full;
 			// A lookup that read this bucket's previous key and then
 			// sees any of the new bytes must also see the delete's new
 			// generation.
@@ -863,9 +814,14 @@ class bpftime_hash_map {
 			if (state_at(v, index) != BUCKET_FILLED)
 				free_slot = index;
 		}
-		if (free_slot == end || !take_token(v, home_stripe)) {
+		if (free_slot == end) {
 			bpftime_spin_unlock(&st.lock);
 			return false;
+		}
+		if (!take_count()) {
+			result = update_result::full;
+			bpftime_spin_unlock(&st.lock);
+			return true;
 		}
 		std::atomic_thread_fence(std::memory_order_release);
 		copy_bytes(key_at(v, free_slot), key, _key_size);
@@ -904,7 +860,7 @@ class bpftime_hash_map {
 				set_state(v, index, BUCKET_DELETED,
 					  GENERATION_STEP,
 					  std::memory_order_relaxed);
-				return_token(v, home_stripe);
+				release_count();
 				note_released(v, home_stripe, probe);
 				release_deleted_run(v, index, { home_stripe, 1 });
 				found = true;
@@ -955,7 +911,7 @@ class bpftime_hash_map {
 					set_state(v, index, BUCKET_DELETED,
 						  GENERATION_STEP,
 						  std::memory_order_relaxed);
-					return_token(v, home_stripe);
+					release_count();
 					note_released(v, home_stripe, probe);
 					release_deleted_run(v, index, locked);
 					return true;
@@ -1012,18 +968,6 @@ class bpftime_hash_map {
 		return TRACKED_DISPLACEMENTS;
 	}
 
-	// Tokens a stripe holds, and tokens in the shared pool (tests; exact
-	// when no writer runs).
-	uint32_t stripe_tokens(size_t stripe) const
-	{
-		return resolve().stripes[stripe].tokens;
-	}
-
-	int64_t pool_tokens() const
-	{
-		return _pool_tokens;
-	}
-
 	// Tests: hold a stripe's lock as a writer would.
 	void lock_stripe_for_test(size_t stripe) const
 	{
@@ -1048,14 +992,8 @@ class bpftime_hash_map {
 	// Exact when no writer runs.
 	size_t get_elem_count() const
 	{
-		const view v = resolve();
-		int64_t free_tokens =
-			std::atomic_ref<int64_t>(
-				const_cast<int64_t &>(_pool_tokens))
-				.load(std::memory_order_relaxed);
-		for (size_t s = 0; s < _num_stripes; s++)
-			free_tokens += v.stripes[s].tokens;
-		return _max_element_count - (size_t)free_tokens;
+		return (size_t)std::atomic_ref<int64_t>(const_cast<int64_t &>(_count))
+			.load(std::memory_order_relaxed);
 	}
 };
 

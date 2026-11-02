@@ -12,6 +12,9 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <vector>
+#include <chrono>
+#include <atomic>
+#include <thread>
 #include <bpf_map/map_common_def.hpp>
 #include "catch2/internal/catch_run_context.hpp"
 #include <algorithm>
@@ -316,37 +319,64 @@ TEST_CASE("bpftime_hash_map probe bound shrinks after far elements are deleted",
 	shared_memory_object::remove("bpftime_hash_map_bound_test");
 }
 
-// A stripe with no tokens left, once the shared pool was empty, took one
-// token from another stripe per insert, locking every stripe each time; it
-// now takes a batch.
-TEST_CASE("bpftime_hash_map moves tokens to a stripe in batches",
-	  "[bpftime_hash_map][tokens]")
+// Churn near capacity (delete a key, insert a new one) locks only the
+// stripes the two keys use. With element tokens parked per stripe, a map
+// about two thirds full ran its shared pool dry and inserts locked every
+// stripe to borrow one: 30 us per op at 90% full, 230 us with six threads.
+TEST_CASE("bpftime_hash_map churn near capacity locks only the keys' stripes",
+	  "[bpftime_hash_map][capacity]")
 {
-	shared_memory_object::remove("bpftime_hash_map_tokens_test");
-	managed_shared_memory segment(create_only, "bpftime_hash_map_tokens_test",
-				      1 << 20);
-	bpftime_hash_map map(segment, 128, 4, 8);
-	REQUIRE(map.stripe_count() > 4);
+	shared_memory_object::remove("bpftime_hash_map_churn_test");
+	managed_shared_memory segment(create_only, "bpftime_hash_map_churn_test",
+				      16 << 20);
+	const uint32_t max_entries = 10240, live = max_entries * 9 / 10;
+	bpftime_hash_map map(segment, max_entries, 4, 8);
+	REQUIRE(map.stripe_count() > 8);
 	auto stripe_of = [&](uint32_t key) {
 		return bpftime_hasher::hash_func(&key, 4) % map.bucket_count() /
 		       map.buckets_per_stripe();
 	};
-	// Drain the pool into the first stripes that see an insert.
-	std::vector<bool> used(map.stripe_count());
-	uint64_t value = 1;
-	uint32_t key = 1;
-	for (; map.pool_tokens() > 0; key++) {
-		used[stripe_of(key)] = true;
-		REQUIRE(map.elem_update(&key, &value));
+	const uint64_t value = 1;
+	uint32_t oldest = 0, next = 0;
+	for (; next < live; next++)
+		REQUIRE(map.elem_update(&next, &value));
+	// FIFO churn spreads deletes and inserts over the stripes.
+	for (int i = 0; i < 20000; i++, oldest++, next++) {
+		REQUIRE(map.elem_delete(&oldest));
+		REQUIRE(map.elem_update(&next, &value));
 	}
-	// A key homing in a stripe that has no tokens.
-	for (;; key++) {
+	// Hold one stripe; churn on keys whose probe runs cannot reach it (not
+	// homed in it or in the stripe before it) must not wait for it.
+	const size_t held = map.stripe_count() / 2;
+	auto clear = [&](uint32_t key) {
 		const size_t s = stripe_of(key);
-		if (used[s] || map.stripe_tokens(s) != 0)
-			continue;
-		REQUIRE(map.elem_update(&key, &value));
-		CHECK(map.stripe_tokens(s) > 1);
-		break;
-	}
-	shared_memory_object::remove("bpftime_hash_map_tokens_test");
+		return s != held && s + 1 != held;
+	};
+	std::vector<std::pair<uint32_t, uint32_t> > ops;
+	for (; ops.size() < 2000; oldest++, next++)
+		if (clear(oldest) && clear(next))
+			ops.emplace_back(oldest, next);
+		else {
+			REQUIRE(map.elem_delete(&oldest));
+			REQUIRE(map.elem_update(&next, &value));
+		}
+	map.lock_stripe_for_test(held);
+	std::atomic<bool> done{ false };
+	std::atomic<int> failed{ 0 };
+	std::thread churn([&] {
+		for (auto [old_key, new_key] : ops)
+			if (!map.elem_delete(&old_key) ||
+			    !map.elem_update(&new_key, &value))
+				failed++;
+		done = true;
+	});
+	for (int i = 0; i < 200 && !done; i++)
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	const bool waited = !done;
+	map.unlock_stripe_for_test(held);
+	churn.join();
+	REQUIRE_FALSE(waited);
+	REQUIRE(failed == 0);
+	REQUIRE(map.get_elem_count() == live);
+	shared_memory_object::remove("bpftime_hash_map_churn_test");
 }
