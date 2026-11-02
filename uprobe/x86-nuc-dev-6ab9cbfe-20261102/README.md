@@ -17,9 +17,9 @@ Jetson 会话转达的用户请求：用三轮 review 修复后的 `6ab9cbfe` �
   - 哈希 map 的写入方向和 Jetson 一致，都变慢了，但每次操作只多 1.4–3.6 ns。
   - 普通哈希 lookup 方向相反：x86 上快了 38.7%（8.61 → 5.28 ns），Jetson 上是慢了 18.3%。
 - **ssl-nginx**：6ab9cbfe 比 kernel 快 48.5%（16 B）和 26.8%（256 KB），20/20 次配对都更快；比 a7d54d7e 慢 0.3% 和 0.7%，和 Jetson 的 −1.6%、−0.8% 同方向，但更小。
-- **需要 Jetson 看一下：6ab9cbfe 偶尔丢 perf 事件**（第 3 节）。
-  - 16 B 审计里 6ab9cbfe 4 次中有 2 次丢事件，sslsniff 自己报了 `lost 360 events on CPU #2` 等，约占 0.14%；a7d54d7e 4 次都没丢。
-  - 吞吐对比不受影响，原因还没有查。
+- **perf 偶尔丢事件：下午补测后确认不是 6ab9cbfe 的回归**（第 3 节，`ssl-nginx/perf-lost-audit/`）。
+  - 上午 16 B 审计里 6ab9cbfe 4 次中有 2 次丢事件（约 0.14%，sslsniff 自己有报告），a7d54d7e 0/4，但没带 kernel 腿。
+  - 下午 16 轮、四条腿同场：有丢失的轮数 kernel 5/16、a7d54d7e 6/16、6ab9cbfe 7/16，差别不显著（p = 1.0 和 0.72）；kernel、a7d54d7e、6ab9cbfe 都没有悄悄丢的。和 Jetson 的复查结论一致。
 
 ## 1. uprobe 完整十轮（`full10/`）
 
@@ -93,7 +93,11 @@ Jetson 会话转达的用户请求：用三轮 review 修复后的 `6ab9cbfe` �
   - 各组和 10/26 相比都在 ±1% 内，机器状态没有变化。
   - 对 kernel 的优势 x86 比 Jetson 大得多（+48% 对 +15%）：x86 上 kernel uprobe 走 int3 陷入，一次约 1.1 µs，而 bpftime 一次约 0.12 µs（第 1 节），10/26 已经讨论过这一点。
 
-## 3. 需要 Jetson 看一下：6ab9cbfe 偶尔丢 perf 事件（16 B，x86）
+## 3. 6ab9cbfe 偶尔丢 perf 事件（16 B，x86）：补测后不是回归
+
+> **下午补测的结论（`ssl-nginx/perf-lost-audit/README.md`）**：16 B 跑 16 轮、256 KB 跑 6 轮，kernel、官方、a7d54d7e、6ab9cbfe 四条腿同场，每轮轮换顺序。16 B 下有丢失的轮数是 kernel 5/16、a7d54d7e 6/16、6ab9cbfe 7/16，每次都在 CPU 2，都有上报，没有悄悄丢的。256 KB 下三条腿每轮都丢，范围互相重叠。所以下面上午的"2/4 对 0/4"只是轮数太少；下面列出的"可能相关的提交"和"建议"不再需要跟进。Jetson 的复查（`benchmark-results/jetson` efad8076）结论相同。
+
+以下是上午的记录，原样保留。
 
 - **第一次审计**（`audit-16.json`，每组 10 个连接 3 秒）：
   - kernel、官方、a7d54d7e 的事件数都等于请求数的 2 倍再多 16–18 个，即 2.000 个/请求。
@@ -123,7 +127,7 @@ Jetson 会话转达的用户请求：用三轮 review 修复后的 `6ab9cbfe` �
 - `build/`：`run-build.sh`、构建日志、`cmake-options.txt`、`source-state.txt`、`attempt1-wrong-target/`（目标名写错的第一次）。
 - `tests/`：`run-tests.sh`、`run-each-case.py`、每项日志和退出码、`runtime-each/`、`frida-each/`、sudo 补跑日志、`README.md`。
 - `full10/`：`run-full.sh`、`audit-events.py`、`summarize.py`、频率脚本、`jetson-reference/`、`full10-4.4ghz-turbo/`（每段的 `benchmark-output.json`、`results.md`、`runner.log`、频率检查、`comparison.md`）。
-- `ssl-nginx/`：`run.sh`、`run_fair.py`（同 10/26 的 x86 版）、`summarize.py`（Jetson 11/01 原样）、`fair-*`、`audit-*`、`log/`、`audit-repeat/`。
+- `ssl-nginx/`：`run.sh`、`run_fair.py`（同 10/26 的 x86 版）、`summarize.py`（Jetson 11/01 原样）、`fair-*`、`audit-*`、`log/`、`audit-repeat/`、`perf-lost-audit/`（下午的丢事件补测；sslsniff 的完整输出 47 GB 同样不提交）。
   - sslsniff 的完整输出（8.1 GB）不提交，放在本机 `/home/y/src/bpftime-x86-runs/dev-6ab9cbfe-20261102/ssl-nginx/captures/`。仓库里只留首尾各 20 行（`*.head-tail.txt`）和哈希（`captures-sha256.txt`）。
 - `run-all.sh`、`session/`：一次跑完审计、十轮和 ssl-nginx 的驱动脚本与记录。
   - 测前确认没有残留进程和 `/dev/shm/bpftime_maps_shm`；`plymouthd`（开机后一直占约 2.5% CPU）临时绑到 E 核 12–14，测完已改回 0–15。
