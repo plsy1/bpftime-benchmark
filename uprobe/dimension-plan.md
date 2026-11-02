@@ -74,7 +74,11 @@ bpftime below the kernel there.
    **Phase 1 done 2026-11-02** (`hash-single-thread-20261102`, dev 0ffe368b..68f19c1f): of the
    candidates below, the inline lock (a, as bpftime's own lock; a compiler flag cannot reach
    glibc's), the one-stripe fast path (c) and the lookup ordering (d) are in; b had no effect.
-   Hash update and lookup are back at a7d54d7e, delete +9 ns; e (per-CPU hash) not started. Goal:
+   Hash update and lookup are back at a7d54d7e, delete +9 ns. **Phase 2 (e) done 2026-11-02**
+   (`percpu-hash-lockfree-20261102`, dev fbcc1a04..a4ac0d31): per-CPU hash on the striped
+   table plus a slot pool, no map lock; update/lookup/delete 36.3/25.3/58.3 ns (lookup 0.85x
+   the kernel), shared per-CPU counters' map cost at 2-6 threads at the kernel's level; hash
+   delete 33.9 with `flatten` (`dev-a4ac0d31-20261102`). Goal:
    the official uprobe suite's hash cases back near a7d54d7e (hash update/lookup/delete
    27/23/28 ns, per-CPU hash 45/28/100 ns per operation) without giving back the multi-thread
    gains of step 2 or the correctness of step 1. Candidates to measure, none tested yet:
