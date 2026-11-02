@@ -571,6 +571,116 @@ TEST_CASE("signal handlers return through rt_sigreturn",
 	REQUIRE(code == 0);
 }
 
+// The hook runs on a stack of its own: a goroutine's stack (2 KiB to start,
+// no guard page) cannot hold its frame, the agent's dispatch and a JIT
+// program's 18 KB, and Go makes its system calls on it.
+namespace
+{
+uint8_t small_stack[64 << 10] __attribute__((aligned(16)));
+
+// getpid with sp at `sp`, then back on the thread's stack.
+__attribute__((noinline)) long getpid_with_sp(uint8_t *sp)
+{
+	register long x8 __asm__("x8") = SYS_getpid;
+	register long x0 __asm__("x0");
+	register uint8_t *x9 __asm__("x9") = sp;
+	__asm__ volatile("mov x10, sp\n\t"
+			 "mov sp, x9\n\t"
+			 "svc #0\n\t"
+			 "mov sp, x10\n\t"
+			 : "=r"(x0)
+			 : "r"(x8), "r"(x9)
+			 : "x10", "memory");
+	return x0;
+}
+} // namespace
+
+TEST_CASE("a hooked call uses only a few bytes of the caller's stack",
+	  "[syscall-rewrite]")
+{
+	int code = in_rewritten_child([] {
+		getppid(); // the thread's first traced call maps its hook stack
+		memset(small_stack, 0xa5, sizeof(small_stack));
+		const uint64_t before = calls[SYS_getpid];
+		if (getpid_with_sp(small_stack + sizeof(small_stack)) != getpid())
+			return 2;
+		if (calls[SYS_getpid] != before + 2)
+			return 3; // not hooked
+		size_t used = 0;
+		for (size_t i = 0; i < sizeof(small_stack); i++)
+			if (small_stack[i] != 0xa5) {
+				used = sizeof(small_stack) - i;
+				break;
+			}
+		// The gate's x16/x17 and the hook's x0/x1 while it switches.
+		return used <= 32 ? 0 : 4;
+	});
+	REQUIRE(code == 0);
+}
+
+// A signal handler interrupting a hooked blocking call (the hook's frame live
+// on the hook stack) makes a hooked call itself: on the application's
+// alternate stack its frame stays there, without one it goes below the live
+// frame; either way the interrupted call returns intact.
+namespace
+{
+int nested_pipe[2];
+std::atomic<int> nested_handler_ok{ 0 };
+
+void nested_handler(int)
+{
+	if (syscall(SYS_getppid) == getppid())
+		nested_handler_ok++;
+	char c = 'x';
+	write(nested_pipe[1], &c, 1);
+}
+
+int read_interrupted_by_handler(bool on_altstack)
+{
+	if (pipe(nested_pipe) != 0)
+		return 2;
+	static uint8_t altstack[64 << 10];
+	if (on_altstack) {
+		stack_t ss = {};
+		ss.ss_sp = altstack;
+		ss.ss_size = sizeof(altstack);
+		if (sigaltstack(&ss, nullptr) != 0)
+			return 3;
+	}
+	struct sigaction sa = {};
+	sa.sa_handler = nested_handler;
+	sa.sa_flags = SA_RESTART | (on_altstack ? SA_ONSTACK : 0);
+	sigemptyset(&sa.sa_mask);
+	if (sigaction(SIGUSR1, &sa, nullptr) != 0)
+		return 4;
+	const pthread_t self = pthread_self();
+	std::thread killer([self] {
+		usleep(100000); // blocked in read
+		pthread_kill(self, SIGUSR1);
+	});
+	char c = 0;
+	const ssize_t n = read(nested_pipe[0], &c, 1);
+	killer.join();
+	if (n != 1 || c != 'x')
+		return 5;
+	return nested_handler_ok == 1 ? 0 : 6;
+}
+} // namespace
+
+TEST_CASE("a handler on an alternate stack leaves the hook's live frame alone",
+	  "[syscall-rewrite]")
+{
+	int code = in_rewritten_child([] { return read_interrupted_by_handler(true); });
+	REQUIRE(code == 0);
+}
+
+TEST_CASE("a handler on the hook stack builds its frame below the live one",
+	  "[syscall-rewrite]")
+{
+	int code = in_rewritten_child([] { return read_interrupted_by_handler(false); });
+	REQUIRE(code == 0);
+}
+
 TEST_CASE("a program's own signal restorer returns through rt_sigreturn",
 	  "[syscall-rewrite]")
 {

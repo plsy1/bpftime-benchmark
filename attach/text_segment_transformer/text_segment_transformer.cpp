@@ -344,13 +344,47 @@ static constexpr uint32_t REGION_HEADER_SIZE = 16;
 static_assert(GATE_RETURN_OFFSET == 12 && GATE_DIRECT_OFFSET == 20,
 	      "syscall_hooker_asm adds these offsets as immediates");
 
+/*
+The hook runs on a stack of its own per thread (`bpftime_hook_stack`): the frame
+alone is 784 bytes, the agent's dispatch about 600 more and an LLVM JIT program
+18 KB, while a goroutine's stack starts at 2 KiB with no guard page and Go makes
+its system calls on it (runtime/internal/syscall.Syscall6, with only about 900
+bytes guaranteed below sp): every Go program crashed with the agent loaded,
+other goroutines' frames overwritten. Below the application's sp the hook now
+writes the gate's 16 bytes and 16 of its own. The frame stays on the current
+stack when
+- the thread has no hook stack yet (its first traced call allocates one),
+- sp is already on it (the hook's own calls, a signal handler without an
+  alternate stack interrupting a hooked blocking call): below the live frames,
+- a frame on it is live (`busy`) and sp is elsewhere (a handler on the
+  application's sigaltstack, as Go's always are): switching to the top would
+  overwrite that frame.
+`busy` is set before sp moves onto the hook stack and cleared while sp is still
+on it, so a handler arriving in between always sees one of those cases. The
+switch tests use no flags (NZCV is saved later): differences and bit 63.
+*/
+struct hook_stack_state {
+	uint64_t lo; // lowest usable address (above the guard)
+	uint64_t hi; // top; 0: none yet
+	uint64_t busy; // a frame switched here is live
+};
+// Read by the asm: `used`, or LTO drops it.
+extern "C" {
+__attribute__((visibility("hidden"), used)) __thread hook_stack_state
+	bpftime_hook_stack __attribute__((tls_model("initial-exec")));
+}
+
 // File-scope asm: LTO drops an unreferenced holder function in executables.
 // Unwind information (pthread_cancel of a thread blocked in a hooked call,
 // backtraces from signal handlers): the frame's caller is the function that
 // issued the svc, its CFA the sp it had, and its return address site + 4,
 // read from the gate's `b site + 4` at +16 (return column x17, which the
 // gate uses as scratch): from x16 (the gate) while it is live, then from its
-// slot, then from x16 - x17 once the return offset is added.
+// slot, then from x16 again, and from x16 - 12 or x16 - 20 once the return
+// offset is added. The frame's slot at 776 holds the application's sp after
+// the gate's push (16-aligned), with bit 0 set if the frame switched to the
+// hook stack and bit 3 for the direct path; from it the CFA (that sp + 16)
+// and the saved registers are described relative to sp.
 __asm__(".pushsection .text\n\t"
 	".p2align 2\n\t"
 	".globl syscall_hooker_asm\n\t"
@@ -362,8 +396,38 @@ __asm__(".pushsection .text\n\t"
 		".cfi_offset x16, -16\n\t" // the gate saved x16 and x17
 		".cfi_escape 0x16, 0x11, 0x16, 0x80, 0x00, 0x12, 0x23, 0x10, 0x94, 0x04, 0x0c, 0xff, 0xff, 0xff, 0x03, 0x1a, 0x08, 0x26, 0x24, 0x08, 0x24, 0x26, 0x22, 0x23, 0x10\n\t"
 		"hint #36\n\t" // bti j: entered by `br x17`
-		"sub sp, sp, #784\n\t"
-		".cfi_def_cfa_offset 800\n\t"
+		"stp x0, x1, [sp, #-16]!\n\t"
+		".cfi_def_cfa_offset 32\n\t"
+		"mrs x0, tpidr_el0\n\t"
+		"adrp x1, :gottprel:bpftime_hook_stack\n\t"
+		"ldr x1, [x1, #:gottprel_lo12:bpftime_hook_stack]\n\t"
+		"add x0, x0, x1\n\t" // &bpftime_hook_stack
+		"mov x17, sp\n\t"
+		"ldr x1, [x0, #8]\n\t" // hi
+		"cbz x1, 1f\n\t" // none yet: stay
+		"sub x1, x17, x1\n\t"
+		"tbz x1, #63, 7f\n\t" // sp >= hi: not on it
+		"ldr x1, [x0]\n\t" // lo
+		"sub x1, x17, x1\n\t"
+		"tbz x1, #63, 1f\n\t" // lo <= sp < hi: on it, stay
+		"7:\n\t"
+		"ldr x1, [x0, #16]\n\t" // busy: a live frame at the top
+		"cbnz x1, 1f\n\t"
+		"mov x1, #1\n\t"
+		"str x1, [x0, #16]\n\t"
+		"ldr x17, [x0, #8]\n\t" // the top
+		"add x0, sp, #17\n\t" // the application's sp | switched
+		"b 8f\n\t"
+		"1:\n\t"
+		"add x0, sp, #16\n\t" // the application's sp
+		"8:\n\t"
+		"sub x17, x17, #784\n\t"
+		"str x0, [x17, #776]\n\t"
+		"mov sp, x17\n\t"
+		// CFA = (*(sp + 776) & ~15) + 16
+		".cfi_escape 0x0f, 0x09, 0x8f, 0x88, 0x06, 0x06, 0x09, 0xf0, 0x1a, 0x23, 0x10\n\t"
+		"and x1, x0, #0xfffffffffffffff0\n\t"
+		"ldp x0, x1, [x1, #-16]\n\t" // the application's x0 and x1
 		"stp x0, x1, [sp, #0]\n\t"
 		"stp x2, x3, [sp, #16]\n\t"
 		"stp x4, x5, [sp, #32]\n\t"
@@ -374,25 +438,25 @@ __asm__(".pushsection .text\n\t"
 		"stp x14, x15, [sp, #112]\n\t"
 		"stp x16, x18, [sp, #128]\n\t" // x16: the gate
 		".cfi_escape 0x16, 0x11, 0x18, 0x8f, 0x80, 0x01, 0x06, 0x12, 0x23, 0x10, 0x94, 0x04, 0x0c, 0xff, 0xff, 0xff, 0x03, 0x1a, 0x08, 0x26, 0x24, 0x08, 0x24, 0x26, 0x22, 0x23, 0x10\n\t"
-		".cfi_offset x18, -664\n\t"
+		".cfi_escape 0x10, 0x12, 0x03, 0x8f, 0x88, 0x01\n\t" // x18 at sp + 136
 		"stp x19, x20, [sp, #144]\n\t"
-		".cfi_offset x19, -656\n\t"
-		".cfi_offset x20, -648\n\t"
+		".cfi_escape 0x10, 0x13, 0x03, 0x8f, 0x90, 0x01\n\t" // x19 at sp + 144
+		".cfi_escape 0x10, 0x14, 0x03, 0x8f, 0x98, 0x01\n\t" // x20 at sp + 152
 		"stp x21, x22, [sp, #160]\n\t"
-		".cfi_offset x21, -640\n\t"
-		".cfi_offset x22, -632\n\t"
+		".cfi_escape 0x10, 0x15, 0x03, 0x8f, 0xa0, 0x01\n\t" // x21 at sp + 160
+		".cfi_escape 0x10, 0x16, 0x03, 0x8f, 0xa8, 0x01\n\t" // x22 at sp + 168
 		"stp x23, x24, [sp, #176]\n\t"
-		".cfi_offset x23, -624\n\t"
-		".cfi_offset x24, -616\n\t"
+		".cfi_escape 0x10, 0x17, 0x03, 0x8f, 0xb0, 0x01\n\t" // x23 at sp + 176
+		".cfi_escape 0x10, 0x18, 0x03, 0x8f, 0xb8, 0x01\n\t" // x24 at sp + 184
 		"stp x25, x26, [sp, #192]\n\t"
-		".cfi_offset x25, -608\n\t"
-		".cfi_offset x26, -600\n\t"
+		".cfi_escape 0x10, 0x19, 0x03, 0x8f, 0xc0, 0x01\n\t" // x25 at sp + 192
+		".cfi_escape 0x10, 0x1a, 0x03, 0x8f, 0xc8, 0x01\n\t" // x26 at sp + 200
 		"stp x27, x28, [sp, #208]\n\t"
-		".cfi_offset x27, -592\n\t"
-		".cfi_offset x28, -584\n\t"
+		".cfi_escape 0x10, 0x1b, 0x03, 0x8f, 0xd0, 0x01\n\t" // x27 at sp + 208
+		".cfi_escape 0x10, 0x1c, 0x03, 0x8f, 0xd8, 0x01\n\t" // x28 at sp + 216
 		"stp x29, x30, [sp, #224]\n\t"
-		".cfi_offset x29, -576\n\t"
-		".cfi_offset x30, -568\n\t"
+		".cfi_escape 0x10, 0x1d, 0x03, 0x8f, 0xe0, 0x01\n\t" // x29 at sp + 224
+		".cfi_escape 0x10, 0x1e, 0x03, 0x8f, 0xe8, 0x01\n\t" // x30 at sp + 232
 		"mrs x9, nzcv\n\t"
 		"mrs x10, fpsr\n\t"
 		"stp x9, x10, [sp, #240]\n\t"
@@ -430,16 +494,19 @@ __asm__(".pushsection .text\n\t"
 		"mov x0, x8\n\t"
 		"bl syscall_hooker_cxx\n\t"
 		"str x0, [sp, #0]\n\t"
-		"mov x17, #12\n\t" // GATE_RETURN_OFFSET
-		"b 3f\n\t"
+		"b 3f\n\t" // GATE_RETURN_OFFSET
 		// clone, clone3: the direct path restores every register from
 		// the frame, so a call before it changes nothing the child sees.
 		"5:\n\t"
 		"mov x1, x8\n\t"
-		"add x2, sp, #800\n\t" // the application's sp
+		"ldr x2, [sp, #776]\n\t"
+		"and x2, x2, #0xfffffffffffffff0\n\t"
+		"add x2, x2, #16\n\t" // the application's sp
 		"bl note_clone_syscall\n\t"
 		"2:\n\t"
-		"mov x17, #20\n\t" // GATE_DIRECT_OFFSET
+		"ldr x9, [sp, #776]\n\t"
+		"orr x9, x9, #8\n\t" // GATE_DIRECT_OFFSET
+		"str x9, [sp, #776]\n\t"
 		"3:\n\t"
 		"add x9, sp, #256\n\t"
 		"ldp q0, q1, [x9, #0]\n\t"
@@ -466,6 +533,16 @@ __asm__(".pushsection .text\n\t"
 		"b.eq 4f\n\t"
 		"msr fpcr, x9\n\t"
 		"4:\n\t"
+		// Done with the hook stack: the frame stays readable below any
+		// handler's (sp is on it until the end, so a handler stays below).
+		"ldr x9, [sp, #776]\n\t"
+		"tbz x9, #0, 6f\n\t"
+		"mrs x10, tpidr_el0\n\t"
+		"adrp x11, :gottprel:bpftime_hook_stack\n\t"
+		"ldr x11, [x11, #:gottprel_lo12:bpftime_hook_stack]\n\t"
+		"add x10, x10, x11\n\t"
+		"str xzr, [x10, #16]\n\t" // busy
+		"6:\n\t"
 		"ldp x9, x10, [sp, #240]\n\t"
 		"msr nzcv, x9\n\t"
 		"msr fpsr, x10\n\t"
@@ -497,10 +574,24 @@ __asm__(".pushsection .text\n\t"
 		"ldp x29, x30, [sp, #224]\n\t"
 		".cfi_restore x29\n\t"
 		".cfi_restore x30\n\t"
-		"add x16, x16, x17\n\t"
-		".cfi_escape 0x16, 0x11, 0x19, 0x80, 0x00, 0x81, 0x00, 0x1c, 0x12, 0x23, 0x10, 0x94, 0x04, 0x0c, 0xff, 0xff, 0xff, 0x03, 0x1a, 0x08, 0x26, 0x24, 0x08, 0x24, 0x26, 0x22, 0x23, 0x10\n\t"
-		"add sp, sp, #784\n\t"
-		".cfi_def_cfa_offset 16\n\t"
+		"ldr x17, [sp, #776]\n\t"
+		"tbnz x17, #3, 9f\n\t"
+		".cfi_remember_state\n\t"
+		"and x17, x17, #0xfffffffffffffff0\n\t"
+		"mov sp, x17\n\t" // back on the application's stack
+		".cfi_def_cfa sp, 16\n\t"
+		".cfi_escape 0x16, 0x11, 0x16, 0x80, 0x00, 0x12, 0x23, 0x10, 0x94, 0x04, 0x0c, 0xff, 0xff, 0xff, 0x03, 0x1a, 0x08, 0x26, 0x24, 0x08, 0x24, 0x26, 0x22, 0x23, 0x10\n\t"
+		"add x16, x16, #12\n\t" // GATE_RETURN_OFFSET
+		".cfi_escape 0x16, 0x11, 0x16, 0x80, 0x74, 0x12, 0x23, 0x10, 0x94, 0x04, 0x0c, 0xff, 0xff, 0xff, 0x03, 0x1a, 0x08, 0x26, 0x24, 0x08, 0x24, 0x26, 0x22, 0x23, 0x10\n\t"
+		"br x16\n\t"
+		".cfi_restore_state\n\t"
+		"9:\n\t"
+		"and x17, x17, #0xfffffffffffffff0\n\t"
+		"mov sp, x17\n\t"
+		".cfi_def_cfa sp, 16\n\t"
+		".cfi_escape 0x16, 0x11, 0x16, 0x80, 0x00, 0x12, 0x23, 0x10, 0x94, 0x04, 0x0c, 0xff, 0xff, 0xff, 0x03, 0x1a, 0x08, 0x26, 0x24, 0x08, 0x24, 0x26, 0x22, 0x23, 0x10\n\t"
+		"add x16, x16, #20\n\t" // GATE_DIRECT_OFFSET
+		".cfi_escape 0x16, 0x11, 0x16, 0x80, 0x6c, 0x12, 0x23, 0x10, 0x94, 0x04, 0x0c, 0xff, 0xff, 0xff, 0x03, 0x1a, 0x08, 0x26, 0x24, 0x08, 0x24, 0x26, 0x22, 0x23, 0x10\n\t"
 		"br x16\n\t"
 		".cfi_endproc\n\t"
 		".size syscall_hooker_asm, .-syscall_hooker_asm\n\t"
@@ -583,6 +674,53 @@ inline bool is_special_call(int64_t sys_nr)
 }
 } // namespace
 
+#if defined(__aarch64__)
+// A thread's hook stack: 128 KiB (an LLVM JIT program alone takes 18 KB; a
+// signal handler without an alternate stack that interrupts a hooked blocking
+// call runs on it, the kernel's signal frame included) above a 64 KiB guard,
+// mapped with the hook's own system calls at the thread's first traced call,
+// which still runs on the caller's stack (a new thread's first calls run on
+// its system stack: glibc's thread start, Go's g0). Never given back: the
+// thread is on it when it exits.
+constexpr uint64_t HOOK_STACK_SIZE = 128 << 10;
+constexpr uint64_t HOOK_STACK_GUARD = 64 << 10;
+static __thread bool hook_stack_failed __attribute__((tls_model("initial-exec")));
+
+__attribute__((noinline, cold)) static void allocate_hook_stack()
+{
+	const int64_t base = orig_syscall_direct(
+		SYS_mmap, 0, HOOK_STACK_GUARD + HOOK_STACK_SIZE, PROT_NONE,
+		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_STACK, -1, 0);
+	if ((uint64_t)base >= (uint64_t)-4095) {
+		hook_stack_failed = true;
+		return;
+	}
+	if (orig_syscall_direct(SYS_mprotect, base + HOOK_STACK_GUARD,
+				HOOK_STACK_SIZE, PROT_READ | PROT_WRITE, 0, 0,
+				0) != 0) {
+		orig_syscall_direct(SYS_munmap, base,
+				    HOOK_STACK_GUARD + HOOK_STACK_SIZE, 0, 0, 0, 0);
+		hook_stack_failed = true;
+		return;
+	}
+	// The asm takes hi != 0 as the bounds being valid.
+	bpftime_hook_stack.lo = base + HOOK_STACK_GUARD;
+	__atomic_signal_fence(__ATOMIC_SEQ_CST);
+	bpftime_hook_stack.hi = base + HOOK_STACK_GUARD + HOOK_STACK_SIZE;
+}
+
+static inline void ensure_hook_stack()
+{
+	if (__builtin_expect(bpftime_hook_stack.hi == 0 && !hook_stack_failed,
+			     0))
+		allocate_hook_stack();
+}
+#else
+static inline void ensure_hook_stack()
+{
+}
+#endif
+
 // Called only from the assembly hook: keep it through LTO.
 extern "C" __attribute__((used)) int64_t syscall_hooker_cxx(int64_t sys_nr, int64_t arg1,
 				      int64_t arg2, int64_t arg3, int64_t arg4,
@@ -598,6 +736,7 @@ extern "C" __attribute__((used)) int64_t syscall_hooker_cxx(int64_t sys_nr, int6
 			bpftime::forget_lazy_mapping(sys_nr);
 		return ret;
 	}
+	ensure_hook_stack();
 	if (__builtin_expect(is_special_call(sys_nr), 0))
 		return hook_special_call(sys_nr, arg1, arg2, arg3, arg4, arg5,
 					 arg6);
