@@ -31,7 +31,11 @@ void *fix_size_hash_map_impl::elem_lookup(const void *key)
 	return map_impl.elem_lookup(key);
 }
 
-long fix_size_hash_map_impl::elem_update(const void *key, const void *value,
+// flatten: the table's update and delete are also called by the per-CPU hash
+// (and delete with a value to copy out), and LTO then kept them out of line
+// and unspecialized for this caller: +0.6 ns per update, +1.5 ns per delete.
+__attribute__((flatten)) long
+fix_size_hash_map_impl::elem_update(const void *key, const void *value,
 					 uint64_t flags)
 {
 	// Kernel htab semantics. BPF_F_LOCK is ignored as before.
@@ -64,7 +68,8 @@ long fix_size_hash_map_impl::elem_update(const void *key, const void *value,
 	return -1;
 }
 
-long fix_size_hash_map_impl::elem_delete(const void *key)
+__attribute__((flatten)) long
+fix_size_hash_map_impl::elem_delete(const void *key)
 {
 	if (!map_impl.elem_delete(key)) {
 		errno = ENOENT;
