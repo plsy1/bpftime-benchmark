@@ -24,3 +24,23 @@ Checked and cleared by the review (and spot-checked): lookup vs insert ordering,
 lookup termination and terminator encoding, torn keys, value alignment for 4/8/12/16/64 B keys,
 stripe/list arithmetic, free-list ordering, lock order (no live deadlock), update flags,
 delete-with-value, next_key order, per-CPU hash slot handling, spin lock protocol.
+
+## Reproduced (`review-repro/`, 07:15-07:30, built against the e5ba4aa7 table header)
+
+`repro.cpp`, one case per argument; logs `run1.log`, `run2.log`, `run3.log`. Not measurements.
+
+- **1 reproduced.** The state a half-done delete leaves (USED cleared, element still linked) set by
+  hand: a lookup of the key behind it and a miss in the bucket both did not return in 2 s; both
+  finished correctly once the word was restored.
+- **2 reproduced.** One list held (as by a dead process), the inserter's own list drained: the
+  inserter blocked after 500 inserts with the map at 501 of 600, another writer of its stripe
+  blocked too, a lookup in that stripe returned. After the release all inserts finished, E2BIG
+  at exactly 600.
+- **3 reproduced.** 16 B values written as {x, x} by two updaters, three readers for 5 s: 391,877
+  of 364 million pointer reads and 995,658 `lookup_read` copies mixed old and new halves.
+- **5 not reproduced.** Six threads each deleting then inserting (1-28 free elements at every
+  moment, 22-40 million inserts) and three insert-only against three delete-only threads (1-16
+  free, ~3.5 million inserts each): no E2BIG. The window (an element moves into a list the
+  inserter already passed while another inserter takes the one it was heading for) is real by
+  reading but narrow; the kernel's freelist has the same one.
+- **6 reproduced.** 1000 keys `j * phi^-1`: all in one chain, 2245 ns per insert.
