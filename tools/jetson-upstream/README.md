@@ -321,6 +321,22 @@ reused a lap later. Known cost against 9aeb2863: single-thread ringbuf output
 +2-3%, 6 threads -2.4%. A fourth review with a severity bar found nothing
 more to fix (`reviews-20261031/rereview3`).
 
+Nine more commits (`0ffe368b..a4ac0d31`, accepted 2026-11-02) win back the
+single-thread cost of the multi-thread hash work. Phase 1: the spin locks
+inline with glibc's protocol, four-byte key lookups ordered by an acquire
+load instead of a fence, one-lock fast paths for updates and deletes inside
+the home stripe, the handler's map lock out of line. Phase 2: the per-CPU
+hash keeps its keys in the striped hash table and its values in a slot
+pool, so no operation takes the handler's map lock; `flatten` keeps the
+ordinary hash's update and delete inlined. Full ten on a4ac0d31: hash
+update/lookup/delete 29.1/22.3/33.9 ns, per-CPU hash 36.3/25.3/58.3 ns
+(lookup 1.14x -> 0.85x the kernel); per-CPU counters' map cost at 2-6
+threads at the kernel's level. The per-CPU hash's key table is now
+preallocated (about 29 MB for 1M entries of 4-byte keys). New tests run
+under `[bpftime_hash_map]` and `[percpu-hash]`. Results:
+`uprobe/hash-single-thread-20261102`, `uprobe/percpu-hash-lockfree-20261102`,
+`uprobe/dev-a4ac0d31-20261102`.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
