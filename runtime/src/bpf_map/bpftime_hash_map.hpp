@@ -410,8 +410,11 @@ class bpftime_hash_map {
 	// Buckets on a present key's probe path stay non-empty and the bound
 	// stays at least its distance (release_deleted_run, note_released), so
 	// concurrent writers cannot make a lookup miss a key present throughout.
-	template <bool Uint32Key>
-	void *lookup_from_bucket(const void *key, size_t home)
+	// read(value) runs after the key matched and before the re-check, so
+	// what it reads belongs to the key when the lookup succeeds (it may run
+	// again on a retry); it must read with acquire loads.
+	template <bool Uint32Key, class Read>
+	void *lookup_from_bucket(const void *key, size_t home, Read &read)
 	{
 		const view v = resolve();
 		uint32_t key_value = 0;
@@ -445,6 +448,7 @@ class bpftime_hash_map {
 								    _key_size) == 0;
 					}
 					if (equal) {
+						read(bucket_key - 4 + _value_offset);
 						// Order the key reads before the re-read
 						// (a four-byte key's acquire load already
 						// does: the fence, a dmb ishld, cost 5 ns
@@ -644,10 +648,69 @@ class bpftime_hash_map {
 
 	void *elem_lookup(const void *key)
 	{
+		return lookup_read(key, [](const void *) {});
+	}
+
+	// A lookup that also reads the value (read(value), see
+	// lookup_from_bucket) consistently with the key match: nullptr if the
+	// key is missing, else the value, and what read last read is the key's.
+	template <class Read> void *lookup_read(const void *key, Read &&read)
+	{
 		const size_t index = home_bucket(key);
 		if (_key_size == sizeof(uint32_t))
-			return lookup_from_bucket<true>(key, index);
-		return lookup_from_bucket<false>(key, index);
+			return lookup_from_bucket<true>(key, index, read);
+		return lookup_from_bucket<false>(key, index, read);
+	}
+
+	// Runs fn(value) on key's value under the locks of the stripes its
+	// probe covers, so that no writer deletes or replaces the key meanwhile.
+	// False (fn not run) when the key is missing. Like delete, the common
+	// case takes only the home stripe's lock.
+	template <class Fn> bool with_existing_value(const void *key, Fn &&fn)
+	{
+		const view v = resolve();
+		const size_t home = home_bucket(key);
+		const size_t home_stripe = stripe_of(home);
+		auto find = [&](size_t bound, auto next) {
+			size_t index = home;
+			for (size_t probe = 0; probe <= bound; ++probe) {
+				const auto state = state_at(v, index);
+				if (state == BUCKET_EMPTY)
+					return false;
+				if (state == BUCKET_FILLED &&
+				    keys_equal(key_at(v, index), key)) {
+					fn(value_at(v, index));
+					return true;
+				}
+				index = next(index);
+			}
+			return false;
+		};
+		{
+			auto &st = v.stripes[home_stripe];
+			bpftime_spin_lock(&st.lock);
+			const size_t bound = st.bound;
+			if (home + bound < stripe_end(home_stripe)) {
+				const bool found = find(
+					bound, [](size_t index) { return index + 1; });
+				bpftime_spin_unlock(&st.lock);
+				return found;
+			}
+			bpftime_spin_unlock(&st.lock);
+		}
+		size_t span = load_bound(v, home_stripe) + 1;
+		for (;;) {
+			const stripe_range locked = range_for(home, span);
+			range_guard guard(*this, v, locked);
+			const size_t bound = v.stripes[home_stripe].bound;
+			if (bound + 1 > span && locked.count < _num_stripes) {
+				span = bound + 1;
+				continue;
+			}
+			return find(bound, [&](size_t index) {
+				return advance(index, 1);
+			});
+		}
 	}
 
 	enum class update_mode { any, no_exist, exist };
