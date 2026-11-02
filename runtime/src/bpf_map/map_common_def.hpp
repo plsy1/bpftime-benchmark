@@ -22,9 +22,14 @@ namespace bpftime
 {
 
 // Spin locks of the shared segment (map locks, hash map stripes), taken
-// inline on the pthread_spinlock_t word with glibc's protocol (0 free; an
-// acquire exchange of 1 takes it, a release store of 0 gives it back), so
-// that pthread_spin_lock on the same word still excludes. Through glibc each
+// inline on the pthread_spinlock_t word with glibc's generic protocol, which
+// aarch64 uses (0 free; an acquire exchange of 1 takes it, a release store of
+// 0 gives it back), so that pthread_spin_lock on the same word still
+// excludes. Only there: x86-64 glibc keeps its own asm with the opposite
+// protocol (pthread_spin_init and unlock store 1, free; lock is `lock decl`,
+// held at 0), so an inline exchange never took a lock initialized by
+// pthread_spin_init and every map operation spun forever. Other
+// architectures and libcs call pthread_spin_lock. Through glibc each
 // lock was a PLT call, glibc's function and its out-of-line atomic
 // (__aarch64_swp4_acq): 1-4 ns of a 40 ns hash map update on the Jetson.
 // The exchange stays __atomic (with -moutline-atomics a call into libgcc
@@ -33,16 +38,11 @@ namespace bpftime
 __attribute__((always_inline)) inline void
 bpftime_spin_lock(volatile pthread_spinlock_t *lock)
 {
-#if defined(__GLIBC__)
+#if defined(__GLIBC__) && defined(__aarch64__)
 	int *word = (int *)lock; // glibc: volatile int
 	while (__atomic_exchange_n(word, 1, __ATOMIC_ACQUIRE) != 0) {
-		while (__atomic_load_n(word, __ATOMIC_RELAXED) != 0) {
-#if defined(__aarch64__)
+		while (__atomic_load_n(word, __ATOMIC_RELAXED) != 0)
 			__asm__ __volatile__("yield");
-#elif defined(__x86_64__) || defined(__i386__)
-			__builtin_ia32_pause();
-#endif
-		}
 	}
 #else
 	pthread_spin_lock(const_cast<pthread_spinlock_t *>(lock));
@@ -52,7 +52,7 @@ bpftime_spin_lock(volatile pthread_spinlock_t *lock)
 __attribute__((always_inline)) inline void
 bpftime_spin_unlock(volatile pthread_spinlock_t *lock)
 {
-#if defined(__GLIBC__)
+#if defined(__GLIBC__) && defined(__aarch64__)
 	__atomic_store_n((int *)lock, 0, __ATOMIC_RELEASE);
 #else
 	pthread_spin_unlock(const_cast<pthread_spinlock_t *>(lock));
