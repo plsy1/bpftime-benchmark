@@ -678,7 +678,7 @@ to its own 32-byte gate in a trampoline region mapped within the +-128 MiB
 reach of `b` (`MAP_FIXED_NOREPLACE`, closest free gap), after svc-hook
 (Middleware 2025) and ASC-Hook. The gate saves only x16/x17 on the stack and
 passes its own address (`adr`); `syscall_hooker_asm` saves x0-x30, NZCV, FPSR,
-FPCR and q0-q31 (a 784-byte frame below the gate's 16 bytes), calls
+FPCR and q0-q31 (a 784-byte frame, on the thread's hook stack: below), calls
 `syscall_hooker_cxx`, restores everything (x0 = result; FPCR written back
 only if the hook changed it, as the kernel preserves it and a write can
 serialize) and branches to the gate's return stub, which restores x16/x17 and
@@ -689,6 +689,37 @@ gate's direct stub: all registers and sp restored, `svc` issued in the gate,
 plain `b` back, so a child on a fresh stack never returns into C frames (they
 are not traced, as on x86). glibc returns from signal handlers through the
 vDSO's `__kernel_rt_sigreturn` (never rewritten); musl and Go use their own restorer, covered by a test.
+
+The hook runs on a stack of its own per thread (`bpftime_hook_stack`, initial-
+exec TLS read by the asm: 128 KiB above a 64 KiB guard, mapped with the hook's
+own system calls at the thread's first traced call, which still runs on the
+caller's stack; never unmapped, the thread is on it when it exits). Below
+the application's sp it writes 32 bytes (the gate's x16/x17, then x0/x1 while
+it switches). It wrote 880 bytes with no agent callback, 1,376 with the agent,
+18,144 with a program attached (the LLVM JIT allocas 32 local-call levels of
+512 bytes plus a call stack on every run), while Go makes its system calls on
+goroutine stacks (2 KiB to start, about 900 bytes guaranteed below sp, no
+guard page): every dynamically linked Go program crashed once the agent was
+loaded, programs or not (neighbouring goroutines' frames overwritten:
+"unknown caller pc", "unexpected fault address", SIGSEGV). The frame stays on
+the current stack when the thread has no hook stack yet, when sp is already on
+it (the hook's own calls, a handler without an alternate stack interrupting a
+hooked blocking call: below the live frames) and when a switched frame is live
+(`busy`) and sp is elsewhere (a handler on the application's sigaltstack, as
+Go's always are: the top holds that frame). `busy` is set before sp moves
+onto the hook stack and cleared while sp is still on it; the tests before the
+switch use no flags (NZCV is saved later). The frame's slot at 776 holds the
+application's sp (bit 0: switched, bit 3: direct path), from which the unwind
+information computes the CFA; the saved registers are described relative to
+sp. Cost: 39 instructions, 14-15 cycles per hooked call (write: 397 -> 406
+ns rewritten, agent dispatch 426 -> 436 ns; results
+`syscall/realapps-20261102/hook-perf`). Tests: "a hooked call uses only a few bytes of the caller's stack", "a
+handler on an alternate stack leaves the hook's live frame alone", "a handler
+on the hook stack builds its frame below the live one"; end to end with Go,
+results `syscall/realapps-20261102`. A raw `CLONE_VM` thread without
+`CLONE_SETTLS` shares its creator's TLS and hook stack (not covered).
+Frida uprobes on Go functions still run programs (18 KB) on the goroutine
+stack.
 Sites are found per executable mapping by its ELF file's `SHF_EXECINSTR`
 sections (no constants of a shared segment taken for code). Mappings without
 section headers (anonymous code, unreadable files) are skipped and counted in
@@ -911,10 +942,10 @@ Fixed after the second review (results `reviews-20261031/rereview`):
   `no_new_privs`, set before the filter, cannot be undone and stays.
 
 Known limits of the aarch64 rewriting (documented, not fixed):
-- A hooked call pushes 16 + 784 bytes before the C dispatch, about 1.3 KiB
-  with the agent's callback, plus the BPF stack when programs run; `svc`
-  needs none. Code on very small stacks (Go goroutine stacks, a sigaltstack
-  near MINSIGSTKSZ) can overflow; not tested with Go.
+- A thread's first traced call, and a hooked call from a signal handler on
+  an alternate stack while a hooked call of the same thread is live, still
+  run on the current stack (about 1.4 KiB with the agent, 18 KB with a
+  program): a sigaltstack near MINSIGSTKSZ can overflow.
 - The gate's `stp x16, x17, [sp, #-16]!` needs a 16-byte aligned sp: hand
   written code issuing `svc` with a misaligned sp gets SIGBUS once rewritten.
 - `mremap` moving rewritten code breaks the PC-relative `b` of its sites.
