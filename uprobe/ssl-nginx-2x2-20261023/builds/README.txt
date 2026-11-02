@@ -43,3 +43,6 @@ dev-68f19c1f  dev 68f19c1f (5b28dae5 + handler map lock out of line; candidate b
 dev-e1677f0d  dev e1677f0d (68f19c1f + per-CPU hash on the striped table and a slot pool, no map lock; candidate build-jetson-daily)
 dev-a4ac0d31  dev a4ac0d31 (e1677f0d + flatten of the ordinary hash's update/delete; candidate build-jetson-daily)
 exp-flatten   experiment: same tree as dev-a4ac0d31 before the commit (built by target only)
+dev-42595149  dev 42595149 (49bc1fd9 spin lock fix + hash map element count as one shared atomic, no tokens; candidate build-jetson-daily)
+exp-llsc      experiment: 42595149 with the element count added by an ldxr/stxr loop (not committed)
+dev-e5ba4aa7  dev e5ba4aa7 (no stack canary; 42595149 + hash map as preallocated elements in u32 chains, per-CPU free lists; candidate build-jetson-daily)
