@@ -337,6 +337,15 @@ under `[bpftime_hash_map]` and `[percpu-hash]`. Results:
 `uprobe/hash-single-thread-20261102`, `uprobe/percpu-hash-lockfree-20261102`,
 `uprobe/dev-a4ac0d31-20261102`.
 
+7d9690c3 (accepted 2026-11-02) runs the aarch64 system call hook on a
+per-thread stack of its own (128 KiB above a 64 KiB guard): it wrote 1.4 KB
+below the caller's sp with the agent, 18 KB with a program, and Go makes its
+system calls on goroutine stacks (about 900 bytes guaranteed, no guard page),
+so every dynamically linked Go program crashed once the agent was loaded.
+Now 32 bytes; Go end to end 80/80 runs ok. Cost: about +9 ns per hooked call
+(write 397 -> 406 ns). Its tests run in the transformer suite. Results:
+`syscall/realapps-20261102`.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
