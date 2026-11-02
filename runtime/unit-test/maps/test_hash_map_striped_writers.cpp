@@ -43,26 +43,21 @@ struct shm_guard {
 	}
 };
 
-// Keys whose hash is b2 * 31 + b3 (b0 = b1 = 0): 3600 keys on about 1800
-// home buckets, so each insert probes past several others.
+// Keys with fixed low bytes (b0 = b1 = 0), the pattern that clustered in the
+// open-addressing table (3600 keys on about 1800 home buckets there).
 uint32_t clustered_key(uint32_t n)
 {
 	const uint32_t b2 = (n / 64) & 0xff, b3 = (n % 64) & 0xff;
 	return (b2 << 16) | (b3 << 24);
 }
 
-size_t home_of(const bpftime_hash_map &map, uint32_t key)
-{
-	return bpftime_hasher::hash_func(&key, sizeof(key)) % map.bucket_count();
-}
 } // namespace
 
 TEST_CASE("striped hash writers agree with a reference under contention",
 	  "[bpftime_hash_map][concurrency]")
 {
 	shm_guard shm("BPFTIME_TEST_HASH_STRIPED_REFERENCE");
-	// 4096 entries: 8209 buckets in 129 stripes of 64; the clustered keys
-	// fill a dense run of about 30 stripes.
+	// 4096 entries: 4096 chains in 256 stripes of 16.
 	constexpr size_t max_entries = 4096;
 	constexpr int threads = 4;
 	constexpr int keys_per_thread = 900;
@@ -204,20 +199,19 @@ TEST_CASE("striped hash map keeps max_entries exact across threads",
 	REQUIRE_FALSE(map.elem_update(&extra, &value));
 }
 
-TEST_CASE("striped hash map probe runs wrap past the last stripe",
+TEST_CASE("striped hash map chains of the first and last buckets churn apart",
 	  "[bpftime_hash_map][concurrency]")
 {
 	shm_guard shm("BPFTIME_TEST_HASH_STRIPED_WRAP");
 	bpftime_hash_map map(shm.segment, 256, 4, 8);
 	REQUIRE(map.stripe_count() > 2);
 	const size_t last = map.bucket_count() - 1;
-	// Keys whose home is the last bucket run into stripe 0; keys with home
-	// bucket 0 compete with them for stripe 0.
+	// 100-element chains in the last and the first bucket.
 	std::vector<uint32_t> at_end, at_start;
 	for (uint32_t key = 1; (at_end.size() < 100 || at_start.size() < 100) &&
 			       key < (1u << 26);
 	     key++) {
-		const size_t home = home_of(map, key);
+		const size_t home = map.bucket_of_key(&key);
 		if (home == last && at_end.size() < 100)
 			at_end.push_back(key);
 		else if (home == 0 && at_start.size() < 100)
@@ -250,14 +244,8 @@ TEST_CASE("striped hash map probe runs wrap past the last stripe",
 	a.join();
 	b.join();
 	REQUIRE(errors.load() == 0);
-	// The end keys wrapped: some sit before the last bucket's index.
-	size_t wrapped = 0;
-	for (uint32_t key : at_end) {
-		const auto *v = map.elem_lookup(&key);
-		if (v != nullptr && map.get_index_of_value(v) < last)
-			wrapped++;
-	}
-	REQUIRE(wrapped > 0);
+	REQUIRE(map.chain_length_of_key(&at_end[0]) == 50);
+	REQUIRE(map.chain_length_of_key(&at_start[0]) == 50);
 }
 
 TEST_CASE("striped hash map is shared by processes mapping it elsewhere",
