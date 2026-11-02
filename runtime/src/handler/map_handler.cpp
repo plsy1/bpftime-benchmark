@@ -317,7 +317,10 @@ const void *bpf_map_handler::map_lookup_hash(const void *key) const
 
 const void *bpf_map_handler::map_lookup_percpu_hash(const void *key) const
 {
-	bpftime_lock_guard guard(map_lock);
+	// Locks itself (lookups take no lock).
+	std::optional<bpftime_lock_guard> guard;
+	if constexpr (per_cpu_hash_map_impl::should_lock)
+		guard.emplace(map_lock);
 #if BPFTIME_ENABLE_MAP_USAGE_STATS
 	const void *result =
 		static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
@@ -368,7 +371,10 @@ long bpf_map_handler::map_update_percpu_hash(const void *key,
 					     const void *value,
 					     uint64_t flags) const
 {
-	bpftime_lock_guard guard(map_lock);
+	// Locks itself (lookups take no lock).
+	std::optional<bpftime_lock_guard> guard;
+	if constexpr (per_cpu_hash_map_impl::should_lock)
+		guard.emplace(map_lock);
 #if BPFTIME_ENABLE_MAP_USAGE_STATS
 	auto *impl = static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get());
 	const bool existed =
@@ -391,7 +397,9 @@ const void *bpf_map_handler::diagnostic_direct_lookup(const void *key) const
 		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
 			->elem_lookup(key);
 	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH) {
-		bpftime_lock_guard guard(map_lock);
+		std::optional<bpftime_lock_guard> guard;
+		if constexpr (per_cpu_hash_map_impl::should_lock)
+			guard.emplace(map_lock);
 		return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
 			->elem_lookup(key);
 	}
@@ -409,7 +417,9 @@ long bpf_map_handler::diagnostic_direct_update(const void *key,
 		return static_cast<per_cpu_array_map_impl *>(map_impl_ptr.get())
 			->elem_update(key, value, flags);
 	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH) {
-		bpftime_lock_guard guard(map_lock);
+		std::optional<bpftime_lock_guard> guard;
+		if constexpr (per_cpu_hash_map_impl::should_lock)
+			guard.emplace(map_lock);
 		return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
 			->elem_update(key, value, flags);
 	}
@@ -419,7 +429,9 @@ long bpf_map_handler::diagnostic_direct_update(const void *key,
 long bpf_map_handler::diagnostic_direct_delete(const void *key) const
 {
 	if (type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH) {
-		bpftime_lock_guard guard(map_lock);
+		std::optional<bpftime_lock_guard> guard;
+		if constexpr (per_cpu_hash_map_impl::should_lock)
+			guard.emplace(map_lock);
 		return static_cast<per_cpu_hash_map_impl *>(map_impl_ptr.get())
 			->elem_delete(key);
 	}
@@ -1776,7 +1788,9 @@ long bpf_map_handler::map_lookup_and_delete_elem(const void *key,
 	case bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH: {
 		auto impl = static_cast<per_cpu_hash_map_impl *>(
 			map_impl_ptr.get());
-		bpftime_lock_guard guard(map_lock);
+		std::optional<bpftime_lock_guard> guard;
+		if constexpr (per_cpu_hash_map_impl::should_lock)
+			guard.emplace(map_lock);
 		return impl->lookup_and_delete_userspace(key, value);
 	}
 	case bpf_map_type::BPF_MAP_TYPE_LRU_HASH:
