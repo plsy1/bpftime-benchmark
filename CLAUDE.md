@@ -569,7 +569,11 @@ count is kept (`get_elem_count` sums the lists, exact without concurrent
 writers). Lock order: stripe, then list; a list is never held while taking
 a stripe. Step 1 of the redesign (42595149) had replaced the tokens with one
 shared atomic count, which cost an atomic per insert and delete (suite hash
-delete 33.9 -> 40.6 ns).
+delete 33.9 -> 40.6 ns). Against the table before both steps (a4ac0d31;
+results `uprobe/dev-e5ba4aa7-20261103`): suite hash lookup -28%, update -9%,
+delete +8% (the stripe lock, then a list lock); per-CPU hash lookup -8%,
+update -6%, delete +12%. Delete + insert through BPF programs at 90% load,
+one thread: 0.14-0.28 us, 0.27-0.62x the kernel (a4ac0d31: 2.9-34 us).
 
 The stripe and free-list locks and the handler's `map_lock`
 (`bpftime_lock_guard`) are taken
