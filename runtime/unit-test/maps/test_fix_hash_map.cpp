@@ -174,25 +174,24 @@ TEST_CASE("Fixed hash map preserves non-four-byte key comparisons",
 			map.elem_lookup(second_key.data())) == second_value);
 }
 
-TEST_CASE("Fixed hash iteration scans adjusted bucket count",
+TEST_CASE("Fixed hash iteration scans every bucket",
 	  "[maps][hash][iteration]")
 {
 	static const char *shm_name = "bpftime_fix_hash_iteration_test";
 	shm_cleanup cleanup(shm_name);
 	managed_shared_memory segment(create_only, shm_name, 65536);
 
-	constexpr size_t requested_buckets = 10;
-	const size_t actual_buckets =
-		bpftime_hasher::next_prime(requested_buckets);
-	REQUIRE(actual_buckets > requested_buckets);
-
-	fix_size_hash_map_impl map(segment, requested_buckets, sizeof(uint32_t),
+	constexpr size_t max_entries = 10;
+	fix_size_hash_map_impl map(segment, max_entries, sizeof(uint32_t),
 				   sizeof(uint64_t));
+	// The same layout, to find a key of the last bucket.
+	bpftime_hash_map layout(segment, max_entries, sizeof(uint32_t),
+				sizeof(uint64_t));
+	REQUIRE(layout.bucket_count() > max_entries);
 
 	uint32_t key = 0;
 	for (;; ++key) {
-		if (bpftime_hasher::hash_func(&key, sizeof(key)) % actual_buckets ==
-		    actual_buckets - 1)
+		if (layout.bucket_of_key(&key) == layout.bucket_count() - 1)
 			break;
 	}
 	uint64_t value = 0x123456789abcdef0ULL;
@@ -203,21 +202,21 @@ TEST_CASE("Fixed hash iteration scans adjusted bucket count",
 	REQUIRE(next_key == key);
 }
 
-TEST_CASE("Fixed hash lookup preserves wrapped probe chains and full-table misses",
+TEST_CASE("Fixed hash lookup keeps a full-capacity chain and misses past it",
 	  "[maps][hash][hash-probe-loop]")
 {
 	static const char *shm_name = "bpftime_fix_hash_probe_loop_test";
 	shm_cleanup cleanup(shm_name);
 	managed_shared_memory segment(create_only, shm_name, 65536);
-	constexpr size_t capacity = 7; // Prime: the table can have no empty buckets.
+	constexpr size_t capacity = 7; // Every element in one bucket's chain.
 
 	for (size_t key_size : { 1U, 3U, 4U, 8U, 16U }) {
 		for (size_t value_size : { 1U, 8U }) {
 			CAPTURE(key_size, value_size);
 			bpftime_hash_map map(segment, capacity, key_size, value_size);
 			std::vector<std::vector<uint8_t>> keys;
-			// Start at the final bucket so every later collision wraps.
-			// Offset each key by one byte to also exercise unaligned input.
+			// All in the last bucket. Offset each key by one byte to also
+			// exercise unaligned input.
 			for (uint32_t n = 0; keys.size() < capacity + 1 && n < 65536;
 			     ++n) {
 				std::vector<uint8_t> key(key_size + 1, 0);
@@ -227,8 +226,8 @@ TEST_CASE("Fixed hash lookup preserves wrapped probe chains and full-table misse
 				for (size_t byte = 0; byte < std::min(key_size, size_t{4});
 				     ++byte)
 					key[byte + offset] = static_cast<uint8_t>(n >> (8 * byte));
-				if (bpftime_hasher::hash_func(key.data() + 1, key_size) %
-					    capacity == capacity - 1)
+				if (map.bucket_of_key(key.data() + 1) ==
+				    map.bucket_count() - 1)
 					keys.push_back(std::move(key));
 			}
 			REQUIRE(keys.size() == capacity + 1);
@@ -261,8 +260,8 @@ TEST_CASE("Fixed hash lookup preserves wrapped probe chains and full-table misse
 				if (index != 0 && index != 3)
 					REQUIRE(map.elem_delete(keys[index].data() + 1));
 			}
-			// No empty buckets remain: every bucket is now a tombstone.
 			REQUIRE(map.elem_lookup(keys.back().data() + 1) == nullptr);
+			REQUIRE(map.get_elem_count() == 0);
 			for (size_t index = 0; index < capacity; ++index) {
 				const std::vector<uint8_t> value(value_size, index + 1);
 				REQUIRE(map.elem_update(keys[index].data() + 1, value.data()));

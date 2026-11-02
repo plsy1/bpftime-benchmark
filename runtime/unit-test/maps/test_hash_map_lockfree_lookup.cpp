@@ -40,21 +40,19 @@ struct shm_guard {
 	}
 };
 
-// 64-byte keys: halves A or B, then X or Y, all with the same hash. The
-// writer alternates (A, X) and (B, Y); readers look up (A, Y), which is never
-// inserted, so any hit is a match against a half-overwritten key.
+// 64-byte keys: halves A or B, then X or Y, all three in one bucket (found
+// by search). The writer alternates (A, X) and (B, Y); readers look up
+// (A, Y), which is never inserted, so any hit is a match against a
+// half-overwritten key.
 using long_key = std::array<uint8_t, 64>;
 
-long_key make_long_key(bool first_b, bool second_y)
+long_key make_long_key(uint8_t first, uint8_t second)
 {
 	long_key key{};
 	for (size_t i = 0; i < key.size(); i++)
 		key[i] = (uint8_t)(i + 1);
-	// Same contribution: (1, 0) and (0, 31) at a pair of positions.
-	key[6] = first_b ? 0 : 1;
-	key[7] = first_b ? 31 : 0;
-	key[62] = second_y ? 0 : 1;
-	key[63] = second_y ? 31 : 0;
+	key[7] = first;
+	key[63] = second;
 	return key;
 }
 } // namespace
@@ -64,13 +62,20 @@ TEST_CASE("hash lookups never match a key being overwritten",
 {
 	shm_guard shm("BPFTIME_TEST_HASH_LOCKFREE_TORN_KEY");
 	bpftime_hash_map map(shm.segment, 16, sizeof(long_key), 8);
-	const long_key ax = make_long_key(false, false);
-	const long_key by = make_long_key(true, true);
-	const long_key ay = make_long_key(false, true);
-	REQUIRE(bpftime_hasher::hash_func(ax.data(), 64) ==
-		bpftime_hasher::hash_func(by.data(), 64));
-	REQUIRE(bpftime_hasher::hash_func(ay.data(), 64) ==
-		bpftime_hasher::hash_func(ax.data(), 64));
+	long_key ax{}, by{}, ay{};
+	bool found = false;
+	for (unsigned a = 0; a < 256 && !found; a++)
+		for (unsigned b = 0; b < 256 && !found; b++) {
+			if (a == 7 || b == 9)
+				continue;
+			ax = make_long_key(7, 9);
+			by = make_long_key((uint8_t)a, (uint8_t)b);
+			ay = make_long_key(7, (uint8_t)b);
+			const uint32_t bucket = map.bucket_of_key(ax.data());
+			found = map.bucket_of_key(by.data()) == bucket &&
+				map.bucket_of_key(ay.data()) == bucket;
+		}
+	REQUIRE(found);
 
 	std::atomic<bool> done{ false };
 	std::atomic<uint64_t> false_hits{ 0 }, lookups{ 0 };
@@ -108,7 +113,7 @@ TEST_CASE("hash lookups never match a key being overwritten",
 TEST_CASE("hash lookups return only values written for the key",
 	  "[bpftime_hash_map][concurrency]")
 {
-	// Four-byte keys {0,0,1,0} and {0,0,0,31}; 256-byte values that hold
+	// Two four-byte keys of one bucket; 256-byte values that hold
 	// their key in the last four bytes (written last). The writer deletes
 	// each key before inserting the other and counts each delete when it
 	// starts and when it has finished. A reader that read the finished count,
@@ -120,14 +125,9 @@ TEST_CASE("hash lookups return only values written for the key",
 		uint32_t key;
 	};
 	bpftime_hash_map map(shm.segment, 16, 4, sizeof(value_t));
-	const uint32_t keys[2] = { 0x00010000, 0x1f000000 };
-	{
-		uint8_t b0[4], b1[4];
-		std::memcpy(b0, &keys[0], 4);
-		std::memcpy(b1, &keys[1], 4);
-		REQUIRE(bpftime_hasher::hash_func(b0, 4) ==
-			bpftime_hasher::hash_func(b1, 4));
-	}
+	uint32_t keys[2] = { 0x00010000, 0x00010001 };
+	while (map.bucket_of_key(&keys[1]) != map.bucket_of_key(&keys[0]))
+		keys[1]++;
 	std::atomic<uint64_t> started[2] = { 0, 0 }, finished[2] = { 0, 0 };
 	std::atomic<bool> done{ false };
 	std::atomic<uint64_t> wrong{ 0 }, hits{ 0 };
