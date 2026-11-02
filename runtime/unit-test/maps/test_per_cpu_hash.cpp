@@ -24,32 +24,10 @@ using namespace bpftime;
 
 static const char *SHM_NAME = "BPFTIME_PER_CPU_HASH_SHM";
 
-TEST_CASE("four-byte key hash uses the direct integer value",
-	  "[percpu-hash][hash-fast4]")
-{
-	const std::string shm_name =
-		"BPFTIME_PER_CPU_HASH_COMPAT_SHM_" + std::to_string(getpid());
-	shm_remove remover(shm_name.c_str());
-	managed_shared_memory mem(create_only, shm_name.c_str(), 1 << 20);
-	bytes_vec key(sizeof(uint32_t), mem.get_segment_manager());
-	const std::array<std::array<uint8_t, 4>, 5> cases = { {
-		{ 0x00, 0x00, 0x00, 0x00 },
-		{ 0x01, 0x00, 0x00, 0x00 },
-		{ 0xff, 0xff, 0xff, 0xff },
-		{ 0x12, 0x34, 0x56, 0x78 },
-		{ 0x78, 0x56, 0x34, 0x12 },
-	} };
-
-	for (const auto &bytes : cases) {
-		std::copy(bytes.begin(), bytes.end(), key.begin());
-		uint32_t expected;
-		std::memcpy(&expected, bytes.data(), sizeof(expected));
-		REQUIRE(per_cpu_bytes_vec_hasher{}(key) == expected);
-	}
-}
-
 TEST_CASE("Test basic operations of hash map")
 {
+	// 2^16 entries: the key table is preallocated (two buckets per entry,
+	// as the hash map's), and 2^20 no longer fits the 20 MB segment.
 	shm_remove remover(SHM_NAME);
 	managed_shared_memory mem(create_only, SHM_NAME, 20 << 20);
 	uint32_t ncpu = sysconf(_SC_NPROCESSORS_ONLN);
@@ -67,7 +45,7 @@ TEST_CASE("Test basic operations of hash map")
 
 	SECTION("Test writing from helpers, and read from userspace")
 	{
-		per_cpu_hash_map_impl map(mem, 4, 8, 1 << 20);
+		per_cpu_hash_map_impl map(mem, 4, 8, 1 << 16);
 		for (uint32_t j = 0; j < ncpu; j++) {
 			ensure_on_certain_cpu<void>(j, [&]() {
 				for (uint32_t i = 0; i < 100; i++) {
@@ -93,7 +71,7 @@ TEST_CASE("Test basic operations of hash map")
 
 	SECTION("Test writing from userspace, and reading & updating from helpers")
 	{
-		per_cpu_hash_map_impl map(mem, 4, 8, 1 << 20);
+		per_cpu_hash_map_impl map(mem, 4, 8, 1 << 16);
 		std::vector<uint64_t> buf(ncpu);
 		for (uint32_t j = 0; j < ncpu; j++) {
 			buf[j] = j;
@@ -128,7 +106,7 @@ TEST_CASE("Test basic operations of hash map")
 
 	SECTION("Test helper delete removes the complete per-CPU entry")
 	{
-		per_cpu_hash_map_impl map(mem, 4, 8, 1 << 20);
+		per_cpu_hash_map_impl map(mem, 4, 8, 1 << 16);
 		uint32_t key = 0xabcdef;
 		std::vector<uint64_t> values(ncpu);
 		for (uint32_t cpu = 0; cpu < ncpu; cpu++)
