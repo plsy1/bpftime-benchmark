@@ -543,16 +543,22 @@ everything and starts again with the larger range. Never take a stripe lock
 while holding a higher one. Each stripe keeps the probe bound of the keys
 whose home bucket is in it (stored only when it changes; lookups read it).
 A delete turns tombstones back into empty buckets only inside its locked
-range. The element count is `max_entries` tokens: each stripe holds some
-under its lock, the rest are in a shared atomic pool. An insert takes one
-from its home stripe (refilling 32 from the pool when it has none), a delete
-returns it there (giving 32 back at 64); only when the pool is empty too
-does an insert lock every stripe and take any stripe's token, so the limit
-is exact (E2BIG only when all `max_entries` are used). `get_elem_count` is
-exact only without concurrent writers.
+range. The element count is one shared atomic (`take_count`, its own cache
+line): an insert adds one under its stripe locks and takes it back when that
+passes `max_entries` (E2BIG only when all are used), a delete subtracts one.
+It replaced tokens parked per stripe (a shared pool refilled them 32 at a
+time, a stripe gave 32 back at 64): once a map was about two thirds full
+more were parked than free, the pool ran dry and inserts locked every stripe
+to borrow one. Churn (delete a key, insert a new one) through BPF programs at
+90% full cost 3 us per op in a 10240-entry map and 33 us in a 102400-entry
+one (kernel 0.3 and 0.6; a7d54d7e 0.2-0.5), 230 us with six threads, every
+key pattern (results `uprobe/hash-keypattern-20261103`); earlier benchmarks
+reused keys or ran half full. Test: "bpftime_hash_map churn near capacity
+locks only the keys' stripes". `get_elem_count` is exact only without
+concurrent writers.
 
-A stripe's whole state (lock, probe bound, tokens, displacement counts up to
-distance 10) is one 64-byte line, and every operation resolves the two
+A stripe's whole state (lock, probe bound, displacement counts up to
+distance 11) is one 64-byte line, and every operation resolves the two
 shared-memory vectors to plain pointers once (`view`). The single-thread
 cost of striping came from extra lines and instructions, not from atomics:
 per-CPU token slots, a separate bound array and a 320-byte stripe state
@@ -619,11 +625,6 @@ packed structs could misalign there. Test: `[alignment]` (key sizes 1-64,
 value sizes 1-8, 12, 16, 20, 24, an atomic add on every value of 4 bytes or
 more, every value written to its last byte without reaching a neighbour).
 
-A stripe without tokens, once the pool is empty, takes a batch (up to
-`TOKEN_BATCH`) from other stripes while it holds every stripe, instead of one
-token per insert (which locked every stripe on each insert near capacity).
-Test: `[tokens]`.
-
 Known, not changed: `hash_func` (4 bytes: 29791, 961, 31, 1 per byte; others
 byte-wise times 31) maps keys with fixed low bytes (packed fields, `id << 16`)
 to few adjacent homes: 10,000 such u32 keys in 20,000 entries gave a probe
@@ -635,10 +636,7 @@ on `hash_func`'s locality). Neither was committed (results
 `reviews-20261031/fixes/hash-ab`, `hash-ab2`). The same hash maps small u32
 keys (pids under 65536) onto about 8,160 homes, and tables above about 3.9M
 entries never use their upper buckets as homes (4-byte `hash_func` stays
-under 7,849,920). A stripe returns tokens to the pool only at 64, so up to 63
-park per stripe: a 20,000-entry map of 626 stripes can have its whole pool
-parked, and an insert into a dry stripe then takes every lock (32 tokens at a
-time). Correct; a cliff near capacity (second review).
+under 7,849,920).
 
 ## llvmbpf Local Call Overlay
 
