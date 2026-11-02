@@ -3,10 +3,9 @@
 // number there):
 // - lookup_read reads the value inside the lookup's check, so a lookup that
 //   succeeds read its own key's value, never that of a key that took the
-//   bucket over meanwhile;
-// - with_existing_value works on the value under the locks of every stripe
-//   the key's probe covers, as a writer, so no delete or insert changes the
-//   bucket meanwhile.
+//   element over meanwhile;
+// - with_existing_value works on the value under the key's stripe lock, as a
+//   writer, so no delete frees the element meanwhile.
 #include <bpf_map/bpftime_hash_map.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -35,22 +34,6 @@ struct shm_guard {
 		shared_memory_object::remove(name);
 	}
 };
-
-size_t home_of(const bpftime_hash_map &map, uint32_t key)
-{
-	return bpftime_hasher::hash_func(&key, sizeof(key)) % map.bucket_count();
-}
-
-std::vector<uint32_t> keys_at(const bpftime_hash_map &map, size_t home,
-			      size_t count, uint32_t &next)
-{
-	std::vector<uint32_t> keys;
-	for (; keys.size() < count; next++) {
-		if (home_of(map, next) == home)
-			keys.push_back(next);
-	}
-	return keys;
-}
 
 // Whether op waited for stripe's lock held by this thread.
 template <class Op>
@@ -86,14 +69,16 @@ TEST_CASE("hash lookup_read reads the value of the key it matched",
 	shm_guard shm("bpftime_hash_lookup_read_test");
 	bpftime_hash_map map(shm.segment, 16, sizeof(uint32_t),
 			     sizeof(uint64_t));
-	// Same home bucket ({0,0,1,0} and {0,0,0,31}).
-	const uint32_t first = 0x00010000, second = 0x1f000000;
-	REQUIRE(home_of(map, first) == home_of(map, second));
+	// The second key in another bucket: the element moves to another chain.
+	const uint32_t first = 0x00010000;
+	uint32_t second = first + 1;
+	while (map.bucket_of_key(&second) == map.bucket_of_key(&first))
+		second++;
 	const uint64_t first_value = 100, second_value = 200;
 	REQUIRE(map.elem_update(&first, &first_value));
-	const size_t bucket = map.get_index_of_value(map.elem_lookup(&first));
+	const size_t element = map.get_index_of_value(map.elem_lookup(&first));
 
-	// The reader stops in its first read until the bucket holds the other
+	// The reader stops in its first read until the element holds the other
 	// key. The lookup must then retry (and miss), not return what it read.
 	std::atomic<bool> reading{ false }, replaced{ false };
 	uint64_t read_value = 0;
@@ -114,7 +99,7 @@ TEST_CASE("hash lookup_read reads the value of the key it matched",
 		std::this_thread::yield();
 	REQUIRE(map.elem_delete(&first));
 	REQUIRE(map.elem_update(&second, &second_value));
-	REQUIRE(map.get_index_of_value(map.elem_lookup(&second)) == bucket);
+	REQUIRE(map.get_index_of_value(map.elem_lookup(&second)) == element);
 	replaced.store(true);
 	reader.join();
 	INFO("read " << read_value);
@@ -127,48 +112,28 @@ TEST_CASE("hash lookup_read reads the value of the key it matched",
 	REQUIRE(read_value == second_value);
 }
 
-TEST_CASE("hash with_existing_value locks every stripe the key's probe covers",
+TEST_CASE("hash with_existing_value locks the key's stripe",
 	  "[bpftime_hash_map][value-access]")
 {
 	shm_guard shm("bpftime_hash_with_existing_test");
 	bpftime_hash_map map(shm.segment, 1000, sizeof(uint32_t),
 			     sizeof(uint64_t));
-	const size_t per_stripe = map.buckets_per_stripe();
-	REQUIRE(per_stripe == 64);
-	const size_t s = 1, end = (s + 1) * per_stripe;
-	uint32_t next = 1;
+	REQUIRE(map.stripe_count() > 2);
 	const uint64_t value = 42, changed = 43;
-	// Nine keys homed at end - 8: the last one lies in the next stripe, and
-	// the stripe's probe bound (8) reaches it.
-	const auto run = keys_at(map, end - 8, 9, next);
-	for (uint32_t key : run)
-		REQUIRE(map.elem_update(&key, &value));
-	const uint32_t past_end = run.back();
-	REQUIRE(map.get_index_of_value(map.elem_lookup(&past_end)) == end);
-	// A key homed early in the stripe: its bound stays inside.
-	const uint32_t inner = keys_at(map, s * per_stripe + 4, 1, next)[0];
-	REQUIRE(map.elem_update(&inner, &value));
-
-	auto set = [&](uint32_t key) {
-		return [&map, key, &changed] {
-			return map.with_existing_value(&key, [&](void *v) {
-				std::memcpy(v, &changed, sizeof(changed));
-			});
-		};
+	const uint32_t key = 7;
+	REQUIRE(map.elem_update(&key, &value));
+	const size_t s = map.stripe_of_key(&key);
+	auto set = [&] {
+		return map.with_existing_value(&key, [&](void *v) {
+			std::memcpy(v, &changed, sizeof(changed));
+		});
 	};
-	// Every key waits for its home stripe.
-	REQUIRE(waits_for_stripe(map, s, set(inner)));
-	REQUIRE(waits_for_stripe(map, s, set(run[0])));
-	// A probe reaching the next stripe waits for it too ...
-	REQUIRE(waits_for_stripe(map, s + 1, set(run[0])));
-	REQUIRE(waits_for_stripe(map, s + 1, set(past_end)));
-	// ... one inside its stripe does not.
-	REQUIRE_FALSE(waits_for_stripe(map, s + 1, set(inner)));
-	for (uint32_t key : { inner, run[0], past_end })
-		REQUIRE(load_value(map.elem_lookup(&key)) == changed);
+	REQUIRE(waits_for_stripe(map, s, set));
+	REQUIRE_FALSE(waits_for_stripe(map, (s + 1) % map.stripe_count(), set));
+	REQUIRE(load_value(map.elem_lookup(&key)) == changed);
 
 	// A missing key: fn does not run.
-	const uint32_t missing = keys_at(map, end - 8, 1, next)[0];
+	const uint32_t missing = 8;
 	bool ran = false;
 	REQUIRE_FALSE(map.with_existing_value(&missing,
 					      [&](void *) { ran = true; }));
