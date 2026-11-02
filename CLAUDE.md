@@ -585,7 +585,12 @@ exclude each other and pthread spin locks"). Through glibc each lock was a
 PLT call, glibc's function and its out-of-line atomic: 1-4 ns per map
 operation. The exchange stays `__atomic` (with -moutline-atomics, libgcc's
 LSE helper): an inline `swpa` was no faster on the Orin and an
-`ldaxr`/`stxr` loop 5 ns slower. Other libcs keep pthread_spin_lock.
+`ldaxr`/`stxr` loop 5 ns slower. Only on aarch64 glibc (its generic
+protocol); everything else calls pthread_spin_lock: x86-64 glibc keeps its
+own asm with the opposite protocol (pthread_spin_init stores 1 = free, lock
+is `lock decl`, held at 0), and with the inline exchange there every map
+operation spun forever on a lock pthread_spin_init had made (found on the
+NUC; the test above hung).
 The stripes take it inline; `bpftime_lock_guard` calls the out-of-line
 copies (`bpftime_spin_lock_outlined`): forced inline there, the per-CPU
 hash helpers ran 30 more instructions per update and lookup (LTO kept the
