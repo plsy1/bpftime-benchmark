@@ -424,8 +424,8 @@ with perf output. Test: "Ringbuf skips the record of a producer that died
 before submitting".
 
 Not handled (documented): a process killed while holding `shard_lock`, the
-ringbuf's `reserve_spin_lock` or a map's `map_lock` (per-CPU hash: every
-operation) leaves every later user spinning, like the hash map stripes. A
+ringbuf's `reserve_spin_lock`, a map's `map_lock` or the per-CPU hash's
+`pool_lock` (inserts and deletes) leaves every later user spinning, like the hash map stripes. A
 consumer killed between delivering a record and releasing the shard tail
 redelivers it on the next drain, and one killed while waiting leaves
 `waiters` above zero (every watermark output then pays a futex wake).
@@ -1066,26 +1066,56 @@ system call (`std::filesystem::absolute`). Test: `[helpers]`.
 
 ## Per-CPU Hash Maps
 
-Only the values of `per_cpu_hash_map_impl` are per CPU: the key index (Boost
-`unordered_map`, which rehashes on insert), the four-byte-key value slot and
-recycled-node free lists, and the key scratch buffers are shared by every
-thread and process. Every operation therefore runs under the handler's map
-lock (`should_lock = true`, plus the typed helper entry points and the
-diagnostic direct paths). It used to take none: two threads inserting new keys
-crashed or hung the traced process (shared counters, 64 keys, 2-6 threads: 6 of
-9 runs). The program path follows the kernel percpu htab like the syscall path:
-`BPF_NOEXIST` on an existing key fails with `EEXIST` (it used to overwrite the
-calling CPU's value), `BPF_EXIST` on a missing key with `ENOENT`, a new key in a
-full map with `E2BIG` (eight-byte and larger keys had no limit). Lookups still
-return a pointer used after the lock is released, as for hash maps. Values of
-every key size live in slots of shared chunks (`acquire_uint32_value`, a free
-list): a delete returns the slot and frees nothing, so a stale pointer writes
-into a slot, as with the kernel's preallocated htab. Keys other than 4 bytes
-used to own a separately allocated value that a delete freed at once: the
-program's next write landed in memory the segment allocator had handed out
-again (reproduced on the old code: a block allocated after the delete was
-overwritten, on every CPU). Test: "Per-CPU hash values outlive a delete
-without freeing memory".
+`per_cpu_hash_map_impl` keeps its keys in a `bpftime_hash_map` (lookups
+take no lock, writers lock stripes) whose four-byte value is the number of the
+key's value slot; a slot holds every CPU's value, `value_size` bytes each in CPU
+order. Nothing takes the handler's map lock (`should_lock = false`; the typed
+helper entry points, the diagnostic direct paths and lookup-and-delete lock only
+`if constexpr (should_lock)`). The slots are in chunks allocated as they are first
+used (a fixed table of chunk offsets from the map object, the same in every
+process) with a free list under one spinlock (`pool_lock`, its own cache line):
+taken only to insert a new key or to delete one. A delete returns the slot and
+frees nothing, so a stale value pointer writes into a slot (as with the kernel's
+preallocated htab: possibly another key's value once the slot is reused). Keys
+other than 4 bytes used to own a separately allocated value that a delete freed
+at once, and the program's next write landed in memory the segment allocator had
+handed out again. Capacity is `max_entries + ncpu` slots: an insert that loses a
+race to insert the same key holds one for a moment (the kernel's percpu htab has
+extra elements too); a nearly full map can still report E2BIG while many inserts
+are in flight. The pool lock is one more lock a process killed inside it leaves
+held (see the dead-holder note above). Memory: the key table is preallocated as
+the hash map's (two buckets of 8 + key bytes per entry, plus a 4-byte free-list
+entry), about 29 MB for a million entries with 4-byte keys; the old index grew
+with the keys. The values still grow with use.
+
+From 10-28 (cdc05f67) to 11-02 the map was a Boost `unordered_map` index (it
+rehashes on insert) with shared slot and node free lists and key scratch buffers,
+so every operation ran under the handler's map lock; before 10-28 it took none,
+and two threads inserting new keys crashed or hung the traced process. The lock
+made the per-CPU hash the only map whose lookups serialized threads: shared
+counters at 6 threads paid 0.25-0.56 us per call (kernel ~0), and the suite's
+lookup was 1.14x the kernel's.
+
+- Lookup: `lookup_read` reads the slot number inside the table's lookup check
+  (after the key compare, before the bucket word is read again), so a delete and
+  another key's insert into the same bucket cannot hand out that key's values.
+- Update of an existing key: `with_existing_value` writes under the key's stripe
+  locks, so a concurrent delete cannot give the slot to another key meanwhile. A
+  new key: take a slot, zero it, write this CPU's value (the kernel's
+  `pcpu_init_value`), insert with `no_exist`; if another thread inserted the key
+  meanwhile, give the slot back and update (BPF_NOEXIST: EEXIST).
+- `bpf()` lookups copy the values under the stripe locks (always into the
+  per-thread buffer); delete and lookup-and-delete take the slot number out with
+  the table's delete and give the slot back afterwards.
+
+The program path follows the kernel percpu htab like the syscall path:
+`BPF_NOEXIST` on an existing key fails with `EEXIST`, `BPF_EXIST` on a missing key
+with `ENOENT`, a new key in a full map with `E2BIG`. Tests: `[percpu-locks]`
+(lookups and existing-key updates complete while the pool lock is held, existing-
+key updates wait for the key's stripe lock, no operation waits for the handler's
+map lock), `[value-access]` (the table operations), "Per-CPU hash values outlive a
+delete without freeing memory", "per-cpu hash stays consistent under concurrent
+inserts and deletes".
 
 Per-CPU maps (hash and array) hold `bpftime_cpu_index_limit()` values per
 key: the highest number in `/sys/devices/system/cpu/possible` plus one, the
@@ -1107,8 +1137,9 @@ the index limit and slot i holds CPU `bpftime_possible_cpu_ids()[i]`. Counting
 highest + 1 there (as 6f1e73d9 did) copied 4 slots into libbpf's 3-slot
 buffer, a heap overflow in the tool. The maps keep their values packed at
 `value_size` and indexed by CPU number (the JIT paths depend on it) and
-convert; a lookup returns a per-thread buffer unless the storage already is
-the syscall layout (`value_size` a multiple of 8, no holes). They used to copy `value_size` times the online CPUs packed: a
+convert; a per-CPU array lookup returns a per-thread buffer unless the storage
+already is the syscall layout (`value_size` a multiple of 8, no holes), a per-CPU
+hash lookup always copies (under the key's stripe locks). They used to copy `value_size` times the online CPUs packed: a
 tool reading 4-byte per-CPU counters took CPU 1's value from CPU 0's padding.
 `KERNEL_USER_PERCPU_ARRAY` already used the kernel layout. Tests:
 `[percpu-layout]` (with an injected "0,2-3" mask), "Possible CPUs are counted
@@ -1118,8 +1149,8 @@ as libbpf does" (the parser on masks with holes).
 to ignore the key and pop: hash maps returned ENOTSUP, so libbpf's
 `bpf_map_lookup_and_delete_elem` failed on them. It now pops queues and
 stacks and removes the key's element of hash, per-CPU hash and LRU hash maps
-in one step (the striped hash copies the value under its stripe lock, the
-others under the handler lock); other types return ENOTSUPP (524) like the
+in one step (the striped hash and the per-CPU hash take the value out under
+the stripe lock, LRU hash under the handler lock); other types return ENOTSUPP (524) like the
 kernel. A null key (hashes) or value is EFAULT and removes nothing (a null
 key crashed the hash paths, a null value deleted the key without returning
 it), and any flag is EINVAL in the syscall server (the kernel takes only
