@@ -522,68 +522,57 @@ included: with one key per thread the map cost per probe hit went from 0.12
 us (1 thread) to 10.7 us (6 threads, both clusters), lookup-only counters to
 1.4 us.
 
-Lookups take no lock and write nothing shared. Filled buckets never move,
-and each bucket's 4-byte word holds the state (low two bits) and a
-generation that every delete increments. Inserts write key and value after a
-release fence and publish the word with a release store; a lookup reads the
-word (acquire), compares the key, fences (acquire) and accepts the match only
-if the word is unchanged, otherwise it starts again. A four-byte key is read
-with an acquire load instead of the fence: the fence (`dmb ishld`) cost 5 ns
-of a 27 ns lookup on the Jetson (official uprobe suite). Without the re-check a
-lookup matched keys half overwritten by the next insert into the bucket
-(18k-291k false matches in 1.5 s). The bucket stride is rounded to 4 bytes
-so the word is aligned.
+`bpftime_hash_map` (11-03) is the kernel's preallocated htab in offsets:
+`max_entries` preallocated elements `{word, next, key, value}` and a power
+of two (at least `max_entries`) of u32 chain heads, each the index of its
+chain's first element or a terminator naming the bucket (`NULLS | bucket`).
+The bucket is the top bits of one multiply of the key (4 and 8 B keys are
+their own hash, longer ones mixed 8 bytes at a time). One buffer holds
+stripe locks, free lists, heads and elements, resolved once per operation
+(`view`). It replaced the upstream open-addressing table (linear probing,
+key and value inline in twice `max_entries` buckets, tombstones, the
+per-byte `hash_func`): keys with fixed low bits (`id << 12`) clustered into
+runs of thousands of buckets (1.7 us lookups, 6.9 us misses at 90% full),
+tombstones piled up under churn (empty buckets 55% -> 21-43%), every value
+was stored twice, and its striped writers needed probe-range locking and
+exact-capacity bookkeeping whose token version had a cliff near capacity
+(results `uprobe/hash-redesign-survey-20261102`, `uprobe/hash-keypattern-20261103`).
 
-Writers lock stripes of buckets (a power of two, at least 64, at most 4096
-stripes). An operation locks every stripe from its key's home bucket
-through the last bucket it may write or rely on (the probe bound, plus one
-for a delete's empty-successor check), in increasing stripe order with the
-wrapped part from stripe 0 first; when it finds it needs more it unlocks
-everything and starts again with the larger range. Never take a stripe lock
-while holding a higher one. Each stripe keeps the probe bound of the keys
-whose home bucket is in it (stored only when it changes; lookups read it).
-A delete turns tombstones back into empty buckets only inside its locked
-range. The element count is one shared atomic (`take_count`, its own cache
-line): an insert adds one under its stripe locks and takes it back when that
-passes `max_entries` (E2BIG only when all are used), a delete subtracts one.
-It replaced tokens parked per stripe (a shared pool refilled them 32 at a
-time, a stripe gave 32 back at 64): once a map was about two thirds full
-more were parked than free, the pool ran dry and inserts locked every stripe
-to borrow one. Churn (delete a key, insert a new one) through BPF programs at
-90% full cost 3 us per op in a 10240-entry map and 33 us in a 102400-entry
-one (kernel 0.3 and 0.6; a7d54d7e 0.2-0.5), 230 us with six threads, every
-key pattern (results `uprobe/hash-keypattern-20261103`); earlier benchmarks
-reused keys or ran half full. Test: "bpftime_hash_map churn near capacity
-locks only the keys' stripes". `get_elem_count` is exact only without
-concurrent writers.
+Lookups take no lock and write nothing shared. An element's word holds a
+generation (every delete adds one step) and the in-use bit. A lookup walks
+its chain: at each element it reads the word (acquire), restarts unless the
+element is in use, compares the key (a four-byte key with an acquire load,
+otherwise memcmp then an acquire fence) and accepts a match only if the word
+is unchanged (`lookup_read`'s reader runs before that re-check). A stale
+`next` is caught at the end of the walk, as in the kernel: an element freed
+while a lookup stands on it links into a free list (not in use; the lists
+end in `NULLS | n_heads`, a bucket that does not exist) or, reused, into
+another chain, which ends in another bucket's terminator; the lookup then
+starts again. A step cap restarts runaway walks. A key's element is only in
+its own bucket's chain, so a wrong chain cannot produce a false hit. A
+re-check of the word before following `next` caught nothing in any test and
+cost a fence per step (dropped). Inserts write key and value after a release
+fence (a lookup that read the element's previous key and sees new bytes
+also sees the delete's generation), then `next`, the word (release), the
+head (release). A delete sets the word's new generation, unlinks with a
+release store and gives the element back after unlocking the stripe.
 
-A stripe's whole state (lock, probe bound, displacement counts up to
-distance 11) is one 64-byte line, and every operation resolves the two
-shared-memory vectors to plain pointers once (`view`). The single-thread
-cost of striping came from extra lines and instructions, not from atomics:
-per-CPU token slots, a separate bound array and a 320-byte stripe state
-added cache/TLB misses with keys spread over many stripes (memleak's
-addresses), and offset_ptr resolution per access added ~300 instructions to
-an insert + lookup + delete. Keep the stripe state one line and the hot path
-free of offset_ptr arithmetic.
+Writers lock the stripe of the key's head (16 heads per stripe, at most 4096
+stripes, one cache line per lock): one lock per operation, no ranges or
+retries. Free elements are in per-CPU lists (the kernel's `pcpu_freelist`,
+one lock and line each, at most 64): an insert pops from its thread's list
+(chosen from the thread pointer: no system call, no TLS variable), else
+from the others one at a time (try-locked first, so a list whose holder
+died blocks only its own users); a delete pushes to its thread's list. The
+free elements are the capacity: E2BIG exactly when none is left, so no
+count is kept (`get_elem_count` sums the lists, exact without concurrent
+writers). Lock order: stripe, then list; a list is never held while taking
+a stripe. Step 1 of the redesign (42595149) had replaced the tokens with one
+shared atomic count, which cost an atomic per insert and delete (suite hash
+delete 33.9 -> 40.6 ns).
 
-Most updates and deletes touch only their home stripe:
-`update_in_home_stripe` / `delete_in_home_stripe` take that one lock and,
-if every bucket the operation reads or writes (the probe bound, an insert's
-free bucket, a delete's next bucket) lies after home inside the stripe
-without wrapping, do the general path's steps there; otherwise they unlock,
-having changed nothing, and the general path runs. The range machinery
-(bound read before locking, range computation, lock loops, re-check, wrap
-checks) made a single-thread update 80 instructions longer than with one
-map lock (official suite: update 27 -> 43 ns, delete 28 -> 44 ns; with the
-fast paths 30 and 37). Four- and eight-byte keys and values are copied
-inline (`copy_bytes`; `memcpy` with a run-time size is a call). Test
-"hash map writers lock every stripe they touch beyond the home stripe"
-(another thread holds the next stripe, or stripe 0 for a run wrapping past
-the partial last stripe, and the operation must wait exactly when it
-touches it).
-
-The stripes and the handler's `map_lock` (`bpftime_lock_guard`) are taken
+The stripe and free-list locks and the handler's `map_lock`
+(`bpftime_lock_guard`) are taken
 with `bpftime_spin_lock` (`map_common_def.hpp`): glibc's protocol on the
 `pthread_spinlock_t` word (exchange 1 to take, release store 0), inline, so
 pthread_spin_lock on the same word still excludes (test "bpftime spin locks
@@ -597,46 +586,47 @@ own asm with the opposite protocol (pthread_spin_init stores 1 = free, lock
 is `lock decl`, held at 0), and with the inline exchange there every map
 operation spun forever on a lock pthread_spin_init had made (found on the
 NUC; the test above hung).
-The stripes take it inline; `bpftime_lock_guard` calls the out-of-line
+The table takes it inline; `bpftime_lock_guard` calls the out-of-line
 copies (`bpftime_spin_lock_outlined`): forced inline there, the per-CPU
 hash helpers ran 30 more instructions per update and lookup (LTO kept the
 guard's constructor out of line around it), and left to the compiler the
 stripes lost 2 ns per hash update.
 
-Values are still updated in place (readers may see a partly written value,
-as with the kernel without `BPF_F_LOCK`), and a value pointer is only valid
-while its key stays, as in the kernel's preallocated htab. A process killed
-inside a writer leaves its stripes locked (writers to them hang, lookups do
-not). Tests: `test_hash_map_lockfree_lookup.cpp` (torn keys; values read
-while no delete runs), `test_hash_map_striped_writers.cpp` (threads against a reference
-with clustered keys, exact capacity, probe runs wrapping past the last
-stripe, processes mapping the segment at different addresses).
+Values are updated in place (readers may see a partly written value, as
+with the kernel without `BPF_F_LOCK`), and a value pointer is only valid
+while its key stays, as in the kernel's preallocated htab (a stale pointer
+writes into a free or reused element). A process killed inside a writer
+leaves its stripe locked (writers of that stripe hang, lookups do not); one
+killed holding a free list's lock blocks that list's own inserts and
+deletes; one killed between taking and linking an element, or unlinking and
+giving it back, loses that element (E2BIG one entry early). Tests:
+`test_hash_map_chains.cpp` (writers lock only the key's stripe, lookups no
+lock; lookups of keys present throughout never miss while elements around
+them move through the free lists into other chains, mutation: any
+terminator taken as the end; inserts take elements from every list up to
+exactly `max_entries`, mutation: no stealing), `test_hash_map_value_access.cpp`
+(a lookup stalled on an element freed and reused by another key misses,
+mutation: no re-check after the read), `test_hash_map_lockfree_lookup.cpp`
+(torn keys; values read while no delete runs), `test_hash_map_striped_writers.cpp`
+(threads against a reference, exact capacity, two chains churning apart,
+processes mapping the segment at different addresses), "bpftime_hash_map
+churn near capacity locks only the keys' stripes".
 
-Element layout: state word at 0, key at 4, value at `round_up(4 + key_size,
-A)`, element size a multiple of A, where A is 8 for values of 8 bytes or
-more and 4 otherwise. The value used to follow the key directly in elements
-rounded to 4: with an 8-byte key and value a quarter of the values crossed a
-16-byte boundary, and a BPF atomic add on one (the JIT emits `ldaddal`) died
-with SIGBUS on aarch64 (x86 tolerates it). u32 keys with 4- or 8-byte values
-keep their size; u64 key and value grew from 20 to 24 bytes. Arrays, per-CPU
-arrays and per-CPU hash values keep a `value_size` stride: a naturally aligned
-C struct with an 8-byte member has a size that is a multiple of 8, so only
-packed structs could misalign there. Test: `[alignment]` (key sizes 1-64,
-value sizes 1-8, 12, 16, 20, 24, an atomic add on every value of 4 bytes or
-more, every value written to its last byte without reaching a neighbour).
+Element layout: word at 0, next at 4, key at 8, value at `round_up(8 +
+key_size, A)`, element size a multiple of A, where A is 8 for values of 8
+bytes or more and 4 otherwise; the elements start 16-aligned. A misaligned
+value used to kill a BPF atomic add (`ldaddal`) with SIGBUS on aarch64 (an
+8-byte key and value crossing a 16-byte boundary in the old layout). Arrays,
+per-CPU arrays and per-CPU hash values keep a `value_size` stride: a
+naturally aligned C struct with an 8-byte member has a size that is a
+multiple of 8, so only packed structs could misalign there. Test:
+`[alignment]` (key sizes 1-64, value sizes 1-8, 12, 16, 20, 24, an atomic add
+on every value of 4 bytes or more, every value written to its last byte
+without reaching a neighbour).
 
-Known, not changed: `hash_func` (4 bytes: 29791, 961, 31, 1 per byte; others
-byte-wise times 31) maps keys with fixed low bytes (packed fields, `id << 16`)
-to few adjacent homes: 10,000 such u32 keys in 20,000 entries gave a probe
-bound of 9,945 (an independent review's stress run: 170,707), and every miss
-homing there probes the whole run. MurmurHash3's 32-bit finalizer brought it
-under 64 but made 6-thread churn 1.2-1.4% slower in two runs; its 64-bit
-finalizer made a 900K-entry table of u64 address keys 3.1% slower (they rely
-on `hash_func`'s locality). Neither was committed (results
-`reviews-20261031/fixes/hash-ab`, `hash-ab2`). The same hash maps small u32
-keys (pids under 65536) onto about 8,160 homes, and tables above about 3.9M
-entries never use their upper buckets as homes (4-byte `hash_func` stays
-under 7,849,920).
+`bpftime_hasher::hash_func` (4 bytes: 29791, 961, 31, 1 per byte; others
+byte-wise times 31) stays for the GPU shared hash map; the table no longer
+uses it.
 
 ## llvmbpf Local Call Overlay
 
@@ -1118,9 +1108,10 @@ race to insert the same key holds one for a moment (the kernel's percpu htab has
 extra elements too); a nearly full map can still report E2BIG while many inserts
 are in flight. The pool lock is one more lock a process killed inside it leaves
 held (see the dead-holder note above). Memory: the key table is preallocated as
-the hash map's (two buckets of 8 + key bytes per entry, plus a 4-byte free-list
-entry), about 29 MB for a million entries with 4-byte keys; the old index grew
-with the keys. The values still grow with use.
+the hash map's (a 16-byte element and a 4-byte chain head per entry for 4-byte
+keys, plus a 4-byte slot free-list entry), about 24 MB for a million entries
+(29 MB on the open-addressing table); the old index grew with the keys. The
+values still grow with use.
 
 From 10-28 (cdc05f67) to 11-02 the map was a Boost `unordered_map` index (it
 rehashes on insert) with shared slot and node free lists and key scratch buffers,
@@ -1265,8 +1256,9 @@ trace ring (bounded, no system call, read by a tool) would be the fast default.
 
 Boost 1.83 commits the whole segment at creation (`posix_fallocate`), so
 `BPFTIME_SHM_MEMORY_MB` is resident memory, not a sparse limit. The default is
-128 MB (was 50): memleak's 1M-entry hash map needs 64-96 MB with the doubled
-hash buckets. When a `bpf()` or `perf_event_open()` that bpftime handles fails
+128 MB (was 50): memleak's 1M-entry hash map (8-byte keys, 24-byte values)
+needs about 44 MB (40-byte elements plus 4-byte heads; 80 MB on the
+open-addressing table with twice the buckets). When a `bpf()` or `perf_event_open()` that bpftime handles fails
 in userspace (Boost `bad_alloc`, Boost container `length_error`: "allocator's
 max size reached"), the interposer returns -1 with `ENOMEM` (`EINVAL` for other
 exceptions) and logs a hint to raise the size. It must never fall back to the

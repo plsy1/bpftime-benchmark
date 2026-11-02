@@ -62,9 +62,7 @@ bool waits(Lock lock, Unlock unlock, Op op)
 
 size_t stripe_of_key(per_cpu_hash_map_impl &map, uint32_t key)
 {
-	auto &table = map.table_for_test();
-	return bpftime_hasher::hash_func(&key, sizeof(key)) %
-	       table.bucket_count() / table.buckets_per_stripe();
+	return map.table_for_test().stripe_of_key(&key);
 }
 } // namespace
 
