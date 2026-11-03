@@ -531,7 +531,11 @@ their own hash XORed with a per-map random seed, longer ones mixed 8 bytes
 at a time from the seed; the kernel's `hashrnd`). Without the seed, keys
 computed to share one chain were trivial (1000 keys `j * phi^-1`: one chain,
 2.2 us per insert); test "hash map chains stay short for keys made to
-collide" (mutation: seed 0, 1000-element chains). One buffer holds
+collide" (mutation: seed 0, 1000-element chains). The seed costs ~2 ns per
+lookup (suite hash lookup +12.7%, per-CPU hash +4.5%; kept): it is loaded
+from the map object, whose pointer arrives late, so load, XOR, multiply now
+precede the head load, where the multiply used to overlap that pointer's load
+(results `uprobe/dev-b7ded27a-20261103`). One buffer holds
 stripe locks, free lists, heads and elements, resolved once per operation
 (`view`). It replaced the upstream open-addressing table (linear probing,
 key and value inline in twice `max_entries` buckets, tombstones, the
