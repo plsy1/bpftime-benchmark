@@ -1,7 +1,8 @@
 // The hash map's chains, stripe locks and free lists: writers lock only the
 // key's stripe, lookups no lock at all; lookups of keys present throughout
 // never miss while elements around them are freed and reused in other
-// chains; inserts take free elements from other threads' lists, so capacity
+// chains (updates of the key itself may make them miss, as in the kernel);
+// inserts take free elements from other threads' lists, so capacity
 // stays exactly max_entries.
 #include <bpf_map/bpftime_hash_map.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
@@ -99,7 +100,9 @@ TEST_CASE("hash map writers lock only the key's stripe",
 // Present keys share buckets with churn keys; writers delete and insert the
 // churn keys, so elements leave these chains, pass through the free lists
 // and come back in other chains while readers walk past them. A lookup that
-// follows a freed element must start again, never end as a miss.
+// follows a freed element must start again, never end as a miss. (The
+// present keys are not updated: an update may make a lookup of that key miss,
+// see "hash map copies of keys updated behind the head are whole".)
 TEST_CASE("hash map lookups never miss keys present while their chains churn",
 	  "[bpftime_hash_map][chains][concurrency]")
 {
@@ -490,4 +493,115 @@ TEST_CASE("hash map copies of a value being updated are whole",
 	REQUIRE(v != nullptr);
 	REQUIRE(v[0] == v[1]);
 	REQUIRE(map.get_elem_count() == 1);
+}
+
+// Two keys of one bucket updated at once, so that one of them is replaced
+// while it is not the head (the new element goes to the head, the old one is
+// unlinked and retired behind it, then reused by the next update of the
+// stripe). Copies must hold their own key's value, whole. Lookups may miss a key
+// while it is updated, as in the kernel (htab_map_update_elem adds the new
+// element at the head, then deletes the old one): a reader past the head, on
+// the old element's predecessor, sees neither; those are only counted.
+TEST_CASE("hash map copies of keys updated behind the head are whole",
+	  "[bpftime_hash_map][chains][replace][concurrency]")
+{
+	shm_guard shm("bpftime_hash_chains_behind_test");
+	// Values {key, x, x}: a copy must hold its own key's value, whole.
+	bpftime_hash_map map(shm.segment, 64, 4, 24);
+	uint32_t keys[2] = { 1, 0 };
+	for (uint32_t k = 2; keys[1] == 0; k++)
+		if (map.bucket_of_key(&k) == map.bucket_of_key(&keys[0]))
+			keys[1] = k;
+	for (const uint32_t &key : keys) {
+		const uint64_t init[3] = { key, 0, 0 };
+		REQUIRE(map.elem_update(&key, init));
+	}
+	REQUIRE(map.chain_length_of_key(&keys[0]) == 2);
+	std::atomic<bool> stop{ false };
+	std::atomic<uint64_t> misses{ 0 }, torn{ 0 }, reads{ 0 };
+	std::vector<std::thread> threads;
+	for (int w = 0; w < 2; w++)
+		threads.emplace_back([&, w] {
+			for (uint64_t x = 1; !stop.load(std::memory_order_relaxed);
+			     x++) {
+				const uint64_t value[3] = { keys[w], x, x };
+				map.elem_update(&keys[w], value);
+			}
+		});
+	for (int r = 0; r < 3; r++)
+		threads.emplace_back([&, r] {
+			uint64_t miss = 0, bad = 0, n = 0;
+			while (!stop.load(std::memory_order_relaxed)) {
+				for (const uint32_t &key : keys) {
+					uint64_t k = 0, a = 0, b = 0;
+					const void *p = map.lookup_read(
+						&key, [&](const void *v) {
+							auto *q = static_cast<uint64_t *>(
+								const_cast<void *>(v));
+							k = std::atomic_ref<uint64_t>(q[0]).load(
+								std::memory_order_acquire);
+							a = std::atomic_ref<uint64_t>(q[1]).load(
+								std::memory_order_acquire);
+							b = std::atomic_ref<uint64_t>(q[2]).load(
+								std::memory_order_acquire);
+						});
+					n++;
+					if (p == nullptr)
+						miss++;
+					else if (k != key || a != b)
+						bad++;
+				}
+			}
+			misses += miss;
+			torn += bad;
+			reads += n;
+		});
+	std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+	stop = true;
+	for (auto &t : threads)
+		t.join();
+	INFO("reads " << reads.load() << ", misses " << misses.load()
+		      << ", torn " << torn.load());
+	REQUIRE(reads.load() > 100000);
+	REQUIRE(torn.load() == 0);
+	REQUIRE(map.get_elem_count() == 2);
+}
+
+// A lookup stands on a key's element, behind the head, when the key is
+// updated (the element is unlinked and becomes the stripe's spare) and then
+// another key of the stripe is updated (the spare is reused for it): the
+// lookup must not return the other key's value. The read callback runs after
+// the key matched and before the word is checked again; it does both
+// updates the first time.
+TEST_CASE("hash map lookups never return a value reused for another key",
+	  "[bpftime_hash_map][chains][replace]")
+{
+	shm_guard shm("bpftime_hash_chains_reuse_test");
+	bpftime_hash_map map(shm.segment, 64, 4, 8);
+	uint32_t other = 1, key = 0;
+	for (uint32_t k = 2; key == 0; k++)
+		if (map.bucket_of_key(&k) == map.bucket_of_key(&other))
+			key = k;
+	// key first, so other is the head and key's element is behind it.
+	uint64_t value = 100;
+	REQUIRE(map.elem_update(&key, &value));
+	value = 200;
+	REQUIRE(map.elem_update(&other, &value));
+	int calls = 0;
+	uint64_t seen = 0;
+	const void *p = map.lookup_read(&key, [&](const void *v) {
+		if (calls++ == 0) {
+			const uint64_t mine = 101, theirs = 201;
+			REQUIRE(map.elem_update(&key, &mine));
+			REQUIRE(map.elem_update(&other, &theirs));
+			// The element the lookup stands on now holds other.
+			REQUIRE(*static_cast<const uint64_t *>(v) == 201);
+		}
+		seen = std::atomic_ref<uint64_t>(
+			       *static_cast<uint64_t *>(const_cast<void *>(v)))
+			       .load(std::memory_order_acquire);
+	});
+	REQUIRE(p != nullptr);
+	REQUIRE(calls == 2);
+	REQUIRE(seen == 101);
 }
