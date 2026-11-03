@@ -114,7 +114,9 @@ public:
 // chain, which ends in another bucket's terminator; either way the lookup
 // starts again. A lookup cannot find its key in a wrong chain (a key's
 // element is always in its own bucket's chain), and missing a key inserted
-// meanwhile is allowed. (A re-check of the word before following `next` was
+// meanwhile is allowed. A delete unlinks its element before it marks it free,
+// so no element that is in a chain sends lookups back (a deleter that stops
+// in between, preempted or killed, cannot make them restart). (A re-check of the word before following `next` was
 // tried: no test could tell it apart, and it cost a fence per step.) Writers lock the stripe of the key's head (a power of two of heads
 // per stripe, one cache line per lock): one lock per operation.
 //
@@ -409,6 +411,26 @@ class bpftime_hash_map {
 		return nullptr;
 	}
 
+	// A delete's two stores (under the stripe lock): the unlink, then a new
+	// generation, not in use. In this order, a deleter that stops between
+	// them (preempted, or killed) leaves an element out of its chain and
+	// still in use: lookups standing on it go on, new ones do not reach
+	// it, and a death there leaks one element. (The other order left it in
+	// the chain and not in use: every lookup reaching it restarted until
+	// the second store, forever after a death.) Release: a lookup that
+	// sees the new word and restarts also sees the unlink. steps is 2;
+	// tests stop after the first.
+	void unlink_and_retire_locked(uint32_t *link, uint8_t *e, int steps)
+	{
+		store(link, load(next_of(e), std::memory_order_relaxed),
+		      std::memory_order_release);
+		if (steps < 2)
+			return;
+		const uint32_t w = load(word_of(e), std::memory_order_relaxed);
+		store(word_of(e), (w & ~ELEM_USED) + GENERATION_STEP,
+		      std::memory_order_release);
+	}
+
 	// The element holding key in bucket's chain (under its stripe lock).
 	uint8_t *find_locked(const view &v, uint32_t bucket, const void *key)
 	{
@@ -621,12 +643,7 @@ class bpftime_hash_map {
 		uint8_t *e = elem_at(v, index);
 		if (value_out != nullptr)
 			copy_bytes(value_out, value_of(e), _value_size);
-		const uint32_t w = load(word_of(e), std::memory_order_relaxed);
-		// A new generation, not in use; readers on the element restart.
-		store(word_of(e), (w & ~ELEM_USED) + GENERATION_STEP,
-		      std::memory_order_relaxed);
-		store(link, load(next_of(e), std::memory_order_relaxed),
-		      std::memory_order_release);
+		unlink_and_retire_locked(link, e, 2);
 		bpftime_spin_unlock(&st.lock);
 		give_element(v, index);
 		return true;
@@ -719,6 +736,25 @@ class bpftime_hash_map {
 	void unlock_stripe_for_test(size_t stripe) const
 	{
 		bpftime_spin_unlock(&resolve().stripes[stripe].lock);
+	}
+
+	// A delete of key that stops after its first store, as a deleter
+	// preempted or killed there; the stripe stays locked, as a dead
+	// process leaves it, until unlock_stripe_for_test. False (unlocked)
+	// when the key is missing.
+	bool delete_first_store_for_test(const void *key)
+	{
+		const view v = resolve();
+		const uint32_t bucket = bucket_of(key);
+		stripe_lock &st = v.stripes[stripe_of(bucket)];
+		bpftime_spin_lock(&st.lock);
+		uint32_t *link = find_link_locked(v, bucket, key);
+		if (link == nullptr) {
+			bpftime_spin_unlock(&st.lock);
+			return false;
+		}
+		unlink_and_retire_locked(link, elem_at(v, *link), 1);
+		return true;
 	}
 
 	void lock_free_list_for_test(size_t list) const
