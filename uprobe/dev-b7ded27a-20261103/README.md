@@ -34,3 +34,5 @@ insert (was 1000, 2245 ns; timed during a compile, the chain is the point).
   -> shift is on the path to the head load. The member alone (no XOR) moves lookup +3.5% (layout).
 - Update and delete are 4-5% faster in b7ded27a in both runs; not explained (layout), not claimed.
 - `read`/`write` bimodal as before.
+
+Decision (11-03): the seed stays, at ~2 ns per lookup (CLAUDE.md, dev 603c81f7).
