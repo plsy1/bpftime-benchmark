@@ -114,19 +114,24 @@ public:
 // follows the chain from its head; at each element it reads the word
 // (acquire), skips the element unless it is in use, compares the key, and
 // accepts a match only if the word is still the same (the element was not
-// freed and reused meanwhile). As in the kernel, a stale `next` is caught at
-// the end of the walk, not at each step: an element freed while a lookup
-// stands on it links into a free list (its elements are not in use, the
-// list ends in a terminator naming no bucket) or, reused, into another
-// chain, which ends in another bucket's terminator; either way the lookup
-// starts again. A lookup cannot find its key in a wrong chain (a key's
-// element is always in its own bucket's chain), and missing a key inserted
-// meanwhile is allowed; so is missing a key being updated (see
-// replace_locked), as in the kernel. A delete unlinks its element before it marks it free,
-// so no element that is in a chain sends lookups back (a deleter that stops
-// in between, preempted or killed, cannot make them restart). (A re-check of the word before following `next` was
-// tried: no test could tell it apart, and it cost a fence per step.) Writers lock the stripe of the key's head (a power of two of heads
-// per stripe, one cache line per lock): one lock per operation.
+// freed and reused meanwhile). Past a mismatch it follows `next` only if the
+// link it came through still points to the element and the word is still the
+// same: an update reuses a retired element in place of another element of the
+// same chain, so an element reached through an old link, or retired while the
+// lookup stands on it, may now sit further down the chain, and following its
+// `next` would skip the elements in between (see replace_locked). A stale
+// `next` read before the retirement leads into a free list (its elements
+// are not in use, the list ends in a terminator naming no bucket), into the
+// rest of its old chain, or into another chain, which ends in another
+// bucket's terminator; the lookup then starts again. A lookup cannot find
+// its key in a wrong chain (a key's element is always in its own bucket's
+// chain); missing a key inserted meanwhile is allowed, missing a key present
+// throughout is not, also while it is updated (unlike the kernel). A delete
+// unlinks its element before it marks it free, so no element that is in a
+// chain sends lookups back (a deleter that stops in between, preempted or
+// killed, cannot make them restart). Writers lock the stripe of the key's
+// head (a power of two of heads per stripe, one cache line per lock): one
+// lock per operation.
 //
 // Free elements are kept in per-CPU lists (the kernel's pcpu_freelist), each
 // under its own lock on its own line: an insert pops from its thread's list
@@ -482,11 +487,11 @@ class bpftime_hash_map {
 		      std::memory_order_release);
 	}
 
-	// Under bucket's stripe lock: key and value into free element index,
-	// linked at the head of the chain, in front of next.
-	void link_at_head_locked(const view &v, uint32_t bucket, uint32_t index,
-				 const void *key, const void *value,
-				 uint32_t next)
+	// Under the stripe lock: key and value into free element index, linked
+	// at link (a head or an element's next) in front of next. Lookups load
+	// a head or a next with acquire, so they see the element written.
+	void link_locked(const view &v, uint32_t *link, uint32_t index,
+			 const void *key, const void *value, uint32_t next)
 	{
 		uint8_t *e = elem_at(v, index);
 		// A lookup that read this element's previous key and then sees
@@ -499,45 +504,36 @@ class bpftime_hash_map {
 		const uint32_t w = load(word_of(e), std::memory_order_relaxed);
 		store(word_of(e), w | ELEM_USED, std::memory_order_release);
 		// Publishes the element.
-		store(&v.heads[bucket], index, std::memory_order_release);
+		store(link, index, std::memory_order_release);
 	}
 
-	// Under bucket's stripe lock st, key present at link: the new value in
-	// the stripe's spare element, linked at the head, then the old element
-	// unlinked and retired (a new generation) and left as the spare, as the
-	// kernel's extra_elems. A copy that ends while its element is in its
-	// own life (lookup_read re-checks the word) holds one value whole; in
-	// place, copies mixed halves of two values. A lookup finds the old
-	// element, the new one, or, as in the kernel (add the new element at
-	// the head, then delete the old one), neither: a reader past the head,
-	// on the old element's predecessor when it is unlinked, ends there (4-8
-	// of 61 million lookups of two keys updated in one bucket). Putting the
-	// new element in the old one's place would close that, but makes it
-	// reachable through a relaxed `next` (an acquire load per step for the
-	// C++ model); kept as the kernel. A value pointer from a lookup
-	// stays on the old element, which the next update in that stripe
-	// reuses. One spare per stripe, under its lock: taking it needs no
-	// atomic (one spare per free list, taken by an exchange, cost 12 ns
-	// per update), and a process killed holding it has left that stripe locked
-	// anyway.
-	void replace_locked(const view &v, stripe_lock &st, uint32_t bucket,
-			    uint32_t *link, const void *key, const void *value)
+	// Under the stripe lock st, key present at link: the new value in the
+	// stripe's spare element, which takes the old element's place in the
+	// chain (one store of link), then the old element retired (a new
+	// generation) and left as the spare, as the kernel's extra_elems. A
+	// lookup on the old element's predecessor loads either the old element
+	// (its value, whole) or the new one. A copy that ends while its element
+	// is in its own life (lookup_read re-checks the word) holds one value
+	// whole; in place, copies mixed halves of two values. The kernel links
+	// the new element at the head and then unlinks the old one: a lookup past
+	// the head, on the old element's predecessor, reaches the end and misses
+	// the key; measured on the NUC with BPF_PROG_TEST_RUN, up to 0.63% of its
+	// lookups of two keys of one bucket updated at once, and so did this map
+	// before (up to 0.31%; results uprobe/x86-nuc-r1-miss-20261104). A value
+	// pointer from a lookup stays on the old element, which the next update
+	// in that stripe reuses. One spare per stripe, under its lock: taking it
+	// needs no atomic (one spare per free list, taken by an exchange, cost
+	// 12 ns per update), and a process killed holding it has left that
+	// stripe locked anyway.
+	void replace_locked(const view &v, stripe_lock &st, uint32_t *link,
+			    const void *key, const void *value)
 	{
 		const uint32_t old_index = *link;
 		uint8_t *old = elem_at(v, old_index);
 		const uint32_t index = st.spare;
-		if (link == &v.heads[bucket]) {
-			// The old element is the head: one store links the
-			// new one in its place.
-			link_at_head_locked(v, bucket, index, key, value,
-					    load(next_of(old),
-						 std::memory_order_relaxed));
-			retire(old);
-		} else {
-			link_at_head_locked(v, bucket, index, key, value,
-					    v.heads[bucket]);
-			unlink_and_retire_locked(link, old, 2);
-		}
+		link_locked(v, link, index, key, value,
+			    load(next_of(old), std::memory_order_relaxed));
+		retire(old);
 		st.spare = old_index;
 	}
 
@@ -561,7 +557,9 @@ class bpftime_hash_map {
 			std::memcpy(&key_value, key, sizeof(key_value));
 		const uint32_t end = NULLS | bucket;
 	restart:
-		uint32_t index = load(&v.heads[bucket], std::memory_order_acquire);
+		// The link the current element was reached through.
+		const uint32_t *link = &v.heads[bucket];
+		uint32_t index = load(link, std::memory_order_acquire);
 		for (size_t steps = 0;; steps++) {
 			if (index & NULLS) {
 				if (index == end)
@@ -596,7 +594,30 @@ class bpftime_hash_map {
 					return value_of(e);
 				goto restart;
 			}
-			index = load(next_of(e), std::memory_order_relaxed);
+			// Acquire: an element linked at this next (an update
+			// in place) is seen written. For a memcmp'd key the
+			// fence also keeps the key's reads before the checks
+			// below (the four-byte key load is acquire).
+			uint32_t next;
+			if constexpr (Uint32Key) {
+				next = load(next_of(e), std::memory_order_acquire);
+			} else {
+				next = load(next_of(e), std::memory_order_relaxed);
+				std::atomic_thread_fence(std::memory_order_acquire);
+			}
+			// The element must still be where it was reached, in
+			// the life whose word was read: updates reuse a retired
+			// element in place of another one of the chain, so an
+			// element reached through a link read before it was
+			// retired, and read after its reuse further down the
+			// chain, would skip the elements in between (its word
+			// alone looks fine). The link again (acquire: before
+			// the word), then the word again (not retired since).
+			if (load(link, std::memory_order_acquire) != index ||
+			    load(word, std::memory_order_relaxed) != w)
+				goto restart;
+			link = next_of(e);
+			index = next;
 		}
 	}
 
@@ -704,7 +725,7 @@ class bpftime_hash_map {
 			if (mode == update_mode::no_exist) {
 				result = update_result::exists;
 			} else {
-				replace_locked(v, st, bucket, link, key, value);
+				replace_locked(v, st, link, key, value);
 				result = update_result::ok;
 			}
 		} else if (mode == update_mode::exist) {
@@ -714,8 +735,8 @@ class bpftime_hash_map {
 			if (index & NULLS) {
 				result = update_result::full;
 			} else {
-				link_at_head_locked(v, bucket, index, key, value,
-						    v.heads[bucket]);
+				link_locked(v, &v.heads[bucket], index, key, value,
+					    v.heads[bucket]);
 				result = update_result::ok;
 			}
 		}
