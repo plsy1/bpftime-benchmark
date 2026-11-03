@@ -121,7 +121,8 @@ public:
 // chain, which ends in another bucket's terminator; either way the lookup
 // starts again. A lookup cannot find its key in a wrong chain (a key's
 // element is always in its own bucket's chain), and missing a key inserted
-// meanwhile is allowed. A delete unlinks its element before it marks it free,
+// meanwhile is allowed; so is missing a key being updated (see
+// replace_locked), as in the kernel. A delete unlinks its element before it marks it free,
 // so no element that is in a chain sends lookups back (a deleter that stops
 // in between, preempted or killed, cannot make them restart). (A re-check of the word before following `next` was
 // tried: no test could tell it apart, and it cost a fence per step.) Writers lock the stripe of the key's head (a power of two of heads
@@ -280,7 +281,12 @@ class bpftime_hash_map {
 	// XORed in at the end would not help: their collisions are in the
 	// mix). The bucket is the top bits of one multiply (Fibonacci hashing),
 	// well mixed whatever the key's low bits are; an XOR keeps that (an
-	// added seed would only shift every bucket by the same amount).
+	// added seed would only shift every bucket by the same amount). Weaker
+	// than the kernel's jhash with hashrnd: a ^ s = a + s - 2 (a & s), so
+	// each seed bit only shifts the keys that have that bit set; for 4-byte
+	// keys the seed's high half shifts every bucket alike (32 effective
+	// bits). Enough that the keys j * phi^-1 no longer share a chain; a
+	// multiply after the XOR would mix it fully, for another 1-2 ns.
 	inline uint64_t key_hash(const void *key) const
 	{
 		const auto *bytes = static_cast<const uint8_t *>(key);
@@ -499,10 +505,16 @@ class bpftime_hash_map {
 	// Under bucket's stripe lock st, key present at link: the new value in
 	// the stripe's spare element, linked at the head, then the old element
 	// unlinked and retired (a new generation) and left as the spare, as the
-	// kernel's extra_elems. A lookup finds the old element or the new one,
-	// and a copy that ends while its element is in its own life
-	// (lookup_read re-checks the word) holds one value whole; in place,
-	// copies mixed halves of two values. A value pointer from a lookup
+	// kernel's extra_elems. A copy that ends while its element is in its
+	// own life (lookup_read re-checks the word) holds one value whole; in
+	// place, copies mixed halves of two values. A lookup finds the old
+	// element, the new one, or, as in the kernel (add the new element at
+	// the head, then delete the old one), neither: a reader past the head,
+	// on the old element's predecessor when it is unlinked, ends there (4-8
+	// of 61 million lookups of two keys updated in one bucket). Putting the
+	// new element in the old one's place would close that, but makes it
+	// reachable through a relaxed `next` (an acquire load per step for the
+	// C++ model); kept as the kernel. A value pointer from a lookup
 	// stays on the old element, which the next update in that stripe
 	// reuses. One spare per stripe, under its lock: taking it needs no
 	// atomic (one spare per free list, taken by an exchange, cost 12 ns

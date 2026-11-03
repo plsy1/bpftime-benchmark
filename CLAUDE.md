@@ -630,8 +630,20 @@ stripe's spare element (one per stripe, outside `max_entries`, on the lock's
 line, under the lock), writes key and value there, links it at the head
 (when the old element is the head, in its place: one store), then unlinks
 the old element, retires it (new generation) and leaves it as the spare. A
-lookup sees the old element or the new one; a `lookup_read` copy holds one
-value whole (the word re-check catches reuse). In place, 16 B values
+`lookup_read` copy holds one value whole (the word re-check catches reuse).
+A lookup of the key being updated may miss it, as in the kernel (add at the
+head, then delete the old element): a reader past the head, on the old
+element's predecessor when it is unlinked, reaches the end (review of
+3cb3b630..7670cee5, R1: 4-8 misses in 61 million lookups of two keys of one
+bucket updated at once; test "hash map copies of keys updated behind the
+head are whole" counts them and requires whole copies; "hash map lookups
+never return a value reused for another key" stands a lookup on an element
+behind the head while its key is updated and the spare reused for another
+key, mutation: no retire behind the head, the lookup takes the other key's
+value). The in-place table
+never missed a present key; the new element in the old one's place would
+not either, but would be reachable through a relaxed `next` (an acquire
+load per step for the C++ model); kept as the kernel. In place, 16 B values
 `{x, x}` with two updaters and three readers mixed halves in 995,658 copies
 and 391,877 of 364 million pointer reads in 5 s; now 0 of 55 million copies
 and 75 pointer reads in 1.5 s (the old element reused by a later
@@ -648,7 +660,10 @@ Changes against the in-place table: a value pointer follows the element,
 not the key, so it is valid until the key is updated or deleted (a
 BPF `*v += 1` racing an update of that key goes to the old element, lost;
 kernel the same), and an updated key moves to the head of its chain
-(`next_key` during updates may return a key again). A value pointer kept
+(`next_key` during updates may return a key again, and a tool that updates
+each key it visits can cycle between two keys of one bucket: update(A) puts A
+first, next_key(A) = B, update(B) puts B first, next_key(B) = A; kernel the
+same). A value pointer kept
 longer writes into a free or reused element, as in the kernel.
 
 A process killed inside a writer leaves its stripe locked
@@ -660,8 +675,9 @@ a lookup returned); the kernel waits there too, but its holders cannot die.
 One killed between taking and linking an element, or between unlinking and
 giving it back, loses that element (E2BIG one entry early). Tests:
 `test_hash_map_chains.cpp` (writers lock only the key's stripe, lookups no
-lock; lookups of keys present throughout never miss while elements around
-them move through the free lists into other chains, mutation: any
+lock; lookups of keys present throughout, not updated, never miss while
+elements around them move through the free lists into other chains,
+mutation: any
 terminator taken as the end; inserts take elements from every list up to
 exactly `max_entries`, also with 2 entries and 6 lists, mutation: no
 stealing; `lookup_read` with 8 and 16 B keys), `test_hash_map_value_access.cpp`
