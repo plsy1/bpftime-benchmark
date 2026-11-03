@@ -523,8 +523,8 @@ us (1 thread) to 10.7 us (6 threads, both clusters), lookup-only counters to
 1.4 us.
 
 `bpftime_hash_map` (11-03) is the kernel's preallocated htab in offsets:
-`max_entries` preallocated elements `{word, next, key, value}` and a power
-of two (at least `max_entries`) of u32 chain heads, each the index of its
+`max_entries` preallocated elements `{word, next, key, value}` plus a spare
+per stripe, and a power of two (at least `max_entries`) of u32 chain heads, each the index of its
 chain's first element or a terminator naming the bucket (`NULLS | bucket`).
 The bucket is the top bits of one multiply of the key (4 and 8 B keys are
 their own hash XORed with a per-map random seed, longer ones mixed 8 bytes
@@ -613,15 +613,34 @@ hash helpers ran 30 more instructions per update and lookup (LTO kept the
 guard's constructor out of line around it), and left to the compiler the
 stripes lost 2 ns per hash update.
 
-Values are updated in place: a lookup's copy, or a reader through a pointer,
-may see part of the old value and part of the new one (16 B values `{x, x}`,
-two updaters, three readers, 5 s: 391,877 of 364 million pointer reads,
-995,658 `lookup_read` copies). The
-kernel's preallocated htab does not tear: it links a spare element with the
-new value (per-CPU `extra_elems`) and unlinks the old one. Not changed yet
-(review 3, open). A value pointer is only valid while its key stays, as in
-the kernel's preallocated htab (a stale pointer writes into a free or
-reused element). A process killed inside a writer leaves its stripe locked
+An update of an existing key does not write in place (review 3): as the
+kernel's preallocated htab with its per-CPU `extra_elems`, it takes the
+stripe's spare element (one per stripe, outside `max_entries`, on the lock's
+line, under the lock), writes key and value there, links it at the head
+(when the old element is the head, in its place: one store), then unlinks
+the old element, retires it (new generation) and leaves it as the spare. A
+lookup sees the old element or the new one; a `lookup_read` copy holds one
+value whole (the word re-check catches reuse). In place, 16 B values
+`{x, x}` with two updaters and three readers mixed halves in 995,658 copies
+and 391,877 of 364 million pointer reads in 5 s; now 0 of 55 million copies
+and 75 pointer reads in 1.5 s (the old element reused by a later
+update while the reader holds it; the kernel has the same window). Test
+"hash map copies of a value being updated are whole" (mutation: in place,
+torn copies); "hash map updates of existing keys replace their element" (a
+key alone in its chain stays found, mutation: the old head kept as next,
+lookups never return; a full map still takes updates; spares are not
+capacity). Cost: suite hash update (existing keys) 25.0 -> 34.6 ns, lookup
+and delete within 3%, kernel 95.8 ns; spares are up to 1/8 more elements
+(heads / 16, at most 4096). One spare per free list taken by an exchange
+cost 47.2 ns (the LSE helper and its barriers, half the added samples).
+Changes against the in-place table: a value pointer follows the element,
+not the key, so it is valid until the key is updated or deleted (a
+BPF `*v += 1` racing an update of that key goes to the old element, lost;
+kernel the same), and an updated key moves to the head of its chain
+(`next_key` during updates may return a key again). A value pointer kept
+longer writes into a free or reused element, as in the kernel.
+
+A process killed inside a writer leaves its stripe locked
 (writers of that stripe and `next_key` calls reaching it hang, lookups do
 not). One killed holding a free list's lock hangs that list's deletes and
 every insert that runs out of its own list, and with it that insert's
