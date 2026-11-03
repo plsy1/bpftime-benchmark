@@ -572,7 +572,12 @@ reached through a link read before its retirement but read after its reuse
 further down the chain (its word alone looks fine), or retired while the
 lookup stands on it, would skip the elements in between. Without the link
 check 1-25 lookups per 2 s round still missed on the NUC (7f35edec); with
-it 0 in 3.5 billion. A `next` read before a retirement leads into
+it 0 in 3.5 billion. Cost against 518a6b99 (link at head, no checks): suite
+hash lookup -2.8%, update -7.9%, delete +1.4% (chains of about one); key
+pattern matrix through BPF programs 0.97-1.04x, up to +11 ns at 90% load
+(rand32, 102400), one cell 1.14x (10240 / 50% / shl12); NUC full ten within
+noise (results `uprobe/dev-7ad5a152-20261104`, x86:
+`uprobe/x86-nuc-r1-miss-20261104`). A `next` read before a retirement leads into
 a free list (not in use; the lists end in `NULLS | n_heads`, a bucket that
 does not exist), the rest of its old chain, or another chain, which ends in
 another bucket's terminator; the lookup then starts again. A step cap
