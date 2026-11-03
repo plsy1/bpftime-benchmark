@@ -527,7 +527,11 @@ us (1 thread) to 10.7 us (6 threads, both clusters), lookup-only counters to
 of two (at least `max_entries`) of u32 chain heads, each the index of its
 chain's first element or a terminator naming the bucket (`NULLS | bucket`).
 The bucket is the top bits of one multiply of the key (4 and 8 B keys are
-their own hash, longer ones mixed 8 bytes at a time). One buffer holds
+their own hash XORed with a per-map random seed, longer ones mixed 8 bytes
+at a time from the seed; the kernel's `hashrnd`). Without the seed, keys
+computed to share one chain were trivial (1000 keys `j * phi^-1`: one chain,
+2.2 us per insert); test "hash map chains stay short for keys made to
+collide" (mutation: seed 0, 1000-element chains). One buffer holds
 stripe locks, free lists, heads and elements, resolved once per operation
 (`view`). It replaced the upstream open-addressing table (linear probing,
 key and value inline in twice `max_entries` buckets, tombstones, the
@@ -554,18 +558,27 @@ re-check of the word before following `next` caught nothing in any test and
 cost a fence per step (dropped). Inserts write key and value after a release
 fence (a lookup that read the element's previous key and sees new bytes
 also sees the delete's generation), then `next`, the word (release), the
-head (release). A delete sets the word's new generation, unlinks with a
-release store and gives the element back after unlocking the stripe.
+head (release). A delete unlinks (release store), then sets the word's new
+generation (release), and gives the element back after unlocking the
+stripe. In the other order (e5ba4aa7) a deleter stopped between the two
+stores left an element in its chain that was not in use, and every lookup
+reaching it restarted: until the deleter ran again, forever if it was
+killed (review `uprobe/dev-e5ba4aa7-20261103/REVIEW.md`, 1, reproduced).
+Now such an element is out of the chain and still in use; test "hash map
+lookups pass a delete stopped halfway" (mutation: the stores swapped).
 
 Writers lock the stripe of the key's head (16 heads per stripe, at most 4096
 stripes, one cache line per lock): one lock per operation, no ranges or
 retries. Free elements are in per-CPU lists (the kernel's `pcpu_freelist`,
 one lock and line each, at most 64): an insert pops from its thread's list
 (chosen from the thread pointer: no system call, no TLS variable), else
-from the others one at a time (try-locked first, so a list whose holder
-died blocks only its own users); a delete pushes to its thread's list. The
-free elements are the capacity: E2BIG exactly when none is left, so no
-count is kept (`get_elem_count` sums the lists, exact without concurrent
+from the others one at a time (try-locked first, then waiting for each
+lock, since a busy list may hold the last elements); a delete pushes to its
+thread's list. The free elements are the capacity: E2BIG when an insert
+found none, so no count is kept. Exact without concurrent deletes; with
+them an insert can miss an element pushed to a list it already passed and
+fail with elements left (the window of the kernel's `pcpu_freelist`; not
+reproduced in 22-40 million inserts with 1-28 free) (`get_elem_count` sums the lists, exact without concurrent
 writers). Lock order: stripe, then list; a list is never held while taking
 a stripe. Step 1 of the redesign (42595149) had replaced the tokens with one
 shared atomic count, which cost an atomic per insert and delete (suite hash
@@ -596,19 +609,28 @@ hash helpers ran 30 more instructions per update and lookup (LTO kept the
 guard's constructor out of line around it), and left to the compiler the
 stripes lost 2 ns per hash update.
 
-Values are updated in place (readers may see a partly written value, as
-with the kernel without `BPF_F_LOCK`), and a value pointer is only valid
-while its key stays, as in the kernel's preallocated htab (a stale pointer
-writes into a free or reused element). A process killed inside a writer
-leaves its stripe locked (writers of that stripe hang, lookups do not); one
-killed holding a free list's lock blocks that list's own inserts and
-deletes; one killed between taking and linking an element, or unlinking and
+Values are updated in place: a lookup's copy, or a reader through a pointer,
+may see part of the old value and part of the new one (16 B values `{x, x}`,
+two updaters, three readers, 5 s: 391,877 of 364 million pointer reads,
+995,658 `lookup_read` copies). The
+kernel's preallocated htab does not tear: it links a spare element with the
+new value (per-CPU `extra_elems`) and unlinks the old one. Not changed yet
+(review 3, open). A value pointer is only valid while its key stays, as in
+the kernel's preallocated htab (a stale pointer writes into a free or
+reused element). A process killed inside a writer leaves its stripe locked
+(writers of that stripe and `next_key` calls reaching it hang, lookups do
+not). One killed holding a free list's lock hangs that list's deletes and
+every insert that runs out of its own list, and with it that insert's
+stripe (reproduced: the inserter and another writer of its stripe stopped,
+a lookup returned); the kernel waits there too, but its holders cannot die.
+One killed between taking and linking an element, or between unlinking and
 giving it back, loses that element (E2BIG one entry early). Tests:
 `test_hash_map_chains.cpp` (writers lock only the key's stripe, lookups no
 lock; lookups of keys present throughout never miss while elements around
 them move through the free lists into other chains, mutation: any
 terminator taken as the end; inserts take elements from every list up to
-exactly `max_entries`, mutation: no stealing), `test_hash_map_value_access.cpp`
+exactly `max_entries`, also with 2 entries and 6 lists, mutation: no
+stealing; `lookup_read` with 8 and 16 B keys), `test_hash_map_value_access.cpp`
 (a lookup stalled on an element freed and reused by another key misses,
 mutation: no re-check after the read), `test_hash_map_lockfree_lookup.cpp`
 (torn keys; values read while no delete runs), `test_hash_map_striped_writers.cpp`
