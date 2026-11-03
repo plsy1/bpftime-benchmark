@@ -128,9 +128,13 @@ public:
 // Free elements are kept in per-CPU lists (the kernel's pcpu_freelist), each
 // under its own lock on its own line: an insert pops from its thread's list
 // and, when that is empty, from the others one at a time; a delete pushes to
-// its thread's list. The free elements are the capacity: E2BIG exactly when
-// none is left. The list is chosen from the thread pointer (no system call,
-// no TLS variable in the agent's namespace).
+// its thread's list. The free elements are the capacity: E2BIG when an insert
+// found none. Exact without concurrent deletes; with them, an insert that has
+// passed a list can miss an element pushed there meanwhile while another
+// insert takes the one it was heading for, and fail with free elements left
+// (the kernel's ___pcpu_freelist_pop has the same window; not seen in tens of
+// millions of inserts with 1-28 free). The list is chosen from the thread
+// pointer (no system call, no TLS variable in the agent's namespace).
 class bpftime_hash_map {
     public:
 	enum class update_mode { any, no_exist, exist };
@@ -373,9 +377,11 @@ class bpftime_hash_map {
 	}
 
 	// A free element: from this thread's list, else from the others one
-	// lock at a time (try-locked, so that a process that died holding one
-	// list's lock blocks only that list's own users). NULLS when none is
-	// left: the map holds max_entries elements.
+	// lock at a time, first try-locked (a busy list is skipped), then
+	// waiting for each lock (a busy list may hold the last elements). So a
+	// process that died holding a list's lock hangs every insert that runs
+	// out of its own list, with its stripe; the kernel waits there too, but
+	// its lock holders cannot die. NULLS when none was found.
 	uint32_t take_element(const view &v)
 	{
 		const size_t mine = my_list();
@@ -599,8 +605,12 @@ class bpftime_hash_map {
 	}
 
 	// Kernel htab semantics for the three modes. An existing key's value is
-	// overwritten in place, as the kernel without BPF_F_LOCK: concurrent
-	// readers may see a partly written value.
+	// overwritten in place: a concurrent lookup, or a program reading
+	// through a pointer it got before, may see part of the old value and
+	// part of the new one. The kernel's preallocated htab differs: it links
+	// a spare element with the new value (its per-CPU extra_elems) and
+	// unlinks the old one, so copies see one value whole. In place keeps a
+	// value pointer on the key's current value while the key stays.
 	update_result update(const void *key, const void *value,
 			     update_mode mode)
 	{
