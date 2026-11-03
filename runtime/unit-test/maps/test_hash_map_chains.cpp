@@ -11,6 +11,9 @@
 #include <cstdint>
 #include <thread>
 #include <vector>
+#include <csignal>
+#include <sys/wait.h>
+#include <unistd.h>
 
 using namespace boost::interprocess;
 using namespace bpftime;
@@ -203,4 +206,59 @@ TEST_CASE("hash map inserts take free elements from every list",
 			t.join();
 		REQUIRE(map.get_elem_count() == 0);
 	}
+}
+
+// A deleter that stops between its two stores (preempted, or killed: then
+// for good) must not make lookups of that chain restart. Keys behind the
+// element and misses in its bucket are looked up in a child process, so that
+// a lookup that spins can be killed.
+TEST_CASE("hash map lookups pass a delete stopped halfway",
+	  "[bpftime_hash_map][chains][delete]")
+{
+	shm_guard shm("bpftime_hash_chains_half_delete_test");
+	bpftime_hash_map map(shm.segment, 16, 4, 8);
+	// Three keys of one bucket: behind is inserted first, so the deleted
+	// key is ahead of it in the chain; absent is never inserted.
+	std::vector<uint32_t> same;
+	for (uint32_t key = 1; same.size() < 3; key++) {
+		uint32_t first = same.empty() ? key : same[0];
+		if (map.bucket_of_key(&key) == map.bucket_of_key(&first))
+			same.push_back(key);
+	}
+	const uint32_t behind = same[0], deleted = same[1], absent = same[2];
+	const uint64_t value = 5;
+	REQUIRE(map.elem_update(&behind, &value));
+	REQUIRE(map.elem_update(&deleted, &value));
+	REQUIRE(map.chain_length_of_key(&behind) == 2);
+	REQUIRE(map.delete_first_store_for_test(&deleted));
+	// The first store is the unlink.
+	REQUIRE(map.chain_length_of_key(&behind) == 1);
+	const pid_t child = fork();
+	REQUIRE(child >= 0);
+	if (child == 0) {
+		const auto *v = static_cast<const uint64_t *>(
+			map.elem_lookup(&behind));
+		const bool ok = v != nullptr && *v == value &&
+				map.elem_lookup(&absent) == nullptr &&
+				map.elem_lookup(&deleted) == nullptr;
+		_exit(ok ? 0 : 1);
+	}
+	int status = 0;
+	pid_t done = 0;
+	for (int i = 0; i < 200 && done == 0; i++) {
+		done = waitpid(child, &status, WNOHANG);
+		if (done == 0)
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	}
+	if (done == 0) {
+		kill(child, SIGKILL);
+		waitpid(child, &status, 0);
+	}
+	REQUIRE(done == child);
+	REQUIRE(WIFEXITED(status));
+	REQUIRE(WEXITSTATUS(status) == 0);
+	// The element is leaked: out of the chain, in no free list.
+	map.unlock_stripe_for_test(map.stripe_of_key(&deleted));
+	REQUIRE(map.get_elem_count() == 2);
+	REQUIRE(map.elem_lookup(&behind) != nullptr);
 }
