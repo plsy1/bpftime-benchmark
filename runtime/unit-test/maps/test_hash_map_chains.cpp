@@ -1,8 +1,7 @@
 // The hash map's chains, stripe locks and free lists: writers lock only the
 // key's stripe, lookups no lock at all; lookups of keys present throughout
 // never miss while elements around them are freed and reused in other
-// chains (updates of the key itself may make them miss, as in the kernel);
-// inserts take free elements from other threads' lists, so capacity
+// chains, also while they are updated; inserts take free elements from other threads' lists, so capacity
 // stays exactly max_entries.
 #include <bpf_map/bpftime_hash_map.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
@@ -100,9 +99,8 @@ TEST_CASE("hash map writers lock only the key's stripe",
 // Present keys share buckets with churn keys; writers delete and insert the
 // churn keys, so elements leave these chains, pass through the free lists
 // and come back in other chains while readers walk past them. A lookup that
-// follows a freed element must start again, never end as a miss. (The
-// present keys are not updated: an update may make a lookup of that key miss,
-// see "hash map copies of keys updated behind the head are whole".)
+// follows a freed element must start again, never end as a miss. (Updates of
+// present keys: "hash map lookups of keys updated at once never miss".)
 TEST_CASE("hash map lookups never miss keys present while their chains churn",
 	  "[bpftime_hash_map][chains][concurrency]")
 {
@@ -496,13 +494,14 @@ TEST_CASE("hash map copies of a value being updated are whole",
 }
 
 // Two keys of one bucket updated at once, so that one of them is replaced
-// while it is not the head (the new element goes to the head, the old one is
-// unlinked and retired behind it, then reused by the next update of the
-// stripe). Copies must hold their own key's value, whole. Lookups may miss a key
-// while it is updated, as in the kernel (htab_map_update_elem adds the new
-// element at the head, then deletes the old one): a reader past the head, on
-// the old element's predecessor, sees neither; those are only counted.
-TEST_CASE("hash map copies of keys updated behind the head are whole",
+// while it is not the head: its new element takes its place in the chain and
+// the old one is retired and reused by the next update of the stripe.
+// Lookups of either key must never miss (both are present throughout) and
+// copies must hold their own key's value, whole. Linked at the head instead
+// (the kernel's way), a lookup on the old element's predecessor reached the
+// end: on the NUC 0.001-0.31% of these lookups missed (the kernel's own map
+// up to 0.63%), on the Orin 4-8 in 61 million.
+TEST_CASE("hash map lookups of keys updated at once never miss",
 	  "[bpftime_hash_map][chains][replace][concurrency]")
 {
 	shm_guard shm("bpftime_hash_chains_behind_test");
@@ -563,6 +562,7 @@ TEST_CASE("hash map copies of keys updated behind the head are whole",
 	INFO("reads " << reads.load() << ", misses " << misses.load()
 		      << ", torn " << torn.load());
 	REQUIRE(reads.load() > 100000);
+	REQUIRE(misses.load() == 0);
 	REQUIRE(torn.load() == 0);
 	REQUIRE(map.get_elem_count() == 2);
 }
@@ -604,4 +604,47 @@ TEST_CASE("hash map lookups never return a value reused for another key",
 	REQUIRE(p != nullptr);
 	REQUIRE(calls == 2);
 	REQUIRE(seen == 101);
+}
+
+// An update puts the new element where the old one was: the chain keeps its
+// order (next_key returns the same sequence), and a key behind the head stays
+// behind it. Linked at the head, the updated key moved to the front, so
+// next_key during updates returned keys again and could cycle between two
+// keys of a bucket.
+TEST_CASE("hash map updates keep the chain's order",
+	  "[bpftime_hash_map][chains][replace]")
+{
+	shm_guard shm("bpftime_hash_chains_order_test");
+	bpftime_hash_map map(shm.segment, 64, 4, 8);
+	std::vector<uint32_t> same{ 1 };
+	for (uint32_t k = 2; same.size() < 4; k++)
+		if (map.bucket_of_key(&k) == map.bucket_of_key(&same[0]))
+			same.push_back(k);
+	uint64_t value = 0;
+	for (uint32_t key : same)
+		REQUIRE(map.elem_update(&key, &value));
+	auto order = [&] {
+		std::vector<uint32_t> keys;
+		uint32_t key = 0, next = 0;
+		const void *at = nullptr;
+		while (map.next_key(at, &next)) {
+			keys.push_back(next);
+			key = next;
+			at = &key;
+		}
+		return keys;
+	};
+	const auto before = order();
+	REQUIRE(before.size() == 4);
+	// The first inserted is last in its chain; then each key in turn, in
+	// an order that differs from the chain's.
+	for (value = 1; value <= 8; value++) {
+		REQUIRE(map.elem_update(&same[0], &value));
+		REQUIRE(order() == before);
+		for (uint32_t key : { same[2], same[0], same[3], same[1] })
+			REQUIRE(map.elem_update(&key, &value));
+		REQUIRE(order() == before);
+	}
+	REQUIRE(map.chain_length_of_key(&same[0]) == 4);
+	REQUIRE(map.get_elem_count() == 4);
 }
