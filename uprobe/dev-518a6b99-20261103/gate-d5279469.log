@@ -1,0 +1,1277 @@
++ git rev-parse --show-toplevel
++ git submodule sync --recursive
+Synchronizing submodule url for '.agents/sources/agent-skills'
+Synchronizing submodule url for 'bpftime-verifier/ebpf-verifier'
+Synchronizing submodule url for 'bpftime-verifier/ebpf-verifier/ebpf-samples'
+Synchronizing submodule url for 'bpftime-verifier/ebpf-verifier/ebpf-samples/bpf_cilium_test'
+Synchronizing submodule url for 'bpftime-verifier/ebpf-verifier/external/ELFIO'
+Synchronizing submodule url for 'bpftime-verifier/ebpf-verifier/external/bpf_conformance'
+Synchronizing submodule url for 'bpftime-verifier/ebpf-verifier/external/bpf_conformance/external/elfio'
+Synchronizing submodule url for 'bpftime-verifier/ebpf-verifier/external/libbtf'
+Synchronizing submodule url for 'bpftime-verifier/ebpf-verifier/external/libbtf/external/ebpf-samples'
+Synchronizing submodule url for 'bpftime-verifier/ebpf-verifier/external/libbtf/external/ebpf-samples/bpf_cilium_test'
+Synchronizing submodule url for 'bpftime-verifier/ebpf-verifier/external/radix_tree'
+Synchronizing submodule url for 'third_party/Catch2'
+Synchronizing submodule url for 'third_party/argparse'
+Synchronizing submodule url for 'third_party/bpftool'
+Synchronizing submodule url for 'third_party/bpftool/libbpf'
+Synchronizing submodule url for 'third_party/spdlog'
+Synchronizing submodule url for 'third_party/ubpf'
+Synchronizing submodule url for 'third_party/ubpf/external/bpf_conformance'
+Synchronizing submodule url for 'third_party/ubpf/external/bpf_conformance/external/elfio'
+Synchronizing submodule url for 'third_party/ubpf/vm/compat/libraries/win-c/src'
+Synchronizing submodule url for 'vm/llvm-jit'
++ git submodule update --init --recursive --jobs 6
++ cmake -S /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate -B /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=/usr/bin/gcc-13 -DCMAKE_CXX_COMPILER=/usr/bin/g++-13 -DBPFTIME_BPF_CLANG=/usr/bin/clang-15 -DLLVM_DIR=/usr/lib/llvm-15/lib/cmake/llvm -DBPFTIME_ENABLE_LTO=ON -DBPFTIME_ENABLE_UNIT_TESTING=ON -DBPFTIME_ENABLE_CUDA_ATTACH=OFF -DENABLE_EBPF_VERIFIER=OFF -DENABLE_PROBE_READ_CHECK=OFF -DENABLE_PROBE_WRITE_CHECK=OFF -DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO -DBUILD_BPFTIME_DAEMON=ON
+-- Started CMake for bpftime v0.9.0...
+
+-- copying compiler.h;err.h;filter.h;kernel.h;list.h;overflow.h;ring_buffer.h;types.h from /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/cmake/../third_party/libbpf//include/linux to /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux
+-- copying linux/bpf.h;linux/bpf_common.h;linux/btf.h;linux/fcntl.h;linux/if_link.h;linux/if_xdp.h;linux/netdev.h;linux/netlink.h;linux/openat2.h;linux/perf_event.h;linux/pkt_cls.h;linux/pkt_sched.h;linux/stddef.h from /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/cmake/../third_party/libbpf//include/uapi/ to /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi
+-- copying bpf.h;bpf_common.h;btf.h;fcntl.h;if_link.h;if_xdp.h;netdev.h;netlink.h;openat2.h;perf_event.h;pkt_cls.h;pkt_sched.h;stddef.h from /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/cmake/../third_party/libbpf//include/uapi/linux to /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux
+-- All headers to copy: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/compiler.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/err.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/filter.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/kernel.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/list.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/overflow.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/ring_buffer.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/types.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi/linux/bpf.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi/linux/bpf_common.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi/linux/btf.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi/linux/fcntl.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi/linux/if_link.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi/linux/if_xdp.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi/linux/netdev.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi/linux/netlink.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi/linux/openat2.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi/linux/perf_event.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi/linux/pkt_cls.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi/linux/pkt_sched.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//uapi/linux/stddef.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/bpf.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/bpf_common.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/btf.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/fcntl.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/if_link.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/if_xdp.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/netdev.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/netlink.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/openat2.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/perf_event.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/pkt_cls.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/pkt_sched.h;/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf//linux/stddef.h
+-- System Name: Linux
+-- System Version: 6.8.12-1021-tegra
+-- System Processor: aarch64
+-- Using frida: arch=linux-aarch64, version=16.1.2
+-- Frida Core Devkit already downloaded
+-- Frida GUM Devkit already downloaded
+-- Downloading FridaCore from /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/third_party/frida/frida-core-devkit-16.1.2-linux-arm64.tar.xz
+-- Downloading FridaGum from /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/third_party/frida/frida-gum-devkit-16.1.2-linux-arm64.tar.xz
+-- Skipping ebpf verifier
+-- Adding Catch2 by subdirectory
+-- Build spdlog: 1.15.2
+-- Build type: RelWithDebInfo
+-- Setting SPDLOG_ACTIVE_LEVEL to SPDLOG_LEVEL_INFO
+-- Supporting llvm-jit
+-- Checking LLVM_VERSION_MAJOR macro value...
+-- LLVM_VERSION_MAJOR is: 15
+-- LLVM_LIBS=LLVMCore;LLVMSupport;LLVMTarget;LLVMAnalysis;LLVMipo;LLVMTransformUtils;LLVMBitReader;LLVMAsmParser;LLVMLinker;LLVMMC;LLVMMCParser;LLVMMCDisassembler;LLVMObject;LLVMExecutionEngine;LLVMRuntimeDyld;LLVMOrcJIT;LLVMMCJIT;LLVMAArch64CodeGen;LLVMAArch64AsmParser;LLVMAArch64Desc;LLVMAArch64Disassembler;LLVMAArch64Info;LLVMAArch64Utils;LLVMNVPTXCodeGen;LLVMNVPTXDesc;LLVMNVPTXInfo
+-- Build unit tests for the project. Tests should always be found in the test folder
+
+-- Supporting ubpf-jit
+-- Build unit tests for the project. Tests should always be found in the test folder
+
+-- Started CMake for runtime v0.9.0...
+
+-- Building for architecture: aarch64
+INFO Headers: include/
+INFO Found the following sources: src/attach/bpf_attach_ctx.cpp;src/handler/handler_manager.cpp;src/handler/map_handler.cpp;src/handler/perf_event_handler.cpp;src/handler/prog_handler.cpp;src/handler/epoll_handler.cpp;src/handler/memfd_handler.cpp;src/bpftime_shm.cpp;src/bpftime_shm_internal.cpp;src/bpftime_shm_json.cpp;src/bpftime_prog.cpp;src/bpftime_config.cpp;src/ufunc.cpp;src/bpf_helper.cpp;src/platform_utils.cpp;src/fork_handlers.cpp;src/producer_identity.cpp;src/bpf_map/userspace/array_map.cpp;src/bpf_map/array_map_binding.cpp;src/bpf_map/map_usage_stats.cpp;src/bpf_map/userspace/fix_hash_map.cpp;src/bpf_map/userspace/var_hash_map.cpp;src/bpf_map/userspace/ringbuf_map.cpp;src/bpf_map/userspace/perf_event_array_map.cpp;src/bpf_map/userspace/per_cpu_array_map.cpp;src/bpf_map/userspace/per_cpu_hash_map.cpp;src/bpf_map/userspace/prog_array.cpp;src/bpf_map/userspace/stack_trace_map.cpp;src/bpf_map/userspace/lru_var_hash_map.cpp;src/bpf_map/userspace/queue.cpp;src/bpf_map/userspace/stack.cpp;src/bpf_map/userspace/bloom_filter.cpp;src/bpf_map/userspace/cgroup_array_map.cpp;src/bpf_map/userspace/lpm_trie_map.cpp;extension/extension_helper.cpp;src/bpf_map/shared/array_map_kernel_user.cpp;src/bpf_map/shared/hash_map_kernel_user.cpp;src/bpf_map/shared/kernel_map_local.cpp;src/bpf_map/shared/percpu_array_map_kernel_user.cpp;src/bpf_map/shared/perf_event_array_kernel_user.cpp
+INFO Found the following boost include dirs : /usr/include
+-- Added all header and implementation files.
+
+-- Build unit tests for the runtime. Tests should always be found in the test folder
+
+-- Using llvm-jit
+-- Configuring done (2.5s)
+-- Generating done (0.3s)
+-- Build files have been written to: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily
++ cmake --build /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily --parallel 6 --target bpftime-agent bpftime-syscall-server simple-benchmark-with-embed-ebpf-calling bpftime_runtime_tests bpftime_daemon_tests bpftime_frida_uprobe_attach_tests bpftime_runtime_tests bpftime_syscall_trace_attach_tests bpftime_text_segment_transformer_tests
+[ 13%] Performing build step for 'libbpf'
+[ 13%] Built target FridaGum
+[ 13%] Built target ubpf
+[ 13%] Built target bpftime_syscall_trace_syscall_id_table
+make[4]: warning: -j0 forced in submake: resetting jobserver mode.
+  INSTALL  bpf.h libbpf.h btf.h libbpf_common.h libbpf_legacy.h bpf_helpers.h bpf_helper_defs.h bpf_tracing.h bpf_endian.h bpf_core_read.h skel_internal.h libbpf_version.h usdt.bpf.h
+  INSTALL  /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.pc
+[ 22%] Built target spdlog
+  INSTALL  /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.a /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so.1 /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so.1.7.0
+[ 22%] No install step for 'libbpf'
+[ 22%] Built target bpftime_ubpf_vm_obj
+[ 27%] Built target bpftime_syscall_trace_attach_impl
+[ 31%] Built target bpftime_frida_uprobe_attach_impl
+[ 36%] Built target llvmbpf_vm
+[ 36%] Completed 'libbpf'
+[ 36%] Built target bpftime_ubpf_vm
+[ 36%] Built target bpftime_llvm_vm_obj
+[ 45%] Built target libbpf
+[ 45%] Built target bpftime_llvm_vm
+[ 50%] Built target bpftime_vm
+[ 54%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_helper.cpp.o
+[ 59%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/array_map_kernel_user.cpp.o
+[ 59%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/hash_map_kernel_user.cpp.o
+[ 59%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/kernel_map_local.cpp.o
+[ 59%] Building CXX object runtime/CMakeFiles/runtime.dir/src/handler/map_handler.cpp.o
+[ 59%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/percpu_array_map_kernel_user.cpp.o
+[ 59%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/perf_event_array_kernel_user.cpp.o
+[ 63%] Linking CXX static library libruntime.a
+[ 95%] Built target runtime
+[100%] Linking CXX shared library libbpftime-agent.so
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/compat/ubpf-vm/../include/ebpf_inst.h:22:8: warning: type ‘struct ebpf_inst’ violates the C++ One Definition Rule [-Wodr]
+   22 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/llvm-jit/src/ebpf_inst.h:27:8: note: a different type is defined in another translation unit
+   27 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/compat/ubpf-vm/../include/ebpf_inst.h:23:17: note: the first difference of corresponding definitions is field ‘code’
+   23 |         uint8_t code; /* opcode */
+      |                 ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/llvm-jit/src/ebpf_inst.h:28:17: note: a field with different name is defined in another translation unit
+   28 |         uint8_t opcode;
+      |                 ^
+In function ‘memcpy’,
+    inlined from ‘copy_bytes’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:339:15,
+    inlined from ‘link_at_head_locked’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:497:13,
+    inlined from ‘update’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:717:24,
+    inlined from ‘update_with’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:149:23,
+    inlined from ‘elem_update’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:197:20:
+/usr/include/aarch64-linux-gnu/bits/string_fortified.h:29:33: warning: ‘__builtin_memcpy’ reading 8 bytes from a region of size 4 [-Wstringop-overread]
+   29 |   return __builtin___memcpy_chk (__dest, __src, __len,
+      |                                 ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp: In member function ‘elem_update’:
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:144:26: note: source object ‘slot’ of size 4
+  144 |                 uint32_t slot;
+      |                          ^
+In function ‘memcpy’,
+    inlined from ‘copy_bytes’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:339:15,
+    inlined from ‘elem_delete’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:747:14,
+    inlined from ‘elem_delete_userspace’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:260:24,
+    inlined from ‘elem_delete’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:210:30,
+    inlined from ‘operator()’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/handler/map_handler.cpp:777:28,
+    inlined from ‘map_delete_elem.constprop’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/handler/map_handler.cpp:817:20:
+/usr/include/aarch64-linux-gnu/bits/string_fortified.h:29:33: warning: ‘__builtin___memcpy_chk’ writing 8 bytes into a region of size 4 overflows the destination [-Wstringop-overflow=]
+   29 |   return __builtin___memcpy_chk (__dest, __src, __len,
+      |                                 ^
+[100%] Built target bpftime-agent
+[ 15%] Built target ubpf
+[ 15%] Performing build step for 'libbpf'
+[ 15%] Built target FridaGum
+make[4]: warning: -j0 forced in submake: resetting jobserver mode.
+[ 25%] Built target spdlog
+  INSTALL  bpf.h libbpf.h btf.h libbpf_common.h libbpf_legacy.h bpf_helpers.h bpf_helper_defs.h bpf_tracing.h bpf_endian.h bpf_core_read.h skel_internal.h libbpf_version.h usdt.bpf.h
+  INSTALL  /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.pc
+  INSTALL  /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.a /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so.1 /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so.1.7.0
+[ 25%] No install step for 'libbpf'
+[ 25%] Built target bpftime_ubpf_vm_obj
+[ 30%] Built target llvmbpf_vm
+[ 30%] Completed 'libbpf'
+[ 30%] Built target bpftime_ubpf_vm
+[ 30%] Built target bpftime_llvm_vm_obj
+[ 30%] Built target bpftime_llvm_vm
+[ 40%] Built target libbpf
+[ 45%] Built target bpftime_vm
+[ 50%] Building CXX object runtime/CMakeFiles/runtime.dir/src/handler/map_handler.cpp.o
+[ 50%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_helper.cpp.o
+[ 55%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/array_map_kernel_user.cpp.o
+[ 55%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/hash_map_kernel_user.cpp.o
+[ 55%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/kernel_map_local.cpp.o
+[ 55%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/percpu_array_map_kernel_user.cpp.o
+[ 55%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/perf_event_array_kernel_user.cpp.o
+[ 60%] Linking CXX static library libruntime.a
+[ 95%] Built target runtime
+[ 95%] Building CXX object runtime/syscall-server/CMakeFiles/bpftime-syscall-server.dir/syscall_context.cpp.o
+[100%] Linking CXX shared library libbpftime-syscall-server.so
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/compat/ubpf-vm/../include/ebpf_inst.h:22:8: warning: type ‘struct ebpf_inst’ violates the C++ One Definition Rule [-Wodr]
+   22 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/llvm-jit/src/ebpf_inst.h:27:8: note: a different type is defined in another translation unit
+   27 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/compat/ubpf-vm/../include/ebpf_inst.h:23:17: note: the first difference of corresponding definitions is field ‘code’
+   23 |         uint8_t code; /* opcode */
+      |                 ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/llvm-jit/src/ebpf_inst.h:28:17: note: a field with different name is defined in another translation unit
+   28 |         uint8_t opcode;
+      |                 ^
+In function ‘memcpy’,
+    inlined from ‘copy_bytes’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:339:15,
+    inlined from ‘link_at_head_locked’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:497:13,
+    inlined from ‘update’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:717:24,
+    inlined from ‘update_with’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:149:23:
+/usr/include/aarch64-linux-gnu/bits/string_fortified.h:29:33: warning: ‘__builtin_memcpy’ reading 8 bytes from a region of size 4 [-Wstringop-overread]
+   29 |   return __builtin___memcpy_chk (__dest, __src, __len,
+      |                                 ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp: In member function ‘update_with’:
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:144:26: note: source object ‘slot’ of size 4
+  144 |                 uint32_t slot;
+      |                          ^
+[100%] Built target bpftime-syscall-server
+[  0%] Performing build step for 'libbpf'
+[ 25%] Built target ubpf
+make[4]: warning: -j0 forced in submake: resetting jobserver mode.
+[ 50%] Built target spdlog
+  INSTALL  bpf.h libbpf.h btf.h libbpf_common.h libbpf_legacy.h bpf_helpers.h bpf_helper_defs.h bpf_tracing.h bpf_endian.h bpf_core_read.h skel_internal.h libbpf_version.h usdt.bpf.h
+  INSTALL  /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.pc
+  INSTALL  /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.a /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so.1 /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so.1.7.0
+[ 50%] No install step for 'libbpf'
+[ 50%] Built target bpftime_ubpf_vm_obj
+[ 62%] Built target llvmbpf_vm
+[ 62%] Completed 'libbpf'
+[ 62%] Built target bpftime_ubpf_vm
+[ 62%] Built target bpftime_llvm_vm_obj
+[ 62%] Built target bpftime_llvm_vm
+[ 87%] Built target libbpf
+[100%] Built target bpftime_vm
+[100%] Building C object benchmark/CMakeFiles/simple-benchmark-with-embed-ebpf-calling.dir/test_embed.c.o
+[100%] Linking CXX executable simple-benchmark-with-embed-ebpf-calling
+[100%] Built target simple-benchmark-with-embed-ebpf-calling
+[  0%] Performing build step for 'libbpf'
+[  4%] Built target ubpf
+[  4%] Built target bpftime_syscall_trace_syscall_id_table
+[  4%] Built target FridaGum
+make[4]: warning: -j0 forced in submake: resetting jobserver mode.
+[  7%] Built target spdlog
+  INSTALL  bpf.h libbpf.h btf.h libbpf_common.h libbpf_legacy.h bpf_helpers.h bpf_helper_defs.h bpf_tracing.h bpf_endian.h bpf_core_read.h skel_internal.h libbpf_version.h usdt.bpf.h
+  INSTALL  /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.pc
+  INSTALL  /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.a /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so.1 /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so.1.7.0
+[  7%] Built target bpftime-runtime-options-test-helper
+[  8%] Built target bpftime-shm-allocation-test-helper
+[  8%] Built target bpftime_ubpf_vm_obj
+[  8%] No install step for 'libbpf'
+[  9%] Built target llvmbpf_vm
+[ 11%] Built target bpftime_frida_uprobe_attach_impl
+[ 12%] Built target bpftime_syscall_trace_attach_impl
+[ 12%] Completed 'libbpf'
+[ 12%] Built target bpftime_ubpf_vm
+[ 12%] Built target bpftime_llvm_vm_obj
+[ 12%] Built target bpftime_llvm_vm
+[ 15%] Built target libbpf
+[ 47%] Built target Catch2
+[ 49%] Built target bpftime_vm
+[ 50%] Copying headers
+Copying relo_core.h
+[ 52%] Built target Catch2WithMain
+Copying hashmap.h
+Copying nlattr.h
+Copying libbpf_internal.h
+[ 61%] Built target copy_headers
+[ 61%] Built target bpftime_test_ebpf_prog_ufunc
+[ 61%] Built target bpftime_test_ebpf_prog_uprobe_trap
+[ 63%] Built target bpftime_test_ebpf_prog_uprobe
+[ 63%] Built target bpftime_test_ebpf_prog_replace
+[ 63%] Building CXX object runtime/object/CMakeFiles/bpftime-object.dir/bpf_object.cpp.o
+[ 63%] Built target bpftime_test_ebpf_prog_helpers
+[ 63%] Built target bpftime_test_ebpf_prog_filter
+[ 63%] Building CXX object runtime/CMakeFiles/runtime.dir/src/handler/map_handler.cpp.o
+[ 64%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_helper.cpp.o
+[ 66%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/array_map_kernel_user.cpp.o
+[ 66%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/hash_map_kernel_user.cpp.o
+[ 66%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/kernel_map_local.cpp.o
+[ 66%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/percpu_array_map_kernel_user.cpp.o
+[ 66%] Built target bpftime-object
+[ 66%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/perf_event_array_kernel_user.cpp.o
+[ 67%] Linking CXX static library libruntime.a
+[ 77%] Built target runtime
+[ 78%] Linking CXX shared library libbpftime-agent.so
+[ 78%] Building CXX object runtime/syscall-server/CMakeFiles/bpftime-syscall-server.dir/syscall_context.cpp.o
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/compat/ubpf-vm/../include/ebpf_inst.h:22:8: warning: type ‘struct ebpf_inst’ violates the C++ One Definition Rule [-Wodr]
+   22 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/llvm-jit/src/ebpf_inst.h:27:8: note: a different type is defined in another translation unit
+   27 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/compat/ubpf-vm/../include/ebpf_inst.h:23:17: note: the first difference of corresponding definitions is field ‘code’
+   23 |         uint8_t code; /* opcode */
+      |                 ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/llvm-jit/src/ebpf_inst.h:28:17: note: a field with different name is defined in another translation unit
+   28 |         uint8_t opcode;
+      |                 ^
+In function ‘memcpy’,
+    inlined from ‘copy_bytes’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:339:15,
+    inlined from ‘link_at_head_locked’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:497:13,
+    inlined from ‘update’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:717:24,
+    inlined from ‘update_with’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:149:23,
+    inlined from ‘elem_update’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:197:20:
+/usr/include/aarch64-linux-gnu/bits/string_fortified.h:29:33: warning: ‘__builtin_memcpy’ reading 8 bytes from a region of size 4 [-Wstringop-overread]
+   29 |   return __builtin___memcpy_chk (__dest, __src, __len,
+      |                                 ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp: In member function ‘elem_update’:
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:144:26: note: source object ‘slot’ of size 4
+  144 |                 uint32_t slot;
+      |                          ^
+[ 80%] Linking CXX shared library libbpftime-syscall-server.so
+In function ‘memcpy’,
+    inlined from ‘copy_bytes’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:339:15,
+    inlined from ‘elem_delete’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:747:14,
+    inlined from ‘elem_delete_userspace’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:260:24,
+    inlined from ‘elem_delete’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:210:30,
+    inlined from ‘operator()’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/handler/map_handler.cpp:777:28,
+    inlined from ‘map_delete_elem.constprop’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/handler/map_handler.cpp:817:20:
+/usr/include/aarch64-linux-gnu/bits/string_fortified.h:29:33: warning: ‘__builtin___memcpy_chk’ writing 8 bytes into a region of size 4 overflows the destination [-Wstringop-overflow=]
+   29 |   return __builtin___memcpy_chk (__dest, __src, __len,
+      |                                 ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/compat/ubpf-vm/../include/ebpf_inst.h:22:8: warning: type ‘struct ebpf_inst’ violates the C++ One Definition Rule [-Wodr]
+   22 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/llvm-jit/src/ebpf_inst.h:27:8: note: a different type is defined in another translation unit
+   27 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/compat/ubpf-vm/../include/ebpf_inst.h:23:17: note: the first difference of corresponding definitions is field ‘code’
+   23 |         uint8_t code; /* opcode */
+      |                 ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/llvm-jit/src/ebpf_inst.h:28:17: note: a field with different name is defined in another translation unit
+   28 |         uint8_t opcode;
+      |                 ^
+In function ‘memcpy’,
+    inlined from ‘copy_bytes’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:339:15,
+    inlined from ‘link_at_head_locked’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:497:13,
+    inlined from ‘update’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/bpftime_hash_map.hpp:717:24,
+    inlined from ‘update_with’ at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:149:23:
+/usr/include/aarch64-linux-gnu/bits/string_fortified.h:29:33: warning: ‘__builtin_memcpy’ reading 8 bytes from a region of size 4 [-Wstringop-overread]
+   29 |   return __builtin___memcpy_chk (__dest, __src, __len,
+      |                                 ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp: In member function ‘update_with’:
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp:144:26: note: source object ‘slot’ of size 4
+  144 |                 uint32_t slot;
+      |                          ^
+[ 80%] Built target bpftime-agent
+[ 80%] Built target bpftime-syscall-server
+[ 80%] Building CXX object runtime/unit-test/CMakeFiles/bpftime_runtime_tests.dir/maps/test_kernel_user_maps.cpp.o
+[ 80%] Building CXX object runtime/unit-test/CMakeFiles/bpftime_runtime_tests.dir/tailcall/test_user_to_kernel_tailcall.cpp.o
+[ 81%] Linking CXX executable bpftime_runtime_tests
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/compat/include/ebpf_inst.h:22:8: warning: type ‘struct ebpf_inst’ violates the C++ One Definition Rule [-Wodr]
+   22 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/llvm-jit/src/ebpf_inst.h:27:8: note: a different type is defined in another translation unit
+   27 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/compat/include/ebpf_inst.h:23:17: note: the first difference of corresponding definitions is field ‘code’
+   23 |         uint8_t code; /* opcode */
+      |                 ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/llvm-jit/src/ebpf_inst.h:28:17: note: a field with different name is defined in another translation unit
+   28 |         uint8_t opcode;
+      |                 ^
+[100%] Built target bpftime_runtime_tests
+[  5%] Built target FridaGum
+[  5%] Performing build step for 'libbpf'
+[  9%] Built target ubpf
+[  7%] Built target embedfile
+[  9%] Built target bpftool
+make[4]: warning: -j0 forced in submake: resetting jobserver mode.
+[ 12%] Built target spdlog
+  INSTALL  bpf.h libbpf.h btf.h libbpf_common.h libbpf_legacy.h bpf_helpers.h bpf_helper_defs.h bpf_tracing.h bpf_endian.h bpf_core_read.h skel_internal.h libbpf_version.h usdt.bpf.h
+  INSTALL  /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.pc
+  INSTALL  /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.a /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so.1 /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/libbpf/libbpf/libbpf.so.1.7.0
+[ 12%] No install step for 'libbpf'
+[ 12%] Built target bpftime_ubpf_vm_obj
+[ 14%] Built target llvmbpf_vm
+[ 14%] Completed 'libbpf'
+[ 14%] Built target bpftime_ubpf_vm
+[ 14%] Built target bpftime_llvm_vm_obj
+[ 56%] Built target Catch2
+[ 56%] Built target bpftime_llvm_vm
+[ 60%] Built target libbpf
+[ 61%] Built target Catch2WithMain
+[ 65%] Built target bpftime_vm
+[ 65%] Copying headers
+Copying relo_core.h
+Copying hashmap.h
+Copying nlattr.h
+Copying libbpf_internal.h
+[ 78%] Built target copy_headers
+[ 78%] Built target bpftime_daemon_ebpf_target
+[ 78%] Building CXX object runtime/object/CMakeFiles/bpftime-object.dir/bpf_object.cpp.o
+[ 78%] Built target bpftime_daemon_ebpf_skel
+[ 78%] Building CXX object runtime/CMakeFiles/runtime.dir/src/handler/map_handler.cpp.o
+[ 80%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_helper.cpp.o
+[ 81%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/array_map_kernel_user.cpp.o
+[ 81%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/hash_map_kernel_user.cpp.o
+[ 81%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/kernel_map_local.cpp.o
+[ 81%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/percpu_array_map_kernel_user.cpp.o
+[ 81%] Built target bpftime-object
+[ 81%] Building CXX object runtime/CMakeFiles/runtime.dir/src/bpf_map/shared/perf_event_array_kernel_user.cpp.o
+[ 83%] Linking CXX static library libruntime.a
+[ 96%] Built target runtime
+[ 96%] Building CXX object daemon/CMakeFiles/libbpftime_daemon.dir/user/bpf_tracer.cpp.o
+[ 98%] Building CXX object daemon/CMakeFiles/libbpftime_daemon.dir/user/handle_bpf_event.cpp.o
+[ 98%] Building CXX object daemon/CMakeFiles/libbpftime_daemon.dir/user/bpftime_driver.cpp.o
+[ 98%] Linking CXX static library liblibbpftime_daemon.a
+[ 98%] Built target libbpftime_daemon
+[100%] Building CXX object daemon/test/CMakeFiles/bpftime_daemon_tests.dir/test_daemon_driver.cpp.o
+[100%] Building CXX object daemon/test/CMakeFiles/bpftime_daemon_tests.dir/test_daemon_fd.cpp.o
+[100%] Building CXX object daemon/test/CMakeFiles/bpftime_daemon_tests.dir/test_daemon_tracer.cpp.o
+[100%] Linking CXX executable bpftime_daemon_tests
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/compat/include/ebpf_inst.h:22:8: warning: type ‘struct ebpf_inst’ violates the C++ One Definition Rule [-Wodr]
+   22 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/llvm-jit/src/ebpf_inst.h:27:8: note: a different type is defined in another translation unit
+   27 | struct ebpf_inst {
+      |        ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/compat/include/ebpf_inst.h:23:17: note: the first difference of corresponding definitions is field ‘code’
+   23 |         uint8_t code; /* opcode */
+      |                 ^
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/vm/llvm-jit/src/ebpf_inst.h:28:17: note: a field with different name is defined in another translation unit
+   28 |         uint8_t opcode;
+      |                 ^
+[100%] Built target bpftime_daemon_tests
+[  6%] Built target bpftime_frida_stripped_backtrace_fixture
+[  6%] Built target FridaGum
+[ 12%] Built target spdlog
+[ 15%] Built target bpftime_frida_uprobe_attach_impl
+[ 87%] Built target Catch2
+[ 90%] Built target Catch2WithMain
+[100%] Built target bpftime_frida_uprobe_attach_tests
+[  0%] Built target bpftime_syscall_trace_syscall_id_table
+[  7%] Built target spdlog
+[ 10%] Built target bpftime_syscall_trace_attach_impl
+[ 92%] Built target Catch2
+[ 96%] Built target Catch2WithMain
+[100%] Built target bpftime_syscall_trace_attach_tests
+[  3%] Built target FridaGum
+[  3%] Built target bpftime_test_raw_svc_module
+[  3%] Built target bpftime_test_fake_agent_keys
+[  6%] Built target bpftime_test_fake_agent_fork
+[ 12%] Built target spdlog
+[ 16%] Built target bpftime_test_fake_agent_unwind
+[ 16%] Built target bpftime_text_segment_transformer_core
+[ 90%] Built target Catch2
+[ 93%] Built target bpftime_text_segment_transformer
+[ 96%] Built target Catch2WithMain
+[100%] Built target bpftime_text_segment_transformer_tests
++ make -C benchmark test
+make: Entering directory '/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/benchmark'
+make: 'test' is up to date.
+make: Leaving directory '/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/benchmark'
++ make -C benchmark/uprobe CLANG=/usr/bin/clang-15 CC=/usr/bin/gcc-13 VMLINUX=/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/jetson-no-btf/include/vmlinux.h uprobe
+make: Entering directory '/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/benchmark/uprobe'
+make: 'uprobe' is up to date.
+make: Leaving directory '/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/benchmark/uprobe'
++ /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/runtime/unit-test/bpftime_runtime_tests [array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent,[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps][map_in_map],Test bpftime runtime_config,Allow external maps from the environment,Select Frida*,Test basic operations of external hash map ops,[perf_event],[epoll],[uid_gid],[shm_release],[jit_load],[helpers],[stack_trace],Test stack trace map*,[cgroup_array],[trace_printk],[ratelimit],get_stackid returns errors as negative 64-bit values,[cpu-bounds],[percpu-layout],[map-create],[ringbuf],[pid_tgid],[fork-handlers]
+[2026-11-03 22:20:59.789] [info] [bpf_attach_ctx.cpp:284] bpf_attach_ctx constructed
+Filters: [array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps] [hash],[bpftime_hash_map],"test_arraymap_percpu*","Test basic operations of array map","Test basic operations of hash map","Test shm hash maps with sub process","Hash maps with colliding public names remain independent",[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps] [map_in_map],"Test bpftime runtime_config","Allow external maps from the environment","Select Frida*","Test basic operations of external hash map ops",[perf_event],[epoll],[uid_gid],[shm_release],[jit_load],[helpers],[stack_trace],"Test stack trace map*",[cgroup_array],[trace_printk],[ratelimit],"get_stackid returns errors as negative 64-bit values",[cpu-bounds],[percpu-layout],[map-create],[ringbuf],[pid_tgid],[fork-handlers]
+Randomness seeded to: 1123847816
+[2026-11-03 22:20:59.826] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:20:59.826] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:20:59.826] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:20:59.826] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:20:59.826] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:20:59.873] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:20:59.873] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:20:59.873] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:20:59.873] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:20:59.873] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:20:59.920] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:20:59.920] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:20:59.921] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:20:59.921] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:20:59.921] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:20:59.967] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:20:59.967] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:20:59.967] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:20:59.967] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:20:59.967] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.014] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.014] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.015] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.015] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.015] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.062] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.062] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.062] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.062] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.062] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.108] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.108] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.109] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.109] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.109] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.155] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.155] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.155] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.155] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.155] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.200] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.200] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.200] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.200] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.200] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.246] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.246] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.250] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.250] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.250] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.296] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.296] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.296] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.296] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.296] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.341] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.341] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.341] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.341] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.341] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.387] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.387] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.387] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.387] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.387] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.432] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.432] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.433] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.433] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.433] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.479] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.479] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.480] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.480] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.480] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.526] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.526] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.526] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.526] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.526] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.573] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.573] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.573] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.573] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.573] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.619] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.619] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.620] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.620] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.620] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.665] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.665] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.666] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.666] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.666] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.711] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.711] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.716] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.716] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.716] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.762] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.762] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.762] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.762] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.762] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.808] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.808] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.808] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.808] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.808] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.854] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.854] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.854] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.854] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.854] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.900] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.900] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.900] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.900] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.900] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.946] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.946] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.946] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.946] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.946] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.992] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:00.992] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:00.992] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:00.992] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:00.992] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.037] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.037] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.038] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.038] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.038] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.083] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.083] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.083] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.083] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.083] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.130] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.130] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.131] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.131] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.131] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.177] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.177] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.181] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.181] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.181] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.227] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.227] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.228] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.228] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.228] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.273] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.273] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.274] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.274] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.274] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.320] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.320] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.320] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.320] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.320] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.366] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.366] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.366] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.366] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.366] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.412] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.412] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.412] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.412] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.412] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.459] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.459] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.459] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.459] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.459] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.506] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.506] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.506] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.506] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.506] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.553] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.553] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.553] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.553] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.553] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.600] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.600] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.600] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.600] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.600] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.646] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollTestShm-2413243
+[2026-11-03 22:21:01.646] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.651] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.651] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollTestShm-2413243
+[2026-11-03 22:21:01.651] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.697] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollPerfWakeupTestShm-2413243
+[2026-11-03 22:21:01.697] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.699] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.699] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollPerfWakeupTestShm-2413243
+[2026-11-03 22:21:01.699] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.745] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollPerfWakeupTestShm-2413243
+[2026-11-03 22:21:01.745] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.746] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.746] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollPerfWakeupTestShm-2413243
+[2026-11-03 22:21:01.746] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.792] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for EpollPerfWakeupTestShm-2413243
+[2026-11-03 22:21:01.792] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.793] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.793] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for EpollPerfWakeupTestShm-2413243
+[2026-11-03 22:21:01.793] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.839] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for RingbufTailShm-2413243
+[2026-11-03 22:21:01.839] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.840] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.840] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for RingbufTailShm-2413243
+[2026-11-03 22:21:01.840] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.860] [warning] [ringbuf_map.cpp:398] ringbuf: discarded a record reserved by thread 2413248 of process 2413248, which exited before submitting it
+[2026-11-03 22:21:01.865] [warning] [ringbuf_map.cpp:398] ringbuf: discarded a record reserved by thread 2413249 of process 2413249, which exited before submitting it
+[2026-11-03 22:21:01.894] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for PerfOutputAffinityTestShm-2413243
+[2026-11-03 22:21:01.894] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.894] [error] [bpf_helper.cpp:828] Unable to query map type of fd -1 (occurrence 1)
+[2026-11-03 22:21:01.913] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.913] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for PerfOutputAffinityTestShm-2413243
+[2026-11-03 22:21:01.913] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.941] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for PerfOutputAffinityTestShm-2413243
+[2026-11-03 22:21:01.941] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.941] [error] [bpf_helper.cpp:837] Invalid map fd for perf event output: 4 (occurrence 1)
+[2026-11-03 22:21:01.963] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:01.963] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for PerfOutputAffinityTestShm-2413243
+[2026-11-03 22:21:01.963] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:01.995] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for PerfOutputAffinityTestShm-2413243
+[2026-11-03 22:21:01.995] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:02.014] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:02.014] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for PerfOutputAffinityTestShm-2413243
+[2026-11-03 22:21:02.014] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:02.043] [error] [perf_event_handler.cpp:283] Unable to allocate 2101248-byte perf buffer: get_next_capacity, allocator's max size reached
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_runtime_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+Producers in two pid namespaces with the same pid write apart
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/test_software_perf_event.cpp:739
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/test_software_perf_event.cpp:745: SKIPPED:
+explicitly with message:
+  needs root (CLONE_NEWPID)
+
+[2026-11-03 22:21:02.068] [error] [perf_event_handler.cpp:283] Unable to allocate 69632-byte perf buffer: boost::interprocess::bad_alloc
+[2026-11-03 22:21:02.102] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for PerfOutputEnospcTestShm-2413243
+[2026-11-03 22:21:02.102] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:02.121] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:02.121] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for PerfOutputEnospcTestShm-2413243
+[2026-11-03 22:21:02.121] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:02.170] [info] [bpftime_shm_internal.cpp:1286] global runtime_config is nullptr, set current process config
+[2026-11-03 22:21:02.181] [info] [bpftime_shm_internal.cpp:1286] global runtime_config is nullptr, set current process config
+[2026-11-03 22:21:02.187] [info] [bpftime_shm_internal.cpp:1286] global runtime_config is nullptr, set current process config
+[2026-11-03 22:21:02.193] [info] [bpftime_shm_internal.cpp:1286] global runtime_config is nullptr, set current process config
+[2026-11-03 22:21:02.194] [error] [vm.cpp:185] LLVM-JIT: failed to compile: Ext func not found: _bpf_helper_ext_0037
+[2026-11-03 22:21:02.194] [error] [bpftime_prog.cpp:551] JIT compilation of missing_helper failed (Ext func not found: _bpf_helper_ext_0037); the program is disabled
+[2026-11-03 22:21:02.223] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for ShmReleaseTestShm-2413243
+[2026-11-03 22:21:02.223] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:02.279] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for ShmReleaseTestShm-2413243
+[2026-11-03 22:21:02.279] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:02.279] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:02.279] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for ShmReleaseTestShm-2413243
+[2026-11-03 22:21:02.279] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:02.298] [info] [bpftime_shm_internal.cpp:94] Global shm removed
+[2026-11-03 22:21:05.830] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 1 for bpftime-shm-allocation-test-live-agent-2413243
+[2026-11-03 22:21:05.830] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:05.839] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:05.839] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-shm-allocation-test-live-agent-2413243
+[2026-11-03 22:21:05.839] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:05.901] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 1 for bpftime-shm-allocation-test-live-server-2413243
+[2026-11-03 22:21:05.901] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:05.910] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:05.910] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-shm-allocation-test-live-server-2413243
+[2026-11-03 22:21:05.910] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:06.202] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for GetStackidShm-2413243
+[2026-11-03 22:21:06.202] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:06.202] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:06.202] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for GetStackidShm-2413243
+[2026-11-03 22:21:06.202] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:06.241] [info] [test_stack_trace_map.cpp:95] Checking insertion for two same stack trace..
+[2026-11-03 22:21:09.581] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-map-create-checks-2413243
+[2026-11-03 22:21:09.581] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 1: key size 4, value size 2147506256, max entries 4294922064: Argument list too long
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 6: key size 4, value size 32768, max entries 1048576: Cannot allocate memory
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 2: key size 4, value size 2147483648, max entries 1: Argument list too long
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 2: key size 8, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 6: key size 4, value size 32769, max entries 4: Cannot allocate memory
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 5: key size 4, value size 32769, max entries 4: Cannot allocate memory
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 1: key size 48, value size 4194208, max entries 1: Argument list too long
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 22: key size 0, value size 4194305, max entries 1: Argument list too long
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 22: key size 4, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 23: key size 4, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 1: key size 4, value size 0, max entries 4: Invalid argument
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 1: key size 4, value size 8, max entries 0: Invalid argument
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 2: key size 4, value size 8, max entries 0: Invalid argument
+[2026-11-03 22:21:09.581] [error] [map_handler.cpp:1028] Unable to create map 22: key size 0, value size 0, max entries 4: Invalid argument
+[2026-11-03 22:21:09.681] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:09.681] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-map-create-checks-2413243
+[2026-11-03 22:21:09.681] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:09.688] [error] [map_handler.cpp:1053] Unable to allocate map 1 (Cannot allocate memory)
+[2026-11-03 22:21:09.718] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-map-create-unsupported-2413243
+[2026-11-03 22:21:09.718] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:09.718] [error] [map_handler.cpp:1445] [map_init] Unsupported map type: 18
+[2026-11-03 22:21:09.718] [error] [map_handler.cpp:1445] [map_init] Unsupported map type: 10
+[2026-11-03 22:21:09.718] [error] [map_handler.cpp:1169] Bloom filter key_size must be 0, got 4
+[2026-11-03 22:21:09.737] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:09.737] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-map-create-unsupported-2413243
+[2026-11-03 22:21:09.737] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:09.765] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-map-create-fd-2413243
+[2026-11-03 22:21:09.765] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.766] [error] [map_handler.cpp:1028] Unable to create map 1: key size 0, value size 8, max entries 4: Invalid argument
+[2026-11-03 22:21:09.786] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:09.786] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-map-create-fd-2413243
+[2026-11-03 22:21:09.786] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:09.813] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-map-create-seed-2413243
+[2026-11-03 22:21:09.813] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:09.834] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:09.834] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-map-create-seed-2413243
+[2026-11-03 22:21:09.834] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:09.869] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-percpu-layout-shm-2413243
+[2026-11-03 22:21:09.869] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:09.887] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:09.887] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-percpu-layout-shm-2413243
+[2026-11-03 22:21:09.887] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:09.915] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-lookup-delete-shm-2413243
+[2026-11-03 22:21:09.915] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:09.935] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:09.935] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-lookup-delete-shm-2413243
+[2026-11-03 22:21:09.935] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:16.297] [info] [bpftime_shm_internal.cpp:1286] global runtime_config is nullptr, set current process config
+[2026-11-03 22:21:16.297] [info] [map_handler.cpp:1436] non-builtin map type: 2000
+[2026-11-03 22:21:16.297] [info] [handler_manager.hpp:81] Destroy shm bpftime_maps_shm
+[2026-11-03 22:21:16.301] [info] Starting subprocess
+[2026-11-03 22:21:16.302] [info] Subprocess entered
+[2026-11-03 22:21:16.302] [info] Print maps value finished
+[2026-11-03 22:21:16.302] [info] Subprocess exited
+[2026-11-03 22:21:16.303] [info] [handler_manager.hpp:81] Destroy shm bpftime_maps_shm
+[2026-11-03 22:21:16.554] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 2 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.565] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.573] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.582] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.590] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.598] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.607] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.625] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.634] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.642] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.651] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.660] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.669] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.678] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.687] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.696] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.705] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.714] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.723] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.733] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.742] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.751] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.760] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 2 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.812] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:16.812] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:16.812] [info] [bpftime_prog.cpp:377] [array-jit-inline] program=array_jit_lifetime retained 1 maps
+[2026-11-03 22:21:16.815] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.852] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:16.852] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:16.852] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:16.881] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:16.881] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:16.910] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:16.910] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:16.910] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:16.939] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:16.939] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:16.939] [info] [bpftime_prog.cpp:377] [array-jit-inline] program=array_jit_lifetime retained 1 maps
+[2026-11-03 22:21:16.942] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:16.974] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:16.974] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:16.974] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.002] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.002] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.002] [info] [bpftime_prog.cpp:377] [array-jit-inline] program=array_jit_lifetime retained 1 maps
+[2026-11-03 22:21:17.005] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:17.034] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.034] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.034] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.064] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.064] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.064] [info] [bpftime_prog.cpp:377] [array-jit-inline] program=array_jit_lifetime retained 1 maps
+[2026-11-03 22:21:17.066] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:17.104] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.104] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.153] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.153] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.153] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.181] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.181] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.181] [info] [bpftime_prog.cpp:377] [array-jit-inline] program=array_jit_lifetime retained 1 maps
+[2026-11-03 22:21:17.184] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:17.211] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.211] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.212] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.240] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.240] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.240] [info] [bpftime_prog.cpp:377] [array-jit-inline] program=array_jit_lifetime retained 1 maps
+[2026-11-03 22:21:17.243] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:17.272] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.272] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.272] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.300] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.300] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.300] [info] [bpftime_prog.cpp:377] [array-jit-inline] program=array_jit_lifetime retained 1 maps
+[2026-11-03 22:21:17.303] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:17.333] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.333] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.333] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.361] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.361] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.389] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.389] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.389] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.417] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.417] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.423] [info] [bpftime_prog.cpp:377] [array-jit-inline] program=array_jit_lifetime retained 1 maps
+[2026-11-03 22:21:17.451] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.451] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.451] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.479] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.479] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.480] [info] [bpftime_prog.cpp:377] [array-jit-inline] program=array_jit_lifetime retained 1 maps
+[2026-11-03 22:21:17.482] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:17.511] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.511] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.511] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.538] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.538] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.573] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.573] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.573] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.601] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.601] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.620] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.620] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.620] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.648] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.648] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.648] [info] [bpftime_prog.cpp:377] [array-jit-inline] program=array_jit_lifetime retained 1 maps
+[2026-11-03 22:21:17.650] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:17.682] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.682] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.682] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.713] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.713] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.713] [info] [bpftime_prog.cpp:377] [array-jit-inline] program=array_jit_lifetime retained 1 maps
+[2026-11-03 22:21:17.716] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:17.751] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.751] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.751] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.780] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.780] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.822] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.822] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.822] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.851] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.851] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.880] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.880] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.880] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.909] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.909] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.941] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:17.941] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.941] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:17.970] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:17.970] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.009] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.009] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.009] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.038] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.038] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.067] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.067] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.067] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.096] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.096] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.132] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.132] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.132] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.161] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.161] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.196] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.196] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.196] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.225] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.225] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.255] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.255] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.255] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.283] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.283] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.314] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.314] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.314] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.343] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.343] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.370] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.370] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.370] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.399] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.399] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.429] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.429] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.429] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.458] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.458] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.488] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.488] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.488] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.516] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.516] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.537] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.537] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.537] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.566] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.566] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.585] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.585] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.585] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.613] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.613] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.649] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.649] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.649] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.678] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.678] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.708] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.708] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.708] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.737] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.737] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.767] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.767] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.767] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.796] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.796] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.831] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.831] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.831] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.860] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.860] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.891] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.891] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.891] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.919] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.919] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.950] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.950] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.950] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.979] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.979] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:18.999] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:18.999] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:18.999] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:19.028] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:19.028] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:19.057] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:19.057] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:19.057] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:19.085] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:19.085] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:19.119] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:19.119] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:19.119] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:19.148] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:19.148] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:19.167] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:19.167] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:19.167] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:19.195] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:19.195] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:19.195] [info] [bpftime_prog.cpp:377] [array-jit-inline] program=array_jit_lifetime retained 1 maps
+[2026-11-03 22:21:19.198] [info] [llvm_jit_context_array_inline.cpp:629] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-03 22:21:19.226] [warning] [bpftime_shm_internal.cpp:1028] NOT creating global shm. This is only for testing purpose.
+[2026-11-03 22:21:19.226] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 2 for bpftime-array-jit-lifetime-2413243
+[2026-11-03 22:21:19.226] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+================================================================================
+test cases:     168 |     167 passed | 1 skipped
+assertions: 8331897 | 8331897 passed
+
+[2026-11-03 22:21:19.240] [info] [bpf_attach_ctx.cpp:272] Destructor: bpf_attach_ctx
++ sudo -n env BPFTIME_GLOBAL_SHM_NAME=bpftime_daily_root_tests /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/runtime/unit-test/bpftime_runtime_tests [kernel_user]
+[2026-11-03 22:21:19.291] [info] [bpf_attach_ctx.cpp:284] bpf_attach_ctx constructed
+Filters: [kernel_user]
+Randomness seeded to: 2551575764
+===============================================================================
+All tests passed (31 assertions in 2 test cases)
+
+[2026-11-03 22:21:19.357] [info] [bpf_attach_ctx.cpp:272] Destructor: bpf_attach_ctx
++ sudo -n rm -f /dev/shm/bpftime_daily_root_tests
++ sudo -n env BPFTIME_GLOBAL_SHM_NAME=bpftime_daily_root_tests /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/daemon/test/bpftime_daemon_tests
+Randomness seeded to: 64572740
+[2026-11-03 22:21:19.497] [info] [bpf_tracer.cpp:215] No syscall tracepoint sys_enter_open on this kernel, not attaching tracepoint__syscalls__sys_enter_open
+[2026-11-03 22:21:19.497] [info] [bpf_tracer.cpp:215] No syscall tracepoint sys_exit_open on this kernel, not attaching tracepoint__syscalls__sys_exit_open
+[2026-11-03 22:21:19.498] [info] [bpf_tracer.cpp:215] No syscall tracepoint sys_enter_dup2 on this kernel, not attaching tracepoint__syscalls__sys_enter_dup2
+[2026-11-03 22:21:19.498] [info] [bpf_tracer.cpp:215] No syscall tracepoint sys_exit_dup2 on this kernel, not attaching tracepoint__syscalls__sys_exit_dup2
+[2026-11-03 22:21:20.752] [info] [bpf_tracer.cpp:215] No syscall tracepoint sys_enter_dup2 on this kernel, not attaching tracepoint__syscalls__sys_enter_dup2
+[2026-11-03 22:21:20.752] [info] [bpf_tracer.cpp:215] No syscall tracepoint sys_exit_dup2 on this kernel, not attaching tracepoint__syscalls__sys_exit_dup2
+[2026-11-03 22:21:21.840] [info] [bpf_tracer.cpp:215] No syscall tracepoint sys_enter_dup2 on this kernel, not attaching tracepoint__syscalls__sys_enter_dup2
+[2026-11-03 22:21:21.840] [info] [bpf_tracer.cpp:215] No syscall tracepoint sys_exit_dup2 on this kernel, not attaching tracepoint__syscalls__sys_exit_dup2
+[2026-11-03 22:21:22.972] [info] [bpf_tracer.cpp:215] No syscall tracepoint sys_enter_dup2 on this kernel, not attaching tracepoint__syscalls__sys_enter_dup2
+[2026-11-03 22:21:22.972] [info] [bpf_tracer.cpp:215] No syscall tracepoint sys_exit_dup2 on this kernel, not attaching tracepoint__syscalls__sys_exit_dup2
+[2026-11-03 22:21:24.232] [info] [bpf_tracer.cpp:215] No syscall tracepoint sys_enter_dup2 on this kernel, not attaching tracepoint__syscalls__sys_enter_dup2
+[2026-11-03 22:21:24.232] [info] [bpf_tracer.cpp:215] No syscall tracepoint sys_exit_dup2 on this kernel, not attaching tracepoint__syscalls__sys_exit_dup2
+[2026-11-03 22:21:25.418] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daemon_fd_2413447
+[2026-11-03 22:21:25.418] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:25.418] [info] [bpftime_driver.cpp:268] create map 7 as handle 0 in shm
+[2026-11-03 22:21:25.465] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daemon_fd_2413447
+[2026-11-03 22:21:25.466] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:25.511] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daemon_fd_2413447
+[2026-11-03 22:21:25.511] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:25.511] [error] [bpftime_driver.cpp:223] Failed to get map fd for id 7
+[2026-11-03 22:21:25.556] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daemon_fd_2413447
+[2026-11-03 22:21:25.556] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:25.556] [error] [bpftime_driver.cpp:236] Failed to get map info for id 7
+[2026-11-03 22:21:25.601] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daemon_fd_2413447
+[2026-11-03 22:21:25.601] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:25.661] [error] [bpftime_driver.cpp:259] No free handler for map 7
+[2026-11-03 22:21:25.707] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daemon_fd_2413447
+[2026-11-03 22:21:25.707] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:25.707] [info] [bpftime_driver.cpp:139] find 0 related maps for prog fd 3
+[2026-11-03 22:21:25.707] [info] [bpftime_driver.cpp:213] create prog 7 as handle 0 in shm
+[2026-11-03 22:21:25.751] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daemon_fd_2413447
+[2026-11-03 22:21:25.752] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:25.797] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daemon_fd_2413447
+[2026-11-03 22:21:25.797] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:25.797] [error] [bpftime_driver.cpp:169] Failed to get prog fd by prog id 7, err=2
+[2026-11-03 22:21:25.842] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daemon_fd_2413447
+[2026-11-03 22:21:25.842] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:25.842] [error] [bpftime_driver.cpp:184] Failed to get prog info for id 7
+[2026-11-03 22:21:25.887] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daemon_fd_2413447
+[2026-11-03 22:21:25.887] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:25.946] [info] [bpftime_driver.cpp:139] find 0 related maps for prog fd 3
+[2026-11-03 22:21:25.946] [error] [bpftime_driver.cpp:203] No free handler for prog 7
+[2026-11-03 22:21:25.992] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daemon_fd_2413447
+[2026-11-03 22:21:25.992] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:25.992] [info] [bpftime_driver.cpp:139] find 0 related maps for prog fd 3
+[2026-11-03 22:21:25.992] [error] [bpftime_driver.cpp:85] Failed to lookup bpf prog insns for id 7
+[2026-11-03 22:21:25.992] [error] [bpftime_driver.cpp:197] Failed to relocate prog insns for id 7
+[2026-11-03 22:21:26.037] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daemon_fd_2413447
+[2026-11-03 22:21:26.037] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:26.037] [info] [bpftime_driver.cpp:139] find 0 related maps for prog fd 3
+[2026-11-03 22:21:26.037] [error] [bpftime_driver.cpp:146] Failed to get prog info for fd 3 to find related maps
+[2026-11-03 22:21:26.037] [error] [bpftime_driver.cpp:190] Failed to create related maps for prog 7
+[2026-11-03 22:21:26.082] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daily_root_tests
+[2026-11-03 22:21:26.082] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:26.082] [info] [perf_event_handler.cpp:183] Created uprobe/uretprobe perf event handler, module name /proc/self/exe, offset 0
+[2026-11-03 22:21:26.082] [info] [bpftime_driver.cpp:337] create uprobe 0 for pid 1234 fd 7
+[2026-11-03 22:21:26.082] [info] [bpftime_driver.cpp:314] attach perf 0 to bpf 8 (handle 8), for pid 1234
+[2026-11-03 22:21:26.127] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daily_root_tests
+[2026-11-03 22:21:26.127] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:26.127] [info] [bpftime_driver.cpp:268] create map 21504 as handle 0 in shm
+[2026-11-03 22:21:26.172] [info] [bpftime_shm_internal.cpp:1152] Global shm constructed. shm_open_type 0 for bpftime_daily_root_tests
+[2026-11-03 22:21:26.172] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-03 22:21:26.172] [info] [bpftime_driver.cpp:268] create map 21505 as handle 0 in shm
+[2026-11-03 22:21:26.172] [info] [bpftime_driver.cpp:268] create map 21506 as handle 1 in shm
+===============================================================================
+All tests passed (12466 assertions in 10 test cases)
+
++ sudo -n rm -f /dev/shm/bpftime_daily_root_tests
++ /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/runtime/unit-test/bpftime_runtime_tests Test attach replace with ebpf
+[2026-11-03 22:21:26.296] [info] [bpf_attach_ctx.cpp:284] bpf_attach_ctx constructed
+Filters: "Test attach replace with ebpf"
+Randomness seeded to: 634544536
+[2026-11-03 22:21:26.300] [info] origin func: Args: 1, hello aaa, c
+[2026-11-03 22:21:26.300] [info] origin func return: 35
+[2026-11-03 22:21:26.300] [info] [bpf_attach_ctx.cpp:284] bpf_attach_ctx constructed
+[2026-11-03 22:21:26.383] [info] [bpftime_shm_internal.cpp:1286] global runtime_config is nullptr, set current process config
+[2026-11-03 22:21:26.397] [info] [ufunc.cpp:40] Find func print_func at 1
+[2026-11-03 22:21:26.397] [info] [test_shm_progs_attach.cpp:66] Print func: aaaad983b2e0
+helper-print: hello aaa
+[2026-11-03 22:21:26.397] [info] [ufunc.cpp:40] Find func add_func at 0
+helper-add 100 = 1 + 99
+[2026-11-03 22:21:26.397] [info] hooked func return: 100
+[2026-11-03 22:21:26.397] [info] origin func: Args: 1, hello aaa, c
+[2026-11-03 22:21:26.397] [info] origin func return: 35
+[2026-11-03 22:21:26.397] [info] [bpf_attach_ctx.cpp:272] Destructor: bpf_attach_ctx
+===============================================================================
+All tests passed (9 assertions in 1 test case)
+
+[2026-11-03 22:21:26.398] [info] [bpf_attach_ctx.cpp:272] Destructor: bpf_attach_ctx
++ /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/attach/frida_uprobe_attach_impl/bpftime_frida_uprobe_attach_tests
+Randomness seeded to: 210098280
+[2026-11-03 22:21:26.617] [info] [test_back_trace.cpp:85] symbol name __bpftime_test_attach_with_back_trace__func5
+[2026-11-03 22:21:26.630] [info] [test_back_trace.cpp:85] symbol name __bpftime_test_attach_with_back_trace__func3.constprop.0+0x10
+[2026-11-03 22:21:26.642] [info] [test_back_trace.cpp:85] symbol name __bpftime_test_attach_with_back_trace__func2.constprop.0+0xc
+[2026-11-03 22:21:26.655] [info] [test_back_trace.cpp:85] symbol name __bpftime_test_attach_with_back_trace__func1.constprop.0+0xc
+[2026-11-03 22:21:26.669] [info] [test_back_trace.cpp:116] symbol name __bpftime_test_attach_with_back_trace__func3.constprop.0+0x10
+[2026-11-03 22:21:26.681] [info] [test_back_trace.cpp:116] symbol name __bpftime_test_attach_with_back_trace__func4+0xc
+[2026-11-03 22:21:26.681] [error] [frida_uprobe_attach_impl.cpp:386] There is no frida hook running (occurrence 1)
+[2026-11-03 22:21:26.833] [info] [test_back_trace.cpp:196] signed 6eaaaae546a4b0 plain aaaae546a4b0
+[2026-11-03 22:21:26.833] [error] Called bpftime_set_retval, but no retval callback was set
+[2026-11-03 22:21:26.835] [error] Called bpftime_override_return, but no retval callback was set
+[2026-11-03 22:21:26.835] [error] [frida_attach_private_data.cpp:20] Unable to parse `aaa:`, offset part cannot be empty
+[2026-11-03 22:21:26.836] [info] [frida_attach_utils.cpp:31] Executable path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/attach/frida_uprobe_attach_impl/bpftime_frida_uprobe_attach_tests
+[2026-11-03 22:21:26.836] [info] [frida_attach_utils.cpp:31] Executable path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/attach/frida_uprobe_attach_impl/bpftime_frida_uprobe_attach_tests
+[2026-11-03 22:21:26.836] [info] [frida_attach_utils.cpp:134] Failed to find module base address for /bpftime-nonexistent-module-for-resolution-test.so
+===============================================================================
+All tests passed (1078 assertions in 18 test cases)
+
++ /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/attach/text_segment_transformer/bpftime_text_segment_transformer_tests
+Randomness seeded to: 1710437148
+[2026-11-03 22:21:26.863] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:26.866] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:26.870] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:26.875] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:26.881] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:26.886] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:26.890] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:26.893] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:26.998] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.108] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.312] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.335] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.338] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.442] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.546] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.549] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.554] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.556] [warning] [text_segment_transformer.cpp:1300] Cannot open the file mapped at ffffa7310000-ffffa7311000 (/tmp/bpftime-maps-JdToFh/module.so (deleted), replaced or deleted): its system calls are not rewritten
+[2026-11-03 22:21:27.558] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.558] [info] [text_segment_transformer.cpp:2344] Skipped 1 executable mappings without ELF sections (BPFTIME_SYSCALL_REWRITE_ANON=1 scans them word by word)
+[2026-11-03 22:21:27.561] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.561] [info] [text_segment_transformer.cpp:2344] Skipped 1 executable mappings without ELF sections (BPFTIME_SYSCALL_REWRITE_ANON=1 scans them word by word)
+[2026-11-03 22:21:27.565] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.568] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.572] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.572] [info] [text_segment_transformer.cpp:2344] Skipped 1 executable mappings without ELF sections (BPFTIME_SYSCALL_REWRITE_ANON=1 scans them word by word)
+[2026-11-03 22:21:27.575] [info] [text_segment_transformer.cpp:2342] Rewrote 572 of 572 svc instructions
+[2026-11-03 22:21:27.578] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.582] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_text_segment_transformer_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+svc in code made executable after rewriting is hooked
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/attach/text_segment_transformer/test/test_syscall_rewrite.cpp:1043
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/attach/text_segment_transformer/test/test_syscall_rewrite.cpp:1058: FAILED:
+  REQUIRE( code == 0 )
+with expansion:
+  4 == 0
+
+[2026-11-03 22:21:27.585] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.609] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.609] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:27.612] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.613] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:27.624] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.624] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:27.628] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.628] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:27.632] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.632] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:27.632] [warning] [text_segment_transformer.cpp:2068] Lazy rewriting: execve of /bin/true refused (EPERM): the seccomp filter would kill the new program
+[2026-11-03 22:21:27.632] [warning] [text_segment_transformer.cpp:2068] Lazy rewriting: execve of fd 3 refused (EPERM): the seccomp filter would kill the new program
+[2026-11-03 22:21:27.632] [warning] [text_segment_transformer.cpp:2068] Lazy rewriting: execve of ? refused (EPERM): the seccomp filter would kill the new program
+[2026-11-03 22:21:27.632] [warning] [text_segment_transformer.cpp:2068] Lazy rewriting: execve of /bin/true refused (EPERM): the seccomp filter would kill the new program
+[2026-11-03 22:21:27.636] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.636] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:27.639] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.639] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:27.643] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:27.643] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:28.866] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:28.866] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:29.070] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:29.070] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:29.274] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:29.274] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:29.279] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:29.279] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:29.283] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:29.283] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:29.287] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:29.287] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:29.287] [warning] [text_segment_transformer.cpp:1606] Lazy rewriting: 1 execve calls without a gate refused (EPERM)
+[2026-11-03 22:21:29.291] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:29.291] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:32.007] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:32.008] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:32.036] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:32.086] [warning] [text_segment_transformer.cpp:2289] Lazy rewriting not enabled: thread 2416271 blocks SIGSYS
+[2026-11-03 22:21:32.090] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:32.090] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:32.093] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:32.094] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+[2026-11-03 22:21:32.097] [info] [text_segment_transformer.cpp:2342] Rewrote 571 of 571 svc instructions
+[2026-11-03 22:21:32.097] [info] [text_segment_transformer.cpp:2300] Lazy rewriting enabled: system calls from code never rewritten trap (SIGSYS) and are rewritten then
+===============================================================================
+test cases: 50 | 49 passed | 1 failed as expected
+assertions: 67 | 66 passed | 1 failed as expected
+
++ sudo -n env BPFTIME_GLOBAL_SHM_NAME=bpftime_daily_root_tests /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily/attach/syscall_trace_attach_impl/bpftime_syscall_trace_attach_tests ~"Test syscall dispatch - multiple" ~"Test resolving private data"
+Filters: "~"Test syscall dispatch - multiple"" "~"Test resolving private data""
+Randomness seeded to: 331449959
+===============================================================================
+All tests passed (101 assertions in 7 test cases)
+
++ sudo -n rm -f /dev/shm/bpftime_daily_root_tests
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-jetson-daily
+exit 0
