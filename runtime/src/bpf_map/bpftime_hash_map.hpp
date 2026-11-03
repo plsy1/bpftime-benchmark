@@ -9,6 +9,11 @@
 #include <cstring>
 #include <stdexcept>
 #include <pthread.h>
+#include <time.h>
+#include <unistd.h>
+#if __linux__
+#include <sys/syscall.h>
+#endif
 
 namespace bpftime
 {
@@ -188,6 +193,7 @@ class bpftime_hash_map {
 	size_t _max_elements;
 	size_t _num_heads; // a power of two
 	unsigned _head_shift; // 64 - log2(_num_heads)
+	uint64_t _seed; // random, per map
 	unsigned _stripe_shift; // log2 of the heads per stripe
 	size_t _num_stripes;
 	size_t _num_lists;
@@ -240,23 +246,43 @@ class bpftime_hash_map {
 		std::atomic_ref<uint32_t>(*p).store(value, order);
 	}
 
-	// 4- and 8-byte keys are their own hash; longer keys are mixed eight
-	// bytes at a time. The bucket is the top bits of one multiply
-	// (Fibonacci hashing), well mixed whatever the key's low bits are.
+	// A random seed per map, as the kernel's htab->hashrnd: keys that all
+	// fall into one chain cannot be computed without it (without one, the
+	// keys j * phi^-1 all did, 2.2 us per insert at 1000 of them).
+	static uint64_t random_seed()
+	{
+		uint64_t seed = 0;
+#if __linux__
+		if (syscall(SYS_getrandom, &seed, sizeof(seed),
+			    0x1 /* GRND_NONBLOCK */) == (long)sizeof(seed))
+			return seed;
+#endif
+		struct timespec ts;
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		return ((uint64_t)ts.tv_sec * 1000000000ull + ts.tv_nsec) ^
+		       ((uint64_t)getpid() << 40) ^ (uint64_t)(uintptr_t)&ts;
+	}
+
+	// 4- and 8-byte keys are their own hash, XORed with the seed; longer
+	// keys are mixed eight bytes at a time, starting from the seed (a seed
+	// XORed in at the end would not help: their collisions are in the
+	// mix). The bucket is the top bits of one multiply (Fibonacci hashing),
+	// well mixed whatever the key's low bits are; an XOR keeps that (an
+	// added seed would only shift every bucket by the same amount).
 	inline uint64_t key_hash(const void *key) const
 	{
 		const auto *bytes = static_cast<const uint8_t *>(key);
 		if (_key_size == 4) {
 			uint32_t k;
 			std::memcpy(&k, bytes, 4);
-			return k;
+			return k ^ _seed;
 		}
 		if (_key_size == 8) {
 			uint64_t k;
 			std::memcpy(&k, bytes, 8);
-			return k;
+			return k ^ _seed;
 		}
-		uint64_t h = _key_size * 0x9e3779b97f4a7c15ULL;
+		uint64_t h = (_key_size * 0x9e3779b97f4a7c15ULL) ^ _seed;
 		size_t i = 0;
 		for (; i + 8 <= _key_size; i += 8) {
 			uint64_t w;
@@ -499,7 +525,7 @@ class bpftime_hash_map {
 				      value_align(value_size))),
 		  _max_elements(max_entries),
 		  _num_heads(std::max(pow2_at_least(max_entries), MIN_HEADS)),
-		  _head_shift(64 - log2_of(_num_heads)),
+		  _head_shift(64 - log2_of(_num_heads)), _seed(random_seed()),
 		  _num_stripes(std::min(_num_heads / MIN_HEADS_PER_STRIPE,
 					MAX_STRIPES)),
 		  buffer(memory.get_segment_manager())
