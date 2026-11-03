@@ -535,7 +535,18 @@ collide" (mutation: seed 0, 1000-element chains). The seed costs ~2 ns per
 lookup (suite hash lookup +12.7%, per-CPU hash +4.5%; kept): it is loaded
 from the map object, whose pointer arrives late, so load, XOR, multiply now
 precede the head load, where the multiply used to overlap that pointer's load
-(results `uprobe/dev-b7ded27a-20261103`). One buffer holds
+(results `uprobe/dev-b7ded27a-20261103`). More for structured keys: unseeded,
+the Fibonacci multiply spreads keys built from an arithmetic progression
+(addresses, ids) better than at random; seeded they spread at random, as with
+the kernel's jhash. Key-pattern matrix on 518a6b99: 8-byte addresses 11-28%
+slower than unseeded (0.245 -> 0.313 us at 102400 / 90%), still 0.28-0.68x
+the kernel; random keys unchanged (`uprobe/dev-518a6b99-20261103`). Seed 0
+with the kernel's `BPF_F_ZERO_SEED` (map flag; the kernel's is for tests and
+CAP_SYS_ADMIN only) or with `BPFTIME_HASH_ZERO_SEED` set to anything but 0
+in the process that creates the map (bpftime's, for trusted keys); hash and
+per-CPU hash (`hash_zero_seed`, `map_handler.cpp`). Test "Hash maps without
+a seed on BPF_F_ZERO_SEED or BPFTIME_HASH_ZERO_SEED" (next_key orders of two
+maps; mutations: flag ignored, variable ignored). One buffer holds
 stripe locks, free lists, heads and elements, resolved once per operation
 (`view`). It replaced the upstream open-addressing table (linear probing,
 key and value inline in twice `max_entries` buckets, tombstones, the

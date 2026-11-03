@@ -1006,6 +1006,20 @@ int bpf_map_handler::check_map_attr(const managed_shared_memory &memory) const
 	return 0;
 }
 
+// Hash and per-CPU hash maps draw a random seed, as the kernel's; without
+// one when created with BPF_F_ZERO_SEED (the kernel's flag, for tests, there
+// for CAP_SYS_ADMIN only) or when BPFTIME_HASH_ZERO_SEED is set to anything
+// but 0 in the creating process (bpftime's: for trusted keys, which then
+// keep the unseeded multiply's spread of addresses and ids).
+static bool hash_zero_seed(uint64_t flags)
+{
+	constexpr uint64_t zero_seed_flag = 1u << 6; // BPF_F_ZERO_SEED
+	if (flags & zero_seed_flag)
+		return true;
+	const char *env = std::getenv("BPFTIME_HASH_ZERO_SEED");
+	return env != nullptr && *env != '\0' && std::strcmp(env, "0") != 0;
+}
+
 int bpf_map_handler::map_init(managed_shared_memory &memory)
 {
 	if (map_impl_ptr.get() != nullptr)
@@ -1073,7 +1087,8 @@ int bpf_map_handler::map_init_checked(managed_shared_memory &memory)
 #else
 		map_impl_ptr = memory.construct<hash_map_impl>(
 			boost::interprocess::anonymous_instance)(
-			memory, max_entries, key_size, value_size);
+			memory, max_entries, key_size, value_size,
+			hash_zero_seed(flags));
 #endif
 		init_refcnt();
 		return 0;
@@ -1122,7 +1137,8 @@ int bpf_map_handler::map_init_checked(managed_shared_memory &memory)
 	case bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH: {
 		map_impl_ptr = memory.construct<per_cpu_hash_map_impl>(
 			boost::interprocess::anonymous_instance)(
-			memory, key_size, value_size, max_entries);
+			memory, key_size, value_size, max_entries,
+			hash_zero_seed(flags));
 		init_refcnt();
 		return 0;
 	}
