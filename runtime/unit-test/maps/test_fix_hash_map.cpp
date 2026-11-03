@@ -184,9 +184,9 @@ TEST_CASE("Fixed hash iteration scans every bucket",
 	constexpr size_t max_entries = 10;
 	fix_size_hash_map_impl map(segment, max_entries, sizeof(uint32_t),
 				   sizeof(uint64_t));
-	// The same layout, to find a key of the last bucket.
-	bpftime_hash_map layout(segment, max_entries, sizeof(uint32_t),
-				sizeof(uint64_t));
+	// The map's own table, to find a key of the last bucket (a table of
+	// the same size has another seed).
+	bpftime_hash_map &layout = map.table_for_test();
 	REQUIRE(layout.bucket_count() > max_entries);
 
 	uint32_t key = 0;
@@ -214,11 +214,14 @@ TEST_CASE("Fixed hash lookup keeps a full-capacity chain and misses past it",
 		for (size_t value_size : { 1U, 8U }) {
 			CAPTURE(key_size, value_size);
 			bpftime_hash_map map(segment, capacity, key_size, value_size);
+			// All in one bucket's chain, distinct keys (one-byte keys
+			// have only 256; the bucket depends on the map's seed). Offset
+			// each key by one byte to also exercise unaligned input.
+			std::vector<std::vector<std::vector<uint8_t>>> by_bucket(
+				map.bucket_count());
 			std::vector<std::vector<uint8_t>> keys;
-			// All in the last bucket. Offset each key by one byte to also
-			// exercise unaligned input.
-			for (uint32_t n = 0; keys.size() < capacity + 1 && n < 65536;
-			     ++n) {
+			const uint32_t distinct = key_size == 1 ? 256 : 65536;
+			for (uint32_t n = 0; keys.empty() && n < distinct; ++n) {
 				std::vector<uint8_t> key(key_size + 1, 0);
 				// Long keys share their first four bytes: equality must
 				// inspect the suffix rather than just the uint32 prefix.
@@ -226,9 +229,10 @@ TEST_CASE("Fixed hash lookup keeps a full-capacity chain and misses past it",
 				for (size_t byte = 0; byte < std::min(key_size, size_t{4});
 				     ++byte)
 					key[byte + offset] = static_cast<uint8_t>(n >> (8 * byte));
-				if (map.bucket_of_key(key.data() + 1) ==
-				    map.bucket_count() - 1)
-					keys.push_back(std::move(key));
+				auto &in = by_bucket[map.bucket_of_key(key.data() + 1)];
+				in.push_back(std::move(key));
+				if (in.size() == capacity + 1)
+					keys = in;
 			}
 			REQUIRE(keys.size() == capacity + 1);
 
