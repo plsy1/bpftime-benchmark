@@ -6,6 +6,7 @@
 #include <bpf_map/bpftime_hash_map.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -261,4 +262,60 @@ TEST_CASE("hash map lookups pass a delete stopped halfway",
 	map.unlock_stripe_for_test(map.stripe_of_key(&deleted));
 	REQUIRE(map.get_elem_count() == 2);
 	REQUIRE(map.elem_lookup(&behind) != nullptr);
+}
+
+// Keys computed to share one chain under the unseeded hash: 8-byte keys
+// j * phi^-1 (their products with phi are 0, 1, 2, ...: one top-bits
+// bucket), and 16-byte keys whose second word cancels the mix of the first.
+// With the per-map seed they spread like any keys.
+TEST_CASE("hash map chains stay short for keys made to collide",
+	  "[bpftime_hash_map][chains][seed]")
+{
+	constexpr size_t max_entries = 4096, n = 1000;
+	const uint64_t phi = 0x9e3779b97f4a7c15ULL, mix = 0xbf58476d1ce4e5b9ULL;
+	uint64_t inv = phi; // Newton: inv = inv * (2 - phi * inv)
+	for (int i = 0; i < 6; i++)
+		inv *= 2 - phi * inv;
+	REQUIRE(inv * phi == 1);
+	const uint64_t value = 1;
+	SECTION("8-byte keys")
+	{
+		shm_guard shm("bpftime_hash_chains_seed8_test");
+		bpftime_hash_map map(shm.segment, max_entries, 8, 8);
+		size_t longest = 0;
+		for (uint64_t j = 0; j < n; j++) {
+			const uint64_t key = j * inv;
+			REQUIRE(map.elem_update(&key, &value));
+		}
+		for (uint64_t j = 0; j < n; j++) {
+			const uint64_t key = j * inv;
+			longest = std::max(longest, map.chain_length_of_key(&key));
+		}
+		INFO("longest chain " << longest);
+		REQUIRE(longest <= 8);
+	}
+	SECTION("16-byte keys")
+	{
+		shm_guard shm("bpftime_hash_chains_seed16_test");
+		bpftime_hash_map map(shm.segment, max_entries, 16, 8);
+		auto make = [&](uint64_t j, uint64_t *key) {
+			uint64_t h = (16 * phi ^ j) * mix;
+			h ^= h >> 31;
+			key[0] = j;
+			key[1] = h ^ 0x1234;
+		};
+		size_t longest = 0;
+		for (uint64_t j = 0; j < n; j++) {
+			uint64_t key[2];
+			make(j, key);
+			REQUIRE(map.elem_update(key, &value));
+		}
+		for (uint64_t j = 0; j < n; j++) {
+			uint64_t key[2];
+			make(j, key);
+			longest = std::max(longest, map.chain_length_of_key(key));
+		}
+		INFO("longest chain " << longest);
+		REQUIRE(longest <= 8);
+	}
 }
