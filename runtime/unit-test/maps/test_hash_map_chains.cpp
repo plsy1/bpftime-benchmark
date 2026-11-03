@@ -373,3 +373,121 @@ TEST_CASE("hash map lookup_read with longer keys",
 		REQUIRE_FALSE(called);
 	}
 }
+
+// An update of an existing key puts the new value in a spare element: the
+// map stays exact (spares are not capacity), a full map still takes updates,
+// and a key alone in its chain (its element the head) stays findable.
+TEST_CASE("hash map updates of existing keys replace their element",
+	  "[bpftime_hash_map][chains][replace]")
+{
+	shm_guard shm("bpftime_hash_chains_replace_test");
+	constexpr uint32_t max_entries = 64;
+	bpftime_hash_map map(shm.segment, max_entries, 4, 8);
+	const uint32_t key = 5;
+	uint64_t value = 1;
+	REQUIRE(map.elem_update(&key, &value));
+	const void *first = map.elem_lookup(&key);
+	value = 2;
+	REQUIRE(map.elem_update(&key, &value));
+	// A new element (one thread alternates between it and the spare).
+	REQUIRE(map.elem_lookup(&key) != first);
+	REQUIRE(*static_cast<const uint64_t *>(first) == 1);
+	for (value = 3; value < 1000; value++) {
+		REQUIRE(map.elem_update(&key, &value));
+		REQUIRE(map.chain_length_of_key(&key) == 1);
+		const auto *v =
+			static_cast<const uint64_t *>(map.elem_lookup(&key));
+		REQUIRE(v != nullptr);
+		REQUIRE(*v == value);
+	}
+	uint32_t next = 0;
+	REQUIRE(map.next_key(nullptr, &next));
+	REQUIRE(next == key);
+	REQUIRE(map.get_elem_count() == 1);
+	// Full: every key can still be updated, nothing more inserted.
+	for (uint32_t k = 100; map.get_elem_count() < max_entries; k++)
+		REQUIRE(map.elem_update(&k, &value));
+	const uint32_t extra = 1u << 20;
+	REQUIRE(map.update(&extra, &value, bpftime_hash_map::update_mode::any) ==
+		bpftime_hash_map::update_result::full);
+	for (int round = 0; round < 3; round++)
+		for (uint32_t k = 100; k < 100 + max_entries - 1; k++) {
+			const uint64_t v = k + round;
+			REQUIRE(map.update(&k, &v,
+					   bpftime_hash_map::update_mode::exist) ==
+				bpftime_hash_map::update_result::ok);
+			REQUIRE(*static_cast<const uint64_t *>(
+					map.elem_lookup(&k)) == v);
+		}
+	REQUIRE(map.get_elem_count() == max_entries);
+	REQUIRE(map.update(&extra, &value, bpftime_hash_map::update_mode::any) ==
+		bpftime_hash_map::update_result::full);
+}
+
+// Two updaters write {x, x} into one key's 16-byte value; copies taken by
+// lookup_read must never mix two values (in place they did: ~1 million in
+// 5 s). Reads through a pointer can still mix when the old element is
+// reused by a later update while the reader holds it, as with the kernel's
+// extra_elems; those are only counted.
+TEST_CASE("hash map copies of a value being updated are whole",
+	  "[bpftime_hash_map][chains][replace][concurrency]")
+{
+	shm_guard shm("bpftime_hash_chains_torn_test");
+	bpftime_hash_map map(shm.segment, 64, 4, 16);
+	const uint32_t key = 9;
+	const uint64_t init[2] = { 0, 0 };
+	REQUIRE(map.elem_update(&key, init));
+	std::atomic<bool> stop{ false };
+	std::atomic<uint64_t> torn_copies{ 0 }, torn_pointer{ 0 }, copies{ 0 };
+	std::vector<std::thread> threads;
+	for (int w = 0; w < 2; w++)
+		threads.emplace_back([&, w] {
+			for (uint64_t x = w; !stop.load(std::memory_order_relaxed);
+			     x += 2) {
+				const uint64_t value[2] = { x, x };
+				map.elem_update(&key, value);
+			}
+		});
+	for (int r = 0; r < 3; r++)
+		threads.emplace_back([&, r] {
+			uint64_t torn = 0, ptorn = 0, n = 0;
+			while (!stop.load(std::memory_order_relaxed)) {
+				uint64_t a = 0, b = 0;
+				const void *p = map.lookup_read(&key, [&](const void *v) {
+					auto *q = static_cast<uint64_t *>(
+						const_cast<void *>(v));
+					a = std::atomic_ref<uint64_t>(q[0]).load(
+						std::memory_order_acquire);
+					b = std::atomic_ref<uint64_t>(q[1]).load(
+						std::memory_order_acquire);
+				});
+				if (p == nullptr)
+					continue;
+				n++;
+				if (a != b)
+					torn++;
+				auto *q = static_cast<uint64_t *>(
+					const_cast<void *>(p));
+				if (std::atomic_ref<uint64_t>(q[0]).load(
+					    std::memory_order_relaxed) !=
+				    std::atomic_ref<uint64_t>(q[1]).load(
+					    std::memory_order_relaxed))
+					ptorn++;
+			}
+			torn_copies += torn;
+			torn_pointer += ptorn;
+			copies += n;
+		});
+	std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+	stop = true;
+	for (auto &t : threads)
+		t.join();
+	INFO("copies " << copies.load() << ", torn copies " << torn_copies.load()
+		       << ", torn pointer reads " << torn_pointer.load());
+	REQUIRE(copies.load() > 100000);
+	REQUIRE(torn_copies.load() == 0);
+	const auto *v = static_cast<const uint64_t *>(map.elem_lookup(&key));
+	REQUIRE(v != nullptr);
+	REQUIRE(v[0] == v[1]);
+	REQUIRE(map.get_elem_count() == 1);
+}
