@@ -562,15 +562,25 @@ generation (every delete adds one step) and the in-use bit. A lookup walks
 its chain: at each element it reads the word (acquire), restarts unless the
 element is in use, compares the key (a four-byte key with an acquire load,
 otherwise memcmp then an acquire fence) and accepts a match only if the word
-is unchanged (`lookup_read`'s reader runs before that re-check). A stale
-`next` is caught at the end of the walk, as in the kernel: an element freed
-while a lookup stands on it links into a free list (not in use; the lists
-end in `NULLS | n_heads`, a bucket that does not exist) or, reused, into
-another chain, which ends in another bucket's terminator; the lookup then
-starts again. A step cap restarts runaway walks. A key's element is only in
-its own bucket's chain, so a wrong chain cannot produce a false hit. A
-re-check of the word before following `next` caught nothing in any test and
-cost a fence per step (dropped). Inserts write key and value after a release
+is unchanged (`lookup_read`'s reader runs before that re-check). Past a
+mismatch it loads `next` (acquire for four-byte keys; relaxed and an acquire
+fence after a memcmp) and follows it only if the link it came through (the
+head or the previous element's `next`, reloaded with acquire) still points
+to the element and the word is still unchanged: updates reuse a retired
+element in place of another element of the same chain, so an element
+reached through a link read before its retirement but read after its reuse
+further down the chain (its word alone looks fine), or retired while the
+lookup stands on it, would skip the elements in between. Without the link
+check 1-25 lookups per 2 s round still missed on the NUC (7f35edec); with
+it 0 in 3.5 billion. A `next` read before a retirement leads into
+a free list (not in use; the lists end in `NULLS | n_heads`, a bucket that
+does not exist), the rest of its old chain, or another chain, which ends in
+another bucket's terminator; the lookup then starts again. A step cap
+restarts runaway walks. A key's element is only in its own bucket's chain,
+so a wrong chain cannot produce a false hit. (The per-step re-check had
+been dropped in e5ba4aa7, when nothing reused an element in place and no
+test could tell; it came back with updates in place.) Inserts write key and
+value after a release
 fence (a lookup that read the element's previous key and sees new bytes
 also sees the delete's generation), then `next`, the word (release), the
 head (release). A delete unlinks (release store), then sets the word's new
@@ -627,23 +637,27 @@ stripes lost 2 ns per hash update.
 An update of an existing key does not write in place (review 3): as the
 kernel's preallocated htab with its per-CPU `extra_elems`, it takes the
 stripe's spare element (one per stripe, outside `max_entries`, on the lock's
-line, under the lock), writes key and value there, links it at the head
-(when the old element is the head, in its place: one store), then unlinks
-the old element, retires it (new generation) and leaves it as the spare. A
-`lookup_read` copy holds one value whole (the word re-check catches reuse).
-A lookup of the key being updated may miss it, as in the kernel (add at the
-head, then delete the old element): a reader past the head, on the old
-element's predecessor when it is unlinked, reaches the end (review of
-3cb3b630..7670cee5, R1: 4-8 misses in 61 million lookups of two keys of one
-bucket updated at once; test "hash map copies of keys updated behind the
-head are whole" counts them and requires whole copies; "hash map lookups
-never return a value reused for another key" stands a lookup on an element
-behind the head while its key is updated and the spare reused for another
-key, mutation: no retire behind the head, the lookup takes the other key's
-value). The in-place table
-never missed a present key; the new element in the old one's place would
-not either, but would be reachable through a relaxed `next` (an acquire
-load per step for the C++ model); kept as the kernel. In place, 16 B values
+line, under the lock), writes key and value there and links it in the old
+element's place (one release store of the old element's link: the head or
+its predecessor's `next`), then retires the old element (new generation) and
+leaves it as the spare. A lookup on the predecessor loads the old element
+(its value, whole) or the new one. A `lookup_read` copy holds one value
+whole (the word re-check catches reuse). The kernel links the new element at
+the head and then unlinks the old one, so a lookup past the head, on the old
+element's predecessor, reaches the end and misses a key present throughout
+(review of 3cb3b630..7670cee5, R1). Measured on the NUC (x86, results
+`uprobe/x86-nuc-r1-miss-20261104` on the x86-nuc branch), two keys of one
+bucket updated at once from two threads, looked up from three: the kernel's
+htab (BPF_PROG_TEST_RUN, bpf_loop) missed 0-0.63% of lookups per 2 s round
+depending on the CPUs, this map linked at the head (d5279469) 0.001-0.31%;
+on the Orin 4-8 in 61 million. Tests "hash map lookups of keys updated at
+once never miss" (two updaters, three readers; misses and torn copies must
+be 0; d5279469's code: 2-7 misses per run on the Orin) and "hash map updates
+keep the chain's order" (next_key order unchanged across updates; d5279469:
+the tail key moved to the head); "hash map lookups never return a value
+reused for another key" stands a lookup on an element while its key is
+updated and the spare reused for another key (mutation: no retire, the
+lookup takes the other key's value). In place, 16 B values
 `{x, x}` with two updaters and three readers mixed halves in 995,658 copies
 and 391,877 of 364 million pointer reads in 5 s; now 0 of 55 million copies
 and 75 pointer reads in 1.5 s (the old element reused by a later
@@ -659,11 +673,10 @@ cost 47.2 ns (the LSE helper and its barriers, half the added samples).
 Changes against the in-place table: a value pointer follows the element,
 not the key, so it is valid until the key is updated or deleted (a
 BPF `*v += 1` racing an update of that key goes to the old element, lost;
-kernel the same), and an updated key moves to the head of its chain
-(`next_key` during updates may return a key again, and a tool that updates
-each key it visits can cycle between two keys of one bucket: update(A) puts A
-first, next_key(A) = B, update(B) puts B first, next_key(B) = A; kernel the
-same). A value pointer kept
+kernel the same). An updated key keeps its place in its chain (the kernel
+moves it to the head, so there next_key during updates returns keys again
+and a tool that updates each key it visits can cycle between two keys of a
+bucket). A value pointer kept
 longer writes into a free or reused element, as in the kernel.
 
 A process killed inside a writer leaves its stripe locked
@@ -675,9 +688,8 @@ a lookup returned); the kernel waits there too, but its holders cannot die.
 One killed between taking and linking an element, or between unlinking and
 giving it back, loses that element (E2BIG one entry early). Tests:
 `test_hash_map_chains.cpp` (writers lock only the key's stripe, lookups no
-lock; lookups of keys present throughout, not updated, never miss while
-elements around them move through the free lists into other chains,
-mutation: any
+lock; lookups of keys present throughout never miss while elements around
+them move through the free lists into other chains, mutation: any
 terminator taken as the end; inserts take elements from every list up to
 exactly `max_entries`, also with 2 entries and 6 lists, mutation: no
 stealing; `lookup_read` with 8 and 16 B keys), `test_hash_map_value_access.cpp`
