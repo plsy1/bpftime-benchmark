@@ -44,6 +44,12 @@ class fix_size_hash_map_impl {
 	long lookup_and_delete_userspace(const void *key, void *value);
 
 	int map_get_next_key(const void *key, void *next_key);
+
+	// Tests: the table, for its bucket of a key (seeded per map).
+	bpftime_hash_map &table_for_test()
+	{
+		return map_impl;
+	}
 };
 
 } // namespace bpftime
