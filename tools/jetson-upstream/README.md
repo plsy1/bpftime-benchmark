@@ -356,13 +356,23 @@ gone), a random seed per map (seed 0 with `BPF_F_ZERO_SEED` or
 as the kernel's `extra_elems` (no torn copies). 49bc1fd9 first keeps the
 inline spin lock to aarch64 glibc (x86-64 glibc's protocol is the opposite;
 every map operation hung there). Two reviews, every finding checked; a
-lookup may miss a key while that key is updated, as in the kernel. Key
+lookup could miss a key while that key was updated, as in the kernel (fixed
+by 7ad5a152 below). Key
 pattern matrix, one thread at 90% load: map cost 0.15-0.31 us, 0.28-0.68x
 the kernel (a4ac0d31: 2.9-34 us). Full ten on 518a6b99: hash lookup 0.63x,
 update 0.36x, delete 0.32x the kernel. Tests run under `[bpftime_hash_map]`,
 `[maps][hash]` and `[map-create]`. Results: `uprobe/hash-redesign-survey-20261102`,
 `uprobe/dev-e5ba4aa7-20261103`, `uprobe/dev-b7ded27a-20261103`,
 `uprobe/dev-518a6b99-20261103`.
+
+7ad5a152 (accepted 2026-11-04) closes that miss: an update puts the new
+element in the old one's place, and lookups re-check the link they came
+through before following `next`. Two keys of one bucket updated from two
+threads and looked up from three, on the NUC: the kernel's own htab missed
+0-0.63% of lookups per 2 s round, d5279469 0.001-0.31%, 7ad5a152 0 in 3.5
+billion. Cost on the Orin: suite hash lookup -2.8%, key pattern matrix
+0.97-1.04x. Results: `uprobe/dev-7ad5a152-20261104`, x86 on the x86-nuc
+branch `uprobe/x86-nuc-r1-miss-20261104`.
 
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
