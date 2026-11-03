@@ -17,6 +17,7 @@
 #include <dirent.h>
 #include <string>
 #include <unistd.h>
+#include <vector>
 
 using namespace boost::interprocess;
 using namespace bpftime;
@@ -241,6 +242,67 @@ TEST_CASE("A rejected map creation closes its descriptor", "[map-create]")
 		CHECK(errno == EINVAL);
 	}
 	CHECK(open_descriptors() == before);
+	shm_holder.global_shared_memory.reset_server_state();
+	bpftime_destroy_global_shm();
+	shared_memory_object::remove(name.c_str());
+	bpftime_initialize_global_shm(shm_open_type::SHM_NO_CREATE);
+	if (had)
+		setenv("BPFTIME_GLOBAL_SHM_NAME", previous.c_str(), 1);
+	else
+		unsetenv("BPFTIME_GLOBAL_SHM_NAME");
+}
+
+// Hash maps draw a random seed each, so two maps with the same keys list them
+// in different orders; with BPF_F_ZERO_SEED, or BPFTIME_HASH_ZERO_SEED set,
+// both use seed 0 and the same order.
+TEST_CASE("Hash maps without a seed on BPF_F_ZERO_SEED or BPFTIME_HASH_ZERO_SEED",
+	  "[map-create][hash-seed]")
+{
+	static_assert(BPF_F_ZERO_SEED == 1u << 6);
+	const std::string name =
+		"bpftime-map-create-seed-" + std::to_string(getpid());
+	const char *had = getenv("BPFTIME_GLOBAL_SHM_NAME");
+	const std::string previous = had ? had : "";
+	bpftime_destroy_global_shm();
+	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+	bpftime_initialize_global_shm(shm_open_type::SHM_REMOVE_AND_CREATE);
+	REQUIRE(unsetenv("BPFTIME_HASH_ZERO_SEED") == 0);
+	// The keys 0..63 in next_key order, from a new map at fd.
+	auto order = [](int fd, int type, uint64_t flags) {
+		REQUIRE(bpftime_maps_create(fd, "seed",
+					    { .type = type,
+					      .key_size = 4,
+					      .value_size = 8,
+					      .max_ents = 1024,
+					      .flags = flags }) == fd);
+		std::vector<uint64_t> values(256, 1);
+		for (uint32_t k = 0; k < 64; k++)
+			REQUIRE(bpftime_map_update_elem(fd, &k, values.data(),
+							 BPF_ANY) == 0);
+		std::vector<uint32_t> keys;
+		uint32_t key = 0, next = 0;
+		const void *at = nullptr;
+		while (bpftime_map_get_next_key(fd, at, &next) == 0) {
+			keys.push_back(next);
+			key = next;
+			at = &key;
+		}
+		REQUIRE(keys.size() == 64);
+		bpftime_close(fd);
+		return keys;
+	};
+	for (int type : { BPF_MAP_TYPE_HASH, BPF_MAP_TYPE_PERCPU_HASH }) {
+		INFO("type " << type);
+		CHECK(order(100, type, 0) != order(101, type, 0));
+		CHECK(order(100, type, BPF_F_ZERO_SEED) ==
+		      order(101, type, BPF_F_ZERO_SEED));
+		REQUIRE(setenv("BPFTIME_HASH_ZERO_SEED", "1", 1) == 0);
+		CHECK(order(100, type, 0) == order(101, type, 0));
+		CHECK(order(100, type, 0) == order(101, type, BPF_F_ZERO_SEED));
+		REQUIRE(setenv("BPFTIME_HASH_ZERO_SEED", "0", 1) == 0);
+		CHECK(order(100, type, 0) != order(101, type, 0));
+		REQUIRE(unsetenv("BPFTIME_HASH_ZERO_SEED") == 0);
+	}
 	shm_holder.global_shared_memory.reset_server_state();
 	bpftime_destroy_global_shm();
 	shared_memory_object::remove(name.c_str());
