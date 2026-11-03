@@ -256,7 +256,11 @@ class bpftime_hash_map {
 
 	// A random seed per map, as the kernel's htab->hashrnd: keys that all
 	// fall into one chain cannot be computed without it (without one, the
-	// keys j * phi^-1 all did, 2.2 us per insert at 1000 of them).
+	// keys j * phi^-1 all did, 2.2 us per insert at 1000 of them). The
+	// price: keys built from an arithmetic progression (addresses, ids),
+	// which the unseeded multiply spread better than at random, spread at
+	// random (key-pattern matrix: 8-byte addresses 11-28% slower).
+	// zero_seed (BPF_F_ZERO_SEED, BPFTIME_HASH_ZERO_SEED) keeps seed 0.
 	static uint64_t random_seed()
 	{
 		uint64_t seed = 0;
@@ -586,14 +590,15 @@ class bpftime_hash_map {
 
     public:
 	bpftime_hash_map(managed_shared_memory &memory, size_t max_entries,
-			 size_t key_size, size_t value_size)
+			 size_t key_size, size_t value_size,
+			 bool zero_seed = false)
 		: _key_size(key_size), _value_size(value_size),
 		  _value_offset(round_up(8 + key_size, value_align(value_size))),
 		  _elem_size(round_up(_value_offset + value_size,
 				      value_align(value_size))),
 		  _max_elements(max_entries),
 		  _num_heads(std::max(pow2_at_least(max_entries), MIN_HEADS)),
-		  _head_shift(64 - log2_of(_num_heads)), _seed(random_seed()),
+		  _head_shift(64 - log2_of(_num_heads)), _seed(zero_seed ? 0 : random_seed()),
 		  _num_stripes(std::min(_num_heads / MIN_HEADS_PER_STRIPE,
 					MAX_STRIPES)),
 		  buffer(memory.get_segment_manager())

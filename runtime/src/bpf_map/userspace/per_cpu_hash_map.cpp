@@ -34,16 +34,16 @@ uint32_t choose_slot_shift(uint64_t slot_bytes)
 
 per_cpu_hash_map_impl::per_cpu_hash_map_impl(
 	boost::interprocess::managed_shared_memory &memory, uint32_t key_size,
-	uint32_t value_size, uint32_t max_entries)
+	uint32_t value_size, uint32_t max_entries, bool zero_seed)
 	: per_cpu_hash_map_impl(memory, key_size, value_size, max_entries,
-				bpftime_cpu_index_limit())
+				bpftime_cpu_index_limit(), zero_seed)
 {
 }
 
 per_cpu_hash_map_impl::per_cpu_hash_map_impl(
 	boost::interprocess::managed_shared_memory &memory, uint32_t key_size,
-	uint32_t value_size, uint32_t max_entries, int ncpu)
-	: table(memory, max_entries, key_size, sizeof(uint32_t)),
+	uint32_t value_size, uint32_t max_entries, int ncpu, bool zero_seed)
+	: table(memory, max_entries, key_size, sizeof(uint32_t), zero_seed),
 	  key_size(key_size), value_size(value_size), ncpu(ncpu),
 	  slot_shift(choose_slot_shift((uint64_t)value_size * ncpu)),
 	  // Inserts that lose a race to insert the same key hold a slot for a

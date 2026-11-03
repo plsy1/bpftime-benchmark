@@ -97,10 +97,11 @@ class per_cpu_hash_map_impl {
 
 	per_cpu_hash_map_impl(boost::interprocess::managed_shared_memory &memory,
 			      uint32_t key_size, uint32_t value_size,
-			      uint32_t max_entries);
+			      uint32_t max_entries, bool zero_seed = false);
 	per_cpu_hash_map_impl(boost::interprocess::managed_shared_memory &memory,
 			      uint32_t key_size, uint32_t value_size,
-			      uint32_t max_entries, int ncpu);
+			      uint32_t max_entries, int ncpu,
+			      bool zero_seed = false);
 	~per_cpu_hash_map_impl();
 	per_cpu_hash_map_impl(const per_cpu_hash_map_impl &) = delete;
 	per_cpu_hash_map_impl &operator=(const per_cpu_hash_map_impl &) = delete;
