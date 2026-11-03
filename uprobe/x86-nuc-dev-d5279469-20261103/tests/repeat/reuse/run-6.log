@@ -1,0 +1,58 @@
+[2026-11-03 22:45:58.449] [info] [bpf_attach_ctx.cpp:284] bpf_attach_ctx constructed
+Filters: "hash map lookups never return a value reused for another key"
+Randomness seeded to: 1575123488
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_runtime_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+hash map lookups never return a value reused for another key
+-------------------------------------------------------------------------------
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:576
+...............................................................................
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:587: PASSED:
+  REQUIRE( map.elem_update(&key, &value) )
+with expansion:
+  true
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:589: PASSED:
+  REQUIRE( map.elem_update(&other, &value) )
+with expansion:
+  true
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:595: PASSED:
+  REQUIRE( map.elem_update(&key, &mine) )
+with expansion:
+  true
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:596: PASSED:
+  REQUIRE( map.elem_update(&other, &theirs) )
+with expansion:
+  true
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:598: PASSED:
+  REQUIRE( *static_cast<const uint64_t *>(v) == 201 )
+with expansion:
+  201 == 201
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:604: PASSED:
+  REQUIRE( p != nullptr )
+with expansion:
+  0x00007f6dd8fd8d28 != nullptr
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:605: PASSED:
+  REQUIRE( calls == 2 )
+with expansion:
+  2 == 2
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:606: PASSED:
+  REQUIRE( seen == 101 )
+with expansion:
+  101 == 101
+
+===============================================================================
+All tests passed (8 assertions in 1 test case)
+
+[2026-11-03 22:45:58.454] [info] [bpf_attach_ctx.cpp:272] Destructor: bpf_attach_ctx

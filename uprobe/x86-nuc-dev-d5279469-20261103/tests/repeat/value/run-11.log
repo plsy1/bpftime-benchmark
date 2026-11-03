@@ -1,0 +1,58 @@
+[2026-11-03 22:45:12.961] [info] [bpf_attach_ctx.cpp:284] bpf_attach_ctx constructed
+Filters: "hash map copies of a value being updated are whole"
+Randomness seeded to: 3665438700
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_runtime_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+hash map copies of a value being updated are whole
+-------------------------------------------------------------------------------
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:435
+...............................................................................
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:442: PASSED:
+  REQUIRE( map.elem_update(&key, init) )
+with expansion:
+  true
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:490: PASSED:
+  REQUIRE( copies.load() > 100000 )
+with expansion:
+  240523610 (0xe56195a) > 100000 (0x186a0)
+with message:
+  copies 240523610, torn copies 0, torn pointer reads 11171
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:491: PASSED:
+  REQUIRE( torn_copies.load() == 0 )
+with expansion:
+  0 == 0
+with message:
+  copies 240523610, torn copies 0, torn pointer reads 11171
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:493: PASSED:
+  REQUIRE( v != nullptr )
+with expansion:
+  0x00007f8648e0c890 != nullptr
+with message:
+  copies 240523610, torn copies 0, torn pointer reads 11171
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:494: PASSED:
+  REQUIRE( v[0] == v[1] )
+with expansion:
+  6412643 (0x61d963) == 6412643 (0x61d963)
+with message:
+  copies 240523610, torn copies 0, torn pointer reads 11171
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:495: PASSED:
+  REQUIRE( map.get_elem_count() == 1 )
+with expansion:
+  1 == 1
+with message:
+  copies 240523610, torn copies 0, torn pointer reads 11171
+
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+[2026-11-03 22:45:14.468] [info] [bpf_attach_ctx.cpp:272] Destructor: bpf_attach_ctx

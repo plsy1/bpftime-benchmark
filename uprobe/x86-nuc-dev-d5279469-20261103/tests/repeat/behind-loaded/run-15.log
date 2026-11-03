@@ -1,0 +1,54 @@
+[2026-11-03 22:47:22.572] [info] [bpf_attach_ctx.cpp:284] bpf_attach_ctx constructed
+Filters: "hash map copies of keys updated behind the head are whole"
+Randomness seeded to: 2433691296
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_runtime_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+hash map copies of keys updated behind the head are whole
+-------------------------------------------------------------------------------
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:505
+...............................................................................
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:517: PASSED:
+  REQUIRE( map.elem_update(&key, init) )
+with expansion:
+  true
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:517: PASSED:
+  REQUIRE( map.elem_update(&key, init) )
+with expansion:
+  true
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:519: PASSED:
+  REQUIRE( map.chain_length_of_key(&keys[0]) == 2 )
+with expansion:
+  2 == 2
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:565: PASSED:
+  REQUIRE( reads.load() > 100000 )
+with expansion:
+  99399166 (0x5ecb5fe) > 100000 (0x186a0)
+with message:
+  reads 99399166, misses 40000, torn 0
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:566: PASSED:
+  REQUIRE( torn.load() == 0 )
+with expansion:
+  0 == 0
+with message:
+  reads 99399166, misses 40000, torn 0
+
+/home/y/src/bpftime-wt-uprobe-177a1dc/runtime/unit-test/maps/test_hash_map_chains.cpp:567: PASSED:
+  REQUIRE( map.get_elem_count() == 2 )
+with expansion:
+  2 == 2
+with message:
+  reads 99399166, misses 40000, torn 0
+
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+[2026-11-03 22:47:24.081] [info] [bpf_attach_ctx.cpp:272] Destructor: bpf_attach_ctx
