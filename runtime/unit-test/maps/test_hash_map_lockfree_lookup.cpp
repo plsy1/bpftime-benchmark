@@ -1,8 +1,7 @@
 // Hash map lookups take no lock while one writer deletes and re-inserts keys
-// in the same bucket. The keys of each case have the same hash (the hasher is
-// a base-31 polynomial, so byte pairs (1, 0) and (0, 31) contribute the same),
-// so every insert reuses the bucket the last delete freed. A lookup that
-// compared the key without re-checking the bucket's state word afterwards
+// of one bucket (found with bucket_of_key), so every insert takes the
+// element the last delete freed, often the one a reader stands on. A lookup
+// that compared the key without re-checking the element's word afterwards
 // could match a key half overwritten by the next insert, or return a value
 // not written yet.
 #include <bpf_map/bpftime_hash_map.hpp>

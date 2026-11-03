@@ -1,10 +1,9 @@
-// Hash map writers lock stripes of buckets instead of the whole map. Threads
-// own disjoint keys and check every result against a private reference; the
-// keys are chosen with clustered hashes (the hasher weighs the last two
-// bytes of a four-byte key by 31 and 1), so probe runs are long, cross
-// stripe boundaries and wrap past the end of the table. A writer that locked
-// too few stripes would let two inserts take the same bucket, or a delete
-// release a bucket another key's probe path still runs through.
+// Hash map writers lock the stripe of the key's chain instead of the whole
+// map. Threads own disjoint keys and check every result against a private
+// reference; the keys have fixed low bytes, the pattern that clustered in
+// the old open-addressing table, and spread over all stripes. A writer that
+// took the wrong stripe would let two inserts link into one chain at once
+// and lose one, or a delete unlink an element another writer just linked.
 #include <bpf_map/bpftime_hash_map.hpp>
 #include <bpf_map/userspace/fix_hash_map.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
@@ -178,8 +177,8 @@ TEST_CASE("striped hash map keeps max_entries exact across threads",
 	const uint32_t extra = 1u << 30;
 	const uint64_t value = 0;
 	REQUIRE_FALSE(map.elem_update(&extra, &value));
-	// Deleting on other threads leaves the tokens spread over the stripes
-	// (and the pool); the refill must still reach max_entries.
+	// Deleting on other threads leaves the free elements spread over their
+	// lists; the refill must still reach max_entries.
 	{
 		std::atomic<uint64_t> failed{ 0 };
 		std::vector<std::thread> workers;
@@ -252,9 +251,10 @@ TEST_CASE("striped hash map is shared by processes mapping it elsewhere",
 	  "[bpftime_hash_map][concurrency]")
 {
 	// Each child maps the segment again, at an address of its own, and works
-	// on the map with the others: buckets, stripe locks, probe bounds and
-	// the token pool all live in the segment. First disjoint clustered keys
-	// against private references, then every process inserts until E2BIG.
+	// on the map with the others: chain heads, elements (linked by index),
+	// stripe locks and free lists all live in the segment. First disjoint
+	// keys with fixed low bytes against private references, then every
+	// process inserts until E2BIG.
 	static const char *name = "BPFTIME_TEST_HASH_STRIPED_PROCESSES";
 	shm_guard shm(name);
 	constexpr size_t max_entries = 4096;

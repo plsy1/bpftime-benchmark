@@ -10,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <thread>
 #include <vector>
 #include <csignal>
@@ -317,5 +318,58 @@ TEST_CASE("hash map chains stay short for keys made to collide",
 		}
 		INFO("longest chain " << longest);
 		REQUIRE(longest <= 8);
+	}
+}
+
+// Fewer entries than free lists: most lists start empty, and an insert finds
+// the few elements wherever they are, up to exactly max_entries.
+TEST_CASE("hash map with fewer entries than free lists",
+	  "[bpftime_hash_map][chains][capacity]")
+{
+	shm_guard shm("bpftime_hash_chains_tiny_test");
+	bpftime_hash_map map(shm.segment, 2, 4, 8);
+	INFO("free lists " << map.free_list_count());
+	const uint64_t value = 3;
+	for (int round = 0; round < 3; round++) {
+		const uint32_t a = 10 + round, b = 20 + round, c = 30;
+		REQUIRE(map.elem_update(&a, &value));
+		REQUIRE(map.elem_update(&b, &value));
+		REQUIRE(map.update(&c, &value, bpftime_hash_map::update_mode::any) ==
+			bpftime_hash_map::update_result::full);
+		REQUIRE(map.get_elem_count() == 2);
+		REQUIRE(map.elem_delete(&a));
+		REQUIRE(map.elem_delete(&b));
+		REQUIRE(map.get_elem_count() == 0);
+	}
+}
+
+// lookup_read with 8- and 16-byte keys (the memcmp path): read runs on the
+// key's own value, a miss does not call it.
+TEST_CASE("hash map lookup_read with longer keys",
+	  "[bpftime_hash_map][chains]")
+{
+	for (size_t key_size : { size_t{ 8 }, size_t{ 16 } }) {
+		shm_guard shm("bpftime_hash_chains_read_test");
+		bpftime_hash_map map(shm.segment, 64, key_size, 8);
+		for (uint64_t i = 0; i < 64; i++) {
+			uint64_t key[2] = { i, ~i };
+			const uint64_t value = i * 7;
+			REQUIRE(map.elem_update(key, &value));
+		}
+		for (uint64_t i = 0; i < 64; i++) {
+			uint64_t key[2] = { i, ~i };
+			uint64_t seen = ~0ull;
+			const void *p = map.lookup_read(key, [&](const void *v) {
+				std::memcpy(&seen, v, 8);
+			});
+			REQUIRE(p != nullptr);
+			REQUIRE(seen == i * 7);
+		}
+		uint64_t missing[2] = { 1000, 0 };
+		bool called = false;
+		REQUIRE(map.lookup_read(missing, [&](const void *) {
+			called = true;
+		}) == nullptr);
+		REQUIRE_FALSE(called);
 	}
 }
