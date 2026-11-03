@@ -346,6 +346,24 @@ Now 32 bytes; Go end to end 80/80 runs ok. Cost: about +9 ns per hooked call
 (write 397 -> 406 ns). Its tests run in the transformer suite. Results:
 `syscall/realapps-20261102`.
 
+Twelve more commits (`49bc1fd9..d5279469`, accepted 2026-11-03) replace the
+hash map's open-addressing table with the kernel's preallocated htab in
+offsets: u32 chain heads, preallocated elements `{word, next, key, value}`,
+lock-free lookups checked by a generation word, one stripe lock per write,
+per-CPU free lists as the capacity (no tokens: the cliff near a full map is
+gone), a random seed per map (seed 0 with `BPF_F_ZERO_SEED` or
+`BPFTIME_HASH_ZERO_SEED`), and updates of an existing key in a spare element
+as the kernel's `extra_elems` (no torn copies). 49bc1fd9 first keeps the
+inline spin lock to aarch64 glibc (x86-64 glibc's protocol is the opposite;
+every map operation hung there). Two reviews, every finding checked; a
+lookup may miss a key while that key is updated, as in the kernel. Key
+pattern matrix, one thread at 90% load: map cost 0.15-0.31 us, 0.28-0.68x
+the kernel (a4ac0d31: 2.9-34 us). Full ten on 518a6b99: hash lookup 0.63x,
+update 0.36x, delete 0.32x the kernel. Tests run under `[bpftime_hash_map]`,
+`[maps][hash]` and `[map-create]`. Results: `uprobe/hash-redesign-survey-20261102`,
+`uprobe/dev-e5ba4aa7-20261103`, `uprobe/dev-b7ded27a-20261103`,
+`uprobe/dev-518a6b99-20261103`.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
