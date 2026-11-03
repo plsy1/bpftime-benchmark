@@ -32,7 +32,8 @@ class fix_size_hash_map_impl {
     public:
 	const static bool should_lock = false;
 	fix_size_hash_map_impl(managed_shared_memory &memory, size_t num_buckets,
-			     size_t key_size, size_t value_size);
+			       size_t key_size, size_t value_size,
+			       bool zero_seed = false);
 
 	void *elem_lookup(const void *key);
 
