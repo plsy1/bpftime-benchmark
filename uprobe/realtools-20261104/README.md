@@ -80,9 +80,10 @@ The redesign changes nothing a real tool can see (0.97-1.04x).
 | | 6 | 1.37M | 269k | 274k | 0.20 | 1.02 |
 | memleak | 1-6 | 330k-686k | hang | hang | - | - |
 
-At 4 threads (CPUs 5-2, both clusters) rounds are bimodal: uretprobe-hist
-a4ac 1.39/1.39/1.81M, 7ad5 2.15/1.82/1.88M; funclatency-libbpf a4ac
-1.43/1.34/1.35M, 7ad5 2.14/2.43/2.12M (that one consistent in all rounds).
+At 4 threads (CPUs 5-2, both clusters) uretprobe-hist is bimodal (a4ac
+1.39/1.39/1.81M, 7ad5 2.15/1.82/1.88M). funclatency-libbpf is not: a4ac
+1.43/1.34/1.35M, 7ad5 2.14/2.43/2.12M in every round, a 1.6x split that the
+other tools do not show and that is not explained (not profiled at 4).
 bpf grows with every thread; bpftime peaks at 2 threads and falls back to
 1.2M at 6 in every uprobe tool.
 
@@ -130,14 +131,21 @@ hand and attached with gdb (dev-7ad5a152, t1):
   lock (in `interceptor_thread_context_new`); main waits in pthread_join.
 
 The thread-start ignore came with 4d9b8a61 ("Keep the agent's own work out
-of the probes", 10-26). Any thread whose first interception (or first
-ignore) needs the Gum heap to grow while `mmap` is probed can deadlock the
-same way; whether it also happens without 4d9b8a61 is not tested. bpf runs
-the same cells (330-686k ops/s).
+of the probes", 10-26). Frozen builds, t1 workload, 30 s bound
+(`memleak-bisect/`): f9d2d9fc (its parent) passed 2/2 (414k, 425k ops/s)
+and also 2 threads (626k) and 6 threads twice (562k, 532k); 4d9b8a61 hung
+2/2. So 4d9b8a61 introduced it. The hazard itself is Gum's: any thread whose
+first interception needs the Gum heap to grow while `mmap` is probed would
+take the heap lock again; with f9d2d9fc the workload's own new threads did
+not hit it in these runs. bpf runs the same cells (330-686k ops/s). The NUC
+run (x86) did not include memleak.
+
+Nothing caught it before: the gate (unit tests, candidate check) runs no
+real tool, and the single-thread harness workload never creates a thread.
 
 ## Problems found (all steps, Jetson and NUC)
 
-1. memleak deadlock above (correctness; hangs the traced process).
+1. memleak deadlock above (correctness; hangs the traced process; from 4d9b8a61).
 2. Multi-thread uprobes on aarch64: Frida's per-function usage counter,
    an LL/SC atomic, takes 81-89% of the cycles at 6 threads; bpftime falls
    from 2.5-2.9M (2 threads) to 1.2M ops/s (6), 1.26-1.33x bpf (3.2-3.7x at
@@ -156,19 +164,26 @@ the same cells (330-686k ops/s).
 
 ## Plan (one, in order)
 
-1. memleak deadlock. Reproduce in a test (a probe on `mmap`, a thread
-   started after attach, Gum heap near full); try 4d9b8a61 reverted to tell
-   whether the agent's thread start is the only trigger. Fix candidates:
-   start the agent's background threads (and their ignore) before any probe
-   is attached; or create a thread's interceptor context outside the probed
-   window. Not fixing Gum's allocator. Then rerun step 3 memleak.
+1. memleak deadlock (introduced by 4d9b8a61). Reproduce in a test (a probe
+   on `mmap`, an agent thread started after attach). Fix candidates: start
+   the agent's background threads and their ignore before any probe is
+   attached; or keep the ignore but enter it where no probed call can
+   allocate Gum's context (a bpftime re-entry flag checked in the listener
+   before Gum's context lookup). Check whether Gum guards context creation
+   against a probed `mmap` anywhere (it did not here); not changing Gum's
+   allocator. Then rerun step 3 memleak.
+1b. Gate: add a bounded real-tool smoke run (memleak and funclatency on the
+   threaded workload) to the candidate check, so a hang like this fails the
+   daily list.
 2. bpf_printk scalability. A bounded shared trace ring (no system call, no
    lock between threads, read by `bpftimetool` like trace_pipe), as already
    suggested under "bpf_trace_printk Output"; at least format without
    spdlog. Gate: malloc example 1-6 threads, Jetson and NUC.
 3. Frida counter (needs your decision, Frida code): build frida-gum with LSE
    atomics (a build flag, no source change) and measure funclatency at 1-6
-   threads; otherwise document and report upstream only.
+   threads. LL/SC retries are worse than LSE under contention, so it may
+   help, but six threads sharing one counter's line stays the root cost:
+   LSE will not make it free. Otherwise document and report upstream only.
 4. Harness: transformer leg for opensnoop/syscount, an attach-capable build
    for javagc, a working get_stack_id workload.
 5. Same-key update contention: recorded only (bpf has the same lock).
