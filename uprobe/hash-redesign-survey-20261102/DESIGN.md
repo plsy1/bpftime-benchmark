@@ -7,6 +7,25 @@ Replaces `bpftime_hash_map` (open addressing, linear probing) keeping its public
 `get_index_of_value`; test accessors `stripe_of_key`, `lock_stripe_for_test`,
 `unlock_stripe_for_test`. Per-CPU hash internals and the JIT stay untouched.
 
+## As built: where the code differs (review of e5ba4aa7, 11-03)
+
+- Lookup step 6 has no per-step re-check: a stale `next` leads to a free element (not in use:
+  restart), a terminator that names another bucket or no bucket (restart), or into another
+  chain that ends in another bucket's terminator (restart); a key's element is only in its own
+  chain, so no false hit. The re-check cost a fence per step and no test could tell it apart.
+  Test (a) below stalls the reader after the key compare (`lookup_read`) instead.
+- Delete order is reversed (dev 199e23ec): unlink first (release), then the new generation
+  (release). Word first left a deleter stopped between the two stores with an element in its
+  chain not in use, and every lookup reaching it restarted (forever after a death).
+- Buckets use a per-map random seed (dev 48767d88): XORed into 4/8 B keys, the start of the mix
+  for longer ones (the kernel's `hashrnd`).
+- Capacity is exact only without concurrent deletes (the `pcpu_freelist` window); a free list
+  whose holder died hangs inserts that run out of their own list (pass 1 waits for each lock).
+- Updates of an existing key write the value in place; readers may see it torn. The kernel's
+  preallocated htab links a spare element instead (per-CPU `extra_elems`). Open.
+
+Details: `../dev-e5ba4aa7-20261103/REVIEW.md`.
+
 ## Layout (one shared-memory buffer, offsets only, resolved once per operation)
 
 - `heads`: u32 per bucket, `n_heads` = power of two >= max_entries (one constant, so 2x can be

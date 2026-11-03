@@ -44,3 +44,9 @@ delete-with-value, next_key order, per-CPU hash slot handling, spin lock protoco
   inserter already passed while another inserter takes the one it was heading for) is real by
   reading but narrow; the kernel's freelist has the same one.
 - **6 reproduced.** 1000 keys `j * phi^-1`: all in one chain, 2245 ns per insert.
+
+## Fixed (dev 199e23ec, 48767d88, b7ded27a; `../dev-b7ded27a-20261103/`)
+
+1 fixed (unlink first; the `half-delete` repro sets the old order's state by hand and so still
+hangs: the unit test stops the real delete halfway instead). 6 fixed (per-map seed, ~2 ns per
+lookup). 2, 3, 5, 9 and DESIGN.md (4) documented; 2 and 3 not changed.

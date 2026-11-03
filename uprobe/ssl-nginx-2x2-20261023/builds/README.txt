@@ -46,3 +46,6 @@ exp-flatten   experiment: same tree as dev-a4ac0d31 before the commit (built by 
 dev-42595149  dev 42595149 (49bc1fd9 spin lock fix + hash map element count as one shared atomic, no tokens; candidate build-jetson-daily)
 exp-llsc      experiment: 42595149 with the element count added by an ldxr/stxr loop (not committed)
 dev-e5ba4aa7  dev e5ba4aa7 (no stack canary; 42595149 + hash map as preallocated elements in u32 chains, per-CPU free lists; candidate build-jetson-daily)
+dev-b7ded27a  dev b7ded27a (e5ba4aa7 + delete unlinks before marking free, per-map hash seed, doc fixes; candidate build-jetson-daily)
+exp-noseed    experiment: dev b7ded27a tree with the hash header of 199e23ec (delete fix, no seed) (candidate.diff; candidate build-jetson-daily)
+exp-seed-noxor experiment: dev b7ded27a with the _seed member but no XOR for 4/8-byte keys (candidate.diff; candidate build-jetson-daily)

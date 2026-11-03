@@ -1,0 +1,19 @@
+diff --git a/runtime/src/bpf_map/bpftime_hash_map.hpp b/runtime/src/bpf_map/bpftime_hash_map.hpp
+index eec6d837..20fd4df3 100644
+--- a/runtime/src/bpf_map/bpftime_hash_map.hpp
++++ b/runtime/src/bpf_map/bpftime_hash_map.hpp
+@@ -279,12 +279,12 @@ class bpftime_hash_map {
+ 		if (_key_size == 4) {
+ 			uint32_t k;
+ 			std::memcpy(&k, bytes, 4);
+-			return k ^ _seed;
++			return k;
+ 		}
+ 		if (_key_size == 8) {
+ 			uint64_t k;
+ 			std::memcpy(&k, bytes, 8);
+-			return k ^ _seed;
++			return k;
+ 		}
+ 		uint64_t h = (_key_size * 0x9e3779b97f4a7c15ULL) ^ _seed;
+ 		size_t i = 0;
