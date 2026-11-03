@@ -8,6 +8,7 @@
 #include <cassert>
 #include <cstring>
 #include <stdexcept>
+#include <utility>
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
@@ -93,12 +94,13 @@ public:
 
 // The fixed-size hash map of the eBPF runtime (BPF_MAP_TYPE_HASH, and the key
 // table of the per-CPU hash), laid out as the kernel's preallocated htab in
-// offsets: max_entries preallocated elements {word, next, key, value}, and a
-// power of two of chain heads, each the index of its chain's first element or
-// a terminator that names the bucket (NULLS | bucket). Elements never move
-// (lookups hand out value pointers, valid while the key stays, as with the
-// kernel); a delete unlinks its element and frees it, so there are no
-// tombstones and every value is stored once.
+// offsets: max_entries preallocated elements {word, next, key, value} and a
+// spare per stripe, and a power of two of chain heads, each the index of
+// its chain's first element or a terminator that names the bucket (NULLS |
+// bucket). Elements never move (lookups hand out value pointers, valid until
+// the key is updated or deleted, as with the kernel); a delete unlinks its
+// element and frees it, an update of an existing key puts the new value in a
+// spare element, so there are no tombstones and every value is stored once.
 //
 // It replaced (11-03) an open-addressing table with linear probing (buckets
 // of key and value inline, twice max_entries of them, tombstones, the
@@ -152,6 +154,7 @@ class bpftime_hash_map {
 
 	struct alignas(CACHE_LINE) stripe_lock {
 		pthread_spinlock_t lock;
+		uint32_t spare; // element index, under the lock
 	};
 	struct alignas(CACHE_LINE) free_list {
 		pthread_spinlock_t lock;
@@ -195,6 +198,7 @@ class bpftime_hash_map {
 	size_t _value_offset; // from the element start
 	size_t _elem_size; // a multiple of value_align (and of 4)
 	size_t _max_elements;
+	size_t _num_elements; // max_elements and a spare per stripe
 	size_t _num_heads; // a power of two
 	unsigned _head_shift; // 64 - log2(_num_heads)
 	uint64_t _seed; // random, per map
@@ -458,9 +462,67 @@ class bpftime_hash_map {
 		      std::memory_order_release);
 		if (steps < 2)
 			return;
+		retire(e);
+	}
+
+	static void retire(uint8_t *e)
+	{
 		const uint32_t w = load(word_of(e), std::memory_order_relaxed);
 		store(word_of(e), (w & ~ELEM_USED) + GENERATION_STEP,
 		      std::memory_order_release);
+	}
+
+	// Under bucket's stripe lock: key and value into free element index,
+	// linked at the head of the chain, in front of next.
+	void link_at_head_locked(const view &v, uint32_t bucket, uint32_t index,
+				 const void *key, const void *value,
+				 uint32_t next)
+	{
+		uint8_t *e = elem_at(v, index);
+		// A lookup that read this element's previous key and then sees
+		// any of the new bytes must also see the delete's new
+		// generation.
+		std::atomic_thread_fence(std::memory_order_release);
+		copy_bytes(key_of(e), key, _key_size);
+		copy_bytes(value_of(e), value, _value_size);
+		store(next_of(e), next, std::memory_order_relaxed);
+		const uint32_t w = load(word_of(e), std::memory_order_relaxed);
+		store(word_of(e), w | ELEM_USED, std::memory_order_release);
+		// Publishes the element.
+		store(&v.heads[bucket], index, std::memory_order_release);
+	}
+
+	// Under bucket's stripe lock st, key present at link: the new value in
+	// the stripe's spare element, linked at the head, then the old element
+	// unlinked and retired (a new generation) and left as the spare, as the
+	// kernel's extra_elems. A lookup finds the old element or the new one,
+	// and a copy that ends while its element is in its own life
+	// (lookup_read re-checks the word) holds one value whole; in place,
+	// copies mixed halves of two values. A value pointer from a lookup
+	// stays on the old element, which the next update in that stripe
+	// reuses. One spare per stripe, under its lock: taking it needs no
+	// atomic (one spare per free list, taken by an exchange, cost 12 ns
+	// per update), and a process killed holding it has left that stripe locked
+	// anyway.
+	void replace_locked(const view &v, stripe_lock &st, uint32_t bucket,
+			    uint32_t *link, const void *key, const void *value)
+	{
+		const uint32_t old_index = *link;
+		uint8_t *old = elem_at(v, old_index);
+		const uint32_t index = st.spare;
+		if (link == &v.heads[bucket]) {
+			// The old element is the head: one store links the
+			// new one in its place.
+			link_at_head_locked(v, bucket, index, key, value,
+					    load(next_of(old),
+						 std::memory_order_relaxed));
+			retire(old);
+		} else {
+			link_at_head_locked(v, bucket, index, key, value,
+					    v.heads[bucket]);
+			unlink_and_retire_locked(link, old, 2);
+		}
+		st.spare = old_index;
 	}
 
 	// The element holding key in bucket's chain (under its stripe lock).
@@ -490,7 +552,7 @@ class bpftime_hash_map {
 					return nullptr;
 				goto restart; // ended in another chain
 			}
-			if (index >= _max_elements || steps > _max_elements)
+			if (index >= _num_elements || steps > _num_elements)
 				goto restart;
 			uint8_t *e = elem_at(v, index);
 			const uint32_t *word = word_of(e);
@@ -543,21 +605,26 @@ class bpftime_hash_map {
 		const int cpus = bpftime_cpu_index_limit();
 		_num_lists = std::min<size_t>(cpus > 0 ? (size_t)cpus : 1,
 					      MAX_LISTS);
+		_num_elements = _max_elements + _num_stripes;
+		if (_num_elements >= NULLS)
+			throw std::length_error("hash map size out of range");
 		_lists_offset = _num_stripes * CACHE_LINE;
 		_heads_offset = _lists_offset + _num_lists * CACHE_LINE;
 		_elems_offset =
 			round_up(_heads_offset + _num_heads * sizeof(uint32_t), 16);
 		size_t elems_bytes, total;
-		if (__builtin_mul_overflow(_max_elements, _elem_size,
+		if (__builtin_mul_overflow(_num_elements, _elem_size,
 					   &elems_bytes) ||
 		    __builtin_add_overflow(_elems_offset + CACHE_LINE,
 					   elems_bytes, &total))
 			throw std::length_error("hash map size overflows");
 		buffer.resize(total, 0);
 		const view v = resolve();
-		for (size_t s = 0; s < _num_stripes; s++)
+		for (size_t s = 0; s < _num_stripes; s++) {
 			pthread_spin_init(&v.stripes[s].lock,
 					  PTHREAD_PROCESS_SHARED);
+			v.stripes[s].spare = (uint32_t)(_max_elements + s);
+		}
 		for (size_t b = 0; b < _num_heads; b++)
 			v.heads[b] = NULLS | (uint32_t)b;
 		// Each list a contiguous share of the elements, in order.
@@ -604,13 +671,9 @@ class bpftime_hash_map {
 		return e != nullptr;
 	}
 
-	// Kernel htab semantics for the three modes. An existing key's value is
-	// overwritten in place: a concurrent lookup, or a program reading
-	// through a pointer it got before, may see part of the old value and
-	// part of the new one. The kernel's preallocated htab differs: it links
-	// a spare element with the new value (its per-CPU extra_elems) and
-	// unlinks the old one, so copies see one value whole. In place keeps a
-	// value pointer on the key's current value while the key stays.
+	// Kernel htab semantics for the three modes. An existing key gets a
+	// new element (see replace_locked), as in the kernel's preallocated
+	// htab, so readers see the old value or the new one whole.
 	update_result update(const void *key, const void *value,
 			     update_mode mode)
 	{
@@ -619,11 +682,12 @@ class bpftime_hash_map {
 		stripe_lock &st = v.stripes[stripe_of(bucket)];
 		bpftime_spin_lock(&st.lock);
 		update_result result;
-		if (uint8_t *e = find_locked(v, bucket, key); e != nullptr) {
+		if (uint32_t *link = find_link_locked(v, bucket, key);
+		    link != nullptr) {
 			if (mode == update_mode::no_exist) {
 				result = update_result::exists;
 			} else {
-				copy_bytes(value_of(e), value, _value_size);
+				replace_locked(v, st, bucket, link, key, value);
 				result = update_result::ok;
 			}
 		} else if (mode == update_mode::exist) {
@@ -633,23 +697,8 @@ class bpftime_hash_map {
 			if (index & NULLS) {
 				result = update_result::full;
 			} else {
-				uint8_t *e = elem_at(v, index);
-				// A lookup that read this element's previous
-				// key and then sees any of the new bytes must
-				// also see the delete's new generation.
-				std::atomic_thread_fence(
-					std::memory_order_release);
-				copy_bytes(key_of(e), key, _key_size);
-				copy_bytes(value_of(e), value, _value_size);
-				store(next_of(e), v.heads[bucket],
-				      std::memory_order_relaxed);
-				const uint32_t w =
-					load(word_of(e), std::memory_order_relaxed);
-				store(word_of(e), w | ELEM_USED,
-				      std::memory_order_release);
-				// Publishes the element.
-				store(&v.heads[bucket], index,
-				      std::memory_order_release);
+				link_at_head_locked(v, bucket, index, key, value,
+						    v.heads[bucket]);
 				result = update_result::ok;
 			}
 		}
