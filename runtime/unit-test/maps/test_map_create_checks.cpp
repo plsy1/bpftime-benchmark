@@ -6,11 +6,13 @@
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <bpf_map/userspace/per_cpu_array_map.hpp>
 #include <bpftime_shm.hpp>
+#include <platform_utils.hpp>
 #include <bpftime_shm_internal.hpp>
 #include <bpf_map/array_map_binding.hpp>
 #include <handler/handler_manager.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <linux/bpf.h>
+#include <algorithm>
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
@@ -252,9 +254,11 @@ TEST_CASE("A rejected map creation closes its descriptor", "[map-create]")
 		unsetenv("BPFTIME_GLOBAL_SHM_NAME");
 }
 
-// Hash maps draw a random seed each, so two maps with the same keys list them
-// in different orders; with BPF_F_ZERO_SEED, or BPFTIME_HASH_ZERO_SEED set,
-// both use seed 0 and the same order.
+// Hash maps draw a random seed each, so maps with the same keys list them in
+// different orders; with BPF_F_ZERO_SEED, or BPFTIME_HASH_ZERO_SEED set, they
+// use seed 0 and the same order. Two random seeds can give the same order by
+// chance (about 1 in 4096: same low 6 bits, same wrap point), so seeded maps
+// are compared three at a time and only need not all agree.
 TEST_CASE("Hash maps without a seed on BPF_F_ZERO_SEED or BPFTIME_HASH_ZERO_SEED",
 	  "[map-create][hash-seed]")
 {
@@ -275,7 +279,11 @@ TEST_CASE("Hash maps without a seed on BPF_F_ZERO_SEED or BPFTIME_HASH_ZERO_SEED
 					      .value_size = 8,
 					      .max_ents = 1024,
 					      .flags = flags }) == fd);
-		std::vector<uint64_t> values(256, 1);
+		// A per-CPU update from userspace reads a value per CPU.
+		std::vector<uint64_t> values(
+			std::max(bpftime_num_possible_cpus(),
+				 bpftime_cpu_index_limit()),
+			1);
 		for (uint32_t k = 0; k < 64; k++)
 			REQUIRE(bpftime_map_update_elem(fd, &k, values.data(),
 							 BPF_ANY) == 0);
@@ -291,16 +299,21 @@ TEST_CASE("Hash maps without a seed on BPF_F_ZERO_SEED or BPFTIME_HASH_ZERO_SEED
 		bpftime_close(fd);
 		return keys;
 	};
+	auto differ = [&](int type) {
+		const auto a = order(100, type, 0), b = order(101, type, 0),
+			   c = order(102, type, 0);
+		return a != b || a != c;
+	};
 	for (int type : { BPF_MAP_TYPE_HASH, BPF_MAP_TYPE_PERCPU_HASH }) {
 		INFO("type " << type);
-		CHECK(order(100, type, 0) != order(101, type, 0));
+		CHECK(differ(type));
 		CHECK(order(100, type, BPF_F_ZERO_SEED) ==
 		      order(101, type, BPF_F_ZERO_SEED));
 		REQUIRE(setenv("BPFTIME_HASH_ZERO_SEED", "1", 1) == 0);
 		CHECK(order(100, type, 0) == order(101, type, 0));
 		CHECK(order(100, type, 0) == order(101, type, BPF_F_ZERO_SEED));
 		REQUIRE(setenv("BPFTIME_HASH_ZERO_SEED", "0", 1) == 0);
-		CHECK(order(100, type, 0) != order(101, type, 0));
+		CHECK(differ(type));
 		REQUIRE(unsetenv("BPFTIME_HASH_ZERO_SEED") == 0);
 	}
 	shm_holder.global_shared_memory.reset_server_state();
