@@ -50,3 +50,6 @@ delete-with-value, next_key order, per-CPU hash slot handling, spin lock protoco
 1 fixed (unlink first; the `half-delete` repro sets the old order's state by hand and so still
 hangs: the unit test stops the real delete halfway instead). 6 fixed (per-map seed, ~2 ns per
 lookup). 2, 3, 5, 9 and DESIGN.md (4) documented; 2 and 3 not changed.
+
+3 fixed later (dev 518a6b99, `../dev-518a6b99-20261103/`): updates of existing keys take the
+stripe's spare element, as the kernel's `extra_elems`; 0 torn copies; update 25.0 -> 34.6 ns.

@@ -49,3 +49,6 @@ dev-e5ba4aa7  dev e5ba4aa7 (no stack canary; 42595149 + hash map as preallocated
 dev-b7ded27a  dev b7ded27a (e5ba4aa7 + delete unlinks before marking free, per-map hash seed, doc fixes; candidate build-jetson-daily)
 exp-noseed    experiment: dev b7ded27a tree with the hash header of 199e23ec (delete fix, no seed) (candidate.diff; candidate build-jetson-daily)
 exp-seed-noxor experiment: dev b7ded27a with the _seed member but no XOR for 4/8-byte keys (candidate.diff; candidate build-jetson-daily)
+dev-f9b92cee  dev f9b92cee, never pushed, replaced by 518a6b99 (603c81f7 + updates of existing keys take a spare element; candidate build-jetson-daily)
+exp-spare-stripe experiment: dev f9b92cee with one spare per stripe under its lock (no exchange), old head replaced by one head store (candidate.diff; candidate build-jetson-daily)
+dev-518a6b99  dev 518a6b99 (603c81f7 + updates of existing keys take the stripe's spare element; binaries identical to exp-spare-stripe; candidate build-jetson-daily)

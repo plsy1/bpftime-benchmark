@@ -21,8 +21,10 @@ Replaces `bpftime_hash_map` (open addressing, linear probing) keeping its public
   for longer ones (the kernel's `hashrnd`).
 - Capacity is exact only without concurrent deletes (the `pcpu_freelist` window); a free list
   whose holder died hangs inserts that run out of their own list (pass 1 waits for each lock).
-- Updates of an existing key write the value in place; readers may see it torn. The kernel's
-  preallocated htab links a spare element instead (per-CPU `extra_elems`). Open.
+- Updates of an existing key take the stripe's spare element (one per stripe, outside
+  max_entries, under the stripe lock), link it at the head and retire the old one as the new
+  spare, as the kernel's `extra_elems` (dev 518a6b99); they wrote in place before, and readers
+  saw torn values.
 
 Details: `../dev-e5ba4aa7-20261103/REVIEW.md`.
 
