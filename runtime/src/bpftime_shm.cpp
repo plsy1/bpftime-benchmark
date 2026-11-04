@@ -150,14 +150,17 @@ long bpftime_map_update_elem_with_origin(int fd, const void *key,
 	}
 }
 
-long bpftime_map_update_elem(int fd, const void *key, const void *value,
-			     uint64_t flags)
+int bpftime_map_freeze(int fd)
 {
-	return bpftime_map_update_elem_with_origin(fd, key, value, flags, true);
+	auto &shm = shm_holder.global_shared_memory;
+	if (!shm.is_map_fd(fd)) {
+		errno = EBADF;
+		return -1;
+	}
+	return std::get<bpftime::bpf_map_handler>(shm.get_handler(fd)).freeze();
 }
 
-long bpftime_map_delete_elem_with_origin(int fd, const void *key,
-					 bool from_syscall)
+long bpftime_map_delete_elem(int fd, const void *key)
 {
 	try {
 		return shm_holder.global_shared_memory.bpf_delete_elem(

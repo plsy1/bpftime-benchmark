@@ -347,18 +347,8 @@ long bpftime_map_update_elem(int fd, const void *key, const void *value,
 			     uint64_t flags);
 // use from bpf syscall to delete the elem
 long bpftime_map_delete_elem(int fd, const void *key);
-// Explicit-access-origin variants of the map element shims. from_syscall
-// must be true for an intercepted bpf() syscall (subject to the
-// BPF_F_RDONLY/BPF_F_WRONLY fd-mode checks) and false for a BPF program
-// helper request, including GPU program requests relayed through
-// cuda_shared_mem, which are not restricted by those fd flags.
-const void *bpftime_map_lookup_elem_with_origin(int fd, const void *key,
-						bool from_syscall);
-long bpftime_map_update_elem_with_origin(int fd, const void *key,
-					 const void *value, uint64_t flags,
-					 bool from_syscall);
-long bpftime_map_delete_elem_with_origin(int fd, const void *key,
-					 bool from_syscall);
+// BPF_MAP_FREEZE: 0, or -1 with errno (EBADF not a map, EBUSY frozen).
+int bpftime_map_freeze(int fd);
 
 // BPF_MAP_LOOKUP_AND_DELETE_ELEM: pops a queue or stack (key unused), or
 // removes key's element of a hash map and returns its value.
