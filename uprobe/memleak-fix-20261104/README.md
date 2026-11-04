@@ -39,7 +39,8 @@ a uprobe on `mmap`, 32 threads alive at once, each ignoring, mapping a page
   -> `g_array_sized_new` -> `sys_alloc` -> probed `mmap` ->
   `begin_invocation` -> `interceptor_thread_context_new` -> `spin_acquire_lock`;
   the other threads wait on the same lock.
-- With it: 5/5 pass, 0.25 s.
+- With it: 5/5 pass, 0.25 s. Mutation on the final tree (the `anchor()` call
+  replaced by `(void)anchor`): hangs 2/2; restored, the suite passes 19/19.
 
 Gate (`tracker.py test-candidate`, `gate.log`): runtime 168/169 (1 skipped),
 Frida 19/19 (one new), text segment transformer 49/50 (1 fails as expected),
