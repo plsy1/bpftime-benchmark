@@ -194,3 +194,8 @@ problem 7: SIGUSR1 detach with uretprobes in flight crashes the workload on
 every build, official included (funclatency at 1-6 threads; memleak now that
 its detach runs). Before the fix the agent's detach and IPC threads were dead
 on every memleak run, single thread too.
+
+Update 11-04 evening: plan item 2 (bpf_printk scalability) dropped by the user: real tools rarely
+use printk (bpftrace's printf goes through perf/ringbuf output), and the malloc example would still
+be bound by Gum's usage counter and same-key updates. Problem 8 (stack trace map lock) fixed by dev
+efe08cbd (`uprobe/stackmap-lockfree-20261104`).
