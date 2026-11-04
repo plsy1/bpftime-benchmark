@@ -31,3 +31,27 @@ that already fetched the old `ldr` loads the new data. Kernel uprobes swap one B
 build crashes this way (official too, SIGSEGV when the restored bytes form an aligned
 address). Attaching to a running multi-threaded process has the same window (not observed:
 bpftime attaches at start, before the workload's threads run the function).
+
+## Fix attempt 1: keep the redirect (not committed)
+
+A no-op listener attached before a function's last bpftime hook goes and never detached
+(`keep_gum_redirect`), so Gum never restores the prologue. Test "Detaching probes while
+threads call the function keeps them running" (four threads call a hooked function, the
+main thread attaches a uprobe and a uretprobe and detaches them every 200 us for 3 s, in a
+child): before, SIGBUS 3/3; with the keeper, still a crash in 5/5 runs, now mostly SIGSEGV.
+
+`test-with-keeper.gdb.txt`: the thread faults in `_gum_function_context_begin_invocation`
+(guminterceptor.c:1576), dereferencing a listener entry. Gum 16.1.2's
+`gum_function_context_remove_listener` frees the entry (`listener_entry_free (*slot)`) and
+then clears the slot in the live array, while other threads iterate that array without a
+lock: detaching a listener from a function other threads are running is a use-after-free in
+Gum itself (its deferred destroy covers the listener object, not the entry).
+
+A third hazard by reading bpftime (not yet seen in a crash): `detach_by_id` erases the
+attach and its callback, and changes `user_attaches`, while other threads may be iterating
+it in `uprobe_listener_on_enter`; the agent's detach then destroys the bpf programs those
+callbacks run.
+
+So no detach is safe while other threads run the function: avoiding it means never asking
+Gum to detach or revert at run time (listeners stay attached and become inert), and freeing
+bpftime's own callback data only after the threads that may use it have left.
