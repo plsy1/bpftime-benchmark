@@ -1,11 +1,12 @@
-# Dead code by frozen read-only constants, dev b60b99c3 (2026-11-05)
+# Dead code by frozen read-only constants, dev 94f9ba8f (2026-11-05)
 
 The layer behind problem 11 (`uprobe/exit-log-poison-20261105`): libbpf-tools keep their options in
 `.rodata` (a `BPF_F_RDONLY_PROG` array libbpf freezes before loading), and the code of an option that
 is off calls helpers bpftime does not have (opensnoop's `full_path`: 158, 115; syscount's `-P`: 35).
 The kernel's verifier drops that code; bpftime disabled the whole program.
 
-dev b60b99c3 (on 74d0ab8b, local):
+dev 94f9ba8f (on 74d0ab8b, local; first committed as b60b99c3, then amended with CLAUDE.md lines only: the
+frozen build `dev-b60b99c3` is the same code):
 
 - `BPF_MAP_FREEZE` is recorded (it was a no-op): later syscall updates and deletes are EPERM, a
   second freeze EBUSY. The flag sits in padding; `bpf_map_handler` stays 160 bytes (the first try
