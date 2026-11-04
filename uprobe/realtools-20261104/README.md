@@ -204,3 +204,6 @@ Correction 11-04 night: problem 7 is not about uretprobes in flight. Gum restore
 first instructions over its redirect while other threads enter it, Gum 16.1.2 frees a detached
 listener's entry under threads iterating it, and bpftime freed attaches and programs under running
 callbacks (`uprobe/detach-crash-20261104`); fixed by dev 25f4134f.
+
+Decision 11-04 night (user): plan item 3 (frida-gum rebuilt with LSE atomics) is dropped; Frida's
+usage counter stays as it is.
