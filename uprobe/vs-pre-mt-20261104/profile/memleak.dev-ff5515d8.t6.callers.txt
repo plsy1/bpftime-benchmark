@@ -1,0 +1,9 @@
+perf report -i memleak.dev-ff5515d8.t6.callers.perf.data --no-children --stdio -G -S 'bpftime::bpftime_spin_lock_outlined(int volatile*)' --percent-limit 2
+    41.79%  mallocloop  libbpftime-agent.so
+            |
+            ---0xffffad3f90ab
+               0xffffad3f90ab
+               bpftime_get_stackid
+               bpftime::bpftime_spin_lock_outlined(int volatile*)
+               |
+                --41.70%--bpftime::bpftime_spin_lock(int volatile*) (inlined)
