@@ -1471,7 +1471,12 @@ Gum path with only an empty listener was 5.2M and 1.1M). Gum's 8-byte form
 (`adrp; br`), deflectors and x86 are not parked: they keep Gum's path after a
 detach. Unparked with a past uretprobe, every call traps its return even in a
 uprobe-only session; a past override keeps the replacement, which calls the
-original. Callbacks pay one TLS access and two stores for the grace period.
+original through `__bpftime_frida_attach_manager__override_handler`'s
+forwarder: five integer arguments, no floating-point or struct arguments or
+returns. Before, only an active override routed calls through it; now a later
+uprobe or uretprobe session on a once-overridden function does too (parked, it
+is bypassed). Not tested; a register-preserving forwarder or a checked revert
+would remove it. Callbacks pay one TLS access and two stores for the grace period.
 The attach-time window remains: Gum writes the redirect over the first
 instructions while other threads may run them (bpftime attaches at start).
 `frida_attach_impl` is not thread-safe: owners of one slot in two impls must
