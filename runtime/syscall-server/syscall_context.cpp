@@ -759,9 +759,7 @@ long syscall_context::handle_sysbpf(int cmd, union bpf_attr *attr, size_t size)
 					       (long)(uintptr_t)attr,
 					       (long)size);
 		}
-		SPDLOG_DEBUG(
-			"Calling bpf map freeze, but we didn't implement this");
-		return 0;
+		return bpftime_map_freeze(attr->map_fd);
 	}
 	case BPF_OBJ_GET_INFO_BY_FD: {
 		if (run_with_kernel) {
