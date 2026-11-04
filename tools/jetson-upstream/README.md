@@ -416,6 +416,17 @@ f0954773 records a new residual in CLAUDE.md (a past override's forwarder,
 five integer arguments, serves later probe sessions). Results:
 `uprobe/detach-crash-20261104`.
 
+6a15a271 (accepted 2026-11-05) fixes a regression of 5920d5f9: the ringbuf
+record header's second word held the owner slot alone, and
+`bpf_ringbuf_submit`/`bpf_ringbuf_discard` read it as the map fd, so every
+record reserved with `bpf_ringbuf_reserve` stayed busy until the reclaim
+discarded it (the get_stack_id example delivered 0-70 events; libbpf-tools'
+compat buffer uses this path). The word is now a tag (fd above the low 9 bits,
+slot plus one in them). `[ringbuf]` (in the focused filter) runs "Ringbuf
+helpers submit and discard through the sample's map" (records stay busy with
+the old read). get_stack_id 70/70/70 events, no fd errors. Results:
+`uprobe/ringbuf-fd-20261105`, `uprobe/harness-gaps-20261104`.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
