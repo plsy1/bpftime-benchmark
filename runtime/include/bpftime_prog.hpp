@@ -129,6 +129,7 @@ class bpftime_prog {
 	// program is disabled instead of recompiling on every invocation.
 	bool jit_only_vm = false;
 	bool jit_failed = false;
+	bool libbpf_poison_registered = false;
 	bool program_loaded = false;
 	bool signal_ready = false;
 	bool loaded_from_aot = false;
