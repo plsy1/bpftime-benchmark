@@ -59,6 +59,7 @@ set(TEST_SOURCES
     test_extension_helpers.cpp
     test_trace_printk.cpp
     test_ratelimited_log.cpp
+    test_prog_reachability.cpp
     test_software_perf_event.cpp
     test_ringbuf_tail_wrap.cpp
     test_epoll.cpp

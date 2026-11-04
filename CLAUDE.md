@@ -770,6 +770,33 @@ its perf map). `bpftime_prog_load` points those calls at a private slot
 (`BPFTIME_LIBBPF_POISON_SLOT`, 8188) whose helper reports that it ran and
 returns -EINVAL. Test "Calls libbpf poisoned in dead code do not disable the
 program" (disabled, -ENOEXEC, without the rewrite).
+
+libbpf-tools keep their options in `.rodata`, a `BPF_F_RDONLY_PROG` array that
+libbpf freezes before loading the programs, and the code of an option that is
+off may call helpers bpftime does not have (opensnoop's `full_path`:
+`bpf_get_current_task_btf`, `bpf_probe_read_kernel_str`; syscount's `-P`:
+`bpf_get_current_task`). The kernel's verifier treats a frozen read-only map's
+value as constant and drops that code; bpftime disabled the whole program.
+`BPF_MAP_FREEZE` is now recorded (`bpf_map_handler::freeze`: later syscall
+updates and deletes are EPERM, a second freeze EBUSY; it was a no-op), and when
+a program calls a helper nobody registered, `bpftime_prog_load` runs
+`reachable_instructions` (`bpftime_prog_reachability.cpp`): a forward
+analysis that tracks scalars and pointers into frozen read-only array values
+and follows a branch decided by them one way only. Calls of missing helpers it
+finds unreachable go to a private slot (`BPFTIME_DEAD_CALL_SLOT`, 8187) whose
+helper reports that it ran; a reachable one still fails the compile. It is
+conservative: unmodeled instructions leave their registers unknown, joins turn
+differing registers unknown, calls clobber r0-r5, bpf-to-bpf callees and
+callbacks (ldimm64 `BPF_PSEUDO_FUNC`, target `pc + imm + 1`) are entries; the
+stack is not tracked, so a constant spilled and reloaded is unknown. Tests:
+"Branches on read-only constants are followed one way", "Reachability keeps
+subprograms, callbacks and joined paths", "A missing helper behind a
+read-only constant does not disable the program" (no constants, calls keeping
+r1-r5, or joins keeping a value each fail one). Sound for programs the kernel
+accepts: nothing stops a program from writing a `BPF_F_RDONLY_PROG` map in
+bpftime (no verifier), and then the constant would be stale. Not applied to
+AOT-loaded programs (they skip `bpftime_prog_load`'s rewrites), nor to maps
+restored by `bpftimetool import` (not frozen again).
 ## Stack Trace Map
 
 `stack_trace_map_impl::fill_stack_trace` follows the kernel `__bpf_get_stackid`:
