@@ -69,3 +69,80 @@ bpftime's own callback data only after the threads that may use it have left.
   only the no-op listener left 6.25M (about 160 ns a call) and 1.04M on 6 threads (Gum's usage
   counter); with an empty uprobe as well 5.26M and 1.11M. A process traced once would keep
   that cost on every probed function until it exits.
+
+## Fix: dev 25f4134f (on efe08cbd, local)
+
+Gum is never asked to detach or revert while the process runs. Each hooked function has a
+`frida_hook_slot` for the life of the process: Gum's enter listener (and a leave listener once a
+uretprobe came, the replacement once an override came) stays attached; bpftime swaps the slot's
+dispatch and waits a grace period before freeing what it removed (per-thread counters odd inside
+a callback; `membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED)`, then wait for odd counters to move),
+so `detach_by_id` returns only when no callback can still run the attach. With nothing attached
+the slot is parked: the redirect's literal (one aligned 8-byte store, or the low word when
+unaligned) or its single `b` points at Gum's on-invoke code (the displaced first instructions,
+then back into the function), so calls bypass Gum. The on-invoke address is the
+`original_function` of a replacement installed and reverted inside the transaction that first
+hooks the function (Gum writes the redirect when that transaction ends, so it is unreachable).
+Frozen build: `uprobe/ssl-nginx-2x2-20261023/builds/dev-25f4134f`.
+
+Tests (Frida suite 22/22, two more loops of 45 and 60 runs all passing; one failing run of 108
+right after restoring a mutation, cause not found, see below):
+
+| test | before | after | mutation |
+|---|---|---|---|
+| Detaching probes while threads call the function keeps them running | SIGBUS 3/3 (keeper only: SIGSEGV 5/5) | 5/5 | - |
+| No probe callback runs after its detach returned | - | 5/5 | `synchronize` returns at once: SIGSEGV 3/3 (and the test above 2/2) |
+| Probes attached again after a detach run | - | 5/5 | no unpark: fails 2/2 |
+
+The one failing run: the first full-suite run after restoring the unpark mutation reported 21/22
+with an extra one-test summary line; the forked children then let an exception reach Catch. The
+children now catch and report exceptions; 105 full runs after it passed. Gate (`gate.log`):
+runtime 170 passed, 1 skipped; Frida 22/22; text segment transformer 49/50 (1 fails as expected);
+the rest pass.
+
+Hidden "Hook cost attached and parked" (the test function, 2 s per point, cpu5 1728000):
+
+| | 1 thread | 6 threads |
+|---|--:|--:|
+| native | 231M calls/s | 1,380M |
+| attached (empty uprobe) | 5.2M | 1.1M |
+| detached, parked | 157M | 1,317M |
+| Gum path kept (keeper listener, before parking) | 6.25M | 1.04M |
+
+## Real tools after the fix (`after/run.sh dev-25f4134f`)
+
+- SIGUSR1 detach, tool and workload apart (`after/detach-manual/`): funclatency 1/2/6 threads
+  and memleak 1/6 threads, 3 rounds each: the workload exits 0 in 15/15 (before: SIGBUS or
+  SIGSEGV on every build at 1, 2 and 6 threads). Its per-second median after the detach:
+  memleak 42.1M ops/s on 1 thread and 249-250M on 6 (native 42.1M and 249.9M: malloc parked);
+  funclatency's callloop 75-89M on 1 thread and 517-519M on 6 (native 91.7M and 553M; its target
+  is about 11 ns, the parked path adds about 2 ns).
+- memleak `-c` through the harness, SIGUSR1 after 4 s (`after/detach-harness.jsonl`): 6/6 finish
+  (tool rc 0, the workload's ops reported; before: the workload died 3/3 at 1 and 6 threads).
+- Attached cost (`after/measure-mt/`, 3 rounds x 10 s, ops/s summed over threads, median, no
+  errors):
+
+| tool | thr | bpf | dev-efe08cbd | dev-25f4134f | 25f4/efe0 | 25f4/bpf |
+|---|--:|--:|--:|--:|--:|--:|
+| bpftrace-uretprobe-hist | 1 | 465k | 1.37M | 1.35M | 0.984 | 2.90 |
+| | 2 | 650k | 1.79M | 2.28M | 1.271 | 3.50 |
+| | 4 | 775k | 2.50M | 2.07M | 0.827 | 2.66 |
+| | 6 | 910k | 1.29M | 1.24M | 0.962 | 1.36 |
+| funclatency-libbpf | 1 | 479k | 1.52M | 1.49M | 0.980 | 3.11 |
+| | 2 | 659k | 2.44M | 2.41M | 0.988 | 3.66 |
+| | 4 | 791k | 1.61M | 1.88M | 1.170 | 2.38 |
+| | 6 | 891k | 1.21M | 1.22M | 1.011 | 1.37 |
+| memleak | 1 | 328k | 655k | 643k | 0.982 | 1.96 |
+| | 2 | 475k | 1.02M | 1.04M | 1.017 | 2.19 |
+| | 4 | 573k | 708k | 706k | 0.997 | 1.23 |
+| | 6 | 684k | 516k | 539k | 1.044 | 0.79 |
+
+  One thread: 1.6-2.0% slower (the grace period's TLS access and two stores per callback). Two to
+  six threads: within the rounds' spread (2 and 4 threads cross the clusters; rounds differ by up
+  to 25%).
+
+Left as before: the attach-time window (Gum writes the redirect over the first instructions while
+other threads may run them; bpftime attaches at start); Gum's 8-byte form, deflectors and x86
+are not parked (Gum's path after a detach); a function once hooked keeps Gum's context, a past
+uretprobe keeps trapping returns while unparked, a past override keeps the replacement (it calls
+the original).
