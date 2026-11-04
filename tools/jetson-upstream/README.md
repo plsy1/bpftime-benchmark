@@ -385,6 +385,19 @@ probed" (hangs 3/3 without the fix). Real tools: memleak 0.78-1.31x the kernel
 at 1-6 threads, funclatency cost 0.96-1.05x (layout). Results:
 `uprobe/memleak-fix-20261104`, `uprobe/vs-pre-mt-20261104`.
 
+efe08cbd (accepted 2026-11-04) finds a stored stack trace without the stack
+trace map's lock: `bpf_get_stackid` took it on every call (a boost
+`unordered_map` filled through one shared `key_buf`), 42% of memleak's cycles
+on six threads allocating from one stack. Each id has a slot with a record
+allocated on its first fill and kept (no preallocation: bpftrace's `ustack`
+map exceeds the default segment); a reader compares the hash before the
+frames and takes the lock for anything but a match. No frame after the skip
+is `-EFAULT`, as the kernel. memleak 1.52/1.31/1.48x faster at 1/2/4 threads
+(1.99/1.80/1.22x the kernel); six threads stay bound by Gum's usage counter.
+`[stack_trace]` (in the focused filter) runs the new cases, among them a torn
+read never matching a third trace (fails without the hash comparison).
+Results: `uprobe/stackmap-lockfree-20261104`.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
