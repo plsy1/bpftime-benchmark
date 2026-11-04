@@ -398,6 +398,24 @@ is `-EFAULT`, as the kernel. memleak 1.52/1.31/1.48x faster at 1/2/4 threads
 read never matching a third trace (fails without the hash comparison).
 Results: `uprobe/stackmap-lockfree-20261104`.
 
+25f4134f (accepted 2026-11-04) stops detaches from crashing threads that call
+the probed function (SIGUSR1 detach or a tool exiting under load, every build
+before, official too). Gum restored the first instructions over its redirect
+under threads entering them, Gum 16.1.2 freed a detached listener's entry
+under threads iterating it, and bpftime freed attaches and programs under
+running callbacks. Gum is no longer asked to detach or revert at run time:
+each hooked function keeps a slot (listeners stay attached, bpftime swaps a
+dispatch and waits a grace period before freeing), and a slot with nothing
+attached is parked (the redirect's literal or `b` points at Gum's copy of the
+displaced instructions, so calls bypass Gum; arm64 only, x86 keeps Gum's path
+after a detach). The Frida suite (no filter) runs three new cases: detaching
+while four threads call the function (SIGBUS 3/3 before), no callback after
+its detach returned, probes attached again after a detach. Attached cost
+-1.6 to -2.0% at one thread; the Frida suite also passes on the NUC (x86).
+f0954773 records a new residual in CLAUDE.md (a past override's forwarder,
+five integer arguments, serves later probe sessions). Results:
+`uprobe/detach-crash-20261104`.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
