@@ -196,4 +196,10 @@ TEST_CASE("get_stackid returns errors as negative 64-bit values")
 	mock_stack = { 0x3333333333333333, 0x4444444444444444 };
 	REQUIRE(bpftime_get_stackid(0, map_fd, BPF_F_USER_STACK, 0, 0) ==
 		-(int64_t)EEXIST);
+	// The stored trace again (found without the map lock).
+	mock_stack = { 0x1111111111111111, 0x2222222222222222 };
+	REQUIRE(bpftime_get_stackid(0, map_fd, BPF_F_USER_STACK, 0, 0) == 0);
+	// No frame left after the skip: -EFAULT, as the kernel.
+	REQUIRE(bpftime_get_stackid(0, map_fd, BPF_F_USER_STACK | 2, 0, 0) ==
+		-(int64_t)EFAULT);
 }

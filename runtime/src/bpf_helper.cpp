@@ -1166,25 +1166,28 @@ int64_t bpftime_get_stackid(uint64_t ctx_raw, uint64_t map_raw, uint64_t flags,
 
 	auto frames_to_skip = flags & BPF_F_SKIP_FIELD_MASK;
 	SPDLOG_DEBUG("Skipping {} frames", frames_to_skip);
-	if (frames_to_skip >= result->size()) {
-		result->resize(0);
-	} else {
-		std::vector<uint64_t> new_data;
-		new_data.resize(result->size() - frames_to_skip);
-		std::copy(result->begin() + frames_to_skip, result->end(),
-			  new_data.begin());
-		*result = new_data;
-	}
-	SPDLOG_DEBUG("After skipping, collected {} frames", result->size());
+	// As the kernel: no frame left after the skip is -EFAULT.
+	if (frames_to_skip >= result->size())
+		return -EFAULT;
+	const uint64_t *ips = result->data() + frames_to_skip;
+	const size_t nr = result->size() - frames_to_skip;
+	SPDLOG_DEBUG("After skipping, collected {} frames", nr);
 	int real_map_fd = (int)map_raw;
 	auto &map_handler = std::get<bpf_map_handler>(
 		shm_holder.global_shared_memory.get_handler(real_map_fd));
 
-	bpftime_lock_guard guard(map_handler.get_raw_spin_lock());
 	auto impl = *shm_holder.global_shared_memory.try_get_stack_trace_impl(
 		real_map_fd);
-	int ret = impl->fill_stack_trace(*result, flags & BPF_F_REUSE_STACKID,
-					 flags & BPF_F_FAST_STACK_CMP);
+	// A stored trace is found without the lock (all threads of a
+	// workload allocating from one stack took it in turn); storing one,
+	// and -EEXIST, take it.
+	int ret = impl->find_stack_trace(ips, nr, flags & BPF_F_FAST_STACK_CMP);
+	if (ret < 0) {
+		bpftime_lock_guard guard(map_handler.get_raw_spin_lock());
+		ret = impl->fill_stack_trace(ips, nr,
+					     flags & BPF_F_REUSE_STACKID,
+					     flags & BPF_F_FAST_STACK_CMP);
+	}
 
 	SPDLOG_DEBUG("Got stackid {}", ret);
 	// Ids are non-negative; errors (-EEXIST) must stay negative in the
