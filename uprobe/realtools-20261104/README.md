@@ -199,3 +199,8 @@ Update 11-04 evening: plan item 2 (bpf_printk scalability) dropped by the user: 
 use printk (bpftrace's printf goes through perf/ringbuf output), and the malloc example would still
 be bound by Gum's usage counter and same-key updates. Problem 8 (stack trace map lock) fixed by dev
 efe08cbd (`uprobe/stackmap-lockfree-20261104`).
+
+Correction 11-04 night: problem 7 is not about uretprobes in flight. Gum restores a function's
+first instructions over its redirect while other threads enter it, Gum 16.1.2 frees a detached
+listener's entry under threads iterating it, and bpftime freed attaches and programs under running
+callbacks (`uprobe/detach-crash-20261104`); fixed by dev 25f4134f.

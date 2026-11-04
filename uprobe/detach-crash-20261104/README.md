@@ -146,3 +146,11 @@ other threads may run them; bpftime attaches at start); Gum's 8-byte form, defle
 are not parked (Gum's path after a detach); a function once hooked keeps Gum's context, a past
 uretprobe keeps trapping returns while unparked, a past override keeps the replacement (it calls
 the original).
+
+New with the fix (not tested): the replacement's forwarder passes five integer arguments only (no
+floating-point or struct arguments or returns). Before, it ran only while an override was attached;
+now it also runs for a later uprobe or uretprobe session on a once-overridden function (parked, it
+is bypassed). On x86 nothing is parked: a function once hooked keeps Gum's path after the detach
+until the process exits (the arm64 Gum path was 5.2M calls/s against 231M native for the test
+function); the Frida suite has not been built or run on x86 with this change. The agent's exit now
+waits for running callbacks (`~frida_attach_impl` republishes the slots).
