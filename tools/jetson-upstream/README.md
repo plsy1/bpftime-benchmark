@@ -374,6 +374,17 @@ billion. Cost on the Orin: suite hash lookup -2.8%, key pattern matrix
 0.97-1.04x. Results: `uprobe/dev-7ad5a152-20261104`, x86 on the x86-nuc
 branch `uprobe/x86-nuc-r1-miss-20261104`.
 
+ff5515d8 (accepted 2026-11-04) fixes memleak hanging every threaded workload
+since 4d9b8a61. Gum makes a thread's interceptor context on first use and
+guards that only inside an invocation; the agent's background threads made it
+while ignoring probes, unguarded, and with `mmap` probed the heap growth
+re-entered Gum's heap lock. The context is now made inside an invocation of a
+function of bpftime's own that Gum hooks; Gum is not patched. The Frida suite
+(no filter) runs the new case, "Fresh threads can ignore probes while mmap is
+probed" (hangs 3/3 without the fix). Real tools: memleak 0.78-1.31x the kernel
+at 1-6 threads, funclatency cost 0.96-1.05x (layout). Results:
+`uprobe/memleak-fix-20261104`, `uprobe/vs-pre-mt-20261104`.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
