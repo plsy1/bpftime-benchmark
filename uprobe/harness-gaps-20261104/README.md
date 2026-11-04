@@ -39,7 +39,7 @@ On bpf the victim's stacks fail because the example traces malloc in every proce
    `bpf_ringbuf_reserve` + submit/discard loses its events (get_stack_id: 0-70 of ~1,300 that
    official delivers; libbpf-tools' compat buffer uses this path); `bpf_ringbuf_output` passes the
    fd and is not affected. The runtime tests call `bpftime_ringbuf_submit` with the fd, so they
-   never took the helper path. In the daily list since 10-31 (1440227e).
+   never took the helper path. In the daily list since 02d2d7cd ("Replay the review fixes daily (137 commits)").
 10. **A probe that logs during process exit crashes the traced process.** dev (efe08cbd and
     25f4134f alike), `timeout` running the victim with the agent: SIGSEGV in 1-2 of 4 runs; gdb:
     `bpf_ringbuf_submit` -> `bpftime_shm::try_get_ringbuf_map_impl` -> `SPDLOG_ERROR` ->
