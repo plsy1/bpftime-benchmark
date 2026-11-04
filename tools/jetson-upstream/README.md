@@ -427,6 +427,16 @@ helpers submit and discard through the sample's map" (records stay busy with
 the old read). get_stack_id 70/70/70 events, no fd errors. Results:
 `uprobe/ringbuf-fd-20261105`, `uprobe/harness-gaps-20261104`.
 
+b46dde06 (accepted 2026-11-05): a probe that logged while its process exited
+wrote through the default logger spdlog's registry had destroyed (SIGSEGV in
+the traced process); an exit handler registered after the registry keeps the
+logger alive and off. `[allocation]` runs "A log after spdlog's teardown at exit
+is dropped" (a helper process; exit 3 without the handler). 74d0ab8b (accepted
+2026-11-05): calls libbpf poisoned in dead code (2001000000 + map, 2002000000 +
+kfunc) go to a private helper slot that reports it ran, instead of failing the
+compile and disabling the program; `[jit_load]` runs "Calls libbpf poisoned in
+dead code do not disable the program". Results: `uprobe/exit-log-poison-20261105`.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
