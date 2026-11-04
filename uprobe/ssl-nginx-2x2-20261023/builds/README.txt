@@ -61,3 +61,4 @@ dev-6a15a271  dev 6a15a271 (f0954773 + ringbuf record tag keeps the map fd next 
 dev-74d0ab8b  dev 74d0ab8b (6a15a271 + logger silenced and kept from exit onwards: problem 10 + libbpf-poisoned calls to a reporting helper: problem 11; with CLI and transformer; candidate build-jetson-daily)
 exp-74d0ab8b-task158  experiment: dev-74d0ab8b's agent with helper 158 (bpf_get_current_task_btf) registered as a stub returning 0 (not committed); other files from dev-74d0ab8b
 exp-74d0ab8b-missing  experiment: dev-74d0ab8b's agent with every call of an unregistered helper pointed at a stub returning -ENOSYS (not committed); other files from dev-74d0ab8b
+dev-b60b99c3  dev b60b99c3 (74d0ab8b + map freeze recorded, calls of missing helpers in code frozen read-only constants make unreachable stubbed; with CLI and transformer; candidate build-jetson-daily)
