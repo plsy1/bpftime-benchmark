@@ -55,3 +55,4 @@ dev-518a6b99  dev 518a6b99 (603c81f7 + updates of existing keys take the stripe'
 dev-7ad5a152  dev 7ad5a152 (d5279469 + updates put the new element in the old one's place, lookups re-check their link; candidate build-jetson-daily)
 dev-ff5515d8  dev ff5515d8 (ea32ad8b + a thread's Gum context made inside an invocation before ignoring probes: memleak deadlock fix; candidate build-jetson-daily)
 exp-c98951a4-gumfix experiment: c98951a4 (map code before the multi-thread work) + the ff5515d8 fix (cherry-picked, no CLAUDE.md), for real tools at 1-6 threads (jit-stack-validation-12 worktree, build-jetson-daily, daily cmake args)
+dev-efe08cbd  dev efe08cbd (ff5515d8 + stack trace map: a stored trace is found without the map lock; candidate build-jetson-daily)

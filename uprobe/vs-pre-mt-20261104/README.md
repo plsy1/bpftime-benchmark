@@ -51,3 +51,7 @@ errors. cpu5 at 1728000 before and after; 13:35-14:33, no daily job.
   from the same stack, so all threads take one lock. New problem for the plan:
   the stack trace map is one lock (bpf's stackmap does not serialize lookups
   of an existing stack).
+
+Update 11-04 evening: problem 8 fixed by dev efe08cbd (`uprobe/stackmap-lockfree-20261104`):
+memleak 1.52/1.31/1.48x faster at 1/2/4 threads (1.99/1.80/1.22x bpf); at 6 threads unchanged
+(0.79x bpf), now bound by Gum's usage counter (problem 2).
