@@ -46,4 +46,4 @@ hist, ustack, usdt jvm, bashreadline, gethostlatency) exact, javagc 50/50, get_s
   `bpf_get_stack` in the syscall tracepoint also fails ("There is no frida hook running": the stack
   walk needs Frida's context), which only zeroes its `callers` field.
 - syscount `-P` (count by process) and opensnoop `-F` (full path) run the code that needs those
-  kernel-only helpers: there the program is still disabled, as before.
+  kernel-only helpers: there the program is still disabled, as before (by construction; not run).
