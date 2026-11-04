@@ -121,6 +121,8 @@ void frida_internal_attach_entry::ensure_listener(int attach_type)
 						     &uretprobe_listener;
 	if (*slot != nullptr)
 		return;
+	// Attaching makes this thread's Gum context (see the declaration).
+	ensure_gum_thread_context();
 	*slot = attach_type == ATTACH_UPROBE ?
 			gum_make_probe_listener(uprobe_listener_on_enter, this,
 						nullptr) :
@@ -153,6 +155,7 @@ frida_internal_attach_entry::frida_internal_attach_entry(
 	    basic_attach_type == ATTACH_URETPROBE) {
 		ensure_listener(basic_attach_type);
 	} else if (basic_attach_type == ATTACH_UPROBE_OVERRIDE) {
+		ensure_gum_thread_context();
 		gum_interceptor_begin_transaction(interceptor);
 		if (int err = gum_interceptor_replace(
 			    interceptor, function,
@@ -183,6 +186,7 @@ frida_internal_attach_entry::frida_internal_attach_entry(
 frida_internal_attach_entry::~frida_internal_attach_entry()
 {
 	SPDLOG_DEBUG("Destroy internal attach at {:x}", (uintptr_t)function);
+	ensure_gum_thread_context();
 	for (auto *listener : { uprobe_listener, uretprobe_listener }) {
 		if (listener != nullptr) {
 			gum_interceptor_detach(interceptor, listener);

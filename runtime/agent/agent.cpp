@@ -87,15 +87,9 @@ static std::atomic<uint64_t> auto_refresh_epoch{ 0 };
 static std::mutex auto_refresh_thread_mutex;
 // The agent's own work runs inside the traced process. Probes must not see
 // it: memleak reported the agent's allocations while it attached, and its
-// background threads' 8 MB stacks, as leaks. Gum skips listeners and
-// replacements on ignored threads (the count nests).
-static void ignore_probes_on_this_thread()
-{
-	GumInterceptor *interceptor = gum_interceptor_obtain();
-	gum_interceptor_ignore_current_thread(interceptor);
-	g_object_unref(interceptor);
-}
-
+// background threads' 8 MB stacks, as leaks. ignore_probes_on_this_thread
+// (frida attach impl) makes a fresh thread's Gum context safely first: these
+// threads start while probes are attached.
 struct agent_internal_section {
 	agent_internal_section()
 	{
@@ -103,9 +97,7 @@ struct agent_internal_section {
 	}
 	~agent_internal_section()
 	{
-		GumInterceptor *interceptor = gum_interceptor_obtain();
-		gum_interceptor_unignore_current_thread(interceptor);
-		g_object_unref(interceptor);
+		unignore_probes_on_this_thread();
 	}
 	agent_internal_section(const agent_internal_section &) = delete;
 	agent_internal_section &operator=(const agent_internal_section &) = delete;
