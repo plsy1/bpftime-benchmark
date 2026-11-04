@@ -393,8 +393,14 @@ A ringbuf reservation records its owner (pid, tid, pid namespace) in a
 256-slot table in the ring (`reservation_owner`), searched from the slot of
 the thread's tid (a shared next-slot cursor made 6-thread output 7% slower);
 the record header's second
-word (the kernel's pg_off, unread by libbpf) holds the slot, -1 when the
-table is full. The tool's epoll wait calls
+word (the kernel's pg_off, unread by libbpf) is a tag (`ringbuf_record_tag`):
+the map's fd above the low 9 bits, the slot plus one in them (0 when the table
+is full). `bpf_ringbuf_submit` and `bpf_ringbuf_discard` take the fd from the
+sample's tag (`bpftime_ringbuf_record_fd`); when the slot alone was stored
+there (5920d5f9), they looked the slot up as a map fd, so every record reserved
+with `bpf_ringbuf_reserve` stayed busy until the reclaim discarded it
+(get_stack_id delivered 0-70 of ~1,300 events; test "Ringbuf helpers submit
+and discard through the sample's map"). The tool's epoll wait calls
 `recover_dead_reservation()` before `has_data()`: if the next record is still
 busy and its owner is a thread of the tool's pid namespace that is gone
 (`is_thread_gone`: tgkill ESRCH, or Z/X in `/proc/<pid>/task/<tid>/stat`,

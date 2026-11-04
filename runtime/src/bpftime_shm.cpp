@@ -402,6 +402,11 @@ void *bpftime_ringbuf_reserve(int fd, uint64_t size)
 	}
 }
 
+int bpftime_ringbuf_record_fd(const void *data)
+{
+	return bpftime::ringbuf_record_fd(data);
+}
+
 void bpftime_ringbuf_submit(int fd, void *data, int discard)
 {
 	auto &shm = shm_holder.global_shared_memory;

@@ -3,6 +3,7 @@
  * Copyright (c) 2022, eunomia-bpf org
  * All rights reserved.
  */
+#include "bpftime_config.hpp"
 #include "producer_identity.hpp"
 #include <boost/interprocess/interprocess_fwd.hpp>
 #include <boost/interprocess/smart_ptr/shared_ptr.hpp>
@@ -258,8 +259,10 @@ bool ringbuf::has_data() const
 
 struct ringbuf_hdr {
 	uint32_t len;
-	int32_t fd;
+	int32_t tag; // ringbuf_record_tag
 };
+static_assert(MAX_MAX_FD_COUNT <= (1u << (31 - ringbuf_tag_slot_bits)),
+	      "a ringbuf tag holds every fd");
 
 struct spin_lock_guard {
 	pthread_spinlock_t &lock;
@@ -322,13 +325,14 @@ void *ringbuf::reserve(size_t size, int self_fd)
 		auto pad = (ringbuf_hdr *)(uintptr_t)(data.get() + off);
 		auto pad_len = (uint32_t)(max_ent - off - BPF_RINGBUF_HDR_SZ);
 		pad->len = pad_len | BPF_RINGBUF_DISCARD_BIT;
-		pad->fd = self_fd;
+		pad->tag = ringbuf_record_tag(self_fd, -1);
 		off = 0;
 	}
 	auto header = (ringbuf_hdr *)(uintptr_t)(data.get() + off);
 	header->len = size | BPF_RINGBUF_BUSY_BIT;
-	header->fd = claim_owner_slot(prod_pos, cons_pos, pid, tid,
-				      pid_namespace);
+	header->tag = ringbuf_record_tag(
+		self_fd, claim_owner_slot(prod_pos, cons_pos, pid, tid,
+					  pid_namespace));
 	smp_store_release_ul(producer_pos.get(), prod_pos + total_size);
 	auto ptr = data.get() + off + BPF_RINGBUF_HDR_SZ;
 	SPDLOG_TRACE("ringbuf: reserved {} bytes at {}, fd {}", size,
@@ -341,6 +345,8 @@ int32_t ringbuf::claim_owner_slot(unsigned long position,
 				  unsigned long cons_pos, int pid, int64_t tid,
 				  uint64_t pid_namespace)
 {
+	static_assert(reservation_owner_slots < (1 << ringbuf_tag_slot_bits),
+		      "a ringbuf tag holds every owner slot");
 	// Starting at the thread's own slot keeps each thread on its own
 	// cache line (a shared next-slot cursor cost 8% at 6 threads).
 	for (int i = 0; i < reservation_owner_slots; i++) {
@@ -379,7 +385,7 @@ bool ringbuf::recover_dead_reservation()
 	uint32_t len = __atomic_load_n(&hdr->len, __ATOMIC_ACQUIRE);
 	if ((len & BPF_RINGBUF_BUSY_BIT) == 0)
 		return false;
-	const int32_t slot = hdr->fd;
+	const int32_t slot = ringbuf_tag_slot(hdr->tag);
 	if (slot < 0 || slot >= reservation_owner_slots)
 		return false;
 	auto &owner = owners[slot];
@@ -421,7 +427,7 @@ void ringbuf::submit(const void *sample, bool discard)
 	// published, the consumer may move on and, a lap later, another
 	// record's header (or padding) occupies these bytes. Reading it after
 	// publishing freed whatever slot that header named.
-	const int32_t slot = hdr->fd;
+	const int32_t slot = ringbuf_tag_slot(hdr->tag);
 	auto new_len = hdr->len & ~BPF_RINGBUF_BUSY_BIT;
 	if (discard)
 		new_len |= BPF_RINGBUF_DISCARD_BIT;
@@ -442,14 +448,15 @@ void ringbuf::submit(const void *sample, bool discard)
 
 int32_t ringbuf::owner_slot_for_test(const void *sample) const
 {
-	return ((const ringbuf_hdr *)((const uint8_t *)sample -
-				      BPF_RINGBUF_HDR_SZ))
-		->fd;
+	return ringbuf_tag_slot(((const ringbuf_hdr *)((const uint8_t *)sample -
+						       BPF_RINGBUF_HDR_SZ))
+					->tag);
 }
 
 void ringbuf::set_owner_slot_for_test(const void *sample, int32_t slot)
 {
-	((ringbuf_hdr *)((uint8_t *)sample - BPF_RINGBUF_HDR_SZ))->fd = slot;
+	auto hdr = (ringbuf_hdr *)((uint8_t *)sample - BPF_RINGBUF_HDR_SZ);
+	hdr->tag = ringbuf_record_tag(ringbuf_tag_fd(hdr->tag), slot);
 }
 
 bool ringbuf::owner_slot_claimed_for_test(int32_t slot) const
@@ -460,7 +467,7 @@ bool ringbuf::owner_slot_claimed_for_test(int32_t slot) const
 bool ringbuf::discard_for_test(const void *sample)
 {
 	auto hdr = (ringbuf_hdr *)((uint8_t *)sample - BPF_RINGBUF_HDR_SZ);
-	const int32_t slot = hdr->fd;
+	const int32_t slot = ringbuf_tag_slot(hdr->tag);
 	if (!discard_reserved(hdr, __atomic_load_n(&hdr->len, __ATOMIC_ACQUIRE)))
 		return false;
 	if (slot >= 0)
