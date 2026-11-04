@@ -207,3 +207,13 @@ callbacks (`uprobe/detach-crash-20261104`); fixed by dev 25f4134f.
 
 Decision 11-04 night (user): plan item 3 (frida-gum rebuilt with LSE atomics) is dropped; Frida's
 usage counter stays as it is.
+
+Update 11-05: problems 9-12 found by the harness-gap run (`uprobe/harness-gaps-20261104`); 9 fixed by
+dev 6a15a271, 10 by b46dde06, 11 by 74d0ab8b and b60b99c3 (with the dead code by frozen read-only
+constants, `uprobe/rodata-dead-code-20261105`), 12 (helper 35) only where the option that needs it
+is on. New:
+
+13. opensnoop under the transformer delivers 48.5% of the opens (18,838 of 38,800; bpf 99.8%). Not
+    investigated.
+14. `bpf_get_stack` in a syscall tracepoint fails ("There is no frida hook running": the stack walk
+    needs Frida's context); for opensnoop it only zeroes the `callers` field.
