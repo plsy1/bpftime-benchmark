@@ -1,0 +1,63 @@
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+[2026-11-04 20:34:21][info][2853031] Global shm constructed. shm_open_type 1 for bpftime_maps_shm
+[2026-11-04 20:34:21][info][2853031] Global shm initialized
+[2026-11-04 20:34:21][info][2853031] bpf_attach_ctx constructed
+[2026-11-04 20:34:21][info][2853031] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2026-11-04 20:34:21][info][2853031] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2026-11-04 20:34:21][info][2853031] Register attach-impl defined helper bpf_get_retval, index 186
+[2026-11-04 20:34:21][info][2853031] Initializing agent..
+[2026-11-04 20:34:21][info][2853031] bpftime: shm epoch_seq = 2
+[2026-11-04 20:34:21][info][2853031] Executable path: /home/jetson/src/realprog-20261026-btf/workloads-mt/t1/callloop
+[2026-11-04 20:34:21][info][2853031] Executable path: /home/jetson/src/realprog-20261026-btf/workloads-mt/t1/callloop
+[New Thread 0xffffb42ecf20 (LWP 2853038)]
+[New Thread 0xffffb3aacf20 (LWP 2853039)]
+[2026-11-04 20:34:21][info][2853031] agent ipc: listening (abstract) for pid 2853031
+[2026-11-04 20:34:21][info][2853031] Attach successfully
+[New Thread 0xffffb329cf20 (LWP 2853040)]
+[2026-11-04 20:34:26][info][2853038] Detaching..
+
+Thread 4 "callloop" received signal SIGBUS, Bus error.
+[Switching to Thread 0xffffb329cf20 (LWP 2853040)]
+0xd2800000d2800001 in ?? ()
+  Id   Target Id                                      Frame 
+  1    Thread 0xfffff7ff0020 (LWP 2853031) "callloop" 0x0000fffff4a0bd90 in __GI___clock_nanosleep (clock_id=<optimized out>, clock_id@entry=0, flags=flags@entry=0, req=req@entry=0xffffffffd800, rem=rem@entry=0x0) at ../sysdeps/unix/sysv/linux/clock_nanosleep.c:78
+  2    Thread 0xffffb42ecf20 (LWP 2853038) "callloop" 0x0000fffff501864c in std::_Rb_tree<unsigned long, std::pair<unsigned long const, unsigned long>, std::_Select1st<std::pair<unsigned long const, unsigned long> >, std::less<unsigned long>, std::allocator<std::pair<unsigned long const, unsigned long> > >::_M_erase (this=this@entry=0xaaaaaab5d8c0, __x=0xaaaaaab1af80) at /usr/include/c++/13/bits/stl_tree.h:789
+  3    Thread 0xffffb3aacf20 (LWP 2853039) "callloop" 0x0000fffff4a3de94 in accept4 (fd=5, addr=..., addr_len=0x0, flags=524288) at ../sysdeps/unix/sysv/linux/accept4.c:31
+* 4    Thread 0xffffb329cf20 (LWP 2853040) "callloop" 0xd2800000d2800001 in ?? ()
+#0  0xd2800000d2800001 in ?? ()
+#1  0x0000aaaaaaaa0f6c in worker (arg=<optimized out>) at mt.c:49
+#2  0x0000fffff49d582c in start_thread (arg=0xfffff7ff0760) at ./nptl/pthread_create.c:447
+#3  0x0000fffff4a3ba0c in thread_start () at ../sysdeps/unix/sysv/linux/aarch64/clone3.S:76
+pc             0xd2800000d2800001  0xd2800000d2800001
+sp             0xffffb329c5a0      0xffffb329c5a0
+x30            0xaaaaaaaa0f6c      187649984434028
+   0xd2800000d27ffff1:	Cannot access memory at address 0xd2800000d27ffff1
+
+Thread 4 (Thread 0xffffb329cf20 (LWP 2853040) "callloop"):
+#0  0xd2800000d2800001 in ?? ()
+#1  0x0000aaaaaaaa0f6c in worker (arg=<optimized out>) at mt.c:49
+#2  0x0000fffff49d582c in start_thread (arg=0xfffff7ff0760) at ./nptl/pthread_create.c:447
+#3  0x0000fffff4a3ba0c in thread_start () at ../sysdeps/unix/sysv/linux/aarch64/clone3.S:76
+
+Thread 3 (Thread 0xffffb3aacf20 (LWP 2853039) "callloop"):
+#0  0x0000fffff4a3de94 in accept4 (fd=5, addr=..., addr_len=0x0, flags=524288) at ../sysdeps/unix/sysv/linux/accept4.c:31
+#1  0x0000fffff5035598 in start_agent_ipc_server_once()::{lambda()#1}::operator()() const::{lambda()#1}::operator()() const [clone .lto_priv.0] () at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/agent/agent.cpp:326
+#2  0x0000fffff4561ae0 in ?? () from /lib/aarch64-linux-gnu/libstdc++.so.6
+#3  0x0000fffff49d582c [PAC] in start_thread (arg=0xfffff7ff0760) at ./nptl/pthread_create.c:447
+#4  0x0000fffff4a3ba0c in thread_start () at ../sysdeps/unix/sysv/linux/aarch64/clone3.S:76
+
+Thread 2 (Thread 0xffffb42ecf20 (LWP 2853038) "callloop"):
+#0  0x0000fffff501864c in std::_Rb_tree<unsigned long, std::pair<unsigned long const, unsigned long>, std::_Select1st<std::pair<unsigned long const, unsigned long> >, std::less<unsigned long>, std::allocator<std::pair<unsigned long const, unsigned long> > >::_M_erase (this=this@entry=0xaaaaaab5d8c0, __x=0xaaaaaab1af80) at /usr/include/c++/13/bits/stl_tree.h:789
+#1  0x0000fffff5053740 in std::_Rb_tree<unsigned long, std::pair<unsigned long const, unsigned long>, std::_Select1st<std::pair<unsigned long const, unsigned long> >, std::less<unsigned long>, std::allocator<std::pair<unsigned long const, unsigned long> > >::_M_erase (__x=0xaaaaaab28ff0, this=0xaaaaaab5d8c0) at /usr/include/c++/13/bits/stl_tree.h:789
+#2  std::_Rb_tree<unsigned int, std::pair<unsigned int const, void*>, std::_Select1st<std::pair<unsigned int const, void*> >, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, void*> > >::~_Rb_tree (this=<optimized out>, this=<optimized out>) at /usr/include/c++/13/bits/stl_tree.h:986
+#3  std::map<unsigned int, void*, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, void*> > >::~map (this=<optimized out>, this=<optimized out>) at /usr/include/c++/13/bits/stl_map.h:314
+#4  bpftime::bpftime_prog::~bpftime_prog (this=<optimized out>, this=<optimized out>) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/src/bpftime_prog.cpp:447
+#5  0x0000fffff50a20c8 in std::default_delete<bpftime::bpftime_prog>::operator() (this=<optimized out>, __ptr=0xaaaaaab5d7b0) at /usr/include/c++/13/bits/unique_ptr.h:99
+#6  std::default_delete<bpftime::bpftime_prog>::operator() (__ptr=0xaaaaaab5d7b0, this=<optimized out>) at /usr/include/c++/13/bits/unique_ptr.h:93
+#7  std::unique_ptr<bpftime::bpftime_prog, std::default_delete<bpftime::bpftime_prog> >::~unique_ptr (this=<optimized out>, this=<optimized out>) at /usr/include/c++/13/bits/unique_ptr.h:404
+
+Thread 1 (Thread 0xfffff7ff0020 (LWP 2853031) "callloop"):
+#0  0x0000fffff4a0bd90 in __GI___clock_nanosleep (clock_id=<optimized out>, clock_id@entry=0, flags=flags@entry=0, req=req@entry=0xffffffffd800, rem=rem@entry=0x0) at ../sysdeps/unix/sysv/linux/clock_nanosleep.c:78
+#1  0x0000fffff4a160bc in __GI___nanosleep (req=req@entry=0xffffffffd800, rem=rem@entry=0x0) at ../sysdeps/unix/sysv/linux/nanosleep.c:25
+#2  0x0000aaaaaaaa0b20 in main (argc=<optimized out>, argv=<optimized out>) at mt.c:67
