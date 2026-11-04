@@ -255,3 +255,75 @@ TEST_CASE("Ringbuf recovers a dead producer before it is reaped", "[ringbuf]")
 	}
 	boost::interprocess::shared_memory_object::remove(name.c_str());
 }
+
+extern "C" uint64_t bpf_ringbuf_reserve(uint64_t rb, uint64_t size,
+					uint64_t flags, uint64_t, uint64_t);
+extern "C" uint64_t bpf_ringbuf_submit(uint64_t data, uint64_t flags, uint64_t,
+				       uint64_t, uint64_t);
+extern "C" uint64_t bpf_ringbuf_discard(uint64_t data, uint64_t flags,
+					uint64_t, uint64_t, uint64_t);
+
+// bpf_ringbuf_submit and bpf_ringbuf_discard find the map from the sample
+// alone, through the record header's tag. 5920d5f9 put the owner slot there
+// in place of the fd: the helpers looked the slot up as a map fd ("Expected
+// fd 145 to be an ringbuf map fd") and the record stayed reserved.
+TEST_CASE("Ringbuf helpers submit and discard through the sample's map",
+	  "[ringbuf]")
+{
+	const char *old_name = getenv("BPFTIME_GLOBAL_SHM_NAME");
+	const bool had_name = old_name != nullptr;
+	const std::string previous_name = old_name ? old_name : "";
+	const std::string name = "RingbufHelperShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(name) };
+	bool initialized = false;
+	BOOST_SCOPE_EXIT_ALL(&)
+	{
+		if (initialized) {
+			bpftime_destroy_global_shm();
+			bpftime_initialize_global_shm(
+				bpftime::shm_open_type::SHM_NO_CREATE);
+		}
+		if (had_name)
+			setenv("BPFTIME_GLOBAL_SHM_NAME", previous_name.c_str(),
+			       1);
+		else
+			unsetenv("BPFTIME_GLOBAL_SHM_NAME");
+	};
+	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+	bpftime_destroy_global_shm();
+	bpftime_initialize_global_shm(
+		bpftime::shm_open_type::SHM_REMOVE_AND_CREATE);
+	initialized = true;
+
+	// Another map first, so neither ringbuf has fd 0 or a slot's number.
+	REQUIRE(bpftime_maps_create(-1, "not_a_ringbuf",
+				    { .type = BPF_MAP_TYPE_ARRAY,
+				      .key_size = 4,
+				      .value_size = 8,
+				      .max_ents = 1 }) >= 0);
+	for (const char *map_name : { "ringbuf_a", "ringbuf_b" }) {
+		const int fd = bpftime_maps_create(
+			-1, map_name,
+			{ .type = BPF_MAP_TYPE_RINGBUF, .max_ents = 4096 });
+		REQUIRE(fd >= 0);
+		INFO("map " << map_name << ", fd " << fd);
+		auto header_len = [](void *sample) {
+			return __atomic_load_n((uint32_t *)sample - 2,
+					       __ATOMIC_ACQUIRE);
+		};
+		auto *kept = (void *)(uintptr_t)bpf_ringbuf_reserve(fd, 16, 0,
+								     0, 0);
+		REQUIRE(kept != nullptr);
+		CHECK(bpftime_ringbuf_record_fd(kept) == fd);
+		auto *dropped = (void *)(uintptr_t)bpf_ringbuf_reserve(
+			fd, 16, 0, 0, 0);
+		REQUIRE(dropped != nullptr);
+		CHECK(bpftime_ringbuf_record_fd(dropped) == fd);
+		bpf_ringbuf_submit((uint64_t)(uintptr_t)kept, 0, 0, 0, 0);
+		bpf_ringbuf_discard((uint64_t)(uintptr_t)dropped, 0, 0, 0, 0);
+		CHECK((header_len(kept) &
+		       (BPF_RINGBUF_BUSY_BIT | BPF_RINGBUF_DISCARD_BIT)) == 0);
+		CHECK((header_len(dropped) & BPF_RINGBUF_BUSY_BIT) == 0);
+		CHECK((header_len(dropped) & BPF_RINGBUF_DISCARD_BIT) != 0);
+	}
+}
