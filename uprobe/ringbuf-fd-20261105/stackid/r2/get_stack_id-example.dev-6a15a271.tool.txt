@@ -1,0 +1,2892 @@
+libbpf: loading object 'get_stack_id_example_bpf' from buffer
+libbpf: elf: section(2) .symtab, size 264, link 1, flags 0, type=2
+libbpf: elf: section(3) uprobe/libc.so.6:malloc, size 192, link 0, flags 6, type=1
+libbpf: sec 'uprobe/libc.so.6:malloc': found program 'malloc_enter' at insn offset 0 (0 bytes), code size 24 insns (192 bytes)
+libbpf: elf: section(4) uprobe/libc.so.6:free, size 192, link 0, flags 6, type=1
+libbpf: sec 'uprobe/libc.so.6:free': found program 'free_enter' at insn offset 0 (0 bytes), code size 24 insns (192 bytes)
+libbpf: elf: section(5) .maps, size 48, link 0, flags 3, type=1
+libbpf: elf: section(6) license, size 4, link 0, flags 3, type=1
+libbpf: license of get_stack_id_example_bpf is GPL
+libbpf: elf: section(7) .reluprobe/libc.so.6:malloc, size 32, link 2, flags 40, type=9
+libbpf: elf: section(8) .reluprobe/libc.so.6:free, size 32, link 2, flags 40, type=9
+libbpf: elf: section(9) .BTF, size 1865, link 0, flags 0, type=1
+libbpf: elf: section(10) .BTF.ext, size 440, link 0, flags 0, type=1
+libbpf: looking for externs among 11 symbols...
+libbpf: collected 0 externs total
+[2026-11-05 00:22:53][info][2952733] Setting BPFTIME_SHM_MEMORY_MB to: 1024
+[2026-11-05 00:22:53][info][2952733] Init bpftime syscall mocking..
+[2026-11-05 00:22:53][info][2952733] The log will be written to: console
+[2026-11-05 00:22:53][info][2952733] Starting syscall server..
+[2026-11-05 00:22:53][info][2952733] Setting BPFTIME_SHM_MEMORY_MB to: 1024
+[2026-11-05 00:22:53][info][2952733] Initialize syscall server
+[2026-11-05 00:22:53][info][2952733] Setting BPFTIME_SHM_MEMORY_MB to: 1024
+[2026-11-05 00:22:53][info][2952733] Global shm constructed. shm_open_type 4 for bpftime_maps_shm
+[2026-11-05 00:22:53][info][2952733] Global shm initialized
+[2026-11-05 00:22:53][info][2952733] bpftime-syscall-server started
+libbpf: map 'rb': at sec_idx 5, offset 0.
+libbpf: map 'rb': found type = 27.
+libbpf: map 'rb': found max_entries = 262144.
+libbpf: map 'stack_traces': at sec_idx 5, offset 16.
+libbpf: map 'stack_traces': found type = 7.
+libbpf: map 'stack_traces': found key_size = 4.
+libbpf: map 'stack_traces': found value_size = 160.
+libbpf: map 'stack_traces': found max_entries = 1000.
+libbpf: sec '.reluprobe/libc.so.6:malloc': collecting relocation for section(3) 'uprobe/libc.so.6:malloc'
+libbpf: sec '.reluprobe/libc.so.6:malloc': relo #0: insn #2 against 'rb'
+libbpf: prog 'malloc_enter': found map 0 (rb, sec 5, off 0) for insn #2
+libbpf: sec '.reluprobe/libc.so.6:malloc': relo #1: insn #13 against 'stack_traces'
+libbpf: prog 'malloc_enter': found map 1 (stack_traces, sec 5, off 16) for insn #13
+libbpf: sec '.reluprobe/libc.so.6:free': collecting relocation for section(4) 'uprobe/libc.so.6:free'
+libbpf: sec '.reluprobe/libc.so.6:free': relo #0: insn #1 against 'rb'
+libbpf: prog 'free_enter': found map 0 (rb, sec 5, off 0) for insn #1
+libbpf: sec '.reluprobe/libc.so.6:free': relo #1: insn #12 against 'stack_traces'
+libbpf: prog 'free_enter': found map 1 (stack_traces, sec 5, off 16) for insn #12
+libbpf: object 'get_stack_id_ex': failed (-22) to create BPF token from '/sys/fs/bpf', skipping optional step...
+libbpf: map 'rb': created successfully, fd=3
+libbpf: map 'stack_traces': created successfully, fd=4
+libbpf: resolved 'libc.so.6' to '/lib/aarch64-linux-gnu/libc.so.6'
+libbpf: elf: symbol address match for 'malloc' in '/lib/aarch64-linux-gnu/libc.so.6': 0x96490
+[2026-11-05 00:22:53][info][2952733] Created uprobe/uretprobe perf event handler, module name /lib/aarch64-linux-gnu/libc.so.6, offset 96490
+libbpf: resolved 'libc.so.6' to '/lib/aarch64-linux-gnu/libc.so.6'
+libbpf: elf: symbol address match for 'free' in '/lib/aarch64-linux-gnu/libc.so.6': 0x96d90
+[2026-11-05 00:22:53][info][2952733] Created uprobe/uretprobe perf event handler, module name /lib/aarch64-linux-gnu/libc.so.6, offset 96d90
+Successfully started! Tracing malloc/free in ./victim...
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921e7544
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff921ca7ec
+  0xffff9225406c
+  0xffff92265cf0
+  0xffff91b8aaac
+  0xffff92252240
+  0xffff921e68b4
+  0xffff921e7544
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92265cf0
+  0xffff91b8aaac
+  0xffff92252240
+  0xffff921e68b4
+  0xffff921e7544
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b3387c
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b33a30
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b33a78
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b33a78
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b33a78
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b33a78
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b33a78
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b33a78
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b33a78
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b33a78
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b33a78
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b33a78
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b33a78
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b33a78
+  0xffff91b32e1c
+  0xffff91b35214
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b35428
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b35428
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b35428
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b35428
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b35428
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b35428
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b35428
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b35428
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b35428
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b35428
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b35428
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b35428
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b352d4
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xaaaad47c1eec
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b367e4
+  0xaaaad47c1f04
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff91b39cc0
+  0xaaaad47c1f0c
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: malloc enter
+got err=0
+Call stack:
+  0xffff91b96490
+  0xffff922073a4
+  0xffff922077e4
+  0xffff91bd55fc
+  0xffff91bc1a54
+  0xaaaad47c20d0
+  0xffff921e755c
+  0xffff91b284c4
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffff8e9a6d90
+  0xffff8eff7544
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xffff8efda7ec
+  0xffff8f06406c
+  0xffff8f075cf0
+  0xffff8e99aaac
+  0xffff8f062240
+  0xffff8eff68b4
+  0xffff8eff7544
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffff8e9a6d90
+  0xffff8f075cf0
+  0xffff8e99aaac
+  0xffff8f062240
+  0xffff8eff68b4
+  0xffff8eff7544
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9405c
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f940ac
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f97038
+  0xaaaad9f940dc
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f940dc
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9fa6368
+  0xaaaad9f940dc
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f9f440
+  0xaaaad9f94298
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f991f8
+  0xaaaad9f9f988
+  0xaaaad9fa2eb8
+  0xaaaad9f9eb10
+  0xaaaad9f9f02c
+  0xaaaad9f9f1fc
+  0xaaaad9f9f4d4
+  0xaaaad9f94298
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9fa1548
+  0xaaaad9fa187c
+  0xaaaad9f98a6c
+  0xaaaad9f98a30
+  0xaaaad9f9f4a0
+  0xaaaad9f94298
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f98a6c
+  0xaaaad9f98a30
+  0xaaaad9f9f4a0
+  0xaaaad9f94298
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9fa5320
+  0xaaaad9fa5440
+  0xaaaad9f9f618
+  0xaaaad9fa1cf4
+  0xaaaad9f98a6c
+  0xaaaad9f98a30
+  0xaaaad9f9f4a0
+  0xaaaad9f94298
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffff8e9a6d90
+  0xaaaad9fa1bcc
+  0xaaaad9f98a6c
+  0xaaaad9f98a30
+  0xaaaad9f9f4a0
+  0xaaaad9f94298
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9fa1548
+  0xaaaad9fa187c
+  0xaaaad9f98a6c
+  0xaaaad9f98a6c
+  0xaaaad9f9f4a0
+  0xaaaad9f94298
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff8e9a6490
+  0xaaaad9f991f8
+  0xaaaad9fa6614
+  0xaaaad9f99458
+  0xaaaad9f9ca74
+  0xaaaad9f9f618
+  0xaaaad9fa1cf4
+  0xaaaad9f98a6c
+  0xaaaad9f98a6c
+  0xaaaad9f9f4a0
+  0xaaaad9f94298
+  0xffff8eff755c
+  0xffff8e9384c4
+  0xffff8e938598
+  0xaaaad9f944b0
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffff7da46d90
+  0xffff7e097544
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7e07a7ec
+  0xffff7e10406c
+  0xffff7e115cf0
+  0xffff7da3aaac
+  0xffff7e102240
+  0xffff7e0968b4
+  0xffff7e097544
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffff7da46d90
+  0xffff7e115cf0
+  0xffff7da3aaac
+  0xffff7e102240
+  0xffff7e0968b4
+  0xffff7e097544
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e387c
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffff7da46d90
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e3a30
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e3a78
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e3a78
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e3a78
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e3a78
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e3a78
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e3a78
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e3a78
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e3a78
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e3a78
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e3a78
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e3a78
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e3a78
+  0xffff7d9e2e1c
+  0xffff7d9e5214
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e5428
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e5428
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e5428
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e5428
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e5428
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e5428
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e5428
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e5428
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e5428
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e5428
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e5428
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e5428
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e52d4
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffff7da46d90
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffff7da46d90
+  0xaaaae7411b68
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e67e4
+  0xaaaae7411b80
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9e9cc0
+  0xaaaae7411b88
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xaaaae7415df4
+  0xaaaae7412338
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xffff7d9f0934
+  0xaaaae7412134
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xaaaae741235c
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xaaaae7412368
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffff7da46d90
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xaaaae7415df4
+  0xaaaae74121f0
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffff7da46d90
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xaaaae7415df4
+  0xaaaae74121f0
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffff7da46490
+  0xaaaae7415df4
+  0xaaaae741222c
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffff7da46d90
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffff7da46d90
+  0xffff7e09755c
+  0xffff7d9d84c4
+  0xffff7d9d8598
+  0xaaaae74128f0
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffffa33e6d90
+  0xffffa3a67544
+  0xffffa33784c4
+  0xffffa3378598
+  0xaaaaab080770
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffffa33e6490
+  0xffffa3a4a7ec
+  0xffffa3ad406c
+  0xffffa3ae5cf0
+  0xffffa33daaac
+  0xffffa3ad2240
+  0xffffa3a668b4
+  0xffffa3a67544
+  0xffffa33784c4
+  0xffffa3378598
+  0xaaaaab080770
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffffa33e6d90
+  0xffffa3ae5cf0
+  0xffffa33daaac
+  0xffffa3ad2240
+  0xffffa3a668b4
+  0xffffa3a67544
+  0xffffa33784c4
+  0xffffa3378598
+  0xaaaaab080770
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffffa33e6490
+  0xffffa3a6755c
+  0xffffa33784c4
+  0xffffa3378598
+  0xaaaaab080770
+
+PID: 2952748, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffffa33e6d90
+  0xffffa3a6755c
+  0xffffa33784c4
+  0xffffa3378598
+  0xaaaaab080770
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffffa33e6490
+  0xffffa3a6755c
+  0xffffa33784c4
+  0xffffa3378598
+  0xaaaaab080770
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffffa33e6d90
+  0xffffa3a6755c
+  0xffffa33784c4
+  0xffffa3378598
+  0xaaaaab080770
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffffa33e6490
+  0xffffa3a6755c
+  0xffffa33784c4
+  0xffffa3378598
+  0xaaaaab080770
+
+PID: 2952748, Function: free enter
+got err=0
+Call stack:
+  0xffffa33e6d90
+  0xffffa3a6755c
+  0xffffa33784c4
+  0xffffa3378598
+  0xaaaaab080770
+
+PID: 2952748, Function: malloc enter
+got err=0
+Call stack:
+  0xffffa33e6490
+  0xffffa3a6755c
+  0xffffa33784c4
+  0xffffa3378598
+  0xaaaaab080770
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92262c64
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff92206be0
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff9221a1f4
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff9221a1f4
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8a90
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8640
+  0xffff921ca140
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921ca180
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921c8b80
+  0xffff921ca180
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921ca180
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921ca180
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff921ca180
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff9221a228
+  0xffff91b3f228
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+
+PID: 2952745, Function: free enter
+got err=0
+Call stack:
+  0xffff91b96d90
+  0xffff91b3f30c
+  0xffff91b284c8
+  0xffff91b28598
+  0xaaaad47c2830
+

@@ -57,3 +57,4 @@ dev-ff5515d8  dev ff5515d8 (ea32ad8b + a thread's Gum context made inside an inv
 exp-c98951a4-gumfix experiment: c98951a4 (map code before the multi-thread work) + the ff5515d8 fix (cherry-picked, no CLAUDE.md), for real tools at 1-6 threads (jit-stack-validation-12 worktree, build-jetson-daily, daily cmake args)
 dev-efe08cbd  dev efe08cbd (ff5515d8 + stack trace map: a stored trace is found without the map lock; candidate build-jetson-daily)
 dev-25f4134f  dev 25f4134f (efe08cbd + Gum hooks never detached at run time: per-function slots, grace period, parking; candidate build-jetson-daily)
+dev-6a15a271  dev 6a15a271 (f0954773 + ringbuf record tag keeps the map fd next to the owner slot: problem 9; with CLI and transformer; candidate build-jetson-daily)
