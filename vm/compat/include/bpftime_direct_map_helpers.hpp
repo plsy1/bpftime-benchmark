@@ -12,4 +12,7 @@
 #define BPFTIME_DIRECT_MAP_LOOKUP_NAME "bpftime_direct_map_lookup_v1"
 #define BPFTIME_DIRECT_MAP_UPDATE_NAME "bpftime_direct_map_update_v1"
 #define BPFTIME_DIRECT_MAP_DELETE_NAME "bpftime_direct_map_delete_v1"
+// Where calls libbpf poisoned go (bpftime_prog_load).
+#define BPFTIME_LIBBPF_POISON_SLOT 8188
+#define BPFTIME_LIBBPF_POISON_NAME "bpftime_libbpf_poison_reached"
 #endif

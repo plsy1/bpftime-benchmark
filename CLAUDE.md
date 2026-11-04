@@ -760,6 +760,16 @@ does not log it again. VMs with an interpreter (ubpf) still fall back to it.
 A disabled program is not a stub for the missing helper: the tool loads but
 records nothing.
 
+
+libbpf turns instructions of a branch it knows is dead into calls of helper
+2001000000 + map index (the load of a map it did not create) or 2002000000 +
+extern index (a kfunc it did not find); the kernel's verifier removes the dead
+code. bpftime has no verifier: such a program did not compile and was disabled
+(opensnoop, whose libbpf-tools compat buffer creates only its ringbuf or only
+its perf map). `bpftime_prog_load` points those calls at a private slot
+(`BPFTIME_LIBBPF_POISON_SLOT`, 8188) whose helper reports that it ran and
+returns -EINVAL. Test "Calls libbpf poisoned in dead code do not disable the
+program" (disabled, -ENOEXEC, without the rewrite).
 ## Stack Trace Map
 
 `stack_trace_map_impl::fill_stack_trace` follows the kernel `__bpf_get_stackid`:

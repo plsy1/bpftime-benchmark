@@ -472,6 +472,30 @@ int bpftime_prog::register_pending_map_helpers()
 	return 0;
 }
 
+namespace
+{
+// libbpf turns instructions of a branch it knows is dead into calls of helper
+// POISON_LDIMM64_MAP_BASE (2001000000) + map index (the load of a map it did
+// not create) or POISON_CALL_KFUNC_BASE (2002000000) + extern index (a kfunc it
+// did not find); the kernel's verifier removes the dead code before they could
+// run. bpftime has no verifier, so a program holding them did not compile and
+// was disabled (opensnoop: libbpf-tools' compat buffer creates only its ringbuf
+// or its perf map).
+bool is_libbpf_poison_call(const ebpf_inst &inst)
+{
+	return inst.code == 0x85 && inst.src_reg == 0 && inst.imm >= 2001000000 &&
+	       inst.imm < 2003000000;
+}
+
+uint64_t libbpf_poison_reached(uint64_t, uint64_t, uint64_t, uint64_t,
+			       uint64_t)
+{
+	BPFTIME_LOG_ERROR_RATELIMITED(
+		"A program ran an instruction libbpf poisoned (dead code to libbpf, which the kernel would have rejected as reachable)");
+	return (uint64_t)(int64_t)-EINVAL;
+}
+} // namespace
+
 int bpftime_prog::bpftime_prog_load(bool jit)
 {
 	if (array_jit_failed)
@@ -508,6 +532,22 @@ int bpftime_prog::bpftime_prog_load(bool jit)
 			owned_insns[index].src_reg = 0;
 			owned_insns[index].imm = static_cast<int32_t>(address & UINT32_MAX);
 			owned_insns[index + 1].imm = static_cast<int32_t>(address >> 32);
+		}
+	}
+	// Poisoned calls go to a helper that reports it ran.
+	for (size_t i = 0; i < insns.size(); i++) {
+		if (!is_libbpf_poison_call(insns[i]))
+			continue;
+		if (owned_insns.empty())
+			owned_insns = insns;
+		owned_insns[i].imm = BPFTIME_LIBBPF_POISON_SLOT;
+		if (!libbpf_poison_registered) {
+			res = ebpf_register(vm, BPFTIME_LIBBPF_POISON_SLOT,
+					    BPFTIME_LIBBPF_POISON_NAME,
+					    (void *)libbpf_poison_reached);
+			if (res < 0)
+				return res;
+			libbpf_poison_registered = true;
 		}
 	}
 	const auto &load_insns = owned_insns.empty() ? insns : owned_insns;
