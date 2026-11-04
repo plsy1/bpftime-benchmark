@@ -54,3 +54,15 @@ On bpf the victim's stacks fail because the example traces malloc in every proce
     ("Ext func not found: _bpf_helper_ext_0035"); there is no `task_struct` in user space.
 
 Raw outputs: `audit/`, `stackid/`. By hand: `gsi.sh BUILD plain|stdbuf` (crash rate), `gsi-gdb.sh` (the gdb run of problem 10, `gdb-problem10.txt`, on dev-efe08cbd).
+
+## Real-tool smoke in the candidate gate (plan item 1b)
+
+`tracker.py` (automation/jetson-daily c3849a2c) runs `smoke_real_tools` after the suites, each
+step bounded: funclatency on the four-thread `callloop` must count every call; memleak `-c` on
+the four-thread `mallocloop` must exit and report outstanding allocations; a SIGUSR1 detach under
+funclatency must leave the workload running to its end. Gate with it on dev f0954773
+(`gate-smoke.log`, outputs in `smoke/`): suites as before, smoke funclatency 5,804,000 of 5,804,000
+calls, memleak rc 0, detach workload rc 0. The same steps on older builds (`run_smoke.py`, frozen
+builds laid out as build directories): dev-7ad5a152 fails at memleak (rc 124, hung); dev-ff5515d8
+at the detach (workload SIGBUS). Problem 9 is not in the smoke yet (it would fail every day until
+fixed).
