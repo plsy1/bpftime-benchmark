@@ -24,6 +24,32 @@
 
 namespace bpftime
 {
+// The record header's second word (the kernel's pg_off; libbpf does not read
+// it) is a tag: the map's fd, which bpf_ringbuf_submit and bpf_ringbuf_discard
+// get from the record alone, and the reservation's owner slot plus one (0:
+// none). Before, 5920d5f9 put the slot there in place of the fd, and the
+// helpers looked the slot up as a map fd.
+constexpr int ringbuf_tag_slot_bits = 9;
+inline int32_t ringbuf_record_tag(int fd, int32_t slot)
+{
+	return (int32_t)(((uint32_t)fd << ringbuf_tag_slot_bits) |
+			 (uint32_t)(slot + 1));
+}
+inline int ringbuf_tag_fd(int32_t tag)
+{
+	return (int)((uint32_t)tag >> ringbuf_tag_slot_bits);
+}
+inline int32_t ringbuf_tag_slot(int32_t tag)
+{
+	return (int32_t)((uint32_t)tag & ((1u << ringbuf_tag_slot_bits) - 1)) -
+	       1;
+}
+// The fd of the map a reserved sample belongs to.
+inline int ringbuf_record_fd(const void *sample)
+{
+	return ringbuf_tag_fd(((const int32_t *)sample)[-1]);
+}
+
 using sharable_mutex_ptr = boost::interprocess::managed_unique_ptr<
 	boost::interprocess::interprocess_sharable_mutex,
 	boost::interprocess::managed_shared_memory>::type;
@@ -55,9 +81,8 @@ class ringbuf {
 
 	// Who holds each outstanding reservation, so that a consumer can skip
 	// the record of a producer that died before submitting it (every later
-	// record would wait behind it forever). The record header's second
-	// word (the kernel's pg_off, unread by libbpf) holds the slot, or -1
-	// when the table was full.
+	// record would wait behind it forever). The record header's tag holds
+	// the slot, or -1 when the table was full (ringbuf_record_tag).
 	struct reservation_owner {
 		// The record's position + 1; 0 when the slot is free.
 		std::atomic<uint64_t> position_plus_one{ 0 };

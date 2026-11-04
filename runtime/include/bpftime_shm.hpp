@@ -409,6 +409,8 @@ void bpftime_close(int fd);
 
 void *bpftime_ringbuf_reserve(int fd, uint64_t size);
 void bpftime_ringbuf_submit(int fd, void *data, int discard);
+// The fd of the ringbuf map a reserved sample belongs to.
+int bpftime_ringbuf_record_fd(const void *data);
 int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 		       int timeout);
 

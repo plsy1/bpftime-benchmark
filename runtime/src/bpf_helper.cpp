@@ -780,8 +780,7 @@ uint64_t bpf_ringbuf_reserve(uint64_t rb, uint64_t size, uint64_t flags,
 uint64_t bpf_ringbuf_submit(uint64_t data, uint64_t flags, uint64_t, uint64_t,
 			    uint64_t)
 {
-	int32_t *ptr = (int32_t *)(uintptr_t)data;
-	int fd = ptr[-1];
+	int fd = bpftime_ringbuf_record_fd((const void *)(uintptr_t)data);
 	if (flags != 0) {
 		BPFTIME_LOG_WARN_RATELIMITED(
 			"Currently only supports ringbuf_submit with flags=0");
@@ -793,8 +792,7 @@ uint64_t bpf_ringbuf_submit(uint64_t data, uint64_t flags, uint64_t, uint64_t,
 uint64_t bpf_ringbuf_discard(uint64_t data, uint64_t flags, uint64_t, uint64_t,
 			     uint64_t)
 {
-	int32_t *ptr = (int32_t *)(uintptr_t)data;
-	int fd = ptr[-1];
+	int fd = bpftime_ringbuf_record_fd((const void *)(uintptr_t)data);
 	if (flags != 0) {
 		BPFTIME_LOG_WARN_RATELIMITED(
 			"Currently only supports ringbuf_submit with flags=0");
