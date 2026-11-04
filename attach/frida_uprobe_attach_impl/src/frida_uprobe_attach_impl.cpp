@@ -167,6 +167,8 @@ void bpftime::attach::unignore_probes_on_this_thread()
 
 frida_attach_impl::~frida_attach_impl()
 {
+	// Each entry republishes its slot without its attaches before they go.
+	internal_attaches.clear();
 	gum_object_unref((GumInterceptor *)interceptor);
 }
 
@@ -205,8 +207,7 @@ int frida_attach_impl::attach_at(void *func_addr,
 			      .emplace(func_addr,
 				       std::make_unique<
 					       frida_internal_attach_entry>(
-					       func_addr, current_attach_type,
-					       (GumInterceptor *)interceptor))
+					       func_addr, current_attach_type))
 			      .first;
 		SPDLOG_DEBUG("Created frida attach entry for func addr {:x}",
 			     (uintptr_t)func_addr);
@@ -230,6 +231,7 @@ int frida_attach_impl::attach_at(void *func_addr,
 	inner_attach->user_attaches.push_back(
 		inserted_attach_entry->second.get());
 	inserted_attach_entry->second->internal_attach = inner_attach.get();
+	inner_attach->republish();
 	return result;
 }
 
@@ -260,6 +262,8 @@ int frida_attach_impl::create_uprobe_override_at(void *func_addr,
 			cb));
 }
 
+// Probes may be running on other threads: the attach is freed only after
+// republishing returns (no callback runs it any more).
 int frida_attach_impl::detach_by_id(int id)
 {
 	void *drop_func_addr = nullptr;
@@ -274,6 +278,7 @@ int frida_attach_impl::detach_by_id(int id)
 					       return v == itr->second.get();
 				       });
 		user_attaches.resize(tail - user_attaches.begin());
+		p->republish();
 		attaches.erase(itr);
 		if (p->user_attaches.empty()) {
 			drop_func_addr = p->function;
@@ -298,10 +303,11 @@ int frida_attach_impl::detach_by_func_addr(const void *func)
 	if (auto itr = internal_attaches.find((void *)func);
 	    itr != internal_attaches.end()) {
 		auto uattaches = itr->second->user_attaches;
+		// Its destructor republishes the slot without these attaches.
+		internal_attaches.erase(itr);
 		for (auto attach_entry : uattaches) {
 			attaches.erase(attach_entry->self_id);
 		}
-		internal_attaches.erase(itr);
 		return 0;
 	} else {
 		return -ENOENT;

@@ -1,6 +1,8 @@
 #include "frida_internal_attach_entry.hpp"
 #include "frida_uprobe_attach_impl.hpp"
 #include "frida_attach_entry.hpp"
+#include "frida_hook_slot.hpp"
+#include "frida_probe_grace.hpp"
 #include <dlfcn.h>
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/spdlog.h>
@@ -8,12 +10,6 @@
 using namespace bpftime::attach;
 
 extern "C" uint64_t __bpftime_frida_attach_manager__replace_handler();
-extern "C" void *__bpftime_frida_attach_manager__override_handler();
-
-static void uprobe_listener_on_enter(GumInvocationContext *context,
-				     gpointer user_data);
-static void uprobe_listener_on_leave(GumInvocationContext *context,
-				     gpointer user_data);
 
 namespace
 {
@@ -114,61 +110,23 @@ std::string build_frida_attach_failure_message(const char *operation,
 
 void frida_internal_attach_entry::ensure_listener(int attach_type)
 {
-	if (attach_type != ATTACH_UPROBE && attach_type != ATTACH_URETPROBE)
-		return;
-	auto **slot = attach_type == ATTACH_UPROBE ? &uprobe_listener :
-						     &uretprobe_listener;
-	if (*slot != nullptr)
-		return;
-	// Attaching makes this thread's Gum context (see the declaration).
-	ensure_gum_thread_context();
-	*slot = attach_type == ATTACH_UPROBE ?
-			gum_make_probe_listener(uprobe_listener_on_enter, this,
-						nullptr) :
-			gum_make_call_listener(nullptr, uprobe_listener_on_leave,
-					       this, nullptr);
-	if (*slot == nullptr)
-		throw std::runtime_error("Unable to create Frida listener");
-	gum_interceptor_begin_transaction(interceptor);
-	if (int err = gum_interceptor_attach(interceptor, function, *slot,
-					     nullptr);
-	    err < 0) {
+	if (int err = frida_hook_ensure(slot, attach_type); err < 0) {
 		auto message = build_frida_attach_failure_message(
-			"gum_interceptor_attach", function, attach_type, err);
-		g_object_unref(*slot);
-		*slot = nullptr;
-		gum_interceptor_end_transaction(interceptor);
+			attach_type == ATTACH_UPROBE_OVERRIDE ?
+				"gum_interceptor_replace" :
+				"gum_interceptor_attach",
+			function, attach_type, err);
 		SPDLOG_ERROR("{}", message);
 		throw std::runtime_error(message);
 	}
-	gum_interceptor_end_transaction(interceptor);
 }
 
-frida_internal_attach_entry::frida_internal_attach_entry(
-	void *function, int basic_attach_type, GumInterceptor *interceptor)
+frida_internal_attach_entry::frida_internal_attach_entry(void *function,
+							 int basic_attach_type)
 	: function(function)
 {
-	this->interceptor = interceptor;
 	override_return_callback = nullptr;
-	if (basic_attach_type == ATTACH_UPROBE ||
-	    basic_attach_type == ATTACH_URETPROBE) {
-		ensure_listener(basic_attach_type);
-	} else if (basic_attach_type == ATTACH_UPROBE_OVERRIDE) {
-		ensure_gum_thread_context();
-		gum_interceptor_begin_transaction(interceptor);
-		if (int err = gum_interceptor_replace(
-			    interceptor, function,
-			    (void *)__bpftime_frida_attach_manager__override_handler,
-			    this, nullptr);
-		    err < 0) {
-			auto message = build_frida_attach_failure_message(
-				"gum_interceptor_replace", function,
-				basic_attach_type, err);
-			gum_interceptor_end_transaction(interceptor);
-			SPDLOG_ERROR("{}", message);
-			throw std::runtime_error(message);
-		}
-		gum_interceptor_end_transaction(interceptor);
+	if (basic_attach_type == ATTACH_UPROBE_OVERRIDE) {
 		override_return_callback = override_return_set_callback(
 			[&](uint64_t ctx, uint64_t v) {
 				SPDLOG_DEBUG(
@@ -179,25 +137,47 @@ frida_internal_attach_entry::frida_internal_attach_entry(
 				user_ret_ctx = ctx;
 			});
 	}
-	this->interceptor = gum_object_ref(interceptor);
+	// Last: once an owner of the slot, only the destructor leaves it.
+	if (int err = frida_hook_add_owner(function, basic_attach_type, this,
+					   &slot);
+	    err < 0) {
+		auto message = build_frida_attach_failure_message(
+			basic_attach_type == ATTACH_UPROBE_OVERRIDE ?
+				"gum_interceptor_replace" :
+				"gum_interceptor_attach",
+			function, basic_attach_type, err);
+		SPDLOG_ERROR("{}", message);
+		throw std::runtime_error(message);
+	}
 }
 
+// Gum's hooks stay with the slot (see frida_hook_slot.hpp).
 frida_internal_attach_entry::~frida_internal_attach_entry()
 {
 	SPDLOG_DEBUG("Destroy internal attach at {:x}", (uintptr_t)function);
-	ensure_gum_thread_context();
-	for (auto *listener : { uprobe_listener, uretprobe_listener }) {
-		if (listener != nullptr) {
-			gum_interceptor_detach(interceptor, listener);
-			g_object_unref(listener);
+	frida_hook_remove_owner(slot, this);
+}
+
+void frida_internal_attach_entry::republish()
+{
+	frida_hook_republish(slot);
+}
+
+void frida_internal_attach_entry::collect(frida_hook_dispatch &dispatch)
+{
+	for (auto v : user_attaches) {
+		switch (v->get_type()) {
+		case ATTACH_UPROBE:
+			dispatch.uprobes.push_back(v);
+			break;
+		case ATTACH_URETPROBE:
+			dispatch.uretprobes.push_back(v);
+			break;
+		case ATTACH_UPROBE_OVERRIDE:
+			dispatch.override_owner = this;
+			break;
 		}
 	}
-	if (!uprobe_listener && !uretprobe_listener) {
-		gum_interceptor_revert(interceptor, function);
-		SPDLOG_DEBUG("Reverted function replace");
-	}
-	gum_object_unref(interceptor);
-	SPDLOG_DEBUG("Destructor of frida_internal_attach_entry exiting..");
 }
 
 bool frida_internal_attach_entry::has_override() const
@@ -236,40 +216,33 @@ void frida_internal_attach_entry::run_filter_callback(const pt_regs &regs) const
 	throw std::runtime_error("Unable to find filter callback");
 }
 
-void frida_internal_attach_entry::iterate_uprobe_callbacks(
-	const pt_regs &regs) const
+void frida_internal_attach_entry::run_uprobes(
+	const frida_hook_dispatch &dispatch, const pt_regs &regs)
 {
-	for (auto v : user_attaches) {
-		if (v->get_type() == ATTACH_UPROBE) {
-			v->run_callback<ATTACH_UPROBE_INDEX>(regs);
-		}
-	}
+	for (auto v : dispatch.uprobes)
+		v->run_callback<ATTACH_UPROBE_INDEX>(regs);
 }
 
-void frida_internal_attach_entry::iterate_uretprobe_callbacks(
-	const pt_regs &regs) const
+void frida_internal_attach_entry::run_uretprobes(
+	const frida_hook_dispatch &dispatch, const pt_regs &regs)
 {
-	for (auto v : user_attaches) {
-		if (v->get_type() == ATTACH_URETPROBE) {
-			v->run_callback<ATTACH_URETPROBE_INDEX>(regs);
-		}
-	}
+	for (auto v : dispatch.uretprobes)
+		v->run_callback<ATTACH_URETPROBE_INDEX>(regs);
 }
 
 typedef void *(*ufunc_func)(void *r1, void *r2, void *r3, void *r4, void *r5);
 
+// The replacement stays once installed; without an override attached it
+// calls the original. The filter runs inside a grace period, the original
+// outside it (it may block).
 extern "C" void *__bpftime_frida_attach_manager__override_handler()
 {
 	GumInvocationContext *ctx;
 	bpftime::pt_regs regs;
 
 	ctx = gum_interceptor_get_current_invocation();
-	convert_gum_cpu_context_to_pt_regs(*ctx->cpu_context, regs);
-	auto hook_entry = (frida_internal_attach_entry *)
+	auto *slot = (frida_hook_slot *)
 		gum_invocation_context_get_replacement_data(ctx);
-	hook_entry->is_overrided = false;
-	curr_thread_override_return_callback =
-		hook_entry->override_return_callback;
 
 	auto arg0 = gum_invocation_context_get_nth_argument(ctx, 0);
 	auto arg1 = gum_invocation_context_get_nth_argument(ctx, 1);
@@ -278,14 +251,29 @@ extern "C" void *__bpftime_frida_attach_manager__override_handler()
 	auto arg4 = gum_invocation_context_get_nth_argument(ctx, 4);
 	ufunc_func func = (ufunc_func)ctx->function;
 
-	SPDLOG_DEBUG("Setting current thread gum cpu context");
-	current_thread_gum_cpu_context = ctx->cpu_context;
+	bool overridden = false;
+	uintptr_t value = 0;
+	auto *reader = probe_grace::enter();
+	const frida_hook_dispatch *dispatch =
+		slot->dispatch.load(std::memory_order_acquire);
+	if (auto *hook_entry =
+		    dispatch ? dispatch->override_owner : nullptr) {
+		convert_gum_cpu_context_to_pt_regs(*ctx->cpu_context, regs);
+		hook_entry->is_overrided = false;
+		curr_thread_override_return_callback =
+			hook_entry->override_return_callback;
 
-	hook_entry->run_filter_callback(regs);
-	SPDLOG_DEBUG("Resetting current thread gum cpu context");
-	current_thread_gum_cpu_context.reset();
-	if (hook_entry->is_overrided) {
-		auto value = (uintptr_t)hook_entry->user_ret;
+		SPDLOG_DEBUG("Setting current thread gum cpu context");
+		current_thread_gum_cpu_context = ctx->cpu_context;
+
+		hook_entry->run_filter_callback(regs);
+		SPDLOG_DEBUG("Resetting current thread gum cpu context");
+		current_thread_gum_cpu_context.reset();
+		overridden = hook_entry->is_overrided;
+		value = (uintptr_t)hook_entry->user_ret;
+	}
+	probe_grace::leave(reader);
+	if (overridden) {
 		SPDLOG_DEBUG("Using override return value: {}", value);
 		return (void *)value;
 	} else {
@@ -294,31 +282,44 @@ extern "C" void *__bpftime_frida_attach_manager__override_handler()
 	}
 }
 
-static void uprobe_listener_on_enter(GumInvocationContext *ctx,
-				     gpointer user_data)
+void bpftime::attach::frida_slot_on_enter(GumInvocationContext *ctx,
+					  gpointer user_data)
 {
-	auto *hook_entry = static_cast<frida_internal_attach_entry *>(user_data);
-	SPDLOG_TRACE("Handle uprobe at uprobe_listener_on_enter");
-	bpftime::pt_regs regs;
-	convert_gum_cpu_context_to_pt_regs(*ctx->cpu_context, regs);
+	auto *slot = static_cast<frida_hook_slot *>(user_data);
+	SPDLOG_TRACE("Handle uprobe at frida_slot_on_enter");
+	auto *reader = probe_grace::enter();
+	const frida_hook_dispatch *dispatch =
+		slot->dispatch.load(std::memory_order_acquire);
+	if (dispatch != nullptr && !dispatch->uprobes.empty()) {
+		bpftime::pt_regs regs;
+		convert_gum_cpu_context_to_pt_regs(*ctx->cpu_context, regs);
 
-	SPDLOG_DEBUG("Setting current thread gum cpu context");
-	current_thread_gum_cpu_context = ctx->cpu_context;
+		SPDLOG_DEBUG("Setting current thread gum cpu context");
+		current_thread_gum_cpu_context = ctx->cpu_context;
 
-	hook_entry->iterate_uprobe_callbacks(regs);
+		frida_internal_attach_entry::run_uprobes(*dispatch, regs);
 
-	SPDLOG_DEBUG("Resetting current thread gum cpu context");
-	current_thread_gum_cpu_context.reset();
+		SPDLOG_DEBUG("Resetting current thread gum cpu context");
+		current_thread_gum_cpu_context.reset();
+	}
+	probe_grace::leave(reader);
 }
 
-static void uprobe_listener_on_leave(GumInvocationContext *ctx,
-				     gpointer user_data)
+void bpftime::attach::frida_slot_on_leave(GumInvocationContext *ctx,
+					  gpointer user_data)
 {
-	auto *hook_entry = static_cast<frida_internal_attach_entry *>(user_data);
-	SPDLOG_TRACE("Handle uretprobe at uprobe_listener_on_leave");
-	bpftime::pt_regs regs;
-	convert_gum_cpu_context_to_pt_regs(*ctx->cpu_context, regs);
-	// Stack helpers find this context through the current gum invocation;
-	// setting the thread-local here would cost every return (+5 ns).
-	hook_entry->iterate_uretprobe_callbacks(regs);
+	auto *slot = static_cast<frida_hook_slot *>(user_data);
+	SPDLOG_TRACE("Handle uretprobe at frida_slot_on_leave");
+	auto *reader = probe_grace::enter();
+	const frida_hook_dispatch *dispatch =
+		slot->dispatch.load(std::memory_order_acquire);
+	if (dispatch != nullptr && !dispatch->uretprobes.empty()) {
+		bpftime::pt_regs regs;
+		convert_gum_cpu_context_to_pt_regs(*ctx->cpu_context, regs);
+		// Stack helpers find this context through the current gum
+		// invocation; setting the thread-local here would cost every
+		// return (+5 ns).
+		frida_internal_attach_entry::run_uretprobes(*dispatch, regs);
+	}
+	probe_grace::leave(reader);
 }
