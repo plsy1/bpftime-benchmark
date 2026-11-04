@@ -9,9 +9,11 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
+import time
 from typing import Any
 
 
@@ -38,6 +40,7 @@ MAP_CASES = (
 
 
 ROOT_TEST_SHM = "bpftime_daily_root_tests"
+SMOKE_SHM = "bpftime_daily_smoke"
 
 
 class TrackerError(RuntimeError):
@@ -402,6 +405,121 @@ def test_candidate(config: dict[str, Any], path: Path, build_dir: Path) -> None:
             )
         finally:
             run(["sudo", "-n", "rm", "-f", f"/dev/shm/{ROOT_TEST_SHM}"], cwd=path)
+    smoke_real_tools(config, path, build_dir)
+
+
+def smoke_real_tools(config: dict[str, Any], path: Path, build_dir: Path) -> None:
+    """Real tools on a four-thread workload, each bounded. The unit tests
+    stayed green while memleak hung on every threaded workload (4d9b8a61 to
+    ff5515d8) and while a detach under load crashed the workload (problem 7).
+    funclatency's count must be exact, memleak must report outstanding
+    allocations, and a SIGUSR1 detach under funclatency must leave the
+    workload running to its end. The tools and workloads are the real-tool
+    harness's (paths in config); without them the run is skipped, loudly."""
+    paths = config["paths"]
+    tools = Path(paths["smoke_tools"])
+    workloads = Path(paths["smoke_workloads"])
+    wrapper = Path(paths["smoke_wrapper"])
+    needed = [tools / "funclatency", tools / "memleak", workloads / "callloop",
+              workloads / "mallocloop", wrapper]
+    missing = [str(p) for p in needed if not p.exists()]
+    if missing:
+        print(f"SMOKE SKIPPED: missing {missing}", flush=True)
+        return
+    logs = build_dir / "smoke"
+    logs.mkdir(exist_ok=True)
+    agent = build_dir / "runtime" / "agent" / "libbpftime-agent.so"
+    server = build_dir / "runtime" / "syscall-server" / "libbpftime-syscall-server.so"
+    common = [f"BPFTIME_GLOBAL_SHM_NAME={SMOKE_SHM}", "BPFTIME_LOG_OUTPUT=console"]
+    tool_env = ["sudo", "-n", "env", f"LD_PRELOAD={server}", "BPFTIME_SHM_MEMORY_MB=1024", *common]
+    # timeout outside LD_PRELOAD
+    workload_env = ["sudo", "-n", "timeout", "40", "env", f"LD_PRELOAD={agent}", *common]
+    secs = 3
+
+    def start_tool(argv: list[str], name: str) -> tuple[subprocess.Popen[str], Path]:
+        out = logs / f"{name}.tool.txt"
+        print("+", " ".join(tool_env + argv), flush=True)
+        # A file, not a pipe: a pipe nobody reads blocks the tool's output.
+        with out.open("w") as f:
+            proc = subprocess.Popen(tool_env + argv, cwd=path, stdout=f,
+                                    stderr=subprocess.STDOUT, text=True,
+                                    start_new_session=True)
+        return proc, out
+
+    def stop_tool(proc: subprocess.Popen[str], wait: int) -> None:
+        try:
+            proc.wait(timeout=wait)
+        except subprocess.TimeoutExpired:
+            run(["sudo", "-n", "kill", "-INT", "--", f"-{proc.pid}"], cwd=path, check=False)
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                run(["sudo", "-n", "kill", "-KILL", "--", f"-{proc.pid}"], cwd=path, check=False)
+                proc.wait()
+                raise TrackerError("smoke: a tool did not stop")
+
+    def cleanup() -> None:
+        for name in ("funclatency", "memleak", "callloop", "mallocloop"):
+            run(["sudo", "-n", "pkill", "-9", "-x", name], cwd=path, check=False)
+        run(["sudo", "-n", "rm", "-f", f"/dev/shm/{SMOKE_SHM}"], cwd=path, check=False)
+
+    def total_ops(text: str) -> int | None:
+        m = re.search(r"total_ops (\d+)", text)
+        return int(m.group(1)) if m else None
+
+    cleanup()
+    try:
+        # funclatency: one start and one return per call, counted exactly.
+        tool, out = start_tool([str(tools / "funclatency"), "-u", "-d", str(secs + 6),
+                                f"{workloads}/callloop:target_func"], "funclatency")
+        time.sleep(3)
+        wl = run(workload_env + [str(workloads / "callloop"), str(secs)], cwd=path,
+                 check=False, capture=True)
+        (logs / "funclatency.workload.txt").write_text(wl.stdout + wl.stderr)
+        stop_tool(tool, secs + 15)
+        counted = sum(int(m.group(1)) for m in
+                      re.finditer(r"->\s*\d+\s*:\s*(\d+)", out.read_text(errors="replace")))
+        calls = total_ops(wl.stdout)
+        print(f"smoke funclatency: workload rc {wl.returncode}, calls {calls}, counted {counted}", flush=True)
+        if wl.returncode != 0 or calls is None or counted != calls:
+            raise TrackerError(f"smoke funclatency failed: rc {wl.returncode}, calls {calls}, counted {counted}")
+        cleanup()
+
+        # memleak -c: the static wrapper execs the workload with the agent.
+        ml = run(["sudo", "-n", "timeout", str(secs + 30), "env", f"LD_PRELOAD={server}",
+                  "BPFTIME_SHM_MEMORY_MB=1024", *common, f"SW_PRELOAD={agent}",
+                  f"SW_CMD={workloads / 'mallocloop'}", f"SW_ARGS={secs} 64 1024",
+                  str(tools / "memleak"), "-c", str(wrapper), "1"],
+                 cwd=path, check=False, capture=True)
+        text = ml.stdout + ml.stderr
+        (logs / "memleak.txt").write_text(text)
+        last = text.split("Top ")[-1] if "Top " in text else ""
+        allocations = sum(int(m.group(1)) for m in re.finditer(r"bytes in (\d+) allocations", last))
+        print(f"smoke memleak: rc {ml.returncode}, outstanding allocations {allocations}", flush=True)
+        if ml.returncode != 0 or allocations == 0:
+            raise TrackerError(f"smoke memleak failed: rc {ml.returncode} (124: hung), allocations {allocations}")
+        cleanup()
+
+        # SIGUSR1 detach while four threads call the probed function.
+        tool, out = start_tool([str(tools / "funclatency"), "-u",
+                                f"{workloads}/callloop:target_func"], "detach")
+        time.sleep(3)
+        print("+", " ".join(workload_env + [str(workloads / "callloop"), str(secs + 3)]), flush=True)
+        wl_proc = subprocess.Popen(workload_env + [str(workloads / "callloop"), str(secs + 3)],
+                                   cwd=path, stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, text=True)
+        time.sleep(2)
+        run(["sudo", "-n", "pkill", "-USR1", "-x", "callloop"], cwd=path, check=False)
+        wl_out, _ = wl_proc.communicate(timeout=60)
+        (logs / "detach.workload.txt").write_text(wl_out)
+        run(["sudo", "-n", "kill", "-INT", "--", f"-{tool.pid}"], cwd=path, check=False)
+        stop_tool(tool, 10)
+        print(f"smoke detach: workload rc {wl_proc.returncode}, "
+              f"detached {'Detaching' in wl_out}", flush=True)
+        if wl_proc.returncode != 0 or total_ops(wl_out) is None or "Detaching" not in wl_out:
+            raise TrackerError(f"smoke detach failed: workload rc {wl_proc.returncode}")
+    finally:
+        cleanup()
 
 
 def cpu_frequency(cpu: int) -> dict[str, int | None]:

@@ -422,6 +422,18 @@ clang lookup fix is checked by a configure script kept with the results
 (`uprobe/nuc-fixes-20261026/check-clang19-configure.sh`), not daily; the
 helper id comparison only removes a warning.
 
+After the suites, the candidate gate runs real tools (`smoke_real_tools`), each
+bounded: funclatency on the four-thread `callloop` must count every call, memleak
+`-c` on the four-thread `mallocloop` must exit and report outstanding
+allocations, and a SIGUSR1 detach under funclatency must leave the workload
+running to its end. The unit tests stayed green while memleak hung on every
+threaded workload (4d9b8a61 to ff5515d8) and while a detach under load crashed
+the workload; on those builds the smoke fails (dev-7ad5a152: memleak rc 124;
+dev-ff5515d8: detach SIGBUS). The tools, workloads and the static `-c` wrapper
+are the real-tool harness's (`smoke_*` in `config.json` paths); missing, the run
+prints `SMOKE SKIPPED` and passes. It uses its own shared memory
+(`bpftime_daily_smoke`, removed after) and takes about 40 s.
+
 Run the candidate gate by hand on a patched worktree with:
 
 ```sh
