@@ -753,6 +753,31 @@ a different trace in an occupied bucket returns `-EEXIST` unless
 hash. `bpf_get_stackid` returns errors negative in its 64-bit result (it used
 to cast them to a valid-looking `uint32_t` id; `ret < 0 ? ret : (uint32_t)ret`
 still did, both branches being unsigned int: -EEXIST came back as 0xffffffef).
+No frame left after the skip is `-EFAULT`, as the kernel (it stored an empty
+trace).
+
+A stored trace is found without the map lock (`find_stack_trace`), as the
+kernel's buckets: the map was a boost `unordered_map` of shared-memory vectors
+filled through one shared `key_buf`, so every call took the map's spin lock,
+and memleak on six threads allocating from one stack spent 42% of its cycles
+spinning on it (0.78x bpf; `uprobe/vs-pre-mt-20261104`). Now each id has a
+slot holding the offset of its record (hash, frame count, frames), allocated
+under the lock on the slot's first fill and kept until the map is destroyed (a
+delete clears the count), so a reader never follows a freed record. Records
+are not preallocated: bpftrace's `ustack` map is 131,072 x 1,016 bytes, more
+than the default 128 MB segment. A writer clears the count, writes the frames
+and the hash, then stores the count (release); a reader loads the count
+(acquire), then compares the hash before the frames. The hash is what keeps a
+torn read from matching: a mix of two traces read during a replacement can
+have a third trace's frames, never its hash (the test "never take a mix of two
+traces for a third" fails within 2 s without the hash comparison). Anything
+but a match takes the lock and `fill_stack_trace` decides, so `-EEXIST` on an
+occupied slot still takes the lock every time (the kernel returns it without
+one). With `BPF_F_FAST_STACK_CMP` a reader may match a trace that is being
+replaced, as in the kernel. Userspace lookups and deletes keep the lock; a
+lookup returns a pointer that the caller copies after the lock is released,
+so a concurrent `BPF_F_REUSE_STACKID` replacement can still tear that copy
+(as before).
 
 ## aarch64 System Call Rewriting
 
