@@ -36,8 +36,36 @@ inline std::string expand_user_path(const std::string &input_path)
 	return input_path;
 }
 
+// Probes keep running while the process exits, and the default logger is
+// destroyed with spdlog's registry: a probe that logged after that wrote
+// through a freed formatter (SIGSEGV in the traced process). Exit handlers run
+// in the reverse order of registration, so one registered once the registry
+// exists runs before the registry is destroyed: it keeps the default logger
+// alive (a reference never released, which spdlog's macros still reach through
+// the registry's storage) and turns it off. Logs from exit onwards are dropped.
+inline void bpftime_quiet_logger_at_exit() noexcept
+{
+	static const bool registered = [] {
+		(void)spdlog::default_logger_raw(); // the registry exists
+		return std::atexit(+[] {
+			       try {
+				       if (auto logger = spdlog::default_logger()) {
+					       logger->flush();
+					       logger->set_level(
+						       spdlog::level::off);
+					       new std::shared_ptr<spdlog::logger>(
+						       std::move(logger));
+				       }
+			       } catch (...) {
+			       }
+		       }) == 0;
+	}();
+	(void)registered;
+}
+
 inline void bpftime_set_logger(const std::string &target) noexcept
 {
+	bpftime_quiet_logger_at_exit();
 	auto silence_logger = []() noexcept {
 		try {
 			auto sink =

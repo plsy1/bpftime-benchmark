@@ -492,6 +492,18 @@ programs against the unmapped segment and crash the host at exit. The Frida
 callback does not log `-ENODEV`, because the logger may already be destroyed.
 Threads still inside a program when the main thread unmaps are not covered.
 
+The default logger is destroyed with spdlog's registry at exit, while probes
+still run: a probe that logged after that wrote through a freed formatter and
+crashed the traced process (`timeout` under the get_stack_id example, 1-2 of 4
+runs, `uprobe/harness-gaps-20261104`). `bpftime_set_logger` registers
+`bpftime_quiet_logger_at_exit` once the registry exists; exit handlers run in
+reverse order, so it runs before the registry's destructor, keeps the logger
+alive (a reference never released, reached through the registry's storage
+afterwards) and turns it off: logs from exit onwards are dropped. Test "A log
+after spdlog's teardown at exit is dropped" (a helper process logs from an exit
+handler registered before the registry; exits 3 without the handler). Loggers
+installed with `spdlog::set_default_logger` alone are not covered.
+
 ## Syscall Server Fork Children
 
 A child forked before the syscall server started (memleak `-c` forks the
