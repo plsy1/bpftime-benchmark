@@ -1377,12 +1377,32 @@ canary on every call (+31% probe read, +27% probe write in the full ten).
 
 The agent runs inside the traced process; its own calls must not reach the
 probes (memleak reported ~250 agent allocations and two 8 MB thread stacks).
-`agent_internal_section` (RAII `gum_interceptor_ignore_current_thread`) covers
-`init_attach_ctx_from_handlers`, thread creation and `setenv`, and every agent
-background thread (IPC, auto-refresh, detach) ignores probes for its lifetime.
-Wrap any new agent-side work that allocates or calls hooked functions on the
-host's threads. Allocations made before the agent takes over (process start-up
-before `__libc_start_main`) stay invisible, unlike kernel uprobes armed at exec.
+`agent_internal_section` (RAII `ignore_probes_on_this_thread`, frida attach
+impl) covers `init_attach_ctx_from_handlers`, thread creation and `setenv`,
+and every agent background thread (IPC, auto-refresh, detach) ignores probes
+for its lifetime. Wrap any new agent-side work that allocates or calls hooked
+functions on the host's threads. Allocations made before the agent takes over
+(process start-up before `__libc_start_main`) stay invisible, unlike kernel
+uprobes armed at exec. Gum's ignore skips listeners only: replacements
+(override, ureplace) still run on an ignored thread.
+
+A thread's Gum interceptor context (~100 KB, mostly the invocation stack) is
+made on first use from Gum's dlmalloc heap, which grows with `mmap` while
+holding its spin lock. Inside an invocation Gum sets its guard first, so a
+probed `mmap` there goes straight through; `gum_interceptor_ignore_current_thread`,
+`attach`, `detach` and `end_transaction` make the context without the guard.
+With `mmap` probed (memleak), the probe then makes a context again and spins
+on the lock its own thread holds: memleak hung every threaded run (agent
+threads ignoring probes at start, 4d9b8a61). `ensure_gum_thread_context` makes
+the context through one call of a function of our own that Gum hooks (attached
+before the first probe, never detached); `ignore_probes_on_this_thread` and the
+attach entry's attach/replace/detach call it first. It is Gum's hazard (any
+thread's first unguarded context while `mmap` is probed); bpftime only avoids
+it, Gum is not patched. Gum still frees a context at thread exit outside the
+guard (if that free unmaps with `munmap` probed, it may recurse the same way;
+not seen, not handled). Test:
+"Fresh threads can ignore probes while mmap is probed" (32 threads, child
+process with a 20 s bound; hangs without the anchor call).
 
 ## Daemon Tracer Programs
 

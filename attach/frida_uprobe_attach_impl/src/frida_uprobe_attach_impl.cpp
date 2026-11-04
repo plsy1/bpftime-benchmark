@@ -104,6 +104,67 @@ std::vector<uint64_t> *walk_frame_pointers(const GumCpuContext &cpu,
 } // namespace
 #endif
 
+namespace
+{
+// Gum hooks this function: a call runs one invocation, which makes the
+// thread's context with Gum's guard set, so a probed mmap that grows the heap
+// meanwhile goes straight through. The nops are room for the redirect.
+__attribute__((noinline, used)) void gum_thread_context_anchor()
+{
+	asm volatile(".rept 16\n\tnop\n\t.endr" ::: "memory");
+}
+
+void on_gum_thread_context_anchor(GumInvocationContext *, gpointer)
+{
+}
+
+// Runs before the first probe is attached (attaching ensures a context
+// first), so the attach's own unguarded context is safe. Never detached.
+bool attach_gum_thread_context_anchor()
+{
+	gum_init_embedded();
+	GumInterceptor *interceptor = gum_interceptor_obtain();
+	GumInvocationListener *listener = gum_make_probe_listener(
+		on_gum_thread_context_anchor, nullptr, nullptr);
+	int err = gum_interceptor_attach(interceptor,
+					 (gpointer)gum_thread_context_anchor,
+					 listener, nullptr);
+	g_object_unref(interceptor);
+	if (err != GUM_ATTACH_OK) {
+		g_object_unref(listener);
+		SPDLOG_WARN(
+			"Unable to hook the Gum thread context anchor (err={}); a probe on mmap may hang threads that start after it",
+			err);
+		return false;
+	}
+	return true;
+}
+} // namespace
+
+void bpftime::attach::ensure_gum_thread_context()
+{
+	static const bool anchored = attach_gum_thread_context_anchor();
+	if (!anchored)
+		return;
+	void (*volatile anchor)() = gum_thread_context_anchor;
+	anchor();
+}
+
+void bpftime::attach::ignore_probes_on_this_thread()
+{
+	ensure_gum_thread_context();
+	GumInterceptor *interceptor = gum_interceptor_obtain();
+	gum_interceptor_ignore_current_thread(interceptor);
+	g_object_unref(interceptor);
+}
+
+void bpftime::attach::unignore_probes_on_this_thread()
+{
+	GumInterceptor *interceptor = gum_interceptor_obtain();
+	gum_interceptor_unignore_current_thread(interceptor);
+	g_object_unref(interceptor);
+}
+
 frida_attach_impl::~frida_attach_impl()
 {
 	gum_object_unref((GumInterceptor *)interceptor);
