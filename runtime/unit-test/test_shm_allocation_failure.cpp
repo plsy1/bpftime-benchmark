@@ -541,4 +541,25 @@ TEST_CASE("Syscall server child forked before startup leaves the parent's maps",
 	REQUIRE(WIFEXITED(result.status));
 	REQUIRE(WEXITSTATUS(result.status) == 100);
 }
+
+// Probes keep running while the process exits; one that logged after spdlog's
+// registry was destroyed wrote through a freed formatter (SIGSEGV in the
+// traced process, problem 10 of uprobe/harness-gaps-20261104). The helper logs
+// from an exit handler that runs after the registry's destructor.
+TEST_CASE("A log after spdlog's teardown at exit is dropped",
+	  "[allocation][logger_exit]")
+{
+	pid_t pid = fork();
+	REQUIRE(pid >= 0);
+	if (pid == 0) {
+		execl(BPFTIME_LOGGER_EXIT_TEST_HELPER,
+		      BPFTIME_LOGGER_EXIT_TEST_HELPER, nullptr);
+		_exit(127);
+	}
+	int status = 0;
+	REQUIRE(waitpid(pid, &status, 0) == pid);
+	REQUIRE(WIFEXITED(status));
+	// 3: the logger had been destroyed; 4: the log was written
+	REQUIRE(WEXITSTATUS(status) == 0);
+}
 #endif
