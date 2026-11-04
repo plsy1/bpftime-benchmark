@@ -442,6 +442,10 @@ long bpf_map_handler::BPFTIME_UNCOUNTED(map_update_elem)(
 	const void *key, const void *value, uint64_t flags,
 	bool from_syscall) const
 {
+	if (from_syscall && is_frozen()) {
+		errno = EPERM;
+		return -1;
+	}
 	const auto do_update = [&](auto *impl) -> long {
 		if (impl->should_lock) {
 			bpftime_lock_guard guard(map_lock);
@@ -769,6 +773,10 @@ int bpf_map_handler::bpf_map_get_next_key(const void *key, void *next_key,
 long bpf_map_handler::BPFTIME_UNCOUNTED(map_delete_elem)(
 	const void *key, bool from_syscall) const
 {
+	if (from_syscall && is_frozen()) {
+		errno = EPERM;
+		return -1;
+	}
 	const auto do_delete = [&](auto *impl) -> long {
 		if (impl->should_lock) {
 			bpftime_lock_guard guard(map_lock);

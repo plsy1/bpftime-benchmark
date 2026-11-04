@@ -15,4 +15,7 @@
 // Where calls libbpf poisoned go (bpftime_prog_load).
 #define BPFTIME_LIBBPF_POISON_SLOT 8188
 #define BPFTIME_LIBBPF_POISON_NAME "bpftime_libbpf_poison_reached"
+// Where calls of missing helpers in code found unreachable go.
+#define BPFTIME_DEAD_CALL_SLOT 8187
+#define BPFTIME_DEAD_CALL_NAME "bpftime_dead_call_reached"
 #endif

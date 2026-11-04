@@ -12,6 +12,7 @@
 #include "bpftime_vm_compat.hpp"
 #include "ebpf-vm.h"
 #include "bpftime_direct_map_helpers.hpp"
+#include "bpftime_prog_reachability.hpp"
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
 #include "nvPTXCompiler.h"
 #endif
@@ -494,6 +495,39 @@ uint64_t libbpf_poison_reached(uint64_t, uint64_t, uint64_t, uint64_t,
 		"A program ran an instruction libbpf poisoned (dead code to libbpf, which the kernel would have rejected as reachable)");
 	return (uint64_t)(int64_t)-EINVAL;
 }
+
+uint64_t dead_call_reached(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
+{
+	BPFTIME_LOG_ERROR_RATELIMITED(
+		"A program called a helper bpftime does not have, in code its read-only constants made unreachable");
+	return (uint64_t)(int64_t)-EINVAL;
+}
+
+// A frozen BPF_F_RDONLY_PROG array's value (libbpf's .rodata): constant to
+// its programs, as the kernel's verifier treats it.
+std::optional<std::span<const uint8_t> > frozen_read_only_value(int fd)
+{
+	if (bpftime::global_shm_released.load(std::memory_order_acquire))
+		return std::nullopt;
+	try {
+		auto &shm = bpftime::shm_holder.global_shared_memory;
+		if (!shm.is_map_fd(fd))
+			return std::nullopt;
+		const auto &map = std::get<bpftime::bpf_map_handler>(
+			shm.get_handler(fd));
+		if (!map.is_frozen() || !(map.attr.flags & BPF_F_RDONLY_PROG) ||
+		    map.type != bpftime::bpf_map_type::BPF_MAP_TYPE_ARRAY ||
+		    map.get_max_entries() < 1)
+			return std::nullopt;
+		const uint32_t key = 0;
+		auto value = (const uint8_t *)map.map_lookup_elem(&key);
+		if (value == nullptr)
+			return std::nullopt;
+		return std::span<const uint8_t>(value, map.get_value_size());
+	} catch (...) {
+		return std::nullopt;
+	}
+}
 } // namespace
 
 int bpftime_prog::bpftime_prog_load(bool jit)
@@ -548,6 +582,46 @@ int bpftime_prog::bpftime_prog_load(bool jit)
 			if (res < 0)
 				return res;
 			libbpf_poison_registered = true;
+		}
+	}
+	// Calls of helpers nobody registered: if the program's read-only
+	// constants make them unreachable (an option that is off), they go to a
+	// helper that reports it ran; reachable ones still fail the compile.
+	auto missing_helper = [&](size_t i) {
+		const auto &inst = insns[i];
+		return inst.code == 0x85 && inst.src_reg == 0 &&
+		       !is_libbpf_poison_call(inst) && inst.imm >= 0 &&
+		       inst.imm < BPFTIME_DEAD_CALL_SLOT &&
+		       !raw_helpers.contains(inst.imm) &&
+		       !pending_map_mutations.contains(inst.imm);
+	};
+	bool any_missing = false;
+	for (size_t i = 0; i < insns.size() && !any_missing; i++)
+		any_missing = missing_helper(i) &&
+			      (i == 0 || insns[i - 1].code != 0x18);
+	if (any_missing) {
+		std::map<int, std::optional<std::span<const uint8_t> > > values;
+		auto constant = [&](int fd) {
+			auto [itr, fresh] = values.try_emplace(fd);
+			if (fresh)
+				itr->second = frozen_read_only_value(fd);
+			return itr->second;
+		};
+		const auto reachable = reachable_instructions(insns, constant);
+		for (size_t i = 0; i < insns.size(); i++) {
+			if (reachable[i] || !missing_helper(i))
+				continue;
+			if (owned_insns.empty())
+				owned_insns = insns;
+			owned_insns[i].imm = BPFTIME_DEAD_CALL_SLOT;
+			if (!dead_call_registered) {
+				res = ebpf_register(vm, BPFTIME_DEAD_CALL_SLOT,
+						    BPFTIME_DEAD_CALL_NAME,
+						    (void *)dead_call_reached);
+				if (res < 0)
+					return res;
+				dead_call_registered = true;
+			}
 		}
 	}
 	const auto &load_insns = owned_insns.empty() ? insns : owned_insns;

@@ -107,8 +107,9 @@ class bpf_map_handler {
 		  name(std::move(other.name)), id(other.id),
 		  map_impl_ptr(other.map_impl_ptr),
 		  map_refcnt_ptr(other.map_refcnt_ptr),
-		  max_entries(other.max_entries), flags(other.flags),
-		  key_size(other.key_size), value_size(other.value_size)
+		  max_entries(other.max_entries), frozen(other.frozen),
+		  flags(other.flags), key_size(other.key_size),
+		  value_size(other.value_size)
 	{
 		pthread_spin_init(&map_lock, PTHREAD_PROCESS_SHARED);
 		other.map_impl_ptr = nullptr;
@@ -130,6 +131,7 @@ class bpf_map_handler {
 		flags = other.flags;
 		key_size = other.key_size;
 		value_size = other.value_size;
+		frozen = other.frozen;
 		other.map_impl_ptr = nullptr;
 		other.map_refcnt_ptr = nullptr;
 		return *this;
@@ -312,6 +314,21 @@ class bpf_map_handler {
 	{
 		return map_lock;
 	}
+	// BPF_MAP_FREEZE: the bpf syscall may no longer change the map (EPERM);
+	// a second freeze is EBUSY, as the kernel. A frozen map created with
+	// BPF_F_RDONLY_PROG (libbpf's .rodata) is constant to its programs.
+	int freeze() const
+	{
+		if (__atomic_exchange_n(&frozen, true, __ATOMIC_ACQ_REL)) {
+			errno = EBUSY;
+			return -1;
+		}
+		return 0;
+	}
+	bool is_frozen() const
+	{
+		return __atomic_load_n(&frozen, __ATOMIC_ACQUIRE);
+	}
 	bool has_map_impl() const
 	{
 		return map_impl_ptr.get() != nullptr;
@@ -359,6 +376,9 @@ class bpf_map_handler {
 		const boost::interprocess::managed_shared_memory &memory) const;
 	int map_init_checked(boost::interprocess::managed_shared_memory &memory);
 	uint32_t max_entries = 0;
+	// In the padding before flags: a larger handler made every handler
+	// table larger (6144 per segment by default).
+	mutable bool frozen = false;
 	[[maybe_unused]] uint64_t flags = 0;
 	uint32_t key_size = 0;
 	uint32_t value_size = 0;
