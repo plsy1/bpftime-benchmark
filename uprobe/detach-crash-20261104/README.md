@@ -55,3 +55,17 @@ callbacks run.
 So no detach is safe while other threads run the function: avoiding it means never asking
 Gum to detach or revert at run time (listeners stay attached and become inert), and freeing
 bpftime's own callback data only after the threads that may use it have left.
+
+## Upstream Frida and the cost of never detaching
+
+- frida-gum main (`gum/guminterceptor.c`): `gum_function_context_remove_listener` now defers
+  `listener_entry_free` until no thread is inside (7822612ffd, 2026-10-14, "Defer freeing
+  detached listener entries"); first release with it: 17.24.0 (17.23.3 does not have it).
+  bpftime pins 16.1.2. The arm64 prologue restore is unchanged upstream
+  (`_gum_interceptor_backend_deactivate_trampoline`: `gum_memcpy` of the 16 bytes), so
+  hazard (a) remains in current Frida.
+- Cost of keeping Gum's path after a detach (hidden case "Kept redirect cost", the test's
+  function, 2 s per point, cpu5 1728000): native 236M calls/s on 1 thread, 1,406M on 6; with
+  only the no-op listener left 6.25M (about 160 ns a call) and 1.04M on 6 threads (Gum's usage
+  counter); with an empty uprobe as well 5.26M and 1.11M. A process traced once would keep
+  that cost on every probed function until it exits.
