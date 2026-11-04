@@ -53,3 +53,4 @@ dev-f9b92cee  dev f9b92cee, never pushed, replaced by 518a6b99 (603c81f7 + updat
 exp-spare-stripe experiment: dev f9b92cee with one spare per stripe under its lock (no exchange), old head replaced by one head store (candidate.diff; candidate build-jetson-daily)
 dev-518a6b99  dev 518a6b99 (603c81f7 + updates of existing keys take the stripe's spare element; binaries identical to exp-spare-stripe; candidate build-jetson-daily)
 dev-7ad5a152  dev 7ad5a152 (d5279469 + updates put the new element in the old one's place, lookups re-check their link; candidate build-jetson-daily)
+dev-ff5515d8  dev ff5515d8 (ea32ad8b + a thread's Gum context made inside an invocation before ignoring probes: memleak deadlock fix; candidate build-jetson-daily)

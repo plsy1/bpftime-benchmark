@@ -1,0 +1,40 @@
+[New LWP 2749071]
+[New LWP 2749070]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+0x0000ffff9c952018 in ?? ()
+
+Thread 3 (Thread 0xffff5baa8f20 (LWP 2749070) "mallocloop"):
+#0  0x0000ffff9ca35c0c in __GI_sched_yield () at ../sysdeps/unix/syscall-template.S:120
+#1  0x0000ffff9d135784 in spin_acquire_lock (sl=sl@entry=0xffff9cb40384) at ../../../frida-gum/gum/dlmalloc.c:1934
+#2  0x0000ffff9d136cc4 in mspace_malloc (msp=0xffff9cb40010, bytes=131072) at ../../../frida-gum/gum/dlmalloc.c:5555
+#3  0x0000ffff9d1162dc in g_array_maybe_expand (array=array@entry=0xffff9cb4f790, len=len@entry=32) at ../../../deps/glib/glib/garray.c:1010
+#4  0x0000ffff9d1166ec in g_array_sized_new (zero_terminated=0, clear=1, elt_size=2888, reserved_size=32) at ../../../deps/glib/glib/garray.c:291
+#5  0x0000ffff9d0cb8bc in interceptor_thread_context_new () at ../../../frida-gum/gum/guminterceptor.c:1894
+#6  get_interceptor_thread_context () at ../../../frida-gum/gum/guminterceptor.c:1747
+#7  0x0000ffff9d0ccb68 in _gum_function_context_begin_invocation (function_ctx=0xffff9cb4ead0, cpu_context=0xffff5baa81d0, caller_ret_addr=0x87, next_hop=0xffff5baa84e0) at ../../../frida-gum/gum/guminterceptor.c:1500
+#8  0x0000ffff9c9520b0 in ?? ()
+#9  0x0000ffff9d137630 in sys_alloc (nb=196608, m=0xffff9cb40010) at ../../../frida-gum/gum/dlmalloc.c:4194
+#10 mspace_malloc (msp=0xffff9cb40010, bytes=<optimized out>) at ../../../frida-gum/gum/dlmalloc.c:5653
+#11 0x0000ffff9d1162dc in g_array_maybe_expand (array=array@entry=0xffff9cb4f760, len=len@entry=32) at ../../../deps/glib/glib/garray.c:1010
+
+Thread 2 (Thread 0xffff5b298f20 (LWP 2749071) "mallocloop"):
+#0  0x0000ffff9ca35c0c in __GI_sched_yield () at ../sysdeps/unix/syscall-template.S:120
+#1  0x0000ffff9d135784 in spin_acquire_lock (sl=sl@entry=0xffff9cb40384) at ../../../frida-gum/gum/dlmalloc.c:1934
+#2  0x0000ffff9d136cc4 in mspace_malloc (msp=0xffff9cb40010, bytes=bytes@entry=2032) at ../../../frida-gum/gum/dlmalloc.c:5555
+#3  0x0000ffff9d1384d8 in mspace_calloc (msp=<optimized out>, n_elements=<optimized out>, elem_size=<optimized out>) at ../../../frida-gum/gum/dlmalloc.c:5778
+#4  0x0000ffff9d0df2f0 in g_private_set_alloc0 (key=0xffff9fbe1778 <private_thread_memory>, size=<optimized out>) at ../../../deps/glib/glib/gthread.c:549
+#5  0x0000ffff9d0e8318 in thread_memory_from_self () at ../../../deps/glib/glib/gslice.c:578
+#6  0x0000ffff9d0e8c64 in g_slice_alloc (mem_size=168) at ../../../deps/glib/glib/gslice.c:1079
+#7  0x0000ffff9d0cb860 in interceptor_thread_context_new () at ../../../frida-gum/gum/guminterceptor.c:1881
+#8  get_interceptor_thread_context () at ../../../frida-gum/gum/guminterceptor.c:1747
+#9  0x0000ffff9d0cbec0 in gum_interceptor_ignore_current_thread (self=<optimized out>) at ../../../frida-gum/gum/guminterceptor.c:724
+#10 0x0000ffff9d0449b4 in start_agent_ipc_server_once()::{lambda()#1}::operator()() const::{lambda()#1}::operator()() const [clone .lto_priv.0] () at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/agent/agent.cpp:95
+#11 0x0000ffff9c571ae0 in ?? () from /lib/aarch64-linux-gnu/libstdc++.so.6
+
+Thread 1 (Thread 0xffffa0001020 (LWP 2749069) "mallocloop"):
+#0  0x0000ffff9c952018 in ?? ()
+#1  0x0000ffff9d07dc04 in bpftime::attach::frida_attach_impl::call_attach_specific_function (this=0xaaaad02363e0, name=..., data=<optimized out>) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/attach/frida_uprobe_attach_impl/src/frida_uprobe_attach_impl.cpp:401
+#2  0x5f7613ad5907e500 in ?? ()
+Backtrace stopped: previous frame identical to this frame (corrupt stack?)
+[Inferior 1 (process 2749069) detached]

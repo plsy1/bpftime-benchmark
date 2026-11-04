@@ -187,3 +187,10 @@ real tool, and the single-thread harness workload never creates a thread.
 4. Harness: transformer leg for opensnoop/syscount, an attach-capable build
    for javagc, a working get_stack_id workload.
 5. Same-key update contention: recorded only (bpf has the same lock).
+
+Update 11-04 afternoon: item 1 done in dev ff5515d8 (`uprobe/memleak-fix-20261104`):
+memleak runs at 1-6 threads (12/12, was 12/12 hangs). Checking detach found
+problem 7: SIGUSR1 detach with uretprobes in flight crashes the workload on
+every build, official included (funclatency at 1-6 threads; memleak now that
+its detach runs). Before the fix the agent's detach and IPC threads were dead
+on every memleak run, single thread too.
