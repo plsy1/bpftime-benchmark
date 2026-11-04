@@ -58,3 +58,6 @@ exp-c98951a4-gumfix experiment: c98951a4 (map code before the multi-thread work)
 dev-efe08cbd  dev efe08cbd (ff5515d8 + stack trace map: a stored trace is found without the map lock; candidate build-jetson-daily)
 dev-25f4134f  dev 25f4134f (efe08cbd + Gum hooks never detached at run time: per-function slots, grace period, parking; candidate build-jetson-daily)
 dev-6a15a271  dev 6a15a271 (f0954773 + ringbuf record tag keeps the map fd next to the owner slot: problem 9; with CLI and transformer; candidate build-jetson-daily)
+dev-74d0ab8b  dev 74d0ab8b (6a15a271 + logger silenced and kept from exit onwards: problem 10 + libbpf-poisoned calls to a reporting helper: problem 11; with CLI and transformer; candidate build-jetson-daily)
+exp-74d0ab8b-task158  experiment: dev-74d0ab8b's agent with helper 158 (bpf_get_current_task_btf) registered as a stub returning 0 (not committed); other files from dev-74d0ab8b
+exp-74d0ab8b-missing  experiment: dev-74d0ab8b's agent with every call of an unregistered helper pointed at a stub returning -ENOSYS (not committed); other files from dev-74d0ab8b

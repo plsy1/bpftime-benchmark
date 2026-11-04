@@ -1,0 +1,87 @@
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+[2026-11-05 00:39:53][info][2957331] Global shm constructed. shm_open_type 1 for bpftime_maps_shm
+[2026-11-05 00:39:53][info][2957331] Global shm initialized
+[2026-11-05 00:39:53][info][2957331] bpf_attach_ctx constructed
+[2026-11-05 00:39:53][info][2957331] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2026-11-05 00:39:53][info][2957331] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2026-11-05 00:39:53][info][2957331] Register attach-impl defined helper bpf_get_retval, index 186
+[2026-11-05 00:39:53][info][2957331] Initializing agent..
+[2026-11-05 00:39:53][info][2957331] bpftime: shm epoch_seq = 2
+[2026-11-05 00:39:53][info][2957331] Executable path: /usr/bin/timeout
+[2026-11-05 00:39:53][info][2957331] Executable path: /usr/bin/timeout
+[New Thread 0xffffb44ea000 (LWP 2957340)]
+[New Thread 0xffffb3cda000 (LWP 2957341)]
+[2026-11-05 00:39:53][info][2957331] agent ipc: listening (abstract) for pid 2957331
+[2026-11-05 00:39:53][info][2957331] Attach successfully
+[Detaching after fork from child process 2957342]
+[2026-11-05 00:39:53][info][2957342] Global shm constructed. shm_open_type 1 for bpftime_maps_shm
+[2026-11-05 00:39:53][info][2957342] Global shm initialized
+[2026-11-05 00:39:53][info][2957342] bpf_attach_ctx constructed
+[2026-11-05 00:39:53][info][2957342] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2026-11-05 00:39:53][info][2957342] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2026-11-05 00:39:53][info][2957342] Register attach-impl defined helper bpf_get_retval, index 186
+[2026-11-05 00:39:53][info][2957342] Initializing agent..
+[2026-11-05 00:39:53][info][2957342] bpftime: shm epoch_seq = 2
+[2026-11-05 00:39:53][info][2957342] Executable path: /usr/bin/dash
+[2026-11-05 00:39:53][info][2957342] Executable path: /usr/bin/dash
+[2026-11-05 00:39:53][info][2957342] agent ipc: listening (abstract) for pid 2957342
+[2026-11-05 00:39:53][info][2957342] Attach successfully
+VICTIM 2957342
+[2026-11-05 00:39:53][info][2957342] Global shm constructed. shm_open_type 1 for bpftime_maps_shm
+[2026-11-05 00:39:53][info][2957342] Global shm initialized
+[2026-11-05 00:39:53][info][2957342] bpf_attach_ctx constructed
+[2026-11-05 00:39:53][info][2957342] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2026-11-05 00:39:53][info][2957342] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2026-11-05 00:39:53][info][2957342] Register attach-impl defined helper bpf_get_retval, index 186
+[2026-11-05 00:39:53][info][2957342] Initializing agent..
+[2026-11-05 00:39:53][info][2957342] bpftime: shm epoch_seq = 2
+[2026-11-05 00:39:53][info][2957342] Executable path: /home/jetson/src/bpftime-official-177a1dc-noaffinity-20261023/example/bpf_features/get_stack_id_example-core/victim
+[2026-11-05 00:39:53][info][2957342] Executable path: /home/jetson/src/bpftime-official-177a1dc-noaffinity-20261023/example/bpf_features/get_stack_id_example-core/victim
+[2026-11-05 00:39:53][info][2957342] agent ipc: listening (abstract) for pid 2957342
+[2026-11-05 00:39:53][info][2957342] Attach successfully
+
+Thread 1 "timeout" received signal SIGSEGV, Segmentation fault.
+0x0000fffff52b26b8 in bpftime::bpftime_shm::is_map_fd (this=<optimized out>, fd=3) at /home/jetson/src/bpftime-official-177a1dc-llvm16-20261021/runtime/src/bpftime_shm_internal.cpp:596
+596		if (manager == nullptr || fd < 0 ||
+  Id   Target Id                                     Frame 
+* 1    Thread 0xfffff7ff0020 (LWP 2957331) "timeout" 0x0000fffff52b26b8 in bpftime::bpftime_shm::is_map_fd (this=<optimized out>, fd=3) at /home/jetson/src/bpftime-official-177a1dc-llvm16-20261021/runtime/src/bpftime_shm_internal.cpp:596
+  2    Thread 0xffffb44ea000 (LWP 2957340) "timeout" 0x0000fffff4c81148 in __GI___libc_read (nbytes=16, buf=0xffffb44e96e8, fd=3) at ../sysdeps/unix/sysv/linux/read.c:26
+  3    Thread 0xffffb3cda000 (LWP 2957341) "timeout" 0x0000fffff4c8de94 in accept4 (fd=7, addr=..., addr_len=0x0, flags=524288) at ../sysdeps/unix/sysv/linux/accept4.c:31
+#0  0x0000fffff52b26b8 in bpftime::bpftime_shm::is_map_fd (this=<optimized out>, fd=3) at /home/jetson/src/bpftime-official-177a1dc-llvm16-20261021/runtime/src/bpftime_shm_internal.cpp:596
+#1  bpftime::bpftime_shm::is_ringbuf_map_fd (this=<optimized out>, fd=3) at /home/jetson/src/bpftime-official-177a1dc-llvm16-20261021/runtime/src/bpftime_shm_internal.cpp:605
+#2  bpftime::bpftime_shm::try_get_ringbuf_map_impl(int) const [clone .constprop.0] (fd=fd@entry=3, this=<optimized out>) at /home/jetson/src/bpftime-official-177a1dc-llvm16-20261021/runtime/src/bpftime_shm_internal.cpp:636
+#3  0x0000fffff5289474 in bpftime_ringbuf_reserve (fd=<optimized out>, size=24) at /home/jetson/src/bpftime-official-177a1dc-llvm16-20261021/runtime/src/bpftime_shm.cpp:391
+#4  0x0000fffff7fe701c in ?? ()
+#5  0x0000ffffffffefc8 in ?? ()
+Backtrace stopped: previous frame inner to this frame (corrupt stack?)
+
+Thread 3 (Thread 0xffffb3cda000 (LWP 2957341) "timeout"):
+#0  0x0000fffff4c8de94 in accept4 (fd=7, addr=..., addr_len=0x0, flags=524288) at ../sysdeps/unix/sysv/linux/accept4.c:31
+#1  0x0000fffff525ebf0 in start_agent_ipc_server_once()::{lambda()#1}::operator()() const::{lambda()#1}::operator()() const [clone .lto_priv.0] () at /home/jetson/src/bpftime-official-177a1dc-llvm16-20261021/runtime/agent/agent.cpp:303
+#2  0x0000fffff47b1ae0 in ?? () from /lib/aarch64-linux-gnu/libstdc++.so.6
+#3  0x0000fffff4c2582c [PAC] in start_thread (arg=0xfffff7ff0760) at ./nptl/pthread_create.c:447
+#4  0x0000fffff4c8ba0c in thread_start () at ../sysdeps/unix/sysv/linux/aarch64/clone3.S:76
+
+Thread 2 (Thread 0xffffb44ea000 (LWP 2957340) "timeout"):
+#0  0x0000fffff4c81148 in __GI___libc_read (nbytes=16, buf=0xffffb44e96e8, fd=3) at ../sysdeps/unix/sysv/linux/read.c:26
+#1  __GI___libc_read (fd=3, buf=buf@entry=0xffffb44e96e8, nbytes=nbytes@entry=16) at ../sysdeps/unix/sysv/linux/read.c:24
+#2  0x0000fffff5263978 in read (__nbytes=16, __buf=0xffffb44e96e8, __fd=<optimized out>) at /usr/include/aarch64-linux-gnu/bits/unistd.h:28
+#3  operator() (__closure=<optimized out>) at /home/jetson/src/bpftime-official-177a1dc-llvm16-20261021/runtime/agent/agent.cpp:512
+#4  std::__invoke_impl<void, ensure_detach_worker_started()::<lambda()> > (__f=...) at /usr/include/c++/13/bits/invoke.h:61
+#5  std::__invoke<ensure_detach_worker_started()::<lambda()> > (__fn=...) at /usr/include/c++/13/bits/invoke.h:96
+#6  std::thread::_Invoker<std::tuple<ensure_detach_worker_started()::<lambda()> > >::_M_invoke<0> (this=<optimized out>) at /usr/include/c++/13/bits/std_thread.h:292
+#7  std::thread::_Invoker<std::tuple<ensure_detach_worker_started()::<lambda()> > >::operator() (this=<optimized out>) at /usr/include/c++/13/bits/std_thread.h:299
+#8  std::thread::_State_impl<std::thread::_Invoker<std::tuple<ensure_detach_worker_started()::<lambda()> > > >::_M_run(void) (this=<optimized out>) at /usr/include/c++/13/bits/std_thread.h:244
+#9  0x0000fffff47b1ae0 in ?? () from /lib/aarch64-linux-gnu/libstdc++.so.6
+#10 0x0000fffff4c2582c [PAC] in start_thread (arg=0xfffff7ff0760) at ./nptl/pthread_create.c:447
+#11 0x0000fffff4c8ba0c in thread_start () at ../sysdeps/unix/sysv/linux/aarch64/clone3.S:76
+
+Thread 1 (Thread 0xfffff7ff0020 (LWP 2957331) "timeout"):
+#0  0x0000fffff52b26b8 in bpftime::bpftime_shm::is_map_fd (this=<optimized out>, fd=3) at /home/jetson/src/bpftime-official-177a1dc-llvm16-20261021/runtime/src/bpftime_shm_internal.cpp:596
+#1  bpftime::bpftime_shm::is_ringbuf_map_fd (this=<optimized out>, fd=3) at /home/jetson/src/bpftime-official-177a1dc-llvm16-20261021/runtime/src/bpftime_shm_internal.cpp:605
+#2  bpftime::bpftime_shm::try_get_ringbuf_map_impl(int) const [clone .constprop.0] (fd=fd@entry=3, this=<optimized out>) at /home/jetson/src/bpftime-official-177a1dc-llvm16-20261021/runtime/src/bpftime_shm_internal.cpp:636
+#3  0x0000fffff5289474 in bpftime_ringbuf_reserve (fd=<optimized out>, size=24) at /home/jetson/src/bpftime-official-177a1dc-llvm16-20261021/runtime/src/bpftime_shm.cpp:391
+#4  0x0000fffff7fe701c in ?? ()
+#5  0x0000ffffffffefc8 in ?? ()
+Backtrace stopped: previous frame inner to this frame (corrupt stack?)
