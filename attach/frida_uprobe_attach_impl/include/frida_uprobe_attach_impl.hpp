@@ -61,6 +61,20 @@ using frida_attach_entry_callback =
 	std::variant<callback_variant, ebpf_callback_args>;
 
 extern thread_local std::optional<void *> current_thread_gum_cpu_context;
+
+// Gum makes a thread's interceptor context on first use and guards that
+// against re-entry only inside an invocation. Elsewhere (ignoring the thread,
+// attach, detach) the allocation may grow Gum's heap with mmap; with mmap
+// probed (memleak), the probe then spins on the heap lock its own thread
+// holds. This makes the calling thread's context inside an invocation of a
+// function of our own that Gum hooks. Call it on any thread before those Gum
+// calls while probes may be attached.
+void ensure_gum_thread_context();
+// Listeners skip the calling thread until it is unignored (the count nests).
+// Gum still runs replacements (override, ureplace) on an ignored thread.
+void ignore_probes_on_this_thread();
+void unignore_probes_on_this_thread();
+
 // The frida uprobe attach implementation
 class frida_attach_impl final : public base_attach_impl {
     public:
