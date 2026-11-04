@@ -1421,13 +1421,66 @@ on the lock its own thread holds: memleak hung every threaded run (agent
 threads ignoring probes at start, 4d9b8a61). `ensure_gum_thread_context` makes
 the context through one call of a function of our own that Gum hooks (attached
 before the first probe, never detached); `ignore_probes_on_this_thread` and the
-attach entry's attach/replace/detach call it first. It is Gum's hazard (any
+hook slot's Gum attach and replace call it first. It is Gum's hazard (any
 thread's first unguarded context while `mmap` is probed); bpftime only avoids
 it, Gum is not patched. Gum still frees a context at thread exit outside the
 guard (if that free unmaps with `munmap` probed, it may recurse the same way;
 not seen, not handled). Test:
 "Fresh threads can ignore probes while mmap is probed" (32 threads, child
 process with a 20 s bound; hangs without the anchor call).
+
+## Detaching Uprobes While The Process Runs
+
+The Frida attach impl never asks Gum to detach or revert while the process
+runs. Each of the three steps of a Gum detach crashed a thread calling the
+function at the time (`uprobe/detach-crash-20261104`; any SIGUSR1 detach or
+tool exit under load, official too):
+
+- Gum restores the first instructions over its 16-byte redirect
+  (`ldr x16, [pc+8]; br x16; .quad on_enter`, a `gum_memcpy`) while other
+  threads may execute them: a thread that fetched the old `ldr` loads the
+  restored instructions as its jump target (SIGBUS). Unchanged in current Gum.
+- Gum 16.1.2 frees a detached listener's entry while other threads iterate the
+  entry array (`gum_function_context_remove_listener`; deferred since frida-gum
+  17.24.0).
+- bpftime freed the attach (its callback) and the agent the program while
+  callbacks still ran them.
+
+Instead each hooked function has a `frida_hook_slot` (`frida_hook_slot.hpp`)
+for the life of the process: Gum's enter listener (and a leave listener once a
+uretprobe came, the replacement once an override came) stays attached, and
+bpftime swaps the slot's `dispatch`. Republishing waits for a grace period
+(`frida_probe_grace.hpp`: per-thread counters odd inside a callback,
+`membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED)`, wait for odd counters to move),
+so `detach_by_id` returns only when no callback can still run the attach; the
+agent frees programs after it. With nothing attached the slot is parked: the
+redirect's literal (one aligned 8-byte store, or the low word when the literal
+is unaligned and both targets share the high word) or its single `b` is
+pointed at Gum's on-invoke code (the displaced first instructions, then back
+into the function), so calls bypass Gum; both targets are valid at any moment.
+The on-invoke address comes from `gum_interceptor_replace`'s
+`original_function`, for a replacement installed and reverted inside the
+transaction that first hooks the function (Gum writes the redirect when that
+transaction ends, so the replacement is unreachable). The code page is patched
+with `gum_memory_patch_code` (RWX pages only).
+
+Costs: a function once hooked keeps Gum's context; parked it costs the
+redirect and the displaced instructions (the test function: 157M calls/s
+parked against 231M native on one thread, 1,317M against 1,380M on six; the
+Gum path with only an empty listener was 5.2M and 1.1M). Gum's 8-byte form
+(`adrp; br`), deflectors and x86 are not parked: they keep Gum's path after a
+detach. Unparked with a past uretprobe, every call traps its return even in a
+uprobe-only session; a past override keeps the replacement, which calls the
+original. Callbacks pay one TLS access and two stores for the grace period.
+The attach-time window remains: Gum writes the redirect over the first
+instructions while other threads may run them (bpftime attaches at start).
+`frida_attach_impl` is not thread-safe: owners of one slot in two impls must
+not change their attaches concurrently. Tests: "Detaching probes while threads
+call the function keeps them running" (SIGBUS 3/3 before; with a never-detached
+keeper listener but Gum detaches, SIGSEGV 5/5), "No probe callback runs after
+its detach returned" (SIGSEGV 3/3 with `synchronize` returning at once),
+"Probes attached again after a detach run" (fails without the unpark), and the
+hidden "Hook cost attached and parked".
 
 ## Daemon Tracer Programs
 

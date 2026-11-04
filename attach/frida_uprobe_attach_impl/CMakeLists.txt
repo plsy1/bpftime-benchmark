@@ -7,6 +7,8 @@ add_library(
     src/frida_attach_utils.cpp
     src/frida_attach_private_data.cpp
     src/frida_register_conversion.cpp
+    src/frida_hook_slot.cpp
+    src/frida_probe_grace.cpp
 )
 add_dependencies(bpftime_frida_uprobe_attach_impl bpftime_base_attach_impl FridaGum spdlog::spdlog)
 
@@ -28,6 +30,7 @@ set(TEST_SOURCES
     test/test_back_trace.cpp
     test/test_register_conversion.cpp
     test/test_thread_context_with_probed_mmap.cpp
+    test/test_detach_while_called.cpp
 )
 option(TEST_LCOV "option for lcov" OFF)
 add_library(bpftime_frida_stripped_backtrace_fixture SHARED
