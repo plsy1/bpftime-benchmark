@@ -125,18 +125,6 @@ frida_internal_attach_entry::frida_internal_attach_entry(void *function,
 							 int basic_attach_type)
 	: function(function)
 {
-	override_return_callback = nullptr;
-	if (basic_attach_type == ATTACH_UPROBE_OVERRIDE) {
-		override_return_callback = override_return_set_callback(
-			[&](uint64_t ctx, uint64_t v) {
-				SPDLOG_DEBUG(
-					"Frida attach manager: received override return, value {}, context {:x}",
-					v, ctx);
-				is_overrided = true;
-				user_ret = v;
-				user_ret_ctx = ctx;
-			});
-	}
 	// Last: once an owner of the slot, only the destructor leaves it.
 	if (int err = frida_hook_add_owner(function, basic_attach_type, this,
 					   &slot);
@@ -174,7 +162,7 @@ void frida_internal_attach_entry::collect(frida_hook_dispatch &dispatch)
 			dispatch.uretprobes.push_back(v);
 			break;
 		case ATTACH_UPROBE_OVERRIDE:
-			dispatch.override_owner = this;
+			dispatch.override_attach = v;
 			break;
 		}
 	}
@@ -201,26 +189,17 @@ bool frida_internal_attach_entry::has_uprobe_or_uretprobe() const
 	return false;
 }
 
-void frida_internal_attach_entry::run_filter_callback(const pt_regs &regs) const
-{
-	for (auto v : user_attaches) {
-		if (v->get_type() == ATTACH_UPROBE_OVERRIDE) {
-			v->run_callback<ATTACH_UPROBE_OVERRIDE_INDEX>(regs);
-			// There should be at most one filter attach..
-			return;
-		}
-	}
-	SPDLOG_ERROR(
-		"Filter attach not found at function {:x}, but try to get filter callback",
-		(uintptr_t)function);
-	throw std::runtime_error("Unable to find filter callback");
-}
-
 void frida_internal_attach_entry::run_uprobes(
 	const frida_hook_dispatch &dispatch, const pt_regs &regs)
 {
 	for (auto v : dispatch.uprobes)
 		v->run_callback<ATTACH_UPROBE_INDEX>(regs);
+}
+
+void frida_internal_attach_entry::run_override(const frida_attach_entry &attach,
+					       const pt_regs &regs)
+{
+	attach.run_callback<ATTACH_UPROBE_OVERRIDE_INDEX>(regs);
 }
 
 void frida_internal_attach_entry::run_uretprobes(
@@ -234,7 +213,11 @@ typedef void *(*ufunc_func)(void *r1, void *r2, void *r3, void *r4, void *r5);
 
 // The replacement stays once installed; without an override attached it
 // calls the original. The filter runs inside a grace period, the original
-// outside it (it may block).
+// outside it (it may block). It runs the dispatch's override attach (a detach
+// shrinks the owner's attaches before republishing), keeps what the program
+// sets in this call's own state (other threads run the same override), and
+// throws nothing: its caller is Gum's trampoline, which has no unwind
+// information.
 extern "C" void *__bpftime_frida_attach_manager__override_handler()
 {
 	GumInvocationContext *ctx;
@@ -256,21 +239,38 @@ extern "C" void *__bpftime_frida_attach_manager__override_handler()
 	auto *reader = probe_grace::enter();
 	const frida_hook_dispatch *dispatch =
 		slot->dispatch.load(std::memory_order_acquire);
-	if (auto *hook_entry =
-		    dispatch ? dispatch->override_owner : nullptr) {
+	if (const frida_attach_entry *attach =
+		    dispatch ? dispatch->override_attach : nullptr) {
 		convert_gum_cpu_context_to_pt_regs(*ctx->cpu_context, regs);
-		hook_entry->is_overrided = false;
+		// The previous callback comes back afterwards: a nested call
+		// (the program calling the function) keeps its own, and none is
+		// left pointing at this frame.
+		auto previous = std::move(curr_thread_override_return_callback);
 		curr_thread_override_return_callback =
-			hook_entry->override_return_callback;
+			override_return_set_callback(
+				[&](uint64_t, uint64_t v) {
+					overridden = true;
+					value = (uintptr_t)v;
+				});
 
 		SPDLOG_DEBUG("Setting current thread gum cpu context");
 		current_thread_gum_cpu_context = ctx->cpu_context;
-
-		hook_entry->run_filter_callback(regs);
+		try {
+			frida_internal_attach_entry::run_override(*attach, regs);
+		} catch (const std::exception &e) {
+			BPFTIME_LOG_ERROR_RATELIMITED(
+				"Override at {:x} failed, calling the original: {}",
+				(uintptr_t)ctx->function, e.what());
+			overridden = false;
+		} catch (...) {
+			BPFTIME_LOG_ERROR_RATELIMITED(
+				"Override at {:x} failed, calling the original",
+				(uintptr_t)ctx->function);
+			overridden = false;
+		}
 		SPDLOG_DEBUG("Resetting current thread gum cpu context");
 		current_thread_gum_cpu_context.reset();
-		overridden = hook_entry->is_overrided;
-		value = (uintptr_t)hook_entry->user_ret;
+		curr_thread_override_return_callback = std::move(previous);
 	}
 	probe_grace::leave(reader);
 	if (overridden) {

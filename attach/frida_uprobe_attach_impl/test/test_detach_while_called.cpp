@@ -1,5 +1,6 @@
 #include <frida_uprobe_attach_impl.hpp>
 #include <frida_hook_slot.hpp>
+#include <frida_register_def.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <atomic>
 #include <chrono>
@@ -39,6 +40,32 @@ detach_reattach_target(uint64_t x)
 	asm volatile("" : "+r"(h));
 	return h;
 }
+
+extern "C" __attribute__((noinline)) uint64_t
+detach_override_target(uint64_t x)
+{
+	uint64_t h = 0x27d4eb2f165667c5ULL;
+	for (int i = 0; i < 4; i++) {
+		h ^= x + i;
+		h *= 0x9e3779b97f4a7c15ULL;
+	}
+	asm volatile("" : "+r"(h));
+	return h;
+}
+
+extern "C" __attribute__((noinline)) uint64_t
+concurrent_override_target(uint64_t x)
+{
+	uint64_t h = 0x165667b19e3779f9ULL;
+	for (int i = 0; i < 4; i++) {
+		h ^= x + i;
+		h *= 0xc2b2ae3d27d4eb4fULL;
+	}
+	asm volatile("" : "+r"(h));
+	return h;
+}
+
+extern "C" uint64_t bpftime_set_retval(uint64_t value);
 
 namespace
 {
@@ -170,7 +197,79 @@ int callbacks_after_detach_returns()
 		return 3;
 	return late.load() == 0 ? 0 : 4;
 }
+// The replacement used to look for the override among the entry's attaches,
+// which detach_by_id shrinks before republishing: a call in between found
+// none and threw out of Gum's replacement (std::terminate).
+int detach_override_while_threads_call_the_function()
+{
+	frida_attach_impl man;
+	callers c(detach_override_target);
+	std::atomic<uint64_t> hits{ 0 };
+	int cycles = 0;
+	const auto until =
+		std::chrono::steady_clock::now() + std::chrono::seconds(3);
+	while (std::chrono::steady_clock::now() < until) {
+		int id = man.create_uprobe_override_at(
+			(void *)detach_override_target, [&](const pt_regs &) {
+				hits.fetch_add(1, std::memory_order_relaxed);
+				bpftime_set_retval(42);
+			});
+		if (id < 0)
+			return 2;
+		std::this_thread::sleep_for(std::chrono::microseconds(200));
+		man.detach_by_id(id);
+		cycles++;
+	}
+	c.join();
+	return hits.load() > 0 && c.calls.load() > 0 && cycles > 100 ? 0 : 3;
+}
 } // namespace
+
+TEST_CASE("Detaching an override while threads call the function keeps them running")
+{
+	int status = run_in_child(detach_override_while_threads_call_the_function);
+	// 2: attach failed; 3: no override ran or too few cycles; 5: an
+	// exception; 255: hang; above 128: killed by a signal
+	INFO("child status " << status);
+	REQUIRE(status == 0);
+}
+
+// The value a program sets belonged to the function's entry, shared by every
+// thread calling it: a thread could return another's.
+TEST_CASE("Concurrent override calls each return their own value")
+{
+	frida_attach_impl man;
+	int id = man.create_uprobe_override_at(
+		(void *)concurrent_override_target, [](const pt_regs &regs) {
+			bpftime_set_retval(PT_REGS_PARM1(&regs) + 1);
+			// Programs go on after setting it (map updates, output).
+			for (int i = 0; i < 200; i++)
+				asm volatile("" ::: "memory");
+		});
+	REQUIRE(id >= 0);
+	uint64_t (*volatile target)(uint64_t) = concurrent_override_target;
+	std::atomic<bool> stop{ false };
+	std::atomic<uint64_t> calls{ 0 }, wrong{ 0 };
+	std::vector<std::thread> threads;
+	for (uint64_t t = 0; t < 4; t++)
+		threads.emplace_back([&, t] {
+			uint64_t n = 0, bad = 0;
+			for (; !stop.load(std::memory_order_relaxed); n++) {
+				const uint64_t x = (t << 40) | n;
+				bad += target(x) != x + 1;
+			}
+			calls.fetch_add(n);
+			wrong.fetch_add(bad);
+		});
+	std::this_thread::sleep_for(std::chrono::seconds(2));
+	stop.store(true);
+	for (auto &t : threads)
+		t.join();
+	man.detach_by_id(id);
+	INFO("calls " << calls.load() << " wrong " << wrong.load());
+	REQUIRE(calls.load() > 0);
+	REQUIRE(wrong.load() == 0);
+}
 
 // Detaching the last probe of a function used to copy its saved first
 // instructions back over Gum's 16-byte redirect while other threads ran it
