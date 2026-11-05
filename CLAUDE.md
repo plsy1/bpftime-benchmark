@@ -905,7 +905,31 @@ back). The tests before the switch use no flags (NZCV is saved later). The
 frame's slot at 776 holds the application's sp (bit 0: switched, bit 3:
 direct path), from which the unwind information computes the CFA; the saved
 registers are described relative to sp, and the CFA from x0 for the
-instruction before the slot is written and from x17 after it is cleared. Cost: 39 instructions, 14-15 cycles per hooked call (write: 397 -> 406
+instruction before the slot is written and from x17 after it is cleared.
+A frame can be left marked without its epilogue: a vfork-style child
+(`posix_spawn`, `system`, Go's `os/exec`: `CLONE_VM` without `CLONE_SETTLS`)
+shares its parent's TLS and hook stack and execs or exits inside a hooked
+call, and a handler can `siglongjmp` out of one. Afterwards every call of that
+thread stayed on the caller's stack (32 -> 1272 bytes below sp; for Go with
+programs, the 18 KB crash again). Now a marked top with sp off the hook stack
+costs a `sigaltstack(NULL, &old)` (through `orig_syscall_direct`, the one
+`svc` the scanner skips; 96 bytes below sp): on the signal stack
+(`SS_ONSTACK`) the frame is live and the call stays; otherwise the frame was
+abandoned and the call switches over it. It stays on an error, and on
+`SS_DISABLE` in a thread that set an `SS_AUTODISARM` signal stack: inside such a
+handler the kernel reports the stack disabled and drops the `SS_AUTODISARM` bit
+too (`sas_ss_reset`), exactly as with no signal stack, so the hook records the
+flag itself (`autodisarm` in the TLS block: from the thread's hooked
+`sigaltstack` calls, now in the special-call bitmap, and a query at its first
+hooked call); with that flag missing the case crashed (SIGSEGV). An
+`SS_AUTODISARM` stack set by code that is not rewritten, after the thread's
+first hooked call, stays unknown. It also stays, for good, once the thread made
+a clone whose child runs at the same time on its TLS (`CLONE_VM` without
+`CLONE_VFORK` or `CLONE_SETTLS`, or clone3 flags not readable: `shared`). The cost of telling: a handler without an
+alternate stack that moves to a stack of its own (`swapcontext`) while a frame
+is live and makes a hooked call there is taken for an abandoned frame and
+overwrites it (with `busy` it stayed); no runtime checked here does that (Go
+returns from its handler before switching). Cost: 39 instructions, 14-15 cycles per hooked call (write: 397 -> 406
 ns rewritten, agent dispatch 426 -> 436 ns; results
 `syscall/realapps-20261102/hook-perf`). Tests: "a hooked call uses only a few bytes of the caller's stack", "a
 handler on an alternate stack leaves the hook's live frame alone", "a handler
@@ -913,7 +937,10 @@ on the hook stack builds its frame below the live one", "handlers on an
 alternate stack interrupting the hook leave its frame intact" (about 340k
 signals, nearly all landing in the hook, each unwound from the handler back to
 the interrupted loop; it cannot single out the few instructions with their own
-CFA rows, which were checked with `llvm-dwarfdump --eh-frame`); end to end with Go,
+CFA rows, which were checked with `llvm-dwarfdump --eh-frame`), "the hook stack
+is used again after a frame on it is abandoned" (`posix_spawn`, `system`,
+`vfork`, `siglongjmp` from either stack), "a handler on an auto-disarmed signal
+stack leaves the hook's live frame alone"; end to end with Go,
 results `syscall/realapps-20261102`. A raw `CLONE_VM` thread without
 `CLONE_SETTLS` shares its creator's TLS and hook stack (not covered).
 Frida uprobes on Go functions still run programs (18 KB) on the goroutine
