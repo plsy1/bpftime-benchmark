@@ -1,0 +1,59 @@
+The review's experiments (reviews-20261105/experiments/<area>/) rebuilt against
+the fixed tree (dev d46ceb8f, build-jetson-daily) or run with the frozen
+fix-final build; "before" is the review's own result at 94f9ba8f
+(dev-b60b99c3, the same code). 2026-11-05 20:45-21:20.
+
+frida/exp5_override_detach 3  (H1)
+  before: SIGABRT 3/3 within the first 1000 cycles (SIGILL 1/1)
+  after:  done: cycles=11205 hits=4410168 calls=39228853 parked=1 / child exited 0
+          done: cycles=10905 hits=5161389 calls=41168486 parked=1 / child exited 0
+          done: cycles=11225 hits=4479487 calls=36048414 parked=1 / child exited 0
+
+frida/exp4_thunk  (M3)
+  before: target probe detached: target parked=1 thunk parked=0;
+          hits_thunk=2 after a call (probe silent)
+  after:  target probe detached: target parked=0 thunk parked=0
+          after one call of thunk with its probe still attached: hits_thunk=3
+          child exited 0
+
+frida/exp2_forms, exp2_forms 1 (fork), exp3_override_gc 0/1/2  (L8, L10 touched)
+  after:  all children exited 0; exp3 0: "end: parked=1 six_args=245 (expect
+          245)"; exp3 1: "round 2: hits=900"; exp3 2: "refcount after the impl
+          died (before this obtain): 1" (no slot was made in that mode, so the
+          slots' own reference is not taken)
+
+stack-ringbuf/e2e_plain race 2000, with the transformer .so only (H2)
+  dev-b60b99c3: race: victim STALLED for 3 s at iteration 58742: handler runs
+                331201, signals sent 331402, bad 0
+  fix-final:    race: child exited: code 0; victim iters 50000000, handler runs
+                2957804, signals 2957812, bad 0
+
+stack-ringbuf/e2e_plain spawn  (M1)
+  dev-b60b99c3: spawn: bytes below sp before 32, after posix_spawn 944
+  fix-final:    spawn: bytes below sp before 32, after posix_spawn 32
+
+stack-ringbuf/altstack_race 3 2000000 2000 (core library linked statically; H2)
+  before: STALLED (altstack_race5.log)
+  after:  mode 3: child exited: code 0; victim iters 2000000, handler runs
+          126384, signals 126391, bad 0 (and 125948 / 125955 in a second run).
+          Its "window hits" count reads the old busy word, now `shared`
+          (always 0 here): meaningless after the fix.
+
+stack-ringbuf/busy_stuck <mode>  (M1)
+  before: 32 -> 1272 for spawn, system, vfork, longjmp
+  after:  spawn/system/vfork/longjmp/none: bytes below sp before 32, after 32
+          (next call 32)
+
+stack-ringbuf/thread_churn 16384 1  (M2)
+  before: 84 -> 32,854 mappings, VmSize 6 MB -> 3.16 GB, VmRSS 4.6 -> 70 MB
+  after:  after 16384 threads: 91 mappings, VmSize 14808 kB, VmRSS 4632 kB
+
+percpu/e1_noexist  (M4)
+  before: (a) WAITED for the pool lock; (b) E2BIG where bpf returns EEXIST
+  after:  (a) program and bpf() updates: did not wait (ret -1 errno 17 File
+          exists); (b) in-flight NOEXIST of k1: EEXIST; program and bpf()
+          NOEXIST of k2: EEXIST; failures: 0
+
+percpu/e3_death_leak  (low, documented, not fixed)
+  after:  insert 62 failed: errno 7; ncpu 6, 9 children killed between slot
+          and insert, max_entries 64, inserted 61 (unchanged)
