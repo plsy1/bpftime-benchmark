@@ -24,18 +24,9 @@ class frida_internal_attach_entry {
 	friend class frida_attach_impl;
 
     public:
-	// Whether the function `bpftime_set_retval` is invoked. If this is set
-	// to true, the return value should be overrided by `user_ret`
-	bool is_overrided = false;
-	uint64_t user_ret = 0;
-	// Extra context when overriding the return value
-	uint64_t user_ret_ctx = 0;
-	override_return_set_callback override_return_callback;
-
 	bool has_override() const;
 	bool has_uprobe_or_uretprobe() const;
 	void ensure_listener(int attach_type);
-	void run_filter_callback(const pt_regs &regs) const;
 	// Adds this entry's attaches to a dispatch being built.
 	void collect(frida_hook_dispatch &dispatch);
 	// Publishes user_attaches: when it returns, no callback runs an attach
@@ -45,6 +36,8 @@ class frida_internal_attach_entry {
 				const pt_regs &regs);
 	static void run_uretprobes(const frida_hook_dispatch &dispatch,
 				   const pt_regs &regs);
+	static void run_override(const frida_attach_entry &attach,
+				 const pt_regs &regs);
 	frida_internal_attach_entry(const frida_internal_attach_entry &) =
 		delete;
 	frida_internal_attach_entry &

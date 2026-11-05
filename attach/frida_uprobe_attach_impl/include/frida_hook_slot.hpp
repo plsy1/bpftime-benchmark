@@ -17,7 +17,9 @@ class frida_internal_attach_entry;
 struct frida_hook_dispatch {
 	std::vector<const frida_attach_entry *> uprobes;
 	std::vector<const frida_attach_entry *> uretprobes;
-	frida_internal_attach_entry *override_owner = nullptr;
+	// The replacement runs it from here, never from the owner's attaches,
+	// which a detach changes before republishing.
+	const frida_attach_entry *override_attach = nullptr;
 };
 
 // One per function bpftime hooks, for the life of the process. Gum is never
