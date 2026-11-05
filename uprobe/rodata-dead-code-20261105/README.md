@@ -48,3 +48,14 @@ hist, ustack, usdt jvm, bashreadline, gethostlatency) exact, javagc 50/50, get_s
   walk needs Frida's context), which only zeroes its `callers` field.
 - syscount `-P` (count by process) and opensnoop `-F` (full path) run the code that needs those
   kernel-only helpers: there the program is still disabled, as before (by construction; not run).
+
+## The daily stack on official 25e250d6 (185 commits)
+
+Added to the daily list as automation 8cbd6fa7. The daily skips while official
+does not move (11-05: 25e250d6 unchanged, status "unchanged"), so the eight
+commits added since stack f6926533 (ff5515d8..94f9ba8f) were applied locally
+with `tracker.py migrate --official-sha 25e250d6...` (no push) and gated with
+`tracker.py test-candidate`: `stack-25e250d6-185-gate.log`. Runtime 176 passed,
+1 skipped; transformer 49 passed and the known shouldfail case; real-tool smoke:
+funclatency 5,665,000/5,665,000 calls, memleak `-c` 9 outstanding allocations,
+SIGUSR1 detach with workload rc 0.
