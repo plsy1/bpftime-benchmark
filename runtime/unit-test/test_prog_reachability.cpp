@@ -195,6 +195,17 @@ TEST_CASE("A missing helper behind a read-only constant does not disable the "
 	REQUIRE(prog.bpftime_prog_exec(memory, sizeof(memory), &ret) == 0);
 	REQUIRE(ret == 7);
 
+	// A kfunc call there (BPF_PSEUDO_KFUNC_CALL, imm a BTF id, which
+	// nobody registers) is dropped the same way (review 2026-11-05).
+	auto kfunc = program(rodata_fd);
+	kfunc[4].src_reg = 2;
+	kfunc[4].imm = 61234;
+	bpftime_prog kfunc_prog(kfunc.data(), kfunc.size(), "kfunc_option_off",
+				runtime_config{});
+	REQUIRE(kfunc_prog.bpftime_prog_load(true) == 0);
+	REQUIRE(kfunc_prog.bpftime_prog_exec(memory, sizeof(memory), &ret) == 0);
+	REQUIRE(ret == 7);
+
 	// Not frozen, or not read-only to programs: not a constant, the call
 	// can run, and the program stays disabled.
 	const int open_fd = make_rodata("open_rodata", BPF_F_RDONLY_PROG);

@@ -89,3 +89,37 @@ TEST_CASE("Calls libbpf poisoned in dead code do not disable the program",
 		0);
 	REQUIRE((int64_t)ret == -EINVAL);
 }
+
+// The CO-RE form: an instruction whose relocation failed (a field the running
+// kernel lacks, read behind bpf_core_field_exists) becomes a call of 195896080
+// (0xbad2310). memleak's tracepoint programs were disabled for it (review
+// 2026-11-05).
+TEST_CASE("Calls libbpf poisoned for a failed CO-RE relocation do not disable the program",
+	  "[jit_load]")
+{
+	const ebpf_inst dead[] = {
+		{ .code = 0xb7, .dst_reg = 0, .src_reg = 0, .off = 0, .imm = 7 },
+		{ .code = 0x55, .dst_reg = 0, .src_reg = 0, .off = 1, .imm = 0 },
+		{ .code = 0x85, .dst_reg = 0, .src_reg = 0, .off = 0,
+		  .imm = 195896080 },
+		{ .code = 0x95, .dst_reg = 0, .src_reg = 0, .off = 0, .imm = 0 },
+	};
+	bpftime_prog prog(dead, 4, "core_poison_dead", runtime_config{});
+	REQUIRE(prog.bpftime_prog_load(true) == 0);
+	uint64_t memory[4] = {};
+	uint64_t ret = 0;
+	REQUIRE(prog.bpftime_prog_exec(memory, sizeof(memory), &ret) == 0);
+	REQUIRE(ret == 7);
+
+	const ebpf_inst reached[] = {
+		{ .code = 0x85, .dst_reg = 0, .src_reg = 0, .off = 0,
+		  .imm = 195896080 },
+		{ .code = 0x95, .dst_reg = 0, .src_reg = 0, .off = 0, .imm = 0 },
+	};
+	bpftime_prog reached_prog(reached, 2, "core_poison_reached",
+				  runtime_config{});
+	REQUIRE(reached_prog.bpftime_prog_load(true) == 0);
+	REQUIRE(reached_prog.bpftime_prog_exec(memory, sizeof(memory), &ret) ==
+		0);
+	REQUIRE((int64_t)ret == -EINVAL);
+}
