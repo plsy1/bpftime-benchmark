@@ -1709,9 +1709,15 @@ int bpftime_register_map_ops(int map_type, bpftime_map_ops *ops)
 }
 
 // Queue/stack map helper functions implementation
+// The kernel drops write access to a frozen map for every syscall command
+// (map_get_sys_perms): push, pop and lookup-and-delete too.
 long bpf_map_handler::map_push_elem(const void *value, uint64_t flags,
 				    bool from_syscall) const
 {
+	if (from_syscall && is_frozen()) {
+		errno = EPERM;
+		return -1;
+	}
 	const auto do_push = [&](auto *impl) -> long {
 		if (impl->should_lock) {
 			bpftime_lock_guard guard(map_lock);
@@ -1744,6 +1750,10 @@ long bpf_map_handler::map_push_elem(const void *value, uint64_t flags,
 
 long bpf_map_handler::map_pop_elem(void *value, bool from_syscall) const
 {
+	if (from_syscall && is_frozen()) {
+		errno = EPERM;
+		return -1;
+	}
 	const auto do_pop = [&](auto *impl) -> long {
 		if (impl->should_lock) {
 			bpftime_lock_guard guard(map_lock);
@@ -1769,9 +1779,14 @@ long bpf_map_handler::map_pop_elem(void *value, bool from_syscall) const
 	}
 }
 
+// Only the syscall's command.
 long bpf_map_handler::map_lookup_and_delete_elem(const void *key,
 						 void *value) const
 {
+	if (is_frozen()) {
+		errno = EPERM;
+		return -1;
+	}
 	// Maps under the handler lock: the lookup and the delete as one step.
 	const auto under_lock = [&](auto *impl) -> long {
 		bpftime_lock_guard guard(map_lock);

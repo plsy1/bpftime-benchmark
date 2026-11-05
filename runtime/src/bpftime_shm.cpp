@@ -153,6 +153,14 @@ int bpftime_map_freeze(int fd)
 	return std::get<bpftime::bpf_map_handler>(shm.get_handler(fd)).freeze();
 }
 
+int bpftime_is_map_frozen(int fd)
+{
+	auto &shm = shm_holder.global_shared_memory;
+	return shm.is_map_fd(fd) &&
+	       std::get<bpftime::bpf_map_handler>(shm.get_handler(fd))
+		       .is_frozen();
+}
+
 long bpftime_map_delete_elem(int fd, const void *key)
 {
 	try {

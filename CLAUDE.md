@@ -803,7 +803,11 @@ off may call helpers bpftime does not have (opensnoop's `full_path`:
 `bpf_get_current_task`). The kernel's verifier treats a frozen read-only map's
 value as constant and drops that code; bpftime disabled the whole program.
 `BPF_MAP_FREEZE` is now recorded (`bpf_map_handler::freeze`: later syscall
-updates and deletes are EPERM, a second freeze EBUSY; it was a no-op), and when
+updates, deletes, pushes, pops and lookup-and-deletes are EPERM, as is a
+writable mmap of a frozen array through the syscall server (a read-only one
+still points into the shared value, which stays writable memory), and a second
+freeze EBUSY; it was a no-op; push, pop, lookup-and-delete and mmap were left
+out until 11-05, test "A frozen map refuses every syscall write"), and when
 a program calls a helper nobody registered, `bpftime_prog_load` runs
 `reachable_instructions` (`bpftime_prog_reachability.cpp`): a forward
 analysis that tracks scalars and pointers into frozen read-only array values

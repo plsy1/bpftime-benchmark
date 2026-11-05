@@ -1000,6 +1000,12 @@ void *syscall_context::handle_mmap64(void *addr, size_t length, int prot,
 		}
 	} else if (fd != -1 && bpftime_is_array_map(fd)) {
 		SPDLOG_DEBUG("Entering mmap64 which handled array map");
+		// The kernel refuses a writable mapping of a frozen map. A
+		// read-only one still points into the shared value, writable.
+		if ((prot & PROT_WRITE) && bpftime_is_map_frozen(fd)) {
+			errno = EPERM;
+			return MAP_FAILED;
+		}
 		if (auto val = bpftime_get_array_map_raw_data(fd);
 		    val != nullptr) {
 			mocked_mmap_values.insert((uintptr_t)val);
