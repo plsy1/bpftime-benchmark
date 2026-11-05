@@ -213,7 +213,9 @@ dev 6a15a271, 10 by b46dde06, 11 by 74d0ab8b and b60b99c3 (with the dead code by
 constants, `uprobe/rodata-dead-code-20261105`), 12 (helper 35) only where the option that needs it
 is on. New:
 
-13. opensnoop under the transformer delivers 48.5% of the opens (18,838 of 38,800; bpf 99.8%). Not
-    investigated.
+13. opensnoop under the transformer delivers 48.5% of the opens (18,838 of 38,800; bpf 99.8%).
+    Cause (`uprobe/opensnoop-loss-20261105`): a bpftime ring buffer submit does not wake the
+    consumer, which polls every 1 ms; opensnoop's 8 KB events fill the 256 KiB ring buffer at 31,
+    and the workload's bursts of 100 opens (0.3 ms) overflow it. Bursts of 25 or fewer: 100%.
 14. `bpf_get_stack` in a syscall tracepoint fails ("There is no frida hook running": the stack walk
     needs Frida's context); for opensnoop it only zeroes the `callers` field.
