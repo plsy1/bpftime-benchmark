@@ -764,10 +764,14 @@ class bpftime_hash_map {
 		}
 		const uint32_t index = *link;
 		uint8_t *e = elem_at(v, index);
-		if (value_out != nullptr)
-			copy_bytes(value_out, value_of(e), _value_size);
 		unlink_and_retire_locked(link, e, 2);
 		bpftime_spin_unlock(&st.lock);
+		// After unlocking: value_out may be a tool's bad buffer (the
+		// kernel's EFAULT), and a fault under the lock left the stripe
+		// locked for the traced process. Nothing reuses the element
+		// before it is given back.
+		if (value_out != nullptr)
+			copy_bytes(value_out, value_of(e), _value_size);
 		give_element(v, index);
 		return true;
 	}

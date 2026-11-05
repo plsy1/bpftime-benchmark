@@ -545,8 +545,8 @@ htab: `BPF_NOEXIST` on an existing key fails with `EEXIST`, `BPF_EXIST` on a
 missing key with `ENOENT`, a new key in a full map with `E2BIG`, flags above
 `BPF_EXIST` with `EINVAL`, and deleting a missing key with `ENOENT` (all as -1
 plus errno, the convention of the other maps). `BPF_F_LOCK` is still ignored.
-The existence check runs only for `BPF_NOEXIST`/`BPF_EXIST`, under the
-implementation's writer lock; `BPF_ANY` stays a single probe. Lookup-then-update counters
+Every mode walks the key's chain once under its stripe lock, which also does
+the existence check of `BPF_NOEXIST`/`BPF_EXIST`. Lookup-then-update counters
 depend on `BPF_EXIST`: when a reader deletes the key in between, ignoring the
 flag re-inserted the stale count (the malloc example counted up to 20% too many
 calls).
@@ -724,12 +724,19 @@ longer writes into a free or reused element, as in the kernel.
 
 A process killed inside a writer leaves its stripe locked
 (writers of that stripe and `next_key` calls reaching it hang, lookups do
-not). One killed holding a free list's lock hangs that list's deletes and
+not); a tool killed inside `next_key` is such a holder too. Lookup-and-delete
+copies the value out after unlocking (a tool's bad buffer, the kernel's
+EFAULT, faulted under the lock and left the stripe locked until 11-05; test
+"bpftime_hash_map lookup-and-delete copies out after unlocking", the
+traced process's writer hung without it). One killed holding a free list's lock hangs that list's deletes and
 every insert that runs out of its own list, and with it that insert's
 stripe (reproduced: the inserter and another writer of its stripe stopped,
 a lookup returned); the kernel waits there too, but its holders cannot die.
 One killed between taking and linking an element, or between unlinking and
 giving it back, loses that element (E2BIG one entry early). Tests:
+"bpftime_hash_map replaces long keys in place without misses" (8- and 16-byte
+keys: the memcmp path under replacements; removing that path's two acquire
+fences does not fail it, its readers' acquire loads cover them on this core),
 `test_hash_map_chains.cpp` (writers lock only the key's stripe, lookups no
 lock; lookups of keys present throughout never miss while elements around
 them move through the free lists into other chains, mutation: any
