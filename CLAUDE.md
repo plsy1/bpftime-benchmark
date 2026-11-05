@@ -671,6 +671,12 @@ own asm with the opposite protocol (pthread_spin_init stores 1 = free, lock
 is `lock decl`, held at 0), and with the inline exchange there every map
 operation spun forever on a lock pthread_spin_init had made (found on the
 NUC; the test above hung).
+The lock is not fair (glibc's protocol is not either): one thread updating a
+stripe in a tight loop (about 4M updates/s, 35 ns under the lock) starves
+another writer of that stripe for 10-100+ ms per update (pthread_spin_lock,
+before 0ffe368b, was worse; review 2026-11-05). Probe rates (about 1 us per
+Frida hit, 0.4 us per hooked system call) stay well below that; a ticket lock
+would fix it at one more word per stripe if a workload ever reaches it.
 The table takes it inline; `bpftime_lock_guard` calls the out-of-line
 copies (`bpftime_spin_lock_outlined`): forced inline there, the per-CPU
 hash helpers ran 30 more instructions per update and lookup (LTO kept the
@@ -685,7 +691,13 @@ element's place (one release store of the old element's link: the head or
 its predecessor's `next`), then retires the old element (new generation) and
 leaves it as the spare. A lookup on the predecessor loads the old element
 (its value, whole) or the new one. A `lookup_read` copy holds one value
-whole (the word re-check catches reuse). The kernel links the new element at
+whole (the word re-check catches reuse) only if the reader reads with acquire
+loads on 4-byte-key maps (the header says so): that path has no fence between
+the reader and the re-check, which d16fcbf5 removed (4 ns per lookup), and a
+memcpy reader there got torn copies (1 of 80M at 64 B, 575 of 39M at 256 B;
+review 2026-11-05). The in-tree readers (the per-CPU hash's slot number, the
+tests) use acquire loads; a fence for every non-empty reader would charge each
+per-CPU lookup for nothing. The kernel links the new element at
 the head and then unlinks the old one, so a lookup past the head, on the old
 element's predecessor, reaches the end and misses a key present throughout
 (review of 3cb3b630..7670cee5, R1). Measured on the NUC (x86, results
@@ -1618,6 +1630,15 @@ redirect's literal (one aligned 8-byte store, or the low word when the literal
 is unaligned and both targets share the high word) or its single `b` is
 pointed at Gum's on-invoke code (the displaced first instructions, then back
 into the function), so calls bypass Gum; both targets are valid at any moment.
+The unaligned case relies on the core: the thread's `ldr x16` of an unaligned
+literal is an 8-byte load that the architecture makes single-copy atomic only
+per byte before FEAT_LSE2 (Armv8.4; the Orin is Armv8.2), so a torn low word
+is allowed, though not seen (4,200 park/unpark cycles under four callers;
+review 2026-11-05). `parked` follows Gum's store, also when restoring the
+page's protection fails afterwards (it did not then, and the next republish
+skipped the patch), and the first slot holds an interceptor reference for the
+life of the process (Gum disposing it would restore the functions under the
+slots).
 The on-invoke address comes from `gum_interceptor_replace`'s
 `original_function`, for a replacement installed and reverted inside the
 transaction that first hooks the function (Gum writes the redirect when that
@@ -1637,6 +1658,22 @@ returns. Before, only an active override routed calls through it; now a later
 uprobe or uretprobe session on a once-overridden function does too (parked, it
 is bypassed). Not tested; a register-preserving forwarder or a checked revert
 would remove it. Callbacks pay one TLS access and two stores for the grace period.
+The counter's flip is decided on its parity with idempotent stores, so a
+signal handler's callback between the depth change and the store runs inside
+the grace period (deciding on the depth let it run outside; review
+2026-11-05). Known limits of the grace period, not fixed: `synchronize()`
+waits without bound on a counter that cannot move (a thread that left a
+callback by `siglongjmp`; a raw `clone(CLONE_VM)` child without `CLONE_SETTLS`
+killed inside a callback leaves its parent's counter odd), and a reader whose
+signal handler forks while `synchronize()` holds `registry_mutex` waiting for
+it deadlocks in the fork prepare handler; a callback blocked indefinitely
+blocks the detach. `membarrier_registered` is fixed at load: if
+`MEMBARRIER_CMD_PRIVATE_EXPEDITED` starts failing later (a seccomp filter
+installed after the agent), the writer falls back to a fence while readers
+keep only a compiler fence, and the grace period is unsound. And the agent
+frees all programs after `destroy_all_attach_links` even when a link failed
+to detach (it stops at the first failure; the Frida impl always returns 0,
+the syscall impl only fails for unknown ids, so it is not reached today).
 The replacement runs the dispatch's `override_attach`, never the owner's
 `user_attaches`, which `detach_by_id` shrinks before republishing: a call in
 between found no override and threw out of Gum's replacement, whose caller has
@@ -1651,9 +1688,9 @@ follows a leading jump (a `b` thunk, a PLT-style stub) unless the address is
 hooked already, so a probe on `foo: b bar` is a listener on `bar`'s context.
 With a slot per address, detaching `bar`'s probe parked `bar`'s slot and
 `foo`'s probe, still attached, never fired again (review 2026-11-05). The slot
-lookup now follows the jumps the same way (`gum_{arm64,x86}_reader_try_get_
-relative_jump_target`, in libfrida-gum but not in the devkit header, at most
-8 hops), so both are owners of one slot and its dispatch holds both
+lookup now follows the jumps the same way
+(`gum_arm64_reader_try_get_relative_jump_target` and its x86 twin, in
+libfrida-gum but not in the devkit header, at most 8 hops), so both are owners of one slot and its dispatch holds both
 attaches; calling either runs both, as Gum did. Test: "A probe on a thunk
 keeps firing after its target's probe is detached" (fails without the
 lookup).
