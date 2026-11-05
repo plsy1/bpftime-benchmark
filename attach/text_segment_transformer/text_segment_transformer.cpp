@@ -117,14 +117,17 @@ static uint64_t *identity_epoch;
 // seccomp filter may deny one (Docker's default profile denies
 // process_vm_readv, which read clone3's flags: the bump was lost) or kill
 // the process for it (it then died creating a thread).
+// Also marks the hook stack shared for a child that may run at the same time
+// on this thread's TLS (below).
 // Referenced only from the hook's asm: `used`, or LTO drops it.
+static void note_shared_hook_stack();
+// After the thread's sigaltstack call or query: its signal stack's flags.
+static void note_sigaltstack(int ss_flags);
 extern "C" __attribute__((visibility("hidden"), used)) void
 note_clone_syscall(uint64_t arg0, int64_t sys_nr, uint64_t app_sp)
 {
-	uint64_t *epoch = __atomic_load_n(&identity_epoch, __ATOMIC_ACQUIRE);
-	if (epoch == nullptr)
-		return;
 	uint64_t flags = arg0;
+	bool known = true;
 	if (sys_nr == SYS_clone3) {
 		// struct clone_args starts with the flags. glibc keeps it in
 		// the caller's frame (pthread_create, posix_spawn): read it
@@ -132,13 +135,18 @@ note_clone_syscall(uint64_t arg0, int64_t sys_nr, uint64_t app_sp)
 		// part of its stack, mapped. Anywhere else the flags are
 		// unknown (a bad pointer is the kernel's EFAULT to report, not
 		// a fault here): bump, which costs only a re-read per thread.
-		if ((arg0 & 7) != 0 || arg0 < app_sp || arg0 - app_sp >= 1024) {
-			__atomic_fetch_add(epoch, 1, __ATOMIC_RELAXED);
-			return;
-		}
-		flags = *(const volatile uint64_t *)arg0;
+		if ((arg0 & 7) != 0 || arg0 < app_sp || arg0 - app_sp >= 1024)
+			known = false;
+		else
+			flags = *(const volatile uint64_t *)arg0;
 	}
-	if (!(flags & CLONE_THREAD) ||
+	if (!known || ((flags & CLONE_VM) &&
+		       !(flags & (CLONE_VFORK | CLONE_SETTLS))))
+		note_shared_hook_stack();
+	uint64_t *epoch = __atomic_load_n(&identity_epoch, __ATOMIC_ACQUIRE);
+	if (epoch == nullptr)
+		return;
+	if (!known || !(flags & CLONE_THREAD) ||
 	    ((flags & CLONE_VM) && !(flags & CLONE_SETTLS)))
 		__atomic_fetch_add(epoch, 1, __ATOMIC_RELAXED);
 }
@@ -360,7 +368,18 @@ stack when
   application's sigaltstack, as Go's always are): switching would overwrite
   that frame.
 The top frame is live while bit 0 of its slot (the stack's last word, hi - 8)
-is set. The slot is written after sp moves onto the hook stack and cleared
+is set. A frame can be left marked without its epilogue: a vfork-style child
+(posix_spawn, system, Go's os/exec) shares its parent's TLS and hook stack and
+execs or exits inside a hooked call; a handler siglongjmps out of one. Marked
+with sp elsewhere, the hook asks the kernel (sigaltstack) whether sp is on the
+signal stack, and switches over the frame when it is not. It stays when it
+cannot tell: an error, or SS_DISABLE in a thread that set an SS_AUTODISARM
+signal stack (inside such a handler the kernel reports the stack disabled, as
+when there is none, and drops the SS_AUTODISARM bit too: the hook records it
+from the thread's sigaltstack calls). It also stays once a clone gave a child
+running at the same time this thread's TLS (CLONE_VM without CLONE_VFORK or
+CLONE_SETTLS: the frame may be the child's). That query writes 96 more bytes below sp. Before, such a
+thread never used its hook stack again (review 2026-11-05). The slot is written after sp moves onto the hook stack and cleared
 after the frame's last read, while sp is still on it: a handler arriving in
 between runs below on the hook stack, or on another stack and finds the frame
 live; one arriving before the write or after the clear finds nothing it could
@@ -373,6 +392,8 @@ and bits.
 struct hook_stack_state {
 	uint64_t lo; // lowest usable address (above the guard)
 	uint64_t hi; // top; 0: none yet
+	uint64_t shared; // a concurrent child has this TLS: never switch over
+	uint64_t autodisarm; // the thread set an SS_AUTODISARM signal stack
 };
 // Read by the asm: `used`, or LTO drops it.
 extern "C" {
@@ -419,7 +440,42 @@ __asm__(".pushsection .text\n\t"
 		"7:\n\t"
 		"ldr x1, [x0, #8]\n\t"
 		"ldr x1, [x1, #-8]\n\t" // the top frame's slot
-		"tbnz x1, #0, 1f\n\t" // live
+		"tbz x1, #0, 11f\n\t" // not live: switch
+		// Live with sp elsewhere: on the signal stack (stay), or the
+		// frame was abandoned (switch over it).
+		"ldr x1, [x0, #16]\n\t" // shared
+		"cbnz x1, 1f\n\t"
+		"stp x2, x3, [sp, #-96]!\n\t"
+		".cfi_def_cfa_offset 128\n\t"
+		"stp x4, x5, [sp, #16]\n\t"
+		"stp x8, x30, [sp, #32]\n\t"
+		".cfi_offset x30, -88\n\t"
+		"str x0, [sp, #48]\n\t"
+		"mov x0, #132\n\t" // sigaltstack(NULL, sp + 56)
+		"mov x1, #0\n\t"
+		"add x2, sp, #56\n\t"
+		"bl orig_syscall_direct\n\t"
+		"mov x17, #1\n\t" // stay, unless:
+		"cbnz x0, 12f\n\t" // an error
+		"ldr w1, [sp, #64]\n\t" // ss_flags
+		"tbnz w1, #0, 12f\n\t" // SS_ONSTACK
+		"tbz w1, #1, 13f\n\t" // not SS_DISABLE: abandoned
+		"ldr x1, [sp, #48]\n\t"
+		"ldr x1, [x1, #24]\n\t" // autodisarm: may be in its handler
+		"cbnz x1, 12f\n\t"
+		"13:\n\t"
+		"mov x17, #0\n\t"
+		"12:\n\t"
+		"ldr x0, [sp, #48]\n\t"
+		"ldp x8, x30, [sp, #32]\n\t"
+		".cfi_restore x30\n\t"
+		"ldp x4, x5, [sp, #16]\n\t"
+		"ldp x2, x3, [sp], #96\n\t"
+		".cfi_def_cfa_offset 32\n\t"
+		"cbz x17, 11f\n\t"
+		"mov x17, sp\n\t"
+		"b 1f\n\t"
+		"11:\n\t"
 		"ldr x17, [x0, #8]\n\t" // the top
 		"add x0, sp, #17\n\t" // the application's sp | switched
 		"b 8f\n\t"
@@ -643,6 +699,8 @@ hook_special_call(int64_t sys_nr, int64_t arg1, int64_t arg2, int64_t arg3,
 					    ret))
 		ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
 	bpftime::after_hooked_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5, ret);
+	if (sys_nr == SYS_sigaltstack && ret == 0 && arg1 != 0)
+		note_sigaltstack(((const stack_t *)arg1)->ss_flags);
 	in_hook = false;
 	return ret;
 }
@@ -652,7 +710,8 @@ namespace
 // The calls hook_special_call takes, as a bitmap by number (one test,
 // whatever the set's size): code becoming executable (rescans), signal
 // masks and actions and exec (lazy mode), and on aarch64 every other change
-// of mappings, which invalidates lazy mode's last looked-up mapping.
+// of mappings, which invalidates lazy mode's last looked-up mapping, and
+// signal stacks (whether a marked hook frame can be live, see the hook).
 constexpr int special_call_limit = 512;
 constexpr std::array<uint64_t, special_call_limit / 64> special_call_bits()
 {
@@ -662,7 +721,8 @@ constexpr std::array<uint64_t, special_call_limit / 64> special_call_bits()
 			SYS_execveat
 #if defined(__aarch64__)
 			,
-			SYS_munmap, SYS_mremap, SYS_shmat, SYS_remap_file_pages
+			SYS_munmap, SYS_mremap, SYS_shmat, SYS_remap_file_pages,
+			SYS_sigaltstack
 #endif
 	     })
 		bits[nr / 64] |= 1ull << (nr % 64);
@@ -706,6 +766,11 @@ __attribute__((noinline, cold)) static void allocate_hook_stack()
 		hook_stack_failed = true;
 		return;
 	}
+	// A signal stack set before the hook saw the thread's calls.
+	stack_t old{};
+	if (orig_syscall_direct(SYS_sigaltstack, 0, (int64_t)&old, 0, 0, 0,
+				0) == 0)
+		note_sigaltstack(old.ss_flags);
 	// The asm takes hi != 0 as the bounds being valid.
 	bpftime_hook_stack.lo = base + HOOK_STACK_GUARD;
 	__atomic_signal_fence(__ATOMIC_SEQ_CST);
@@ -718,8 +783,27 @@ static inline void ensure_hook_stack()
 			     0))
 		allocate_hook_stack();
 }
+
+static void note_shared_hook_stack()
+{
+	bpftime_hook_stack.shared = 1;
+}
+
+static void note_sigaltstack(int ss_flags)
+{
+	if ((uint32_t)ss_flags & (1u << 31)) // SS_AUTODISARM
+		bpftime_hook_stack.autodisarm = 1;
+}
 #else
 static inline void ensure_hook_stack()
+{
+}
+
+static void note_shared_hook_stack()
+{
+}
+
+static void note_sigaltstack(int)
 {
 }
 #endif
