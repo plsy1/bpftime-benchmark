@@ -25,6 +25,7 @@ enum {
 	BPF_RINGBUF_HDR_SZ = 8,
 };
 
+
 static inline int roundup_len(__u32 len)
 {
 	len <<= 2;
@@ -169,9 +170,14 @@ void *ringbuf_map_impl::reserve(size_t size, int self_fd)
 {
 	return ringbuf_impl->reserve(size, self_fd);
 }
-void ringbuf_map_impl::submit(const void *sample, bool discard)
+bool ringbuf_map_impl::submit(const void *sample, bool discard)
 {
 	return ringbuf_impl->submit(sample, discard);
+}
+
+bool ringbuf_map_impl::consumer_at(const void *sample) const
+{
+	return ringbuf_impl->consumer_at(sample);
 }
 
 ringbuf::ringbuf(uint32_t max_ent,
@@ -416,7 +422,16 @@ bool ringbuf::discard_reserved(ringbuf_hdr *hdr, uint32_t len)
 					   __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 }
 
-void ringbuf::submit(const void *sample, bool discard)
+bool ringbuf::consumer_at(const void *sample) const
+{
+	const uintptr_t hdr_offset = mask() + 1 +
+				     ((const uint8_t *)sample - data.get()) -
+				     BPF_RINGBUF_HDR_SZ;
+	return (smp_load_acquire_ul(consumer_pos.get()) & mask()) ==
+	       (hdr_offset & mask());
+}
+
+bool ringbuf::submit(const void *sample, bool discard)
 {
 	uintptr_t hdr_offset = mask() + 1 + ((uint8_t *)sample - data.get()) -
 			       BPF_RINGBUF_HDR_SZ;
@@ -440,10 +455,11 @@ void ringbuf::submit(const void *sample, bool discard)
 	// in about 40% of runs with the consumer on the other CPU cluster.
 	if ((__atomic_exchange_n(&hdr->len, new_len, __ATOMIC_ACQ_REL) &
 	     BPF_RINGBUF_BUSY_BIT) == 0)
-		return;
+		return false;
 	if (slot >= 0 && slot < reservation_owner_slots)
 		owners[slot].position_plus_one.store(0,
 						     std::memory_order_release);
+	return true;
 }
 
 int32_t ringbuf::owner_slot_for_test(const void *sample) const

@@ -118,6 +118,8 @@ class bpftime_shm {
 
 	// Absent in segments created by older servers; consumers then poll.
 	bpftime_perf_wakeup_state *perf_wakeup_state = nullptr;
+	// Bumps the futex word and wakes every consumer sleeping on it.
+	void wake_consumers() const;
 
 	// local agent config can be used for test or local process
 	std::optional<struct runtime_config> local_runtime_config;
@@ -199,9 +201,14 @@ class bpftime_shm {
 	{
 		return perf_wakeup_state;
 	}
-	// Called when a software perf event output asks for a wakeup. Costs a
-	// fence and a shared load unless a consumer is sleeping.
+	// Called when a software perf event output or a ring buffer record
+	// asks for a wakeup. Costs a fence and a shared load unless a
+	// consumer is sleeping.
 	void notify_perf_event_consumers() const;
+	// After a ring buffer record is published: bpf's rule, wake a waiting
+	// consumer that has caught up with it, or any with `force`.
+	void notify_ringbuf_consumers(const ringbuf_map_impl &ringbuf,
+				      const void *sample, bool force) const;
 
 	const handler_variant &get_handler(int fd) const;
 	bool is_epoll_fd(int fd) const;

@@ -419,10 +419,19 @@ int bpftime_ringbuf_record_fd(const void *data)
 
 void bpftime_ringbuf_submit(int fd, void *data, int discard)
 {
+	bpftime_ringbuf_submit_flags(fd, data, discard, 0);
+}
+
+void bpftime_ringbuf_submit_flags(int fd, void *data, int discard,
+				  uint64_t flags)
+{
 	auto &shm = shm_holder.global_shared_memory;
 	if (auto ret = shm.try_get_ringbuf_map_impl(fd); ret.has_value()) {
 		auto impl = ret.value();
-		impl->submit(data, discard);
+		// bpf_ringbuf_submit's flags: BPF_RB_NO_WAKEUP (1),
+		// BPF_RB_FORCE_WAKEUP (2).
+		if (impl->submit(data, discard) && !(flags & 1))
+			shm.notify_ringbuf_consumers(*impl, data, flags & 2);
 	} else {
 		errno = EINVAL;
 		BPFTIME_LOG_ERROR_RATELIMITED("Expected fd {} to be ringbuf map fd ", fd);
@@ -545,9 +554,11 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 			// Register before re-checking, so a perf output that
 			// asks for a wakeup after the re-check bumps the
 			// sequence and ends this futex wait (see
-			// notify_perf_event_consumers). Records below the
-			// wakeup watermark and ring buffers are found by the
-			// timeout.
+			// notify_perf_event_consumers; ring buffer records
+			// ask for it when this consumer has caught up with
+			// them). Perf records below the wakeup watermark, and
+			// ring buffer records submitted with BPF_RB_NO_WAKEUP,
+			// are found by the timeout.
 			uint32_t sequence = __atomic_load_n(&wakeup->sequence,
 							    __ATOMIC_ACQUIRE);
 			__atomic_add_fetch(&wakeup->waiters, 1,

@@ -1122,6 +1122,32 @@ void bpftime_shm::notify_perf_event_consumers() const
 	__atomic_thread_fence(__ATOMIC_SEQ_CST);
 	if (__atomic_load_n(&perf_wakeup_state->waiters, __ATOMIC_RELAXED) == 0)
 		return;
+	wake_consumers();
+#endif
+}
+
+void bpftime_shm::notify_ringbuf_consumers(const ringbuf_map_impl &ringbuf,
+					   const void *sample, bool force) const
+{
+#if __linux__
+	if (!perf_wakeup_state)
+		return;
+	// The same pairing. The consumer position is read only with a
+	// consumer waiting: a running consumer writes it for every record,
+	// and loading it on every submit made single-thread output about 10%
+	// slower. Acquire: every change of `waiters` is a read-modify-write, so
+	// seeing a registration shows the position stored before it.
+	__atomic_thread_fence(__ATOMIC_SEQ_CST);
+	if (__atomic_load_n(&perf_wakeup_state->waiters, __ATOMIC_ACQUIRE) == 0)
+		return;
+	if (force || ringbuf.consumer_at(sample))
+		wake_consumers();
+#endif
+}
+
+void bpftime_shm::wake_consumers() const
+{
+#if __linux__
 	__atomic_add_fetch(&perf_wakeup_state->sequence, 1, __ATOMIC_RELEASE);
 	// Shared (non-private) futex: consumers are other processes.
 	syscall(SYS_futex, &perf_wakeup_state->sequence, FUTEX_WAKE, INT_MAX,
