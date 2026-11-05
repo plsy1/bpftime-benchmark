@@ -99,14 +99,22 @@ bool barrier_on_other_threads()
 }
 } // namespace
 
+// The count's parity, not the depth, decides, and each store may run twice
+// with the same value: a signal handler's callback that lands between the
+// depth change and the store (in enter or in leave) finds the count odd or
+// makes it odd itself, and the interrupted store then writes what is already
+// there. Deciding on the depth let such a callback run with an even count,
+// outside the grace period (review 2026-11-05; the override handler's
+// enter/leave are the exposed ones, Gum guards the listeners).
 reader *bpftime::attach::probe_grace::enter()
 {
 	reader *r = self_reader;
 	if (r == nullptr) [[unlikely]]
 		r = register_self();
-	if (r->depth++ == 0) {
-		r->count.store(r->count.load(std::memory_order_relaxed) + 1,
-			       std::memory_order_relaxed);
+	r->depth++;
+	const uint64_t c = r->count.load(std::memory_order_relaxed);
+	if ((c & 1) == 0) {
+		r->count.store(c + 1, std::memory_order_relaxed);
 		// The count before the loads of what this callback runs:
 		// synchronize() supplies the barrier.
 		if (membarrier_registered)
@@ -119,10 +127,11 @@ reader *bpftime::attach::probe_grace::enter()
 
 void bpftime::attach::probe_grace::leave(reader *self)
 {
-	if (--self->depth == 0)
-		self->count.store(
-			self->count.load(std::memory_order_relaxed) + 1,
-			std::memory_order_release);
+	if (--self->depth != 0)
+		return;
+	const uint64_t c = self->count.load(std::memory_order_relaxed);
+	if (c & 1)
+		self->count.store(c + 1, std::memory_order_release);
 }
 
 void bpftime::attach::probe_grace::synchronize()
