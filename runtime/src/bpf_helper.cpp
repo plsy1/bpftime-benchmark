@@ -752,9 +752,10 @@ uint64_t bpf_ringbuf_output(uint64_t rb, uint64_t data, uint64_t size,
 			    uint64_t flags, uint64_t)
 {
 	int fd = (int)rb;
-	if (flags != 0) {
+	if (flags & ~(uint64_t)(BPF_RB_NO_WAKEUP | BPF_RB_FORCE_WAKEUP)) {
 		BPFTIME_LOG_WARN_RATELIMITED(
-			"Currently only supports ringbuf_output with flags=0");
+			"ringbuf_output: flags {:#x} other than the wakeup flags are ignored",
+			flags);
 	}
 	auto buf = bpftime_ringbuf_reserve(fd, size);
 	if (!buf) {
@@ -762,7 +763,7 @@ uint64_t bpf_ringbuf_output(uint64_t rb, uint64_t data, uint64_t size,
 		return (uint64_t)-1;
 	}
 	memcpy(buf, (const void *)(uintptr_t)data, size);
-	bpftime_ringbuf_submit(fd, buf, false);
+	bpftime_ringbuf_submit_flags(fd, buf, false, flags);
 	return 0;
 }
 
@@ -781,11 +782,13 @@ uint64_t bpf_ringbuf_submit(uint64_t data, uint64_t flags, uint64_t, uint64_t,
 			    uint64_t)
 {
 	int fd = bpftime_ringbuf_record_fd((const void *)(uintptr_t)data);
-	if (flags != 0) {
+	if (flags & ~(uint64_t)(BPF_RB_NO_WAKEUP | BPF_RB_FORCE_WAKEUP)) {
 		BPFTIME_LOG_WARN_RATELIMITED(
-			"Currently only supports ringbuf_submit with flags=0");
+			"ringbuf_submit: flags {:#x} other than the wakeup flags are ignored",
+			flags);
 	}
-	bpftime_ringbuf_submit(fd, (void *)(uintptr_t)data, false);
+	bpftime_ringbuf_submit_flags(fd, (void *)(uintptr_t)data, false,
+				     flags);
 	return 0;
 }
 
@@ -793,11 +796,13 @@ uint64_t bpf_ringbuf_discard(uint64_t data, uint64_t flags, uint64_t, uint64_t,
 			     uint64_t)
 {
 	int fd = bpftime_ringbuf_record_fd((const void *)(uintptr_t)data);
-	if (flags != 0) {
+	if (flags & ~(uint64_t)(BPF_RB_NO_WAKEUP | BPF_RB_FORCE_WAKEUP)) {
 		BPFTIME_LOG_WARN_RATELIMITED(
-			"Currently only supports ringbuf_submit with flags=0");
+			"ringbuf_discard: flags {:#x} other than the wakeup flags are ignored",
+			flags);
 	}
-	bpftime_ringbuf_submit(fd, (void *)(uintptr_t)data, true);
+	bpftime_ringbuf_submit_flags(fd, (void *)(uintptr_t)data, true,
+				     flags);
 	return 0;
 }
 

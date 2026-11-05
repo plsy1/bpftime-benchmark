@@ -103,7 +103,13 @@ class ringbuf {
 	// True if it did.
 	bool recover_dead_reservation();
 	void *reserve(size_t size, int self_fd);
-	void submit(const void *sample, bool discard);
+	// Publishes (or discards) a reserved record. False if a reclaim had
+	// discarded it first.
+	bool submit(const void *sample, bool discard);
+	// Whether the consumer has caught up with this record (the next it
+	// reads): bpf wakes a consumer then. Reads only the consumer position;
+	// the record may be gone.
+	bool consumer_at(const void *sample) const;
 	int fetch_data(int (*)(void *ctx, void *data, size_t len), void *ctx);
 	// Tests only: the record's owner slot, as in its header; overwrite
 	// it; whether a slot is held; what recover_dead_reservation does to a
@@ -148,7 +154,8 @@ class ringbuf_map_impl {
 	void *get_consumer_page() const;
 	void *get_producer_page() const;
 	void *reserve(size_t size, int self_fd);
-	void submit(const void *sample, bool discard);
+	bool submit(const void *sample, bool discard);
+	bool consumer_at(const void *sample) const;
 };
 
 } // namespace bpftime

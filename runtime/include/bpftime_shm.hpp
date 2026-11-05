@@ -411,6 +411,9 @@ void bpftime_close(int fd);
 
 void *bpftime_ringbuf_reserve(int fd, uint64_t size);
 void bpftime_ringbuf_submit(int fd, void *data, int discard);
+// With bpf_ringbuf_submit's flags: BPF_RB_NO_WAKEUP, BPF_RB_FORCE_WAKEUP.
+void bpftime_ringbuf_submit_flags(int fd, void *data, int discard,
+				  uint64_t flags);
 // The fd of the ringbuf map a reserved sample belongs to.
 int bpftime_ringbuf_record_fd(const void *data);
 int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
