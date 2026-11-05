@@ -22,7 +22,8 @@ struct frida_hook_dispatch {
 	const frida_attach_entry *override_attach = nullptr;
 };
 
-// One per function bpftime hooks, for the life of the process. Gum is never
+// One per function Gum hooks (a thunk's attaches share its target's slot),
+// for the life of the process. Gum is never
 // asked to detach or revert while the process runs: Gum 16.1.2 frees a
 // detached listener's entry while other threads iterate it, and restores a
 // function's first instructions over its 16-byte redirect while other
@@ -63,7 +64,7 @@ void frida_hook_republish(frida_hook_slot *slot);
 // Removes `owner` and republishes.
 void frida_hook_remove_owner(frida_hook_slot *slot,
 			     frida_internal_attach_entry *owner);
-// Tests: whether calls to `function` bypass Gum.
+// Tests: whether calls to `function` (or the target it jumps to) bypass Gum.
 bool frida_hook_is_parked(void *function);
 
 void frida_slot_on_enter(GumInvocationContext *ctx, gpointer user_data);

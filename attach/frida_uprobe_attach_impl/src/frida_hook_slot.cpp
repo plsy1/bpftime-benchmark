@@ -10,6 +10,13 @@
 
 using namespace bpftime::attach;
 
+// Gum's readers of a leading jump (`b`, PLT-style stubs), in libfrida-gum
+// but not declared by the devkit header.
+extern "C" gpointer
+gum_arm64_reader_try_get_relative_jump_target(gconstpointer address);
+extern "C" gpointer
+gum_x86_reader_try_get_relative_jump_target(gconstpointer address);
+
 namespace
 {
 // Guards the slots, their Gum calls and their code patches.
@@ -40,6 +47,31 @@ uint64_t b_target(const void *at, uint32_t insn)
 	return (uint64_t)(uintptr_t)at + imm * 4;
 }
 #endif
+
+// The address Gum instruments for `function`, as gum_interceptor_resolve
+// finds it: a function that starts with a jump (a `b` thunk, a PLT-style
+// stub) is hooked at the jump's target, unless the function is hooked itself.
+// Slots are keyed by it: a thunk's probes are listeners on its target's Gum
+// context, and parking a separate target slot silenced them (review
+// 2026-11-05).
+void *resolve_locked(void *function)
+{
+	for (int hops = 0; hops < 8 && !slots().count(function); hops++) {
+#if defined(__aarch64__)
+		gpointer target =
+			gum_arm64_reader_try_get_relative_jump_target(function);
+#elif defined(__x86_64__)
+		gpointer target =
+			gum_x86_reader_try_get_relative_jump_target(function);
+#else
+		gpointer target = nullptr;
+#endif
+		if (target == nullptr)
+			break;
+		function = target;
+	}
+	return function;
+}
 
 bool looks_redirected(void *function)
 {
@@ -234,6 +266,7 @@ int bpftime::attach::frida_hook_add_owner(void *function, int attach_type,
 					  frida_hook_slot **slot)
 {
 	std::lock_guard guard(slots_mutex);
+	function = resolve_locked(function);
 	frida_hook_slot *s;
 	if (auto itr = slots().find(function); itr != slots().end()) {
 		s = itr->second;
@@ -275,6 +308,6 @@ void bpftime::attach::frida_hook_remove_owner(frida_hook_slot *slot,
 bool bpftime::attach::frida_hook_is_parked(void *function)
 {
 	std::lock_guard guard(slots_mutex);
-	auto itr = slots().find(function);
+	auto itr = slots().find(resolve_locked(function));
 	return itr != slots().end() && itr->second->parked;
 }
