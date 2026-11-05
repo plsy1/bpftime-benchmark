@@ -681,6 +681,108 @@ TEST_CASE("a handler on the hook stack builds its frame below the live one",
 	REQUIRE(code == 0);
 }
 
+// Signals land all over a loop of hooked calls, many in the hook itself; the
+// handler runs on an alternate stack and makes a hooked call (as Go's do). A
+// flag cleared before the epilogue read the frame back let that call build its
+// frame over the one being read: the thread hung, or went on on the signal
+// stack (review 2026-11-05). Each landing in the hook also unwinds from the
+// handler, through the hook's CFA rules at that instruction, to the loop.
+extern "C" void syscall_hooker_asm();
+namespace
+{
+struct epilogue_race_state {
+	std::atomic<bool> done{ false };
+	std::atomic<uint64_t> signals{ 0 }, in_hook{ 0 }, unwound{ 0 };
+	std::atomic<uint64_t> wrong{ 0 };
+};
+epilogue_race_state *race;
+pid_t race_ppid;
+
+__attribute__((noinline)) uint64_t epilogue_race_loop(uint64_t iterations)
+{
+	uint64_t wrong = 0;
+	for (uint64_t i = 0; i < iterations; i++)
+		wrong += getppid() != race_ppid;
+	asm volatile("" ::: "memory"); // keep the frame
+	return wrong;
+}
+
+void epilogue_race_handler(int, siginfo_t *, void *ctx)
+{
+	race->signals.fetch_add(1, std::memory_order_relaxed);
+	if (syscall(SYS_getppid) != race_ppid)
+		race->wrong.fetch_add(1, std::memory_order_relaxed);
+	const uint64_t pc = ((ucontext_t *)ctx)->uc_mcontext.pc;
+	if (pc - (uint64_t)&syscall_hooker_asm >= 1024)
+		return;
+	race->in_hook.fetch_add(1, std::memory_order_relaxed);
+	struct walk {
+		uintptr_t lo;
+		bool found;
+	} w{ reinterpret_cast<uintptr_t>(&epilogue_race_loop), false };
+	_Unwind_Backtrace(
+		[](_Unwind_Context *uctx, void *arg) {
+			auto *w = (walk *)arg;
+			const uintptr_t ip = _Unwind_GetIP(uctx);
+			if (ip > w->lo && ip < w->lo + 256) {
+				w->found = true;
+				return _URC_END_OF_STACK;
+			}
+			return _URC_NO_REASON;
+		},
+		&w);
+	if (w.found)
+		race->unwound.fetch_add(1, std::memory_order_relaxed);
+}
+} // namespace
+
+TEST_CASE("handlers on an alternate stack interrupting the hook leave its frame intact",
+	  "[syscall-rewrite]")
+{
+	int code = in_rewritten_child([] {
+		race = new epilogue_race_state;
+		race_ppid = getppid(); // also maps the hook stack
+		static uint8_t altstack[64 << 10];
+		stack_t ss = {};
+		ss.ss_sp = altstack;
+		ss.ss_size = sizeof(altstack);
+		if (sigaltstack(&ss, nullptr) != 0)
+			return 2;
+		struct sigaction sa = {};
+		sa.sa_sigaction = epilogue_race_handler;
+		sa.sa_flags = SA_RESTART | SA_SIGINFO | SA_ONSTACK;
+		sigemptyset(&sa.sa_mask);
+		if (sigaction(SIGUSR1, &sa, nullptr) != 0)
+			return 3;
+		const pthread_t self = pthread_self();
+		std::thread signaller([self] {
+			while (!race->done.load(std::memory_order_relaxed)) {
+				pthread_kill(self, SIGUSR1);
+				for (volatile int i = 0; i < 2000; i = i + 1)
+					;
+			}
+		});
+		// A hang ends in the child's 30 s alarm.
+		const uint64_t wrong = epilogue_race_loop(2000000);
+		race->done.store(true);
+		signaller.join();
+		fprintf(stderr,
+			"signals %lu, in the hook %lu, unwound %lu, wrong %lu\n",
+			(unsigned long)race->signals.load(),
+			(unsigned long)race->in_hook.load(),
+			(unsigned long)race->unwound.load(),
+			(unsigned long)(wrong + race->wrong.load()));
+		if (wrong != 0 || race->wrong.load() != 0)
+			return 4;
+		if (race->in_hook.load() == 0)
+			return 5; // nothing tested
+		return race->unwound.load() == race->in_hook.load() ? 0 : 6;
+	});
+	// 4: a wrong result; 5: no signal landed in the hook; 6: an unwind
+	// from a landing in the hook missed the loop; 142: hung (alarm)
+	REQUIRE(code == 0);
+}
+
 TEST_CASE("a program's own signal restorer returns through rt_sigreturn",
 	  "[syscall-rewrite]")
 {
