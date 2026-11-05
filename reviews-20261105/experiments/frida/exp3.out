@@ -1,0 +1,17 @@
+=== exp3 variant 0
+native six_args=245 fp_arg=5
+session1 override: six_args=42 (expect 42)
+after detach: parked=1 six_args=245 (expect 245) fp_arg=5 (expect 5)
+session2 uprobe: parked=0 hits=2 six_args=245 (native 245) OK; fp_arg=5 (native 5) OK
+session3 override: parked=0 six_args=43 (expect 43)
+end: parked=1 six_args=245 (expect 245)
+child exited 0
+=== exp3 variant 1
+round 0: hits=300
+round 1: hits=600
+round 2: hits=900
+child exited 0
+=== exp3 variant 2
+refcount with one impl alive: 2
+refcount after the impl died (before this obtain): 1
+child exited 0

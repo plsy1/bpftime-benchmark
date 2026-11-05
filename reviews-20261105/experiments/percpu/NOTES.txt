@@ -1,0 +1,18 @@
+Per-CPU hash review of 6ab9cbfe..94f9ba8f (a73f6753, e1677f0d, 7670cee5 per-CPU parts)
+Build: ./build.sh <name> compiles <name>.cpp with runtime/src/bpf_map/userspace/per_cpu_hash_map.cpp
+and runtime/src/platform_utils.cpp from the worktree at 94f9ba8f (no LTO libs needed).
+
+e1_noexist      BPF_NOEXIST on an existing key: (a) waits for the pool lock (program and bpf()
+                paths), (b) with the pool exhausted by one in-flight insert (ncpu=1, 2 entries
+                full) returns E2BIG instead of EEXIST.  Output: "failures: 3" = all three shown.
+e2_stress       5 s, 32M ops: readers/updaters of 8 keys present throughout + churn of 64 keys
+                of the same bucket (program and bpf() inserts, deletes, lookup_and_delete) +
+                a bpf()-side copier/iterator, through two mappings of the segment at different
+                addresses. 0 wrong values, 0 wrong copies, 0 misses.
+e2_stress_k8    The same with 8-byte keys (memcmp + acquire-fence lookup path): 25M ops, 0/0/0.
+e3_death_leak   9 children killed between acquire_slot and the table insert (blocked on the
+                stripe lock, BPF_NOEXIST path): inserts fail at 61 of 64 (slot pool
+                70 - 9 leaked = 61 binds, not max_entries).
+unit tests      build-jetson-daily/runtime/unit-test/bpftime_runtime_tests
+                "[percpu-hash],[percpu-locks],[cpu-bounds],[percpu-layout],[slot-pool],[flags]"
+                -> all passed (5381 assertions, 20 cases).
