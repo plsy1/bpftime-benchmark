@@ -1532,12 +1532,24 @@ returns. Before, only an active override routed calls through it; now a later
 uprobe or uretprobe session on a once-overridden function does too (parked, it
 is bypassed). Not tested; a register-preserving forwarder or a checked revert
 would remove it. Callbacks pay one TLS access and two stores for the grace period.
+The replacement runs the dispatch's `override_attach`, never the owner's
+`user_attaches`, which `detach_by_id` shrinks before republishing: a call in
+between found no override and threw out of Gum's replacement, whose caller has
+no unwind information (SIGABRT, 3/3; review 2026-11-05). What the program sets
+(`bpftime_set_retval`) is that call's own state, captured by the thread's
+override callback, which is restored afterwards: it was a field of the shared
+entry, so a thread could return another's value (68,951 of 4.06M calls with four
+threads when the program went on after setting it). Nothing escapes the
+replacement: an exception logs and calls the original.
 The attach-time window remains: Gum writes the redirect over the first
 instructions while other threads may run them (bpftime attaches at start).
 `frida_attach_impl` is not thread-safe: owners of one slot in two impls must
 not change their attaches concurrently. Tests: "Detaching probes while threads
 call the function keeps them running" (SIGBUS 3/3 before; with a never-detached
-keeper listener but Gum detaches, SIGSEGV 5/5), "No probe callback runs after
+keeper listener but Gum detaches, SIGSEGV 5/5), "Detaching an override while
+threads call the function keeps them running" (SIGABRT with the live-vector
+lookup), "Concurrent override calls each return their own value" (fails with
+the entry's fields), "No probe callback runs after
 its detach returned" (SIGSEGV 3/3 with `synchronize` returning at once),
 "Probes attached again after a detach run" (fails without the unpark), and the
 hidden "Hook cost attached and parked".
