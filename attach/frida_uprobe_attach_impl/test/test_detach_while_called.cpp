@@ -348,6 +348,60 @@ TEST_CASE("Probes attached again after a detach run")
 	REQUIRE(leave_hits == 1);
 }
 
+#if defined(__aarch64__)
+extern "C" uint64_t slot_thunk_target(uint64_t x);
+extern "C" uint64_t slot_thunk(uint64_t x);
+asm(R"(
+	.text
+	.balign 16
+	.globl slot_thunk_target
+	.type slot_thunk_target, %function
+slot_thunk_target:
+	mov x1, #0x55
+	eor x0, x0, x1
+	add x0, x0, x1
+	mul x0, x0, x1
+	ret
+	.size slot_thunk_target, .-slot_thunk_target
+	.balign 16
+	.globl slot_thunk
+	.type slot_thunk, %function
+slot_thunk:
+	b slot_thunk_target
+	.size slot_thunk, .-slot_thunk
+)");
+
+// Gum hooks a function that starts with `b target` at the target: a probe on
+// the thunk is a listener on the target's Gum context. With a slot per
+// address, detaching the target's probe parked the target's slot, and the
+// thunk's probe, still attached, never fired again (review 2026-11-05).
+TEST_CASE("A probe on a thunk keeps firing after its target's probe is detached")
+{
+	frida_attach_impl man;
+	uint64_t (*volatile thunk)(uint64_t) = slot_thunk;
+	int hits_target = 0, hits_thunk = 0;
+	int id_target = man.create_uprobe_at(
+		(void *)slot_thunk_target,
+		[&](const pt_regs &) { hits_target++; });
+	int id_thunk = man.create_uprobe_at((void *)slot_thunk,
+					    [&](const pt_regs &) { hits_thunk++; });
+	REQUIRE(id_target >= 0);
+	REQUIRE(id_thunk >= 0);
+	thunk(1);
+	REQUIRE(hits_thunk == 1);
+	man.detach_by_id(id_target);
+	REQUIRE_FALSE(frida_hook_is_parked((void *)slot_thunk_target));
+	thunk(2);
+	CHECK(hits_thunk == 2);
+	man.detach_by_id(id_thunk);
+	CHECK(frida_hook_is_parked((void *)slot_thunk));
+	CHECK(frida_hook_is_parked((void *)slot_thunk_target));
+	thunk(3);
+	CHECK(hits_thunk == 2);
+	CHECK(hits_target == 1);
+}
+#endif
+
 // Calls per second of a hooked function: native, attached (an empty uprobe),
 // and parked after the detach. Hidden; run by name.
 TEST_CASE("Hook cost attached and parked", "[.][hook-cost]")
