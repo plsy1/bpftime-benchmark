@@ -437,6 +437,16 @@ kfunc) go to a private helper slot that reports it ran, instead of failing the
 compile and disabling the program; `[jit_load]` runs "Calls libbpf poisoned in
 dead code do not disable the program". Results: `uprobe/exit-log-poison-20261105`.
 
+94f9ba8f (accepted 2026-11-05): BPF_MAP_FREEZE is recorded (later syscall
+updates and deletes fail with EPERM, a second freeze with EBUSY), and a program
+that calls helpers bpftime does not have is loaded with the code that values
+in frozen BPF_F_RDONLY_PROG arrays make unreachable dropped, as the kernel's
+verifier drops it (libbpf-tools keep their options in .rodata); a reachable
+call still disables the program. `[jit_load]` runs the three
+`[reachability]` cases. syscount went from no counts to 38,900/38,900,
+opensnoop from 0 to 18,838/38,800 events; the other 18 audited tools are
+unchanged. Results: `uprobe/rodata-dead-code-20261105`.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
