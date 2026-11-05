@@ -1,5 +1,6 @@
 #include "bpftime_config.hpp"
 #include "bpftime_prog.hpp"
+#include "bpftime_vm_compat.hpp"
 #include <catch2/catch_test_macros.hpp>
 #include <cerrno>
 #include <cstdint>
@@ -121,5 +122,37 @@ TEST_CASE("Calls libbpf poisoned for a failed CO-RE relocation do not disable th
 	REQUIRE(reached_prog.bpftime_prog_load(true) == 0);
 	REQUIRE(reached_prog.bpftime_prog_exec(memory, sizeof(memory), &ret) ==
 		0);
+	REQUIRE((int64_t)ret == -EINVAL);
+}
+
+// `bpftime aot` compiles after bpftime_prog_load's rewrites: the object calls
+// the private slots, which load_aot_object did not register (review
+// 2026-11-05).
+TEST_CASE("An AOT object of a program with poisoned calls loads", "[jit_load]")
+{
+	// r0 = 7; if *(u64 *)r1 != 0 skip the call: a branch on the input, so
+	// that LLVM keeps the call (a constant one it folds away).
+	const ebpf_inst code[] = {
+		{ .code = 0xb7, .dst_reg = 0, .src_reg = 0, .off = 0, .imm = 7 },
+		{ .code = 0x79, .dst_reg = 2, .src_reg = 1, .off = 0, .imm = 0 },
+		{ .code = 0x55, .dst_reg = 2, .src_reg = 0, .off = 1, .imm = 0 },
+		{ .code = 0x85, .dst_reg = 0, .src_reg = 0, .off = 0,
+		  .imm = 195896080 },
+		{ .code = 0x95, .dst_reg = 0, .src_reg = 0, .off = 0, .imm = 0 },
+	};
+	bpftime_prog compiled(code, 5, "aot_poison", runtime_config{});
+	REQUIRE(compiled.bpftime_prog_load(true) == 0);
+	REQUIRE(compiled.get_vm() != nullptr);
+	REQUIRE(compiled.get_vm()->vm_instance != nullptr);
+	auto object = compiled.get_vm()->vm_instance->do_aot_compile(false);
+	REQUIRE(!object.empty());
+	bpftime_prog loaded(code, 5, "aot_poison_loaded", runtime_config{});
+	REQUIRE(loaded.load_aot_object(object) == 0);
+	uint64_t memory[4] = { 1 };
+	uint64_t ret = 0;
+	REQUIRE(loaded.bpftime_prog_exec(memory, sizeof(memory), &ret) == 0);
+	REQUIRE(ret == 7);
+	memory[0] = 0; // reached: reported, -EINVAL
+	REQUIRE(loaded.bpftime_prog_exec(memory, sizeof(memory), &ret) == 0);
 	REQUIRE((int64_t)ret == -EINVAL);
 }
