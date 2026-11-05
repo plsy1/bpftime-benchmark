@@ -221,3 +221,65 @@ TEST_CASE("A missing helper behind a read-only constant does not disable the "
 						   &ret) == -ENOEXEC);
 	}
 }
+
+// The kernel drops write access to a frozen map for every syscall command:
+// push, pop and lookup-and-delete were still allowed here (review
+// 2026-11-05). A program's own writes are not syscall writes.
+TEST_CASE("A frozen map refuses every syscall write", "[jit_load][reachability]")
+{
+	const char *old_name = getenv("BPFTIME_GLOBAL_SHM_NAME");
+	const bool had_name = old_name != nullptr;
+	const std::string previous_name = old_name ? old_name : "";
+	const std::string name = "FrozenWritesShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(name) };
+	bool initialized = false;
+	BOOST_SCOPE_EXIT_ALL(&)
+	{
+		if (initialized) {
+			bpftime_destroy_global_shm();
+			bpftime_initialize_global_shm(
+				bpftime::shm_open_type::SHM_NO_CREATE);
+		}
+		if (had_name)
+			setenv("BPFTIME_GLOBAL_SHM_NAME", previous_name.c_str(),
+			       1);
+		else
+			unsetenv("BPFTIME_GLOBAL_SHM_NAME");
+	};
+	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+	bpftime_destroy_global_shm();
+	bpftime_initialize_global_shm(
+		bpftime::shm_open_type::SHM_REMOVE_AND_CREATE);
+	initialized = true;
+
+	const int queue = bpftime_maps_create(-1, "frozen_queue",
+					      { .type = BPF_MAP_TYPE_QUEUE,
+						.key_size = 0,
+						.value_size = 8,
+						.max_ents = 4 });
+	REQUIRE(queue >= 0);
+	uint64_t value = 5;
+	REQUIRE(bpftime_map_push_elem(queue, &value, 0) == 0);
+	REQUIRE(bpftime_map_freeze(queue) == 0);
+	REQUIRE(bpftime_is_map_frozen(queue) == 1);
+	CHECK(bpftime_map_push_elem(queue, &value, 0) == -1);
+	CHECK(errno == EPERM);
+	CHECK(bpftime_map_pop_elem(queue, &value) == -1);
+	CHECK(errno == EPERM);
+	CHECK(bpftime_map_lookup_and_delete_elem(queue, nullptr, &value) == -1);
+	CHECK(errno == EPERM);
+
+	const int hash = bpftime_maps_create(-1, "frozen_hash",
+					     { .type = BPF_MAP_TYPE_HASH,
+					       .key_size = 4,
+					       .value_size = 8,
+					       .max_ents = 4 });
+	REQUIRE(hash >= 0);
+	const uint32_t key = 1;
+	REQUIRE(bpftime_map_update_elem(hash, &key, &value, 0) == 0);
+	REQUIRE(bpftime_is_map_frozen(hash) == 0);
+	REQUIRE(bpftime_map_freeze(hash) == 0);
+	CHECK(bpftime_map_lookup_and_delete_elem(hash, &key, &value) == -1);
+	CHECK(errno == EPERM);
+	CHECK(bpftime_map_lookup_elem(hash, &key) != nullptr); // still there
+}
