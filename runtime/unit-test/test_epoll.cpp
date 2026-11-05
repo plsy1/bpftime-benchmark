@@ -325,4 +325,119 @@ TEST_CASE("Perf output wakes a sleeping epoll consumer", "[epoll][perf-wakeup]")
 		CHECK(perf_wakeup_waiters() == 0);
 	}
 }
+
+// A ring buffer submit used to leave the consumer to its next 1 ms poll: a
+// burst larger than the ring buffer within that time lost the rest (opensnoop
+// delivered 48% of the opens, uprobe/opensnoop-loss-20261105). bpf's rule: wake
+// when the consumer has caught up with the record, unless BPF_RB_NO_WAKEUP;
+// always with BPF_RB_FORCE_WAKEUP.
+TEST_CASE("Ring buffer records wake a consumer that caught up",
+	  "[epoll][ringbuf-wakeup]")
+{
+	const char *old_name = getenv("BPFTIME_GLOBAL_SHM_NAME");
+	const bool had_name = old_name != nullptr;
+	const std::string previous_name = old_name ? old_name : "";
+	const std::string name =
+		"EpollRingbufWakeupTestShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(name) };
+	std::vector<int> fds;
+	BOOST_SCOPE_EXIT_ALL(&)
+	{
+		for (int fd : fds) {
+			bpftime_close(fd);
+			close(fd);
+		}
+		bpftime_destroy_global_shm();
+		bpftime_initialize_global_shm(
+			bpftime::shm_open_type::SHM_NO_CREATE);
+		if (had_name)
+			setenv("BPFTIME_GLOBAL_SHM_NAME", previous_name.c_str(),
+			       1);
+		else
+			unsetenv("BPFTIME_GLOBAL_SHM_NAME");
+	};
+	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+	bpftime_destroy_global_shm();
+	bpftime_initialize_global_shm(
+		bpftime::shm_open_type::SHM_REMOVE_AND_CREATE);
+	auto *state = bpftime::shm_holder.global_shared_memory
+			      .get_perf_wakeup_state();
+	REQUIRE(state != nullptr);
+
+	const int rb_fd = bpftime_maps_create(
+		-1, "wakeup_ring",
+		{ .type = BPF_MAP_TYPE_RINGBUF, .max_ents = 4096 });
+	REQUIRE(rb_fd >= 0);
+	fds.push_back(rb_fd);
+	auto drain = [&]() {
+		return bpftime_poll_from_ringbuf(
+			rb_fd, nullptr,
+			+[](void *, void *, size_t) -> int { return 0; });
+	};
+	// Whether submitting one record moved the futex sequence.
+	auto submit_one = [&](uint64_t flags, bool discard) {
+		void *p = bpftime_ringbuf_reserve(rb_fd, 8);
+		REQUIRE(p != nullptr);
+		const uint32_t sequence = perf_wakeup_sequence();
+		bpftime_ringbuf_submit_flags(rb_fd, p, discard, flags);
+		return perf_wakeup_sequence() != sequence;
+	};
+
+	SECTION("Submits ask for a wakeup by bpf's rule")
+	{
+		// Nobody waits: nothing to wake.
+		CHECK_FALSE(submit_one(0, false));
+		REQUIRE(drain() == 1);
+		// A consumer registered as sleeping (as bpftime_epoll_wait
+		// does before its futex wait).
+		__atomic_add_fetch(&state->waiters, 1, __ATOMIC_SEQ_CST);
+		BOOST_SCOPE_EXIT_ALL(&)
+		{
+			__atomic_sub_fetch(&state->waiters, 1,
+					   __ATOMIC_SEQ_CST);
+		};
+		CHECK(submit_one(0, false)); // the consumer caught up
+		CHECK_FALSE(submit_one(0, false)); // it is behind
+		CHECK(submit_one(BPF_RB_FORCE_WAKEUP, false));
+		REQUIRE(drain() == 3);
+		CHECK_FALSE(submit_one(BPF_RB_NO_WAKEUP, false));
+		REQUIRE(drain() == 1);
+		// The consumer has to pass a discarded record too.
+		CHECK(submit_one(0, true));
+		CHECK(drain() == 0);
+	}
+	SECTION("A record wakes a consumer sleeping in epoll")
+	{
+		const int epoll_fd = bpftime_epoll_create();
+		REQUIRE(epoll_fd >= 0);
+		fds.push_back(epoll_fd);
+		REQUIRE(bpftime_add_ringbuf_fd_to_epoll(rb_fd, epoll_fd,
+							{ .u64 = 9 }) == 0);
+		// The consumer can briefly deregister between 1 ms timeouts;
+		// a record landing exactly there is found by the re-check
+		// without a wakeup, so allow a few attempts.
+		bool woke = false;
+		for (int attempt = 0; attempt < 5 && !woke; attempt++) {
+			drain();
+			int wait_result = 0;
+			epoll_event event{};
+			std::thread consumer([&]() {
+				wait_result = bpftime_epoll_wait(epoll_fd, &event,
+								 1, 10000);
+			});
+			const bool slept = wait_for_sleeping_consumer();
+			const uint32_t sequence = perf_wakeup_sequence();
+			void *p = bpftime_ringbuf_reserve(rb_fd, 8);
+			REQUIRE(p != nullptr);
+			bpftime_ringbuf_submit(rb_fd, p, 0);
+			consumer.join();
+			REQUIRE(slept);
+			CHECK(wait_result == 1);
+			CHECK(event.data.u64 == 9);
+			CHECK(perf_wakeup_waiters() == 0);
+			woke = perf_wakeup_sequence() != sequence;
+		}
+		CHECK(woke);
+	}
+}
 #endif

@@ -300,8 +300,28 @@ ssl-nginx with 16 B responses). The producer fences and issues `FUTEX_WAKE`
 only when `waiters` is non-zero; keep both fences, or a wakeup can be missed
 until the timeout. SIGINT/SIGTERM stay
 blocked while sleeping and are collected with a zero-timeout `sigtimedwait`
-afterwards. Ring buffers do not notify and are found by the timeout.
-Segments without the wakeup object (older servers) fall back to polling.
+afterwards. Ring buffer records follow bpf's rule (`bpf_ringbuf_commit`): a
+consumer is woken when it has caught up with the record (it may be asleep), or
+with `BPF_RB_FORCE_WAKEUP`, never with `BPF_RB_NO_WAKEUP`; discards too, since
+the consumer must pass them. After publishing, the producer fences and loads
+`waiters` (acquire), and only with a consumer waiting reads `consumer_pos`
+(`notify_ringbuf_consumers`): a running consumer writes that line for every
+record, and reading it on every submit (with a second fence) made single-thread
+ringbuf output 9.7% slower (639 -> 701 ns per call; the futex wakes, 964 in a
+6 s run, cost nothing measurable). As it is: 640 -> 683 ns per call on one
+thread (+6.7%; fencing and loading `waiters` without ever waking, 657: the rest
+is the consumer draining as records come instead of in 1 ms batches), and
+faster on six (6,617-6,770 -> 6,294-6,361); results
+`reviews-20261105/fixes/output-ab`. Every change of `waiters` is a
+read-modify-write, so a load that sees a registration also sees the position
+the consumer stored before it. Nothing more is read before the publishing
+exchange (see the submit's note on owner-slot loads). Before, ring buffers were found
+by the 1 ms timeout only: a burst larger than the ring within it lost the rest
+at reserve (opensnoop: 8,240-byte records, 31 per 256 KiB ring, 48% of the
+opens delivered in bursts of 100 against bpf's 99.8%;
+`uprobe/opensnoop-loss-20261105`). Test: "Ring buffer records wake a consumer
+that caught up" (fails with the notify removed). Segments without the wakeup
+object (older servers) fall back to polling.
 
 A producer finds its shard by (pid, tid) on every sample. Both are cached per
 thread (getpid and gettid are system calls); the atfork child handler clears
