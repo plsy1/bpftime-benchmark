@@ -789,6 +789,100 @@ TEST_CASE("the hook stack is used again after a frame on it is abandoned",
 	}
 }
 
+// A thread exiting through the hook offers its hook stack, which a later
+// thread takes once the exited one is gone. Before, each thread left two
+// mappings behind: a process creating threads ran out of mappings
+// (vm.max_map_count) after about 32k (review 2026-11-05).
+namespace
+{
+size_t mapping_count()
+{
+	FILE *f = fopen("/proc/self/maps", "r");
+	if (f == nullptr)
+		return 0;
+	size_t lines = 0;
+	for (int c; (c = fgetc(f)) != EOF;)
+		lines += c == '\n';
+	fclose(f);
+	return lines;
+}
+
+// Hooked calls on several threads at once, each checking its results.
+bool concurrent_hooked_calls(int threads, int calls)
+{
+	const pid_t ppid = getppid();
+	std::atomic<int> wrong{ 0 };
+	std::vector<std::thread> running;
+	for (int t = 0; t < threads; t++)
+		running.emplace_back([&] {
+			for (int i = 0; i < calls; i++)
+				if (syscall(SYS_getppid) != ppid)
+					wrong++;
+		});
+	for (auto &t : running)
+		t.join();
+	return wrong == 0;
+}
+} // namespace
+
+TEST_CASE("hook stacks of exited threads are used again",
+	  "[syscall-rewrite]")
+{
+	int code = in_rewritten_child([] {
+		if (!concurrent_hooked_calls(4, 100))
+			return 2;
+		const size_t before = mapping_count();
+		for (int round = 0; round < 500; round++)
+			if (!concurrent_hooked_calls(4, 100))
+				return 3;
+		const size_t after = mapping_count();
+		fprintf(stderr, "mappings %zu -> %zu after 2000 threads\n",
+			before, after);
+		return after <= before + 64 ? 0 : 4;
+	});
+	// 4: the mappings grew (two per thread without reuse)
+	REQUIRE(code == 0);
+}
+
+// A vfork child runs on its parent's TLS and hook stack; its exit (SYS_exit,
+// as Go's child uses) must not offer the stack its parent goes on using.
+TEST_CASE("a vfork child's exit leaves its parent's hook stack alone",
+	  "[syscall-rewrite]")
+{
+	int code = in_rewritten_child([] {
+		int result = 0;
+		std::thread parent([&] {
+			getppid();
+			pid_t pid = vfork();
+			if (pid == 0)
+				syscall(SYS_exit, 0);
+			if (pid < 0 || waitpid(pid, nullptr, 0) != pid) {
+				result = 2;
+				return;
+			}
+			// Others now map or take stacks while this thread
+			// keeps calling through its own.
+			const pid_t ppid = getppid();
+			std::atomic<bool> stop{ false };
+			std::thread others([&] {
+				for (int round = 0; round < 50; round++)
+					if (!concurrent_hooked_calls(4, 2000))
+						result = 3;
+				stop = true;
+			});
+			while (!stop)
+				if (syscall(SYS_getppid) != ppid)
+					result = 4;
+			others.join();
+		});
+		parent.join();
+		return result;
+	});
+	// 3, 4: a wrong result (two threads on one hook stack); above 128:
+	// killed by a signal
+	REQUIRE(code == 0);
+}
+
 // A handler with SS_AUTODISARM runs with the alternate stack disabled: the
 // kernel then reports SS_DISABLE, whether or not sp is on it, so the hook
 // keeps a live-marked frame (it cannot tell).
