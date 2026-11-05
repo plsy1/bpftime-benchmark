@@ -141,10 +141,12 @@ void find_parking(frida_hook_slot &s, void *original)
 struct patch_request {
 	frida_hook_slot::parking_kind kind;
 	uint64_t value;
+	bool stored = false;
 };
 void apply_patch(gpointer mem, gpointer data)
 {
-	auto *request = (const patch_request *)data;
+	auto *request = (patch_request *)data;
+	request->stored = true;
 	if (request->kind == frida_hook_slot::literal64)
 		std::atomic_ref<uint64_t>(*(uint64_t *)mem)
 			.store(request->value, std::memory_order_relaxed);
@@ -161,12 +163,19 @@ void set_parked(frida_hook_slot &s, bool park)
 	patch_request request{ s.parking,
 			       park ? s.invoke_value : s.enter_value };
 	const size_t size = s.parking == frida_hook_slot::literal64 ? 8 : 4;
-	if (gum_memory_patch_code(s.patch_address, size, apply_patch,
-				  &request))
+	const bool ok = gum_memory_patch_code(s.patch_address, size,
+					      apply_patch, &request);
+	// Gum stores, then restores the page's protection: a failure there
+	// returns false after the store, and `parked` has to follow the store
+	// (else the next republish skips the patch, review 2026-11-05).
+	if (request.stored)
 		s.parked = park;
-	else
-		SPDLOG_WARN("Unable to {} the hook at {:x}",
-			    park ? "park" : "unpark", (uintptr_t)s.function);
+	if (!ok)
+		SPDLOG_WARN("Unable to {} the hook at {:x}{}",
+			    park ? "park" : "unpark", (uintptr_t)s.function,
+			    request.stored ? " (the code is patched; restoring "
+					     "its protection failed)" :
+					     "");
 }
 
 int create_slot(void *function, frida_hook_slot **out)
@@ -178,6 +187,12 @@ int create_slot(void *function, frida_hook_slot **out)
 		gum_make_probe_listener(frida_slot_on_enter, s, nullptr);
 	const bool fresh = !looks_redirected(function);
 	GumInterceptor *interceptor = gum_interceptor_obtain();
+	// The slots hold Gum's patch addresses and slices for the life of the
+	// process: Gum's interceptor must never be disposed (it would restore
+	// the functions and free the slices). Today gum_init_embedded's
+	// reference keeps it; this one does not depend on that.
+	[[maybe_unused]] static GumInterceptor *const kept_for_slots =
+		gum_interceptor_obtain();
 	gum_interceptor_begin_transaction(interceptor);
 	int err = gum_interceptor_attach(interceptor, function,
 					 s->enter_listener, nullptr);
