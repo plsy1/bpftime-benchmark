@@ -879,7 +879,21 @@ vDSO's `__kernel_rt_sigreturn` (never rewritten); musl and Go use their own rest
 The hook runs on a stack of its own per thread (`bpftime_hook_stack`, initial-
 exec TLS read by the asm: 128 KiB above a 64 KiB guard, mapped with the hook's
 own system calls at the thread's first traced call, which still runs on the
-caller's stack; never unmapped, the thread is on it when it exits). Below
+caller's stack). A thread exiting through the hook (`SYS_exit`, in the
+special-call bitmap) is on its stack until the kernel takes it down, so it only
+offers it (a lock-free table of 256): a later thread's allocation takes it once
+the exited thread is gone (`tgkill(pid, tid, 0)`: ESRCH; a reused tid only
+delays it). Before, every thread ever created left two mappings and at least a
+page behind (16,384 threads: 84 -> 32,854 mappings; at the stock
+`vm.max_map_count` of 65530 the process's own mmap and pthread_create fail at
+about 32k; review 2026-11-05). Not offered: a stack marked `shared`, and one
+the exiting thread did not map (`owner_tid`): a vfork-style child exits on its
+parent's TLS, and a clone with `CLONE_VM` and no `CLONE_SETTLS` maps the
+parent's stack first, so it is the parent's. Threads exiting through code
+that is not rewritten, or with the table full, leave theirs mapped. Tests:
+"hook stacks of exited threads are used again" (2,000 threads, 110 mappings
+before and after; 4,110 without the reuse), "a vfork child's exit leaves its
+parent's hook stack alone" (SIGSEGV without the owner check). Below
 the application's sp it writes 32 bytes (the gate's x16/x17, then x0/x1 while
 it switches). It wrote 880 bytes with no agent callback, 1,376 with the agent,
 18,144 with a program attached (the LLVM JIT allocas 32 local-call levels of
