@@ -211,7 +211,7 @@ void republish_locked(frida_hook_slot &s)
 		owner->collect(*next);
 	const bool empty = next->uprobes.empty() &&
 			   next->uretprobes.empty() &&
-			   next->override_owner == nullptr;
+			   next->override_attach == nullptr;
 	if (empty) {
 		delete next;
 		next = nullptr;
