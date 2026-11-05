@@ -140,6 +140,13 @@ long per_cpu_hash_map_impl::update_with(const void *key, uint64_t flags,
 				errno = ENOENT;
 				return -1;
 			}
+		} else if (table.elem_lookup(key) != nullptr) {
+			// Before taking a slot: the pool lock on every lost
+			// lookup_or_try_init race, and E2BIG instead of EEXIST
+			// once in-flight inserts held the spare slots (the
+			// kernel finds the key first and allocates nothing).
+			errno = EEXIST;
+			return -1;
 		}
 		uint32_t slot;
 		if (!acquire_slot(slot))

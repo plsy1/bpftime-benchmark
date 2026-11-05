@@ -1330,7 +1330,14 @@ helper entry points, the diagnostic direct paths and lookup-and-delete lock only
 `if constexpr (should_lock)`). The slots are in chunks allocated as they are first
 used (a fixed table of chunk offsets from the map object, the same in every
 process) with a free list under one spinlock (`pool_lock`, its own cache line):
-taken only to insert a new key or to delete one. A delete returns the slot and
+taken only to insert a new key or to delete one. `BPF_NOEXIST` looks the key up
+(lock-free) before taking a slot: without that (a73f6753 to 11-05) every
+`BPF_NOEXIST` on an existing key, the losing side of each `lookup_or_try_init`
+race, took the pool lock twice and cleared `value_size * ncpu` bytes, and with
+the spare slots held by in-flight inserts of a full map it returned E2BIG where
+the kernel returns EEXIST (review 2026-11-05; tests in `[percpu-locks]`). A
+key inserted between that lookup and the insert still costs a slot taken and
+given back. A delete returns the slot and
 frees nothing, so a stale value pointer writes into a slot (as with the kernel's
 preallocated htab: possibly another key's value once the slot is reused). Keys
 other than 4 bytes used to own a separately allocated value that a delete freed
@@ -1339,7 +1346,10 @@ handed out again. Capacity is `max_entries + ncpu` slots: an insert that loses a
 race to insert the same key holds one for a moment (the kernel's percpu htab has
 extra elements too); a nearly full map can still report E2BIG while many inserts
 are in flight. The pool lock is one more lock a process killed inside it leaves
-held (see the dead-holder note above). Memory: the key table is preallocated as
+held (see the dead-holder note above), and a process killed between taking a
+slot and inserting its key (it waits for a stripe lock meanwhile) loses that
+slot: after more than `ncpu` such deaths inserts fail with E2BIG below
+`max_entries` keys (the hash map's dead holders lose elements the same way). Memory: the key table is preallocated as
 the hash map's (a 16-byte element and a 4-byte chain head per entry for 4-byte
 keys, plus a 4-byte slot free-list entry), about 24 MB for a million entries
 (29 MB on the open-addressing table); the old index grew with the keys. The

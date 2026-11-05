@@ -17,6 +17,7 @@
 #include <cstring>
 #include <linux/bpf.h>
 #include <string>
+#include <sched.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -98,6 +99,83 @@ TEST_CASE("per-cpu hash lookups and updates take no pool lock",
 		ret = map.elem_update(&other, &one, BPF_NOEXIST);
 	}));
 	REQUIRE(ret == 0);
+}
+
+// BPF_NOEXIST on an existing key used to take a slot (the pool lock) before
+// finding the key (review 2026-11-05), the losing side of every
+// lookup_or_try_init race.
+TEST_CASE("per-cpu hash BPF_NOEXIST on an existing key takes no slot",
+	  "[percpu-hash][percpu-locks]")
+{
+	shm_guard shm("bpftime_percpu_locks_noexist_" + std::to_string(getpid()));
+	SECTION("No pool lock")
+	{
+		per_cpu_hash_map_impl map(shm.segment, 4, 8, 64);
+		const uint32_t key = 7;
+		const uint64_t one = 1;
+		REQUIRE(map.elem_update(&key, &one, BPF_ANY) == 0);
+		std::vector<uint64_t> all(bpftime_num_possible_cpus(), 2);
+		long ret = 0;
+		int err = 0;
+		REQUIRE_FALSE(waits([&] { map.lock_pool_for_test(); },
+				    [&] { map.unlock_pool_for_test(); }, [&] {
+					    ret = map.elem_update(&key, &one,
+								  BPF_NOEXIST);
+					    err = errno;
+				    }));
+		CHECK(ret == -1);
+		CHECK(err == EEXIST);
+		REQUIRE_FALSE(waits([&] { map.lock_pool_for_test(); },
+				    [&] { map.unlock_pool_for_test(); }, [&] {
+					    ret = map.elem_update_userspace(
+						    &key, all.data(),
+						    BPF_NOEXIST);
+					    err = errno;
+				    }));
+		CHECK(ret == -1);
+		CHECK(err == EEXIST);
+	}
+	SECTION("EEXIST, not E2BIG, while an insert holds the spare slot")
+	{
+		// One CPU: max_entries + 1 slots. Two keys fill the map; an
+		// insert of a third takes the spare slot and waits for its
+		// stripe meanwhile.
+		cpu_set_t old_set, set;
+		REQUIRE(sched_getaffinity(0, sizeof(old_set), &old_set) == 0);
+		CPU_ZERO(&set);
+		CPU_SET(0, &set);
+		REQUIRE(sched_setaffinity(0, sizeof(set), &set) == 0);
+		per_cpu_hash_map_impl map(shm.segment, 4, 8, 2, 1);
+		const uint32_t k1 = 11, k2 = 22;
+		const uint64_t v = 1;
+		REQUIRE(map.elem_update(&k1, &v, BPF_ANY) == 0);
+		REQUIRE(map.elem_update(&k2, &v, BPF_ANY) == 0);
+		// A map this small has one stripe: k2's too is locked, which
+		// the lock-free lookup of BPF_NOEXIST never waits for.
+		const uint32_t k3 = 33;
+		auto &table = map.table_for_test();
+		const size_t stripe = table.stripe_of_key(&k3);
+		table.lock_stripe_for_test(stripe);
+		long ret_insert = 0;
+		std::thread insert([&] {
+			cpu_set_t one_cpu;
+			CPU_ZERO(&one_cpu);
+			CPU_SET(0, &one_cpu);
+			sched_setaffinity(0, sizeof(one_cpu), &one_cpu);
+			// NOEXIST: no stripe lock before the slot.
+			ret_insert = map.elem_update(&k3, &v, BPF_NOEXIST);
+		});
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		errno = 0;
+		const long ret = map.elem_update(&k2, &v, BPF_NOEXIST);
+		const int err = errno;
+		table.unlock_stripe_for_test(stripe);
+		insert.join();
+		sched_setaffinity(0, sizeof(old_set), &old_set);
+		CHECK(ret == -1);
+		CHECK(err == EEXIST);
+		CHECK(ret_insert == -1); // the map is full
+	}
 }
 
 TEST_CASE("per-cpu hash updates of an existing key wait for its stripe",
