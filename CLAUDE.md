@@ -1600,6 +1600,17 @@ override callback, which is restored afterwards: it was a field of the shared
 entry, so a thread could return another's value (68,951 of 4.06M calls with four
 threads when the program went on after setting it). Nothing escapes the
 replacement: an exception logs and calls the original.
+Slots are keyed by the address Gum instruments: `gum_interceptor_resolve`
+follows a leading jump (a `b` thunk, a PLT-style stub) unless the address is
+hooked already, so a probe on `foo: b bar` is a listener on `bar`'s context.
+With a slot per address, detaching `bar`'s probe parked `bar`'s slot and
+`foo`'s probe, still attached, never fired again (review 2026-11-05). The slot
+lookup now follows the jumps the same way (`gum_{arm64,x86}_reader_try_get_
+relative_jump_target`, in libfrida-gum but not in the devkit header, at most
+8 hops), so both are owners of one slot and its dispatch holds both
+attaches; calling either runs both, as Gum did. Test: "A probe on a thunk
+keeps firing after its target's probe is detached" (fails without the
+lookup).
 The attach-time window remains: Gum writes the redirect over the first
 instructions while other threads may run them (bpftime attaches at start).
 `frida_attach_impl` is not thread-safe: owners of one slot in two impls must
