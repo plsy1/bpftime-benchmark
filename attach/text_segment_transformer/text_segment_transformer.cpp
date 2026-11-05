@@ -356,17 +356,23 @@ stack when
 - the thread has no hook stack yet (its first traced call allocates one),
 - sp is already on it (the hook's own calls, a signal handler without an
   alternate stack interrupting a hooked blocking call): below the live frames,
-- a frame on it is live (`busy`) and sp is elsewhere (a handler on the
-  application's sigaltstack, as Go's always are): switching to the top would
-  overwrite that frame.
-`busy` is set before sp moves onto the hook stack and cleared while sp is still
-on it, so a handler arriving in between always sees one of those cases. The
-switch tests use no flags (NZCV is saved later): differences and bit 63.
+- the frame at the top is live and sp is elsewhere (a handler on the
+  application's sigaltstack, as Go's always are): switching would overwrite
+  that frame.
+The top frame is live while bit 0 of its slot (the stack's last word, hi - 8)
+is set. The slot is written after sp moves onto the hook stack and cleared
+after the frame's last read, while sp is still on it: a handler arriving in
+between runs below on the hook stack, or on another stack and finds the frame
+live; one arriving before the write or after the clear finds nothing it could
+destroy (nothing stored yet, or nothing read any more). Clearing a flag before
+the frame's reads let a sigaltstack handler's hooked call build its frame over
+the one being read: the thread hung, or went on on the signal stack (review
+2026-11-05). The switch tests use no flags (NZCV is saved later): differences
+and bits.
 */
 struct hook_stack_state {
 	uint64_t lo; // lowest usable address (above the guard)
 	uint64_t hi; // top; 0: none yet
-	uint64_t busy; // a frame switched here is live
 };
 // Read by the asm: `used`, or LTO drops it.
 extern "C" {
@@ -411,10 +417,9 @@ __asm__(".pushsection .text\n\t"
 		"sub x1, x17, x1\n\t"
 		"tbz x1, #63, 1f\n\t" // lo <= sp < hi: on it, stay
 		"7:\n\t"
-		"ldr x1, [x0, #16]\n\t" // busy: a live frame at the top
-		"cbnz x1, 1f\n\t"
-		"mov x1, #1\n\t"
-		"str x1, [x0, #16]\n\t"
+		"ldr x1, [x0, #8]\n\t"
+		"ldr x1, [x1, #-8]\n\t" // the top frame's slot
+		"tbnz x1, #0, 1f\n\t" // live
 		"ldr x17, [x0, #8]\n\t" // the top
 		"add x0, sp, #17\n\t" // the application's sp | switched
 		"b 8f\n\t"
@@ -422,8 +427,10 @@ __asm__(".pushsection .text\n\t"
 		"add x0, sp, #16\n\t" // the application's sp
 		"8:\n\t"
 		"sub x17, x17, #784\n\t"
-		"str x0, [x17, #776]\n\t"
 		"mov sp, x17\n\t"
+		// CFA = (x0 & ~15) + 16 until the slot holds it
+		".cfi_escape 0x0f, 0x07, 0x70, 0x00, 0x09, 0xf0, 0x1a, 0x23, 0x10\n\t"
+		"str x0, [sp, #776]\n\t" // switched: marks the top frame live
 		// CFA = (*(sp + 776) & ~15) + 16
 		".cfi_escape 0x0f, 0x09, 0x8f, 0x88, 0x06, 0x06, 0x09, 0xf0, 0x1a, 0x23, 0x10\n\t"
 		"and x1, x0, #0xfffffffffffffff0\n\t"
@@ -533,16 +540,6 @@ __asm__(".pushsection .text\n\t"
 		"b.eq 4f\n\t"
 		"msr fpcr, x9\n\t"
 		"4:\n\t"
-		// Done with the hook stack: the frame stays readable below any
-		// handler's (sp is on it until the end, so a handler stays below).
-		"ldr x9, [sp, #776]\n\t"
-		"tbz x9, #0, 6f\n\t"
-		"mrs x10, tpidr_el0\n\t"
-		"adrp x11, :gottprel:bpftime_hook_stack\n\t"
-		"ldr x11, [x11, #:gottprel_lo12:bpftime_hook_stack]\n\t"
-		"add x10, x10, x11\n\t"
-		"str xzr, [x10, #16]\n\t" // busy
-		"6:\n\t"
 		"ldp x9, x10, [sp, #240]\n\t"
 		"msr nzcv, x9\n\t"
 		"msr fpsr, x10\n\t"
@@ -575,9 +572,14 @@ __asm__(".pushsection .text\n\t"
 		".cfi_restore x29\n\t"
 		".cfi_restore x30\n\t"
 		"ldr x17, [sp, #776]\n\t"
+		// The frame's last read: released (no longer the live top).
+		"str xzr, [sp, #776]\n\t"
+		// CFA = (x17 & ~15) + 16
+		".cfi_escape 0x0f, 0x07, 0x81, 0x00, 0x09, 0xf0, 0x1a, 0x23, 0x10\n\t"
 		"tbnz x17, #3, 9f\n\t"
 		".cfi_remember_state\n\t"
 		"and x17, x17, #0xfffffffffffffff0\n\t"
+		".cfi_def_cfa x17, 16\n\t"
 		"mov sp, x17\n\t" // back on the application's stack
 		".cfi_def_cfa sp, 16\n\t"
 		".cfi_escape 0x16, 0x11, 0x16, 0x80, 0x00, 0x12, 0x23, 0x10, 0x94, 0x04, 0x0c, 0xff, 0xff, 0xff, 0x03, 0x1a, 0x08, 0x26, 0x24, 0x08, 0x24, 0x26, 0x22, 0x23, 0x10\n\t"
@@ -587,6 +589,7 @@ __asm__(".pushsection .text\n\t"
 		".cfi_restore_state\n\t"
 		"9:\n\t"
 		"and x17, x17, #0xfffffffffffffff0\n\t"
+		".cfi_def_cfa x17, 16\n\t"
 		"mov sp, x17\n\t"
 		".cfi_def_cfa sp, 16\n\t"
 		".cfi_escape 0x16, 0x11, 0x16, 0x80, 0x00, 0x12, 0x23, 0x10, 0x94, 0x04, 0x0c, 0xff, 0xff, 0xff, 0x03, 0x1a, 0x08, 0x26, 0x24, 0x08, 0x24, 0x26, 0x22, 0x23, 0x10\n\t"

@@ -870,18 +870,30 @@ loaded, programs or not (neighbouring goroutines' frames overwritten:
 "unknown caller pc", "unexpected fault address", SIGSEGV). The frame stays on
 the current stack when the thread has no hook stack yet, when sp is already on
 it (the hook's own calls, a handler without an alternate stack interrupting a
-hooked blocking call: below the live frames) and when a switched frame is live
-(`busy`) and sp is elsewhere (a handler on the application's sigaltstack, as
-Go's always are: the top holds that frame). `busy` is set before sp moves
-onto the hook stack and cleared while sp is still on it; the tests before the
-switch use no flags (NZCV is saved later). The frame's slot at 776 holds the
-application's sp (bit 0: switched, bit 3: direct path), from which the unwind
-information computes the CFA; the saved registers are described relative to
-sp. Cost: 39 instructions, 14-15 cycles per hooked call (write: 397 -> 406
+hooked blocking call: below the live frames) and when the top frame is live
+and sp is elsewhere (a handler on the application's sigaltstack, as Go's
+always are: the top holds that frame). The top frame is live while bit 0 of
+its slot (the stack's last word, `hi - 8`) is set: the slot is written after sp
+moves onto the hook stack and cleared after the frame's last read, while sp is
+still on it, so a handler arriving in between runs below on the hook stack or
+finds the frame live, and one arriving before or after destroys nothing in use.
+A TLS flag (`busy`) cleared before the epilogue read the frame back let a
+sigaltstack handler's hooked call, in those 22 instructions, build its frame
+over the one being read: the thread hung, or went on on the signal stack
+(review 2026-11-05; a hang within 30 s in the test below with the clear moved
+back). The tests before the switch use no flags (NZCV is saved later). The
+frame's slot at 776 holds the application's sp (bit 0: switched, bit 3:
+direct path), from which the unwind information computes the CFA; the saved
+registers are described relative to sp, and the CFA from x0 for the
+instruction before the slot is written and from x17 after it is cleared. Cost: 39 instructions, 14-15 cycles per hooked call (write: 397 -> 406
 ns rewritten, agent dispatch 426 -> 436 ns; results
 `syscall/realapps-20261102/hook-perf`). Tests: "a hooked call uses only a few bytes of the caller's stack", "a
 handler on an alternate stack leaves the hook's live frame alone", "a handler
-on the hook stack builds its frame below the live one"; end to end with Go,
+on the hook stack builds its frame below the live one", "handlers on an
+alternate stack interrupting the hook leave its frame intact" (about 340k
+signals, nearly all landing in the hook, each unwound from the handler back to
+the interrupted loop; it cannot single out the few instructions with their own
+CFA rows, which were checked with `llvm-dwarfdump --eh-frame`); end to end with Go,
 results `syscall/realapps-20261102`. A raw `CLONE_VM` thread without
 `CLONE_SETTLS` shares its creator's TLS and hook stack (not covered).
 Frida uprobes on Go functions still run programs (18 KB) on the goroutine
