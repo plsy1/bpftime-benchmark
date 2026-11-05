@@ -783,13 +783,18 @@ records nothing.
 
 libbpf turns instructions of a branch it knows is dead into calls of helper
 2001000000 + map index (the load of a map it did not create) or 2002000000 +
-extern index (a kfunc it did not find); the kernel's verifier removes the dead
-code. bpftime has no verifier: such a program did not compile and was disabled
+extern index (a kfunc it did not find), and an instruction whose CO-RE
+relocation failed (a field this kernel lacks, read behind
+`bpf_core_field_exists`) into a call of 195896080 (0xbad2310, "bad relo", both
+halves of an ldimm64); the kernel's verifier removes the dead code. bpftime has no verifier: such a program did not compile and was disabled
 (opensnoop, whose libbpf-tools compat buffer creates only its ringbuf or only
 its perf map). `bpftime_prog_load` points those calls at a private slot
 (`BPFTIME_LIBBPF_POISON_SLOT`, 8188) whose helper reports that it ran and
-returns -EINVAL. Test "Calls libbpf poisoned in dead code do not disable the
-program" (disabled, -ENOEXEC, without the rewrite).
+returns -EINVAL. The CO-RE form was missed until 11-05: memleak's tracepoint
+programs were disabled for it (`Ext func not found: _bpf_helper_ext_195896080`).
+Tests "Calls libbpf poisoned in dead code do not disable the program", "Calls
+libbpf poisoned for a failed CO-RE relocation do not disable the program"
+(disabled, -ENOEXEC, without the rewrite).
 
 libbpf-tools keep their options in `.rodata`, a `BPF_F_RDONLY_PROG` array that
 libbpf freezes before loading the programs, and the code of an option that is
@@ -804,7 +809,9 @@ a program calls a helper nobody registered, `bpftime_prog_load` runs
 analysis that tracks scalars and pointers into frozen read-only array values
 and follows a branch decided by them one way only. Calls of missing helpers it
 finds unreachable go to a private slot (`BPFTIME_DEAD_CALL_SLOT`, 8187) whose
-helper reports that it ran; a reachable one still fails the compile. It is
+helper reports that it ran; a reachable one still fails the compile. A kfunc
+call (`BPF_PSEUDO_KFUNC_CALL`, src_reg 2, imm a BTF id) is never registered and
+counts as missing (before 11-05 one in dead code kept the program disabled). It is
 conservative: unmodeled instructions leave their registers unknown, joins turn
 differing registers unknown, calls clobber r0-r5, bpf-to-bpf callees and
 callbacks (ldimm64 `BPF_PSEUDO_FUNC`, target `pc + imm + 1`) are entries; the
