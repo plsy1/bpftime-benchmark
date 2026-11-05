@@ -823,7 +823,11 @@ r1-r5, or joins keeping a value each fail one). Sound for programs the kernel
 accepts: nothing stops a program from writing a `BPF_F_RDONLY_PROG` map in
 bpftime (no verifier), and then the constant would be stale. Not applied to
 AOT-loaded programs (they skip `bpftime_prog_load`'s rewrites), nor to maps
-restored by `bpftimetool import` (not frozen again).
+restored by `bpftimetool import` (not frozen again). `bpftime aot` compiles
+after the rewrites, so its objects call the two private slots:
+`load_aot_object` registers them too (it did not, and such an object failed to
+load). Test "An AOT object of a program with poisoned calls loads" (the
+branch is on the input: LLVM drops a call behind a constant one).
 ## Stack Trace Map
 
 `stack_trace_map_impl::fill_stack_trace` follows the kernel `__bpf_get_stackid`:
