@@ -26,7 +26,9 @@ namespace bpftime
 // preallocated htab, possibly another key's), not in memory the segment
 // allocator handed out again. The pool's free list has a spinlock, taken
 // only to insert a new key or to delete one; lookups and updates of an
-// existing key never take it.
+// existing key never take it (BPF_NOEXIST finds the key by a lookup first; a
+// key inserted between that lookup and the insert costs a slot taken and
+// given back).
 //
 // An existing key's value is written under its stripe locks
 // (with_existing_value), so a concurrent delete cannot give its slot to
