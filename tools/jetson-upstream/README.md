@@ -447,6 +447,27 @@ call still disables the program. `[jit_load]` runs the three
 opensnoop from 0 to 18,838/38,800 events; the other 18 audited tools are
 unchanged. Results: `uprobe/rodata-dead-code-20261105`.
 
+Fifteen commits accepted 2026-11-05 follow, the fixes of the fifth review
+(`reviews-20261105`, of 6ab9cbfe..94f9ba8f), `c6b240a9` to `d46ceb8f`: the
+Frida override runs from the dispatch with per-call state (detaching an
+override under load aborted the process); the aarch64 hook marks its top
+frame live in the frame's own slot (a sigaltstack handler's hooked call hung
+the thread), switches over a frame abandoned by a vfork-style child or a
+siglongjmp, and reuses the hook stacks of exited threads; a ring buffer submit
+wakes a consumer that has caught up with the record (opensnoop delivered 48%
+of bursts of 100); Frida slots are keyed by the address Gum instruments; a
+per-CPU BPF_NOEXIST update of an existing key takes no slot; libbpf's CO-RE
+poison and dead kfunc calls no longer disable programs, AOT objects load
+with the private slots; a frozen map refuses every syscall write; a hash
+lookup-and-delete copies the value out after unlocking; the Frida grace
+counter flips on its parity; docs. Replayed onto official 25e250d651ad
+(stack 6dea355b) without conflicts by `migrate`; `test-candidate` green
+(runtime 183 passed + 1 skipped, daemon, Frida 25, transformer 54 + 1
+expected failure, smoke funclatency 4,271,000/4,271,000, memleak 9
+outstanding, detach rc 0). Their tests are in the existing filter tags
+(`[epoll]`, `[percpu-hash]`, `[bpftime_hash_map]`, `[jit_load]`) and the
+Frida and transformer suites. Results: `reviews-20261105/fixes`.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
