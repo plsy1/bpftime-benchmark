@@ -8,8 +8,11 @@
 #include "bpftime_handler.hpp"
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
+#include <cstring>
 #include <sched.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
+#include <csignal>
 #include <unistd.h>
 #include <vector>
 #include <chrono>
@@ -27,6 +30,13 @@ using namespace bpftime;
 
 TEST_CASE("bpftime_hash_map basic operations", "[bpftime_hash_map]")
 {
+	shared_memory_object::remove("bpftime_hash_map_test");
+	struct remove_at_exit {
+		~remove_at_exit()
+		{
+			shared_memory_object::remove("bpftime_hash_map_test");
+		}
+	} remover;
 	managed_shared_memory segment(open_or_create, "bpftime_hash_map_test",
 				      65536);
 
@@ -190,6 +200,154 @@ TEST_CASE("bpftime_hash_map basic operations", "[bpftime_hash_map]")
 
 		REQUIRE(map.elem_lookup(&key2) != nullptr);
 		REQUIRE(*(int64_t *)map.elem_lookup(&key2) == value2);
+	}
+}
+
+// A tool's lookup-and-delete into a bad buffer used to fault while holding
+// the key's stripe lock (the value was copied under it): the dead tool left
+// every writer of that stripe in the traced process spinning (review
+// 2026-11-05).
+TEST_CASE("bpftime_hash_map lookup-and-delete copies out after unlocking",
+	  "[bpftime_hash_map]")
+{
+	shared_memory_object::remove("bpftime_hash_map_delete_out_test");
+	managed_shared_memory segment(create_only,
+				      "bpftime_hash_map_delete_out_test", 1 << 20);
+	struct remove_at_exit {
+		~remove_at_exit()
+		{
+			shared_memory_object::remove(
+				"bpftime_hash_map_delete_out_test");
+		}
+	} remover;
+	bpftime_hash_map map(segment, 16, sizeof(uint32_t), sizeof(uint64_t));
+	const uint32_t key = 3;
+	uint64_t value = 9;
+	REQUIRE(map.elem_update(&key, &value));
+	void *bad = mmap(nullptr, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS,
+			 -1, 0);
+	REQUIRE(bad != MAP_FAILED);
+	pid_t tool = fork();
+	if (tool == 0) {
+		signal(SIGSEGV, SIG_DFL); // not Catch's report
+		map.elem_delete(&key, bad); // faults
+		_exit(0);
+	}
+	int status = 0;
+	REQUIRE(waitpid(tool, &status, 0) == tool);
+	REQUIRE(WIFSIGNALED(status));
+	// The traced process updates the same key (the same stripe).
+	pid_t writer = fork();
+	if (writer == 0) {
+		alarm(5);
+		_exit(map.elem_update(&key, &value) ? 0 : 1);
+	}
+	REQUIRE(waitpid(writer, &status, 0) == writer);
+	INFO("writer " << (WIFSIGNALED(status) ? "killed by signal " : "exit ")
+		       << (WIFSIGNALED(status) ? WTERMSIG(status) :
+						WEXITSTATUS(status)));
+	REQUIRE(WIFEXITED(status));
+	REQUIRE(WEXITSTATUS(status) == 0);
+	munmap(bad, 4096);
+}
+
+// The memcmp key path (8- and 16-byte keys) under replace-in-place storms: two
+// keys of one bucket updated at once, a third inserted and deleted, three
+// readers. A lookup of either key never misses and copies are whole and the
+// key's own. Replacements were tested with 4-byte keys only (review
+// 2026-11-05: 0 misses, 0 torn in 45-59M reads).
+TEST_CASE("bpftime_hash_map replaces long keys in place without misses",
+	  "[bpftime_hash_map]")
+{
+	for (size_t key_size : { 8, 16 }) {
+		CAPTURE(key_size);
+		shared_memory_object::remove("bpftime_hash_map_long_keys_test");
+		managed_shared_memory segment(create_only,
+					      "bpftime_hash_map_long_keys_test",
+					      16 << 20);
+		struct remove_at_exit {
+			~remove_at_exit()
+			{
+				shared_memory_object::remove(
+					"bpftime_hash_map_long_keys_test");
+			}
+		} remover;
+		bpftime_hash_map map(segment, 64, key_size, 24);
+		// Keys differing only in their last word, so that memcmp
+		// looks past the first 8 bytes of 16-byte keys.
+		auto make = [&](uint64_t n) {
+			std::vector<uint8_t> k(key_size, 0);
+			const uint64_t fixed = 0x1122334455667788ULL;
+			if (key_size == 16)
+				memcpy(k.data(), &fixed, 8);
+			memcpy(k.data() + key_size - 8, &n, 8);
+			return k;
+		};
+		std::vector<std::vector<uint8_t> > keys{ make(1) };
+		for (uint64_t n = 2; keys.size() < 3; n++) {
+			auto k = make(n);
+			if (map.bucket_of_key(k.data()) ==
+			    map.bucket_of_key(keys[0].data()))
+				keys.push_back(k);
+		}
+		for (uint64_t i = 0; i < 2; i++) {
+			const uint64_t init[3] = { i, 0, 0 };
+			REQUIRE(map.elem_update(keys[i].data(), init));
+		}
+		std::atomic<bool> stop{ false };
+		std::atomic<uint64_t> misses{ 0 }, torn{ 0 }, reads{ 0 };
+		std::vector<std::thread> threads;
+		for (uint64_t w = 0; w < 2; w++)
+			threads.emplace_back([&, w] {
+				for (uint64_t x = 1;
+				     !stop.load(std::memory_order_relaxed); x++) {
+					const uint64_t value[3] = { w, x, x };
+					map.elem_update(keys[w].data(), value);
+				}
+			});
+		threads.emplace_back([&] {
+			const uint64_t value[3] = { 2, 5, 5 };
+			while (!stop.load(std::memory_order_relaxed)) {
+				map.elem_update(keys[2].data(), value);
+				map.elem_delete(keys[2].data());
+			}
+		});
+		for (int r = 0; r < 3; r++)
+			threads.emplace_back([&] {
+				uint64_t miss = 0, bad = 0, n = 0;
+				while (!stop.load(std::memory_order_relaxed)) {
+					for (uint64_t i = 0; i < 2; i++, n++) {
+						uint64_t k = 0, a = 0, b = 0;
+						const void *p = map.lookup_read(
+							keys[i].data(),
+							[&](const void *v) {
+								auto *q = (uint64_t *)v;
+								k = std::atomic_ref<uint64_t>(q[0]).load(
+									std::memory_order_acquire);
+								a = std::atomic_ref<uint64_t>(q[1]).load(
+									std::memory_order_acquire);
+								b = std::atomic_ref<uint64_t>(q[2]).load(
+									std::memory_order_acquire);
+							});
+						if (p == nullptr)
+							miss++;
+						else if (k != i || a != b)
+							bad++;
+					}
+				}
+				misses += miss;
+				torn += bad;
+				reads += n;
+			});
+		std::this_thread::sleep_for(std::chrono::seconds(2));
+		stop = true;
+		for (auto &t : threads)
+			t.join();
+		INFO("reads " << reads.load());
+		CHECK(reads.load() > 0);
+		CHECK(misses.load() == 0);
+		CHECK(torn.load() == 0);
+		CHECK(map.get_elem_count() == 2);
 	}
 }
 
