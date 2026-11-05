@@ -340,6 +340,8 @@ long bpftime_map_update_elem(int fd, const void *key, const void *value,
 long bpftime_map_delete_elem(int fd, const void *key);
 // BPF_MAP_FREEZE: 0, or -1 with errno (EBADF not a map, EBUSY frozen).
 int bpftime_map_freeze(int fd);
+// 1 if `fd` is a frozen map, 0 if not (or not a map).
+int bpftime_is_map_frozen(int fd);
 
 // BPF_MAP_LOOKUP_AND_DELETE_ELEM: pops a queue or stack (key unused), or
 // removes key's element of a hash map and returns its value.
