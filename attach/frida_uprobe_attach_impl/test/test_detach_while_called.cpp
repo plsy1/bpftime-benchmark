@@ -235,8 +235,13 @@ TEST_CASE("Detaching an override while threads call the function keeps them runn
 }
 
 // The value a program sets belonged to the function's entry, shared by every
-// thread calling it: a thread could return another's.
-TEST_CASE("Concurrent override calls each return their own value")
+// thread calling it: a thread could return another's. In a child, like the
+// others: a parent whose threads ran an override made later children's first
+// attach under load crash now and then (2-3 of 8, also before this test's
+// fix; the attach-time window, CLAUDE.md).
+namespace
+{
+int concurrent_overrides_return_their_own_value()
 {
 	frida_attach_impl man;
 	int id = man.create_uprobe_override_at(
@@ -246,7 +251,8 @@ TEST_CASE("Concurrent override calls each return their own value")
 			for (int i = 0; i < 200; i++)
 				asm volatile("" ::: "memory");
 		});
-	REQUIRE(id >= 0);
+	if (id < 0)
+		return 2;
 	uint64_t (*volatile target)(uint64_t) = concurrent_override_target;
 	std::atomic<bool> stop{ false };
 	std::atomic<uint64_t> calls{ 0 }, wrong{ 0 };
@@ -266,9 +272,20 @@ TEST_CASE("Concurrent override calls each return their own value")
 	for (auto &t : threads)
 		t.join();
 	man.detach_by_id(id);
-	INFO("calls " << calls.load() << " wrong " << wrong.load());
-	REQUIRE(calls.load() > 0);
-	REQUIRE(wrong.load() == 0);
+	fprintf(stderr, "calls %lu wrong %lu\n", (unsigned long)calls.load(),
+		(unsigned long)wrong.load());
+	if (calls.load() == 0)
+		return 3;
+	return wrong.load() == 0 ? 0 : 4;
+}
+} // namespace
+
+TEST_CASE("Concurrent override calls each return their own value")
+{
+	int status = run_in_child(concurrent_overrides_return_their_own_value);
+	// 2: attach failed; 3: no call; 4: a call returned another's value
+	INFO("child status " << status);
+	REQUIRE(status == 0);
 }
 
 // Detaching the last probe of a function used to copy its saved first
