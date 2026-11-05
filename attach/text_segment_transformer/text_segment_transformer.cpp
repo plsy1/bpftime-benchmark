@@ -123,6 +123,9 @@ static uint64_t *identity_epoch;
 static void note_shared_hook_stack();
 // After the thread's sigaltstack call or query: its signal stack's flags.
 static void note_sigaltstack(int ss_flags);
+static inline void ensure_hook_stack();
+// Before the thread's own exit: offers its hook stack for reuse.
+static void retire_hook_stack();
 extern "C" __attribute__((visibility("hidden"), used)) void
 note_clone_syscall(uint64_t arg0, int64_t sys_nr, uint64_t app_sp)
 {
@@ -143,6 +146,10 @@ note_clone_syscall(uint64_t arg0, int64_t sys_nr, uint64_t app_sp)
 	if (!known || ((flags & CLONE_VM) &&
 		       !(flags & (CLONE_VFORK | CLONE_SETTLS))))
 		note_shared_hook_stack();
+	// A child on this TLS uses this thread's hook stack: mapped here, the
+	// stack is this thread's, which the child's exit leaves alone.
+	if (!known || ((flags & CLONE_VM) && !(flags & CLONE_SETTLS)))
+		ensure_hook_stack();
 	uint64_t *epoch = __atomic_load_n(&identity_epoch, __ATOMIC_ACQUIRE);
 	if (epoch == nullptr)
 		return;
@@ -394,6 +401,7 @@ struct hook_stack_state {
 	uint64_t hi; // top; 0: none yet
 	uint64_t shared; // a concurrent child has this TLS: never switch over
 	uint64_t autodisarm; // the thread set an SS_AUTODISARM signal stack
+	int64_t owner_tid; // the thread that mapped or took the stack
 };
 // Read by the asm: `used`, or LTO drops it.
 extern "C" {
@@ -695,6 +703,10 @@ hook_special_call(int64_t sys_nr, int64_t arg1, int64_t arg2, int64_t arg3,
 	in_hook = true;
 	uint64_t scratch[4];
 	int64_t ret;
+	// Before the call, which does not return: the thread stays on its
+	// hook stack until the kernel takes it down.
+	if (sys_nr == SYS_exit)
+		retire_hook_stack();
 	if (!bpftime::before_hooked_syscall(sys_nr, arg1, arg2, arg3, scratch,
 					    ret))
 		ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
@@ -710,8 +722,9 @@ namespace
 // The calls hook_special_call takes, as a bitmap by number (one test,
 // whatever the set's size): code becoming executable (rescans), signal
 // masks and actions and exec (lazy mode), and on aarch64 every other change
-// of mappings, which invalidates lazy mode's last looked-up mapping, and
-// signal stacks (whether a marked hook frame can be live, see the hook).
+// of mappings, which invalidates lazy mode's last looked-up mapping, signal
+// stacks (whether a marked hook frame can be live, see the hook) and a
+// thread's exit (its hook stack is reused).
 constexpr int special_call_limit = 512;
 constexpr std::array<uint64_t, special_call_limit / 64> special_call_bits()
 {
@@ -722,7 +735,7 @@ constexpr std::array<uint64_t, special_call_limit / 64> special_call_bits()
 #if defined(__aarch64__)
 			,
 			SYS_munmap, SYS_mremap, SYS_shmat, SYS_remap_file_pages,
-			SYS_sigaltstack
+			SYS_sigaltstack, SYS_exit
 #endif
 	     })
 		bits[nr / 64] |= 1ull << (nr % 64);
@@ -743,14 +756,90 @@ inline bool is_special_call(int64_t sys_nr)
 // call runs on it, the kernel's signal frame included) above a 64 KiB guard,
 // mapped with the hook's own system calls at the thread's first traced call,
 // which still runs on the caller's stack (a new thread's first calls run on
-// its system stack: glibc's thread start, Go's g0). Never given back: the
-// thread is on it when it exits.
+// its system stack: glibc's thread start, Go's g0). A thread exiting through
+// the hook (SYS_exit) stands on its stack until the kernel takes it down, so
+// it can only offer it: the stack goes to a later thread once the exited one
+// is gone (tgkill: ESRCH). Unreclaimed, a process that keeps creating threads
+// ran out of mappings (two per stack; vm.max_map_count 65530 is about 32k
+// threads; review 2026-11-05). Not offered: a stack shared with a child
+// running on this TLS, and one the exiting thread does not own (a vfork-style
+// child exiting on its parent's TLS).
 constexpr uint64_t HOOK_STACK_SIZE = 128 << 10;
 constexpr uint64_t HOOK_STACK_GUARD = 64 << 10;
 static __thread bool hook_stack_failed __attribute__((tls_model("initial-exec")));
 
+// Offered stacks: base 0 free, 1 being filled or checked, else the mapping's
+// base, with the exiting thread's tid. Lock-free: signal handlers allocate too.
+// Full: the stack is left mapped, as before.
+struct retired_hook_stack {
+	std::atomic<uint64_t> base{ 0 };
+	std::atomic<int64_t> tid{ 0 };
+};
+constexpr int retired_hook_stack_slots = 256;
+static retired_hook_stack retired_hook_stacks[retired_hook_stack_slots];
+
+static void retire_hook_stack()
+{
+	const uint64_t lo = bpftime_hook_stack.lo;
+	if (bpftime_hook_stack.hi == 0 || bpftime_hook_stack.shared)
+		return;
+	const int64_t tid = orig_syscall_direct(SYS_gettid, 0, 0, 0, 0, 0, 0);
+	if (tid != bpftime_hook_stack.owner_tid)
+		return;
+	for (auto &r : retired_hook_stacks) {
+		uint64_t free_entry = 0;
+		if (!r.base.compare_exchange_strong(free_entry, 1,
+						    std::memory_order_acquire))
+			continue;
+		r.tid.store(tid, std::memory_order_relaxed);
+		r.base.store(lo - HOOK_STACK_GUARD, std::memory_order_release);
+		break;
+	}
+	// Whatever happened, no other stack for this thread.
+	hook_stack_failed = true;
+}
+
+// A stack whose thread is gone, or 0.
+static uint64_t take_retired_hook_stack()
+{
+	int64_t pid = 0;
+	for (auto &r : retired_hook_stacks) {
+		uint64_t base = r.base.load(std::memory_order_acquire);
+		if (base <= 1 || !r.base.compare_exchange_strong(
+					 base, 1, std::memory_order_acquire))
+			continue;
+		if (pid == 0)
+			pid = orig_syscall_direct(SYS_getpid, 0, 0, 0, 0, 0, 0);
+		const int64_t tid = r.tid.load(std::memory_order_relaxed);
+		if (orig_syscall_direct(SYS_tgkill, pid, tid, 0, 0, 0, 0) ==
+		    -ESRCH) {
+			r.base.store(0, std::memory_order_release);
+			return base;
+		}
+		r.base.store(base, std::memory_order_release); // not yet gone
+	}
+	return 0;
+}
+
 __attribute__((noinline, cold)) static void allocate_hook_stack()
 {
+	bpftime_hook_stack.owner_tid =
+		orig_syscall_direct(SYS_gettid, 0, 0, 0, 0, 0, 0);
+	// A signal stack set before the hook saw the thread's calls.
+	stack_t old{};
+	if (orig_syscall_direct(SYS_sigaltstack, 0, (int64_t)&old, 0, 0, 0,
+				0) == 0)
+		note_sigaltstack(old.ss_flags);
+	if (const uint64_t reused = take_retired_hook_stack()) {
+		const uint64_t hi = reused + HOOK_STACK_GUARD + HOOK_STACK_SIZE;
+		// Its last thread exited inside a hooked call: the top frame
+		// is still marked live.
+		*(volatile uint64_t *)(hi - 8) = 0;
+		bpftime_hook_stack.lo = reused + HOOK_STACK_GUARD;
+		__atomic_signal_fence(__ATOMIC_SEQ_CST);
+		bpftime_hook_stack.hi = hi;
+		return;
+	}
 	const int64_t base = orig_syscall_direct(
 		SYS_mmap, 0, HOOK_STACK_GUARD + HOOK_STACK_SIZE, PROT_NONE,
 		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_STACK, -1, 0);
@@ -766,11 +855,6 @@ __attribute__((noinline, cold)) static void allocate_hook_stack()
 		hook_stack_failed = true;
 		return;
 	}
-	// A signal stack set before the hook saw the thread's calls.
-	stack_t old{};
-	if (orig_syscall_direct(SYS_sigaltstack, 0, (int64_t)&old, 0, 0, 0,
-				0) == 0)
-		note_sigaltstack(old.ss_flags);
 	// The asm takes hi != 0 as the bounds being valid.
 	bpftime_hook_stack.lo = base + HOOK_STACK_GUARD;
 	__atomic_signal_fence(__ATOMIC_SEQ_CST);
@@ -804,6 +888,10 @@ static void note_shared_hook_stack()
 }
 
 static void note_sigaltstack(int)
+{
+}
+
+static void retire_hook_stack()
 {
 }
 #endif
