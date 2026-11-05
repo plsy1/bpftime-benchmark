@@ -1,6 +1,9 @@
 // Bursty target for the output benchmark: THREADS threads (thread i pinned to CPU 5 - i), each
 // calling count_event(key) BURST times, GAP_NS of work apart (0: back to back), then sleeping
 // PAUSE_US, for SECS seconds. With a gap the arrival rate is the workload's, not the probe's.
+// PERIOD_NS > 0 instead paces each burst by the clock: call j at the burst's start + j * PERIOD,
+// so the arrival rate is the same whatever the probe costs (as long as it costs less). Every
+// call passes its CLOCK_MONOTONIC send time (ns) as the key: the consumer measures delivery.
 // Prints the exact number of calls and the median time of a burst (us).
 #define _GNU_SOURCE
 #include <pthread.h>
@@ -13,7 +16,14 @@
 static int cpu_of[6] = { 5, 4, 3, 2, 1, 0 };
 static atomic_int stop;
 static int burst, pause_us;
-static long gap_ns;
+static long gap_ns, period_ns;
+
+static unsigned long mono_ns(void)
+{
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return t.tv_sec * 1000000000UL + t.tv_nsec;
+}
 static _Atomic unsigned long total;
 static double burst_us[6];
 
@@ -49,8 +59,12 @@ static void *worker(void *arg)
 	struct timespec p = { pause_us / 1000000, (pause_us % 1000000) * 1000L };
 	while (!atomic_load_explicit(&stop, memory_order_relaxed)) {
 		double t0 = now();
+		unsigned long start = mono_ns();
 		for (int j = 0; j < burst; j++) {
-			acc += count_event(calls + j);
+			if (period_ns > 0)
+				while (mono_ns() < start + (unsigned long)j * period_ns)
+					;
+			acc += count_event(mono_ns());
 			if (gap_ns > 0) {
 				double until = now() + gap_ns / 1e9;
 				while (now() < until)
@@ -76,8 +90,9 @@ int main(int argc, char **argv)
 	burst = argc > 3 ? atoi(argv[3]) : 100;
 	pause_us = argc > 4 ? atoi(argv[4]) : 10000;
 	gap_ns = argc > 5 ? atol(argv[5]) : 0;
+	period_ns = argc > 6 ? atol(argv[6]) : 0;
 	if (threads < 1 || threads > 6 || secs < 1 || burst < 1 || pause_us < 0) {
-		fprintf(stderr, "usage: burstloop THREADS(1-6) SECS BURST PAUSE_US [GAP_NS]\n");
+		fprintf(stderr, "usage: burstloop THREADS(1-6) SECS BURST PAUSE_US [GAP_NS [PERIOD_NS]]\n");
 		return 1;
 	}
 	pthread_t t[6];

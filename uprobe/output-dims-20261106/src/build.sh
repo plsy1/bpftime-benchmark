@@ -13,4 +13,8 @@ for kv in perf:5 rbout:6 rbres:7; do
     $BPF -DKIND=${kv#*:} -DSIZE=$size -c out.bpf.c -o out-${kv%:*}-$size.bpf.o
   done
 done
+# Ring buffer records that divide the 256 KiB ring (with the 8-byte header): no padding at its end.
+for size in 248 4088; do
+  $BPF -DKIND=7 -DSIZE=$size -c out.bpf.c -o out-rbres-$size.bpf.o
+done
 ls -1 *.bpf.o | wc -l

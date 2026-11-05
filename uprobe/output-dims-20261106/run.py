@@ -3,7 +3,8 @@
 kernel bpf vs bpftime builds (output-dims-20261106; from reviews-20261031/refixes2/output-ab).
 
 One run: start src/outattach with OBJ (uprobe on count_event) for kernel or bpftime, run the
-workload (steady: countloop THREADS SECS 1; burst: burstloop THREADS SECS BURST PAUSE_US), stop the
+workload (steady: countloop THREADS SECS 1; burst: burstloop THREADS SECS BURST PAUSE_US GAP_NS
+PERIOD_NS), stop the
 loader with SIGINT, and check hits == the workload's calls and received + failed == hits (every
 output is received or dropped at the producer). delivered = received / hits. Backend order rotates
 per rep. One JSON line per run.
@@ -46,20 +47,21 @@ def num(pattern, text):
 def run_one(a, backend, obj, threads):
     cleanup(backend)
     res = dict(backend=backend, obj=obj, threads=threads, workload=a.workload, burst=a.burst,
-               pause_us=a.pause_us, gap_ns=a.gap_ns, consumer_ns=a.consumer_ns,
-               pb_pages=a.pb_pages)
+               pause_us=a.pause_us, gap_ns=a.gap_ns, period_ns=a.period_ns,
+               consumer_ns=a.consumer_ns, pb_pages=a.pb_pages)
     tool = out = None
     if a.workload == 'steady':
         wl = [str(COUNTLOOP), str(threads), str(a.secs), '1']
         binary = COUNTLOOP
     else:
         wl = [str(SRC / 'burstloop'), str(threads), str(a.secs), str(a.burst), str(a.pause_us),
-              str(a.gap_ns)]
+              str(a.gap_ns), str(a.period_ns)]
         binary = SRC / 'burstloop'
     try:
         if backend != 'none':
             out = tempfile.TemporaryFile(mode='w+', errors='replace')
-            extra = [f'PB_PAGES={a.pb_pages}', f'CONSUMER_NS={a.consumer_ns}']
+            extra = [f'PB_PAGES={a.pb_pages}', f'CONSUMER_NS={a.consumer_ns}',
+                     f'LATENCY={int(a.latency)}']
             tool = subprocess.Popen(env(backend, 'tool', extra) +
                                     [str(SRC / 'outattach'), str(SRC / obj), str(binary),
                                      'on_count=count_event'],
@@ -88,6 +90,10 @@ def run_one(a, backend, obj, threads):
             res['failed'] = num(r'sum1 (\d+)', text)
             res['received'] = num(r'received (\d+)', text)
             res['lost'] = num(r'lost (\d+)', text)
+            if a.latency:
+                for k in ('lat_negative', 'lat_n', 'lat_p50', 'lat_p90', 'lat_p99', 'lat_max',
+                          'first_n', 'first_p50', 'first_p90', 'first_p99', 'first_max'):
+                    res[k] = num(rf'(?m)^{k} (\d+)$', text)
             control = 'control' in obj
             if res['hits']:
                 res['delivered'] = round((res['received'] or 0) / res['hits'], 5)
@@ -116,6 +122,10 @@ def main():
     ap.add_argument('--burst', type=int, default=100)
     ap.add_argument('--pause-us', type=int, default=10000)
     ap.add_argument('--gap-ns', type=int, default=0)
+    ap.add_argument('--period-ns', type=int, default=0,
+                    help='burst: call j at the burst start + j * PERIOD_NS (matched arrival)')
+    ap.add_argument('--latency', action='store_true',
+                    help='records carry their send time; the consumer reports delivery delays')
     ap.add_argument('--consumer-ns', type=int, default=0)
     ap.add_argument('--pb-pages', type=int, default=64)
     ap.add_argument('--reps', type=int, default=3)
