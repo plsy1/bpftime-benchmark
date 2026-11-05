@@ -478,14 +478,18 @@ namespace
 // libbpf turns instructions of a branch it knows is dead into calls of helper
 // POISON_LDIMM64_MAP_BASE (2001000000) + map index (the load of a map it did
 // not create) or POISON_CALL_KFUNC_BASE (2002000000) + extern index (a kfunc it
-// did not find); the kernel's verifier removes the dead code before they could
-// run. bpftime has no verifier, so a program holding them did not compile and
-// was disabled (opensnoop: libbpf-tools' compat buffer creates only its ringbuf
-// or its perf map).
+// did not find), and an instruction whose CO-RE relocation failed (a field
+// this kernel lacks, read behind bpf_core_field_exists) into a call of
+// 195896080 (0xbad2310, "bad relo"; both halves of an ldimm64); the kernel's
+// verifier removes the dead code before they could run. bpftime has no
+// verifier, so a program holding them did not compile and was disabled
+// (opensnoop: libbpf-tools' compat buffer creates only its ringbuf or its perf
+// map; memleak's tracepoint programs: the CO-RE form).
 bool is_libbpf_poison_call(const ebpf_inst &inst)
 {
-	return inst.code == 0x85 && inst.src_reg == 0 && inst.imm >= 2001000000 &&
-	       inst.imm < 2003000000;
+	return inst.code == 0x85 && inst.src_reg == 0 &&
+	       ((inst.imm >= 2001000000 && inst.imm < 2003000000) ||
+		inst.imm == 195896080);
 }
 
 uint64_t libbpf_poison_reached(uint64_t, uint64_t, uint64_t, uint64_t,
@@ -586,9 +590,12 @@ int bpftime_prog::bpftime_prog_load(bool jit)
 	}
 	// Calls of helpers nobody registered: if the program's read-only
 	// constants make them unreachable (an option that is off), they go to a
-	// helper that reports it ran; reachable ones still fail the compile.
+	// helper that reports it ran; reachable ones still fail the compile. A
+	// kfunc call (BPF_PSEUDO_KFUNC_CALL, imm a BTF id) is never registered.
 	auto missing_helper = [&](size_t i) {
 		const auto &inst = insns[i];
+		if (inst.code == 0x85 && inst.src_reg == 2)
+			return true;
 		return inst.code == 0x85 && inst.src_reg == 0 &&
 		       !is_libbpf_poison_call(inst) && inst.imm >= 0 &&
 		       inst.imm < BPFTIME_DEAD_CALL_SLOT &&
@@ -613,6 +620,7 @@ int bpftime_prog::bpftime_prog_load(bool jit)
 				continue;
 			if (owned_insns.empty())
 				owned_insns = insns;
+			owned_insns[i].src_reg = 0;
 			owned_insns[i].imm = BPFTIME_DEAD_CALL_SLOT;
 			if (!dead_call_registered) {
 				res = ebpf_register(vm, BPFTIME_DEAD_CALL_SLOT,
