@@ -7,6 +7,7 @@
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <cerrno>
+#include <csetjmp>
 #include <cmath>
 #include <csignal>
 #include <cstdint>
@@ -635,7 +636,7 @@ void nested_handler(int)
 	write(nested_pipe[1], &c, 1);
 }
 
-int read_interrupted_by_handler(bool on_altstack)
+int read_interrupted_by_handler(bool on_altstack, int ss_flags = 0)
 {
 	if (pipe(nested_pipe) != 0)
 		return 2;
@@ -644,6 +645,7 @@ int read_interrupted_by_handler(bool on_altstack)
 		stack_t ss = {};
 		ss.ss_sp = altstack;
 		ss.ss_size = sizeof(altstack);
+		ss.ss_flags = ss_flags;
 		if (sigaltstack(&ss, nullptr) != 0)
 			return 3;
 	}
@@ -678,6 +680,125 @@ TEST_CASE("a handler on the hook stack builds its frame below the live one",
 	  "[syscall-rewrite]")
 {
 	int code = in_rewritten_child([] { return read_interrupted_by_handler(false); });
+	REQUIRE(code == 0);
+}
+
+// A frame the hook switched to its stack can be left without its epilogue: a
+// vfork-style child (posix_spawn, system, Go's os/exec) shares its parent's
+// TLS and hook stack and execs or exits from inside a hooked call; a handler
+// siglongjmps out of one. Its slot still marks the top live, with sp off the
+// hook stack: the hook asks the kernel (sigaltstack) whether sp is on the
+// signal stack, and switches over the abandoned frame when it is not. Before,
+// every later call of the thread stayed on the caller's stack (review
+// 2026-11-05: 32 -> 1272 bytes).
+namespace
+{
+size_t bytes_below_small_stack()
+{
+	memset(small_stack, 0xa5, sizeof(small_stack));
+	if (getpid_with_sp(small_stack + sizeof(small_stack)) != getpid())
+		return SIZE_MAX;
+	for (size_t i = 0; i < sizeof(small_stack); i++)
+		if (small_stack[i] != 0xa5)
+			return sizeof(small_stack) - i;
+	return 0;
+}
+
+sigjmp_buf abandon_jump;
+int abandon_pipe[2];
+
+// Blocks in a hooked read until a SIGUSR1 handler jumps out of it.
+int jump_out_of_hooked_read(bool on_altstack)
+{
+	static uint8_t altstack[64 << 10];
+	if (on_altstack) {
+		stack_t ss = {};
+		ss.ss_sp = altstack;
+		ss.ss_size = sizeof(altstack);
+		if (sigaltstack(&ss, nullptr) != 0)
+			return 1;
+	}
+	if (pipe(abandon_pipe) != 0)
+		return 1;
+	struct sigaction sa = {};
+	sa.sa_handler = [](int) { siglongjmp(abandon_jump, 1); };
+	sa.sa_flags = on_altstack ? SA_ONSTACK : 0;
+	sigemptyset(&sa.sa_mask);
+	if (sigaction(SIGUSR1, &sa, nullptr) != 0)
+		return 1;
+	const pthread_t self = pthread_self();
+	std::thread killer([self] {
+		usleep(100000); // blocked in read
+		pthread_kill(self, SIGUSR1);
+	});
+	if (sigsetjmp(abandon_jump, 1) == 0) {
+		char c;
+		read(abandon_pipe[0], &c, 1);
+		killer.join();
+		return 1; // not interrupted
+	}
+	killer.join();
+	return 0;
+}
+
+int abandon_frame(const char *how)
+{
+	if (!strcmp(how, "posix_spawn")) {
+		pid_t pid;
+		char *args[] = { (char *)"/bin/true", nullptr };
+		if (posix_spawn(&pid, "/bin/true", nullptr, nullptr, args,
+				environ) != 0)
+			return 1;
+		return waitpid(pid, nullptr, 0) == pid ? 0 : 1;
+	}
+	if (!strcmp(how, "system"))
+		return system("true") == 0 ? 0 : 1;
+	if (!strcmp(how, "vfork")) {
+		pid_t pid = vfork();
+		if (pid == 0)
+			_exit(0);
+		return waitpid(pid, nullptr, 0) == pid ? 0 : 1;
+	}
+	if (!strcmp(how, "siglongjmp"))
+		return jump_out_of_hooked_read(false);
+	if (!strcmp(how, "siglongjmp from the signal stack"))
+		return jump_out_of_hooked_read(true);
+	return 1;
+}
+} // namespace
+
+TEST_CASE("the hook stack is used again after a frame on it is abandoned",
+	  "[syscall-rewrite]")
+{
+	for (const char *how :
+	     { "posix_spawn", "system", "vfork", "siglongjmp",
+	       "siglongjmp from the signal stack" }) {
+		CAPTURE(how);
+		int code = in_rewritten_child([how] {
+			getppid(); // maps the hook stack
+			const size_t before = bytes_below_small_stack();
+			if (abandon_frame(how) != 0)
+				return 2;
+			const size_t after = bytes_below_small_stack();
+			const size_t next = bytes_below_small_stack();
+			fprintf(stderr, "%s: below sp %zu, after %zu, next %zu\n",
+				how, before, after, next);
+			return before <= 32 && after <= 32 && next <= 32 ? 0 : 3;
+		});
+		CHECK(code == 0);
+	}
+}
+
+// A handler with SS_AUTODISARM runs with the alternate stack disabled: the
+// kernel then reports SS_DISABLE, whether or not sp is on it, so the hook
+// keeps a live-marked frame (it cannot tell).
+TEST_CASE("a handler on an auto-disarmed signal stack leaves the hook's live frame alone",
+	  "[syscall-rewrite]")
+{
+	int code = in_rewritten_child([] {
+		return read_interrupted_by_handler(true,
+						   (int)(1u << 31)); // SS_AUTODISARM
+	});
 	REQUIRE(code == 0);
 }
 
