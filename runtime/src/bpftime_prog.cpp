@@ -893,6 +893,24 @@ int bpftime_prog::load_aot_object(const std::vector<uint8_t> &buf)
 	// original helper registrations without attempting any array binding.
 	if (int result = register_pending_map_helpers(); result < 0)
 		return result;
+	// An object compiled after bpftime_prog_load's rewrites (bpftime aot)
+	// calls the private slots of poisoned and dead calls.
+	if (!libbpf_poison_registered) {
+		if (int result = ebpf_register(vm, BPFTIME_LIBBPF_POISON_SLOT,
+					       BPFTIME_LIBBPF_POISON_NAME,
+					       (void *)libbpf_poison_reached);
+		    result < 0)
+			return result;
+		libbpf_poison_registered = true;
+	}
+	if (!dead_call_registered) {
+		if (int result = ebpf_register(vm, BPFTIME_DEAD_CALL_SLOT,
+					       BPFTIME_DEAD_CALL_NAME,
+					       (void *)dead_call_reached);
+		    result < 0)
+			return result;
+		dead_call_registered = true;
+	}
 	ebpf_jit_fn res = ebpf_load_aot_object(vm, buf.data(), buf.size());
 	if (res == nullptr) {
 		SPDLOG_ERROR("Failed to load aot object");
