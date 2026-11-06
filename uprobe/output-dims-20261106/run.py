@@ -49,6 +49,9 @@ def run_one(a, backend, obj, threads):
     res = dict(backend=backend, obj=obj, threads=threads, workload=a.workload, burst=a.burst,
                pause_us=a.pause_us, gap_ns=a.gap_ns, period_ns=a.period_ns,
                consumer_ns=a.consumer_ns, pb_pages=a.pb_pages)
+    for k in ('procs', 'first_gap_ns', 'flush', 'call_hist', 'cpus'):
+        if getattr(a, k):
+            res[k] = getattr(a, k)
     tool = out = None
     if a.workload == 'steady':
         wl = [str(COUNTLOOP), str(threads), str(a.secs), '1']
@@ -62,6 +65,8 @@ def run_one(a, backend, obj, threads):
             out = tempfile.TemporaryFile(mode='w+', errors='replace')
             extra = [f'PB_PAGES={a.pb_pages}', f'CONSUMER_NS={a.consumer_ns}',
                      f'LATENCY={int(a.latency)}']
+            if a.first_gap_ns:
+                extra.append(f'FIRST_GAP_NS={a.first_gap_ns}')
             tool = subprocess.Popen(env(backend, 'tool', extra) +
                                     [str(SRC / 'outattach'), str(SRC / obj), str(binary),
                                      'on_count=count_event'],
@@ -76,14 +81,52 @@ def run_one(a, backend, obj, threads):
             text = out.read()
             if 'attached' not in text:
                 raise RuntimeError('loader did not attach: ' + text[-500:])
-        w = sh(env(backend, 'workload') + wl, timeout=a.secs + 120)
-        res['ops_per_sec'] = num(r'ops_per_sec_median ([\d.]+)', w.stdout)
-        res['total_ops'] = num(r'total_ops (\d+)', w.stdout)
-        res['burst_us'] = num(r'burst_us_median ([\d.]+)', w.stdout)
-        res['workload_rc'] = w.returncode
+        wenv = [f'FLUSH={int(a.flush)}', f'CALL_HIST={int(a.call_hist)}']
+        if a.procs <= 1:
+            if a.cpus:
+                wenv.append(f'CPUS={a.cpus}')
+            w = sh(env(backend, 'workload', wenv) + wl, timeout=a.secs + 120)
+            res['ops_per_sec'] = num(r'ops_per_sec_median ([\d.]+)', w.stdout)
+            res['total_ops'] = num(r'total_ops (\d+)', w.stdout)
+            res['burst_us'] = num(r'burst_us_median ([\d.]+)', w.stdout)
+            res['workload_rc'] = w.returncode
+            if a.call_hist:
+                for k in ('p50', 'p90', 'p99', 'p999', 'max', 'n'):
+                    res[f'call_{k}'] = num(rf'(?m)^call_{k} (\d+)$', w.stdout)
+        else:
+            # PROCS processes of THREADS threads each, process k's threads on CPUs
+            # 5 - k*THREADS - i (mod 6): the same calls in separate address spaces.
+            ps = []
+            for k in range(a.procs):
+                cpus = ','.join(str((5 - k * threads - i) % 6) for i in range(threads))
+                ps.append(subprocess.Popen(env(backend, 'workload', wenv + [f'CPUS={cpus}']) + wl,
+                                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                           text=True, errors='replace'))
+            outs = [q.communicate(timeout=a.secs + 180)[0] for q in ps]
+            tot = [num(r'total_ops (\d+)', o) for o in outs]
+            bus = sorted(num(r'burst_us_median ([\d.]+)', o) or 0 for o in outs)
+            res['total_ops'] = sum(tot) if None not in tot else None
+            res['ops_per_sec'] = res['total_ops'] / a.secs if res['total_ops'] else None
+            res['burst_us'] = bus[len(bus) // 2]
+            res['workload_rc'] = max(q.returncode for q in ps)
+            if a.call_hist:
+                # Per process percentiles: the worst process's, and the median process's p99.
+                for k in ('p99', 'p999', 'max'):
+                    v = sorted(num(rf'(?m)^call_{k} (\d+)$', o) or 0 for o in outs)
+                    res[f'call_{k}_worst'] = v[-1]
+                    res[f'call_{k}_median'] = v[len(v) // 2]
         if tool:
             sh(['sudo', '-n', 'kill', '-INT', '--', f'-{tool.pid}'])
-            tool.wait(timeout=60)
+            try:
+                tool.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                # The loader did not stop: keep every thread's stack for the record.
+                pid = sh(['pgrep', '-s', str(tool.pid), '-x', 'outattach']).stdout.split()
+                if pid:
+                    bt = sh(['sudo', '-n', 'timeout', '120', 'gdb', '-p', pid[0], '-batch',
+                             '-ex', 'thread apply all bt'])
+                    res['hang_bt'] = bt.stdout[-6000:]
+                raise
             out.seek(0)
             text = out.read()
             res['hits'] = num(r'sum0 (\d+)', text)
@@ -99,6 +142,12 @@ def run_one(a, backend, obj, threads):
                 res['delivered'] = round((res['received'] or 0) / res['hits'], 5)
             res['ok'] = (res['hits'] == res['total_ops'] and
                          (control or (res['received'] or 0) + (res['failed'] or 0) == res['hits']))
+            if a.procs * threads > 32 and not control:
+                # The BPF side counts hits in 32 per-thread slots (tid & 31) without atomics: with
+                # more than 32 producers two of them can share a slot and lose increments. Check
+                # the outputs against the workload's own count instead.
+                res['hits_slots_shared'] = True
+                res['ok'] = (res['received'] or 0) + (res['failed'] or 0) == res['total_ops']
             if not res['ok']:
                 res['tool_tail'] = text[-400:]
         else:
@@ -127,6 +176,14 @@ def main():
     ap.add_argument('--latency', action='store_true',
                     help='records carry their send time; the consumer reports delivery delays')
     ap.add_argument('--consumer-ns', type=int, default=0)
+    ap.add_argument('--procs', type=int, default=1, help='workload processes (THREADS each)')
+    ap.add_argument('--first-gap-ns', type=int, default=0,
+                    help='latency: first-of-burst threshold (default the tool\'s 1 ms)')
+    ap.add_argument('--flush', action='store_true',
+                    help='burst: 3 more calls per thread 50 ms after the run (pending lost counts)')
+    ap.add_argument('--call-hist', action='store_true',
+                    help='burst: per-call duration percentiles of count_event')
+    ap.add_argument('--cpus', default='', help='burst: CPU of thread i (one process)')
     ap.add_argument('--pb-pages', type=int, default=64)
     ap.add_argument('--reps', type=int, default=3)
     ap.add_argument('--secs', type=int, default=6)

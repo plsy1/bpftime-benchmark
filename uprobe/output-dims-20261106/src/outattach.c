@@ -30,6 +30,9 @@ static int latency;
 static unsigned int *lat, *first;
 static size_t nlat, nfirst;
 static unsigned long long max_key, negative;
+// FIRST_GAP_NS (default 1 ms): a record sent this long after every record seen before it is
+// the first of a burst (set below the pause between bursts).
+static unsigned long long first_gap_ns = 1000000ULL;
 
 static unsigned long long mono_ns(void)
 {
@@ -52,7 +55,7 @@ static void note(const void *data, size_t size)
 	unsigned int v = d > 0xffffffffLL ? 0xffffffffu : (unsigned int)d;
 	if (nlat < LAT_CAP)
 		lat[nlat++] = v;
-	if (key > max_key + 1000000ULL && nfirst < FIRST_CAP)
+	if (key > max_key + first_gap_ns && nfirst < FIRST_CAP)
 		first[nfirst++] = v;
 	if (key > max_key)
 		max_key = key;
@@ -165,6 +168,8 @@ int main(int argc, char **argv)
 	}
 	if (getenv("CONSUMER_NS"))
 		consumer_ns = atol(getenv("CONSUMER_NS"));
+	if (getenv("FIRST_GAP_NS"))
+		first_gap_ns = strtoull(getenv("FIRST_GAP_NS"), NULL, 10);
 	if (getenv("LATENCY") && atoi(getenv("LATENCY"))) {
 		lat = malloc(LAT_CAP * sizeof(*lat));
 		first = malloc(FIRST_CAP * sizeof(*first));

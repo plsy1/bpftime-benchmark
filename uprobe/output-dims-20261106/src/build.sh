@@ -17,4 +17,15 @@ done
 for size in 248 4088; do
   $BPF -DKIND=7 -DSIZE=$size -c out.bpf.c -o out-rbres-$size.bpf.o
 done
+# opensnoop's record (8,240 bytes: 8,248 with the header, a padding every 31) and one of 8,184
+# (8,192 with the header: divides the ring) (more-dims-20261106).
+for size in 8184 8240; do
+  $BPF -DKIND=7 -DSIZE=$size -c out.bpf.c -o out-rbres-$size.bpf.o
+done
+# Variable sizes 72/520/1480/3992 (more-dims-20261106).
+for kv in perf:5 rbout:6 rbres:7; do
+  $BPF -DKIND=${kv#*:} -DSIZE=4096 -DVAR=1 -c out.bpf.c -o out-${kv%:*}-var.bpf.o
+done
+# Soak object (more-dims-20261106/n6): hash churn + 256-byte ring buffer records.
+$BPF -DKIND=8 -DSIZE=256 -c out.bpf.c -o out-soak.bpf.o
 ls -1 *.bpf.o | wc -l
