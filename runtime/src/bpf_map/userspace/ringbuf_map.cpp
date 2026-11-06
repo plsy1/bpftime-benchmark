@@ -424,11 +424,29 @@ bool ringbuf::discard_reserved(ringbuf_hdr *hdr, uint32_t len)
 
 bool ringbuf::consumer_at(const void *sample) const
 {
-	const uintptr_t hdr_offset = mask() + 1 +
-				     ((const uint8_t *)sample - data.get()) -
-				     BPF_RINGBUF_HDR_SZ;
-	return (smp_load_acquire_ul(consumer_pos.get()) & mask()) ==
-	       (hdr_offset & mask());
+	const uintptr_t hdr_offset = (mask() + 1 +
+				      ((const uint8_t *)sample - data.get()) -
+				      BPF_RINGBUF_HDR_SZ) &
+				     mask();
+	const uintptr_t cons_offset =
+		smp_load_acquire_ul(consumer_pos.get()) & mask();
+	if (cons_offset == hdr_offset)
+		return true;
+	// The data area is mapped once (bpf maps it twice), so a record that
+	// would cross the end went to offset 0 behind a padding record (a
+	// discard) filling the end (reserve). A consumer that caught up stands
+	// at that padding, which the same reserve published with this record;
+	// comparing with the record alone woke nobody, and the consumer slept
+	// to its timeout while later records filled the ring
+	// (uprobe/output-dims-20261106, finding 5). If what it stands at is
+	// another lap's header by now, the cost is one extra wakeup.
+	if (hdr_offset != 0)
+		return false;
+	const auto len = (uint32_t)smp_load_acquire_i(
+		(int32_t *)(uintptr_t)(data.get() + cons_offset));
+	return (len & BPF_RINGBUF_BUSY_BIT) == 0 &&
+	       (len & BPF_RINGBUF_DISCARD_BIT) != 0 &&
+	       cons_offset + roundup_len(len) == max_ent;
 }
 
 bool ringbuf::submit(const void *sample, bool discard)
