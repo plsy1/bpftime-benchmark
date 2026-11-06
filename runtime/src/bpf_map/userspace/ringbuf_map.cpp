@@ -12,6 +12,7 @@
 #include <boost/interprocess/sync/scoped_lock.hpp>
 #include <boost/interprocess/sync/sharable_lock.hpp>
 #include <bpf_map/userspace/ringbuf_map.hpp>
+#include <bpf_map/map_common_def.hpp>
 #include <pthread.h>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
@@ -270,20 +271,19 @@ struct ringbuf_hdr {
 static_assert(MAX_MAX_FD_COUNT <= (1u << (31 - ringbuf_tag_slot_bits)),
 	      "a ringbuf tag holds every fd");
 
+// The reserve lock, inline (bpftime_spin_lock, as the hash map's stripes):
+// glibc's pthread_spin_lock is a PLT call into an out-of-line atomic, and
+// with 4-6 producers the lock took 67-75% of their samples
+// (uprobe/output-dims-20261106, finding 13).
 struct spin_lock_guard {
 	pthread_spinlock_t &lock;
 	spin_lock_guard(pthread_spinlock_t &lock) : lock(lock)
 	{
-		int ret = pthread_spin_lock(&lock);
-		if (ret != 0) {
-			throw std::runtime_error(
-				"Failed to acquire spin lock: pthread_spin_lock returned " +
-				std::to_string(ret));
-		}
+		bpftime_spin_lock(&lock);
 	}
 	~spin_lock_guard()
 	{
-		pthread_spin_unlock(&lock);
+		bpftime_spin_unlock(&lock);
 	}
 };
 
