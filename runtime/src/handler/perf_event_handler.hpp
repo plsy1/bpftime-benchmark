@@ -170,9 +170,19 @@ struct software_perf_event_data {
 	software_perf_event_buffer consumer_buffer;
 	mutable pthread_spinlock_t shard_lock;
 	uint64_t next_shard_generation = 1;
-	uint64_t drains_since_reclaim = 0;
+	// When the shards of dead threads were last looked for, and how many
+	// times (tests).
+	uint64_t last_reclaim_ns = 0;
+	uint64_t reclaim_sweeps = 0;
 	uint64_t drain_start = 0;
 	software_perf_event_shard_list producer_shards;
+	// Output of threads that got no shard of their own (shared memory
+	// full), several producers serialized by overflow_lock; made with the
+	// consumer's buffer, replaced when it is mapped again with another
+	// size. A full segment made such output fail with ENOSPC (600 threads:
+	// 107 of 600 samples; uprobe/more-dims-20261106, n5-footprint).
+	boost::interprocess::offset_ptr<software_perf_event_shard> overflow;
+	mutable pthread_spinlock_t overflow_lock;
 	software_perf_event_data(
 		int cpu, int64_t config, int32_t sample_type,
 		boost::interprocess::managed_shared_memory &memory,

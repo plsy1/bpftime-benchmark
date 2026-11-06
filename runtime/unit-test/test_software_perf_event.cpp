@@ -4,6 +4,7 @@
 #include "bpftime_shm.hpp"
 #include "common_def.hpp"
 #include <atomic>
+#include <chrono>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <cerrno>
 #include <cstddef>
@@ -214,6 +215,11 @@ TEST_CASE("Software perf event buffers shard concurrent producers by thread",
 	for (int i = 0; i < 64; i++) {
 		REQUIRE(perf->has_data());
 	}
+	// Drains look for dead threads' shards every 100 ms.
+	for (int i = 0; i < 50 && !perf->producer_shards.empty(); i++) {
+		usleep(10 * 1000);
+		REQUIRE(perf->has_data());
+	}
 	REQUIRE(perf->producer_shards.empty());
 
 	auto *header = (perf_event_mmap_page *)raw_buffer;
@@ -372,6 +378,169 @@ TEST_CASE("Software perf event shards of another pid namespace are not reclaimed
 	}
 	CHECK(same_namespace == 0);
 	CHECK(other_namespace == 1);
+}
+
+// Every drain and every new producer swept all shards with tgkill once an
+// event had 64 of them: an idle tool with 493 shards used 36% of a core
+// (uprobe/more-dims-20261106, n5-footprint). Sweeps are at most every 100 ms.
+TEST_CASE("Software perf event looks for dead threads' shards at most every 100 ms",
+	  "[perf_event][software_perf_event][perf-reclaim]")
+{
+	const std::string shared_memory_name =
+		"SoftwarePerfEventSweepTestShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(shared_memory_name) };
+	boost::interprocess::managed_shared_memory shm(
+		boost::interprocess::create_only, shared_memory_name.c_str(),
+		16 * 1024 * 1024);
+	auto *perf = shm.construct<bpftime::software_perf_event_data>(
+		"perf")(0, 0, 0, shm);
+	REQUIRE(perf->ensure_mmap_buffer(getpagesize() + 4096) != nullptr);
+	event_payload payload{ 1, 0 };
+	REQUIRE(perf->output_data(&payload, sizeof(payload)) == 0);
+	const int own_pid = perf->producer_shards.front().pid;
+	const int64_t own_tid = perf->producer_shards.front().tid;
+	const uint64_t own_ns = perf->producer_shards.front().pid_namespace;
+	// 100 more shards of this live thread (other generations): each sweep
+	// probes them all and keeps them.
+	for (int i = 0; i < 100; i++) {
+		perf->producer_shards.emplace_back(
+			own_pid, own_tid, 1000 + i, 0, getpagesize(),
+			shm.get_segment_manager(), getpagesize() + 4096);
+		perf->producer_shards.back().pid_namespace = own_ns;
+	}
+	const uint64_t before = perf->reclaim_sweeps;
+	const auto start = std::chrono::steady_clock::now();
+	for (int i = 0; i < 1000; i++)
+		(void)perf->has_data();
+	const auto elapsed_ms =
+		std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now() - start)
+			.count();
+	CHECK(perf->reclaim_sweeps - before <= (uint64_t)elapsed_ms / 100 + 2);
+	CHECK(perf->producer_shards.size() == 101);
+}
+
+// A producer that finds shared memory full looks for dead threads' shards at
+// once, not at the next period.
+TEST_CASE("Software perf event output reclaims dead threads' shards when memory runs out",
+	  "[perf_event][software_perf_event][perf-reclaim]")
+{
+	const std::string shared_memory_name =
+		"SoftwarePerfEventFullReclaimShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(shared_memory_name) };
+	boost::interprocess::managed_shared_memory shm(
+		boost::interprocess::create_only, shared_memory_name.c_str(),
+		1024 * 1024);
+	auto *perf = shm.construct<bpftime::software_perf_event_data>(
+		"perf")(0, 0, 0, shm);
+	REQUIRE(perf->ensure_mmap_buffer(getpagesize() + 64 * 1024) !=
+		nullptr);
+	event_payload payload{ 1, 0 };
+	REQUIRE(perf->output_data(&payload, sizeof(payload)) == 0);
+	const uint64_t here = perf->producer_shards.front().pid_namespace;
+	pid_t dead = fork();
+	REQUIRE(dead >= 0);
+	if (dead == 0)
+		_exit(0);
+	REQUIRE(waitpid(dead, nullptr, 0) == dead);
+	try {
+		for (int i = 1;; i++) {
+			perf->producer_shards.emplace_back(
+				dead, dead, 1000 + i,
+				perf->producer_buffer_generation,
+				getpagesize(), shm.get_segment_manager(),
+				getpagesize() + 64 * 1024);
+			perf->producer_shards.back().pid_namespace = here;
+		}
+	} catch (const boost::interprocess::bad_alloc &) {
+	}
+	// A sweep just ran, as far as the period goes.
+	timespec ts{};
+	clock_gettime(CLOCK_MONOTONIC_COARSE, &ts);
+	perf->last_reclaim_ns =
+		(uint64_t)ts.tv_sec * 1000000000 + (uint64_t)ts.tv_nsec;
+	// 50 ms ago, as far as the period goes: past the 10 ms of a full
+	// segment, not the 100 ms of a drain.
+	perf->last_reclaim_ns -= 50'000'000;
+	int ret = -2;
+	pid_t other_tid = 0;
+	std::thread other([&]() {
+		other_tid = (pid_t)syscall(SYS_gettid);
+		ret = perf->output_data(&payload, sizeof(payload));
+	});
+	other.join();
+	CHECK(ret == 0);
+	size_t own = 0, dead_left = 0;
+	for (auto &shard : perf->producer_shards) {
+		own += shard.tid == other_tid;
+		dead_left += shard.pid == dead;
+	}
+	CHECK(own == 1); // not the overflow shard
+	CHECK(dead_left == 0);
+}
+
+// Threads that get no shard of their own (shared memory full) write to the
+// event's overflow shard, one at a time: a full segment made their output
+// fail with ENOSPC (600 threads: 107 of 600 samples;
+// uprobe/more-dims-20261106, n5-footprint).
+TEST_CASE("Software perf event output without a shard goes to the overflow shard",
+	  "[perf_event][software_perf_event][perf-reclaim]")
+{
+	const std::string shared_memory_name =
+		"SoftwarePerfEventOverflowShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(shared_memory_name) };
+	boost::interprocess::managed_shared_memory shm(
+		boost::interprocess::create_only, shared_memory_name.c_str(),
+		1024 * 1024);
+	auto *perf = shm.construct<bpftime::software_perf_event_data>(
+		"perf")(0, 0, 0, shm);
+	const size_t ring_size = 64 * 1024;
+	void *raw_buffer = perf->ensure_mmap_buffer(getpagesize() + ring_size);
+	REQUIRE(raw_buffer != nullptr);
+	struct stat st;
+	REQUIRE(stat("/proc/self/ns/pid", &st) == 0);
+	// Shards of another pid namespace fill the segment: never reclaimed.
+	try {
+		for (int i = 1;; i++) {
+			perf->producer_shards.emplace_back(
+				i, i, 1000 + i,
+				perf->producer_buffer_generation,
+				getpagesize(), shm.get_segment_manager(),
+				getpagesize() + 64 * 1024);
+			perf->producer_shards.back().pid_namespace =
+				st.st_ino + 1;
+		}
+	} catch (const boost::interprocess::bad_alloc &) {
+	}
+	const size_t shards = perf->producer_shards.size();
+	std::atomic<int> failed{ 0 };
+	std::vector<std::thread> threads;
+	for (int t = 0; t < 4; t++)
+		threads.emplace_back([&, t]() {
+			for (int i = 0; i < 10; i++) {
+				event_payload payload{ t, i };
+				if (perf->output_data(&payload,
+						      sizeof(payload)) != 0)
+					failed++;
+			}
+		});
+	for (auto &thread : threads)
+		thread.join();
+	CHECK(failed == 0);
+	CHECK(perf->producer_shards.size() == shards);
+	REQUIRE(perf->has_data());
+	auto *header = (perf_event_mmap_page *)raw_buffer;
+	auto *base = (uint8_t *)raw_buffer + getpagesize();
+	int samples = 0;
+	for (uint64_t tail = header->data_tail; tail < header->data_head;) {
+		perf_event_header record_header;
+		copy_from_perf_ring(base, ring_size, tail, &record_header,
+				    sizeof(record_header));
+		REQUIRE(record_header.size >= sizeof(record_header));
+		samples += record_header.type == PERF_RECORD_SAMPLE;
+		tail += record_header.size;
+	}
+	CHECK(samples == 40);
 }
 
 TEST_CASE("Software perf event records wrap on aligned boundaries after resize",
@@ -805,7 +974,7 @@ TEST_CASE("Producers in two pid namespaces with the same pid write apart",
 	CHECK(seen[1] == per_producer);
 }
 
-TEST_CASE("Software perf event output fails cleanly when shared memory is full",
+TEST_CASE("Software perf event output survives a full shared memory",
 	  "[perf_event][software_perf_event]")
 {
 	// Shards of other pid namespaces are never reclaimed, so shared
@@ -839,8 +1008,9 @@ TEST_CASE("Software perf event output fails cleanly when shared memory is full",
 	errno = 0;
 	int ret = -2;
 	REQUIRE_NOTHROW(ret = perf->output_data(&payload, sizeof(payload)));
-	CHECK(ret == -1);
-	CHECK(errno == ENOSPC);
+	// Into the overflow shard, made with the consumer's buffer.
+	CHECK(ret == 0);
+	CHECK(perf->has_data());
 }
 
 TEST_CASE("Software perf event output retries a shard whose data did not fit",
@@ -871,12 +1041,13 @@ TEST_CASE("Software perf event output retries a shard whose data did not fit",
 		}
 	}
 	event_payload payload{ 1, 0 };
-	errno = 0;
-	CHECK(perf->output_data(&payload, sizeof(payload)) == -1);
-	CHECK(errno == ENOSPC);
+	// Into the overflow shard; no shard without data is kept.
+	CHECK(perf->output_data(&payload, sizeof(payload)) == 0);
 	CHECK(perf->producer_shards.empty());
 	for (void *p : filler)
 		shm.deallocate(p);
+	// The thread tries for a shard of its own again after 10 ms.
+	usleep(20 * 1000);
 	CHECK(perf->output_data(&payload, sizeof(payload)) == 0);
 	CHECK(perf->producer_shards.size() == 1);
 }
