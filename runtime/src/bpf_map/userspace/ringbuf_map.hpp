@@ -73,13 +73,30 @@ class ringbuf {
 	boost::interprocess::offset_ptr<unsigned long> consumer_pos;
 	boost::interprocess::offset_ptr<unsigned long> producer_pos;
 	boost::interprocess::offset_ptr<uint8_t> data;
-	// The reserve lock on a cache line of its own: every reserve writes it
-	// twice, and the fields above are read by every submit and by the
-	// consumer. 64 bytes on each side, as the object's alignment in the
-	// segment is not known.
-	char reserve_lock_pad_before[64];
-	mutable pthread_spinlock_t reserve_spin_lock;
-	char reserve_lock_pad_after[64];
+	// The reserve lock and what reserve keeps under it, on a cache line of
+	// their own: every reserve writes the lock twice, and the fields above
+	// are read by every submit and by the consumer. The line is the 64-byte
+	// aligned part of reserve_area (the object's alignment in the segment
+	// is not known; mappings are page aligned, so it is the same bytes in
+	// every process).
+	struct reserve_state {
+		pthread_spinlock_t lock;
+		// A consumer position read earlier. The consumer only moves
+		// forward, so the space it leaves is never more than there
+		// is; consumer_pos, which the consumer writes for every
+		// record, is read again only when that space runs short.
+		unsigned long cons_pos;
+		// producer_pos as reserve last stored it (only reserve writes
+		// it, under the lock), so reserve does not read the line the
+		// consumer polls.
+		unsigned long prod_pos;
+	};
+	alignas(8) char reserve_area[128];
+	reserve_state &reserve_line() const
+	{
+		return *(reserve_state *)(((uintptr_t)reserve_area + 63) &
+					  ~(uintptr_t)63);
+	}
 	// raw buffer
 	buf_vec_unique_ptr raw_buffer;
 

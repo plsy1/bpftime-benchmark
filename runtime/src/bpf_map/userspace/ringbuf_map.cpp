@@ -201,7 +201,10 @@ ringbuf::ringbuf(uint32_t max_ent,
 	producer_pos =
 		(unsigned long *)(uintptr_t)(&((*raw_buffer)[page_size]));
 	data = (uint8_t *)(uintptr_t)(&((*raw_buffer)[page_size * 2]));
-	pthread_spin_init(&this->reserve_spin_lock, 1);
+	auto &line = reserve_line();
+	line.cons_pos = 0;
+	line.prod_pos = 0;
+	pthread_spin_init(&line.lock, 1);
 }
 
 int ringbuf::fetch_data(int (*cb)(void *ctx, void *data, size_t len), void *ctx)
@@ -302,32 +305,35 @@ void *ringbuf::reserve(size_t size, int self_fd)
 	int64_t tid;
 	current_producer_identity(pid, tid);
 	const uint64_t pid_namespace = producer_pid_namespace();
-	spin_lock_guard guard(reserve_spin_lock);
-	auto cons_pos = smp_load_acquire_ul(consumer_pos.get());
-	auto prod_pos = smp_load_acquire_ul(producer_pos.get());
-	auto avail_size = max_ent - (prod_pos - cons_pos);
+	auto &line = reserve_line();
+	spin_lock_guard guard(line.lock);
 	auto total_size = (size + BPF_RINGBUF_HDR_SZ + 7) / 8 * 8;
 	if (total_size > max_ent) {
 		errno = E2BIG;
 		return nullptr;
 	}
-	if (avail_size < total_size) {
-		errno = ENOSPC;
-		return nullptr;
-	}
+	// Under the lock, so ordered after the stores of the producer that
+	// stored them (and the consumer position after the consumer's
+	// release that producer acquired).
+	auto prod_pos = line.prod_pos;
+	auto cons_pos = line.cons_pos;
 	auto off = prod_pos & mask();
-	if (off + total_size > max_ent) {
-		// A record must be contiguous: header and payload cannot
-		// wrap around the end of the data area independently.
-		// Skip to the beginning of the next lap and mark the
-		// skipped bytes as one zero-length discard record, so the
-		// consumer walks over the padding with its existing
-		// roundup_len stepping.
-		prod_pos = prod_pos - off + max_ent;
-		if (max_ent - (prod_pos - cons_pos) < total_size) {
+	// A record must be contiguous: header and payload cannot wrap around
+	// the end of the data area independently. One that would starts the
+	// next lap, behind a discard record filling the end, which the
+	// consumer walks over with its roundup_len stepping.
+	const bool pads = off + total_size > max_ent;
+	const auto start = pads ? prod_pos - off + max_ent : prod_pos;
+	if (start + total_size - cons_pos > max_ent) {
+		cons_pos = line.cons_pos =
+			smp_load_acquire_ul(consumer_pos.get());
+		if (start + total_size - cons_pos > max_ent) {
 			errno = ENOSPC;
 			return nullptr;
 		}
+	}
+	if (pads) {
+		prod_pos = start;
 		auto pad = (ringbuf_hdr *)(uintptr_t)(data.get() + off);
 		auto pad_len = (uint32_t)(max_ent - off - BPF_RINGBUF_HDR_SZ);
 		pad->len = pad_len | BPF_RINGBUF_DISCARD_BIT;
@@ -336,9 +342,18 @@ void *ringbuf::reserve(size_t size, int self_fd)
 	}
 	auto header = (ringbuf_hdr *)(uintptr_t)(data.get() + off);
 	header->len = size | BPF_RINGBUF_BUSY_BIT;
-	header->tag = ringbuf_record_tag(
-		self_fd, claim_owner_slot(prod_pos, cons_pos, pid, tid,
-					  pid_namespace));
+	int32_t slot =
+		claim_owner_slot(prod_pos, cons_pos, pid, tid, pid_namespace);
+	if (slot < 0) {
+		// The table looks full, perhaps only by the cached consumer
+		// position: slots of records consumed a lap ago are free.
+		cons_pos = line.cons_pos =
+			smp_load_acquire_ul(consumer_pos.get());
+		slot = claim_owner_slot(prod_pos, cons_pos, pid, tid,
+					pid_namespace);
+	}
+	header->tag = ringbuf_record_tag(self_fd, slot);
+	line.prod_pos = prod_pos + total_size;
 	smp_store_release_ul(producer_pos.get(), prod_pos + total_size);
 	auto ptr = data.get() + off + BPF_RINGBUF_HDR_SZ;
 	SPDLOG_TRACE("ringbuf: reserved {} bytes at {}, fd {}", size,
@@ -495,13 +510,13 @@ void ringbuf::set_owner_slot_for_test(const void *sample, int32_t slot)
 
 bool ringbuf::reserve_lock_line_alone_for_test() const
 {
-	const uintptr_t line = (uintptr_t)&reserve_spin_lock / 64;
-	const uintptr_t last =
-		((uintptr_t)&reserve_spin_lock + sizeof(reserve_spin_lock) - 1) /
-		64;
-	return line == last && (uintptr_t)&data / 64 < line &&
+	const auto *state = &reserve_line();
+	const uintptr_t line = (uintptr_t)state / 64;
+	const uintptr_t last = ((uintptr_t)(state + 1) - 1) / 64;
+	return line == last && (uintptr_t)state % 64 == 0 &&
 	       ((uintptr_t)&data + sizeof(data) - 1) / 64 < line &&
-	       (uintptr_t)&raw_buffer / 64 > line;
+	       (uintptr_t)&raw_buffer / 64 > line &&
+	       (uintptr_t)(state + 1) <= (uintptr_t)(reserve_area + 128);
 }
 
 bool ringbuf::owner_slot_claimed_for_test(int32_t slot) const
@@ -527,6 +542,6 @@ void ringbuf::publish_keeping_slot_for_test(const void *sample)
 }
 ringbuf::~ringbuf()
 {
-	pthread_spin_destroy(&this->reserve_spin_lock);
+	pthread_spin_destroy(&reserve_line().lock);
 }
 } // namespace bpftime
