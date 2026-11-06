@@ -8,6 +8,7 @@
 #include "common_def.hpp"
 #include <boost/scope_exit.hpp>
 #include <array>
+#include <atomic>
 #include <csignal>
 #include <cstdlib>
 #include <linux/bpf.h>
@@ -566,4 +567,122 @@ TEST_CASE("Ring buffer records wake a consumer that caught up",
 		CHECK(woke);
 	}
 }
+
+// For a while after records the consumer naps registered in `nappers`: perf
+// output wakes it only past the watermark or on a drop, not for each sample
+// (a FUTEX_WAKE in the probe per sample cost ssl-nginx 10% of its requests
+// per second; uprobe/improve-20261106, item 3); ring buffer records by bpf's
+// rule as for `waiters`.
+TEST_CASE("Napping consumers are woken only when a buffer fills",
+	  "[epoll][perf-wakeup][consumer-nap]")
+{
+	const char *old_name = getenv("BPFTIME_GLOBAL_SHM_NAME");
+	const bool had_name = old_name != nullptr;
+	const std::string previous_name = old_name ? old_name : "";
+	const std::string name =
+		"EpollNapTestShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(name) };
+	std::vector<int> fds;
+	BOOST_SCOPE_EXIT_ALL(&)
+	{
+		for (int fd : fds) {
+			bpftime_close(fd);
+			close(fd);
+		}
+		bpftime_destroy_global_shm();
+		bpftime_initialize_global_shm(
+			bpftime::shm_open_type::SHM_NO_CREATE);
+		if (had_name)
+			setenv("BPFTIME_GLOBAL_SHM_NAME", previous_name.c_str(),
+			       1);
+		else
+			unsetenv("BPFTIME_GLOBAL_SHM_NAME");
+	};
+	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+	bpftime_destroy_global_shm();
+	bpftime_initialize_global_shm(
+		bpftime::shm_open_type::SHM_REMOVE_AND_CREATE);
+	auto *state = bpftime::shm_holder.global_shared_memory
+			      .get_perf_wakeup_state();
+	REQUIRE(state != nullptr);
+	// libbpf's perf_buffer asks for every sample.
+	const int perf_fd =
+		bpftime_add_software_perf_event_with_wakeup(0, 0, 0, false, 1);
+	REQUIRE(perf_fd >= 0);
+	fds.push_back(perf_fd);
+	auto *header = (perf_event_mmap_page *)
+		bpftime_get_software_perf_event_raw_buffer(perf_fd,
+							   2 * getpagesize());
+	REQUIRE(header != nullptr);
+	auto output_moved_sequence = [&](size_t size) {
+		std::vector<uint8_t> payload(size);
+		const uint32_t sequence = perf_wakeup_sequence();
+		REQUIRE(bpftime_perf_event_output(perf_fd, payload.data(),
+						  payload.size()) == 0);
+		return perf_wakeup_sequence() != sequence;
+	};
+
+	SECTION("Producers' rule for a napping consumer")
+	{
+		__atomic_add_fetch(&state->nappers, 1, __ATOMIC_SEQ_CST);
+		BOOST_SCOPE_EXIT_ALL(&)
+		{
+			__atomic_sub_fetch(&state->nappers, 1,
+					   __ATOMIC_SEQ_CST);
+		};
+		// A small sample: no wakeup, though the consumer asked for
+		// every sample.
+		CHECK_FALSE(output_moved_sequence(8));
+		// Past half the shard: woken.
+		CHECK(output_moved_sequence(getpagesize() / 2));
+		// A ring buffer record the consumer has caught up with: woken,
+		// as a waiting consumer.
+		const int rb_fd = bpftime_maps_create(
+			-1, "nap_ring",
+			{ .type = BPF_MAP_TYPE_RINGBUF, .max_ents = 4096 });
+		REQUIRE(rb_fd >= 0);
+		fds.push_back(rb_fd);
+		void *p = bpftime_ringbuf_reserve(rb_fd, 8);
+		REQUIRE(p != nullptr);
+		const uint32_t sequence = perf_wakeup_sequence();
+		bpftime_ringbuf_submit(rb_fd, p, 0);
+		CHECK(perf_wakeup_sequence() != sequence);
+	}
+	SECTION("A consumer naps after records")
+	{
+		const int epoll_fd = bpftime_epoll_create();
+		REQUIRE(epoll_fd >= 0);
+		fds.push_back(epoll_fd);
+		REQUIRE(bpftime_add_software_perf_event_fd_to_epoll(
+				perf_fd, epoll_fd, { .u64 = 5 }) == 0);
+		std::atomic<int> first_done{ 0 };
+		int first = 0, second = 0;
+		// One thread: the time of the last records is per thread.
+		std::thread consumer([&]() {
+			epoll_event event{};
+			first = bpftime_epoll_wait(epoll_fd, &event, 1, 10000);
+			header->data_tail = header->data_head;
+			first_done = 1;
+			second = bpftime_epoll_wait(epoll_fd, &event, 1, 10000);
+			header->data_tail = header->data_head;
+		});
+		// Asleep with nothing seen yet: the first sample wakes it.
+		REQUIRE(wait_for_sleeping_consumer());
+		REQUIRE(bpftime_perf_event_output(perf_fd, &first, 4) == 0);
+		bool napping = false;
+		for (int i = 0; i < 5000000 && !napping; i++)
+			napping = first_done &&
+				  __atomic_load_n(&state->nappers,
+						  __ATOMIC_ACQUIRE) > 0;
+		const uint32_t sequence = perf_wakeup_sequence();
+		const int ret = bpftime_perf_event_output(perf_fd, &first, 4);
+		consumer.join();
+		REQUIRE(napping);
+		REQUIRE(ret == 0);
+		CHECK(first == 1);
+		CHECK(second == 1); // found after the nap
+		CHECK(perf_wakeup_sequence() == sequence); // no wakeup
+	}
+}
+
 #endif

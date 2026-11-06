@@ -385,7 +385,7 @@ bool software_perf_event_buffer::append_record_parts(
 
 int software_perf_event_buffer::output_data(
 	const void *buf, size_t size, bool *wakeup_consumer,
-	const software_perf_event_wakeup *rule)
+	const software_perf_event_wakeup *rule, bool *urgent)
 {
 	SPDLOG_DEBUG("Handling perf event output data with size {}", size);
 	if (wakeup_consumer)
@@ -449,6 +449,8 @@ int software_perf_event_buffer::output_data(
 			by_bytes ? std::min<uint64_t>(rule->wakeup, mmap_size()) :
 				   mmap_size() / 2;
 		bool wake = !written || used_after >= mark;
+		if (urgent)
+			*urgent = wake;
 		if (written && rule && !rule->watermark && rule->wakeup &&
 		    ++samples_since_wakeup >= rule->wakeup) {
 			samples_since_wakeup = 0;
@@ -763,12 +765,12 @@ software_perf_event_data::get_header_ref_const() const
 }
 
 int software_perf_event_data::output_data(const void *buf, size_t size,
-					  bool *wakeup_consumer)
+					  bool *wakeup_consumer, bool *urgent)
 {
 	auto *shard = get_current_thread_shard();
 	if (shard != nullptr)
 		return shard->buffer.output_data(buf, size, wakeup_consumer,
-						 &wakeup);
+						 &wakeup, urgent);
 	// No shard of its own: the overflow shard, one producer at a time.
 	spin_lock_guard guard(overflow_lock);
 	if (overflow == nullptr) {
@@ -778,7 +780,7 @@ int software_perf_event_data::output_data(const void *buf, size_t size,
 		return -1;
 	}
 	return overflow->buffer.output_data(buf, size, wakeup_consumer,
-					    &wakeup);
+					    &wakeup, urgent);
 }
 
 perf_event_mmap_page &software_perf_event_data::get_header_ref()

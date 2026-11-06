@@ -1123,7 +1123,7 @@ std::uint64_t bpftime_shm::read_stable_epoch_seq(int max_tries) const
 	return BPFTIME_EPOCH_SEQ_UNSTABLE;
 }
 
-void bpftime_shm::notify_perf_event_consumers() const
+void bpftime_shm::notify_perf_event_consumers(bool urgent) const
 {
 #if __linux__
 	if (!perf_wakeup_state)
@@ -1132,7 +1132,9 @@ void bpftime_shm::notify_perf_event_consumers() const
 	// re-check after registering sees the record just published, or this
 	// load sees the registration.
 	__atomic_thread_fence(__ATOMIC_SEQ_CST);
-	if (__atomic_load_n(&perf_wakeup_state->waiters, __ATOMIC_RELAXED) == 0)
+	if (__atomic_load_n(&perf_wakeup_state->waiters, __ATOMIC_RELAXED) == 0 &&
+	    !(urgent &&
+	      __atomic_load_n(&perf_wakeup_state->nappers, __ATOMIC_RELAXED) != 0))
 		return;
 	wake_consumers();
 #endif
@@ -1150,8 +1152,15 @@ void bpftime_shm::notify_ringbuf_consumers(const ringbuf_map_impl &ringbuf,
 	// slower. Acquire: every change of `waiters` is a read-modify-write, so
 	// seeing a registration shows the position stored before it.
 	__atomic_thread_fence(__ATOMIC_SEQ_CST);
-	if (__atomic_load_n(&perf_wakeup_state->waiters, __ATOMIC_ACQUIRE) == 0)
+	const uint32_t waiters =
+		__atomic_load_n(&perf_wakeup_state->waiters, __ATOMIC_ACQUIRE);
+	const uint32_t nappers =
+		__atomic_load_n(&perf_wakeup_state->nappers, __ATOMIC_ACQUIRE);
+	if (waiters == 0 && nappers == 0)
 		return;
+	// Napping consumers by bpf's rule too: woken only at half a ring, a
+	// ring shared by every producer lost records in bursts (8,240-byte
+	// records, 4 threads: 89%; uprobe/improve-20261106, item 3).
 	if (force || ringbuf.consumer_at(sample))
 		wake_consumers();
 #endif

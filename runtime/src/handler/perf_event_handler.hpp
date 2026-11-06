@@ -109,7 +109,8 @@ struct software_perf_event_buffer {
 	// count of wakeup_events.
 	int output_data(const void *buf, size_t size,
 			bool *wakeup_consumer = nullptr,
-			const software_perf_event_wakeup *rule = nullptr);
+			const software_perf_event_wakeup *rule = nullptr,
+			bool *urgent = nullptr);
 	size_t mmap_size() const;
 	bool has_data() const;
 	bool copy_next_record_to(software_perf_event_buffer &dst);
@@ -192,7 +193,7 @@ struct software_perf_event_data {
 	perf_event_mmap_page &get_header_ref();
 	const perf_event_mmap_page &get_header_ref_const() const;
 	int output_data(const void *buf, size_t size,
-			bool *wakeup_consumer = nullptr);
+			bool *wakeup_consumer = nullptr, bool *urgent = nullptr);
 	size_t mmap_size() const;
 	bool has_data();
 

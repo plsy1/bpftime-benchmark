@@ -307,7 +307,34 @@ late on average (gethostlatency 540-572 us against bpf's 19-44,
 the settings (`bpftime_add_software_perf_event`) keeps the half-shard rule
 only. Tests "Software perf event wakes as the consumer's attr asks", "Small
 output wakes a consumer that asks for every sample" (both fail with the
-settings ignored). The producer fences and issues `FUTEX_WAKE`
+settings ignored).
+
+Waking the consumer for every sample costs the traced process a
+`FUTEX_WAKE` system call per sample (the kernel raises an irq_work
+instead): ssl-nginx under sslsniff lost 10% of its requests per second,
+`futex_wake` alone 4.7% of nginx's time (`uprobe/improve-20261106`, item 3).
+So for a while after it found records (`BPFTIME_CONSUMER_NAP_WINDOW_US`,
+2 ms) the consumer naps (`BPFTIME_CONSUMER_NAP_US`, 100 us, a futex wait
+with that timeout) registered in `nappers`, not `waiters`: a perf producer
+wakes a napping consumer only past the watermark or on a drop (`urgent`), so
+under a steady stream it makes no system call and the nap bounds the delay;
+ring buffer records wake it by bpf's rule as a waiting one (woken only at
+half a ring, a shared ring lost records in bursts: 8,240-byte records on 4
+threads, 89%). Idle longer than the window, the consumer sleeps until woken,
+so the first record of a burst wakes it at once. Measured (checks on):
+ssl-nginx 12,673 req/s against 11,505 waking for every sample and 12,854
+waking at half a shard (kernel 12,150), sslsniff 10% of a core (21%, 5%;
+kernel 12%); gethostlatency's lines p50 90 us, p99 170 us (every sample:
+21 / 47-150 us; half a shard: 540 / 1,070 us; kernel 19 / 44-79 us).
+`BPFTIME_CONSUMER_NAP_US=0` turns the naps off (every sample wakes the
+consumer, as the kernel). Opt-in `BPFTIME_CONSUMER_POLL_US`: poll that long
+after records instead (unregistered, `sched_yield` between polls): the
+latency was below the kernel's (p50 13 us) with the throughput of the naps,
+but the consumer kept a core busy (100% under ssl-nginx); polling without
+yielding the CPU delayed the traced processes sharing it (gethostlatency p99
+1 ms in 2 of 3 runs). Tests "Napping consumers are woken only when a buffer
+fills" (mutations: perf output ignoring `nappers`, ring buffers ignoring
+them, no nap). The producer fences and issues `FUTEX_WAKE`
 only when `waiters` is non-zero; keep both fences, or a wakeup can be missed
 until the timeout. SIGINT/SIGTERM stay
 blocked while sleeping and are collected with a zero-timeout `sigtimedwait`

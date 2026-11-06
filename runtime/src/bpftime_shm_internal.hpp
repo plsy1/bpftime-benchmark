@@ -64,6 +64,10 @@ struct bpftime_global_epoch_state {
 struct bpftime_perf_wakeup_state {
 	std::uint32_t sequence = 0;
 	std::uint32_t waiters = 0;
+	// Consumers in a short nap after records (bpftime_epoll_wait): perf
+	// output wakes them only past the watermark or on a drop, ring buffer
+	// records by bpf's rule as for `waiters`.
+	std::uint32_t nappers = 0;
 };
 
 using syscall_pid_set_allocator = boost::interprocess::allocator<
@@ -204,7 +208,9 @@ class bpftime_shm {
 	// Called when a software perf event output or a ring buffer record
 	// asks for a wakeup. Costs a fence and a shared load unless a
 	// consumer is sleeping.
-	void notify_perf_event_consumers() const;
+	// `urgent`: past the watermark or a drop, which wakes napping
+	// consumers too.
+	void notify_perf_event_consumers(bool urgent = false) const;
 	// After a ring buffer record is published: bpf's rule, wake a waiting
 	// consumer that has caught up with it, or any with `force`.
 	void notify_ringbuf_consumers(const ringbuf_map_impl &ringbuf,
