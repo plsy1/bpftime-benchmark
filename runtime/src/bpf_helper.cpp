@@ -187,13 +187,25 @@ static bool probe_read_memory(void *dst, const void *src, size_t size)
 #elif __linux__
 	struct iovec local = { dst, size };
 	struct iovec remote = { const_cast<void *>(src), size };
-	return syscall(SYS_process_vm_readv,
-		       probe_access_atfork_status == 0 ? probe_access_pid : getpid(),
-		       &local, 1, &remote, 1, 0) == (ssize_t)size;
+	if (syscall(SYS_process_vm_readv,
+		    probe_access_atfork_status == 0 ? probe_access_pid : getpid(),
+		    &local, 1, &remote, 1, 0) == (ssize_t)size)
+		return true;
+	// A seccomp filter may deny the call (EPERM, ENOSYS): then every probe
+	// read fails with -EFAULT, and the application goes on.
+	if (errno == EPERM || errno == ENOSYS)
+		BPFTIME_LOG_WARN_RATELIMITED(
+			"process_vm_readv refused (errno {}): probe reads fail",
+			errno);
+	return false;
 #else
 #error "Probe memory checks are unsupported on this platform"
 #endif
 }
+#endif
+
+#ifdef ENABLE_PROBE_READ_CHECK
+static void clear_probe_memory(void *dst, size_t size);
 #endif
 
 int64_t bpftime_probe_read(uint64_t dst, int64_t size, uint64_t ptr, uint64_t,
@@ -204,9 +216,12 @@ int64_t bpftime_probe_read(uint64_t dst, int64_t size, uint64_t ptr, uint64_t,
 		return -EFAULT;
 	}
 #ifdef ENABLE_PROBE_READ_CHECK
-	return probe_read_memory((void *)dst, (void *)ptr, (size_t)size) ?
-		       0 :
-		       -EFAULT;
+	if (probe_read_memory((void *)dst, (void *)ptr, (size_t)size))
+		return 0;
+	// As bpf: the destination is zeroed on a fault (a partial read left
+	// part of the source in it).
+	clear_probe_memory((void *)dst, (size_t)size);
+	return -EFAULT;
 #else
 	memcpy((void *)dst, (void *)ptr, (size_t)size);
 	return 0;
@@ -705,34 +720,38 @@ int64_t bpf_probe_read_str(uint64_t buf, uint64_t bufsz, uint64_t ptr, uint64_t,
 	}
 	return (int64_t)bufsz;
 #else
-	char scratch[256];
+	// One process_vm_readv per chunk, straight into the program's buffer
+	// (a bad destination fails the same call). The first chunk is at most
+	// 256 bytes, where most strings end; later ones run to the end of the
+	// source page. Through a 256-byte scratch buffer and
+	// process_vm_writev, a 255-byte string cost two system calls (2.1 us,
+	// bpf 0.12 us; uprobe/more-dims-20261106/n1-probe-read).
 	size_t copied = 0;
+	size_t limit = 256;
 	while (copied < (size_t)bufsz) {
-		size_t chunk_size =
-			std::min(sizeof(scratch), (size_t)bufsz - copied);
+		size_t chunk_size = std::min(limit, (size_t)bufsz - copied);
 		chunk_size = std::min(chunk_size,
 				      probe_page_remaining(src + copied));
-		if (!probe_read_memory(scratch, src + copied, chunk_size)) {
+		if (!probe_read_memory(dst + copied, src + copied,
+				       chunk_size)) {
 			clear_probe_memory(dst, (size_t)bufsz);
 			return -EFAULT;
 		}
-
-		auto terminator = (char *)memchr(scratch, '\0', chunk_size);
-		bool complete = terminator != nullptr;
-		if (complete) {
-			chunk_size = (size_t)(terminator - scratch) + 1;
-		} else if (chunk_size == (size_t)bufsz - copied) {
-			scratch[chunk_size - 1] = '\0';
-			complete = true;
+		auto terminator =
+			(char *)memchr(dst + copied, '\0', chunk_size);
+		if (terminator != nullptr) {
+			// The bytes read past the NUL are the source's memory,
+			// not the string: zero them (bpf zeroes the rest of
+			// the word it copied the NUL in).
+			auto end = dst + copied + chunk_size;
+			memset(terminator + 1, 0, (size_t)(end - terminator - 1));
+			return (int64_t)(terminator + 1 - dst);
 		}
-
-		if (!probe_write_memory(dst + copied, scratch, chunk_size))
-			return -EFAULT;
 		copied += chunk_size;
-		if (complete)
-			return (int64_t)copied;
+		limit = (size_t)-1;
 	}
-	return (int64_t)copied;
+	dst[bufsz - 1] = '\0';
+	return (int64_t)bufsz;
 #endif
 }
 
