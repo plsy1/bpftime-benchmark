@@ -348,16 +348,19 @@ fence and the `waiters` load (perf 8 B on one thread 538 -> 597 ns, kernel
 following load-acquire, so the fence could be dropped there (not done; x86
 needs it). The producer fences and issues `FUTEX_WAKE`
 only when `waiters` is non-zero; keep both fences, or a wakeup can be missed
-until the timeout. SIGINT/SIGTERM stay
-blocked while sleeping and are collected with a zero-timeout `sigtimedwait`
-afterwards. Not handled (found 11-07): that `sigtimedwait` can dequeue a
-process-directed SIGINT meant for another thread of the tool; the handler then
-runs in the polling thread, and a thread waiting for it in `pause()` (outattach's
-main thread) waits for ever, the tool never exits (`uprobe/improve-20261106`,
-investigations; single-threaded tools are not affected). Fix: leave the signals
-unblocked, return EINTR when a futex wait (the sleep or the nap) is
-interrupted (a handler ran in this thread), and sleep with nanosleep where no
-wakeup object exists. Ring buffer records follow bpf's rule (`bpf_ringbuf_commit`): a
+until the timeout. `bpftime_epoll_wait` leaves signals to the
+kernel, as bpf's epoll_wait does: it neither blocks nor collects any, and a
+handler that runs in the polling thread during the sleep or the nap ends the
+futex wait (with a timeout it ends with EINTR even under SA_RESTART), so the
+call returns -1 with EINTR; with no wakeup object it sleeps with nanosleep, the
+same way. A handler that runs while the thread scans waits for the next timeout,
+as with bpf for a signal just before epoll_wait. Do not block signals there: it
+used to block SIGINT/SIGTERM and take a pending one with `sigtimedwait`, calling
+the handler itself, which took a process-directed SIGINT meant for another
+thread (outattach's main thread stayed in `pause()`, the tool never exited;
+`uprobe/improve-20261106`, investigations), did nothing for `SIG_DFL` and called
+`SIG_IGN` as a function (SIGBUS); test "A consumer leaves signals to the threads
+they are meant for". Ring buffer records follow bpf's rule (`bpf_ringbuf_commit`): a
 consumer is woken when it has caught up with the record (it may be asleep), or
 with `BPF_RB_FORCE_WAKEUP`, never with `BPF_RB_NO_WAKEUP`; discards too, since
 the consumer must pass them. The data area is mapped once (bpf maps it twice),
