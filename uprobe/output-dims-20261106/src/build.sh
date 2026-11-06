@@ -27,5 +27,5 @@ for kv in perf:5 rbout:6 rbres:7; do
   $BPF -DKIND=${kv#*:} -DSIZE=4096 -DVAR=1 -c out.bpf.c -o out-${kv%:*}-var.bpf.o
 done
 # Soak object (more-dims-20261106/n6): hash churn + 256-byte ring buffer records.
-$BPF -DKIND=8 -DSIZE=256 -c out.bpf.c -o out-soak.bpf.o
+$BPF -DKIND=8 -DSIZE=256 -DATOMIC_HITS -c out.bpf.c -o out-soak.bpf.o
 ls -1 *.bpf.o | wc -l

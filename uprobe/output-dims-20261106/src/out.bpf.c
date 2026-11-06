@@ -78,7 +78,14 @@ int BPF_UPROBE(on_count, __u64 arg)
 {
 	__u32 tid = (__u32)bpf_get_current_pid_tgid();
 	struct slot *slot = &slots[(tid & 31) * 2];
+	// Slots are per tid & 31: threads of different processes can share one,
+	// and a plain increment then loses counts (more-dims n6-soak: 0.087%
+	// short over 358 processes). ATOMIC_HITS (the soak) counts them all.
+#ifdef ATOMIC_HITS
+	__sync_fetch_and_add(&slot->hits, 1);
+#else
 	slot->hits++;
+#endif
 #if KIND == 5 || KIND == 6
 #if SIZE > 256
 	__u32 zero = 0;

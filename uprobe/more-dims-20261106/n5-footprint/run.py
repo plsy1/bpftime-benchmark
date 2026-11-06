@@ -95,12 +95,13 @@ def main():
     ap.add_argument('--hold', type=int, default=20)
     ap.add_argument('--shm-mb', type=int, default=0)
     ap.add_argument('--reps', type=int, default=2)
+    ap.add_argument('--builds', default='fix-final', help='bpftime builds (comma list)')
     ap.add_argument('--out', required=True)
     a = ap.parse_args()
     cells = [('none', '-', int(n)) for n in a.threads.split(',')]
     for obj in a.objs.split(','):
         for n in a.threads.split(','):
-            cells += [(b, obj, int(n)) for b in ('kernel', 'fix-final')]
+            cells += [(b, obj, int(n)) for b in ('kernel', *a.builds.split(','))]
     for rep in range(a.reps):
         for backend, obj, n in (cells if rep % 2 == 0 else cells[::-1]):
             t0 = time.time()

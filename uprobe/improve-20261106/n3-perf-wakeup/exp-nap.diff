@@ -1,0 +1,48 @@
+diff --git a/runtime/src/bpftime_shm.cpp b/runtime/src/bpftime_shm.cpp
+index 4cbae10a..d3864d01 100644
+--- a/runtime/src/bpftime_shm.cpp
++++ b/runtime/src/bpftime_shm.cpp
+@@ -467,6 +467,15 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
+ 		return -1;
+ 	}
+ 	using namespace std::chrono;
++	static thread_local high_resolution_clock::time_point last_ready_time{};
++	static const microseconds nap = [] {
++		const char *v = getenv("BPFTIME_CONSUMER_NAP_US");
++		return microseconds(v ? atoi(v) : 100);
++	}();
++	static const microseconds nap_window = [] {
++		const char *v = getenv("BPFTIME_CONSUMER_NAP_WINDOW_US");
++		return microseconds(v ? atoi(v) : 2000);
++	}();
+ 	auto &epoll_inst =
+ 		std::get<epoll_handler>(shm.get_manager()->get_handler(fd));
+ 	auto start_time = high_resolution_clock::now();
+@@ -554,9 +563,26 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
+ 		}
+ 
+ 		collect_ready();
+-		if (next_id > 0 || timeout == 0) {
++		if (next_id > 0) {
++			last_ready_time = high_resolution_clock::now();
+ 			break;
+ 		}
++		if (timeout == 0) {
++			break;
++		}
++		// EXPERIMENT (nap): for a while after events, sleep a short fixed
++		// time without registering as a waiter: producers find nobody
++		// waiting and make no futex system call, and the delay is
++		// bounded by the nap. Idle longer than the window, the consumer
++		// registers and sleeps as before, so the first event of a burst
++		// wakes it.
++		if (nap.count() > 0 &&
++		    high_resolution_clock::now() - last_ready_time < nap_window) {
++			timespec nap_ts{ .tv_sec = 0,
++					 .tv_nsec = (long)nap.count() * 1000 };
++			clock_nanosleep(CLOCK_MONOTONIC, 0, &nap_ts, nullptr);
++			continue;
++		}
+ #if __linux__
+ 		if (wakeup) {
+ 			// Register before re-checking, so a perf output that

@@ -1,0 +1,48 @@
+diff --git a/runtime/src/bpftime_shm.cpp b/runtime/src/bpftime_shm.cpp
+index 4cbae10a..dd002bd5 100644
+--- a/runtime/src/bpftime_shm.cpp
++++ b/runtime/src/bpftime_shm.cpp
+@@ -22,6 +22,7 @@
+ #include <linux/futex.h>
+ #include <sys/syscall.h>
+ #include <unistd.h>
++#include <sched.h>
+ #elif __APPLE__
+ #include "bpftime_epoll.h"
+ #endif
+@@ -467,6 +468,11 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
+ 		return -1;
+ 	}
+ 	using namespace std::chrono;
++	static thread_local high_resolution_clock::time_point last_ready_time{};
++	static const microseconds poll_window = [] {
++		const char *v = getenv("BPFTIME_CONSUMER_POLL_US");
++		return microseconds(v ? atoi(v) : 200);
++	}();
+ 	auto &epoll_inst =
+ 		std::get<epoll_handler>(shm.get_manager()->get_handler(fd));
+ 	auto start_time = high_resolution_clock::now();
+@@ -554,9 +560,22 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
+ 		}
+ 
+ 		collect_ready();
+-		if (next_id > 0 || timeout == 0) {
++		if (next_id > 0) {
++			last_ready_time = high_resolution_clock::now();
+ 			break;
+ 		}
++		if (timeout == 0) {
++			break;
++		}
++		// EXPERIMENT: right after events, poll a while before sleeping:
++		// producers then find no consumer waiting and make no futex
++		// system call.
++		if (poll_window.count() > 0 &&
++		    high_resolution_clock::now() - last_ready_time < poll_window) {
++			// Give the CPU to anything else runnable on it.
++			sched_yield();
++			continue;
++		}
+ #if __linux__
+ 		if (wakeup) {
+ 			// Register before re-checking, so a perf output that

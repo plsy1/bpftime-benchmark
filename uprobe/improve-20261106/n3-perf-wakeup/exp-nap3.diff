@@ -1,0 +1,265 @@
+diff --git a/runtime/src/bpf_map/userspace/ringbuf_map.cpp b/runtime/src/bpf_map/userspace/ringbuf_map.cpp
+index ab8190e4..4bdeb435 100644
+--- a/runtime/src/bpf_map/userspace/ringbuf_map.cpp
++++ b/runtime/src/bpf_map/userspace/ringbuf_map.cpp
+@@ -181,6 +181,10 @@ bool ringbuf_map_impl::consumer_at(const void *sample) const
+ {
+ 	return ringbuf_impl->consumer_at(sample);
+ }
++bool ringbuf_map_impl::at_least_half_full() const
++{
++	return ringbuf_impl->at_least_half_full();
++}
+ 
+ ringbuf::ringbuf(uint32_t max_ent,
+ 		 boost::interprocess::managed_shared_memory &memory)
+@@ -468,6 +472,13 @@ bool ringbuf::discard_reserved(ringbuf_hdr *hdr, uint32_t len)
+ 					   __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+ }
+ 
++bool ringbuf::at_least_half_full() const
++{
++	return smp_load_acquire_ul(producer_pos.get()) -
++		       smp_load_acquire_ul(consumer_pos.get()) >=
++	       max_ent / 2;
++}
++
+ bool ringbuf::consumer_at(const void *sample) const
+ {
+ 	const uintptr_t hdr_offset = (mask() + 1 +
+diff --git a/runtime/src/bpf_map/userspace/ringbuf_map.hpp b/runtime/src/bpf_map/userspace/ringbuf_map.hpp
+index 277c5d9a..5fa7d2a8 100644
+--- a/runtime/src/bpf_map/userspace/ringbuf_map.hpp
++++ b/runtime/src/bpf_map/userspace/ringbuf_map.hpp
+@@ -133,6 +133,8 @@ class ringbuf {
+ 	// consumer position and the header it stands at; the record may be
+ 	// gone.
+ 	bool consumer_at(const void *sample) const;
++	// Whether at least half the ring holds records not yet consumed.
++	bool at_least_half_full() const;
+ 	int fetch_data(int (*)(void *ctx, void *data, size_t len), void *ctx);
+ 	// Tests only: the record's owner slot, as in its header; overwrite
+ 	// it; whether a slot is held; what recover_dead_reservation does to a
+@@ -181,6 +183,7 @@ class ringbuf_map_impl {
+ 	void *reserve(size_t size, int self_fd);
+ 	bool submit(const void *sample, bool discard);
+ 	bool consumer_at(const void *sample) const;
++	bool at_least_half_full() const;
+ };
+ 
+ } // namespace bpftime
+diff --git a/runtime/src/bpftime_shm.cpp b/runtime/src/bpftime_shm.cpp
+index 4cbae10a..583f7aa9 100644
+--- a/runtime/src/bpftime_shm.cpp
++++ b/runtime/src/bpftime_shm.cpp
+@@ -467,6 +467,15 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
+ 		return -1;
+ 	}
+ 	using namespace std::chrono;
++	static thread_local high_resolution_clock::time_point last_ready_time{};
++	static const microseconds nap = [] {
++		const char *v = getenv("BPFTIME_CONSUMER_NAP_US");
++		return microseconds(v ? atoi(v) : 100);
++	}();
++	static const microseconds nap_window = [] {
++		const char *v = getenv("BPFTIME_CONSUMER_NAP_WINDOW_US");
++		return microseconds(v ? atoi(v) : 2000);
++	}();
+ 	auto &epoll_inst =
+ 		std::get<epoll_handler>(shm.get_manager()->get_handler(fd));
+ 	auto start_time = high_resolution_clock::now();
+@@ -554,9 +563,44 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
+ 		}
+ 
+ 		collect_ready();
+-		if (next_id > 0 || timeout == 0) {
++		if (next_id > 0) {
++			last_ready_time = high_resolution_clock::now();
+ 			break;
+ 		}
++		if (timeout == 0) {
++			break;
++		}
++		// EXPERIMENT (nap): for a while after events, sleep a short fixed
++		// time without registering as a waiter: producers find nobody
++		// waiting and make no futex system call, and the delay is
++		// bounded by the nap. Idle longer than the window, the consumer
++		// registers and sleeps as before, so the first event of a burst
++		// wakes it.
++		if (nap.count() > 0 && wakeup &&
++		    high_resolution_clock::now() - last_ready_time < nap_window) {
++			// Registered as napping: producers wake it only when a
++			// buffer fills (perf watermark or drop, a ring half full)
++			// or on BPF_RB_FORCE_WAKEUP.
++			timespec nap_ts{ .tv_sec = 0,
++					 .tv_nsec = (long)nap.count() * 1000 };
++			uint32_t sequence = __atomic_load_n(&wakeup->sequence,
++							    __ATOMIC_ACQUIRE);
++			__atomic_add_fetch(&wakeup->nappers, 1,
++					   __ATOMIC_SEQ_CST);
++			__atomic_thread_fence(__ATOMIC_SEQ_CST);
++			collect_ready();
++			if (next_id == 0)
++				syscall(SYS_futex, &wakeup->sequence,
++					FUTEX_WAIT, sequence, &nap_ts, nullptr,
++					0);
++			__atomic_sub_fetch(&wakeup->nappers, 1,
++					   __ATOMIC_RELEASE);
++			if (next_id > 0) {
++				last_ready_time = high_resolution_clock::now();
++				break;
++			}
++			continue;
++		}
+ #if __linux__
+ 		if (wakeup) {
+ 			// Register before re-checking, so a perf output that
+@@ -678,11 +722,12 @@ int bpftime_perf_event_output(int fd, const void *buf, size_t sz)
+ 		    handler.data)) {
+ 		SPDLOG_DEBUG("Perf out value to fd {}, sz {}", fd, sz);
+ 		bool wakeup_consumer;
++		bool urgent = false;
+ 		int ret = std::get<software_perf_event_shared_ptr>(handler.data)
+-				  ->output_data(buf, sz, &wakeup_consumer);
++				  ->output_data(buf, sz, &wakeup_consumer, &urgent);
+ 		if (wakeup_consumer) {
+ 			int saved_errno = errno;
+-			shm.notify_perf_event_consumers();
++			shm.notify_perf_event_consumers(urgent);
+ 			errno = saved_errno;
+ 		}
+ 		return ret;
+diff --git a/runtime/src/bpftime_shm_internal.cpp b/runtime/src/bpftime_shm_internal.cpp
+index b410fd0d..dc65ff6c 100644
+--- a/runtime/src/bpftime_shm_internal.cpp
++++ b/runtime/src/bpftime_shm_internal.cpp
+@@ -1123,7 +1123,7 @@ std::uint64_t bpftime_shm::read_stable_epoch_seq(int max_tries) const
+ 	return BPFTIME_EPOCH_SEQ_UNSTABLE;
+ }
+ 
+-void bpftime_shm::notify_perf_event_consumers() const
++void bpftime_shm::notify_perf_event_consumers(bool urgent) const
+ {
+ #if __linux__
+ 	if (!perf_wakeup_state)
+@@ -1132,7 +1132,9 @@ void bpftime_shm::notify_perf_event_consumers() const
+ 	// re-check after registering sees the record just published, or this
+ 	// load sees the registration.
+ 	__atomic_thread_fence(__ATOMIC_SEQ_CST);
+-	if (__atomic_load_n(&perf_wakeup_state->waiters, __ATOMIC_RELAXED) == 0)
++	if (__atomic_load_n(&perf_wakeup_state->waiters, __ATOMIC_RELAXED) == 0 &&
++	    !(urgent &&
++	      __atomic_load_n(&perf_wakeup_state->nappers, __ATOMIC_RELAXED) != 0))
+ 		return;
+ 	wake_consumers();
+ #endif
+@@ -1150,8 +1152,15 @@ void bpftime_shm::notify_ringbuf_consumers(const ringbuf_map_impl &ringbuf,
+ 	// slower. Acquire: every change of `waiters` is a read-modify-write, so
+ 	// seeing a registration shows the position stored before it.
+ 	__atomic_thread_fence(__ATOMIC_SEQ_CST);
+-	if (__atomic_load_n(&perf_wakeup_state->waiters, __ATOMIC_ACQUIRE) == 0)
++	const uint32_t waiters =
++		__atomic_load_n(&perf_wakeup_state->waiters, __ATOMIC_ACQUIRE);
++	const uint32_t nappers =
++		__atomic_load_n(&perf_wakeup_state->nappers, __ATOMIC_ACQUIRE);
++	if (waiters == 0 && nappers == 0)
+ 		return;
++	// Ring buffers keep bpf's rule for napping consumers too: waking
++	// them only at half a ring lost records in bursts (one ring shared
++	// by every producer).
+ 	if (force || ringbuf.consumer_at(sample))
+ 		wake_consumers();
+ #endif
+diff --git a/runtime/src/bpftime_shm_internal.hpp b/runtime/src/bpftime_shm_internal.hpp
+index a1d343a3..8895a599 100644
+--- a/runtime/src/bpftime_shm_internal.hpp
++++ b/runtime/src/bpftime_shm_internal.hpp
+@@ -64,6 +64,10 @@ struct bpftime_global_epoch_state {
+ struct bpftime_perf_wakeup_state {
+ 	std::uint32_t sequence = 0;
+ 	std::uint32_t waiters = 0;
++	// EXPERIMENT: consumers in a short nap after events; producers wake
++	// them only when a buffer fills (perf watermark or drop, a ring half
++	// full) or on BPF_RB_FORCE_WAKEUP.
++	std::uint32_t nappers = 0;
+ };
+ 
+ using syscall_pid_set_allocator = boost::interprocess::allocator<
+@@ -204,7 +208,7 @@ class bpftime_shm {
+ 	// Called when a software perf event output or a ring buffer record
+ 	// asks for a wakeup. Costs a fence and a shared load unless a
+ 	// consumer is sleeping.
+-	void notify_perf_event_consumers() const;
++	void notify_perf_event_consumers(bool urgent = false) const;
+ 	// After a ring buffer record is published: bpf's rule, wake a waiting
+ 	// consumer that has caught up with it, or any with `force`.
+ 	void notify_ringbuf_consumers(const ringbuf_map_impl &ringbuf,
+diff --git a/runtime/src/handler/perf_event_handler.cpp b/runtime/src/handler/perf_event_handler.cpp
+index ace42978..02ceba11 100644
+--- a/runtime/src/handler/perf_event_handler.cpp
++++ b/runtime/src/handler/perf_event_handler.cpp
+@@ -385,7 +385,7 @@ bool software_perf_event_buffer::append_record_parts(
+ 
+ int software_perf_event_buffer::output_data(
+ 	const void *buf, size_t size, bool *wakeup_consumer,
+-	const software_perf_event_wakeup *rule)
++	const software_perf_event_wakeup *rule, bool *urgent)
+ {
+ 	SPDLOG_DEBUG("Handling perf event output data with size {}", size);
+ 	if (wakeup_consumer)
+@@ -449,6 +449,8 @@ int software_perf_event_buffer::output_data(
+ 			by_bytes ? std::min<uint64_t>(rule->wakeup, mmap_size()) :
+ 				   mmap_size() / 2;
+ 		bool wake = !written || used_after >= mark;
++		if (urgent)
++			*urgent = wake;
+ 		if (written && rule && !rule->watermark && rule->wakeup &&
+ 		    ++samples_since_wakeup >= rule->wakeup) {
+ 			samples_since_wakeup = 0;
+@@ -763,12 +765,12 @@ software_perf_event_data::get_header_ref_const() const
+ }
+ 
+ int software_perf_event_data::output_data(const void *buf, size_t size,
+-					  bool *wakeup_consumer)
++					  bool *wakeup_consumer, bool *urgent)
+ {
+ 	auto *shard = get_current_thread_shard();
+ 	if (shard != nullptr)
+ 		return shard->buffer.output_data(buf, size, wakeup_consumer,
+-						 &wakeup);
++						 &wakeup, urgent);
+ 	// No shard of its own: the overflow shard, one producer at a time.
+ 	spin_lock_guard guard(overflow_lock);
+ 	if (overflow == nullptr) {
+@@ -778,7 +780,7 @@ int software_perf_event_data::output_data(const void *buf, size_t size,
+ 		return -1;
+ 	}
+ 	return overflow->buffer.output_data(buf, size, wakeup_consumer,
+-					    &wakeup);
++					    &wakeup, urgent);
+ }
+ 
+ perf_event_mmap_page &software_perf_event_data::get_header_ref()
+diff --git a/runtime/src/handler/perf_event_handler.hpp b/runtime/src/handler/perf_event_handler.hpp
+index feb2c413..df5d12e0 100644
+--- a/runtime/src/handler/perf_event_handler.hpp
++++ b/runtime/src/handler/perf_event_handler.hpp
+@@ -109,7 +109,8 @@ struct software_perf_event_buffer {
+ 	// count of wakeup_events.
+ 	int output_data(const void *buf, size_t size,
+ 			bool *wakeup_consumer = nullptr,
+-			const software_perf_event_wakeup *rule = nullptr);
++			const software_perf_event_wakeup *rule = nullptr,
++			bool *urgent = nullptr);
+ 	size_t mmap_size() const;
+ 	bool has_data() const;
+ 	bool copy_next_record_to(software_perf_event_buffer &dst);
+@@ -192,7 +193,7 @@ struct software_perf_event_data {
+ 	perf_event_mmap_page &get_header_ref();
+ 	const perf_event_mmap_page &get_header_ref_const() const;
+ 	int output_data(const void *buf, size_t size,
+-			bool *wakeup_consumer = nullptr);
++			bool *wakeup_consumer = nullptr, bool *urgent = nullptr);
+ 	size_t mmap_size() const;
+ 	bool has_data();
+ 
