@@ -63,6 +63,6 @@ Both binaries are libbpf-tools sslsniff; the older one was built before the BTF 
 (`btf-kernel-20261026`). Not looked into; the network mode also differed (host there, bridge
 here), so the two runs are not a clean A/B.
 
-Raw: `bench/tail.jsonl`, `tail.log`, `bench/audit-16.json` and its captured tool output,
+Raw: `bench/tail.jsonl`, `tail.log`, `bench/audit-16.json` and its captured tool output (`bench/audit-16.json.*.sslsniff.txt.xz`),
 `audit-16.log`, `bench/tail-oldsniff.jsonl`, `tail-oldsniff.log`, `ab/ab-16.json`,
 `ab/ab-16.log`, stamp and clock files.

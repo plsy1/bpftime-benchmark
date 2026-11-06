@@ -35,7 +35,10 @@ with perf output grows 1.3 -> 5.1 -> 17.3 MB with 1 / 16 / 64 threads that each 
 bpftime gives every producing thread its own shard (64 pages, as libbpf-tools' perf buffer),
 where the kernel has one ring per CPU (6 here, whatever the threads). The default segment is
 128 MB, committed at creation (Boost `posix_fallocate`): about 500 producing threads fill it.
-(600 threads: below.)
+With 600 threads (`footprint-600.jsonl`, 15:24, one rep, 5 s idle): 107 of the 600 samples
+failed (`bpf_perf_event_output` returned an error: no shard could be allocated, the segment was
+full at 493 shards), the traced process's VmRSS was 188 MB (RssShmem 126 MB), the tool's 48 MB;
+the kernel delivered all 600 with a 6.2 MB process and a 2.2 MB tool.
 
 **3. Each bpftime tool commits its 128 MB segment; its own memory is 14-19 MB.** The tool
 (outattach) under the syscall server: VmRSS 13.6 (control), 14.2 (ringbuf), 15.2-19.4 MB (perf,
@@ -47,5 +50,7 @@ the perf rings are its mmap of 64 pages per CPU) and 281 KB (the 256 KiB ring bu
 `thr`'s CPU time is 0 under both. The tool's: kernel 0 ms; bpftime 0 ms with no output map, 35-40
 ms (ringbuf) and 65-140 ms (perf, growing with the shards: 1 / 16 / 64 threads) per 20 s, i.e.
 2-7 ms of CPU per second: `bpftime_epoll_wait` wakes every 1 ms and scans the rings and shards.
+The scan grows with the shards: with the 493 shards of 600 threads the idle tool used 1.89 s of
+CPU in 5.3 s (36% of a core), the kernel's 0.
 
-Raw: `footprint.jsonl`, `footprint.log`. Binaries are rebuilt by `src/build.sh` (not kept).
+Raw: `footprint.jsonl`, `footprint.log`, `footprint-600.jsonl`, `footprint-600.log`. Binaries are rebuilt by `src/build.sh` (not kept).
