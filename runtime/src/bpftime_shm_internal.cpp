@@ -722,12 +722,21 @@ bool bpftime_shm::is_prog_array_map_fd(int fd) const
 std::optional<ringbuf_map_impl *>
 bpftime_shm::try_get_ringbuf_map_impl(int fd) const
 {
-	if (!is_ringbuf_map_fd(fd)) {
-		SPDLOG_ERROR("Expected fd {} to be an ringbuf map fd", fd);
-		return {};
+	// Every bpf_ringbuf_reserve, submit and output comes here: one bounds
+	// check and one read of the handler. Through is_ringbuf_map_fd it
+	// took get_handler three times, each through the init guard of its
+	// function-local static (an acquire load, ~20% of a producer's
+	// samples; uprobe/output-dims-20261106, finding 13).
+	if (manager != nullptr && fd >= 0 && (std::size_t)fd < manager->size()) {
+		if (auto *map_handler = std::get_if<bpf_map_handler>(
+			    &manager->get_handler_at_valid_fd(fd));
+		    map_handler != nullptr) {
+			if (auto impl = map_handler->try_get_ringbuf_map_impl())
+				return impl; // the type is checked there
+		}
 	}
-	auto &map_handler = std::get<bpf_map_handler>(manager->get_handler(fd));
-	return map_handler.try_get_ringbuf_map_impl();
+	SPDLOG_ERROR("Expected fd {} to be an ringbuf map fd", fd);
+	return {};
 }
 
 std::optional<array_map_impl *>
