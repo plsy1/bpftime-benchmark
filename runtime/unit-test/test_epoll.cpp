@@ -447,6 +447,26 @@ TEST_CASE("Ring buffer records wake a consumer that caught up",
 		CHECK(submit_one(0, true));
 		CHECK(drain() == 0);
 	}
+	SECTION("Only ring buffer fds reserve")
+	{
+		// try_get_ringbuf_map_impl checks the fd and the map type
+		// itself (one handler read per call).
+		const int array_fd = bpftime_maps_create(
+			-1, "not_a_ring",
+			{ .type = BPF_MAP_TYPE_ARRAY,
+			  .key_size = 4,
+			  .value_size = 8,
+			  .max_ents = 1 });
+		REQUIRE(array_fd >= 0);
+		fds.push_back(array_fd);
+		CHECK(bpftime_ringbuf_reserve(array_fd, 8) == nullptr);
+		CHECK(bpftime_ringbuf_reserve(-1, 8) == nullptr);
+		CHECK(bpftime_ringbuf_reserve(1 << 30, 8) == nullptr);
+		void *p = bpftime_ringbuf_reserve(rb_fd, 8);
+		CHECK(p != nullptr);
+		if (p != nullptr)
+			bpftime_ringbuf_submit(rb_fd, p, 0);
+	}
 	SECTION("A record behind the end padding wakes a consumer at the padding")
 	{
 		// bpftime maps the data area once: a record that does not fit
