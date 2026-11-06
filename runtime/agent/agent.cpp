@@ -17,6 +17,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <algorithm>
 #include <cstdlib>
 #include <exception>
 #include <atomic>
@@ -959,12 +960,23 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 
 			SPDLOG_DEBUG("Entered bpftime_agent_main");
 
-			// SHM can race with the loader process; retry a bit to avoid
-			// flakiness in "spawn loader then inject agent" workflows.
+			// SHM can race with the loader process; an injected agent
+			// retries for 3 s to avoid flakiness in "spawn loader then
+			// inject agent" workflows (fac864e5). One started with the
+			// process (LD_PRELOAD, the transformer) looks once: the
+			// tool runs before it, and with none every process waited
+			// 3 s before main (anything that kept LD_PRELOAD after the
+			// tool exited; uprobe/more-dims-20261106, n2-startup).
+			// BPFTIME_AGENT_SHM_WAIT_MS sets the wait for either.
+			int attempts = injected_with_frida ? 60 : 1;
+			if (const char *wait_ms =
+				    getenv("BPFTIME_AGENT_SHM_WAIT_MS");
+			    wait_ms != nullptr && *wait_ms != '\0')
+				attempts = std::max(1, atoi(wait_ms) / 50 + 1);
 			std::string last_err;
 			bool shm_ok = false;
 			std::unique_ptr<shm_lifecycle_lock> shm_lock;
-			for (int attempt = 0; attempt < 60; attempt++) {
+			for (int attempt = 0; attempt < attempts; attempt++) {
 				try {
 					shm_lock =
 						std::make_unique<shm_lifecycle_lock>(
@@ -976,9 +988,10 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 				} catch (const std::exception &ex) {
 					last_err = ex.what();
 					shm_lock.reset();
-					std::this_thread::sleep_for(
-						std::chrono::milliseconds(
-							50));
+					if (attempt + 1 < attempts)
+						std::this_thread::sleep_for(
+							std::chrono::milliseconds(
+								50));
 				}
 			}
 			if (!shm_ok) {
