@@ -1639,6 +1639,18 @@ The logging is a cold, non-inlined template taking the arguments by value
 reference: the inlined version made `bpf_probe_read` take a stack-protector
 canary on every call (+31% probe read, +27% probe write in the full ten).
 
+## Agent Start-up
+
+An agent started with the process (`LD_PRELOAD`, or the transformer) looks for
+the shared segment once: the tool runs before it. Only an injected agent
+retries, 60 times 50 ms, for "spawn loader then inject agent" (fac864e5);
+`BPFTIME_AGENT_SHM_WAIT_MS` sets the wait for either. With the retries on
+every path, anything that kept `LD_PRELOAD` after the tool exited (a shell
+that exported it, children of a traced service, a container's environment)
+started every process 3 s late (`uprobe/more-dims-20261106`, n2-startup).
+Test "Agent preload without shared memory does not delay the process"
+(3,021 ms with the retries).
+
 ## Agent Work Is Invisible To Probes
 
 The agent runs inside the traced process; its own calls must not reach the
