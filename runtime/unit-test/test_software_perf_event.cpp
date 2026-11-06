@@ -954,6 +954,67 @@ TEST_CASE("bpf_perf_event_output returns -ENOSPC when the ring is full",
 }
 #endif
 
+// The consumer's perf_event_attr decides, as in the kernel: every
+// wakeup_events samples (libbpf's perf_buffer: 1) unless `watermark` is set,
+// and the watermark (wakeup_watermark bytes, or half the ring) always. Only
+// half a ring left libbpf's tools to the 1 ms timeout
+// (uprobe/output-dims-20261106, findings 6 and 15).
+TEST_CASE("Software perf event wakes as the consumer's attr asks",
+	  "[perf_event][software_perf_event][perf-wakeup]")
+{
+	const std::string shared_memory_name =
+		"SoftwarePerfEventWakeupAttrTestShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(shared_memory_name) };
+	boost::interprocess::managed_shared_memory shm(
+		boost::interprocess::create_only, shared_memory_name.c_str(),
+		16 * 1024 * 1024);
+	const size_t ring_size = 4096;
+	// Whether each of `count` 8-byte samples asked for a wakeup.
+	auto outputs = [&](bpftime::software_perf_event_wakeup rule,
+			   int count) {
+		auto *perf = shm.construct<bpftime::software_perf_event_data>(
+			boost::interprocess::anonymous_instance)(0, 0, 0, shm,
+								 rule);
+		REQUIRE(perf != nullptr);
+		REQUIRE(perf->ensure_mmap_buffer(getpagesize() + ring_size) !=
+			nullptr);
+		std::vector<bool> woke;
+		const uint64_t payload = 42;
+		for (int i = 0; i < count; i++) {
+			bool wakeup = false;
+			REQUIRE(perf->output_data(&payload, sizeof(payload),
+						  &wakeup) == 0);
+			woke.push_back(wakeup);
+		}
+		shm.destroy_ptr(perf);
+		return woke;
+	};
+	SECTION("wakeup_events 1: every sample")
+	{
+		CHECK(outputs({ .watermark = false, .wakeup = 1 }, 3) ==
+		      std::vector<bool>{ true, true, true });
+	}
+	SECTION("wakeup_events 4: every fourth sample")
+	{
+		CHECK(outputs({ .watermark = false, .wakeup = 4 }, 8) ==
+		      std::vector<bool>{ false, false, false, true, false,
+					 false, false, true });
+	}
+	SECTION("A byte watermark: from that fill level on")
+	{
+		const uint32_t mark =
+			4 * aligned_perf_record_size(sizeof(uint64_t)) + 1;
+		CHECK(outputs({ .watermark = true, .wakeup = mark }, 6) ==
+		      std::vector<bool>{ false, false, false, false, true,
+					 true });
+	}
+	SECTION("Neither: only at half the ring")
+	{
+		CHECK(outputs({ .watermark = false, .wakeup = 0 }, 3) ==
+		      std::vector<bool>{ false, false, false });
+	}
+}
+
 TEST_CASE("Software perf event asks for a wakeup at half a ring or on a drop",
 	  "[perf_event][software_perf_event][perf-wakeup]")
 {

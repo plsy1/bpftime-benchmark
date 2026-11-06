@@ -295,10 +295,12 @@ public:
 	int add_tracepoint(int fd, int pid, int32_t tracepoint_id);
 	// create a software perf event fd, typically for a perf event
 	int add_software_perf_event(int cpu, int32_t sample_type,
-				    int64_t config);
+				    int64_t config,
+				    software_perf_event_wakeup wakeup = {});
 	// Create a software perf event instance, with the specified fd
 	int add_software_perf_event(int fd, int cpu, int32_t sample_type,
-				    int64_t config);
+				    int64_t config,
+				    software_perf_event_wakeup wakeup = {});
 
 	// add replace function fd
 	int add_uprobe_override(int fd, int pid, const char *name,

@@ -301,6 +301,47 @@ TEST_CASE("Perf output wakes a sleeping epoll consumer", "[epoll][perf-wakeup]")
 		CHECK_FALSE(output_to_sleeping_consumer(&payload,
 							sizeof(payload)));
 	}
+	SECTION("Small output wakes a consumer that asks for every sample")
+	{
+		// libbpf's perf_buffer opens its events with wakeup_events 1.
+		const int every_fd = bpftime_add_software_perf_event_with_wakeup(
+			0, 0, 0, false, 1);
+		REQUIRE(every_fd >= 0);
+		fds.push_back(every_fd);
+		auto *every_header = (perf_event_mmap_page *)
+			bpftime_get_software_perf_event_raw_buffer(
+				every_fd, 2 * getpagesize());
+		REQUIRE(every_header != nullptr);
+		const int every_epoll = bpftime_epoll_create();
+		REQUIRE(every_epoll >= 0);
+		fds.push_back(every_epoll);
+		REQUIRE(bpftime_add_software_perf_event_fd_to_epoll(
+				every_fd, every_epoll, { .u64 = 8 }) == 0);
+		// As above, a few attempts for an output landing between two
+		// timeouts.
+		bool woke = false;
+		for (int attempt = 0; attempt < 5 && !woke; attempt++) {
+			int result = 0;
+			epoll_event every_event{};
+			std::thread consumer([&]() {
+				result = bpftime_epoll_wait(
+					every_epoll, &every_event, 1, 10000);
+			});
+			const bool slept = wait_for_sleeping_consumer();
+			const uint32_t sequence = perf_wakeup_sequence();
+			const uint64_t payload = 42;
+			const int ret = bpftime_perf_event_output(
+				every_fd, &payload, sizeof(payload));
+			consumer.join();
+			REQUIRE(slept);
+			REQUIRE(ret == 0);
+			CHECK(result == 1);
+			CHECK(every_event.data.u64 == 8);
+			woke = perf_wakeup_sequence() != sequence;
+			every_header->data_tail = every_header->data_head;
+		}
+		CHECK(woke);
+	}
 	SECTION("SIGINT interrupts a sleeping consumer")
 	{
 		struct sigaction act {};
