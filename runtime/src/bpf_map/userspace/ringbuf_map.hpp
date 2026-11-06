@@ -73,9 +73,13 @@ class ringbuf {
 	boost::interprocess::offset_ptr<unsigned long> consumer_pos;
 	boost::interprocess::offset_ptr<unsigned long> producer_pos;
 	boost::interprocess::offset_ptr<uint8_t> data;
-	// Guard for reserving memory
-	// mutable mutex_ptr reserve_mutex;
+	// The reserve lock on a cache line of its own: every reserve writes it
+	// twice, and the fields above are read by every submit and by the
+	// consumer. 64 bytes on each side, as the object's alignment in the
+	// segment is not known.
+	char reserve_lock_pad_before[64];
 	mutable pthread_spinlock_t reserve_spin_lock;
+	char reserve_lock_pad_after[64];
 	// raw buffer
 	buf_vec_unique_ptr raw_buffer;
 
@@ -120,6 +124,8 @@ class ringbuf {
 	void set_owner_slot_for_test(const void *sample, int32_t slot);
 	bool owner_slot_claimed_for_test(int32_t slot) const;
 	bool discard_for_test(const void *sample);
+	// Tests only: whether the reserve lock's cache line holds nothing else.
+	bool reserve_lock_line_alone_for_test() const;
 	void publish_keeping_slot_for_test(const void *sample);
 	ringbuf(uint32_t max_ent,
 		boost::interprocess::managed_shared_memory &memory);

@@ -445,3 +445,35 @@ TEST_CASE("Ringbuf producers in several processes deliver every record once",
 	boost::interprocess::shared_memory_object::remove(name.c_str());
 }
 #endif
+
+#if __linux__
+// Every reserve writes the lock twice; the fields before it are read by every
+// submit and by the consumer (uprobe/improve-20261106 item 4).
+TEST_CASE("Ringbuf reserve lock has a cache line of its own", "[ringbuf]")
+{
+	const std::string name =
+		"bpftime_ringbuf_lock_line_" + std::to_string(getpid());
+	boost::interprocess::shared_memory_object::remove(name.c_str());
+	{
+		boost::interprocess::managed_shared_memory shm(
+			boost::interprocess::create_only, name.c_str(),
+			1 << 20);
+		// Several objects, so that their addresses fall at
+		// different offsets within a cache line.
+		std::vector<bpftime::ringbuf_map_impl *> maps;
+		for (int i = 0; i < 16; i++) {
+			maps.push_back(shm.construct<bpftime::ringbuf_map_impl>(
+				boost::interprocess::anonymous_instance)(4096,
+									 shm));
+			auto padding = shm.allocate(8 * (i + 1));
+			(void)padding;
+		}
+		int alone = 0;
+		for (auto *map : maps)
+			alone += map->create_impl_shared_ptr()
+					 ->reserve_lock_line_alone_for_test();
+		CHECK(alone == (int)maps.size());
+	}
+	boost::interprocess::shared_memory_object::remove(name.c_str());
+}
+#endif
