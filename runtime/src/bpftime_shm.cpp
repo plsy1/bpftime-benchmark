@@ -29,41 +29,8 @@
 #endif
 #include <thread>
 #include <chrono>
+#include <ctime>
 #include <variant>
-
-#ifdef __APPLE__
-// Custom implementation for sigtimedwait
-int sigtimedwait(const sigset_t *set, siginfo_t *info,
-		 const struct timespec *timeout)
-{
-	struct timespec start, now;
-	clock_gettime(CLOCK_REALTIME, &start);
-	int sig;
-
-	while (true) {
-		// Try to wait for a signal
-		if (sigwait(set, &sig) == 0) {
-			if (info != nullptr) {
-				memset(info, 0, sizeof(*info));
-				info->si_signo = sig;
-			}
-			return sig;
-		}
-
-		// Check if the timeout has expired
-		clock_gettime(CLOCK_REALTIME, &now);
-		if ((now.tv_sec - start.tv_sec) > timeout->tv_sec ||
-		    ((now.tv_sec - start.tv_sec) == timeout->tv_sec &&
-		     (now.tv_nsec - start.tv_nsec) > timeout->tv_nsec)) {
-			errno = EAGAIN;
-			return -1;
-		}
-
-		// Sleep for a short time before retrying
-		usleep(1000); // Sleep for 1ms before retrying
-	}
-}
-#endif
 
 using namespace bpftime;
 
@@ -485,25 +452,17 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 		std::get<epoll_handler>(shm.get_manager()->get_handler(fd));
 	auto start_time = high_resolution_clock::now();
 	int next_id = 0;
-	sigset_t orig_sigset;
-	sigset_t to_block;
-	sigemptyset(&to_block);
-	sigaddset(&to_block, SIGINT);
-	sigaddset(&to_block, SIGTERM);
-
-	// Block the delivery of some signals, so we would be able to catch
-	// them when sleeping
-	if (int err = sigprocmask(SIG_BLOCK, &to_block, &orig_sigset);
-	    err == -1) {
-		BPFTIME_LOG_ERROR_RATELIMITED(
-			"sigprocmask failed to block sigint & sigterm, errno={}. this SHOULD NOT HAPPEN",
-			errno);
-		errno = EINVAL;
-		return -1;
-	}
-	// timeout for waiting..
-	timespec ts{ .tv_sec = 0, .tv_nsec = 1000 * 1000 };
-	bool failed_with_intr = false;
+	// Signals are left to the kernel, as with bpf's epoll_wait: when a
+	// handler runs in this thread during a wait, the wait ends and this
+	// returns -1 with EINTR (libbpf's tools stop on it). It used to block
+	// SIGINT and SIGTERM here and take a pending one with sigtimedwait,
+	// calling the handler itself: that took a process-directed SIGINT
+	// meant for another thread (outattach's main thread stayed in
+	// pause(); uprobe/improve-20261106, investigations), did nothing for
+	// SIG_DFL and called SIG_IGN as a function. A handler that runs while
+	// this thread scans, not waits, leaves it to the next timeout, as bpf
+	// does for a signal just before epoll_wait.
+	bool interrupted = false;
 	auto collect_ready = [&]() {
 		for (const auto &p : epoll_inst.files) {
 			if (std::holds_alternative<software_perf_event_weak_ptr>(
@@ -545,19 +504,29 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 			}
 		}
 	};
-	auto run_signal_handler = [](int sig, siginfo_t *sig_info) {
-		SPDLOG_DEBUG("epoll_wait interrupted by signal {}", sig);
-		// Invoke the original signal handler
-		struct sigaction act;
-		sigaction(sig, nullptr, &act);
-		if ((act.sa_flags & SA_SIGINFO) && act.sa_sigaction) {
-			act.sa_sigaction(sig, sig_info, nullptr);
-		} else if (auto f = act.sa_handler) {
-			f(sig);
-		}
-	};
 #if __linux__
 	auto *wakeup = shm.get_perf_wakeup_state();
+	// Waits on the wakeup sequence, registered in `counter` (`waiters` or
+	// `nappers`), unless the re-check after registering finds records.
+	// Register before re-checking, so a producer that asks for a wakeup
+	// after the re-check bumps the sequence and ends the wait (see
+	// notify_perf_event_consumers). Returns false when a signal handler
+	// ran in this thread meanwhile: a futex wait with a timeout ends with
+	// EINTR then, even under SA_RESTART.
+	auto registered_wait = [&](uint32_t &counter, const timespec &ts) {
+		uint32_t sequence =
+			__atomic_load_n(&wakeup->sequence, __ATOMIC_ACQUIRE);
+		__atomic_add_fetch(&counter, 1, __ATOMIC_SEQ_CST);
+		__atomic_thread_fence(__ATOMIC_SEQ_CST);
+		collect_ready();
+		long ret = 0;
+		if (next_id == 0)
+			ret = syscall(SYS_futex, &wakeup->sequence, FUTEX_WAIT,
+				      sequence, &ts, nullptr, 0);
+		const bool signalled = ret == -1 && errno == EINTR;
+		__atomic_sub_fetch(&counter, 1, __ATOMIC_RELEASE);
+		return !signalled;
+	};
 #endif
 	while (next_id < max_evt) {
 		auto now_time = high_resolution_clock::now();
@@ -599,35 +568,25 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 		// window, the consumer sleeps until woken, so the first record
 		// of a burst wakes it.
 		if (nap.count() > 0 && wakeup && since_ready < nap_window) {
-			timespec nap_ts{ .tv_sec = 0,
-					 .tv_nsec = (long)nap.count() * 1000 };
-			uint32_t sequence = __atomic_load_n(&wakeup->sequence,
-							    __ATOMIC_ACQUIRE);
-			__atomic_add_fetch(&wakeup->nappers, 1,
-					   __ATOMIC_SEQ_CST);
-			__atomic_thread_fence(__ATOMIC_SEQ_CST);
-			collect_ready();
-			if (next_id == 0)
-				syscall(SYS_futex, &wakeup->sequence,
-					FUTEX_WAIT, sequence, &nap_ts, nullptr,
-					0);
-			__atomic_sub_fetch(&wakeup->nappers, 1,
-					   __ATOMIC_RELEASE);
+			const timespec nap_ts{ .tv_sec = 0,
+					       .tv_nsec = (long)nap.count() *
+							  1000 };
+			interrupted = !registered_wait(wakeup->nappers, nap_ts);
 			if (next_id > 0) {
 				last_ready_time = high_resolution_clock::now();
 				break;
 			}
+			if (interrupted)
+				break;
 			continue;
 		}
 		if (wakeup) {
-			// Register before re-checking, so a perf output that
-			// asks for a wakeup after the re-check bumps the
-			// sequence and ends this futex wait (see
-			// notify_perf_event_consumers; ring buffer records
-			// ask for it when this consumer has caught up with
-			// them). Records nobody wakes for (BPF_RB_NO_WAKEUP,
-			// perf events without wakeup settings below the
-			// watermark, a dead producer's reservation) are found
+			// Woken by producers (ring buffer records ask for it
+			// when this consumer has caught up with them, perf
+			// output by its event's wakeup settings). Records
+			// nobody wakes for (BPF_RB_NO_WAKEUP, perf events
+			// without wakeup settings below the watermark, a dead
+			// producer's reservation) are found
 			// by the timeout: the caller's, at most 100 ms (libbpf's
 			// tools poll with 100 ms). It was 1 ms: an idle tool
 			// scanned every ring and shard a thousand times a second
@@ -649,54 +608,22 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 				.tv_nsec = (long)(sleep_for.count() % 1000) *
 					   1000000
 			};
-			uint32_t sequence = __atomic_load_n(&wakeup->sequence,
-							    __ATOMIC_ACQUIRE);
-			__atomic_add_fetch(&wakeup->waiters, 1,
-					   __ATOMIC_SEQ_CST);
-			__atomic_thread_fence(__ATOMIC_SEQ_CST);
-			collect_ready();
-			if (next_id == 0) {
-				syscall(SYS_futex, &wakeup->sequence,
-					FUTEX_WAIT, sequence, &sleep_ts, nullptr,
-					0);
-			}
-			__atomic_sub_fetch(&wakeup->waiters, 1,
-					   __ATOMIC_RELEASE);
-			if (next_id > 0) {
+			interrupted = !registered_wait(wakeup->waiters, sleep_ts);
+			if (next_id > 0 || interrupted)
 				break;
-			}
-			// SIGINT and SIGTERM stayed blocked while sleeping;
-			// take one that arrived meanwhile.
-			timespec no_wait{};
-			siginfo_t sig_info;
-			if (int sig = sigtimedwait(&to_block, &sig_info,
-						   &no_wait);
-			    sig > 0) {
-				run_signal_handler(sig, &sig_info);
-				failed_with_intr = true;
-				break;
-			}
 			continue;
 		}
 #endif
-		// Nothing has been received, so allow the interruption
-		// of epoll_wait
-		// First, unblock the signals
-		sigprocmask(SIG_UNBLOCK, &to_block, nullptr);
-		siginfo_t sig_info;
-		// Second, wait for interruptable signals
-		if (int sig = sigtimedwait(&to_block, &sig_info, &ts);
-		    sig > 0) {
-			run_signal_handler(sig, &sig_info);
-			failed_with_intr = true;
+		// No wakeup object (a segment made by an older bpftime, or not
+		// Linux): poll each millisecond.
+		const timespec poll_ts{ .tv_sec = 0, .tv_nsec = 1000 * 1000 };
+		if (nanosleep(&poll_ts, nullptr) == -1 && errno == EINTR) {
+			interrupted = true;
 			break;
 		}
-		// If not catched, just block them again
-		sigprocmask(SIG_BLOCK, &to_block, nullptr);
 	}
-	// Restore the original sigmask
-	sigprocmask(SIG_SETMASK, &orig_sigset, nullptr);
-	if (failed_with_intr) {
+	if (interrupted) {
+		SPDLOG_DEBUG("epoll_wait interrupted by a signal");
 		errno = EINTR;
 		return -1;
 	}

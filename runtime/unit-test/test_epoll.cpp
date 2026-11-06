@@ -14,6 +14,8 @@
 #include <cstdlib>
 #include <linux/bpf.h>
 #include <pthread.h>
+#include <sys/syscall.h>
+#include <sys/wait.h>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -758,6 +760,301 @@ TEST_CASE("An idle consumer sleeps through the caller's timeout",
 	CHECK(result == 0);
 	CHECK(elapsed_ms >= 290);
 	CHECK(data->drain_start - drains_before < 40);
+}
+
+namespace
+{
+volatile sig_atomic_t consumer_sigusr1_count = 0;
+volatile pid_t sigint_handler_tid = 0;
+
+void count_consumer_sigusr1(int)
+{
+	consumer_sigusr1_count = consumer_sigusr1_count + 1;
+}
+
+void note_sigint_handler_tid(int)
+{
+	sigint_handler_tid = (pid_t)syscall(SYS_gettid);
+}
+
+// Waits up to `ms` for `child`, then kills it (a consumer that never returns).
+bool wait_child(pid_t child, int &status, int ms)
+{
+	for (int i = 0; i < ms; i++) {
+		if (waitpid(child, &status, WNOHANG) == child)
+			return true;
+		usleep(1000);
+	}
+	kill(child, SIGKILL);
+	waitpid(child, &status, 0);
+	return false;
+}
+
+// Runs `body` in a child process (one thread, the segment inherited) and
+// returns its pid; a crash shows as the signal, not Catch2's report.
+template <class F> pid_t start_child(F body)
+{
+	const pid_t child = fork();
+	if (child == 0) {
+		signal(SIGSEGV, SIG_DFL);
+		int code = 99;
+		try {
+			code = body();
+		} catch (...) {
+		}
+		_exit(code);
+	}
+	return child;
+}
+} // namespace
+
+// bpftime_epoll_wait blocked SIGINT and SIGTERM and took a pending one with
+// sigtimedwait after each sleep, calling the handler itself. It took a
+// process-directed SIGINT meant for another thread (outattach's main thread
+// stayed in pause(), the tool never exited; uprobe/improve-20261106,
+// investigations), ignored SIG_DFL and called SIG_IGN as a function. bpf's
+// epoll_wait leaves signals to the kernel and returns EINTR when a handler ran
+// in the waiting thread.
+TEST_CASE("A consumer leaves signals to the threads they are meant for",
+	  "[epoll][epoll-signals]")
+{
+	const char *old_name = getenv("BPFTIME_GLOBAL_SHM_NAME");
+	const bool had_name = old_name != nullptr;
+	const std::string previous_name = old_name ? old_name : "";
+	const std::string name =
+		"EpollSignalTestShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(name) };
+	std::vector<int> fds;
+	struct sigaction old_sigint, old_sigusr1;
+	REQUIRE(sigaction(SIGINT, nullptr, &old_sigint) == 0);
+	REQUIRE(sigaction(SIGUSR1, nullptr, &old_sigusr1) == 0);
+	BOOST_SCOPE_EXIT_ALL(&)
+	{
+		sigaction(SIGINT, &old_sigint, nullptr);
+		sigaction(SIGUSR1, &old_sigusr1, nullptr);
+		for (int fd : fds) {
+			bpftime_close(fd);
+			close(fd);
+		}
+		bpftime_destroy_global_shm();
+		bpftime_initialize_global_shm(
+			bpftime::shm_open_type::SHM_NO_CREATE);
+		if (had_name)
+			setenv("BPFTIME_GLOBAL_SHM_NAME", previous_name.c_str(),
+			       1);
+		else
+			unsetenv("BPFTIME_GLOBAL_SHM_NAME");
+	};
+	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+	bpftime_destroy_global_shm();
+	bpftime_initialize_global_shm(
+		bpftime::shm_open_type::SHM_REMOVE_AND_CREATE);
+	REQUIRE(bpftime::shm_holder.global_shared_memory
+			.get_perf_wakeup_state() != nullptr);
+	const int ring_fd = bpftime_maps_create(
+		-1, "signal_ring",
+		{ .type = BPF_MAP_TYPE_RINGBUF,
+		  .max_ents = static_cast<uint32_t>(getpagesize()) });
+	REQUIRE(ring_fd >= 0);
+	fds.push_back(ring_fd);
+	const int epoll_fd = bpftime_epoll_create();
+	REQUIRE(epoll_fd >= 0);
+	fds.push_back(epoll_fd);
+	REQUIRE(bpftime_add_ringbuf_fd_to_epoll(ring_fd, epoll_fd,
+						{ .u64 = 5 }) == 0);
+	REQUIRE(perf_wakeup_waiters() == 0);
+	sigset_t sigint_set;
+	sigemptyset(&sigint_set);
+	sigaddset(&sigint_set, SIGINT);
+
+	SECTION("A process-directed SIGINT is left for the thread waiting for it")
+	{
+		// As outattach: the consumer thread is started with SIGINT
+		// blocked, another thread takes it. Here that thread also
+		// blocks it until the consumer has slept a few times, so the
+		// signal stays pending meanwhile.
+		const pid_t child = start_child([&]() {
+			struct sigaction act {};
+			act.sa_handler = note_sigint_handler_tid;
+			sigemptyset(&act.sa_mask);
+			sigaction(SIGINT, &act, nullptr);
+			pthread_sigmask(SIG_BLOCK, &sigint_set, nullptr);
+			int result = -2;
+			pid_t consumer_tid = 0;
+			std::thread consumer([&]() {
+				consumer_tid = (pid_t)syscall(SYS_gettid);
+				epoll_event event{};
+				result = bpftime_epoll_wait(epoll_fd, &event, 1,
+							    500);
+			});
+			if (!wait_for_sleeping_consumer()) {
+				consumer.join();
+				return 10;
+			}
+			kill(getpid(), SIGINT);
+			// Two of the consumer's sleeps (100 ms each).
+			usleep(300 * 1000);
+			sigset_t pending;
+			sigpending(&pending);
+			const bool still_pending = sigismember(&pending, SIGINT);
+			// Delivered here, on return from the unblock.
+			pthread_sigmask(SIG_UNBLOCK, &sigint_set, nullptr);
+			const pid_t main_tid = (pid_t)syscall(SYS_gettid);
+			consumer.join();
+			if (!still_pending)
+				return sigint_handler_tid == consumer_tid ? 11 :
+									    12;
+			if (sigint_handler_tid != main_tid)
+				return 13;
+			return result == 0 ? 0 : 14;
+		});
+		REQUIRE(child > 0);
+		int status = 0;
+		REQUIRE(wait_child(child, status, 5000));
+		REQUIRE(WIFEXITED(status));
+		// 11: the consumer took it and ran the handler; 12: taken
+		// elsewhere; 13: the handler did not run in the thread that
+		// unblocked it; 14: the consumer's wait did not time out.
+		CHECK(WEXITSTATUS(status) == 0);
+	}
+	SECTION("SIGINT with the default action ends the process")
+	{
+		const pid_t child = start_child([&]() {
+			signal(SIGINT, SIG_DFL);
+			pthread_sigmask(SIG_UNBLOCK, &sigint_set, nullptr);
+			epoll_event event{};
+			const int result =
+				bpftime_epoll_wait(epoll_fd, &event, 1, 2000);
+			// The process outlived the signal: 21 with EINTR.
+			return result == -1 ? 21 : 20;
+		});
+		REQUIRE(child > 0);
+		const bool slept = wait_for_sleeping_consumer();
+		kill(child, SIGINT);
+		int status = 0;
+		REQUIRE(wait_child(child, status, 5000));
+		REQUIRE(slept);
+		const bool killed_by_sigint =
+			WIFSIGNALED(status) && WTERMSIG(status) == SIGINT;
+		CAPTURE(WIFEXITED(status), WEXITSTATUS(status));
+		CHECK(killed_by_sigint);
+	}
+	SECTION("An ignored SIGINT stays ignored")
+	{
+		// As a tool started in the background by a shell script.
+		const pid_t child = start_child([&]() {
+			signal(SIGINT, SIG_IGN);
+			pthread_sigmask(SIG_UNBLOCK, &sigint_set, nullptr);
+			epoll_event event{};
+			const int result =
+				bpftime_epoll_wait(epoll_fd, &event, 1, 300);
+			return result == 0 ? 0 : 31;
+		});
+		REQUIRE(child > 0);
+		const bool slept = wait_for_sleeping_consumer();
+		kill(child, SIGINT);
+		int status = 0;
+		REQUIRE(wait_child(child, status, 5000));
+		REQUIRE(slept);
+		CAPTURE(WIFSIGNALED(status), WTERMSIG(status));
+		REQUIRE(WIFEXITED(status));
+		CHECK(WEXITSTATUS(status) == 0);
+	}
+	SECTION("A handler run in the consumer thread ends its wait with EINTR")
+	{
+		// SA_RESTART does not restart it, as bpf's epoll_wait.
+		struct sigaction act {};
+		act.sa_handler = count_consumer_sigusr1;
+		act.sa_flags = SA_RESTART;
+		sigemptyset(&act.sa_mask);
+		REQUIRE(sigaction(SIGUSR1, &act, nullptr) == 0);
+		consumer_sigusr1_count = 0;
+		int result = -2;
+		int wait_errno = 0;
+		std::thread consumer([&]() {
+			epoll_event event{};
+			errno = 0;
+			result = bpftime_epoll_wait(epoll_fd, &event, 1, 2000);
+			wait_errno = errno;
+		});
+		const auto start = std::chrono::steady_clock::now();
+		const bool slept = wait_for_sleeping_consumer();
+		if (slept)
+			pthread_kill(consumer.native_handle(), SIGUSR1);
+		consumer.join();
+		const auto elapsed_ms =
+			std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::steady_clock::now() - start)
+				.count();
+		REQUIRE(slept);
+		CHECK(consumer_sigusr1_count == 1);
+		CHECK(result == -1);
+		CHECK(wait_errno == EINTR);
+		CHECK(elapsed_ms < 1000);
+		CHECK(perf_wakeup_waiters() == 0);
+	}
+	SECTION("A handler run in a napping consumer ends its wait with EINTR")
+	{
+		struct sigaction act {};
+		act.sa_handler = count_consumer_sigusr1;
+		act.sa_flags = SA_RESTART;
+		sigemptyset(&act.sa_mask);
+		REQUIRE(sigaction(SIGUSR1, &act, nullptr) == 0);
+		const int perf_fd =
+			bpftime_add_software_perf_event_with_wakeup(0, 0, 0,
+								    false, 1);
+		REQUIRE(perf_fd >= 0);
+		fds.push_back(perf_fd);
+		auto *header = (perf_event_mmap_page *)
+			bpftime_get_software_perf_event_raw_buffer(
+				perf_fd, 2 * getpagesize());
+		REQUIRE(header != nullptr);
+		const int nap_epoll = bpftime_epoll_create();
+		REQUIRE(nap_epoll >= 0);
+		fds.push_back(nap_epoll);
+		REQUIRE(bpftime_add_software_perf_event_fd_to_epoll(
+				perf_fd, nap_epoll, { .u64 = 6 }) == 0);
+		auto *state = bpftime::shm_holder.global_shared_memory
+				      .get_perf_wakeup_state();
+		// The signal can land between two 100 us naps, where no wait
+		// is interrupted (the wait then times out): a few attempts.
+		bool ended_with_eintr = false;
+		for (int attempt = 0; attempt < 5 && !ended_with_eintr;
+		     attempt++) {
+			CAPTURE(attempt);
+			std::atomic<int> first_done{ 0 };
+			int first = 0, second = -2, second_errno = 0;
+			// A new thread each time: nothing seen yet, so the
+			// first wait sleeps and the record wakes it.
+			std::thread consumer([&]() {
+				epoll_event event{};
+				first = bpftime_epoll_wait(nap_epoll, &event, 1,
+							   10000);
+				header->data_tail = header->data_head;
+				first_done = 1;
+				errno = 0;
+				second = bpftime_epoll_wait(nap_epoll, &event, 1,
+							    500);
+				second_errno = errno;
+			});
+			REQUIRE(wait_for_sleeping_consumer());
+			REQUIRE(bpftime_perf_event_output(perf_fd, &first, 4) ==
+				0);
+			bool napping = false;
+			for (int i = 0; i < 5000000 && !napping; i++)
+				napping = first_done &&
+					  __atomic_load_n(&state->nappers,
+							  __ATOMIC_ACQUIRE) > 0;
+			pthread_kill(consumer.native_handle(), SIGUSR1);
+			consumer.join();
+			REQUIRE(napping);
+			REQUIRE(first == 1);
+			ended_with_eintr = second == -1 && second_errno == EINTR;
+		}
+		CHECK(ended_with_eintr);
+		CHECK(__atomic_load_n(&state->nappers, __ATOMIC_ACQUIRE) == 0);
+		CHECK(perf_wakeup_waiters() == 0);
+	}
 }
 
 #endif
