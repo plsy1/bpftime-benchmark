@@ -389,8 +389,14 @@ Tests: "bpf_get_current_pid_tgid in a vfork child and its parent after it"
 (runtime, the bump by hand), "clones that share the thread's TLS bump the
 identity epoch" (transformer).
 
-Idle shards of dead threads are reclaimed by probing (pid, tid) with tgkill.
-Each shard records its producer's pid namespace (inode of `/proc/self/ns/pid`;
+Idle shards of dead threads are reclaimed by probing (pid, tid) with tgkill,
+at most every 100 ms per event (`last_reclaim_ns`), and at most every 10 ms
+when a new producer finds shared memory full. From 64 shards on, every drain
+and every new producer swept them all: an idle tool with 493 shards made about
+a million tgkill calls a second, 36% of a core (`uprobe/more-dims-20261106`,
+n5-footprint; test "Software perf event looks for dead threads' shards at most
+every 100 ms", "Software perf event output reclaims dead threads' shards when
+memory runs out"). Each shard records its producer's pid namespace (inode of `/proc/self/ns/pid`;
 without /proc a random id with the top bit set, drawn per process: 0 for
 every such process made two namespaces' producers share shards, test "An
 unknown pid namespace equals no other process's");
@@ -412,15 +418,24 @@ namespace", "Producers in two pid namespaces with the same pid write apart"
 (root: two `unshare` children's pid 1 writing at once).
 
 Shards of other pid namespaces are never reclaimed (above), so shared memory
-can run out. A shard that cannot be allocated makes the output fail with
-ENOSPC (no shard, so no lost count); Boost's `bad_alloc` used to escape the
-helper into the traced process. A shard whose data area does not fit (the
+can run out; so can many live threads (a shard per thread per CPU it ran on,
+each the consumer's mapping in size: about 500 libbpf-sized shards fill the
+default 128 MB). A thread that gets no shard writes to the event's overflow
+shard, made with the consumer's buffer (and again when it is mapped with
+another size), under `overflow_lock`, one producer at a time, and tries for
+a shard of its own again after 10 ms (the decision is cached per thread). It
+used to fail with ENOSPC (600 threads: 107 of 600 samples, n5-footprint);
+test "Software perf event output without a shard goes to the overflow
+shard". Only with no overflow shard (the segment was full already when the
+consumer mapped its buffer) does output fail with ENOSPC (no shard, so no
+lost count); Boost's `bad_alloc` used to escape the helper into the traced
+process. A shard whose data area does not fit (the
 shard catches that allocation itself) is removed at once and the next
 output tries again: it was kept and cached without data, and its thread got
 ENOSPC for ever (test "Software perf event output retries a shard whose
 data did not fit"). Safely reclaiming a live foreign producer's
 idle shard would need an atomic flag on every output. Test: "Software perf
-event output fails cleanly when shared memory is full".
+event output survives a full shared memory".
 
 Each drain starts one shard further (`drain_start`). When the consumer ring
 fills up, the shards drained last keep their samples and then drop new ones
