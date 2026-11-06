@@ -252,3 +252,72 @@ TEST_CASE("Test default SIGSEGV handler is preserved")
 	REQUIRE(WIFEXITED(status));
 	REQUIRE(WEXITSTATUS(status) == 0);
 }
+
+#ifdef ENABLE_PROBE_READ_CHECK
+// Checked reads copy straight into the program's buffer: what they do not
+// copy as data must be zero, as with bpf (uprobe/improve-20261106).
+TEST_CASE("Checked probe reads zero what is not data", "[probe-read]")
+{
+	long page_size = sysconf(_SC_PAGESIZE);
+	REQUIRE(page_size > 0);
+	auto pages = (char *)mmap(nullptr, (size_t)page_size * 3,
+				  PROT_READ | PROT_WRITE,
+				  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	REQUIRE(pages != MAP_FAILED);
+	REQUIRE(mprotect(pages + 2 * page_size, (size_t)page_size,
+			 PROT_NONE) == 0);
+	char dst[64];
+
+	SECTION("A string crossing a page is read whole")
+	{
+		std::memcpy(pages + page_size - 2, "abc", 4);
+		std::memset(dst, 'x', sizeof(dst));
+		REQUIRE(bpf_probe_read_str((uint64_t)dst, sizeof(dst),
+					   (uint64_t)(pages + page_size - 2), 0,
+					   0) == 4);
+		REQUIRE(std::strcmp(dst, "abc") == 0);
+	}
+	SECTION("Bytes after a string's NUL are zero, not the source's")
+	{
+		std::memcpy(pages, "hi\0SECRETSECRETSECRET", 22);
+		std::memset(dst, 'x', sizeof(dst));
+		REQUIRE(bpf_probe_read_str((uint64_t)dst, sizeof(dst),
+					   (uint64_t)pages, 0, 0) == 3);
+		REQUIRE(std::strcmp(dst, "hi") == 0);
+		for (size_t i = 3; i < sizeof(dst); i++)
+			REQUIRE(dst[i] == '\0');
+	}
+	SECTION("A string longer than the buffer ends in a NUL")
+	{
+		std::memset(pages, 'q', (size_t)page_size * 2);
+		std::memset(dst, 'x', sizeof(dst));
+		REQUIRE(bpf_probe_read_str((uint64_t)dst, sizeof(dst),
+					   (uint64_t)(pages + page_size - 10),
+					   0, 0) == sizeof(dst));
+		REQUIRE(dst[sizeof(dst) - 1] == '\0');
+		REQUIRE(std::strlen(dst) == sizeof(dst) - 1);
+	}
+	SECTION("A read that faults part way leaves zeros")
+	{
+		std::memset(pages + 2 * page_size - 16, 'z', 16);
+		std::memset(dst, 0xaa, sizeof(dst));
+		REQUIRE(bpftime_probe_read((uint64_t)dst, sizeof(dst),
+					   (uint64_t)(pages + 2 * page_size -
+						      16),
+					   0, 0) == -EFAULT);
+		for (char value : dst)
+			REQUIRE(value == '\0');
+	}
+	SECTION("An unwritable destination fails without a crash")
+	{
+		std::memcpy(pages, "text", 5);
+		REQUIRE(mprotect(pages + page_size, (size_t)page_size,
+				 PROT_READ) == 0);
+		REQUIRE(bpf_probe_read_str((uint64_t)(pages + page_size), 16,
+					   (uint64_t)pages, 0, 0) == -EFAULT);
+		REQUIRE(bpftime_probe_read((uint64_t)(pages + page_size), 4,
+					   (uint64_t)pages, 0, 0) == -EFAULT);
+	}
+	REQUIRE(munmap(pages, (size_t)page_size * 3) == 0);
+}
+#endif
