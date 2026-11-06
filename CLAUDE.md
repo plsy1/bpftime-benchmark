@@ -1566,6 +1566,37 @@ kernel there: the kernel then created a real map the runtime did not know, the
 tool loaded without error, and its programs could not resolve the map ("Expected
 fd 5 to be a map fd") and traced nothing.
 
+## Probe Reads
+
+With `ENABLE_PROBE_READ_CHECK` (the CMake default; the official `make
+benchmark` turns it off), `bpf_probe_read`, `_user`, `_kernel` and the string
+helpers read through `process_vm_readv` on the process itself: a bad pointer
+returns -EFAULT, as in bpf. Without it they are a plain memcpy (strings a byte
+loop), and a bad pointer kills the traced process with SIGSEGV: NULL, an
+unmapped page and a kernel address, 18 of 18 runs, where bpf returns -EFAULT
+(`uprobe/more-dims-20261106/n1-probe-read`). Upstream replaced the SIGSEGV
+handler that used to catch such faults (#642, "avoid process-wide signal
+interception"); a fault-catching copy would have to interpose the
+application's `sigaction` to keep the tests "Test probe access preserves
+application SIGSEGV handlers" and "Test default SIGSEGV handler is preserved",
+and runtimes that install their own handler with raw system calls (Go) would
+still take its faults as theirs.
+
+Strings are read straight into the program's buffer, one system call per
+chunk: the first chunk at most 256 bytes (most strings end there), later ones
+to the end of the source page; a bad destination fails the same call. The
+bytes read past the NUL are the source's memory and are zeroed (bpf zeroes
+the rest of the word it copied the NUL in; here up to the chunk's end, within
+the buffer the program passed). Through a 256-byte scratch buffer and
+`process_vm_writev`, every 256 bytes cost two system calls: a 255-byte string
+2.1 us over the probe, bpf 0.12 us; nginx under sslsniff lost 7.5% of its
+requests per second to the checked reads. A fault zeroes the whole
+destination, as in bpf (`bpftime_probe_read` left a partial copy). A seccomp
+filter that denies `process_vm_readv` (EPERM, ENOSYS) makes every probe read
+fail with -EFAULT, logged rate-limited; the application goes on. Test
+"Checked probe reads zero what is not data" (`[probe-read]`; mutations: no
+zeroing after the NUL, none on a fault).
+
 ## Rate-Limited Runtime Errors
 
 Errors on paths that run per event (helpers, map access from programs, probe
