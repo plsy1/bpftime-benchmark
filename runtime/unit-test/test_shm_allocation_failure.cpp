@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 #include "catch2/catch_test_macros.hpp"
+#include <chrono>
 
 #if defined(__linux__)
 #include "shm_allocation_test_paths.hpp"
@@ -426,6 +427,22 @@ TEST_CASE("Agent preload keeps missing shared memory off host stdio",
 	REQUIRE(WIFEXITED(result.status));
 	REQUIRE(WEXITSTATUS(result.status) == 100);
 	REQUIRE(result.output.empty());
+}
+
+// With LD_PRELOAD kept after the tool exited, every process waited 3 s (60
+// retries of 50 ms) before main (uprobe/more-dims-20261106, n2-startup).
+TEST_CASE("Agent preload without shared memory does not delay the process",
+	  "[allocation][agent]")
+{
+	const auto start = std::chrono::steady_clock::now();
+	auto result = run_agent_preload_without_shm();
+	const auto elapsed_ms =
+		std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now() - start)
+			.count();
+	REQUIRE(WIFEXITED(result.status));
+	REQUIRE(WEXITSTATUS(result.status) == 100);
+	CHECK(elapsed_ms < 1000);
 }
 
 TEST_CASE("Syscall server removes owned shared memory on normal exit",
