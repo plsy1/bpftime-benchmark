@@ -63,3 +63,8 @@ exp-74d0ab8b-task158  experiment: dev-74d0ab8b's agent with helper 158 (bpf_get_
 exp-74d0ab8b-missing  experiment: dev-74d0ab8b's agent with every call of an unregistered helper pointed at a stub returning -ENOSYS (not committed); other files from dev-74d0ab8b
 dev-b60b99c3  dev b60b99c3 (74d0ab8b + map freeze recorded, calls of missing helpers in code frozen read-only constants make unreachable stubbed; with CLI and transformer; candidate build-jetson-daily)
   (dev-b60b99c3: the code of dev 94f9ba8f, which only adds CLAUDE.md lines)
+fix-rbwake    working tree ce06c39c + ringbuf submit wakes a consumer that caught up (problem 13, not yet committed); with CLI and transformer; candidate build-jetson-daily
+fix-rbwake2   working tree ce06c39c + ringbuf wakeup reading waiters before consumer_pos, M1 stale marker, M3 thunk slots, M4 per-CPU NOEXIST (not yet committed; candidate.diff); with CLI and transformer; candidate build-jetson-daily
+exp-rbwake-nowake  experiment: fix-rbwake2 with the agent's ringbuf notify fencing and loading waiters but never waking (diagnosis only; server and tool from fix-rbwake2)
+fix-final     dev d46ceb8f (94f9ba8f + the fifth review's fixes: H1, H2, ringbuf wakeup, M1-M4, lows L1-L10, docs; 15 commits); with CLI and transformer; candidate build-jetson-daily
+fix-final-probecheck  fix-final (dev d46ceb8f) built with ENABLE_PROBE_READ_CHECK=ON and ENABLE_PROBE_WRITE_CHECK=ON (otherwise the daily cmake args, no unit tests; candidate build-probecheck); bpftimetool copied from fix-final (more-dims-20261106/n1-probe-read)
