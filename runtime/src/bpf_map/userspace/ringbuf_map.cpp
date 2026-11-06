@@ -493,6 +493,17 @@ void ringbuf::set_owner_slot_for_test(const void *sample, int32_t slot)
 	hdr->tag = ringbuf_record_tag(ringbuf_tag_fd(hdr->tag), slot);
 }
 
+bool ringbuf::reserve_lock_line_alone_for_test() const
+{
+	const uintptr_t line = (uintptr_t)&reserve_spin_lock / 64;
+	const uintptr_t last =
+		((uintptr_t)&reserve_spin_lock + sizeof(reserve_spin_lock) - 1) /
+		64;
+	return line == last && (uintptr_t)&data / 64 < line &&
+	       ((uintptr_t)&data + sizeof(data) - 1) / 64 < line &&
+	       (uintptr_t)&raw_buffer / 64 > line;
+}
+
 bool ringbuf::owner_slot_claimed_for_test(int32_t slot) const
 {
 	return owners[slot].position_plus_one.load() != 0;
