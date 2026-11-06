@@ -92,6 +92,8 @@ bpf_perf_event_handler_attr_to_json(const bpf_perf_event_handler &handler)
 		j["cpu"] = data->cpu;
 		j["config"] = data->config;
 		j["sample_type"] = data->sample_type;
+		j["watermark"] = data->wakeup.watermark;
+		j["wakeup"] = data->wakeup.wakeup;
 	}
 
 	return j;
@@ -185,8 +187,13 @@ static int import_shm_handler_from_json(bpftime_shm &shm, json value, int fd)
 			int cpu = value["attr"]["cpu"];
 			int32_t sample_type = value["attr"]["sample_type"];
 			int64_t config = value["attr"]["config"];
+			software_perf_event_wakeup wakeup{
+				.watermark =
+					value["attr"].value("watermark", false),
+				.wakeup = value["attr"].value("wakeup", 0u)
+			};
 			add_res = shm.add_software_perf_event(
-				fd, cpu, sample_type, config);
+				fd, cpu, sample_type, config, wakeup);
 			break;
 		}
 		default:
