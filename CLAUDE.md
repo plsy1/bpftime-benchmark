@@ -677,8 +677,10 @@ delete +8% (the stripe lock, then a list lock); per-CPU hash lookup -8%,
 update -6%, delete +12%. Delete + insert through BPF programs at 90% load,
 one thread: 0.14-0.28 us, 0.27-0.62x the kernel (a4ac0d31: 2.9-34 us).
 
-The stripe and free-list locks and the handler's `map_lock`
-(`bpftime_lock_guard`) are taken
+The stripe and free-list locks, the handler's `map_lock`
+(`bpftime_lock_guard`) and the ring buffer's `reserve_spin_lock` (since
+11-06; 4-6 producers spent 67-75% of their samples in glibc's lock,
+`uprobe/output-dims-20261106` finding 13) are taken
 with `bpftime_spin_lock` (`map_common_def.hpp`): glibc's protocol on the
 `pthread_spinlock_t` word (exchange 1 to take, release store 0), inline, so
 pthread_spin_lock on the same word still excludes (test "bpftime spin locks

@@ -327,3 +327,121 @@ TEST_CASE("Ringbuf helpers submit and discard through the sample's map",
 		CHECK((header_len(dropped) & BPF_RINGBUF_DISCARD_BIT) != 0);
 	}
 }
+
+#if __linux__
+#include <chrono>
+#include <sched.h>
+
+namespace
+{
+constexpr int ringbuf_mp_procs = 4;
+constexpr uint32_t ringbuf_mp_records = 100000;
+
+// Sizes 8..120 bytes, varying so that records pad at the ring's end.
+uint32_t ringbuf_mp_size(uint32_t proc, uint32_t seq)
+{
+	return 8 + ((seq * 7 + proc * 13) % 15) * 8;
+}
+
+struct ringbuf_mp_seen {
+	std::vector<std::vector<uint8_t>> count;
+	uint64_t got = 0;
+	uint64_t bad = 0;
+};
+
+int ringbuf_mp_check(void *ctx, void *data, size_t len)
+{
+	auto *seen = (ringbuf_mp_seen *)ctx;
+	auto *words = (const uint32_t *)data;
+	if (len < 8 || words[0] >= (uint32_t)ringbuf_mp_procs ||
+	    words[1] >= ringbuf_mp_records ||
+	    len != ringbuf_mp_size(words[0], words[1])) {
+		seen->bad++;
+		return 0;
+	}
+	for (uint32_t w = 2; w < len / 4; w++) {
+		if (words[w] != words[0] * 31 + words[1] + w) {
+			seen->bad++;
+			return 0;
+		}
+	}
+	seen->count[words[0]][words[1]]++;
+	seen->got++;
+	return 0;
+}
+} // namespace
+
+// Producers in several processes reserve and submit at once while the
+// consumer drains: every record arrives exactly once, whole (the reserve
+// lock and what it covers; uprobe/improve-20261106 item 4).
+TEST_CASE("Ringbuf producers in several processes deliver every record once",
+	  "[ringbuf][ringbuf-mp]")
+{
+	const std::string name =
+		"bpftime_ringbuf_mp_" + std::to_string(getpid());
+	boost::interprocess::shared_memory_object::remove(name.c_str());
+	{
+		boost::interprocess::managed_shared_memory shm(
+			boost::interprocess::create_only, name.c_str(),
+			8 << 20);
+		auto *map = shm.construct<bpftime::ringbuf_map_impl>(
+			"ringbuf")(1 << 16, shm);
+		auto rb = map->create_impl_shared_ptr();
+		std::vector<pid_t> children;
+		for (int proc = 0; proc < ringbuf_mp_procs; proc++) {
+			pid_t child = fork();
+			REQUIRE(child >= 0);
+			if (child == 0) {
+				for (uint32_t seq = 0; seq < ringbuf_mp_records;) {
+					const uint32_t size =
+						ringbuf_mp_size(proc, seq);
+					auto *words = (uint32_t *)map->reserve(
+						size, 1);
+					if (words == nullptr) {
+						sched_yield(); // full
+						continue;
+					}
+					words[0] = proc;
+					words[1] = seq;
+					for (uint32_t w = 2; w < size / 4; w++)
+						words[w] = proc * 31 + seq + w;
+					map->submit(words, false);
+					seq++;
+				}
+				_exit(0);
+			}
+			children.push_back(child);
+		}
+		ringbuf_mp_seen seen;
+		seen.count.assign(ringbuf_mp_procs,
+				  std::vector<uint8_t>(ringbuf_mp_records, 0));
+		const uint64_t total =
+			(uint64_t)ringbuf_mp_procs * ringbuf_mp_records;
+		const auto deadline =
+			std::chrono::steady_clock::now() + std::chrono::seconds(120);
+		while (seen.got + seen.bad < total &&
+		       std::chrono::steady_clock::now() < deadline) {
+			if (rb->fetch_data(ringbuf_mp_check, &seen) == 0)
+				sched_yield();
+		}
+		for (pid_t child : children) {
+			int status = -1;
+			REQUIRE(waitpid(child, &status, 0) == child);
+			CHECK(WIFEXITED(status));
+			CHECK(WEXITSTATUS(status) == 0);
+		}
+		rb->fetch_data(ringbuf_mp_check, &seen);
+		uint64_t missing = 0, repeated = 0;
+		for (const auto &per_proc : seen.count)
+			for (uint8_t n : per_proc) {
+				missing += n == 0;
+				repeated += n > 1;
+			}
+		CHECK(seen.bad == 0);
+		CHECK(missing == 0);
+		CHECK(repeated == 0);
+		CHECK(seen.got == total);
+	}
+	boost::interprocess::shared_memory_object::remove(name.c_str());
+}
+#endif
