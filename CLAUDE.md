@@ -342,11 +342,22 @@ but the consumer kept a core busy (100% under ssl-nginx); polling without
 yielding the CPU delayed the traced processes sharing it (gethostlatency p99
 1 ms in 2 of 3 runs). Tests "Napping consumers are woken only when a buffer
 fills" (mutations: perf output ignoring `nappers`, ring buffers ignoring
-them, no nap). The producer fences and issues `FUTEX_WAKE`
+them, no nap). Asking for a wakeup on every sample costs every output the
+fence and the `waiters` load (perf 8 B on one thread 538 -> 597 ns, kernel
+2,759); on aarch64 the store-release that publishes the record already orders a
+following load-acquire, so the fence could be dropped there (not done; x86
+needs it). The producer fences and issues `FUTEX_WAKE`
 only when `waiters` is non-zero; keep both fences, or a wakeup can be missed
 until the timeout. SIGINT/SIGTERM stay
 blocked while sleeping and are collected with a zero-timeout `sigtimedwait`
-afterwards. Ring buffer records follow bpf's rule (`bpf_ringbuf_commit`): a
+afterwards. Not handled (found 11-07): that `sigtimedwait` can dequeue a
+process-directed SIGINT meant for another thread of the tool; the handler then
+runs in the polling thread, and a thread waiting for it in `pause()` (outattach's
+main thread) waits for ever, the tool never exits (`uprobe/improve-20261106`,
+investigations; single-threaded tools are not affected). Fix: leave the signals
+unblocked, return EINTR when a futex wait (the sleep or the nap) is
+interrupted (a handler ran in this thread), and sleep with nanosleep where no
+wakeup object exists. Ring buffer records follow bpf's rule (`bpf_ringbuf_commit`): a
 consumer is woken when it has caught up with the record (it may be asleep), or
 with `BPF_RB_FORCE_WAKEUP`, never with `BPF_RB_NO_WAKEUP`; discards too, since
 the consumer must pass them. The data area is mapped once (bpf maps it twice),
@@ -520,12 +531,40 @@ ring itself). The owner identity comes from `producer_identity.cpp`, shared
 with perf output. Test: "Ringbuf skips the record of a producer that died
 before submitting".
 
+Reserve takes its lock with glibc's protocol inline (`spin_lock_guard`,
+`ringbuf_map.cpp`), and a waiter calls `sched_yield` after 2,048 polls of the
+held lock: the kernel holds its ring buffer lock with preemption off, and with
+64 producer processes on 6 CPUs the waiters on a descheduled holder's CPU spun
+through their time slices (a call waited 40 ms at p99.9 and the workload made
+15% fewer calls; now 0.2-1 ms and as many calls as under the kernel). The lock
+word and the two positions reserve keeps sit on one 64-byte aligned line of
+their own (`reserve_line()`, the aligned part of `reserve_area`; mappings are
+page aligned, so it is the same bytes in every process): the producer
+position as reserve last stored it, and the consumer position it read last.
+The consumer only moves forward, so space computed from the cached position is
+never more than there is, and the lock orders it after the acquire that read
+it; `consumer_pos` (written by the consumer for every record) is read again
+only when that space is too small or the owner table looks full (slots of
+records consumed a lap ago are free). Any new check in reserve that depends on
+the consumer's position must allow for a stale one. `try_get_ringbuf_map_impl`
+reads the handler once (`get_handler_at_valid_fd`); through
+`is_ringbuf_map_fd` every reserve and submit passed `get_handler`'s
+static-local init guard three times. Costs (`uprobe/improve-20261106`, item
+4; ns per call): one thread 719 -> 518 (kernel 2,041), four processes 4,040 ->
+2,991 (kernel 3,272), four threads of one process 3,990 -> 3,168. Tests:
+"Ringbuf producers in several processes deliver every record once" (no lock:
+torn and missing records), "Ringbuf reserve lock has a cache line of its
+own", "Ringbuf reserve finds space the consumer freed" (never re-reading the
+consumer position: nothing reserved after the first lap), section "Only ring
+buffer fds reserve".
+
 Not handled (documented): a process killed while holding `shard_lock`, the
-ringbuf's `reserve_spin_lock`, a map's `map_lock` or the per-CPU hash's
+ringbuf's reserve lock (`reserve_line().lock`), a map's `map_lock` or the per-CPU hash's
 `pool_lock` (inserts and deletes) leaves every later user spinning, like the hash map stripes. A
 consumer killed between delivering a record and releasing the shard tail
 redelivers it on the next drain, and one killed while waiting leaves
-`waiters` above zero (every watermark output then pays a futex wake).
+`waiters` (or `nappers`) above zero (every output that asks for a wakeup
+then pays a futex wake).
 `map_lock` is initialized `PTHREAD_PROCESS_SHARED` (glibc ignores the flag for
 spin locks; the lock is shared between processes).
 
@@ -727,11 +766,11 @@ delete +8% (the stripe lock, then a list lock); per-CPU hash lookup -8%,
 update -6%, delete +12%. Delete + insert through BPF programs at 90% load,
 one thread: 0.14-0.28 us, 0.27-0.62x the kernel (a4ac0d31: 2.9-34 us).
 
-The stripe and free-list locks, the handler's `map_lock`
-(`bpftime_lock_guard`) and the ring buffer's `reserve_spin_lock` (since
-11-06; 4-6 producers spent 67-75% of their samples in glibc's lock,
-`uprobe/output-dims-20261106` finding 13) are taken
-with `bpftime_spin_lock` (`map_common_def.hpp`): glibc's protocol on the
+The stripe and free-list locks and the handler's `map_lock`
+(`bpftime_lock_guard`) are taken with `bpftime_spin_lock`
+(`map_common_def.hpp`; the ring buffer's reserve lock uses the same protocol
+inline with a yield, above: 4-6 producers spent 67-75% of their samples in
+glibc's lock, `uprobe/output-dims-20261106` finding 13): glibc's protocol on the
 `pthread_spinlock_t` word (exchange 1 to take, release store 0), inline, so
 pthread_spin_lock on the same word still excludes (test "bpftime spin locks
 exclude each other and pthread spin locks"). Through glibc each lock was a
@@ -1695,6 +1734,17 @@ executable path is read once per process, a module's base is kept while
 elsewhere is looked up again), and a module found in the maps once is not
 looked for again. Test "Module offset resolution keeps each module's base"
 (two modules in turn; one cache slot for both fails it).
+
+Where a traced process's start-up still goes (`uprobe/improve-20261106`,
+investigate/startup, about 23 ms per start with one program): the program's
+JIT compile in every process (`bpftime_prog_load`, a fresh LLJIT at O3) 44%,
+the agent's static constructors (mostly LLVM's) 8.5%, Gum's first module
+lookup 7% (half of it `memmem` in `gum_read_auxv_from_stack`, once per
+process, for libc's name), Gum's thread context 3%, attaching 1.6%; most of the
+rest is the kernel mapping and relocating the 114 MB agent (202,114 relative
+relocations). AOT code kept in the segment would remove the compile. The agent
+alone, with no tool: 8.8 ms. 3f8981e4 starts 0.9 ms later than d46ceb8f,
+spread evenly over every part (not attributed).
 
 ## Agent Work Is Invisible To Probes
 
