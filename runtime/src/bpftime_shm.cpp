@@ -22,6 +22,7 @@
 #include <linux/futex.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#include <sched.h>
 #elif __APPLE__
 #include "bpftime_epoll.h"
 #endif
@@ -467,6 +468,18 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 		return -1;
 	}
 	using namespace std::chrono;
+	// When this consumer thread last found records: for a while after
+	// that it naps (or polls) instead of sleeping until woken.
+	static thread_local high_resolution_clock::time_point last_ready_time{};
+	auto env_us = [](const char *name, int fallback) {
+		const char *value = getenv(name);
+		return microseconds(value && *value ? atoi(value) : fallback);
+	};
+	static const microseconds poll_window =
+		env_us("BPFTIME_CONSUMER_POLL_US", 0);
+	static const microseconds nap = env_us("BPFTIME_CONSUMER_NAP_US", 100);
+	static const microseconds nap_window =
+		env_us("BPFTIME_CONSUMER_NAP_WINDOW_US", 2000);
 	auto &epoll_inst =
 		std::get<epoll_handler>(shm.get_manager()->get_handler(fd));
 	auto start_time = high_resolution_clock::now();
@@ -554,10 +567,57 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 		}
 
 		collect_ready();
-		if (next_id > 0 || timeout == 0) {
+		if (next_id > 0) {
+			last_ready_time = high_resolution_clock::now();
 			break;
 		}
+		if (timeout == 0) {
+			break;
+		}
+		const auto since_ready =
+			high_resolution_clock::now() - last_ready_time;
+		// Opt-in: poll (giving the CPU to anything else runnable) for
+		// a while after records, unregistered, so producers make no
+		// system call; it keeps a core busy while records keep coming.
+		if (poll_window.count() > 0 && since_ready < poll_window) {
+			sched_yield();
+			continue;
+		}
 #if __linux__
+		// For a while after records, nap a short time registered in
+		// `nappers` instead of `waiters`: a perf producer wakes a
+		// napping consumer only when its shard passes the watermark or
+		// drops a sample, not for each sample, so the traced process
+		// makes no futex system call per sample, and the nap bounds
+		// the delay (ring buffers wake it by bpf's rule as before).
+		// Waking the consumer for every sample, as libbpf asks
+		// (wakeup_events 1), cost ssl-nginx 10% of its requests per
+		// second (a FUTEX_WAKE in the probe for each sample); only at
+		// half a shard delayed every sample 0.5 ms on average
+		// (uprobe/improve-20261106, item 3). Idle longer than the
+		// window, the consumer sleeps until woken, so the first record
+		// of a burst wakes it.
+		if (nap.count() > 0 && wakeup && since_ready < nap_window) {
+			timespec nap_ts{ .tv_sec = 0,
+					 .tv_nsec = (long)nap.count() * 1000 };
+			uint32_t sequence = __atomic_load_n(&wakeup->sequence,
+							    __ATOMIC_ACQUIRE);
+			__atomic_add_fetch(&wakeup->nappers, 1,
+					   __ATOMIC_SEQ_CST);
+			__atomic_thread_fence(__ATOMIC_SEQ_CST);
+			collect_ready();
+			if (next_id == 0)
+				syscall(SYS_futex, &wakeup->sequence,
+					FUTEX_WAIT, sequence, &nap_ts, nullptr,
+					0);
+			__atomic_sub_fetch(&wakeup->nappers, 1,
+					   __ATOMIC_RELEASE);
+			if (next_id > 0) {
+				last_ready_time = high_resolution_clock::now();
+				break;
+			}
+			continue;
+		}
 		if (wakeup) {
 			// Register before re-checking, so a perf output that
 			// asks for a wakeup after the re-check bumps the
@@ -678,11 +738,12 @@ int bpftime_perf_event_output(int fd, const void *buf, size_t sz)
 		    handler.data)) {
 		SPDLOG_DEBUG("Perf out value to fd {}, sz {}", fd, sz);
 		bool wakeup_consumer;
+		bool urgent = false;
 		int ret = std::get<software_perf_event_shared_ptr>(handler.data)
-				  ->output_data(buf, sz, &wakeup_consumer);
+				  ->output_data(buf, sz, &wakeup_consumer, &urgent);
 		if (wakeup_consumer) {
 			int saved_errno = errno;
-			shm.notify_perf_event_consumers();
+			shm.notify_perf_event_consumers(urgent);
 			errno = saved_errno;
 		}
 		return ret;
