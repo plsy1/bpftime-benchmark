@@ -23,6 +23,7 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <sched.h>
+#include <algorithm>
 #elif __APPLE__
 #include "bpftime_epoll.h"
 #endif
@@ -624,9 +625,30 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 			// sequence and ends this futex wait (see
 			// notify_perf_event_consumers; ring buffer records
 			// ask for it when this consumer has caught up with
-			// them). Perf records below the wakeup watermark, and
-			// ring buffer records submitted with BPF_RB_NO_WAKEUP,
-			// are found by the timeout.
+			// them). Records nobody wakes for (BPF_RB_NO_WAKEUP,
+			// perf events without wakeup settings below the
+			// watermark, a dead producer's reservation) are found
+			// by the timeout: the caller's, at most 100 ms (libbpf's
+			// tools poll with 100 ms). It was 1 ms: an idle tool
+			// scanned every ring and shard a thousand times a second
+			// (2-7 ms of CPU a second; with 493 shards and their
+			// sweeps 36% of a core; uprobe/more-dims-20261106,
+			// n5-footprint).
+			milliseconds sleep_for(100);
+			if (timeout > 0) {
+				const auto left =
+					milliseconds(timeout) -
+					duration_cast<milliseconds>(
+						high_resolution_clock::now() -
+						start_time);
+				sleep_for = std::max(milliseconds(1),
+						     std::min(sleep_for, left));
+			}
+			const timespec sleep_ts{
+				.tv_sec = (time_t)(sleep_for.count() / 1000),
+				.tv_nsec = (long)(sleep_for.count() % 1000) *
+					   1000000
+			};
 			uint32_t sequence = __atomic_load_n(&wakeup->sequence,
 							    __ATOMIC_ACQUIRE);
 			__atomic_add_fetch(&wakeup->waiters, 1,
@@ -635,7 +657,8 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 			collect_ready();
 			if (next_id == 0) {
 				syscall(SYS_futex, &wakeup->sequence,
-					FUTEX_WAIT, sequence, &ts, nullptr, 0);
+					FUTEX_WAIT, sequence, &sleep_ts, nullptr,
+					0);
 			}
 			__atomic_sub_fetch(&wakeup->waiters, 1,
 					   __ATOMIC_RELEASE);

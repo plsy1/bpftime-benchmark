@@ -8,6 +8,7 @@
 #include "common_def.hpp"
 #include <boost/scope_exit.hpp>
 #include <array>
+#include <chrono>
 #include <atomic>
 #include <csignal>
 #include <cstdlib>
@@ -683,6 +684,80 @@ TEST_CASE("Napping consumers are woken only when a buffer fills",
 		CHECK(second == 1); // found after the nap
 		CHECK(perf_wakeup_sequence() == sequence); // no wakeup
 	}
+}
+
+
+// Woken by producers, an idle consumer sleeps up to the caller's timeout (at
+// most 100 ms): it scanned every ring and shard each 1 ms (an idle tool with
+// 493 shards used 36% of a core; uprobe/more-dims-20261106, n5-footprint).
+TEST_CASE("An idle consumer sleeps through the caller's timeout",
+	  "[epoll][perf-wakeup]")
+{
+	const char *old_name = getenv("BPFTIME_GLOBAL_SHM_NAME");
+	const bool had_name = old_name != nullptr;
+	const std::string previous_name = old_name ? old_name : "";
+	const std::string name =
+		"EpollIdleTestShm-" + std::to_string(getpid());
+	shm_remove remover{ std::string(name) };
+	std::vector<int> fds;
+	BOOST_SCOPE_EXIT_ALL(&)
+	{
+		for (int fd : fds) {
+			bpftime_close(fd);
+			close(fd);
+		}
+		bpftime_destroy_global_shm();
+		bpftime_initialize_global_shm(
+			bpftime::shm_open_type::SHM_NO_CREATE);
+		if (had_name)
+			setenv("BPFTIME_GLOBAL_SHM_NAME", previous_name.c_str(),
+			       1);
+		else
+			unsetenv("BPFTIME_GLOBAL_SHM_NAME");
+	};
+	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+	bpftime_destroy_global_shm();
+	bpftime_initialize_global_shm(
+		bpftime::shm_open_type::SHM_REMOVE_AND_CREATE);
+	const int perf_fd =
+		bpftime_add_software_perf_event_with_wakeup(0, 0, 0, false, 1);
+	REQUIRE(perf_fd >= 0);
+	fds.push_back(perf_fd);
+	auto *header = (perf_event_mmap_page *)
+		bpftime_get_software_perf_event_raw_buffer(perf_fd,
+							   2 * getpagesize());
+	REQUIRE(header != nullptr);
+	const int epoll_fd = bpftime_epoll_create();
+	REQUIRE(epoll_fd >= 0);
+	fds.push_back(epoll_fd);
+	REQUIRE(bpftime_add_software_perf_event_fd_to_epoll(
+			perf_fd, epoll_fd, { .u64 = 3 }) == 0);
+	// A shard to scan: each drain of it moves drain_start.
+	const uint64_t payload = 7;
+	REQUIRE(bpftime_perf_event_output(perf_fd, &payload, sizeof(payload)) ==
+		0);
+	auto &handler = std::get<bpftime::bpf_perf_event_handler>(
+		bpftime::shm_holder.global_shared_memory.get_handler(perf_fd));
+	auto data = std::get<bpftime::software_perf_event_shared_ptr>(
+		handler.data);
+	REQUIRE(data->has_data());
+	header->data_tail = header->data_head;
+	const uint64_t drains_before = data->drain_start;
+	int result = -2;
+	const auto start = std::chrono::steady_clock::now();
+	// A thread of its own: no records seen, so no nap first.
+	std::thread consumer([&]() {
+		epoll_event event{};
+		result = bpftime_epoll_wait(epoll_fd, &event, 1, 300);
+	});
+	consumer.join();
+	const auto elapsed_ms =
+		std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now() - start)
+			.count();
+	CHECK(result == 0);
+	CHECK(elapsed_ms >= 290);
+	CHECK(data->drain_start - drains_before < 40);
 }
 
 #endif
