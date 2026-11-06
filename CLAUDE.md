@@ -1651,6 +1651,16 @@ started every process 3 s late (`uprobe/more-dims-20261106`, n2-startup).
 Test "Agent preload without shared memory does not delay the process"
 (3,021 ms with the retries).
 
+Each Frida probe resolved its module at every process start: the executable
+path (`readlink` and a flushed info line), `gum_module_load` and Gum's module
+enumeration, and a scan of `/proc/self/maps` stat-ing its files: 0.42 ms per
+probe, 0.44 s for 1,000 (`uprobe/more-dims-20261106`, n4-many-probes). The
+executable path is read once per process, a module's base is kept while
+`dladdr` still finds a module loaded there (a library unloaded and loaded
+elsewhere is looked up again), and a module found in the maps once is not
+looked for again. Test "Module offset resolution keeps each module's base"
+(two modules in turn; one cache slot for both fails it).
+
 ## Agent Work Is Invisible To Probes
 
 The agent runs inside the traced process; its own calls must not reach the

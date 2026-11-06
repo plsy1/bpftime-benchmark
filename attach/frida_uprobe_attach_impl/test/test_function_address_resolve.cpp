@@ -74,3 +74,30 @@ TEST_CASE("Mapped module paths survive VMA splitting")
 	REQUIRE(*resolved == path);
 }
 #endif
+
+#if defined(__linux__)
+#include <dlfcn.h>
+// Module bases are kept once found (every probe looked its module up again:
+// 0.42 ms per probe at process start, uprobe/more-dims-20261106); two
+// modules resolved in turn keep their own.
+TEST_CASE("Module offset resolution keeps each module's base")
+{
+	frida_attach_impl man;
+	Dl_info libc_info{};
+	REQUIRE(dladdr((void *)&malloc, &libc_info) != 0);
+	REQUIRE(libc_info.dli_fname != nullptr);
+	const std::string libc_path = libc_info.dli_fname;
+	const auto malloc_offset =
+		(uintptr_t)&malloc - (uintptr_t)libc_info.dli_fbase;
+	void *exe_base = get_module_base_addr("");
+	REQUIRE(exe_base != nullptr);
+	const auto func_offset =
+		(uintptr_t)&__func_reolve_test - (uintptr_t)exe_base;
+	for (int i = 0; i < 3; i++) {
+		CHECK(resolve_function_addr_by_module_offset("", func_offset) ==
+		      (void *)&__func_reolve_test);
+		CHECK(resolve_function_addr_by_module_offset(
+			      libc_path, malloc_offset) == (void *)&malloc);
+	}
+}
+#endif

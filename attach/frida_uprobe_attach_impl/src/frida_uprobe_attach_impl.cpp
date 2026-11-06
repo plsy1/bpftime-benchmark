@@ -14,6 +14,8 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <unordered_set>
 #include <memory>
 #include <pthread.h>
 #include <string>
@@ -330,7 +332,16 @@ int frida_attach_impl::create_attach_with_ebpf_callback(
 		// Check if module path exists in the current process's map
 		// Only check if the module_name is not empty. If it's empty, it
 		// means we won't rely on module_name
+		// A module found once is not looked for again: every probe
+		// read /proc/self/maps and stat-ed its files.
+		static std::mutex mapped_modules_mutex;
+		static std::unordered_set<std::string> mapped_modules;
+		bool known = false;
 		if (!sub.module_name.empty()) {
+			std::lock_guard<std::mutex> guard(mapped_modules_mutex);
+			known = mapped_modules.count(sub.module_name) != 0;
+		}
+		if (!sub.module_name.empty() && !known) {
 			bool ok = false;
 			std::ifstream ifs("/proc/self/maps");
 			std::string line;
@@ -370,6 +381,8 @@ int frida_attach_impl::create_attach_with_ebpf_callback(
 					sub.module_name);
 				return -EINVAL;
 			}
+			std::lock_guard<std::mutex> guard(mapped_modules_mutex);
+			mapped_modules.insert(sub.module_name);
 		}
 		ebpf_callback_args args{ .ebpf_cb = cb,
 					 .attach_type = attach_type };
