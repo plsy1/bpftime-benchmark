@@ -1,0 +1,32 @@
++ git rev-parse --show-toplevel
++ sudo -n pkill -9 -x funclatency
++ sudo -n pkill -9 -x memleak
++ sudo -n pkill -9 -x callloop
++ sudo -n pkill -9 -x mallocloop
++ sudo -n rm -f /dev/shm/bpftime_daily_smoke
++ sudo -n env LD_PRELOAD=/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-probecheck/runtime/syscall-server/libbpftime-syscall-server.so BPFTIME_SHM_MEMORY_MB=1024 BPFTIME_GLOBAL_SHM_NAME=bpftime_daily_smoke BPFTIME_LOG_OUTPUT=console /home/jetson/src/realprog-20261026-btf/libbpf-tools/funclatency -u -d 9 /home/jetson/src/realprog-20261026-btf/workloads-mt/t4/callloop:target_func
++ sudo -n timeout 40 env LD_PRELOAD=/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-probecheck/runtime/agent/libbpftime-agent.so BPFTIME_GLOBAL_SHM_NAME=bpftime_daily_smoke BPFTIME_LOG_OUTPUT=console /home/jetson/src/realprog-20261026-btf/workloads-mt/t4/callloop 3
+smoke funclatency: workload rc 0, calls 4263000, counted 4263000
++ sudo -n pkill -9 -x funclatency
++ sudo -n pkill -9 -x memleak
++ sudo -n pkill -9 -x callloop
++ sudo -n pkill -9 -x mallocloop
++ sudo -n rm -f /dev/shm/bpftime_daily_smoke
++ sudo -n timeout 33 env LD_PRELOAD=/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-probecheck/runtime/syscall-server/libbpftime-syscall-server.so BPFTIME_SHM_MEMORY_MB=1024 BPFTIME_GLOBAL_SHM_NAME=bpftime_daily_smoke BPFTIME_LOG_OUTPUT=console SW_PRELOAD=/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-probecheck/runtime/agent/libbpftime-agent.so SW_CMD=/home/jetson/src/realprog-20261026-btf/workloads-mt/t4/mallocloop SW_ARGS=3 64 1024 /home/jetson/src/realprog-20261026-btf/libbpf-tools/memleak -c /home/jetson/src/rp/sw 1
+smoke memleak: rc 0, outstanding allocations 9
++ sudo -n pkill -9 -x funclatency
++ sudo -n pkill -9 -x memleak
++ sudo -n pkill -9 -x callloop
++ sudo -n pkill -9 -x mallocloop
++ sudo -n rm -f /dev/shm/bpftime_daily_smoke
++ sudo -n env LD_PRELOAD=/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-probecheck/runtime/syscall-server/libbpftime-syscall-server.so BPFTIME_SHM_MEMORY_MB=1024 BPFTIME_GLOBAL_SHM_NAME=bpftime_daily_smoke BPFTIME_LOG_OUTPUT=console /home/jetson/src/realprog-20261026-btf/libbpf-tools/funclatency -u /home/jetson/src/realprog-20261026-btf/workloads-mt/t4/callloop:target_func
++ sudo -n timeout 40 env LD_PRELOAD=/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-probecheck/runtime/agent/libbpftime-agent.so BPFTIME_GLOBAL_SHM_NAME=bpftime_daily_smoke BPFTIME_LOG_OUTPUT=console /home/jetson/src/realprog-20261026-btf/workloads-mt/t4/callloop 6
++ sudo -n pkill -USR1 -x callloop
++ sudo -n kill -INT -- -4007875
+smoke detach: workload rc 0, detached True
++ sudo -n pkill -9 -x funclatency
++ sudo -n pkill -9 -x memleak
++ sudo -n pkill -9 -x callloop
++ sudo -n pkill -9 -x mallocloop
++ sudo -n rm -f /dev/shm/bpftime_daily_smoke
+smoke rc=0

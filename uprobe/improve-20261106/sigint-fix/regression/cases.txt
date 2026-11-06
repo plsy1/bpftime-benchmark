@@ -1,0 +1,273 @@
+bpf_get_current_uid_gid reports current unsigned credentials
+bpf_get_current_uid_gid cache is dropped on invalidation and fork
+Credential setter interposers invalidate and keep results
+Credential cache stays off unless the interposers are bound
+Test attach replace with ebpf
+Test shm progs attach
+Test probing internal functions
+Test attaching filter program with ebpf, and reverting
+Test tail calling from userspace to userspace
+Test tail calling from userspace to kernel
+Test ufunc register
+Test helpers
+Epoll returns each ready registration once and restores signals
+Perf output wakes a sleeping epoll consumer
+Ring buffer records wake a consumer that caught up
+Napping consumers are woken only when a buffer fills
+An idle consumer sleeps through the caller's timeout
+A consumer leaves signals to the threads they are meant for
+ringbuf keeps tail-straddling records contiguous and consumable
+Ringbuf skips the record of a producer that died before submitting
+Ringbuf submit leaves a recovered record alone
+Ringbuf owner slots of consumed records are reused
+Ringbuf recovers a dead producer before it is reaped
+Ringbuf helpers submit and discard through the sample's map
+Ringbuf producers in several processes deliver every record once
+Ringbuf reserve lock has a cache line of its own
+Ringbuf reserve finds space the consumer freed
+Perf output preserves the calling thread's CPU affinity
+Software perf event buffers shard concurrent producers by thread
+Software perf event fork child writes to its own producer shard
+Software perf event shards of another pid namespace are not reclaimed
+Software perf event looks for dead threads' shards at most every 100 ms
+Software perf event output reclaims dead threads' shards when memory runs out
+Software perf event output without a shard goes to the overflow shard
+Software perf event records wrap on aligned boundaries after resize
+Software perf event mmap reports shared memory exhaustion
+Software perf event reports dropped samples with PERF_RECORD_LOST
+Software perf event drains start at a different shard each time
+Software perf event shards are matched within a pid namespace
+Software perf event shard caches are not inherited by fork children
+An unknown pid namespace equals no other process's
+Producers in two pid namespaces with the same pid write apart
+Software perf event output survives a full shared memory
+Software perf event output retries a shard whose data did not fit
+bpf_perf_event_output returns -ENOSPC when the ring is full
+Software perf event wakes as the consumer's attr asks
+Software perf event asks for a wakeup at half a ring or on a drop
+Branches on read-only constants are followed one way
+Reachability keeps subprograms, callbacks and joined paths
+A missing helper behind a read-only constant does not disable the program
+A frozen map refuses every syscall write
+Rate-limited logging picks 1, 10, 100, ...
+A helper error on every call logs at 1, 10, 100, 1000
+bpf_trace_printk stays off host stdout unless selected
+The ufunc group provides the path helpers
+JIT compiles a bpf-to-bpf call at pc 0
+A program whose JIT compile fails is disabled
+Calls libbpf poisoned in dead code do not disable the program
+Calls libbpf poisoned for a failed CO-RE relocation do not disable the program
+An AOT object of a program with poisoned calls loads
+Programs are skipped after the global shm is released
+Syscall server falls back when startup shared memory is too small
+Syscall server perf mmap reports shared memory exhaustion
+Syscall server keeps logger sink failures off host stdio
+Syscall server keeps default logging off host stdio
+Global log level cannot enable default host stdio
+File logger is installed before syscall startup
+Syscall server preserves the console logger level name
+Agent preload keeps missing shared memory off host stdio
+Agent preload without shared memory does not delay the process
+Syscall server removes owned shared memory on normal exit
+Syscall server preserves shared memory it only opened
+Syscall server keeps shared memory while an agent pid is alive
+Syscall server keeps shared memory while a peer server pid is alive
+Syscall server mock files do not leave tmp entries
+Syscall server child closing an inherited fd keeps the parent's map
+Syscall server reports map allocation failure instead of using the kernel
+Syscall server child forked before startup leaves the parent's maps
+A log after spdlog's teardown at exit is dropped
+Test bpftime runtime_config
+Allow external maps from the environment
+Select Frida's fuzzy backtracer from the environment
+get_stack rejects build IDs
+get_stack uses byte-sized buffers and returns copied bytes
+get_stack truncates only at complete frame boundaries
+get_stack rejects a partial frame buffer
+get_stack applies frame skips before the byte limit
+get_stack rejects skips beyond the available trace
+get_stackid returns errors as negative 64-bit values
+bpf_get_current_pid_tgid reports the calling process after fork
+bpf_get_current_pid_tgid in a vfork child and its parent after it
+Test bpftime_probe_read
+Test repeated valid probe memory access
+Test bpf_probe_read_str
+Test probe access preserves application SIGSEGV handlers
+Test bpftime_probe_write_user
+Test Probe read/write size valid or not 
+Test default SIGSEGV handler is preserved
+Checked probe reads zero what is not data
+Test buffer_to_hex_string function
+Test hex_string_to_buffer function
+Test hex_string_to_buffer function with invalid input
+Test bpftime shm json import/export
+LRU Hash Map Basic Operations
+LRU Hash Map Update Flags
+LRU Hash Map Capacity Limits
+LRU Hash Map Iteration
+Test basic lru map operations
+TLPM Basic Operations
+TLPM Order Independence
+LPM Trie Map vs TLPM Comparison
+LPM Trie IP Address Operations
+LPM Trie Deletion Operations
+LPM Trie Update Flags
+LPM Trie Full Map
+LPM Trie Multi-thread
+LPM Trie String Iteration
+LPM Trie Map Constructor Validation
+LPM Trie Map IPv4 Operations
+LPM Trie Map Longest Prefix Match
+Bloom Filter Constructor Validation
+Bloom Filter Basic Operations
+Bloom Filter False Positive Test
+Bloom Filter Different Hash Counts
+Bloom Filter Hash Algorithm Benchmark
+Bloom Filter Hash Distribution Quality
+Bloom Filter Large Scale False Positive Test
+Bloom Filter Extreme Load Test
+Stack Map Constructor Validation
+Stack Map Core Operations
+Stack Map Conceptual Concurrency Test
+Stack Map Kernel Style Test
+Stack Map Standard Interface Kernel Style
+Queue Map Constructor Validation
+Queue Map Core Operations
+Queue Map Conceptual Concurrency Test
+Queue Map Kernel Style Test
+Queue Map Standard Interface Kernel Style
+Kernel-user percpu array gives a program its CPU's value
+Kernel-user hash lookups are private to the calling thread
+Cgroup paths compare on component boundaries
+Cgroup array map stores cgroups and answers under-cgroup checks
+Cgroup checks in a fork child do not use the parent thread's file
+bpf_get_current_cgroup_id is the inode of the thread's cgroup
+Cgroup helpers are registered
+Test stack trace map 1
+Test stack trace map 2
+Stack trace map pads, truncates and compares like the kernel
+Stack trace lookups without the lock find stored traces only
+Stack trace lookups without the lock never take a mix of two traces for a third
+test_hashmap (kernel)
+test_hashmap_sizes (kernel)
+test_hashmap_percpu (kernel)
+test_hashmap_walk (kernel)
+test_arraymap (kernel)
+test_arraymap_percpu (kernel)
+test_arraymap_percpu_many_keys (kernel)
+test_map_large (kernel)
+test_map_stress (kernel)
+test_map_parallel (kernel)
+test_map_rdonly (kernel)
+test_map_wronly (kernel)
+Map usage counters classify program and syscall operations
+Map usage counters do not deadlock on nested operations
+Map usage dump does not deadlock on nested operations
+Array-of-maps rejects out-of-range lookup keys
+Fast modulo preserves the remainder
+Four-byte fixed hash preserves the upstream byte hash
+Fixed hash preserves uint32 keys across delete and reinsert cycles
+Fixed hash map preserves non-four-byte key comparisons
+Fixed hash iteration scans every bucket
+Fixed hash lookup keeps a full-capacity chain and misses past it
+Fixed hash map honours update flags like the kernel
+striped hash writers agree with a reference under contention
+striped hash map keeps max_entries exact across threads
+striped hash map chains of the first and last buckets churn apart
+striped hash map is shared by processes mapping it elsewhere
+hash lookups never match a key being overwritten
+hash lookups return only values written for the key
+fixed-size hash map locks its own writers
+Map creation rejects sizes the kernel rejects
+Per-CPU array size is computed in 64 bits
+A map the segment cannot hold leaves no handler
+Unsupported map types fail with EINVAL
+A rejected map creation closes its descriptor
+Hash maps without a seed on BPF_F_ZERO_SEED or BPFTIME_HASH_ZERO_SEED
+Per-CPU values use libbpf's layout through bpf()
+Per-CPU values of a possible mask with holes pack its CPUs
+bpf() copies per-CPU values in libbpf's size
+bpf() lookup and delete takes the key of hash maps
+per-cpu hash lookups and updates take no pool lock
+per-cpu hash BPF_NOEXIST on an existing key takes no slot
+per-cpu hash updates of an existing key wait for its stripe
+per-cpu hash operations do not take the handler's map lock
+Per-CPU hash values outlive a delete without freeing memory
+Per-CPU hash update flags mean the same through bpf()
+Per-CPU maps reject a CPU beyond their count
+Possible CPUs are counted as libbpf does
+bpftime spin locks exclude each other and pthread spin locks
+hash lookup_read reads the value of the key it matched
+hash with_existing_value locks the key's stripe
+hash map writers lock only the key's stripe
+hash map lookups never miss keys present while their chains churn
+hash map inserts take free elements from every list
+hash map lookups pass a delete stopped halfway
+hash map chains stay short for keys made to collide
+hash map with fewer entries than free lists
+hash map lookup_read with longer keys
+hash map updates of existing keys replace their element
+hash map copies of a value being updated are whole
+hash map lookups of keys updated at once never miss
+hash map lookups never return a value reused for another key
+hash map updates keep the chain's order
+Hash map values are aligned for atomics
+bpftime_hash_map basic operations
+bpftime_hash_map lookup-and-delete copies out after unlocking
+bpftime_hash_map replaces long keys in place without misses
+bpftime_hash_map matches a reference map under churn
+bpftime_hash_map keeps value pointers of live keys stable
+bpftime_hash_map keeps one bucket's long chain intact
+bpftime_hash_map churn near capacity locks only the keys' stripes
+Test basic operations of external hash map ops
+Test shm hash maps with sub process
+Hash maps with colliding public names remain independent
+per-cpu hash stays consistent under concurrent inserts and deletes
+Test basic operations of hash map
+per-cpu hash preserves arbitrary key and value bytes
+four-byte per-cpu hash preserves userspace map semantics
+four-byte per-cpu hash reuses value slots without stale data
+four-byte per-cpu hash keeps values stable across pool growth
+per-cpu hash helper lookup handles empty maps and colliding keys
+per-cpu hash program updates follow kernel flags and size limits
+Per-CPU array helper errors preserve stored values
+Per-CPU array helpers preserve CPU slots under concurrent writes
+Per-CPU array production lookup follows CPU affinity changes
+Ordinary array lookup preserves bounds and errno on its cold path
+Branching offset pointer access preserves null and remapping
+Test basic operations of array map
+Per-map JIT kind distinguishes single-CPU storage from ordinary arrays
+Array JIT bridge preserves success, miss errno and live storage
+Array JIT canonicalizes only the pinned standard helper's miss
+Array JIT leaves dynamic and unregistered handles on helper path
+Per-CPU array JIT selects CPU per lookup with bounds and arbitrary widths
+Per-CPU array JIT does not hoist CPU selection within an invocation
+Per-CPU array JIT requires the marked CPU helper contract
+Per-CPU array JIT follows real affinity changes and retains map identity
+Per-CPU array JIT does not introduce custom CPU helper calls
+Direct per-CPU JIT query preserves success and exact CPU failure behavior
+Array JIT owns map identity after close, reuse and server reset
+Array JIT retains exact mapping across unmap, unlink and recreate
+Array JIT shares backing with dup and releases last reference
+Array JIT execution tolerates concurrent close and FD replacement
+Array JIT references survive another process closing the FD
+Array JIT request leaves interpreter and uBPF on original path
+Array JIT keeps custom helpers and dynamic lookup fallback
+Array JIT binds implementation metadata, not duplicate attributes
+Default array JIT preserves standard mutations on retained per-CPU arrays
+Array JIT descriptor failure cannot execute stale code or retry
+Fork child executes and releases its own array binding reference
+Fork child keeps its binding after the parent releases the map
+Default array JIT specializes mixed maps with update and unrelated helpers
+Default array JIT preserves custom lookup and CPU helpers before compilation
+Default array JIT keeps AOT on original helper registrations
+Array JIT owns global data of bound programs across close, reuse and reset
+Array JIT shares a bound global data map with its lookup binding
+Array JIT keeps unsupported global data programs on the original path
+Bound programs dispatch non-array and dynamic handles to their original targets
+Typed hash helpers serve hash maps next to arrays and global data
+Typed hash helpers match the generic helper for other handles
+Typed hash delete helper serves hash maps in plain and bound programs
+Typed hash delete helper matches the generic helper for other handles
+Fork handlers are registered before the first array binding
+Fork handler registration returns over an unpublished entry

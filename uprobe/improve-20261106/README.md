@@ -5,7 +5,7 @@ step on the candidate worktree (`bpftime-daily-state/worktrees/177a1dc465ff/cand
 d46ceb8f), each with a test and a mutation check (commands in the commit messages). Frozen
 builds in `../ssl-nginx-2x2-20261023/builds` (`dev-<sha>` and `dev-<sha>-probecheck`, see its
 README.txt); from item 2 on, every build has the probe read and write checks on (the daily
-build is to switch them on too). cpu5 at 1728000 before and after every batch; no two batches
+build keeps them off: decided 11-07). cpu5 at 1728000 before and after every batch; no two batches
 at once; no build during a batch.
 
 | item | commits | directory |
@@ -18,6 +18,7 @@ at once; no build during a batch.
 | 5 start-up (a, b) | dc10a160, 0f9c3654 | (final batch) |
 | 6 idle consumer sleeps to the caller's timeout (d) | 3260b94c | (final batch) |
 | 7 hash map comments; the soak's hit counter | 3f8981e4; output-dims `src/out.bpf.c` | |
+| 8 the consumer leaves signals to the kernel (found in the investigations) | 9c088441 | `sigint-fix` |
 
 Regression (`regression/`, 23:40-23:50, dev 3f8981e4 built with checks on, `build-probecheck`):
 every runtime test case in a process of its own as root (`each.sh`): 272 cases, 269 passed, the
@@ -299,17 +300,53 @@ the main thread (which does not block it) can be dequeued there first: the handl
 consumer thread, and the main thread, woken with nothing pending, goes back to `pause()`
 forever. Single-threaded libbpf-tools are not affected (the handler runs in the polling thread
 anyway); tools that wait for signals in another thread hang. Probably also the earlier
-unreproduced hang (output-dims smoke). Not fixed (measured only): the fix is to stop blocking
-them and return EINTR when the futex wait is interrupted (a handler ran in this thread).
+unreproduced hang (output-dims smoke). Fixed afterwards in 9c088441 (section 8 below).
+
+## 8. The consumer leaves signals to the kernel (9c088441, `sigint-fix/`, 04:56-05:06)
+
+The SIGINT found in the investigations. `bpftime_epoll_wait` no longer blocks or collects any
+signal; the nap and the sleep are one registered futex wait, and a handler that runs in the
+polling thread ends it with EINTR (a futex wait with a timeout is not restarted even under
+SA_RESTART), so the call returns -1 with EINTR, as bpf's epoll_wait. With no wakeup object
+(an older segment) it sleeps with nanosleep the same way. The old code had two more faults
+than the stolen signal: SIGINT with `SIG_DFL` taken there did nothing (the process lived on),
+and `SIG_IGN` was called as a function (SIGBUS on aarch64).
+
+Test "A consumer leaves signals to the threads they are meant for" (`[epoll-signals]`): on
+873cfb61 all five sections fail (the consumer took the process's SIGINT and ran the handler;
+the process outlived a default-action SIGINT; SIGBUS for an ignored one; no EINTR, the wait ran
+its full 2 s, sleeping or napping). Mutations (the wait ignores EINTR; the nap or the sleep
+goes on after it) each fail their sections. Not covered: the nanosleep path.
+
+End to end (`stopcheck.py`, frozen builds dev-3f8981e4-probecheck and dev-9c088441-probecheck,
+cpu5 1728000 before and after): outattach (main thread in `pause()`, the consumer started with
+SIGINT blocked) with a ring buffer or perf object, SIGINT under load (4 threads of bursts) or
+idle, 15 reps each, rotated:
+
+| build | ringbuf load | ringbuf idle | perf load | perf idle | hangs |
+|---|---|---|---|---|---|
+| 3f8981e4 | 80.0 ms | 226.8 ms | 80.9 ms | 227.7 ms | 0 / 60 |
+| 9c088441 | 81.4 ms | 227.4 ms | 80.2 ms | 227.4 ms | 0 / 60 |
+
+(medians from SIGINT to the loader's exit; idle includes the consumer's last 100 ms poll and the
+final drain.) The stolen signal is a narrow race and did not happen in these 60 runs on the old
+build (once in the investigations); the unit test shows it deterministically. sslsniff
+(single-threaded, perf buffer polled with 100 ms), SIGINT 2 s after start, 5 reps: 227.4 ms ->
+177.8 ms: the old code kept SIGINT blocked until its sleep ended, the new one ends the sleep.
+
+Regression (`sigint-fix/regression`, 9c088441 `build-probecheck`): each.sh 273 cases, the same 3
+map usage counter cases skipped as before, the rest passed; the daily smoke: funclatency
+4,263,000 calls counted exactly, memleak 9 outstanding allocations, SIGUSR1 detach with the
+workload running to its end. Root-owned test segments removed afterwards.
 
 ## Open after this round
 
-- The SIGINT taken from other threads (above).
 - perf output's per-sample fence (+59 ns per call on one thread) now that every sample asks
   for a wakeup.
 - Start-up: the per-process JIT compile (about 10 ms of 23), Gum's auxv scan (1 ms), the
   agent's constructors (2 ms); AOT code in the segment would remove the first.
-- The daily build with checks on (asked separately): checked reads cost ssl-nginx about 10%
-  (bpftime +5-7% over the kernel instead of +17-19%).
+- The daily build keeps the checks off (decided 11-07): checked reads cost ssl-nginx about 10%
+  (bpftime +5-7% over the kernel instead of +17-19%); a bad pointer in a probe read still
+  crashes the traced process there.
 - Not run: the gate on the 25e250d6 candidate (`tracker.py migrate`, `test-candidate`) waits
   for the daily list decision; x86 (NUC) for the ring buffer and perf changes.

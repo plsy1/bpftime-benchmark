@@ -83,3 +83,4 @@ exp-0f9c3654-nap2  experiment (not committed): exp-0f9c3654-nap with the nap a f
 exp-0f9c3654-nap3  experiment (not committed): exp-0f9c3654-nap2 with ring buffers keeping bpf's caught-up rule for napping consumers too (exp-nap3.diff); checks ON
 dev-3f8981e4-probecheck  dev 3f8981e4 (d46ceb8f + improve-20261106 items 1-7: f4d505b3 .. 3f8981e4, 14 commits) built with probe read/write checks ON (daily cmake args otherwise; candidate build-probecheck), transformer from the same build
   (fix-final-probecheck: libbpftime-agent-transformer.so copied from fix-final on 11-06 23:55 for improve-20261106/final's opensnoop runs; the transformer has no probe read code)
+dev-9c088441-probecheck  dev 9c088441 (3f8981e4 + 873cfb61 CLAUDE.md + epoll wait leaves signals to the kernel, EINTR when a handler ran) built with probe read/write checks ON (candidate build-probecheck), transformer from the same build
