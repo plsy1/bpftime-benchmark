@@ -477,3 +477,39 @@ TEST_CASE("Ringbuf reserve lock has a cache line of its own", "[ringbuf]")
 	boost::interprocess::shared_memory_object::remove(name.c_str());
 }
 #endif
+
+#if __linux__
+// Reserve keeps the consumer position it read last and reads consumer_pos
+// again only when that leaves too little space (uprobe/improve-20261106
+// item 4): space the consumer freed since is found then.
+TEST_CASE("Ringbuf reserve finds space the consumer freed", "[ringbuf]")
+{
+	const std::string name =
+		"bpftime_ringbuf_cached_cons_" + std::to_string(getpid());
+	boost::interprocess::shared_memory_object::remove(name.c_str());
+	{
+		boost::interprocess::managed_shared_memory shm(
+			boost::interprocess::create_only, name.c_str(),
+			1 << 20);
+		auto *map = shm.construct<bpftime::ringbuf_map_impl>(
+			"ringbuf")(4096, shm);
+		auto rb = map->create_impl_shared_ptr();
+		auto drain = [&] {
+			return rb->fetch_data(
+				[](void *, void *, size_t) { return 0; },
+				nullptr);
+		};
+		for (int lap = 0; lap < 3; lap++) {
+			int reserved = 0;
+			while (void *p = map->reserve(48, 1)) {
+				map->submit(p, false);
+				reserved++;
+			}
+			CHECK(errno == ENOSPC);
+			CHECK(reserved >= 72); // 56 bytes each in 4096
+			CHECK(drain() == reserved);
+		}
+	}
+	boost::interprocess::shared_memory_object::remove(name.c_str());
+}
+#endif
