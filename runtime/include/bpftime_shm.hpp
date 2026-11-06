@@ -423,6 +423,11 @@ int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 
 int bpftime_add_software_perf_event(int cpu, int32_t sample_type,
 				    int64_t config);
+// The same with the consumer's wakeup settings from its perf_event_attr:
+// `watermark` and `wakeup_events` (the union with `wakeup_watermark`).
+int bpftime_add_software_perf_event_with_wakeup(int cpu, int32_t sample_type,
+						int64_t config, bool watermark,
+						uint32_t wakeup);
 int bpftime_is_software_perf_event(int fd);
 void *bpftime_get_software_perf_event_raw_buffer(int fd, size_t expected_size);
 int bpftime_perf_event_output(int fd, const void *buf, size_t sz);

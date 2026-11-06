@@ -627,6 +627,17 @@ int bpftime_add_software_perf_event(int cpu, int32_t sample_type,
 	return shm.add_software_perf_event(cpu, sample_type, config);
 }
 
+int bpftime_add_software_perf_event_with_wakeup(int cpu, int32_t sample_type,
+						int64_t config, bool watermark,
+						uint32_t wakeup)
+{
+	auto &shm = shm_holder.global_shared_memory;
+	return shm.add_software_perf_event(
+		cpu, sample_type, config,
+		software_perf_event_wakeup{ .watermark = watermark,
+					    .wakeup = wakeup });
+}
+
 int bpftime_add_ureplace_or_override(int fd, int pid, const char *name,
 				     uint64_t offset, bool is_replace)
 {

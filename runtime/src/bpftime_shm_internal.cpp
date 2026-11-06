@@ -487,19 +487,22 @@ int bpftime_shm::add_tracepoint(int fd, int pid, int32_t tracepoint_id)
 }
 
 int bpftime_shm::add_software_perf_event(int cpu, int32_t sample_type,
-					 int64_t config)
+					 int64_t config,
+					 software_perf_event_wakeup wakeup)
 {
 	return add_software_perf_event(open_fake_fd(), cpu, sample_type,
-				       config);
+				       config, wakeup);
 }
 
 int bpftime_shm::add_software_perf_event(int fd, int cpu, int32_t sample_type,
-					 int64_t config)
+					 int64_t config,
+					 software_perf_event_wakeup wakeup)
 {
-	return manager->set_handler(fd,
-				    bpftime::bpf_perf_event_handler(
-					    cpu, sample_type, config, segment),
-				    segment);
+	return manager->set_handler(
+		fd,
+		bpftime::bpf_perf_event_handler(cpu, sample_type, config,
+						segment, wakeup),
+		segment);
 }
 
 int bpftime_shm::attach_perf_to_bpf(int perf_fd, int bpf_fd,

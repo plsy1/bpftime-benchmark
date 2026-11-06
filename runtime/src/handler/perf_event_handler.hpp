@@ -69,6 +69,17 @@ at the head, if the remaining buffer space at the tail is not enough
 - Add data_head with the corresponding size. modular with buf_len
 */
 
+// When a producer asks to wake the consumer, from the consumer's
+// perf_event_attr as the kernel decides: always when the ring is past the
+// watermark (with `watermark` set, `wakeup` bytes, else half the ring) or a
+// sample was dropped, and without `watermark` also every `wakeup` samples
+// (wakeup_events; 0: never by count). libbpf's perf_buffer asks for every
+// sample (wakeup_events = sample_period = 1).
+struct software_perf_event_wakeup {
+	bool watermark = false;
+	uint32_t wakeup = 0;
+};
+
 struct software_perf_event_buffer {
 	using segment_manager =
 		boost::interprocess::managed_shared_memory::segment_manager;
@@ -83,18 +94,22 @@ struct software_perf_event_buffer {
 	// Samples dropped because the ring was full and not yet reported by a
 	// PERF_RECORD_LOST. Only the single producer of this buffer touches it.
 	uint64_t lost_samples = 0;
+	// Samples since the last wakeup by count (wakeup_events). Only the
+	// single producer of this buffer touches it.
+	uint32_t samples_since_wakeup = 0;
 
 	software_perf_event_buffer(int pagesize, segment_manager *manager);
 	void *ensure_mmap_buffer(size_t buffer_size);
 	perf_event_mmap_page &get_header_ref();
 	const perf_event_mmap_page &get_header_ref_const() const;
 	// When `wakeup_consumer` is given, it is set to whether a sleeping
-	// consumer should be woken: the sample was dropped, or the ring was at
-	// least half full right after it was published (the kernel's
-	// wakeup_watermark). Waking on every sample costs the producer a
-	// futex syscall per event.
+	// consumer should be woken by `rule` (nullptr: the default attr,
+	// half the ring): the sample was dropped, the ring was past the
+	// watermark right after it was published, or the sample completed a
+	// count of wakeup_events.
 	int output_data(const void *buf, size_t size,
-			bool *wakeup_consumer = nullptr);
+			bool *wakeup_consumer = nullptr,
+			const software_perf_event_wakeup *rule = nullptr);
 	size_t mmap_size() const;
 	bool has_data() const;
 	bool copy_next_record_to(software_perf_event_buffer &dst);
@@ -147,6 +162,8 @@ struct software_perf_event_data {
 	int64_t config;
 	// Field `sample_type` of perf_event_attr
 	int32_t sample_type;
+	// Fields `watermark` and `wakeup_events` / `wakeup_watermark`
+	software_perf_event_wakeup wakeup;
 	int pagesize;
 	uint64_t event_generation;
 	uint64_t producer_buffer_generation = 1;
@@ -158,7 +175,8 @@ struct software_perf_event_data {
 	software_perf_event_shard_list producer_shards;
 	software_perf_event_data(
 		int cpu, int64_t config, int32_t sample_type,
-		boost::interprocess::managed_shared_memory &memory);
+		boost::interprocess::managed_shared_memory &memory,
+		software_perf_event_wakeup wakeup = {});
 	~software_perf_event_data();
 	void *ensure_mmap_buffer(size_t buffer_size);
 	perf_event_mmap_page &get_header_ref();
@@ -258,7 +276,8 @@ struct bpf_perf_event_handler {
 			       boost::interprocess::managed_shared_memory &mem);
 	// create software perf event
 	bpf_perf_event_handler(int cpu, int32_t sample_type, int64_t config,
-			       boost::interprocess::managed_shared_memory &mem);
+			       boost::interprocess::managed_shared_memory &mem,
+			       software_perf_event_wakeup wakeup = {});
 	// Create custom type perf event
 	bpf_perf_event_handler(int type, const char *attach_arg,
 			       boost::interprocess::managed_shared_memory &mem);

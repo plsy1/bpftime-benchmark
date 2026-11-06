@@ -216,12 +216,13 @@ bpf_perf_event_handler::bpf_perf_event_handler(
 
 bpf_perf_event_handler::bpf_perf_event_handler(
 	int cpu, int32_t sample_type, int64_t config,
-	boost::interprocess::managed_shared_memory &mem)
+	boost::interprocess::managed_shared_memory &mem,
+	software_perf_event_wakeup wakeup)
 	: type((int)bpf_event_type::PERF_TYPE_SOFTWARE),
 	  data(boost::interprocess::make_managed_shared_ptr(
 		  mem.construct<software_perf_event_data>(
 			  boost::interprocess::anonymous_instance)(
-			  cpu, config, sample_type, mem),
+			  cpu, config, sample_type, mem, wakeup),
 		  mem))
 
 {
@@ -360,8 +361,9 @@ bool software_perf_event_buffer::append_record_parts(
 	return true;
 }
 
-int software_perf_event_buffer::output_data(const void *buf, size_t size,
-					    bool *wakeup_consumer)
+int software_perf_event_buffer::output_data(
+	const void *buf, size_t size, bool *wakeup_consumer,
+	const software_perf_event_wakeup *rule)
 {
 	SPDLOG_DEBUG("Handling perf event output data with size {}", size);
 	if (wakeup_consumer)
@@ -413,8 +415,25 @@ int software_perf_event_buffer::output_data(const void *buf, size_t size,
 		if (written)
 			lost_samples = 0;
 	}
-	if (wakeup_consumer)
-		*wakeup_consumer = !written || used_after >= mmap_size() / 2;
+	if (wakeup_consumer) {
+		// The kernel's rule (perf_output_begin, perf_output_sample):
+		// the watermark always, the count unless `watermark` is set.
+		// Only half a ring (db3d475f) left libbpf's tools, which ask
+		// for every sample, a 0.5 ms delay on average up to the 1 ms
+		// timeout (gethostlatency; uprobe/output-dims-20261106,
+		// findings 6 and 15).
+		const bool by_bytes = rule && rule->watermark && rule->wakeup;
+		const uint64_t mark =
+			by_bytes ? std::min<uint64_t>(rule->wakeup, mmap_size()) :
+				   mmap_size() / 2;
+		bool wake = !written || used_after >= mark;
+		if (written && rule && !rule->watermark && rule->wakeup &&
+		    ++samples_since_wakeup >= rule->wakeup) {
+			samples_since_wakeup = 0;
+			wake = true;
+		}
+		*wakeup_consumer = wake;
+	}
 	if (!written) {
 		lost_samples++;
 		errno = ENOSPC;
@@ -509,8 +528,9 @@ software_perf_event_shard::software_perf_event_shard(
 
 software_perf_event_data::software_perf_event_data(
 	int cpu, int64_t config, int32_t sample_type,
-	boost::interprocess::managed_shared_memory &memory)
-	: cpu(cpu), config(config), sample_type(sample_type),
+	boost::interprocess::managed_shared_memory &memory,
+	software_perf_event_wakeup wakeup)
+	: cpu(cpu), config(config), sample_type(sample_type), wakeup(wakeup),
 	  pagesize(getpagesize()),
 	  event_generation(next_software_perf_event_generation()),
 	  consumer_buffer(pagesize, memory.get_segment_manager()),
@@ -689,7 +709,7 @@ int software_perf_event_data::output_data(const void *buf, size_t size,
 		errno = ENOSPC;
 		return -1;
 	}
-	return shard->buffer.output_data(buf, size, wakeup_consumer);
+	return shard->buffer.output_data(buf, size, wakeup_consumer, &wakeup);
 }
 
 perf_event_mmap_page &software_perf_event_data::get_header_ref()
