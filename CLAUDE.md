@@ -303,7 +303,17 @@ blocked while sleeping and are collected with a zero-timeout `sigtimedwait`
 afterwards. Ring buffer records follow bpf's rule (`bpf_ringbuf_commit`): a
 consumer is woken when it has caught up with the record (it may be asleep), or
 with `BPF_RB_FORCE_WAKEUP`, never with `BPF_RB_NO_WAKEUP`; discards too, since
-the consumer must pass them. After publishing, the producer fences and loads
+the consumer must pass them. The data area is mapped once (bpf maps it twice),
+so a record that would cross the end goes to offset 0 behind a padding record
+(a discard filling the end), published with it; a consumer standing at that
+padding has caught up too (`consumer_at` reads the header it stands at: a
+discard ending exactly at the end, before a record at 0). Comparing with the
+record alone woke nobody at a wrap, and the consumer slept to its timeout
+while the ring filled: 4 KB records in bursts of 100 on 4 threads delivered
+60% (bpf 99%), variable sizes 71-96%, and opensnoop's 8,248-byte records pad
+every 31 (`uprobe/output-dims-20261106`, finding 5). Test "A record behind the
+end padding wakes a consumer at the padding" (fails without the padding case).
+After publishing, the producer fences and loads
 `waiters` (acquire), and only with a consumer waiting reads `consumer_pos`
 (`notify_ringbuf_consumers`): a running consumer writes that line for every
 record, and reading it on every submit (with a second fence) made single-thread

@@ -406,6 +406,71 @@ TEST_CASE("Ring buffer records wake a consumer that caught up",
 		CHECK(submit_one(0, true));
 		CHECK(drain() == 0);
 	}
+	SECTION("A record behind the end padding wakes a consumer at the padding")
+	{
+		// bpftime maps the data area once: a record that does not fit
+		// before the end goes to offset 0 behind a padding record
+		// filling the end, and a consumer that caught up stands at the
+		// padding, not at the record (uprobe/output-dims-20261106,
+		// finding 5).
+		auto new_ring = [&]() {
+			const int fd = bpftime_maps_create(
+				-1, "wrap_ring",
+				{ .type = BPF_MAP_TYPE_RINGBUF,
+				  .max_ents = 4096 });
+			REQUIRE(fd >= 0);
+			fds.push_back(fd);
+			return fd;
+		};
+		auto fill = [&](int fd, size_t size, int count) {
+			for (int i = 0; i < count; i++) {
+				void *p = bpftime_ringbuf_reserve(fd, size);
+				REQUIRE(p != nullptr);
+				bpftime_ringbuf_submit(fd, p, 0);
+			}
+		};
+		auto drain_ring = [&](int fd) {
+			return bpftime_poll_from_ringbuf(
+				fd, nullptr,
+				+[](void *, void *, size_t) -> int { return 0; });
+		};
+		// Whether submitting one record of this size moved the
+		// futex sequence.
+		auto submit_sized = [&](int fd, size_t size, uint64_t flags) {
+			void *p = bpftime_ringbuf_reserve(fd, size);
+			REQUIRE(p != nullptr);
+			const uint32_t sequence = perf_wakeup_sequence();
+			bpftime_ringbuf_submit_flags(fd, p, false, flags);
+			return perf_wakeup_sequence() != sequence;
+		};
+		__atomic_add_fetch(&state->waiters, 1, __ATOMIC_SEQ_CST);
+		BOOST_SCOPE_EXIT_ALL(&)
+		{
+			__atomic_sub_fetch(&state->waiters, 1,
+					   __ATOMIC_SEQ_CST);
+		};
+		// 1,000-byte records take 1,008 bytes: four end at 4,032, the
+		// fifth goes to offset 0 behind 64 bytes of padding.
+		int fd = new_ring();
+		fill(fd, 1000, 4);
+		REQUIRE(drain_ring(fd) == 4);
+		CHECK(submit_sized(fd, 1000, 0)); // the consumer is at the padding
+		CHECK_FALSE(submit_sized(fd, 1000, 0)); // it is behind
+		CHECK(drain_ring(fd) == 2);
+		// 48-byte records take 56 bytes: 73 end at 4,088, and the
+		// padding of the 74th is a header alone.
+		fd = new_ring();
+		fill(fd, 48, 73);
+		REQUIRE(drain_ring(fd) == 73);
+		CHECK(submit_sized(fd, 48, 0));
+		CHECK(drain_ring(fd) == 1);
+		// BPF_RB_NO_WAKEUP still wakes nobody.
+		fd = new_ring();
+		fill(fd, 1000, 4);
+		REQUIRE(drain_ring(fd) == 4);
+		CHECK_FALSE(submit_sized(fd, 1000, BPF_RB_NO_WAKEUP));
+		CHECK(drain_ring(fd) == 1);
+	}
 	SECTION("A record wakes a consumer sleeping in epoll")
 	{
 		const int epoll_fd = bpftime_epoll_create();

@@ -107,8 +107,10 @@ class ringbuf {
 	// discarded it first.
 	bool submit(const void *sample, bool discard);
 	// Whether the consumer has caught up with this record (the next it
-	// reads): bpf wakes a consumer then. Reads only the consumer position;
-	// the record may be gone.
+	// reads): bpf wakes a consumer then. A consumer standing at the end
+	// padding right before the record has caught up too. Reads only the
+	// consumer position and the header it stands at; the record may be
+	// gone.
 	bool consumer_at(const void *sample) const;
 	int fetch_data(int (*)(void *ctx, void *data, size_t len), void *ctx);
 	// Tests only: the record's owner slot, as in its header; overwrite
