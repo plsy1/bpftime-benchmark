@@ -112,7 +112,7 @@ public:
 // Lookups take no lock and write nothing shared. Each element's word holds a
 // generation (every delete increments it) and the in-use bit. A lookup
 // follows the chain from its head; at each element it reads the word
-// (acquire), skips the element unless it is in use, compares the key, and
+// (acquire), starts again unless the element is in use, compares the key, and
 // accepts a match only if the word is still the same (the element was not
 // freed and reused meanwhile). Past a mismatch it follows `next` only if the
 // link it came through still points to the element and the word is still the
@@ -749,8 +749,9 @@ class bpftime_hash_map {
 		return update(key, value, update_mode::any) == update_result::ok;
 	}
 
-	// value_out: the value is copied there first, under the stripe lock
-	// (lookup and delete as one step, like the kernel's).
+	// value_out: the value is copied there after the element is unlinked
+	// and the stripe unlocked, before the element is given back (lookup
+	// and delete as one step, like the kernel's).
 	bool elem_delete(const void *key, void *value_out = nullptr)
 	{
 		const view v = resolve();
