@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <dlfcn.h>
+#include <unordered_map>
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <frida-gum.h>
@@ -19,28 +21,34 @@
 #if __APPLE__
 #include <libproc.h>
 #endif
-static std::string get_executable_path()
+// Once per process (exec makes a new one): it was read, and logged at info
+// level with a flush, for every probe.
+static const std::string &get_executable_path()
 {
-	char exec_path[PATH_MAX] = { 0 };
-
+	static const std::string path = [] {
+		char exec_path[PATH_MAX] = { 0 };
 #if __linux__
-	ssize_t len =
-		readlink("/proc/self/exe", exec_path, sizeof(exec_path) - 1);
-	if (len != -1) {
-		exec_path[len] = '\0'; // Null-terminate the string
-		SPDLOG_INFO("Executable path: {}", exec_path);
-	} else {
-		SPDLOG_ERROR("Error retrieving executable path: {}", errno);
-	}
+		ssize_t len = readlink("/proc/self/exe", exec_path,
+				       sizeof(exec_path) - 1);
+		if (len != -1) {
+			exec_path[len] = '\0'; // Null-terminate the string
+			SPDLOG_DEBUG("Executable path: {}", exec_path);
+		} else {
+			SPDLOG_ERROR("Error retrieving executable path: {}",
+				     errno);
+		}
 #elif __APPLE__
-	pid_t pid = getpid();
-	if (proc_pidpath(pid, exec_path, sizeof(exec_path)) > 0) {
-		SPDLOG_INFO("Executable path: {}", exec_path);
-	} else {
-		SPDLOG_ERROR("Error retrieving executable path: {}", errno);
-	}
+		pid_t pid = getpid();
+		if (proc_pidpath(pid, exec_path, sizeof(exec_path)) > 0) {
+			SPDLOG_DEBUG("Executable path: {}", exec_path);
+		} else {
+			SPDLOG_ERROR("Error retrieving executable path: {}",
+				     errno);
+		}
 #endif
-	return exec_path;
+		return std::string(exec_path);
+	}();
+	return path;
 }
 namespace bpftime
 {
@@ -116,7 +124,25 @@ void *
 resolve_function_addr_by_module_offset(const std::string_view &module_name,
 				       uintptr_t func_offset)
 {
-	auto exec_path = get_executable_path();
+	// A module's base is kept once found, while a module is still loaded
+	// there. Every probe looked it up again (gum_module_load and Gum's
+	// module enumeration, with the executable path and a flushed log
+	// line): 0.42 ms per probe at every process start, 0.44 s with 1,000
+	// probes (uprobe/more-dims-20261106, n4-many-probes).
+	static std::mutex base_cache_mutex;
+	static std::unordered_map<std::string, void *> base_cache;
+	const std::string key(module_name);
+	{
+		std::lock_guard<std::mutex> guard(base_cache_mutex);
+		if (auto itr = base_cache.find(key); itr != base_cache.end()) {
+			Dl_info info{};
+			if (dladdr(itr->second, &info) != 0 &&
+			    info.dli_fbase == itr->second)
+				return ((char *)itr->second) + func_offset;
+			base_cache.erase(itr);
+		}
+	}
+	const auto &exec_path = get_executable_path();
 	void *module_base_addr = nullptr;
 	std::error_code ec;
 	// An empty module name explicitly denotes the main executable. Missing
@@ -135,7 +161,10 @@ resolve_function_addr_by_module_offset(const std::string_view &module_name,
 			    module_name);
 		return nullptr;
 	}
-
+	{
+		std::lock_guard<std::mutex> guard(base_cache_mutex);
+		base_cache[key] = module_base_addr;
+	}
 	return ((char *)module_base_addr) + func_offset;
 }
 
