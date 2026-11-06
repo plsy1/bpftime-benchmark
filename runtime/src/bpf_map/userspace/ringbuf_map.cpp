@@ -14,6 +14,7 @@
 #include <bpf_map/userspace/ringbuf_map.hpp>
 #include <bpf_map/map_common_def.hpp>
 #include <pthread.h>
+#include <sched.h>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #if __APPLE__
@@ -274,15 +275,45 @@ struct ringbuf_hdr {
 static_assert(MAX_MAX_FD_COUNT <= (1u << (31 - ringbuf_tag_slot_bits)),
 	      "a ringbuf tag holds every fd");
 
-// The reserve lock, inline (bpftime_spin_lock, as the hash map's stripes):
-// glibc's pthread_spin_lock is a PLT call into an out-of-line atomic, and
-// with 4-6 producers the lock took 67-75% of their samples
-// (uprobe/output-dims-20261106, finding 13).
+// Polls of a held reserve lock before a waiter gives its CPU away (about
+// 10-20 us of yield instructions on the Orin; a reservation holds the lock
+// for well under a microsecond).
+constexpr int reserve_spins_before_yield = 2048;
+
+// The reserve lock, inline (glibc's protocol, as bpftime_spin_lock for the
+// hash map's stripes): glibc's pthread_spin_lock is a PLT call into an
+// out-of-line atomic, and with 4-6 producers the lock took 67-75% of their
+// samples (uprobe/output-dims-20261106, finding 13). A waiter that has
+// polled for a while yields its CPU: the kernel takes its ring buffer lock
+// with preemption off, while here the holder can be descheduled, and with
+// 64 producer processes on 6 CPUs the waiters spinning on its CPU kept it
+// off for their time slices (a call waited 40 ms at p99.9; finding 14).
 struct spin_lock_guard {
 	pthread_spinlock_t &lock;
 	spin_lock_guard(pthread_spinlock_t &lock) : lock(lock)
 	{
-		bpftime_spin_lock(&lock);
+#if defined(__GLIBC__) && defined(__aarch64__)
+		int *word = (int *)&lock;
+		while (__atomic_exchange_n(word, 1, __ATOMIC_ACQUIRE) != 0) {
+			int spins = 0;
+			while (__atomic_load_n(word, __ATOMIC_RELAXED) != 0) {
+				if (++spins < reserve_spins_before_yield) {
+					__asm__ __volatile__("yield");
+				} else {
+					sched_yield();
+					spins = 0;
+				}
+			}
+		}
+#else
+		int spins = 0;
+		while (pthread_spin_trylock(&lock) != 0) {
+			if (++spins >= reserve_spins_before_yield) {
+				sched_yield();
+				spins = 0;
+			}
+		}
+#endif
 	}
 	~spin_lock_guard()
 	{
