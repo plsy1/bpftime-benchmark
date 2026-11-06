@@ -290,8 +290,16 @@ with its shard only when the shard is reclaimed (dead thread or consumer
 remap), as kernel counts are lost with their ring.
 
 Consumers in `bpftime_epoll_wait` sleep on the shared futex word
-`bpftime_perf_wakeup_state` with a 1 ms timeout: register in `waiters`,
-fence, re-check, then `FUTEX_WAIT`. A producer asks for a wakeup as the
+`bpftime_perf_wakeup_state`: register in `waiters`, fence, re-check, then
+`FUTEX_WAIT`, up to the caller's timeout and at most 100 ms (libbpf's tools
+poll with 100 ms). What no producer wakes for is found then: ring buffer
+records submitted with `BPF_RB_NO_WAKEUP`, perf events made without wakeup
+settings below the watermark, and a dead producer's reservation (recovered
+up to 100 ms later). Until 11-06 the timeout was 1 ms, and an idle tool
+scanned every ring and shard a thousand times a second (2-7 ms of CPU a
+second; with 493 shards and their sweeps 36% of a core;
+`uprobe/more-dims-20261106`, n5-footprint). Test "An idle consumer sleeps
+through the caller's timeout" (572 drains in 300 ms at 1 ms, under 10 now). A producer asks for a wakeup as the
 kernel decides from the consumer's `perf_event_attr` (`watermark`,
 `wakeup_events` / `wakeup_watermark`, passed from `perf_event_open` into the
 event: `software_perf_event_wakeup`): when a sample was dropped or its shard
