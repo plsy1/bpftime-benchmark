@@ -291,12 +291,23 @@ remap), as kernel counts are lost with their ring.
 
 Consumers in `bpftime_epoll_wait` sleep on the shared futex word
 `bpftime_perf_wakeup_state` with a 1 ms timeout: register in `waiters`,
-fence, re-check, then `FUTEX_WAIT`. A producer asks for a wakeup only when
-its shard was at least half full right after publishing (measured from the
-tail read before publishing) or a sample was dropped, like the kernel's
-`wakeup_watermark`; smaller output is delivered by the timeout. Waking on
-every sample costs a futex syscall per event (measured -8% req/s on
-ssl-nginx with 16 B responses). The producer fences and issues `FUTEX_WAKE`
+fence, re-check, then `FUTEX_WAIT`. A producer asks for a wakeup as the
+kernel decides from the consumer's `perf_event_attr` (`watermark`,
+`wakeup_events` / `wakeup_watermark`, passed from `perf_event_open` into the
+event: `software_perf_event_wakeup`): when a sample was dropped or its shard
+is past the watermark right after publishing (measured from the tail read
+before publishing; `wakeup_watermark` bytes with `watermark` set, else half
+the shard), and without `watermark` every `wakeup_events` samples, counted
+per shard. libbpf's perf_buffer asks for every sample (`wakeup_events =
+sample_period = 1`). From db3d475f to 11-06 only the half-shard rule
+existed (waking on every sample had cost ssl-nginx 8-9% of its requests per
+second), and libbpf's tools got their samples by the 1 ms timeout: 0.5 ms
+late on average (gethostlatency 540-572 us against bpf's 19-44,
+`uprobe/output-dims-20261106`, findings 6 and 15). An event made without
+the settings (`bpftime_add_software_perf_event`) keeps the half-shard rule
+only. Tests "Software perf event wakes as the consumer's attr asks", "Small
+output wakes a consumer that asks for every sample" (both fail with the
+settings ignored). The producer fences and issues `FUTEX_WAKE`
 only when `waiters` is non-zero; keep both fences, or a wakeup can be missed
 until the timeout. SIGINT/SIGTERM stay
 blocked while sleeping and are collected with a zero-timeout `sigtimedwait`

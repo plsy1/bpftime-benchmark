@@ -925,8 +925,12 @@ int syscall_context::handle_perfevent(perf_event_attr *attr, pid_t pid, int cpu,
 		return fd;
 	} else if ((int)attr->type == (int)bpf_event_type::PERF_TYPE_SOFTWARE) {
 		SPDLOG_DEBUG("Detected software perf event creation");
-		int fd = bpftime_add_software_perf_event(cpu, attr->sample_type,
-							 attr->config);
+		// The wakeup settings decide when output wakes the consumer
+		// (libbpf's perf_buffer: every sample); they were dropped, and
+		// output woke it only at half a ring.
+		int fd = bpftime_add_software_perf_event_with_wakeup(
+			cpu, attr->sample_type, attr->config, attr->watermark,
+			attr->wakeup_events);
 		SPDLOG_DEBUG("Created software perf event with fd {}", fd);
 		return fd;
 	} else if ((int)attr->type == (int)bpf_event_type::BPF_TYPE_UREPLACE) {
