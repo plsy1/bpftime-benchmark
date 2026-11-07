@@ -374,10 +374,52 @@ x86 d46ceb8f 1/1, x86 9c088441 3/3, Jetson c689eb11 2/2 (one of them a segmentat
 the message). With the console reporter the same binary runs to the end
 every time (Jetson 272 cases: 265 passed, 6 skipped, the user-to-kernel tail call failing without
 root; x86 the same, 3/3). The daily, `each.sh` and the NUC per-case runs use the console reporter
-or one process per case, so none of them sees it. Possibly a heap corruption that only the junit
-reporter's allocations expose; the cause is not known (not investigated).
+or one process per case, so none of them sees it. Cause found on 11-08 (section 10): test cases
+that call Catch2 assertions from several threads at once, not the bpftime runtime.
 
 Added to the daily list on 11-08 (automation `3b9e9ff7`, 216 commits; the temporary copy deleted).
+
+## 10. The junit crash: assertions from worker threads (11-08, 03:10-03:31, `junit-threads/`)
+
+Same binary as section 9 (candidate c689eb11, `build-jetson-daily`, Catch2 v3.4.0), as jetson.
+gdb loses the threads of this suite, so the crash was placed with two reporters at once (junit,
+and console with durations to a file): both runs stop in "LPM Trie Multi-thread", whose three
+pthreads (update, delete, lookup) each run 2,000 x 4 `REQUIRE`s; the console file records a
+`std::bad_alloc` at one of them (`test_lpm_trie_map.cpp:918`) and stderr "double free or
+corruption".
+
+Catch2's own docs (`docs/limitations.md`, "Thread safe assertions"): the assertion macros are not
+thread safe, only one thread at a time may use them. The junit reporter sets
+`shouldReportAllAssertions`, so every passing assertion takes the full path
+(`handleExpr` -> `reportExpr` -> `assertionEnded`: an `AssertionResult` with string members, the
+message vector copied for the reporter, a move into `RunContext::m_lastResult`); several threads
+there at once allocate and free shared `RunContext` and reporter state (which allocation is
+freed twice was not traced). The plain console reporter only increments a
+counter for a pass (a race on the count, nothing allocated), which is why it runs to the end.
+Opt-in thread-safe assertions came with Catch2 3.9.0 (`CATCH_CONFIG_THREAD_SAFE_ASSERTIONS`
+since 3.12.0).
+
+Exit codes, each case alone, 5 runs (124: hung until the 180 s timeout):
+
+| case | origin | junit | `-s` (console, passes reported) | console |
+|---|---|---|---|---|
+| LPM Trie Multi-thread | official 7f41aedd (#401) | 139 x5 | 139 0 139 134 0 | 0 x5 |
+| test_map_stress (kernel): 100 threads in `test_hashmap` etc. | official 327ba8db (#354) | 139 139 139 134 124 | | 0 x5 |
+| test_map_parallel (kernel): 20 threads in `test_update_delete` | official 327ba8db (#354) | 139 139 134 139 139 | | 0 x5 |
+| hash map inserts take free elements from every list: 4 threads | dev 922dde47 | 139 x5 | | 0 x5 |
+| Software perf event shards are matched within a pid namespace | dev 94099872 | 0 x5 | | 0 x5 |
+
+The last one asserts once in one thread while the main thread only spins and then joins, so the
+two never overlap. With the five left out, the whole suite with junit ran to the end 3/3 (267
+cases, report complete, only the root-only tail call failing, 6 skipped, 33 s each). x86 was not
+rerun; its junit runs died right after the LPM trie cases, which fits.
+
+So the runtime is not involved, and plain console runs (the daily, `each.sh`, upstream CI's
+`test-runtime.yml`, the NUC per-case runs) are not affected. Left as is: a failing `REQUIRE` in
+one of these worker threads also aborts the whole binary on any reporter (the exception leaves
+the thread) instead of reporting the failure; this holds for all five cases, the pid namespace
+one included. Not fixed; a fix is test-only (count failures in
+the threads, assert after the join, or a lock around the assertion macros), or a Catch2 update.
 
 ## Open after this round
 
@@ -388,5 +430,6 @@ Added to the daily list on 11-08 (automation `3b9e9ff7`, 216 commits; the tempor
 - The daily build keeps the checks off (decided 11-07): checked reads cost ssl-nginx about 10%
   (bpftime +5-7% over the kernel instead of +17-19%); a bad pointer in a probe read still
   crashes the traced process there.
-- The whole runtime suite in one process with the junit reporter dies with a glibc heap
-  corruption report on both architectures (section 9); not investigated.
+- Four test cases assert from several threads at once (three from official, one dev), which
+  Catch2 3.4 does not allow: reporters that report every assertion (junit, `-s`) corrupt the
+  heap, and a failure in a worker thread aborts the binary (section 10); not fixed.

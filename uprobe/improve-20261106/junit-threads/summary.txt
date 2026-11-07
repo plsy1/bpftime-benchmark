@@ -1,0 +1,81 @@
+# The whole-suite junit crash (section 9): assertions from worker threads (2026-11-08, 03:10-03:31; exit-code checks, not measurements; the
+# daily timer fired at 03:35:22 and skipped, official unchanged)
+#
+# Binary: candidate c689eb11 (25e250d6 + 216 commits), build-jetson-daily (RelWithDebInfo, gcc 13,
+# probe checks off), runtime/unit-test/bpftime_runtime_tests, run as jetson (not root).
+# Catch2 v3.4.0 (third_party/Catch2 at 6e79e682).
+R=.../build-jetson-daily/runtime/unit-test/bpftime_runtime_tests
+
+## 1. Where it dies
+# gdb loses the inferior's threads in this suite ("Cannot find user-level thread for LWP"), so no
+# stack. Two reporters instead: junit plus console with durations.
+$R -r junit::out=m1.xml -r console::out=m1.console -d yes      # 2 runs: rc 134, rc 139
+# console file, both runs: last finished case "LPM Trie Full Map", then
+#   LPM Trie Multi-thread  test_lpm_trie_map.cpp:946
+#   test_lpm_trie_map.cpp:918: FAILED: REQUIRE( (ret == 0 || errno == 2) )
+#   due to unexpected exception with message: std::bad_alloc
+# stderr: "double free or corruption (!prev)". Line 918 is inside lpm_test_command, the body of
+# three pthreads (update, delete, lookup), each 2,000 x 4 REQUIREs.
+
+## 2. The one case alone, three reporter settings, 5 runs each (exit codes)
+$R "LPM Trie Multi-thread" -r junit -o one.xml   ->  139 139 139 139 139
+$R "LPM Trie Multi-thread" -s                    ->  139   0 139 134   0
+$R "LPM Trie Multi-thread"                       ->    0   0   0   0   0
+# -s = console reporter that also reports passing assertions. So: not junit as such, but any
+# reporter setting that reports every assertion.
+
+## 3. Why (Catch2 3.4.0 source and docs)
+# reporters/catch_reporter_junit.cpp:91  m_preferences.shouldReportAllAssertions = true;
+# internal/catch_run_context.cpp:173    m_includeSuccessfulResults = includeSuccessfulResults()
+#                                        || shouldReportAllAssertions
+# A passing assertion then takes the full path (RunContext::handleExpr -> reportExpr ->
+# assertionEnded): builds an AssertionResult (std::string members), copies the message vector
+# into AssertionStats for the reporter and move-assigns the result to RunContext::m_lastResult. Without it (plain console) a
+# pass only does ++m_totals.assertions.passed and clears an empty vector: still a data race on
+# the counter, but nothing allocated or freed. Several threads on the full path allocate and
+# free shared RunContext and reporter state at once -> heap corruption (which allocation is
+# freed twice was not traced).
+# docs/limitations.md, "Thread safe assertions": "Catch2's assertion macros are not thread safe.
+# ... only single thread can interact with Catch's assertions and other macros." Opt-in
+# thread-safe assertions came in Catch2 3.9.0 (CATCH_CONFIG_EXPERIMENTAL_THREAD_SAFE_ASSERTIONS),
+# renamed CATCH_CONFIG_THREAD_SAFE_ASSERTIONS and no longer experimental in 3.12.0.
+
+## 4. All cases that assert from several threads at once
+# Scan of runtime/unit-test for REQUIRE/CHECK inside thread bodies, then by hand the helpers the
+# threads call (run_parallel in kernel_unit_tests.cpp hides its lambdas from a plain scan).
+#  case                                                    file:line                          origin
+#  LPM Trie Multi-thread                                   maps/test_lpm_trie_map.cpp:914-922 official 7f41aedd (#401, 2025-09-07)
+#  test_map_stress (kernel)                                maps/kernel_unit_tests.cpp:586     official 327ba8db (#354, 2024-10-21)
+#     100 threads x test_hashmap, _percpu, _sizes, test_arraymap, _percpu: every REQUIRE in them
+#  test_map_parallel (kernel)                              maps/kernel_unit_tests.cpp:728,754 official 327ba8db
+#     20 threads, REQUIRE in test_update_delete (the spin lock covers the map calls only)
+#  hash map inserts take free elements from every list     maps/test_hash_map_chains.cpp:206  dev 922dde47 (2026-11-03)
+#     4 threads, REQUIRE(map.elem_delete(&key))
+# Not a problem in practice:
+#  Software perf event shards are matched within a pid     test_software_perf_event.cpp:830   dev 94099872
+#  namespace: one REQUIRE in one thread while the main thread only spins and then joins (no
+#  overlap); a failure there would still throw out of std::thread and abort.
+
+## 5. Each case alone, 5 runs, junit vs console (exit codes; 124 = hung until timeout 180)
+test_map_stress (kernel)                       junit: 139 139 139 134 124   console: 0 0 0 0 0
+test_map_parallel (kernel)                     junit: 139 139 134 139 139   console: 0 0 0 0 0
+hash map inserts take free elements ...        junit: 139 139 139 139 139   console: 0 0 0 0 0
+Software perf event shards ... pid namespace   junit:   0   0   0   0   0   console: 0 0 0 0 0
+
+## 6. Whole suite with junit, the four cases and the pid namespace one left out, 3 runs
+X='~"LPM Trie Multi-thread"~"test_map_stress (kernel)"~"test_map_parallel (kernel)"~"hash map inserts take free elements from every list"~"Software perf event shards are matched within a pid namespace"'
+$R "$X" -r junit -o exN.xml        # 267 of 272 cases
+run 1 rc 1: report complete, 1 failure (Test tail calling from userspace to kernel: needs root), 6 skipped, 32.9 s
+run 2 rc 1: same
+run 3 rc 1: same
+# (With only the LPM case left out, run once at 03:12: "double free or corruption (out)" and a
+# hang after the stack trace map cases' log lines; the next case that asserts from threads in
+# the run order is test_map_stress (kernel).)
+
+## Conclusion
+# The test code breaks Catch2's documented rule (one thread at a time in assertion macros); the
+# bpftime runtime is not involved. Plain console runs (the daily, each.sh, upstream CI's
+# test-runtime.yml, the NUC per-case runs) do not report passing assertions and so do not crash.
+# x86 not rerun: its whole-suite junit runs died right after the LPM trie cases, which fits.
+# A failing REQUIRE in one of these worker threads aborts the whole binary (exception out of a
+# thread) on any reporter, instead of reporting the failure.
