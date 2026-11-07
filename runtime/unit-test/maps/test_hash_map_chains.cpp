@@ -199,14 +199,21 @@ TEST_CASE("hash map inserts take free elements from every list",
 				   bpftime_hash_map::update_mode::any) ==
 			bpftime_hash_map::update_result::full);
 		// Deleted on other threads: the elements go to their lists.
+		// The threads count failures and the test asserts after joining:
+		// Catch2's macros are for one thread at a time, and reporters that
+		// record passing assertions (junit, -s) corrupted the heap when
+		// four threads asserted at once.
+		std::atomic<uint32_t> failed{ 0 };
 		std::vector<std::thread> threads;
 		for (int t = 0; t < 4; t++)
 			threads.emplace_back([&, t] {
 				for (uint32_t key = t; key < max_entries; key += 4)
-					REQUIRE(map.elem_delete(&key));
+					if (!map.elem_delete(&key))
+						failed.fetch_add(1);
 			});
 		for (auto &t : threads)
 			t.join();
+		REQUIRE(failed.load() == 0);
 		REQUIRE(map.get_elem_count() == 0);
 	}
 }
