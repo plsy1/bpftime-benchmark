@@ -339,6 +339,46 @@ map usage counter cases skipped as before, the rest passed; the daily smoke: fun
 4,263,000 calls counted exactly, memleak 9 outstanding allocations, SIGUSR1 detach with the
 workload running to its end. Root-owned test segments removed afterwards.
 
+## 9. Before the daily list: the 25e250d6 gate and x86 (11-07, 17:00-17:50, `daily-gate/`)
+
+Gate as the daily would run it, the official SHA (25e250d6) being unchanged so the daily itself
+skips: the 16 commits d46ceb8f..9c088441 appended to a temporary copy of the daily list
+(`tools/jetson-upstream/config.local-test.json` in the automation checkout, untracked; config.json
+untouched), `tracker.py --config <copy> migrate --official-sha 25e250d6...` (216 commits, every
+cherry-pick clean, candidate c689eb11 on the local branch `dev/uprobe-official-25e250d651ad`, not
+pushed; `runtime/`, `attach/` and `vm/` identical to dev 9c088441), then `test-candidate`
+(log `bpftime-daily-state/candidate-test-candidate-20261107-25e2-216.log`, 17:01-17:08, rc 0):
+
+| suite | 200 commits (11-05) | 216 commits |
+|---|---|---|
+| runtime, daily filter | 183 passed, 1 skipped | 194 passed, 1 skipped (11 new cases) |
+| Frida attach | 25 | 26 |
+| transformer | 54 + 1 expected failure | 54 + 1 expected failure |
+| the other three suites | passed | passed |
+| smoke funclatency | 4,271,000 calls, counted exactly | 5,549,000 calls, counted exactly |
+| smoke memleak / SIGUSR1 detach | 9 outstanding / detached, rc 0 | 9 outstanding / detached, rc 0 |
+
+x86 (NUC, 17:03-17:48, NUC session told before and after): dev 9c088441 against d46ceb8f, the
+daily's build settings (checks off), the NUC session's method (daily filter in one process, every
+runtime and Frida case in a process of its own, 60 s each). No new failure: the same 7 cases fail
+on both (4 need root and pass 3/3 under sudo on 9c088441, among them "Producers in two pid
+namespaces with the same pid write apart"; 3 need the map usage counters build option), the
+changed areas (`[ringbuf],[epoll],[perf_event],[allocation]`) pass 3/3, Frida 26/26. The x86
+files go to the x86-nuc branch (NUC session).
+
+Found on the way (not caused by this round): the whole runtime suite in ONE process with
+Catch2's junit reporter (`-r junit -o x.xml`) dies at the same point of every run (x86: the
+last log lines are the LPM trie cases'; Jetson, info logging only: the shm JSON import case's),
+glibc reporting "double free or corruption (!prev)" and then aborting, hanging or crashing:
+x86 d46ceb8f 1/1, x86 9c088441 3/3, Jetson c689eb11 2/2 (one of them a segmentation fault without
+the message). With the console reporter the same binary runs to the end
+every time (Jetson 272 cases: 265 passed, 6 skipped, the user-to-kernel tail call failing without
+root; x86 the same, 3/3). The daily, `each.sh` and the NUC per-case runs use the console reporter
+or one process per case, so none of them sees it. Possibly a heap corruption that only the junit
+reporter's allocations expose; the cause is not known (not investigated).
+
+Added to the daily list on 11-08 (automation `3b9e9ff7`, 216 commits; the temporary copy deleted).
+
 ## Open after this round
 
 - perf output's per-sample fence (+59 ns per call on one thread) now that every sample asks
@@ -348,5 +388,5 @@ workload running to its end. Root-owned test segments removed afterwards.
 - The daily build keeps the checks off (decided 11-07): checked reads cost ssl-nginx about 10%
   (bpftime +5-7% over the kernel instead of +17-19%); a bad pointer in a probe read still
   crashes the traced process there.
-- Not run: the gate on the 25e250d6 candidate (`tracker.py migrate`, `test-candidate`) waits
-  for the daily list decision; x86 (NUC) for the ring buffer and perf changes.
+- The whole runtime suite in one process with the junit reporter dies with a glibc heap
+  corruption report on both architectures (section 9); not investigated.
