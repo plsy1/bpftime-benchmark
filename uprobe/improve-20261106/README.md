@@ -406,7 +406,7 @@ Exit codes, each case alone, 5 runs (124: hung until the 180 s timeout):
 | LPM Trie Multi-thread | official 7f41aedd (#401) | 139 x5 | 139 0 139 134 0 | 0 x5 |
 | test_map_stress (kernel): 100 threads in `test_hashmap` etc. | official 327ba8db (#354) | 139 139 139 134 124 | | 0 x5 |
 | test_map_parallel (kernel): 20 threads in `test_update_delete` | official 327ba8db (#354) | 139 139 134 139 139 | | 0 x5 |
-| hash map inserts take free elements from every list: 4 threads | dev 922dde47 | 139 x5 | | 0 x5 |
+| hash map inserts take free elements from every list: 4 threads | dev 922dde47; fixed in dev 8a0afd36 | 139 x5 (fixed: 0 x10) | | 0 x5 |
 | Software perf event shards are matched within a pid namespace | dev 94099872 | 0 x5 | | 0 x5 |
 
 The last one asserts once in one thread while the main thread only spins and then joins, so the
@@ -421,6 +421,13 @@ the thread) instead of reporting the failure; this holds for all five cases, the
 one included. Not fixed; a fix is test-only (count failures in
 the threads, assert after the join, or a lock around the assertion macros), or a Catch2 update.
 
+The dev case is fixed in dev 8a0afd36 (11-08, `junit-threads/fix-8a0afd36.txt`): its threads
+count failed deletes and the test asserts the count after joining. The case passes 10/10 with
+junit, `-s` and console; the whole suite with junit, only the three official cases left out, runs
+to the end (only the root-only tail call failing). Mutations: each thread deleting its keys
+twice fails the case cleanly with junit 5/5; `REQUIRE` back in the threads crashes it 5/5. The
+three official cases are left for an upstream fix.
+
 ## Open after this round
 
 - perf output's per-sample fence (+59 ns per call on one thread) now that every sample asks
@@ -430,6 +437,7 @@ the threads, assert after the join, or a lock around the assertion macros), or a
 - The daily build keeps the checks off (decided 11-07): checked reads cost ssl-nginx about 10%
   (bpftime +5-7% over the kernel instead of +17-19%); a bad pointer in a probe read still
   crashes the traced process there.
-- Four test cases assert from several threads at once (three from official, one dev), which
-  Catch2 3.4 does not allow: reporters that report every assertion (junit, `-s`) corrupt the
-  heap, and a failure in a worker thread aborts the binary (section 10); not fixed.
+- Three official test cases assert from several threads at once (LPM Trie Multi-thread,
+  test_map_stress, test_map_parallel), which Catch2 3.4 does not allow: reporters that report
+  every assertion (junit, `-s`) corrupt the heap, and a failure in a worker thread aborts the
+  binary (section 10). The dev case is fixed (8a0afd36); the official ones are left for upstream.

@@ -1,0 +1,18 @@
+# dev 8a0afd36 (on 9c088441): "hash map inserts take free elements from every list" counts
+# failed deletes in its four threads and asserts the count after joining (2026-11-08 03:45-04:05).
+# Binary: worktrees/177a1dc465ff/candidate/build-probecheck (RelWithDebInfo, probe checks on).
+T="hash map inserts take free elements from every list"
+
+## The fixed case, 10 runs each (exit codes)
+$R "$T" -r junit -o fix.xml    ->  0 0 0 0 0 0 0 0 0 0
+$R "$T" -s                     ->  0 0 0 0 0 0 0 0 0 0
+$R "$T"                        ->  0 0 0 0 0 0 0 0 0 0
+$R '[bpftime_hash_map]'        ->  All tests passed (9848461 assertions in 29 test cases)
+
+## Mutations (source patched, binary rebuilt, 5 runs with junit; source restored and rebuilt after)
+A: each thread deletes its keys twice   -> 1 1 1 1 1   (FAILED: REQUIRE( failed.load() == 0 ), report complete)
+B: REQUIRE(map.elem_delete(&key)) in the threads again -> 139 139 139 139 139
+
+## Whole suite with junit, only the three official cases left out (270 of 273 cases in this build)
+X='~"LPM Trie Multi-thread"~"test_map_stress (kernel)"~"test_map_parallel (kernel)"'
+$R "$X" -r junit -o fix-whole.xml   -> rc 1: failures 1 (Test tail calling from userspace to kernel: needs root), skipped 6, 32.7 s
