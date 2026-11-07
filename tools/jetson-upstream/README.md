@@ -468,6 +468,37 @@ outstanding, detach rc 0). Their tests are in the existing filter tags
 (`[epoll]`, `[percpu-hash]`, `[bpftime_hash_map]`, `[jit_load]`) and the
 Frida and transformer suites. Results: `reviews-20261105/fixes`.
 
+Sixteen commits accepted 2026-11-07 follow, the improvement round on the
+11-06 measurements (`output-dims-20261106`, `more-dims-20261106`), `f4d505b3`
+to `9c088441`: a ring buffer record placed behind the end padding wakes a
+consumer waiting at the padding (4 KB records in bursts of 100 from 4 threads
+were delivered 60%); checked string reads take one `process_vm_readv` per
+chunk and zero what is not data (built only with the probe read check, which
+this build keeps off); perf output wakes the consumer as its
+`perf_event_attr` asks (`wakeup_events`, watermark) instead of at half a shard
+(gethostlatency printed each line about 0.5 ms late); the ring buffer reserve
+takes its lock inline, on a cache line of its own, reads the handler once per
+reserve and submit, and yields after spinning a while; perf output looks for
+dead threads' shards at most every 100 ms (an idle tool with 493 shards spent
+36% of a CPU), reclaims them when memory runs out and writes to a locked
+overflow shard instead of failing with ENOSPC; an agent started by
+`LD_PRELOAD` looks for the segment once instead of retrying for 3 s; Frida
+resolves each probe's module once per process; an epoll consumer naps after
+records and, idle, sleeps to the caller's timeout (at most 100 ms, so a dead
+producer's recovery can wait that long); the consumer leaves signals to the
+threads they are meant for and returns EINTR when a handler ran in it (it took
+a process-directed SIGINT meant for another thread, so a tool waiting for it
+in `pause()` never exited); docs. Replayed onto
+official 25e250d651ad (candidate c689eb11) without conflicts by `migrate`;
+`test-candidate` green (runtime 194 passed + 1 skipped, daemon, Frida 26,
+transformer 54 + 1 expected failure, smoke funclatency 5,549,000/5,549,000,
+memleak 9 outstanding, detach rc 0). Their tests are in the existing filter
+tags (`[ringbuf]`, `[epoll]`, `[perf_event]`, `[allocation]`) and the Frida
+suite; the checked read test (`[probe-read]`) is compiled only with the check
+on. On x86 (NUC) the same build settings show no new failure against
+d46ceb8f. Official has not moved since 25e250d6, so the gate above ran
+locally. Results: `uprobe/improve-20261106` (section 9 for the gate).
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
