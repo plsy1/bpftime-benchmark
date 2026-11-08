@@ -349,7 +349,9 @@ modified kernel (C[1] = 103), `cudaMemcpyToSymbol` reached its `d_N`, and `cudaG
 `cudaMemcpyFromSymbol` and the managed variable all saw the modified `inc()` (50 50 50). A patched
 image handed over at this call would need no launch redirection, no host symbol names and no global
 mirroring, which is where problems 3, 5, 6, 16 and 17 (and the 1.39 s symbol cache) come from.
-(`globals.mod.ptx` is stored without the terminating NUL the driver needs.)
+cudart passes one library option, `CU_LIBRARY_BINARY_IS_PRESERVED` = 1, and no JIT options
+(`gaps/gdb-libopts.out`, both cudart kinds), so a substituted image must stay in memory for the
+life of the process. (`globals.mod.ptx` is stored without the terminating NUL the driver needs.)
 
 ## Words used here
 
