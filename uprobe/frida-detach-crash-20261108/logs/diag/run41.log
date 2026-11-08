@@ -1,0 +1,37 @@
+calls 3767226 wrong 0
+DIAG sig=11 code=1 tid=223449 main=223445 cycle=0 step=12 pc=1f020058000010 lr=aaaabde45e7c sp=ffff8fe0e7b0 x16=d61f020058000010 x17=ffff91bdaf50 x0=2f5d1 x1=aaaabde44f10 x3=ff51afd7ed558ccd fault=1f020058000010 si_addr=0x1f020058000010 fn=0xaaaabde44f10 fnwords=58000050 d61f0200 91bc4100 0000ffff pc_minus_fn=8540274470662400
+Randomness seeded to: 3586659927
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests-diag is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+No probe callback runs after its detach returned
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/frida-detach-crash/attach/frida_uprobe_attach_impl/test/test_detach_while_called.cpp:378
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/frida-detach-crash/attach/frida_uprobe_attach_impl/test/test_detach_while_called.cpp:383: FAILED:
+  REQUIRE( status == 0 )
+with expansion:
+  139 == 0
+with message:
+  child status 139
+
+[2026-11-08 23:56:39.336] [info] [test_back_trace.cpp:85] symbol name __bpftime_test_attach_with_back_trace__func5
+[2026-11-08 23:56:39.342] [info] [test_back_trace.cpp:85] symbol name __bpftime_test_attach_with_back_trace__func3.constprop.0+0x10
+[2026-11-08 23:56:39.346] [info] [test_back_trace.cpp:85] symbol name __bpftime_test_attach_with_back_trace__func2.constprop.0+0xc
+[2026-11-08 23:56:39.351] [info] [test_back_trace.cpp:85] symbol name __bpftime_test_attach_with_back_trace__func1.constprop.0+0xc
+[2026-11-08 23:56:39.356] [info] [test_back_trace.cpp:116] symbol name __bpftime_test_attach_with_back_trace__func3.constprop.0+0x10
+[2026-11-08 23:56:39.360] [info] [test_back_trace.cpp:116] symbol name __bpftime_test_attach_with_back_trace__func4+0xc
+[2026-11-08 23:56:39.360] [error] [frida_uprobe_attach_impl.cpp:465] There is no frida hook running (occurrence 1)
+[2026-11-08 23:56:39.413] [info] [test_back_trace.cpp:196] signed 71aaaabde3b530 plain aaaabde3b530
+[2026-11-08 23:56:39.413] [error] Called bpftime_set_retval, but no retval callback was set
+[2026-11-08 23:56:39.413] [error] Called bpftime_override_return, but no retval callback was set
+[2026-11-08 23:56:39.413] [error] [frida_attach_private_data.cpp:20] Unable to parse `aaa:`, offset part cannot be empty
+[2026-11-08 23:56:39.414] [info] [frida_attach_utils.cpp:160] Failed to find module base address for /bpftime-nonexistent-module-for-resolution-test.so
+===============================================================================
+test cases:   26 |   25 passed | 1 failed
+assertions: 1116 | 1115 passed | 1 failed
+

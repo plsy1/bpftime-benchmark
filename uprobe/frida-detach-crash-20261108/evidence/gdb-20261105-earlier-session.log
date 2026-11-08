@@ -1,0 +1,47 @@
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+[Attaching after Thread 0xfffff7ff3020 (LWP 3240821) fork to child process 3240829]
+[New inferior 2 (process 3240829)]
+[Detaching after fork from parent process 3240821]
+[Inferior 1 (process 3240821) detached]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+
+Thread 2.4 "bpftime_frida_u" received signal SIGSEGV, Segmentation fault.
+[Switching to Thread 0xfffff71df0a0 (LWP 3240832)]
+0x001f020058000010 in ?? ()
+#0  0x001f020058000010 in ?? ()
+#1  0x0000aaaaaacc539c in operator() (__closure=0xaaaaab51c908) at /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/attach/frida_uprobe_attach_impl/test/test_detach_while_called.cpp:84
+#2  std::__invoke_impl<void, (anonymous namespace)::callers::callers(uint64_t (*)(uint64_t), int)::<lambda()> > (__f=...) at /usr/include/c++/13/bits/invoke.h:61
+#3  std::__invoke<(anonymous namespace)::callers::callers(uint64_t (*)(uint64_t), int)::<lambda()> > (__fn=...) at /usr/include/c++/13/bits/invoke.h:96
+#4  std::thread::_Invoker<std::tuple<(anonymous namespace)::callers::callers(uint64_t (*)(uint64_t), int)::<lambda()> > >::_M_invoke<0> (this=0xaaaaab51c908) at /usr/include/c++/13/bits/std_thread.h:292
+#5  std::thread::_Invoker<std::tuple<(anonymous namespace)::callers::callers(uint64_t (*)(uint64_t), int)::<lambda()> > >::operator() (this=0xaaaaab51c908) at /usr/include/c++/13/bits/std_thread.h:299
+#6  std::thread::_State_impl<std::thread::_Invoker<std::tuple<(anonymous namespace)::callers::callers(uint64_t (*)(uint64_t), int)::<lambda()> > > >::_M_run(void) (this=0xaaaaab51c900) at /usr/include/c++/13/bits/std_thread.h:244
+#7  0x0000fffff7dc1ae0 in ?? () from /lib/aarch64-linux-gnu/libstdc++.so.6
+#8  0x0000fffff7ab582c [PAC] in start_thread (arg=0xfffff7ff3760) at ./nptl/pthread_create.c:447
+#9  0x0000fffff7b1ba0c in thread_start () at ../sysdeps/unix/sysv/linux/aarch64/clone3.S:76
+pc             0x1f020058000010    0x1f020058000010
+Filters: "Concurrent override calls each return their own value","Detaching probes while threads call the function keeps them running"
+Randomness seeded to: 4206704074
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_frida_uprobe_attach_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+Detaching probes while threads call the function keeps them running
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/attach/frida_uprobe_attach_impl/test/test_detach_while_called.cpp:280
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/attach/frida_uprobe_attach_impl/test/test_detach_while_called.cpp:286: FAILED:
+  REQUIRE( status == 0 )
+with expansion:
+  137 == 0
+with message:
+  child status 137
+
+===============================================================================
+test cases: 2 | 1 passed | 1 failed
+assertions: 4 | 3 passed | 1 failed
+

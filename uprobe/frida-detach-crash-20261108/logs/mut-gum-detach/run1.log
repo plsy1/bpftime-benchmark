@@ -1,0 +1,54 @@
+Filters: "Detaching probes while threads call the function keeps them running","No probe callback runs after its detach returned","Detaching an override while threads call the function keeps them running"
+Randomness seeded to: 3174922108
+[2026-11-09 00:29:55.532] [error] [frida_internal_attach_entry.cpp:137] gum_interceptor_replace failed for attach_type=uprobe_override at function 0xaaaad48a5050 (err=-2, GUM_ATTACH_ALREADY_ATTACHED, module=/home/jetson/src/results/uprobe/frida-detach-crash-20261108/bin/tests-mut-gum-detach, first_bytes=50 00 00 58 00 02 1f d6). Frida may reject very short functions or unsupported signatures; try compiling the target with -O0, adding __attribute__((noinline)), or attaching to a larger wrapper.
+child: gum_interceptor_replace failed for attach_type=uprobe_override at function 0xaaaad48a5050 (err=-2, GUM_ATTACH_ALREADY_ATTACHED, module=/home/jetson/src/results/uprobe/frida-detach-crash-20261108/bin/tests-mut-gum-detach, first_bytes=50 00 00 58 00 02 1f d6). Frida may reject very short functions or unsupported signatures; try compiling the target with -O0, adding __attribute__((noinline)), or attaching to a larger wrapper.
+Filters: "Detaching probes while threads call the function keeps them running","No probe callback runs after its detach returned","Detaching an override while threads call the function keeps them running"
+Randomness seeded to: 3174922108
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests-mut-gum-detach is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+Detaching an override while threads call the function keeps them running
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/frida-detach-crash/attach/frida_uprobe_attach_impl/test/test_detach_while_called.cpp:284
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/frida-detach-crash/attach/frida_uprobe_attach_impl/test/test_detach_while_called.cpp:290: FAILED:
+  REQUIRE( status == 0 )
+with expansion:
+  5 == 0
+with message:
+  child status 5
+
+-------------------------------------------------------------------------------
+Detaching probes while threads call the function keeps them running
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/frida-detach-crash/attach/frida_uprobe_attach_impl/test/test_detach_while_called.cpp:353
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/frida-detach-crash/attach/frida_uprobe_attach_impl/test/test_detach_while_called.cpp:359: FAILED:
+  REQUIRE( status == 0 )
+with expansion:
+  135 == 0
+with message:
+  child status 135
+
+-------------------------------------------------------------------------------
+No probe callback runs after its detach returned
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/frida-detach-crash/attach/frida_uprobe_attach_impl/test/test_detach_while_called.cpp:362
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/frida-detach-crash/attach/frida_uprobe_attach_impl/test/test_detach_while_called.cpp:367: FAILED:
+  REQUIRE( status == 0 )
+with expansion:
+  135 == 0
+with message:
+  child status 135
+
+===============================================================================
+test cases: 3 | 3 failed
+assertions: 3 | 3 failed
+
