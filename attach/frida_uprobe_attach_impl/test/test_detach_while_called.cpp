@@ -65,6 +65,31 @@ concurrent_override_target(uint64_t x)
 	return h;
 }
 
+// Hooked only in fork children: each child's hook is its first.
+extern "C" __attribute__((noinline)) uint64_t
+attach_window_target(uint64_t x)
+{
+	uint64_t h = 0xd6e8feb86659fd93ULL;
+	for (int i = 0; i < 4; i++) {
+		h ^= x + i;
+		h *= 0xbf58476d1ce4e5b9ULL;
+	}
+	asm volatile("" : "+r"(h));
+	return h;
+}
+
+// Hooked in the parent before the children fork, so that Gum is set up there.
+extern "C" __attribute__((noinline)) uint64_t attach_window_warmup(uint64_t x)
+{
+	uint64_t h = 0x94d049bb133111ebULL;
+	for (int i = 0; i < 4; i++) {
+		h ^= x + i;
+		h *= 0x2545f4914f6cdd1dULL;
+	}
+	asm volatile("" : "+r"(h));
+	return h;
+}
+
 extern "C" uint64_t bpftime_set_retval(uint64_t value);
 
 namespace
@@ -107,6 +132,10 @@ int run_in_child(int (*body)())
 {
 	pid_t pid = fork();
 	if (pid == 0) {
+		// Die by the signal: Catch's handler, inherited, reported a
+		// child's crash as a fatal error of the parent's test case.
+		for (int sig : { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP })
+			signal(sig, SIG_DFL);
 		// Never back into Catch in the child.
 		try {
 			_exit(body());
@@ -134,9 +163,42 @@ int run_in_child(int (*body)())
 				   128 + WTERMSIG(status);
 }
 
+// Gum writes a function's redirect over its first instructions while other
+// threads may run them (on Linux it stops no thread): a thread can run the
+// half-written redirect, e.g. `ldr x16, [pc]` before Gum fixes its offset,
+// which loads the redirect's own encodings and jumps there (SIGSEGV at
+// 0x1f020058000010). That is the attach-time window (CLAUDE.md, measured by
+// the hidden "First hook of a function while threads call it"), not a
+// detach. The slot keeps the redirect for the life of the process, so the
+// detach tests hook their function once before the callers start; what they
+// race is the detaches and the attaches after them.
+bool hook_before_callers(frida_attach_impl &man, void *function,
+			 bool uretprobe, bool override)
+{
+	std::vector<int> ids;
+	ids.push_back(override ? man.create_uprobe_override_at(
+					 function, [](const pt_regs &) {}) :
+				 man.create_uprobe_at(function,
+						      [](const pt_regs &) {}));
+	if (uretprobe)
+		ids.push_back(man.create_uretprobe_at(function,
+						      [](const pt_regs &) {}));
+	bool ok = true;
+	for (int id : ids) {
+		if (id < 0)
+			ok = false;
+		else
+			man.detach_by_id(id);
+	}
+	return ok;
+}
+
 int detach_while_threads_call_the_function()
 {
 	frida_attach_impl man;
+	if (!hook_before_callers(man, (void *)detach_while_called_target, true,
+				 false))
+		return 2;
 	callers c(detach_while_called_target);
 	std::atomic<uint64_t> hits{ 0 };
 	int cycles = 0;
@@ -170,6 +232,9 @@ int detach_while_threads_call_the_function()
 int callbacks_after_detach_returns()
 {
 	frida_attach_impl man;
+	if (!hook_before_callers(man, (void *)detach_while_called_target, false,
+				 false))
+		return 2;
 	callers c(detach_while_called_target);
 	std::deque<std::atomic<bool>> detached;
 	std::atomic<uint64_t> late{ 0 }, hits{ 0 };
@@ -203,6 +268,9 @@ int callbacks_after_detach_returns()
 int detach_override_while_threads_call_the_function()
 {
 	frida_attach_impl man;
+	if (!hook_before_callers(man, (void *)detach_override_target, false,
+				 true))
+		return 2;
 	callers c(detach_override_target);
 	std::atomic<uint64_t> hits{ 0 };
 	int cycles = 0;
@@ -401,6 +469,56 @@ TEST_CASE("A probe on a thunk keeps firing after its target's probe is detached"
 	CHECK(hits_target == 1);
 }
 #endif
+
+// The attach-time window (CLAUDE.md): Gum writes the redirect over the first
+// instructions while the four callers run them. Each child hooks
+// attach_window_target for the first time right after starting its callers,
+// as the detach tests did. Hidden: it fails while the window exists (all 200
+// children survive in about 1 run of 130); run by name, it measures how often
+// a first hook kills the process (SIGSEGV in 17 of 700 on the Orin). Gum is set up in the parent first, as in the full
+// test binary: in a child that set it up itself, 0 of 300 were killed.
+namespace
+{
+int first_hook_while_threads_call_it()
+{
+	frida_attach_impl man;
+	callers c(attach_window_target);
+	int id = man.create_uprobe_at((void *)attach_window_target,
+				      [](const pt_regs &) {});
+	if (id < 0)
+		return 2;
+	std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	c.join();
+	return 0;
+}
+} // namespace
+
+TEST_CASE("First hook of a function while threads call it", "[.][attach-window]")
+{
+	{
+		frida_attach_impl warm;
+		int id = warm.create_uprobe_at((void *)attach_window_warmup,
+					       [](const pt_regs &) {});
+		REQUIRE(id >= 0);
+		warm.detach_by_id(id);
+	}
+	const int children = 200;
+	int killed = 0, other = 0;
+	for (int i = 0; i < children; i++) {
+		int status = run_in_child(first_hook_while_threads_call_it);
+		if (status > 128 && status != 255) {
+			killed++;
+			printf("child %d: signal %d\n", i, status - 128);
+		} else if (status != 0) {
+			other++;
+			printf("child %d: status %d\n", i, status);
+		}
+	}
+	printf("first hooks under load: %d of %d children killed\n", killed,
+	       children);
+	CHECK(other == 0);
+	CHECK(killed == 0);
+}
 
 // Calls per second of a hooked function: native, attached (an empty uprobe),
 // and parked after the detach. Hidden; run by name.
