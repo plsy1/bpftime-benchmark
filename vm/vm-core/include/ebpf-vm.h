@@ -133,6 +133,14 @@ int ebpf_register_array_map_kind(struct ebpf_vm *vm, uint64_t handle,
  * registered at the private slots of bpftime_direct_map_helpers.hpp. */
 int ebpf_register_direct_map_handle(struct ebpf_vm *vm, uint64_t handle);
 
+/* Optional, for bpftime's AOT cache: AOT objects refer to map values and the
+ * value bases of inlined arrays by symbol (the LLVM VM's names), which
+ * ebpf_load_aot_object resolves from ebpf_define_aot_symbol. -ENOTSUP for
+ * other backends. */
+int ebpf_set_relocatable_map_addresses(struct ebpf_vm *vm, bool enabled);
+int ebpf_define_aot_symbol(struct ebpf_vm *vm, const char *name,
+			   uint64_t address);
+
 /**
  * @brief Load code into a VM.
  * This must be done before calling ebpf_exec or ebpf_compile and after

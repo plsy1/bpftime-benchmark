@@ -43,6 +43,16 @@ class bpftime_llvm_vm : public bpftime::llvmbpf_vm,
 		map.direct_helpers = true;
 		return bpftime::llvmbpf_vm::register_array_map(map);
 	}
+	int set_relocatable_map_addresses(bool enabled) override
+	{
+		bpftime::llvmbpf_vm::set_relocatable_map_addresses(enabled);
+		return 0;
+	}
+	int define_aot_symbol(const std::string &name, uint64_t address) override
+	{
+		bpftime::llvmbpf_vm::define_aot_symbol(name, address);
+		return 0;
+	}
 	void unload_code() override;
 	int exec(void *mem, size_t mem_len,
 		 uint64_t &bpf_return_value) override;
