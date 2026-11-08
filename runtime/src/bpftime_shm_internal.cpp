@@ -787,7 +787,9 @@ int bpftime_shm::open_fake_fd()
 
 // handle bpf commands to load a bpf program
 int bpftime_shm::add_bpf_prog(int fd, const ebpf_inst *insn, size_t insn_cnt,
-			      const char *prog_name, int prog_type)
+			      const char *prog_name, int prog_type,
+			      const std::vector<uint8_t> &aot_object,
+			      const std::vector<uint8_t> &aot_key)
 {
 	if (fd < 0) {
 		// if fd is negative, we need to create a new fd for allocating
@@ -799,7 +801,7 @@ int bpftime_shm::add_bpf_prog(int fd, const ebpf_inst *insn, size_t insn_cnt,
 	return manager->set_handler(
 		fd,
 		bpftime::bpf_prog_handler(segment, insn, insn_cnt, prog_name,
-					  prog_type),
+					  prog_type, aot_object, aot_key),
 		segment);
 }
 

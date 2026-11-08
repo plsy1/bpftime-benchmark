@@ -33,6 +33,7 @@
 #include <bpf_map/map_production_ab.hpp>
 #include <handler/handler_manager.hpp>
 #include <bpf_map/array_map_binding.hpp>
+#include <bpftime_prog_cache.hpp>
 #include <linux/bpf.h>
 #include <optional>
 #include <utility>
@@ -414,6 +415,22 @@ void bpf_attach_ctx::register_attach_impl(
 			std::make_pair(impl_ptr, private_data_creator);
 	}
 }
+// The AOT object the syscall server compiled for the program, if it has one
+// (bpftime_prog_cache.cpp). Trap-backend programs run in SIGTRAP, which AOT
+// code is not prepared for (prepare_for_signal_execution); they compile.
+static bool use_aot_cache(const bpf_prog_handler &handler,
+			  const runtime_config &config)
+{
+#if BPFTIME_HAVE_TRAP_UPROBE_ATTACH
+	(void)handler;
+	(void)config;
+	return false;
+#else
+	return config.jit_enabled && !handler.aot_insns.empty() &&
+	       !handler.aot_key.empty() && aot_cache_enabled();
+#endif
+}
+
 int register_prog_handler_helpers(
 	const handler_manager *manager, const ebpf_inst *insns, size_t insn_cnt,
 	bpftime_prog *prog, const runtime_config &config,
@@ -558,8 +575,14 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 	bpftime_prog *prog = instantiated_progs[id].get();
 	int err = register_prog_handler_helpers(manager, insns, cnt, prog,
 						config, &helpers);
-	if (err >= 0)
-		err = prog->bpftime_prog_load(config.jit_enabled);
+	if (err >= 0) {
+		if (use_aot_cache(handler, config))
+			err = prog->bpftime_prog_load_cached(
+				handler.aot_insns.data(), handler.aot_insns.size(),
+				handler.aot_key.data(), handler.aot_key.size());
+		else
+			err = prog->bpftime_prog_load(config.jit_enabled);
+	}
 	if (err < 0) {
 		SPDLOG_ERROR(
 			"Failed to load program helpers for prog handler {}: {}",

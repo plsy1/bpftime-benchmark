@@ -3,6 +3,7 @@
  * Copyright (c) 2022, eunomia-bpf org
  * All rights reserved.
  */
+#include "bpftime_prog_cache.hpp"
 #include "bpftime_logger.hpp"
 #include "bpftime_shm.hpp"
 #include <boost/interprocess/exceptions.hpp>
@@ -715,7 +716,9 @@ long syscall_context::handle_sysbpf(int cmd, union bpf_attr *attr, size_t size)
 				}
 			}
 #endif
-			int id = bpftime_progs_create(
+			// Compiled once here, with the AOT object kept for
+			// the agents (bpftime_prog_cache.cpp).
+			int id = bpftime_progs_create_cached(
 				-1 /* let the shm alloc fd for us */,
 				(ebpf_inst *)(uintptr_t)attr->insns,
 				(size_t)attr->insn_cnt, attr->prog_name,

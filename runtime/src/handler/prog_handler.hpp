@@ -6,6 +6,8 @@
 #include <ebpf-vm.h>
 #include "bpftime_shm.hpp"
 #include <utility>
+#include <vector>
+#include <cstdint>
 #include <optional>
 
 namespace bpftime
@@ -38,6 +40,13 @@ class bpf_prog_handler {
 	bpf_prog_handler(managed_shared_memory &mem,
 			 const struct ebpf_inst *insn, size_t insn_cnt,
 			 const char *prog_name, int prog_type);
+	// With the AOT cache's object and key (bpftime_progs_create_cached),
+	// both written before the handler is published.
+	bpf_prog_handler(managed_shared_memory &mem,
+			 const struct ebpf_inst *insn, size_t insn_cnt,
+			 const char *prog_name, int prog_type,
+			 const std::vector<uint8_t> &aot_object,
+			 const std::vector<uint8_t> &aot_object_key);
 	bpf_prog_handler(const bpf_prog_handler &) = delete;
 	bpf_prog_handler(bpf_prog_handler &&) noexcept = default;
 	bpf_prog_handler &operator=(const bpf_prog_handler &) = delete;
@@ -58,6 +67,11 @@ class bpf_prog_handler {
 					    shm_aot_inst_vector_allocator>;
 	inst_vector insns;
 	aot_inst_vector aot_insns;
+	// What aot_insns was compiled from (bpftime_prog::aot_cache_key); empty
+	// unless the syscall server cached it. Agents use aot_insns only when
+	// the key they compute equals it (bpftime_prog_load_cached). Objects
+	// stored by bpftime-aot have no key and are not used by agents.
+	aot_inst_vector aot_key;
 
 	boost_shm_string name;
 };
