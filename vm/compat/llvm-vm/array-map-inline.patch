@@ -1,6 +1,9 @@
+llvm_jit_context.cpp: array map lookup inlining (per-CPU, direct helpers, errno),
+and for the AOT cache: inlined value bases as symbols, inlining in the AOT
+compile, the large code model, and the per-load symbols.
 --- a/llvm_jit_context.cpp
 +++ b/llvm_jit_context.cpp
-@@ -14,6 +14,24 @@
+@@ -14,6 +14,29 @@
  #include <iostream>
  #include <sstream>
  
@@ -10,6 +13,11 @@
 +extern "C" bool bpftime_resolve_array_cpu_query_v1(
 +	void *, bpftime_array_cpu_query_hooks *) __attribute__((weak));
 +#endif
++// The value base of an inlined array in an AOT object of bpftime's cache.
++static std::string bpftime_array_value_base_symbol(uint64_t handle)
++{
++	return "__bpftime_array_value_base_" + std::to_string(handle);
++}
 +static bpftime_array_cpu_query_hooks resolve_array_cpu_query(void *registered)
 +{
 +	bpftime_array_cpu_query_hooks hooks{};
@@ -25,7 +33,31 @@
  #include <llvm/ExecutionEngine/MCJIT.h>
  #include <llvm/ExecutionEngine/ObjectCache.h>
  #include <llvm/IR/IRPrintingPasses.h>
-@@ -383,9 +401,53 @@
+@@ -375,6 +398,23 @@
+ 	return std::move(*target_machine);
+ }
+ 
++// bpftime's AOT cache: every symbol of its objects (helpers, map values,
++// array value bases) is an absolute address anywhere in the loading process.
++std::unique_ptr<llvm::TargetMachine>
++create_large_code_model_target_machine_or_throw(const llvmbpf_vm &vm)
++{
++	auto jtmb = create_host_jit_target_machine_builder(vm);
++	if (!jtmb) {
++		throw std::runtime_error(llvm::toString(jtmb.takeError()));
++	}
++	jtmb->setCodeModel(llvm::CodeModel::Large);
++	auto target_machine = jtmb->createTargetMachine();
++	if (!target_machine) {
++		throw std::runtime_error(llvm::toString(target_machine.takeError()));
++	}
++	return std::move(*target_machine);
++}
++
+ } // namespace
+ 
+ bool llvm_bpf_jit_context::inline_array_map_lookup_helpers(llvm::Module &module)
+@@ -383,9 +423,53 @@
  		return false;
  	}
  
@@ -80,7 +112,7 @@
  	}
  
  	std::vector<llvm::CallInst *> callSites;
-@@ -402,7 +464,31 @@
+@@ -402,7 +486,31 @@
  		}
  	}
  
@@ -113,7 +145,7 @@
  	for (auto *call : callSites) {
  		auto *mapHandle =
  			llvm::dyn_cast<llvm::ConstantInt>(call->getArgOperand(0));
-@@ -417,6 +503,11 @@
+@@ -417,6 +525,11 @@
  		}
  
  		const auto &map = mapIter->second;
@@ -125,7 +157,7 @@
  		if (map.key_size != sizeof(uint32_t) || map.max_entries == 0) {
  			continue;
  		}
-@@ -435,14 +526,18 @@
+@@ -435,14 +548,18 @@
  		}
  
  		llvm::IRBuilder<> builder(call);
@@ -146,12 +178,26 @@
  			index, builder.getInt32(map.max_entries),
  			"array_lookup.in_range");
  		llvm::Value *offset = builder.CreateZExt(
-@@ -461,17 +556,77 @@
+@@ -459,19 +576,89 @@
+ 				offset, builder.getInt64(stride),
+ 				"array_lookup.offset");
  		}
- 		auto *address = builder.CreateAdd(
- 			builder.getInt64(valueBase), offset, "array_lookup.addr");
+-		auto *address = builder.CreateAdd(
+-			builder.getInt64(valueBase), offset, "array_lookup.addr");
 -		auto *result = builder.CreateSelect(
 -			inRange, address, builder.getInt64(0),
++		// bpftime's AOT cache: the loading process defines the base.
++		llvm::Value *base = builder.getInt64(valueBase);
++		if (vm.relocatable_map_addresses_) {
++			const auto symbol = bpftime_array_value_base_symbol(map.map_handle);
++			auto *global = module.getNamedGlobal(symbol);
++			if (!global)
++				global = new llvm::GlobalVariable(module,
++					llvm::Type::getInt8Ty(module.getContext()), false,
++					llvm::GlobalValue::ExternalLinkage, nullptr, symbol);
++			base = builder.CreatePtrToInt(global, builder.getInt64Ty());
++		}
++		auto *address = builder.CreateAdd(base, offset, "array_lookup.addr");
 +		// Only the pinned standard runtime helper promises this ENOENT path.
 +		// Leave standalone/custom helpers and their map arguments unchanged.
 +		if (vm.ext_funcs[1] &&
@@ -230,7 +276,26 @@
  	}
  	return changed;
  }
-@@ -790,6 +945,28 @@
+@@ -566,8 +753,17 @@
+ 			}
+ 			optimizeModule(module, vm.optimization_level,
+ 				       vm.disabled_passes_, vm.log_passes_);
++			if (vm.relocatable_map_addresses_ &&
++			    inline_array_map_lookup_helpers(module)) {
++				optimizeModule(module, vm.optimization_level,
++					       vm.disabled_passes_,
++					       vm.log_passes_);
++			}
+ 			auto targetMachine =
+-				create_host_target_machine_or_throw(vm);
++				vm.relocatable_map_addresses_ ?
++					create_large_code_model_target_machine_or_throw(
++						vm) :
++					create_host_target_machine_or_throw(vm);
+ 			#if LLVM_VERSION_MAJOR >= 21
+ 				module.setTargetTriple(targetMachine->getTargetTriple());
+ 			#else
+@@ -790,6 +986,39 @@
  #endif
  		}
  	}
@@ -255,6 +320,17 @@
 +			define_cpu_symbol("__bpftime_array_cpu_raw_v1", (void *)hooks.read_cpu);
 +			define_cpu_symbol("__bpftime_array_cpu_error_v1", (void *)hooks.on_error);
 +		}
++	}
++	// bpftime's AOT cache: map values and array value bases of this process.
++	for (const auto &[name, address] : vm.aot_symbols_) {
++		auto symbol = JITEvaluatedSymbol(address, JITSymbolFlags::Exported);
++		auto key = jit->getExecutionSession().intern(name);
++#if LLVM_VERSION_MAJOR < 17
++		extSymbols.try_emplace(key, symbol);
++#else
++		extSymbols.try_emplace(key, llvm::orc::ExecutorSymbolDef(
++			llvm::orc::ExecutorAddr(symbol.getAddress()), symbol.getFlags()));
++#endif
 +	}
  #if defined(__arm__) || defined(_M_ARM)
  	SPDLOG_INFO("Defining __aeabi_unwind_cpp_pr1 on arm32");

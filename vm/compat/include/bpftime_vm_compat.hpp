@@ -100,25 +100,17 @@ class bpftime_vm_impl {
 	}
 
 	/**
-	 * @brief Register a host memory bounds-check callback.
-	 *
-	 * Backends with a runtime memory safety checker (uBPF) call this before
-	 * accepting a direct load/store against a host-owned region (BPF map
-	 * shared memory, entry context). The callback must return true when the
-	 * [addr, addr+size) range is known-safe. Backends that emit native code
-	 * without runtime bounds checking (LLVM) leave the default no-op.
-	 *
-	 * @param fn Bounds predicate; context is passed back unchanged.
-	 * @param context Opaque pointer supplied to every predicate invocation.
-	 * @return 0 on success, non-zero if the backend cannot register it.
+	 * @brief bpftime's AOT cache: compile map values and inlined array
+	 * value bases as symbols, and define those symbols for the next
+	 * load_aot_object (absolute addresses in this process).
 	 */
-	virtual int register_data_bounds_check(
-		bool (*fn)(void *context, uint64_t addr, uint64_t size),
-		void *context)
+	virtual int set_relocatable_map_addresses(bool enabled)
 	{
-		(void)fn;
-		(void)context;
-		return -1;
+		return -ENOTSUP;
+	}
+	virtual int define_aot_symbol(const std::string &name, uint64_t address)
+	{
+		return -ENOTSUP;
 	}
 
 	/**
