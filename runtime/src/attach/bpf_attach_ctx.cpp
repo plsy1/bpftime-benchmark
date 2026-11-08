@@ -54,6 +54,22 @@ int load_prog_and_helpers(
 	const std::map<int, bpftime_helper_info> *custom_helpers,
 	const bpftime_helper_info *map_delete_override)
 {
+	if (int result = register_prog_helpers(prog, config, map_lookup_override,
+					       map_update_override,
+					       custom_helpers,
+					       map_delete_override);
+	    result < 0)
+		return result;
+	return prog->bpftime_prog_load(config.jit_enabled);
+}
+
+int register_prog_helpers(
+	bpftime_prog *prog, const runtime_config &config,
+	const bpftime_helper_info *map_lookup_override,
+	const bpftime_helper_info *map_update_override,
+	const std::map<int, bpftime_helper_info> *custom_helpers,
+	const bpftime_helper_info *map_delete_override)
+{
 	bpftime_helper_group merged;
 #if defined(__linux__)
 	if (config.enable_kernel_helper_group) {
@@ -78,7 +94,7 @@ int load_prog_and_helpers(
 			}
 		}
 	}
-	return prog->bpftime_prog_load(config.jit_enabled);
+	return 0;
 }
 
 // The kernel only passes these maps to perf output, ring buffer, tail call
@@ -103,14 +119,14 @@ static bool map_type_without_lookup_or_update(bpf_map_type type)
 // to exactly one hash kind select the hash helper: eligible array sites are
 // inlined by the JIT, other array calls take the typed helper's fallback.
 static std::optional<bpf_map_type>
-typed_helper_map_type(const handler_manager *manager,
-		      const bpf_prog_handler &prog, unsigned int helper_id)
+typed_helper_map_type(const handler_manager *manager, const ebpf_inst *insns,
+		      size_t insn_cnt, unsigned int helper_id)
 {
 	bool has_helper = false;
 	bool array = false, percpu_array = false;
 	bool hash = false, percpu_hash = false;
-	for (std::size_t i = 0; i < prog.insns.size(); ++i) {
-		const auto &insn = prog.insns[i];
+	for (std::size_t i = 0; i < insn_cnt; ++i) {
+		const auto &insn = insns[i];
 		if (insn.code == EBPF_OP_CALL &&
 		    insn.imm == static_cast<int32_t>(helper_id))
 			has_helper = true;
@@ -118,7 +134,7 @@ typed_helper_map_type(const handler_manager *manager,
 			continue;
 		const auto src_reg = insn.src_reg;
 		// LDDW occupies two instructions.
-		if (i + 1 < prog.insns.size())
+		if (i + 1 < insn_cnt)
 			++i;
 		if (src_reg != BPF_PSEUDO_MAP_FD)
 			continue;
@@ -398,17 +414,11 @@ void bpf_attach_ctx::register_attach_impl(
 			std::make_pair(impl_ptr, private_data_creator);
 	}
 }
-int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
-						int id,
-						const bpf_prog_handler &handler,
-						const runtime_config &config)
+int register_prog_handler_helpers(
+	const handler_manager *manager, const ebpf_inst *insns, size_t insn_cnt,
+	bpftime_prog *prog, const runtime_config &config,
+	const std::map<int, bpftime_helper_info> *custom_helpers)
 {
-	const ebpf_inst *insns = handler.insns.data();
-	size_t cnt = handler.insns.size();
-	const char *name = handler.name.c_str();
-	instantiated_progs[id] =
-		std::make_unique<bpftime_prog>(insns, cnt, name);
-	bpftime_prog *prog = instantiated_progs[id].get();
 	const bpftime_helper_info array_lookup{
 		.index = BPF_FUNC_map_lookup_elem,
 		.name = "bpf_map_lookup_elem",
@@ -469,70 +479,88 @@ int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
 	const bpftime_helper_info *map_delete_override = nullptr;
 	const auto lookup_type =
 		mode == map_production_ab_mode::base ?
-			typed_helper_map_type(manager, handler,
+			typed_helper_map_type(manager, insns, insn_cnt,
 					      BPF_FUNC_map_lookup_elem) :
 			std::nullopt;
 	const auto update_type =
 		mode == map_production_ab_mode::base ?
-			typed_helper_map_type(manager, handler,
+			typed_helper_map_type(manager, insns, insn_cnt,
 					      BPF_FUNC_map_update_elem) :
 			std::nullopt;
 	if (lookup_type == bpf_map_type::BPF_MAP_TYPE_ARRAY) {
 		map_lookup_override = &array_lookup;
 		SPDLOG_INFO(
 			"Using specialized array lookup helper for program {}",
-			name);
+			prog->prog_name());
 	} else if (lookup_type == bpf_map_type::BPF_MAP_TYPE_HASH) {
 		map_lookup_override = &hash_lookup;
 		SPDLOG_INFO(
 			"Using specialized hash lookup helper for program {}",
-			name);
+			prog->prog_name());
 	} else if (lookup_type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY) {
 		map_lookup_override = &percpu_array_lookup;
 		SPDLOG_INFO(
 			"Using specialized per-CPU array lookup helper for program {}",
-			name);
+			prog->prog_name());
 	} else if (lookup_type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH) {
 		map_lookup_override = &percpu_hash_lookup;
 		SPDLOG_INFO(
 			"Using specialized per-CPU hash lookup helper for program {}",
-			name);
+			prog->prog_name());
 	}
 	if (update_type == bpf_map_type::BPF_MAP_TYPE_ARRAY) {
 		map_update_override = &array_update;
 		SPDLOG_INFO(
 			"Using specialized array update helper for program {}",
-			name);
+			prog->prog_name());
 	} else if (update_type == bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY) {
 		map_update_override = &percpu_array_update;
 		SPDLOG_INFO(
 			"Using specialized per-CPU array update helper for program {}",
-			name);
+			prog->prog_name());
 	} else if (update_type == bpf_map_type::BPF_MAP_TYPE_HASH) {
 		map_update_override = &hash_update;
 		SPDLOG_INFO(
 			"Using specialized hash update helper for program {}",
-			name);
+			prog->prog_name());
 	} else if (update_type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH) {
 		map_update_override = &percpu_hash_update;
 		SPDLOG_INFO(
 			"Using specialized per-CPU hash update helper for program {}",
-			name);
+			prog->prog_name());
 	}
 	// Only hash maps have a typed delete helper; array delete is
 	// unsupported and other kinds keep the generic helper.
 	if (mode == map_production_ab_mode::base &&
-	    typed_helper_map_type(manager, handler, BPF_FUNC_map_delete_elem) ==
+	    typed_helper_map_type(manager, insns, insn_cnt,
+				  BPF_FUNC_map_delete_elem) ==
 		    bpf_map_type::BPF_MAP_TYPE_HASH) {
 		map_delete_override = &hash_delete;
 		SPDLOG_INFO(
 			"Using specialized hash delete helper for program {}",
-			name);
+			prog->prog_name());
 	}
-	if (int err = load_prog_and_helpers(prog, config, map_lookup_override,
-					    map_update_override, &helpers,
-					    map_delete_override);
-	    err < 0) {
+	return register_prog_helpers(prog, config, map_lookup_override,
+				     map_update_override, custom_helpers,
+				     map_delete_override);
+}
+
+int bpf_attach_ctx::instantiate_prog_handler_at(const handler_manager *manager,
+						int id,
+						const bpf_prog_handler &handler,
+						const runtime_config &config)
+{
+	const ebpf_inst *insns = handler.insns.data();
+	size_t cnt = handler.insns.size();
+	const char *name = handler.name.c_str();
+	instantiated_progs[id] =
+		std::make_unique<bpftime_prog>(insns, cnt, name);
+	bpftime_prog *prog = instantiated_progs[id].get();
+	int err = register_prog_handler_helpers(manager, insns, cnt, prog,
+						config, &helpers);
+	if (err >= 0)
+		err = prog->bpftime_prog_load(config.jit_enabled);
+	if (err < 0) {
 		SPDLOG_ERROR(
 			"Failed to load program helpers for prog handler {}: {}",
 			id, err);
