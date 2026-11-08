@@ -152,9 +152,39 @@ shared code), and its 128 MB segment committed in /dev/shm from the start (bpf: 
 | 6 | checked probe reads of large data | 4 KB read 1,556 ns, 1 KB string 2,411 ns per probe | 1,439, 1,603 | a system call per read (the daily build has the checks off: fast, but a bad pointer kills the process) |
 | 7 | delivery, 6 producers on 6 cores; 4-thread ring buffer bursts | 98.1-98.3%; 92-98% | 99.6-99.9%; 98.6-99.6% | the consumer gets less CPU |
 
-Not measured: processes starting at the same time (every start above is one at a time; the
-agent holds `shm_lifecycle_lock` from opening the segment until attaching is done, so
-concurrent starts may queue; item 5(d) of the 11-06 plan, never done).
+Item 1 also covers processes starting at the same time (section 6): each start holds a lock
+for about 13 ms, so 16 starting at once wait up to 211 ms (bpf 2.9 ms).
+
+Decided 11-08: only item 1 is to be fixed. Items 3, 4 and 6 stay as they are (a deliberate
+trade-off, inside Frida/Gum, the remaining gap is the system call itself); 2 waits for item 1
+(most of it is LLVM in the agent); 5 and 7 are low priority.
+
+## 6. Processes starting at the same time, and where a start goes (`concurrent-start/`, `startup-profile/`)
+
+`concurrent-start/run.py`: `src/spawnburst.c` starts K copies of n2's shortlived at once (20
+rounds, two passes), one program attached (`summary.txt`). bpftime's children each use 22.6 ms
+of CPU at every K, but their wall time grows by about 13.3 ms per process started with them:
+
+| K at once | bpf child p50 / max | bpftime child p50 / max | bpftime round |
+|---:|---|---|---:|
+| 1 | 0.5 / 0.7 | 22.1 / 22.7 | 22.1 |
+| 2 | 0.5 / 0.8 | 23.0 / 38.0 | 35.5 |
+| 4 | 0.6 / 0.9 | 36.5 / 62.8 | 61.9 |
+| 8 | 0.7 / 1.7 | 65.4 / 117.0 | 115.0 |
+| 16 | 1.3 / 2.9 | 117.8 / 211.5 | 219.7 |
+
+The starts run one after another: the agent holds `shm_lifecycle_lock` (an exclusive `flock`
+on `/tmp/bpftime-shm-<name>.lock`, agent.cpp) from opening the segment until it has compiled
+and attached, about 13 ms of its 22, and every other agent waits for it (6 CPUs would run 4
+starts in about 22 ms; it takes 62).
+
+`startup-profile/README.md`: in a process starting under memleak, compiling the 22 programs is
+93% of its start-up, and nearly all of that is the O3 optimizer and code generation proper
+(creating each LLJIT instance: under 1.5%), so one LLJIT per process would save little. Loading
+a precompiled object with the agent's own 39 helpers: 0.42-0.85 ms per program against 6.3-9.1
+ms to compile it (`aot-link/results-real-helpers.txt`; the 1.5-2 ms of section 3 was mostly
+defining the bench's 1000 placeholder helpers). memleak's programs use global data (.rodata,
+.bss), so they are bound arrays, which `load_aot_object` refuses (-ENOTSUP).
 
 Faster than bpf: the probe itself (1 thread 224 against 1,246 ns), ring buffer and perf output
 at 1-4 threads (equal at 6), hash maps, the real tools at 1-6 threads (1.3-3.9x), ssl-nginx

@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -85,14 +86,26 @@ int main(int argc, char **argv)
 		auto bp = std::make_unique<bpftime::bpftime_prog>(
 			(const ebpf_inst *)bpf_program__insns(prog),
 			bpf_program__insn_cnt(prog), name.c_str());
+		// BENCH_HELPERS=real: the agent's groups (load_prog_and_helpers with
+		// the default config: kernel utils and shm maps); otherwise 1000 placeholders as the AOT tool.
 		bpftime::bpftime_helper_group helpers;
-		for (int i = 0; i < 1000; i++) {
-			bpftime::bpftime_helper_info info;
-			info.index = i;
-			info.name = "empty_helper";
-			info.fn = (void *)empty_helper;
-			helpers.register_helper(info);
+		if (getenv("BENCH_HELPERS") &&
+		    !strcmp(getenv("BENCH_HELPERS"), "real")) {
+			helpers.append(bpftime::bpftime_helper_group::
+					       get_kernel_utils_helper_group());
+			helpers.append(bpftime::bpftime_helper_group::
+					       get_shm_maps_helper_group());
+		} else {
+			for (int i = 0; i < 1000; i++) {
+				bpftime::bpftime_helper_info info;
+				info.index = i;
+				info.name = "empty_helper";
+				info.fn = (void *)empty_helper;
+				helpers.register_helper(info);
+			}
 		}
+		if (name == names.front())
+			fprintf(stderr, "helpers %zu\n", helpers.get_helper_ids().size());
 		helpers.add_helper_group_to_prog(bp.get());
 		std::string objpath =
 			argc > 4 ? std::string(argv[4]) + "/" + name + ".o" : "";
