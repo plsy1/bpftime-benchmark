@@ -54,6 +54,7 @@ set(TEST_SOURCES
     test_get_stack.cpp
     test_config.cpp
     test_shm_allocation_failure.cpp
+    test_syscall_server_exit.cpp
     test_prog_after_shm_release.cpp
     test_prog_jit_load.cpp
     test_extension_helpers.cpp
@@ -120,6 +121,12 @@ if(UNIX AND NOT APPLE)
         assets/runtime_options_test_helper.c)
     add_executable(bpftime-logger-exit-test-helper
         assets/logger_exit_test_helper.cpp)
+    add_library(bpftime-close-at-exit-test-lib SHARED
+        assets/close_at_exit_lib.c)
+    add_executable(bpftime-close-at-exit-test-helper
+        assets/close_at_exit_helper.c)
+    target_link_libraries(bpftime-close-at-exit-test-helper PRIVATE
+        bpftime-close-at-exit-test-lib)
     target_include_directories(bpftime-logger-exit-test-helper PRIVATE
         ${CMAKE_SOURCE_DIR}/runtime/include)
     target_link_libraries(bpftime-logger-exit-test-helper PRIVATE spdlog::spdlog)
@@ -131,10 +138,11 @@ if(UNIX AND NOT APPLE)
         bpftime-syscall-server
         bpftime-runtime-options-test-helper
         bpftime-logger-exit-test-helper
+        bpftime-close-at-exit-test-helper
         bpftime-shm-allocation-test-helper)
     file(GENERATE
         OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/shm_allocation_test_paths.hpp"
-        CONTENT "#define BPFTIME_SHM_ALLOCATION_TEST_HELPER \"$<TARGET_FILE:bpftime-shm-allocation-test-helper>\"\n#define BPFTIME_SYSCALL_SERVER_LIBRARY \"$<TARGET_FILE:bpftime-syscall-server>\"\n#define BPFTIME_AGENT_LIBRARY \"$<TARGET_FILE:bpftime-agent>\"\n#define BPFTIME_LOGGER_EXIT_TEST_HELPER \"$<TARGET_FILE:bpftime-logger-exit-test-helper>\"\n")
+        CONTENT "#define BPFTIME_SHM_ALLOCATION_TEST_HELPER \"$<TARGET_FILE:bpftime-shm-allocation-test-helper>\"\n#define BPFTIME_SYSCALL_SERVER_LIBRARY \"$<TARGET_FILE:bpftime-syscall-server>\"\n#define BPFTIME_AGENT_LIBRARY \"$<TARGET_FILE:bpftime-agent>\"\n#define BPFTIME_LOGGER_EXIT_TEST_HELPER \"$<TARGET_FILE:bpftime-logger-exit-test-helper>\"\n#define BPFTIME_CLOSE_AT_EXIT_TEST_HELPER \"$<TARGET_FILE:bpftime-close-at-exit-test-helper>\"\n")
     target_include_directories(bpftime_runtime_tests PRIVATE
         "${CMAKE_CURRENT_BINARY_DIR}")
 endif()
