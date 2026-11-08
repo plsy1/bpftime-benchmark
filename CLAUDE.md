@@ -1936,18 +1936,63 @@ libfrida-gum but not in the devkit header, at most 8 hops), so both are owners o
 attaches; calling either runs both, as Gum did. Test: "A probe on a thunk
 keeps firing after its target's probe is detached" (fails without the
 lookup).
-The attach-time window remains: Gum writes the redirect over the first
-instructions while other threads may run them (bpftime attaches at start).
+The attach-time window remains: a function's first hook can kill a thread
+running it. Gum 16.1.2 writes the redirect in place and on Linux stops no
+thread (with RWX pages it makes the page RWX and writes; its suspension, a
+SIGSTOP of the whole process, is only for systems without RWX). Its arm64
+writer stores `ldr x16, [pc+0]` (offset 0 until the literal is placed), then
+`br x16` and the literal, then fixes the `ldr`'s offset: a thread entering
+before the fix loads the two instruction words and branches to them, SIGSEGV
+at 0x1f020058000010 (x16 0xd61f020058000010; ...050 when the fix landed
+between the fetch and the load). frida-gum main (read 2026-11-09) is the
+same: the writer's order is unchanged, and on Linux `gum_memory_patch_code_pages`
+takes its RWX branch, which writes in place without stopping threads (only the
+branch for systems without RWX writes a copy and suspends them), so upgrading
+Gum does not close it. It is not a detach: the three detach tests started their callers
+before the first attach and failed in 21 of 100 full test-binary runs (11-08:
+also 3 of 16, 5 of 20), every crash with that x16, which only Gum's first
+write of the redirect can leave (a park or unpark stores the literal whole),
+and those whose cycle was recorded in the first one (a build with a handler
+printing the registers; results `uprobe/frida-detach-crash-20261108`). They now hook their function once
+before starting the callers (`hook_before_callers`; the slot keeps the
+redirect): 0 of 150 runs. Rate: 5-10% of first hooks under four callers in
+those tests, 17 of 700 in the hidden "First hook of a function while threads
+call it" (`[attach-window]`; while the window exists it fails but in about 1
+run of 130, when all 200 children survive; Gum set up in the parent first, as
+in the full binary: with Gum set up in the child itself, 0 of 300 were
+killed). Hooking first also took out of the detach test what its old order
+covered as well: Gum adding the leave listener to a hooked function while
+threads run it (`gum_function_context_add_listener`'s copy of the entries,
+freed when a plain read of `trampoline_usage_counter` sees 0); an injected
+agent adding a uretprobe to a function it probes already does this. Not
+covered now, and no crash was traced to it. Exposed: any first hook of a function other threads are
+running, which is `bpftime attach <pid>` (the agent injected into a running
+process) and an agent loaded later than the application's threads started; an
+agent preloaded at start hooks before them. Not done, the ways around it:
+bpftime writes the redirect itself in an order whose every state is valid (one
+aligned 4-byte `b` at the entry to a detour within 128 MB holding the relocated
+first instructions, the rest of the redirect while no thread can reach it, the
+`ldr` over the `b` last), knowing that no thread is between the first and the
+fourth instruction (a signal to each thread reading its pc, again while one
+is); or stopping every thread with a signal around Gum's write and moving a pc
+inside the first instructions to Gum's on-invoke copy. Both need a signal of
+bpftime's own and a fallback for threads that block it.
 `frida_attach_impl` is not thread-safe: owners of one slot in two impls must
-not change their attaches concurrently. Tests: "Detaching probes while threads
-call the function keeps them running" (SIGBUS 3/3 before; with a never-detached
-keeper listener but Gum detaches, SIGSEGV 5/5), "Detaching an override while
+not change their attaches concurrently. Tests (the detach tests hook their
+function before starting the callers; a child dies by its signal: the Catch
+handler it inherited reported its crash as a fatal error of the parent's test
+case): "Detaching probes while threads call the function keeps them running"
+(SIGBUS 3/3 before; with a never-detached keeper listener but Gum detaches,
+SIGSEGV 5/5; 11-09, Gum detaching and the slot dropped: SIGBUS 5/5,
+`synchronize` returning at once: SIGSEGV 5/5), "Detaching an override while
 threads call the function keeps them running" (SIGABRT with the live-vector
-lookup), "Concurrent override calls each return their own value" (fails with
-the entry's fields), "No probe callback runs after
-its detach returned" (SIGSEGV 3/3 with `synchronize` returning at once),
-"Probes attached again after a detach run" (fails without the unpark), and the
-hidden "Hook cost attached and parked".
+lookup, 5/5), "Concurrent override calls each return their own value" (fails
+with the entry's fields), "No probe callback runs after its detach returned"
+(SIGSEGV 3/3 with `synchronize` returning at once; 11-09 4 of 10, 3 of 10 in
+the old order: parking a slot's last attach makes two `mprotect` calls before
+the swap, which the callbacks mostly finish within), "Probes attached again
+after a detach run" (fails without the unpark), and the hidden "Hook cost
+attached and parked".
 
 ## Daemon Tracer Programs
 
