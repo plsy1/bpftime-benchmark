@@ -3,6 +3,7 @@
  * Copyright (c) 2022, eunomia-bpf org
  * All rights reserved.
  */
+#include "uprobe_custom_helpers.hpp"
 #include "trap_uprobe_attach_impl.hpp"
 #include "trap_attach_private_data.hpp"
 #include "trap_attach_utils.hpp"
@@ -1283,18 +1284,16 @@ int trap_attach_impl::create_attach_with_ebpf_callback(
 	return -ENOTSUP;
 }
 
-static constexpr int BPF_FUNC_get_func_arg = 183;
-static constexpr int BPF_FUNC_get_func_ret = 184;
-static constexpr int BPF_FUNC_get_retval = 186;
 
 void trap_attach_impl::register_custom_helpers(
 	ebpf_helper_register_callback register_callback)
 {
-	register_callback(BPF_FUNC_get_func_arg, "bpf_get_func_arg",
+	// Indices and names shared with the syscall server's AOT cache.
+	register_callback(uprobe_get_func_arg.index, uprobe_get_func_arg.name,
 			  (void *)bpftime_trap_get_func_arg);
-	register_callback(BPF_FUNC_get_func_ret, "bpf_get_func_ret_id",
+	register_callback(uprobe_get_func_ret.index, uprobe_get_func_ret.name,
 			  (void *)bpftime_trap_get_func_ret);
-	register_callback(BPF_FUNC_get_retval, "bpf_get_retval",
+	register_callback(uprobe_get_retval.index, uprobe_get_retval.name,
 			  (void *)bpftime_trap_get_retval);
 }
 

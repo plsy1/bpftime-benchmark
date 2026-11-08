@@ -80,6 +80,7 @@ if(BPFTIME_ENABLE_FRIDA)
         attach_with_ebpf/test_attach_uprobe_with_ebpf.cpp
         attach_with_ebpf/test_shm_progs_attach.cpp
         attach_with_ebpf/test_attach_replace.cpp
+        test_aot_cache.cpp
     )
 endif()
 

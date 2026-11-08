@@ -363,7 +363,7 @@ int bpftime_prog::bind_array_maps(bpftime_shm &shm)
 	if (!unbound_map_handles.empty()) {
 		for (const auto &[slot, fn, helper_name] : direct_helpers)
 			if (fn)
-				if (int result = ebpf_register(vm, slot, helper_name, fn); result < 0)
+				if (int result = register_vm_helper(slot, helper_name, fn); result < 0)
 					return result;
 		for (uint64_t fd : unbound_map_handles)
 			if (int result = ebpf_register_direct_map_handle(vm, fd); result < 0)
@@ -454,7 +454,7 @@ int bpftime_prog::register_pending_map_helpers()
 			reinterpret_cast<void *>(array_jit_execution_scope::lookup);
 		const char *helper_name = bound_arrays.empty() ? pending_lookup_name.c_str() :
 			"bpftime_bound_array_lookup_v2";
-		int result = ebpf_register(vm, 1, helper_name, helper);
+		int result = register_vm_helper(1, helper_name, helper);
 		if (result < 0)
 			return result;
 		pending_array_lookup = nullptr;
@@ -465,7 +465,7 @@ int bpftime_prog::register_pending_map_helpers()
 			helper = index == BPF_FUNC_map_update_elem ?
 				reinterpret_cast<void *>(array_jit_execution_scope::update) :
 				reinterpret_cast<void *>(array_jit_execution_scope::erase);
-		int result = ebpf_register(vm, index, info.first.c_str(), helper);
+		int result = register_vm_helper(index, info.first.c_str(), helper);
 		if (result < 0)
 			return result;
 	}
@@ -536,6 +536,16 @@ std::optional<std::span<const uint8_t> > frozen_read_only_value(int fd)
 
 int bpftime_prog::bpftime_prog_load(bool jit)
 {
+	std::vector<ebpf_inst> owned_insns;
+	int res = prepare_load(jit, owned_insns);
+	if (res < 0)
+		return res;
+	return finish_load(jit, owned_insns.empty() ? insns : owned_insns);
+}
+
+int bpftime_prog::prepare_load(bool jit, std::vector<ebpf_inst> &owned_insns)
+{
+	owned_insns.clear();
 	if (array_jit_failed)
 		return -EINVAL;
 	if (!bound_arrays.empty())
@@ -563,7 +573,6 @@ int bpftime_prog::bpftime_prog_load(bool jit)
 	// Bound global data loads become plain 64-bit constants of the retained
 	// address, so no compile (eager or lazy) consults the FD table. The
 	// stored program keeps its original relocations.
-	std::vector<ebpf_inst> owned_insns;
 	if (!bound_value_addresses.empty()) {
 		owned_insns = insns;
 		for (const auto &[index, address] : bound_value_addresses) {
@@ -580,7 +589,7 @@ int bpftime_prog::bpftime_prog_load(bool jit)
 			owned_insns = insns;
 		owned_insns[i].imm = BPFTIME_LIBBPF_POISON_SLOT;
 		if (!libbpf_poison_registered) {
-			res = ebpf_register(vm, BPFTIME_LIBBPF_POISON_SLOT,
+			res = register_vm_helper(BPFTIME_LIBBPF_POISON_SLOT,
 					    BPFTIME_LIBBPF_POISON_NAME,
 					    (void *)libbpf_poison_reached);
 			if (res < 0)
@@ -623,7 +632,7 @@ int bpftime_prog::bpftime_prog_load(bool jit)
 			owned_insns[i].src_reg = 0;
 			owned_insns[i].imm = BPFTIME_DEAD_CALL_SLOT;
 			if (!dead_call_registered) {
-				res = ebpf_register(vm, BPFTIME_DEAD_CALL_SLOT,
+				res = register_vm_helper(BPFTIME_DEAD_CALL_SLOT,
 						    BPFTIME_DEAD_CALL_NAME,
 						    (void *)dead_call_reached);
 				if (res < 0)
@@ -632,9 +641,13 @@ int bpftime_prog::bpftime_prog_load(bool jit)
 			}
 		}
 	}
-	const auto &load_insns = owned_insns.empty() ? insns : owned_insns;
-	res = ebpf_load(vm, load_insns.data(),
-			load_insns.size() * sizeof(struct ebpf_inst), &errmsg);
+	return 0;
+}
+
+int bpftime_prog::finish_load(bool jit, const std::vector<ebpf_inst> &load_insns)
+{
+	int res = ebpf_load(vm, load_insns.data(),
+			    load_insns.size() * sizeof(struct ebpf_inst), &errmsg);
 	if (res < 0) {
 		SPDLOG_ERROR("Failed to load insn: {}", errmsg);
 		return res;
@@ -816,7 +829,7 @@ int bpftime_prog::bpftime_prog_register_raw_helper(
 		signal_safe_helpers[info.index] = helper_is_async_signal_safe(info.index, info.fn);
 		return 0;
 	}
-	int result = ebpf_register(vm, info.index, info.name.c_str(), info.fn);
+	int result = register_vm_helper(info.index, info.name.c_str(), info.fn);
 	if (result == 0) {
 		raw_helpers[info.index] = info.fn;
 		signal_ready = false;
@@ -896,7 +909,7 @@ int bpftime_prog::load_aot_object(const std::vector<uint8_t> &buf)
 	// An object compiled after bpftime_prog_load's rewrites (bpftime aot)
 	// calls the private slots of poisoned and dead calls.
 	if (!libbpf_poison_registered) {
-		if (int result = ebpf_register(vm, BPFTIME_LIBBPF_POISON_SLOT,
+		if (int result = register_vm_helper(BPFTIME_LIBBPF_POISON_SLOT,
 					       BPFTIME_LIBBPF_POISON_NAME,
 					       (void *)libbpf_poison_reached);
 		    result < 0)
@@ -904,7 +917,7 @@ int bpftime_prog::load_aot_object(const std::vector<uint8_t> &buf)
 		libbpf_poison_registered = true;
 	}
 	if (!dead_call_registered) {
-		if (int result = ebpf_register(vm, BPFTIME_DEAD_CALL_SLOT,
+		if (int result = register_vm_helper(BPFTIME_DEAD_CALL_SLOT,
 					       BPFTIME_DEAD_CALL_NAME,
 					       (void *)dead_call_reached);
 		    result < 0)
@@ -918,6 +931,128 @@ int bpftime_prog::load_aot_object(const std::vector<uint8_t> &buf)
 	}
 	fn = res;
 	jitted = true;
+	program_loaded = true;
+	return 0;
+}
+
+int bpftime_prog::register_vm_helper(unsigned int index,
+				     const char *helper_name, void *fn)
+{
+	int result = ebpf_register(vm, index, helper_name, fn);
+	if (result >= 0)
+		vm_helper_names[index] = helper_name;
+	return result;
+}
+
+std::vector<uint8_t>
+bpftime_prog::aot_cache_key(const std::vector<ebpf_inst> &load_insns) const
+{
+	std::vector<uint8_t> key;
+	auto put = [&](const void *data, size_t size) {
+		auto *bytes = static_cast<const uint8_t *>(data);
+		key.insert(key.end(), bytes, bytes + size);
+	};
+	auto put_u32 = [&](uint32_t value) { put(&value, sizeof(value)); };
+	auto put_str = [&](std::string_view text) {
+		put_u32(static_cast<uint32_t>(text.size()));
+		put(text.data(), text.size());
+	};
+	put_str("bpftime-aot-cache-v1");
+	put_str(vm_backend_name());
+	put_u32(static_cast<uint32_t>(get_map_production_ab_mode()));
+	put_u32(static_cast<uint32_t>(vm_helper_names.size()));
+	for (const auto &[index, helper_name] : vm_helper_names) {
+		put_u32(index);
+		put_str(helper_name);
+	}
+	put_u32(static_cast<uint32_t>(bound_arrays.size()));
+	put_u32(static_cast<uint32_t>(bound_values.size()));
+	put_u32(static_cast<uint32_t>(load_insns.size()));
+	put(load_insns.data(), load_insns.size() * sizeof(ebpf_inst));
+	return key;
+}
+
+namespace
+{
+// Programs whose loaded code holds addresses of this process: bindings
+// (array lookups and global data) and the LDDWs that an AOT object resolves
+// differently from JIT code (a JIT constant of a map value, through a call of
+// map_val in an AOT object; map indexes, BTF ids, functions).
+bool aot_cacheable(const std::vector<ebpf_inst> &load_insns, bool bound)
+{
+	if (bound)
+		return false;
+	for (size_t i = 0; i < load_insns.size(); i++) {
+		if (load_insns[i].code != 0x18)
+			continue;
+		if (load_insns[i].src_reg != 0 &&
+		    load_insns[i].src_reg != BPF_PSEUDO_MAP_FD)
+			return false;
+		i++; // The second half of the LDDW.
+	}
+	return true;
+}
+} // namespace
+
+int bpftime_prog::compile_aot_cache_object(std::vector<uint8_t> &object,
+					   std::vector<uint8_t> &key)
+{
+	object.clear();
+	key.clear();
+	if (is_cuda() || std::string_view(vm_backend_name()) != "llvm")
+		return -ENOTSUP;
+	std::vector<ebpf_inst> owned_insns;
+	int res = prepare_load(true, owned_insns);
+	if (res < 0)
+		return res;
+	const auto &load_insns = owned_insns.empty() ? insns : owned_insns;
+	if (!aot_cacheable(load_insns,
+			   !bound_arrays.empty() || !bound_values.empty()))
+		return -ENOTSUP;
+	res = ebpf_load(vm, load_insns.data(),
+			load_insns.size() * sizeof(struct ebpf_inst), &errmsg);
+	if (res < 0)
+		return res;
+	auto compiled = vm->vm_instance->do_aot_compile(false);
+	if (compiled.empty())
+		return -EINVAL;
+	object = std::move(compiled);
+	key = aot_cache_key(load_insns);
+	return 0;
+}
+
+int bpftime_prog::bpftime_prog_load_cached(const uint8_t *object,
+					   size_t object_size,
+					   const uint8_t *key, size_t key_size)
+{
+	std::vector<ebpf_inst> owned_insns;
+	int res = prepare_load(true, owned_insns);
+	if (res < 0)
+		return res;
+	const auto &load_insns = owned_insns.empty() ? insns : owned_insns;
+	const auto expected = aot_cache_key(load_insns);
+	if (expected.size() != key_size ||
+	    memcmp(expected.data(), key, key_size) != 0) {
+		SPDLOG_INFO(
+			"Program {} differs from what its AOT object was compiled from; compiling it",
+			name);
+		return finish_load(true, load_insns);
+	}
+	ebpf_jit_fn loaded = nullptr;
+	try {
+		loaded = ebpf_load_aot_object(vm, object, object_size);
+	} catch (const std::exception &ex) {
+		SPDLOG_WARN("Linking the AOT object of {} threw: {}", name,
+			    ex.what());
+	}
+	if (loaded == nullptr) {
+		SPDLOG_WARN("Linking the AOT object of {} failed; compiling it",
+			    name);
+		return finish_load(true, load_insns);
+	}
+	fn = loaded;
+	jitted = true;
+	loaded_from_aot = true;
 	program_loaded = true;
 	return 0;
 }
