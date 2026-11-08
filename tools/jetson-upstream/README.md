@@ -499,6 +499,29 @@ on. On x86 (NUC) the same build settings show no new failure against
 d46ceb8f. Official has not moved since 25e250d6, so the gate above ran
 locally. Results: `uprobe/improve-20261106` (section 9 for the gate).
 
+Six commits accepted 2026-11-09 follow, `8a0afd36` to `a2acb4f8`: a hash map
+test asserts its threads' deletes after joining them (Catch2 assertions from
+several threads corrupted the junit reporter's heap); the AOT cache (two
+commits and its CLAUDE.md section, with the shared helper selection before
+them): the syscall server compiles each program once at `BPF_PROG_LOAD` and
+agents link that object instead of compiling every program in every traced
+process, bound programs too (their map values and inlined arrays' value bases
+are symbols each process defines); a process starting under memleak took 308
+ms and takes 38, with one program 22.5 and 13.6 ms, while the tool's set-up
+grows (memleak 432 -> 743 ms); `BPFTIME_AOT_CACHE=0` turns it off; the Frida
+detach tests hook their function before starting the callers (they crashed in
+about a fifth of runs at Gum's first write of a redirect, not at a detach).
+Replayed onto official 25e250d651ad (candidate 2eda687f, `runtime/`, `attach/`
+and `vm/` identical to dev a2acb4f8) without conflicts by `migrate`;
+`test-candidate` green (runtime 194 passed + 1 skipped, daemon, Frida 26,
+transformer 54 + 1 expected failure, syscall trace 7, smoke funclatency
+7,047,000/7,047,000, memleak 9 outstanding, detach rc 0). Their unit tests
+(`[aot-cache]`) are not in the focused filter; the smoke's tools go through the
+cache (checked with this build: under memleak the traced process linked all 22
+programs and started in 39 ms, 312 ms with `BPFTIME_AOT_CACHE=0`). On x86 (NUC) `[aot-cache]` passes 3/3 and the runtime suite
+shows no new failure. Results: `uprobe/startup-20261108`,
+`uprobe/frida-detach-crash-20261108`.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
