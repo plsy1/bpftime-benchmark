@@ -903,6 +903,18 @@ starting with a call (libbpf-tools funclatency's kretprobe) stored a null block
 address and crashed the traced process while compiling. Conflicts on upstream
 updates must fail configuration.
 
+A call also moved r10 by `STACK_SIZE` (64), a count of 8-byte slots used as
+bytes, at the call and at the return (upstream llvmbpf 7abedb57 still does):
+the callee's frame began 64 bytes below the caller's r10 and overwrote the
+caller's stack below r10-64. Both now move it by one frame, `STACK_SIZE * 8`
+(512 bytes), the step the stack allocation (32 frames of `STACK_SIZE` slots)
+was sized for; the GPU lowering shares the code. The kernel-compatible mode
+(never enabled by bpftime) has its own stack and is unchanged. Of the
+programs measured so far none was affected (memleak's and funclatency's
+callers use at most 24 bytes; DeepFlow has no bpf-to-bpf calls). Test "A
+bpf-to-bpf callee's stack frame does not overlap its caller's" (2 and 8
+levels, JIT and AOT; fails with either site back at 64).
+
 ## Failed JIT Compiles
 
 The LLVM VM has no interpreter, and its `exec` retried the compile on every
