@@ -100,6 +100,20 @@ class bpftime_vm_impl {
 	}
 
 	/**
+	 * @brief bpftime's AOT cache: compile map values and inlined array
+	 * value bases as symbols, and define those symbols for the next
+	 * load_aot_object (absolute addresses in this process).
+	 */
+	virtual int set_relocatable_map_addresses(bool enabled)
+	{
+		return -ENOTSUP;
+	}
+	virtual int define_aot_symbol(const std::string &name, uint64_t address)
+	{
+		return -ENOTSUP;
+	}
+
+	/**
 	 * @brief Load code into the vm
 	 *
 	 * @param code Buffer to the code

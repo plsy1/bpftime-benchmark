@@ -1,6 +1,16 @@
+llvmbpf.hpp: per-CPU and direct-helper kinds of array map descriptors; the AOT
+cache's relocatable map addresses and per-load symbols (bpftime_prog_cache.cpp).
 --- a/llvmbpf.hpp
 +++ b/llvmbpf.hpp
-@@ -33,6 +33,12 @@
+@@ -5,6 +5,7 @@
+ #include <optional>
+ #include <unordered_map>
+ #include <vector>
++#include <map>
+ #include <ebpf_inst.h>
+ #include <cstdint>
+ #include <string>
+@@ -33,6 +34,12 @@
  	uint32_t value_size = 0;
  	uint32_t value_stride = 0;
  	uint32_t max_entries = 0;
@@ -13,3 +23,32 @@
  };
  
  // BTF line info entry, decoded from BTF.ext section.
+@@ -109,6 +116,19 @@
+ 		const std::vector<std::string> &pass_names) noexcept;
+ 	int set_log_passes(bool enabled) noexcept;
+ 	void set_kernel_compatible_mode(bool enabled) noexcept;
++	// bpftime's AOT cache: AOT objects refer to map values (LDDW pseudo
++	// map value) and the value bases of inlined array lookups by symbol,
++	// not by this process's addresses; load_aot_object resolves those
++	// symbols from define_aot_symbol (absolute addresses in the loading
++	// process). The parent runtime owns the addresses' lifetime.
++	void set_relocatable_map_addresses(bool enabled) noexcept
++	{
++		relocatable_map_addresses_ = enabled;
++	}
++	void define_aot_symbol(const std::string &name, uint64_t address)
++	{
++		aot_symbols_[name] = address;
++	}
+ 	const std::string &get_target_cpu() const noexcept;
+ 	const std::string &get_target_features() const noexcept;
+ 	const std::vector<std::string> &get_disabled_passes() const noexcept;
+@@ -160,6 +180,8 @@
+ 	std::vector<std::string> disabled_passes_;
+ 	bool log_passes_ = false;
+ 	bool kernel_compatible_mode_ = false;
++	bool relocatable_map_addresses_ = false;
++	std::map<std::string, uint64_t> aot_symbols_;
+ 	std::vector<btf_line_info_entry> line_info_;
+ 
+ 	std::optional<precompiled_ebpf_function> jitted_function = std::nullopt;
