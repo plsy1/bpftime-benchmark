@@ -1745,9 +1745,72 @@ the agent's static constructors (mostly LLVM's) 8.5%, Gum's first module
 lookup 7% (half of it `memmem` in `gum_read_auxv_from_stack`, once per
 process, for libc's name), Gum's thread context 3%, attaching 1.6%; most of the
 rest is the kernel mapping and relocating the 114 MB agent (202,114 relative
-relocations). AOT code kept in the segment would remove the compile. The agent
+relocations). The compile is gone now (AOT Cache, below). The agent
 alone, with no tool: 8.8 ms. 3f8981e4 starts 0.9 ms later than d46ceb8f,
 spread evenly over every part (not attributed).
+
+## AOT Cache
+
+Every traced process used to compile every program with a fresh LLJIT at
+O3: 93% of a process's start under memleak (22 programs), almost all of it
+the optimizer and code generation proper (one LLJIT per process would save
+under 1.5%; `uprobe/remeasure-20261108`, startup-profile). Now the syscall
+server compiles each program once, at `BPF_PROG_LOAD`
+(`bpftime_progs_create_cached`, `bpftime_prog_cache.cpp`), into an AOT
+object that agents link (`bpftime_prog_load_cached`, from
+`instantiate_prog_handler_at`).
+
+- The server registers the helpers an agent would through the same function
+  (`register_prog_handler_helpers`: groups from the shared runtime config,
+  typed map helpers chosen from shared memory, plus the uprobe impls' custom
+  helpers as placeholders, from `uprobe_custom_helpers.hpp`, which Frida and
+  trap register from too: keep them there), and prepares the program as
+  `bpftime_prog_load` does (`prepare_load`: bindings, pending helpers, poison
+  and dead-call rewrites).
+- The object and its key are written into the new handler (`aot_insns`,
+  `aot_key`) before it is published, so no agent sees half of one; nothing
+  writes them later. Objects `bpftime-aot` stores have no key and agents
+  ignore them.
+- The key (`aot_cache_key`) is what the compiler sees: the VM, the map helper
+  A/B mode, every helper registered with the VM by index and name
+  (`register_vm_helper`: register through it, never `ebpf_register`
+  directly), the inlined arrays' geometry (fd, value size, CPU count,
+  entries, per-CPU), the maps taking the original helpers directly, which
+  map value LDDWs are bound, and the instructions after the rewrites. An
+  agent prepares the program itself and links the object only on an equal
+  key; otherwise, or when linking fails, it writes the constants and
+  compiles as before. Anything new that changes generated code must go into
+  the key.
+- Addresses of the loading process are symbols (`set_relocatable_map_addresses`,
+  parent-owned llvmbpf patches): a map value LDDW is
+  `__llvmbpf_pseudo_map_value_fd_<fd>_off_<off>`, defined from the retained
+  binding (bound global data) or `map_val` at link time (unbound, where JIT
+  code holds `map_val`'s result as a constant); an inlined array's value
+  base is `__bpftime_array_value_base_<fd>`, its retained storage. The AOT
+  compile inlines array lookups and re-optimizes as the JIT does, in the
+  large code model (absolute addresses anywhere: movz/movk, as the JIT's
+  constants). Helpers are linked by index from the loading process.
+- Cached: LDDWs of constants, map fds and map values only (no map indexes,
+  BTF ids, functions). Not used by trap-backend agents (programs run in
+  SIGTRAP; `prepare_for_signal_execution` refuses AOT code).
+  `BPFTIME_AOT_CACHE=0` in the server (no objects) or an agent (ignores
+  them) turns it off.
+
+Measured (`uprobe/startup-20261108`, checks on): a process starting under
+memleak 308 -> 38 ms (bpf 0.7), with one program 22.5 -> 13.6 ms (bpf 0.5),
+16 starting at once, the last 220 -> 80 ms (bpf 3); memleak's own set-up
+432 -> 743 ms (the compile moved into the tool, once). The AOT code is not
+slower than JIT code: output cost 0.98-1.03x, real tools within 1.5%, and
+the same binaries with the cache off (aot-ab) are not faster;
+funclatency-libbpf on one thread is 2.2% below dev 9c088441 with the cache
+on or off (a difference of the builds, not attributed). The agent still
+holds `shm_lifecycle_lock` from opening the segment until it has attached:
+about 4.9 ms per process at once now (13 before); releasing it after
+registering in the alive agent set would remove that (not done). What
+remains of a start is mostly loading the 114 MB agent and LLVM in it.
+Tests: `[aot-cache]` (another process image with the segment mapped
+elsewhere, a fork child, keys that differ, a map replaced after compiling;
+seven mutations in the commit messages).
 
 ## Agent Work Is Invisible To Probes
 
