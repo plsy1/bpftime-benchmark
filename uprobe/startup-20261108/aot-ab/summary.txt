@@ -1,0 +1,13 @@
+AOT code against JIT code, real tools (ab.py, 5 rounds x 10 s, backends rotated, CPU 5 at 1728000)
+ops/s in millions, median of 5 (new/old):
+                             old (9c088441)  new (9898ed19, AOT)  noaot (9898ed19, JIT)
+funclatency-libbpf    1 thr  1.492           1.460 (0.978)        1.440 (0.965)
+funclatency-libbpf    6 thr  1.230           1.229 (0.999)        1.220 (0.992)
+bpftrace hist         1 thr  1.348           1.345 (0.998)        1.340 (0.994)
+bpftrace hist         6 thr  1.262           1.247 (0.988)        1.246 (0.988)
+new and noaot are the same binaries (hard links; noaot: BPFTIME_AOT_CACHE=0 in the tool), so
+the AOT objects are not slower than JIT code (funclatency 1 thread: 1.4% faster). The 2.2%
+between old and new for funclatency-libbpf on one thread is there with the JIT too (3.5%): a
+difference of the two builds, not of the cache; the hot path (bpftime_prog_exec, helpers,
+Frida callback) is unchanged in source. Not attributed (relinked binary layout; bpftime_prog
+gained a member, which moves its hot fields). Every other real-tool cell: within 1.5%.
