@@ -1,0 +1,22 @@
+# substitution spike, 2026-11-09 06:33:30
+# globals.mod.ptx = cuobjdump -ptx of globals_legacy with inc() adding 10 (g, m) and vectorAdd adding 100.0 to C; NUL-terminated for the driver
+== no substitution (shared cudart)
+vectorAdd: C[0] = 0.00, C[1] = 3.00 (expected 0.00, 3.00)
+globals: g via pointer = 5, g via symbol = 5, managed m = 5 (expected 5 5 5)
+last error: no error
+== gdb: cuLibraryLoadData image -> globals.mod.ptx (shared cudart)
+Function "cuLibraryLoadData" not defined.
+Breakpoint 1 (cuLibraryLoadData) pending.
+cuLibraryLoadData: original image=0xaaaaaaac0010, substituting the modified PTX
+Restoring binary file /home/jetson/src/bpftime-gpu-work/gaps/subst/globals.mod.ptx into memory (0xaaaaaace50e0 to 0xaaaaaace55cc)
+vectorAdd: C[0] = 100.00, C[1] = 103.00 (expected 0.00, 3.00)
+globals: g via pointer = 50, g via symbol = 50, managed m = 50 (expected 5 5 5)
+last error: no error
+== gdb: same, static cudart build (globals_legacy_static)
+Function "cuLibraryLoadData" not defined.
+Breakpoint 1 (cuLibraryLoadData) pending.
+cuLibraryLoadData: original image=0xaaaaaab60048, substituting the modified PTX
+Restoring binary file /home/jetson/src/bpftime-gpu-work/gaps/subst/globals.mod.ptx into memory (0xaaaaaacfade0 to 0xaaaaaacfb2cc)
+vectorAdd: C[0] = 100.00, C[1] = 103.00 (expected 0.00, 3.00)
+globals: g via pointer = 50, g via symbol = 50, managed m = 50 (expected 5 5 5)
+last error: no error

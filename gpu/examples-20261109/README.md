@@ -6,7 +6,8 @@ driver 595.78. Code: the dev candidate a2acb4f8. `attach/nv_attach_impl`,
 llvm-jit submodule (87bac39) are byte-identical to official/master, so every problem below applies
 upstream too (the agent's `main()` wrapper and `__cudaRegisterFatBinary` interposer are identical as
 well). Follows `../feasibility-20261109` (the survey). Runs 2026-11-09 03:54-04:21 JST (meas.sh
-04:16-04:19), one control run at 06:02; read-only verification 04:23-06:00. No repo file was changed.
+04:16-04:19), a control at 06:02 and gap runs 06:29-06:34 (section 7); read-only verification
+04:23-06:28. No repo file was changed.
 
 ## Build (`build/`)
 
@@ -59,9 +60,16 @@ and served only these runs.
 | cg-vec_add_graph_legacy | same | legacy | 6 (1 + 5) |
 | th-ipc | threadhist (map 1502) | none | loader fails: `cuIpcGetMemHandle` 801, map 1502 not created |
 | gdb-server-exit | kernelretsnoop inside gdb | none | backtrace of the exit crash (problem 9) |
+| krs-static-legacy | kernelretsnoop | vec_add_legacy built with static cudart (nvcc's default) | **0 events**; 3.00 |
+| krs-static-default | same | vec_add, static cudart | **0 events**; 3.00 |
+| krs-static-legacy-info | same, info level | static legacy | 0 events; the only agent line is "Attach successfully" |
+| gdb-static-vec_add_legacy_static | kernelretsnoop; victim in gdb | static legacy | bpftime's `cuLaunchKernel` hook reached 4 times with a kernel handle: `cuFuncGetName` 400, `cuKernelGetName` names it |
+| glob-noagent | kt3-empty | `gaps/globals_legacy`, no agent | 3.00; g, g, m = 5 5 5 |
+| glob-agent | kt3-empty (probe on vectorAdd only) | `gaps/globals_legacy` | 3.00; **g, g, m = 0 0 0**: the unprobed `inc()` ran in the patched module |
+| krs-autodetect | kernelretsnoop, `BPFTIME_SM_ARCH` unset | vec_add_legacy 5 3 5 1 | "Auto-detected GPU SM arch: sm_87"; 20 events |
 | m-A-\*, m-B-\*, m-C-strace | meas.sh | section 2 | |
 
-Every loader died with SIGSEGV at exit (status 139 in 33 runs and the control; hmt-legacy 124, its
+Every loader died with SIGSEGV at exit (status 139 in every completed run; hmt-legacy 124, its
 timeout came first; th-ipc stopped early), with or without a victim: problem 9.
 
 ## 2. Measurements (meas.sh, clocks locked, info level)
@@ -110,8 +118,10 @@ Mechanism and upstream status as checked by the verifiers (section 5); line numb
    (map lookup/update/delete, printk) writes its key, value or arguments into the one shared request
    buffer before taking the lock, all lanes at once; each lane then sends whatever is there.
    ts-legacy: 60 successful updates with 10 different keys left 1 key; hmt-legacy: 120 printk lines
-   all name thread 0 while the per-thread map in the same run holds threads 0-9. Not tracked
-   upstream (PR #503 adds fences only).
+   all name thread 0 while the per-thread map in the same run holds threads 0-9. PR #503 adds
+   fences only; open PR #624's verifier treats host-call arguments that differ between lanes as
+   unsupported ("host-bridge payload uniformity"), although the upstream threadscheduling example
+   uses per-thread keys.
 3. **`-ffunction-sections`/`-fdata-sections` victims lose their `__constant__` copies on aarch64**
    (krs-vec_add_legacy_fs: 20 events, C[1] 0.00; the same binary without the agent 3.00). Since #695
    the host symbol cache keeps STT_NOTYPE symbols, so AArch64 mapping symbols (`$x`, `$d`, size 0)
@@ -148,7 +158,10 @@ Mechanism and upstream status as checked by the verifiers (section 5); line numb
 7. **The GPU ringbuf (1527) loses events.** m-B-sample: 13 of 201 events arrived (the first 13
    launches). A thread slot holds 16 entries and a full slot drops the event on the GPU; the host
    drains at most one entry per slot per poll and returns at the first slot being written; the
-   examples poll once a second. Publication itself is unsound: no system-scope fence between the
+   examples poll once a second. 185 of the 188 lost events were dropped on the GPU within about
+   0.12 s (the slot was full); draining every entry per poll would recover only the other 3, so the
+   example must also poll faster or reserve more entries, and bpftime should count the drops.
+   Publication itself is unsound: no system-scope fence between the
    data and the flags, and the host can consume a slot whose tail moved before its data was written.
    Not tracked upstream.
 8. **None of these failures shows at the default log level.** In all agent logs the only warnings
@@ -210,6 +223,22 @@ locked clocks agent runs were not slower than no-agent runs.
     Blocked here: threadhist (1502), atomizer, mem_trace, launchlate, cutlass counter (1503),
     threadscheduling_dynamic_hook (1501), gpu_shared_map (both).
 
+### Found in the gap runs (section 7)
+
+16. **Kernels in a probed module run on their own copies of `__device__` and `__managed__`
+    variables** (glob-agent: g, g, m = 0 0 0 instead of 5 5 5, for a kernel that was not probed).
+    The late bootstrap loads the rewritten PTX as a separate module and redirects every kernel in it,
+    probed or not (prefill registers every entry function); that module has its own storage for
+    every global. Only `cudaMemcpy{To,From}Symbol` are mirrored, and only into the patched module;
+    `cudaGetSymbolAddress`, managed variables and values that kernels write are not. Any program
+    whose kernels keep state in device globals computes wrong results once any kernel of the same
+    module is probed.
+17. **Victims linked with static cudart, nvcc's default, are not instrumented** (krs-static-\*:
+    0 events, only "Attach successfully" at info). The runtime hooks need cudart's dynamic exports.
+    The driver-level `cuLaunchKernel` hook is reached (gdb: 4 hits) but gets a kernel handle and
+    names it only with `cuFuncGetName` (400); `cuKernelGetName` names it. `cudaMemcpyToSymbol` is
+    internal to static cudart, so `__constant__` copies could not be mirrored either.
+
 ### Found by reading only (not run)
 
 - A PTX compile or module load error inside the agent ends in `std::terminate` (thrown inside a
@@ -217,7 +246,8 @@ locked clocks agent runs were not slower than no-agent runs.
   unpatched. Triggers: PTX that nvPTXCompiler refuses for sm_87, e.g. `.version` below 7.4 (never
   raised for sm_87) or library PTX for newer GPUs.
 - SM detection falls back to sm_61 (refused by CUDA 13) when driver calls fail, and calls `setenv`
-  inside the victim. The harness set `BPFTIME_SM_ARCH=sm_87`, so auto-detection never ran here.
+  inside the victim. Auto-detection itself works (krs-autodetect: sm_87, 20 events; the second
+  lookup then reads the variable it set).
 - The host reads the request flag without an acquire (ARMv8 does not order the following loads); PR
   #503.
 - Host pointers from map lookups are translated to device pointers without a range check; a value
@@ -250,7 +280,8 @@ expects clang++-17).
 
 ## 4. What works
 
-With legacy-launch, unstripped victims and one probe: the kprobe and kretprobe PTX passes,
+With legacy-launch, unstripped victims linked with shared cudart, one probe, and kernels that keep
+no state in device globals: the kprobe and kretprobe PTX passes,
 nvPTXCompiler from sm_75 PTX to sm_87, cuobjdump extraction, module load and launch redirection, the
 64 MiB host-registered segment, the globaltimer and thread/block index helpers, the 1527 ringbuf at
 low rates, the 1512/1513 host-backed GPU maps, CPU maps and printk through host calls (slow, problems
@@ -276,8 +307,19 @@ raw logs who did not see my findings. A critic then looks for gaps and contradic
   launches.
 - New: problems 2, 4 and 7, which I had not seen.
 
-The gdb experiments that would observe problems 1 and 3 directly (which module the mirror writes;
-which name the resolver returns) are written out in the verifier outputs and were not run.
+The critic's first attempt was cut off; the second (06:05-06:27) listed gaps, contradictions and a
+priority order (`verify/verify-result.json`, `critic`). Its gaps led to section 7. Its corrections:
+the ringbuf loss is mostly GPU-side capacity (problem 7); #624 disagrees with fixing problem 2 at
+run time; a test of the exit crash must go through the `close()` interposer (clearing `manager` in
+the destructor would be removed by the compiler); #709's wait for in-flight launches is required,
+since launching a function of an unloaded module is undefined.
+
+Not run, with the failure the critic predicts: SASS-only fatbins (no PTX: silently unpatched), PTX
+older than 7.4, a compile failure (`BPFTIME_SM_ARCH=sm_61`: SIGABRT), CUDA code dlopen'ed after
+start-up (the registration path never ran), two translation units with same-named static kernels
+or `__constant__`, concurrent streams, `-rdc`, and `bpftime attach` (globals written before the
+attach never reach the patched module). The gdb observations of problems 1 and 3 are written out in
+the verifier outputs and were not run.
 
 ## 6. Caveats
 
@@ -290,6 +332,24 @@ which name the resolver returns) are written out in the verifier outputs and wer
 - Example bugs, not bpftime: cuda-counter calls=51 and threadscheduling SM=51 / warps=24 instead of
   60 come from lanes racing on `BPF_NOEXIST` first inserts; cuda-counter's 60 failed deletes use the
   wrong key; the victim's "GB/s" figures are MiB/s.
+
+## 7. Gap runs and the driver's load path (`gaps/`, 06:29-06:34)
+
+`gaps/run-gaps.sh` ran the static-cudart, globals and auto-detection rows of section 1;
+`gaps/gdb-static.sh` traced the static victim's launches.
+
+Where cudart hands fatbins to the driver (`gaps/gdb-loadpath.out`, no agent): with shared and with
+static cudart, each fatbin is loaded with `cuLibraryLoadData` after `main` begins (at the first
+runtime call; the image is the fatbin wrapper), and kernels, globals and managed variables are then
+looked up by name with `cuLibraryGetKernel`, `cuLibraryGetGlobal` and `cuLibraryGetManaged`.
+
+Substituting a modified PTX for that image (gdb spike, `gaps/subst/`: `inc()` adds 10, vectorAdd
+adds 100) made cudart use it for everything, with shared and with static cudart: the launch ran the
+modified kernel (C[1] = 103), `cudaMemcpyToSymbol` reached its `d_N`, and `cudaGetSymbolAddress`,
+`cudaMemcpyFromSymbol` and the managed variable all saw the modified `inc()` (50 50 50). A patched
+image handed over at this call would need no launch redirection, no host symbol names and no global
+mirroring, which is where problems 3, 5, 6, 16 and 17 (and the 1.39 s symbol cache) come from.
+(`globals.mod.ptx` is stored without the terminating NUL the driver needs.)
 
 ## Words used here
 
@@ -316,4 +376,6 @@ which name the resolver returns) are written out in the verifier outputs and wer
 - `probes/`, `scripts/`: the probe variants and the harness.
 - `extra/localcall/`: the bpf-to-bpf frame test (source and output); `extra/trampoline-regen/`: the
   attempts to regenerate the trampoline PTX.
-- `verify/`: the verification workflow script and its outputs.
+- `verify/`: the verification workflow script and its outputs (`critic` holds the second attempt).
+- `gaps/`: the gap runs' scripts and outputs, the globals victim, the load-path trace and the
+  substitution spike (`subst/`).

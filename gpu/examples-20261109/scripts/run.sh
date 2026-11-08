@@ -4,7 +4,8 @@
 #   on a shared memory segment of their own (bpftime_gpu_NAME, removed afterwards).
 #   After the victim exits: wait until the server log stops growing (at least DRAIN_S s),
 #   then SIGINT the loader (it polls once more and exits).
-#   env: SRV_ENV / VIC_ENV = 'K=V ...' for the loader / victim; NO_AGENT=1 runs the victim plain.
+#   env: SRV_ENV / VIC_ENV = 'K=V ...' for the loader / victim; NO_AGENT=1 runs the victim plain;
+#   NO_SMARCH=1 leaves BPFTIME_SM_ARCH unset (SM auto-detection).
 set -u
 R=/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate
 B=$R/build-cuda
@@ -31,7 +32,8 @@ echo "server ready $(date '+%T.%N')" >> "$O/meta.txt"
 if [ -n "$VCMD" ]; then
   PRE="LD_PRELOAD=$B/runtime/agent/libbpftime-agent.so"; [ -n "${NO_AGENT:-}" ] && PRE=
   t0=$(date +%s%N)
-  timeout -k 5 -s INT "$VT" env BPFTIME_SM_ARCH=sm_87 SPDLOG_LEVEL=${SPDLOG_LEVEL:-debug} ${VIC_ENV:-} $PRE $VCMD > "$O/client.log" 2>&1
+  SMA="BPFTIME_SM_ARCH=sm_87"; [ -n "${NO_SMARCH:-}" ] && SMA=
+  timeout -k 5 -s INT "$VT" env $SMA SPDLOG_LEVEL=${SPDLOG_LEVEL:-debug} ${VIC_ENV:-} $PRE $VCMD > "$O/client.log" 2>&1
   crc=$?; t1=$(date +%s%N)
   echo "client_rc=$crc client_ms=$(( (t1-t0)/1000000 ))" | tee -a "$O/meta.txt"
 fi
