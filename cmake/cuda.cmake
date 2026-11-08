@@ -8,12 +8,25 @@ function(find_cuda)
 
     # Detect target platform based on CMAKE_SYSTEM_PROCESSOR
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-        set(CUDA_TARGET_ARCH "aarch64-linux")
+        # CUDA 12 for Jetson installs targets/aarch64-linux; CUDA 13 installs
+        # only targets/sbsa-linux, for Arm servers and Jetson alike.
+        if(EXISTS "${BPFTIME_CUDA_ROOT}/targets/aarch64-linux")
+            set(CUDA_TARGET_ARCH "aarch64-linux")
+        else()
+            set(CUDA_TARGET_ARCH "sbsa-linux")
+        endif()
     elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64")
         set(CUDA_TARGET_ARCH "x86_64-linux")
     else()
         message(WARNING "Unsupported architecture ${CMAKE_SYSTEM_PROCESSOR}, defaulting to x86_64-linux")
         set(CUDA_TARGET_ARCH "x86_64-linux")
+    endif()
+    set(_CUDA_TARGET_DIR "${BPFTIME_CUDA_ROOT}/targets/${CUDA_TARGET_ARCH}")
+    # Fail here, not in the first compile that includes cuda.h.
+    if(NOT EXISTS "${_CUDA_TARGET_DIR}/include/cuda.h")
+        message(FATAL_ERROR "cuda.h not found in ${_CUDA_TARGET_DIR}/include: "
+            "set BPFTIME_CUDA_ROOT (${BPFTIME_CUDA_ROOT}) to a CUDA installation "
+            "for ${CMAKE_SYSTEM_PROCESSOR}")
     endif()
 
     set(CUDA_LIBRARY_PATH ${BPFTIME_CUDA_ROOT}/targets/${CUDA_TARGET_ARCH}/lib/ ${BPFTIME_CUDA_ROOT}/targets/${CUDA_TARGET_ARCH}/lib/stubs/ ${BPFTIME_CUDA_ROOT}/extras/CUPTI/lib64/ PARENT_SCOPE)
@@ -37,11 +50,16 @@ function(find_cuda)
         set(CUDA_VERSION_MINOR ${CMAKE_MATCH_2})
     endif()
 
-    # Prefer canonical CUPTI include path; fall back to versioned layout if needed.
-    set(_CUDA_CUPTI_INCLUDE "${BPFTIME_CUDA_ROOT}/extras/CUPTI/include")
-    if(NOT EXISTS "${_CUDA_CUPTI_INCLUDE}")
-        set(_CUDA_CUPTI_INCLUDE "${BPFTIME_CUDA_ROOT}/cuda-${CUDA_VERSION_MAJOR}.${CUDA_VERSION_MINOR}/extras/CUPTI/include")
-    endif()
+    # CUPTI headers: extras/CUPTI/include, a versioned layout, or (CUDA 13)
+    # the target's include directory; the first one that has cupti.h.
+    set(_CUDA_CUPTI_INCLUDE "${_CUDA_TARGET_DIR}/include")
+    foreach(_dir "${BPFTIME_CUDA_ROOT}/extras/CUPTI/include"
+            "${BPFTIME_CUDA_ROOT}/cuda-${CUDA_VERSION_MAJOR}.${CUDA_VERSION_MINOR}/extras/CUPTI/include")
+        if(EXISTS "${_dir}/cupti.h")
+            set(_CUDA_CUPTI_INCLUDE "${_dir}")
+            break()
+        endif()
+    endforeach()
     set(CUDA_INCLUDE_PATH ${BPFTIME_CUDA_ROOT}/targets/${CUDA_TARGET_ARCH}/include ${_CUDA_CUPTI_INCLUDE} PARENT_SCOPE)
 
     message(STATUS "Detected CUDA version: ${CUDA_VERSION_MAJOR}.${CUDA_VERSION_MINOR}")
