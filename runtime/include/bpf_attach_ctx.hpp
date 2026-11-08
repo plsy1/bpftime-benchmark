@@ -266,6 +266,25 @@ int load_prog_and_helpers(
 	const std::map<int, bpftime_helper_info> *custom_helpers = nullptr,
 	const bpftime_helper_info *map_delete_override = nullptr);
 
+// load_prog_and_helpers without the load: registers the configured helper
+// groups, the overrides and the custom helpers.
+int register_prog_helpers(
+	bpftime_prog *prog, const runtime_config &config,
+	const bpftime_helper_info *map_lookup_override = nullptr,
+	const bpftime_helper_info *map_update_override = nullptr,
+	const std::map<int, bpftime_helper_info> *custom_helpers = nullptr,
+	const bpftime_helper_info *map_delete_override = nullptr);
+
+// Registers the helpers a traced process gives the program of insns: the
+// configured groups, the typed map helpers chosen from the maps the
+// instructions name (shared memory only), and custom_helpers. The syscall
+// server registers the same set to compile the AOT object agents load, so
+// both must go through this function.
+int register_prog_handler_helpers(
+	const handler_manager *manager, const ebpf_inst *insns, size_t insn_cnt,
+	bpftime_prog *prog, const runtime_config &config,
+	const std::map<int, bpftime_helper_info> *custom_helpers);
+
 } // namespace bpftime
 
 #endif
