@@ -14,7 +14,8 @@ Dev commits (on 8a0afd36, candidate worktree, local):
 | 9898ed19 | bound programs too: map values and inlined arrays' value bases are symbols each process defines (llvmbpf patches regenerated, large code model, inlining in the AOT compile) |
 | c9d4d974 | CLAUDE.md: the cache's invariants, measurements, limits |
 
-Builds (`ssl-nginx-2x2-20261023/builds`, checks on): old = `dev-9c088441-probecheck` (8a0afd36 adds
+The helper programs (stampmain, spawnburst) are built from the sources by the scripts; the runs
+used copies built from the same sources. Builds (`ssl-nginx-2x2-20261023/builds`, checks on): old = `dev-9c088441-probecheck` (8a0afd36 adds
 a test only), new = `dev-9898ed19-probecheck` (c9d4d974 changes only CLAUDE.md), new:noaot = the
 same binaries with `BPFTIME_AOT_CACHE=0` in the tool (agents compile as before; for the real tools
 the hard-linked copy `dev-9898ed19-noaot`). `go.sh`, 22:26-23:12; `aot-ab/ab.py`, 23:15-23:33; CPU 5

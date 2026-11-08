@@ -32,6 +32,13 @@
 | dev-9898ed19-probecheck:noaot | 8 | 64.6/63.9 | 114.3/115.3 | 23.0/22.9 | 116.0/115.9 | True |
 | dev-9898ed19-probecheck:noaot | 16 | 117.3/118.3 | 207.7/212.1 | 22.9/22.8 | 221.9/222.5 | True |
 
-## 3. Output cost per call (output-dims run.py, ns per call per thread, median of reps)
+## 3. Output cost per call (output-dims run.py, 3 x 6 s, ns per call per thread, median)
 
-raw rows: 36 fields: backend, burst, burst_us, consumer_ns, delivered, failed, gap_ns, hits, lost, obj, ok, ops_per_sec, pause_us, pb_pages, period_ns, procs, received, rep, seconds, threads, total_ops, workload, workload_rc
+| program | threads | old | new | new/old |
+|---|---:|---:|---:|---:|
+| out-control.bpf.o | 1 | 224 | 225 | 1.004 |
+| out-control.bpf.o | 6 | 4750 | 4671 | 0.983 |
+| out-perf-8.bpf.o | 1 | 613 | 604 | 0.985 |
+| out-perf-8.bpf.o | 6 | 4672 | 4713 | 1.009 |
+| out-rbres-8.bpf.o | 1 | 391 | 383 | 0.982 |
+| out-rbres-8.bpf.o | 6 | 4917 | 5050 | 1.027 |

@@ -12,7 +12,10 @@ N=/home/jetson/src/results/uprobe/startup-20261108/memleak-start
 BD=/home/jetson/src/results/uprobe/ssl-nginx-2x2-20261023/builds
 NEW=$1; OLD=$2; REPS=${3:-10}
 ML=/home/jetson/src/realprog-20261026-btf/libbpf-tools/memleak
-SM=/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/aotbench/stampmain
+# stampmain built from remeasure-20261108/memleak-start/src/stampmain.c (stw, its static
+# wrapper, is /home/jetson/src/rp/stw, from src/stampwrap.c there).
+SM=$(mktemp -d)/stampmain
+gcc-13 -O2 -g -o $SM /home/jetson/src/results/uprobe/remeasure-20261108/memleak-start/src/stampmain.c || exit 1
 for i in $(seq $REPS); do
   for cell in kernel old new new-noaot; do
     S=$N/stamp-$cell-$i.txt; rm -f $S

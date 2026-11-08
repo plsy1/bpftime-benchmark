@@ -10,7 +10,7 @@ count_event); bpftime builds (the tool under the syscall server, children with t
 loads the agent, opens the segment, compiles the program and hooks the function, holding
 shm_lifecycle_lock from opening the segment until attaching is done). spawnburst is never
 traced. Child wall far above its CPU time means waiting (a lock, or no free CPU)."""
-import argparse, json, sys, time
+import argparse, json, subprocess, sys, tempfile, time
 from pathlib import Path
 
 MD = Path('/home/jetson/src/results/uprobe/more-dims-20261106')
@@ -18,7 +18,9 @@ sys.path.insert(0, str(MD))
 import common  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-BURST = Path('/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/spawnburst')
+# Built from src/spawnburst.c into a temporary directory at every run.
+BURST = Path(tempfile.mkdtemp()) / 'spawnburst'
+subprocess.run(['gcc-13', '-O2', '-g', '-o', str(BURST), str(HERE / 'src' / 'spawnburst.c')], check=True)
 CHILD = MD / 'n2-startup' / 'src' / 'shortlived'
 OBJ = Path('/home/jetson/src/results/uprobe/output-dims-20261106/src/out-control.bpf.o')
 NAMES = ('outattach', 'shortlived', 'spawnburst')

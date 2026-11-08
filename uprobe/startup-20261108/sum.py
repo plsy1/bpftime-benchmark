@@ -46,8 +46,16 @@ for (b, k), rs in g.items():
 path = N / 'output-threads.jsonl'
 if path.exists():
     rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
-    keys = [k for k in ('ns_per_call', 'total_ns', 'ns') if rows and k in rows[0]]
-    p('\n## 3. Output cost per call (output-dims run.py, ns per call per thread, median of reps)\n')
-    p('raw rows:', len(rows), 'fields:', ', '.join(sorted(rows[0].keys())) if rows else '-')
+    g = collections.defaultdict(list)
+    for r in rows:
+        if r.get('ops_per_sec'):
+            g[(r['obj'], r['threads'], r['backend'])].append(1e9 * r['threads'] / r['ops_per_sec'])
+    p('\n## 3. Output cost per call (output-dims run.py, 3 x 6 s, ns per call per thread, median)\n')
+    p('| program | threads | old | new | new/old |')
+    p('|---|---:|---:|---:|---:|')
+    for o, t in sorted({(o, t) for o, t, _ in g}):
+        a = med(g[(o, t, 'dev-9c088441-probecheck')])
+        b = med(g[(o, t, 'dev-9898ed19-probecheck')])
+        p(f'| {o} | {t} | {a:.0f} | {b:.0f} | {b / a:.3f} |')
 open(N / 'summary.md', 'w').write('\n'.join(out) + '\n')
 print('\n'.join(out))
