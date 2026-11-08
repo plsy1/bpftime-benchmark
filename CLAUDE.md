@@ -625,6 +625,16 @@ programs against the unmapped segment and crash the host at exit. The Frida
 callback does not log `-ENODEV`, because the logger may already be destroyed.
 Threads still inside a program when the main thread unmaps are not covered.
 
+The syscall server has the same exposure: `__destruct_shm` runs in its DSO's
+`.fini_array`, before the destructors of the libraries it depends on (libcuda,
+libnvrm_mem) and of the executable's other dependencies. Every interposer
+enters through `initialize_ctx()`, which returns false (the call goes to libc)
+once `global_shm_released` is set. libnvrm_mem's destructor closing
+`/dev/nvmap` took the handler path on the unmapped segment, and every CUDA
+loader died with SIGSEGV at exit (results `gpu/examples-20261109`, problem 9).
+Test "The syscall server passes calls made after its segment is gone to libc"
+(a DT_NEEDED library closes a bpftime map fd in its destructor).
+
 The default logger is destroyed with spdlog's registry at exit, while probes
 still run: a probe that logged after that wrote through a freed formatter and
 crashed the traced process (`timeout` under the get_stack_id example, 1-2 of 4
