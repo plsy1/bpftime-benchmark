@@ -136,8 +136,12 @@ class bpftime_prog {
 	int bpftime_prog_set_insn(struct ebpf_inst *insn, size_t insn_cnt);
 	// bpftime_prog_load in two parts: binding, helper registration and the
 	// instruction rewrites (owned_insns, empty when insns are loaded as
-	// they are), then loading and compiling load_insns.
-	int prepare_load(bool jit, std::vector<ebpf_inst> &owned_insns);
+	// they are), then loading and compiling load_insns. relocatable (the
+	// AOT cache) keeps bound global data LDDWs instead of rewriting them.
+	int prepare_load(bool jit, std::vector<ebpf_inst> &owned_insns,
+			 bool relocatable);
+	// Bound global data LDDWs as constants of their retained addresses.
+	void write_bound_value_constants(std::vector<ebpf_inst> &load_insns) const;
 	int finish_load(bool jit, const std::vector<ebpf_inst> &load_insns);
 	// What the compiler sees for load_insns: the VM, the helpers registered
 	// with it by index and name, the bindings and the instructions.

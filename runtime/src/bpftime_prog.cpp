@@ -537,13 +537,24 @@ std::optional<std::span<const uint8_t> > frozen_read_only_value(int fd)
 int bpftime_prog::bpftime_prog_load(bool jit)
 {
 	std::vector<ebpf_inst> owned_insns;
-	int res = prepare_load(jit, owned_insns);
+	int res = prepare_load(jit, owned_insns, false);
 	if (res < 0)
 		return res;
 	return finish_load(jit, owned_insns.empty() ? insns : owned_insns);
 }
 
-int bpftime_prog::prepare_load(bool jit, std::vector<ebpf_inst> &owned_insns)
+void bpftime_prog::write_bound_value_constants(
+	std::vector<ebpf_inst> &load_insns) const
+{
+	for (const auto &[index, address] : bound_value_addresses) {
+		load_insns[index].src_reg = 0;
+		load_insns[index].imm = static_cast<int32_t>(address & UINT32_MAX);
+		load_insns[index + 1].imm = static_cast<int32_t>(address >> 32);
+	}
+}
+
+int bpftime_prog::prepare_load(bool jit, std::vector<ebpf_inst> &owned_insns,
+			       bool relocatable)
 {
 	owned_insns.clear();
 	if (array_jit_failed)
@@ -572,14 +583,12 @@ int bpftime_prog::prepare_load(bool jit, std::vector<ebpf_inst> &owned_insns)
 	SPDLOG_DEBUG("Load insn cnt {}", insns.size());
 	// Bound global data loads become plain 64-bit constants of the retained
 	// address, so no compile (eager or lazy) consults the FD table. The
-	// stored program keeps its original relocations.
-	if (!bound_value_addresses.empty()) {
+	// stored program keeps its original relocations. For the AOT cache
+	// (relocatable) they stay map value LDDWs, compiled as symbols that
+	// bpftime_prog_load_cached defines from the same retained addresses.
+	if (!bound_value_addresses.empty() && !relocatable) {
 		owned_insns = insns;
-		for (const auto &[index, address] : bound_value_addresses) {
-			owned_insns[index].src_reg = 0;
-			owned_insns[index].imm = static_cast<int32_t>(address & UINT32_MAX);
-			owned_insns[index + 1].imm = static_cast<int32_t>(address >> 32);
-		}
+		write_bound_value_constants(owned_insns);
 	}
 	// Poisoned calls go to a helper that reports it ran.
 	for (size_t i = 0; i < insns.size(); i++) {
@@ -965,8 +974,23 @@ bpftime_prog::aot_cache_key(const std::vector<ebpf_inst> &load_insns) const
 		put_u32(index);
 		put_str(helper_name);
 	}
+	// Inlined arrays (their geometry is in the code), maps whose calls take
+	// the original helpers directly, and which map value LDDWs are bound.
 	put_u32(static_cast<uint32_t>(bound_arrays.size()));
+	for (const auto &[fd, binding] : bound_arrays) {
+		put_u32(static_cast<uint32_t>(fd));
+		put_u32(binding->value_size());
+		put_u32(static_cast<uint32_t>(binding->cpu_count()));
+		put_u32(binding->max_entries());
+		put_u32(binding->is_per_cpu() ? 1 : 0);
+	}
+	put_u32(static_cast<uint32_t>(unbound_map_handles.size()));
+	for (uint64_t fd : unbound_map_handles)
+		put_u32(static_cast<uint32_t>(fd));
 	put_u32(static_cast<uint32_t>(bound_values.size()));
+	put_u32(static_cast<uint32_t>(bound_value_addresses.size()));
+	for (const auto &entry : bound_value_addresses)
+		put_u32(static_cast<uint32_t>(entry.first));
 	put_u32(static_cast<uint32_t>(load_insns.size()));
 	put(load_insns.data(), load_insns.size() * sizeof(ebpf_inst));
 	return key;
@@ -974,23 +998,37 @@ bpftime_prog::aot_cache_key(const std::vector<ebpf_inst> &load_insns) const
 
 namespace
 {
-// Programs whose loaded code holds addresses of this process: bindings
-// (array lookups and global data) and the LDDWs that an AOT object resolves
-// differently from JIT code (a JIT constant of a map value, through a call of
-// map_val in an AOT object; map indexes, BTF ids, functions).
-bool aot_cacheable(const std::vector<ebpf_inst> &load_insns, bool bound)
+// Whether the AOT cache can hold the program's code: every address of the
+// loading process in it must be a symbol. Map values (LDDW pseudo map value)
+// are, as are the value bases of inlined arrays; map indexes, BTF ids and
+// functions in LDDWs are not.
+bool aot_cacheable(const std::vector<ebpf_inst> &load_insns)
 {
-	if (bound)
-		return false;
 	for (size_t i = 0; i < load_insns.size(); i++) {
 		if (load_insns[i].code != 0x18)
 			continue;
 		if (load_insns[i].src_reg != 0 &&
-		    load_insns[i].src_reg != BPF_PSEUDO_MAP_FD)
+		    load_insns[i].src_reg != BPF_PSEUDO_MAP_FD &&
+		    load_insns[i].src_reg != BPF_PSEUDO_MAP_VALUE)
 			return false;
 		i++; // The second half of the LDDW.
 	}
 	return true;
+}
+
+// llvmbpf's symbol of a pseudo map value (compiler.cpp,
+// kernel_pseudo_map_value_symbol) and of an inlined array's value base
+// (llvm_jit_context.cpp, bpftime_array_value_base_symbol).
+std::string map_value_symbol(int32_t fd, int32_t offset)
+{
+	char name[64];
+	snprintf(name, sizeof(name), "__llvmbpf_pseudo_map_value_fd_%08x_off_%08x",
+		 static_cast<uint32_t>(fd), static_cast<uint32_t>(offset));
+	return name;
+}
+std::string array_value_base_symbol(uint64_t fd)
+{
+	return "__bpftime_array_value_base_" + std::to_string(fd);
 }
 } // namespace
 
@@ -1002,13 +1040,15 @@ int bpftime_prog::compile_aot_cache_object(std::vector<uint8_t> &object,
 	if (is_cuda() || std::string_view(vm_backend_name()) != "llvm")
 		return -ENOTSUP;
 	std::vector<ebpf_inst> owned_insns;
-	int res = prepare_load(true, owned_insns);
+	int res = prepare_load(true, owned_insns, true);
 	if (res < 0)
 		return res;
 	const auto &load_insns = owned_insns.empty() ? insns : owned_insns;
-	if (!aot_cacheable(load_insns,
-			   !bound_arrays.empty() || !bound_values.empty()))
+	if (!aot_cacheable(load_insns))
 		return -ENOTSUP;
+	res = ebpf_set_relocatable_map_addresses(vm, true);
+	if (res < 0)
+		return res;
 	res = ebpf_load(vm, load_insns.data(),
 			load_insns.size() * sizeof(struct ebpf_inst), &errmsg);
 	if (res < 0)
@@ -1026,17 +1066,54 @@ int bpftime_prog::bpftime_prog_load_cached(const uint8_t *object,
 					   const uint8_t *key, size_t key_size)
 {
 	std::vector<ebpf_inst> owned_insns;
-	int res = prepare_load(true, owned_insns);
+	int res = prepare_load(true, owned_insns, true);
 	if (res < 0)
 		return res;
-	const auto &load_insns = owned_insns.empty() ? insns : owned_insns;
-	const auto expected = aot_cache_key(load_insns);
+	if (owned_insns.empty())
+		owned_insns = insns;
+	// Compiling instead: bound global data as constants, as
+	// bpftime_prog_load does.
+	auto compile = [&] {
+		write_bound_value_constants(owned_insns);
+		return finish_load(true, owned_insns);
+	};
+	const auto expected = aot_cache_key(owned_insns);
 	if (expected.size() != key_size ||
 	    memcmp(expected.data(), key, key_size) != 0) {
 		SPDLOG_INFO(
 			"Program {} differs from what its AOT object was compiled from; compiling it",
 			name);
-		return finish_load(true, load_insns);
+		return compile();
+	}
+	// This process's addresses: bound global data at the retained
+	// bindings, other map values where JIT code would have them (map_val
+	// at compile time), inlined arrays at their retained storage.
+	for (size_t i = 0; i + 1 < owned_insns.size(); i++) {
+		const auto &inst = owned_insns[i];
+		if (inst.code != 0x18)
+			continue;
+		if (inst.src_reg == BPF_PSEUDO_MAP_VALUE) {
+			const int32_t offset = owned_insns[i + 1].imm;
+			auto bound = bound_value_addresses.find(i);
+			const uint64_t address =
+				bound != bound_value_addresses.end() ?
+					bound->second :
+					map_val(map_ptr_by_fd(inst.imm)) +
+						offset; // As compiler.cpp.
+			res = ebpf_define_aot_symbol(
+				vm, map_value_symbol(inst.imm, offset).c_str(),
+				address);
+			if (res < 0)
+				return compile();
+		}
+		i++;
+	}
+	for (const auto &[fd, binding] : bound_arrays) {
+		res = ebpf_define_aot_symbol(
+			vm, array_value_base_symbol(fd).c_str(),
+			reinterpret_cast<uint64_t>(binding->raw_data()));
+		if (res < 0)
+			return compile();
 	}
 	ebpf_jit_fn loaded = nullptr;
 	try {
@@ -1048,7 +1125,7 @@ int bpftime_prog::bpftime_prog_load_cached(const uint8_t *object,
 	if (loaded == nullptr) {
 		SPDLOG_WARN("Linking the AOT object of {} failed; compiling it",
 			    name);
-		return finish_load(true, load_insns);
+		return compile();
 	}
 	fn = loaded;
 	jitted = true;

@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <linux/bpf.h>
+#include <iterator>
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -112,6 +113,7 @@ struct child_result {
 	int aot = -1;
 	uint64_t ret = 0;
 	uintptr_t code = 0;
+	uintptr_t shm = 0;
 	pid_t pid = 0;
 };
 
@@ -152,14 +154,81 @@ child_result run_in_child(int id, bool frida = true)
 	result.pid = pid;
 	auto at = text.find("aot-cache-child ");
 	REQUIRE(at != std::string::npos);
-	unsigned long long ret = 0, code = 0;
+	unsigned long long ret = 0, code = 0, shm = 0;
 	REQUIRE(sscanf(text.c_str() + at,
-		       "aot-cache-child aot=%d ret=%llu code=%llx", &result.aot,
-		       &ret, &code) == 3);
+		       "aot-cache-child aot=%d ret=%llu code=%llx shm=%llx",
+		       &result.aot, &ret, &code, &shm) == 4);
 	result.ret = ret;
 	result.code = code;
+	result.shm = shm;
 	return result;
 }
+
+uintptr_t shm_address()
+{
+	return reinterpret_cast<uintptr_t>(
+		shm_holder.global_shared_memory.get_manager());
+}
+
+constexpr int array_fd = 100, global_fd = 101;
+
+void create_array(int fd, uint32_t entries, uint32_t value_size)
+{
+	REQUIRE(bpftime_maps_create(fd, "aot_cache_map",
+				    { .type = BPF_MAP_TYPE_ARRAY,
+				      .key_size = 4,
+				      .value_size = value_size,
+				      .max_ents = entries }) == fd);
+}
+
+void set_u64(int fd, uint32_t key, uint64_t value)
+{
+	// Larger values keep their other bytes zero.
+	uint8_t bytes[16] = {};
+	memcpy(bytes, &value, sizeof(value));
+	REQUIRE(bpftime_map_update_elem(fd, &key, bytes, BPF_ANY) == 0);
+}
+
+uint64_t get_u64(int fd, uint32_t key)
+{
+	auto *value = static_cast<const uint64_t *>(
+		bpftime_map_lookup_elem(fd, &key));
+	REQUIRE(value != nullptr);
+	return *value;
+}
+
+// global = global data (a single-element array, as .bss); element 2 of the
+// array += global, returned. Bound: the lookup is inlined (the value base
+// is a symbol), the global data is a retained address (a symbol).
+const ebpf_inst bound_program[] = {
+	{ 0x18, 1, BPF_PSEUDO_MAP_VALUE, 0, global_fd },
+	{ 0x00, 0, 0, 0, 0 },
+	{ 0x79, 6, 1, 0, 0 }, // r6 = *(u64 *)(r1 + 0)
+	{ 0x62, 10, 0, -4, 2 }, // *(u32 *)(r10 - 4) = 2
+	{ 0xbf, 2, 10, 0, 0 },
+	{ 0x07, 2, 0, 0, -4 },
+	{ 0x18, 1, BPF_PSEUDO_MAP_FD, 0, array_fd },
+	{ 0x00, 0, 0, 0, 0 },
+	{ 0x85, 0, 0, 0, BPF_FUNC_map_lookup_elem },
+	{ 0x15, 0, 0, 5, 0 }, // if r0 == 0 goto out
+	{ 0x79, 7, 0, 0, 0 }, // r7 = *(u64 *)(r0 + 0)
+	{ 0x0f, 7, 6, 0, 0 }, // r7 += r6
+	{ 0x7b, 0, 7, 0, 0 }, // *(u64 *)(r0 + 0) = r7
+	{ 0xbf, 0, 7, 0, 0 },
+	{ 0x95, 0, 0, 0, 0 },
+	{ 0xb7, 0, 0, 0, 0 }, // out: r0 = 0
+	{ 0x95, 0, 0, 0, 0 },
+};
+constexpr size_t bound_program_len = std::size(bound_program);
+
+// r0 = global data, read only: no lookup, so no binding; JIT code would hold
+// the value's address as a constant.
+const ebpf_inst global_only_program[] = {
+	{ 0x18, 1, BPF_PSEUDO_MAP_VALUE, 0, global_fd },
+	{ 0x00, 0, 0, 0, 0 },
+	{ 0x79, 0, 1, 0, 0 },
+	{ 0x95, 0, 0, 0, 0 },
+};
 } // namespace
 
 TEST_CASE("Agents link the AOT object the server compiled for a program",
@@ -220,49 +289,107 @@ TEST_CASE("A program that differs from what its AOT object was compiled from "
 	}
 }
 
-TEST_CASE("The server caches only programs whose code holds no addresses of "
-	  "its own process",
+TEST_CASE("Bound programs' AOT objects use the maps of the process running "
+	  "them",
 	  "[aot-cache]")
 {
 	isolated_shm fixture;
-	constexpr int map_fd = 100;
-	REQUIRE(bpftime_maps_create(map_fd, "aot_cache_array",
-				    { .type = BPF_MAP_TYPE_ARRAY,
-				      .key_size = 4,
-				      .value_size = 8,
-				      .max_ents = 1 }) == map_fd);
-	SECTION("global data")
+	create_array(array_fd, 4, 8);
+	create_array(global_fd, 1, 8);
+	set_u64(array_fd, 2, 5);
+	set_u64(global_fd, 0, 100);
+	int id = bpftime_progs_create_cached(-1, bound_program, bound_program_len,
+					     "bound", BPF_PROG_TYPE_SOCKET_FILTER);
+	REQUIRE(id >= 0);
+	REQUIRE(!prog_handler(id).aot_insns.empty());
+
+	// Code and the segment elsewhere than in the compiling process.
+	auto child = run_in_child(id);
+	REQUIRE(child.shm != shm_address()); // Else the test proves nothing.
+	REQUIRE(child.aot == 1);
+	REQUIRE(child.ret == 105);
+	REQUIRE(get_u64(array_fd, 2) == 105); // The child's write.
+
+	// Here, and in a fork child of a process that linked it.
+	bpf_attach_ctx ctx;
+	register_frida(ctx);
+	REQUIRE(ctx.init_attach_ctx_from_handlers(bpftime_get_runtime_config()) ==
+		0);
+	auto *prog = ctx.find_instantiated_prog(id);
+	REQUIRE(prog != nullptr);
+	REQUIRE(prog->is_loaded_from_aot());
+	REQUIRE(run(prog) == 205);
+	pid_t pid = fork();
+	REQUIRE(pid >= 0);
+	if (pid == 0) {
+		uint64_t memory[4] = {}, ret = 0;
+		int err = prog->bpftime_prog_exec(memory, sizeof(memory), &ret);
+		_exit(err == 0 && ret == 305 ? 0 : 1);
+	}
+	int status = 0;
+	REQUIRE(waitpid(pid, &status, 0) == pid);
+	REQUIRE(WIFEXITED(status));
+	REQUIRE(WEXITSTATUS(status) == 0);
+	REQUIRE(get_u64(array_fd, 2) == 305);
+}
+
+TEST_CASE("An unbound program's map values are this process's in its AOT "
+	  "object",
+	  "[aot-cache]")
+{
+	isolated_shm fixture;
+	create_array(global_fd, 1, 8);
+	set_u64(global_fd, 0, 42);
+	int id = bpftime_progs_create_cached(-1, global_only_program, 4,
+					     "global_only",
+					     BPF_PROG_TYPE_SOCKET_FILTER);
+	REQUIRE(id >= 0);
+	REQUIRE(!prog_handler(id).aot_insns.empty());
+	auto child = run_in_child(id);
+	REQUIRE(child.shm != shm_address());
+	REQUIRE(child.aot == 1);
+	REQUIRE(child.ret == 42);
+}
+
+TEST_CASE("A program whose map was replaced after compiling is compiled again",
+	  "[aot-cache]")
+{
+	isolated_shm fixture;
+	create_array(array_fd, 4, 8);
+	create_array(global_fd, 1, 8);
+	int id = bpftime_progs_create_cached(-1, bound_program, bound_program_len,
+					     "bound", BPF_PROG_TYPE_SOCKET_FILTER);
+	REQUIRE(id >= 0);
+	REQUIRE(!prog_handler(id).aot_insns.empty());
+	// The same fd, 16-byte values: element 2 is no longer at offset 16.
+	bpftime_close(array_fd);
+	create_array(array_fd, 4, 16);
+	set_u64(array_fd, 1, 1000);
+	set_u64(array_fd, 2, 7);
+	auto child = run_in_child(id);
+	REQUIRE(child.aot == 0);
+	REQUIRE(child.ret == 7);
+}
+
+TEST_CASE("The server caches no program with other addresses in its code",
+	  "[aot-cache]")
+{
+	isolated_shm fixture;
+	SECTION("a map index value LDDW")
 	{
-		// r0 = *(u64 *)(map value + 0)
+		// It compiles (llvmbpf takes the index as the map), but it is
+		// none of the LDDWs the cache knows.
 		const ebpf_inst code[] = {
-			{ 0x18, 1, BPF_PSEUDO_MAP_VALUE, 0, map_fd },
+			{ 0x18, 1, 6 /* BPF_PSEUDO_MAP_IDX_VALUE */, 0, 0 },
 			{ 0x00, 0, 0, 0, 0 },
-			{ 0x79, 0, 1, 0, 0 },
+			{ 0xb7, 0, 0, 0, 0 },
 			{ 0x95, 0, 0, 0, 0 },
 		};
 		int id = bpftime_progs_create_cached(
-			-1, code, 4, "global_data", BPF_PROG_TYPE_SOCKET_FILTER);
+			-1, code, 4, "map_idx_value", BPF_PROG_TYPE_SOCKET_FILTER);
 		REQUIRE(id >= 0);
 		REQUIRE(prog_handler(id).aot_insns.empty());
 		REQUIRE(prog_handler(id).aot_key.empty());
-	}
-	SECTION("a bound array lookup")
-	{
-		// r0 = bpf_map_lookup_elem(map, &(u32)0)
-		const ebpf_inst code[] = {
-			{ 0xb7, 1, 0, 0, 0 },
-			{ 0x63, 10, 1, -4, 0 },
-			{ 0xbf, 2, 10, 0, 0 },
-			{ 0x07, 2, 0, 0, -4 },
-			{ 0x18, 1, BPF_PSEUDO_MAP_FD, 0, map_fd },
-			{ 0x00, 0, 0, 0, 0 },
-			{ 0x85, 0, 0, 0, BPF_FUNC_map_lookup_elem },
-			{ 0x95, 0, 0, 0, 0 },
-		};
-		int id = bpftime_progs_create_cached(
-			-1, code, 8, "bound_lookup", BPF_PROG_TYPE_SOCKET_FILTER);
-		REQUIRE(id >= 0);
-		REQUIRE(prog_handler(id).aot_insns.empty());
 	}
 	SECTION("BPFTIME_AOT_CACHE=0")
 	{
@@ -292,8 +419,9 @@ TEST_CASE("AOT cache child", "[.aot-cache-child]")
 	auto *prog = ctx.find_instantiated_prog(atoi(id_text));
 	REQUIRE(prog != nullptr);
 	uint64_t ret = run(prog);
-	printf("aot-cache-child aot=%d ret=%" PRIu64 " code=%llx\n",
+	printf("aot-cache-child aot=%d ret=%" PRIu64 " code=%llx shm=%llx\n",
 	       prog->is_loaded_from_aot() ? 1 : 0, ret,
-	       (unsigned long long)reinterpret_cast<uintptr_t>(&run_in_child));
+	       (unsigned long long)reinterpret_cast<uintptr_t>(&run_in_child),
+	       (unsigned long long)shm_address());
 	fflush(stdout);
 }

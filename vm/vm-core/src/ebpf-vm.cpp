@@ -74,6 +74,22 @@ extern "C" int ebpf_register_direct_map_handle(struct ebpf_vm *vm, uint64_t hand
 	return vm->vm_instance->register_direct_map_handle(handle);
 }
 
+extern "C" int ebpf_set_relocatable_map_addresses(struct ebpf_vm *vm,
+						 bool enabled)
+{
+	if (!vm || !vm->vm_instance)
+		return -EINVAL;
+	return vm->vm_instance->set_relocatable_map_addresses(enabled);
+}
+
+extern "C" int ebpf_define_aot_symbol(struct ebpf_vm *vm, const char *name,
+				      uint64_t address)
+{
+	if (!vm || !vm->vm_instance || !name)
+		return -EINVAL;
+	return vm->vm_instance->define_aot_symbol(name, address);
+}
+
 extern "C" void ebpf_unload_code(struct ebpf_vm *vm)
 {
 	vm->vm_instance->unload_code();

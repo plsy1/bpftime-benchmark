@@ -1,3 +1,5 @@
+compiler.cpp: the return block of a bpf-to-bpf call at pc 0, and for the AOT
+cache: a pseudo map value LDDW as a symbol in relocatable mode.
 --- a/src/compiler.cpp
 +++ b/src/compiler.cpp
 @@ -478,8 +478,10 @@
@@ -13,3 +15,22 @@
  				    insts[i - 1].opcode == EBPF_OP_CALL &&
  				    insts[i - 1].src == 0x01) {
  					auto blockAddr =
+@@ -1135,6 +1137,18 @@
+ 					builder.CreateStore(
+ 						emitKernelPseudoSymbol(
+ 							builder,
++							kernel_pseudo_map_value_symbol(
++								inst.imm,
++								nextinst.imm)),
++						regs[inst.dst]);
++					break;
++				}
++				if (vm.relocatable_map_addresses_) {
++					// bpftime's AOT cache: the loading process
++					// defines the value's address.
++					builder.CreateStore(
++						emitKernelPseudoSymbol(
++							builder,
+ 							kernel_pseudo_map_value_symbol(
+ 								inst.imm,
+ 								nextinst.imm)),
