@@ -4,6 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cerrno>
 #include <cstdint>
+#include <vector>
 
 using namespace bpftime;
 
@@ -28,6 +29,88 @@ TEST_CASE("JIT compiles a bpf-to-bpf call at pc 0", "[jit_load]")
 	uint64_t ret = 0;
 	REQUIRE(prog.bpftime_prog_exec(memory, sizeof(memory), &ret) == 0);
 	REQUIRE(ret == 42);
+}
+
+// A bpf-to-bpf call moved r10 by 64 bytes instead of one 512-byte frame, so
+// the callee's stack overlapped the caller's below r10-64 and overwrote it
+// (results gpu/examples-20261109, problem 4). Each level here fills its whole
+// frame, calls the next level, then returns the sum of its own frame plus the
+// callee's result: any overlap changes the sum.
+static std::vector<ebpf_inst> nested_frame_program(int levels)
+{
+	std::vector<ebpf_inst> code;
+	auto emit = [&](uint8_t op, uint8_t dst, uint8_t src, int16_t off,
+			int32_t imm) {
+		code.push_back(ebpf_inst{ .code = op,
+					  .dst_reg = dst,
+					  .src_reg = src,
+					  .off = off,
+					  .imm = imm });
+	};
+	for (int level = 0; level < levels; level++) {
+		const bool last = level == levels - 1;
+		// *(u64 *)(r10 - 8k) = level << 16 | k
+		for (int k = 1; k <= 64; k++)
+			emit(0x7a, 10, 0, (int16_t)(-8 * k), (level << 16) | k);
+		size_t call = 0;
+		if (!last) {
+			call = code.size();
+			emit(0x85, 0, 1, 0, 0); // call the next level (below)
+			emit(0xbf, 6, 0, 0, 0); // r6 = r0
+		}
+		emit(0xb7, 0, 0, 0, 0); // r0 = 0
+		for (int k = 1; k <= 64; k++) {
+			emit(0x79, 1, 10, (int16_t)(-8 * k), 0); // r1 = *(r10 - 8k)
+			emit(0x0f, 0, 1, 0, 0); // r0 += r1
+		}
+		if (!last)
+			emit(0x0f, 0, 6, 0, 0); // r0 += r6
+		emit(0x95, 0, 0, 0, 0);
+		if (!last)
+			code[call].imm = (int32_t)(code.size() - (call + 1));
+	}
+	return code;
+}
+
+static uint64_t nested_frame_sum(int levels)
+{
+	uint64_t sum = 0;
+	for (int level = 0; level < levels; level++)
+		for (int k = 1; k <= 64; k++)
+			sum += (uint64_t)((level << 16) | k);
+	return sum;
+}
+
+TEST_CASE("A bpf-to-bpf callee's stack frame does not overlap its caller's",
+	  "[jit_load]")
+{
+	// 8: the kernel's limit of call frames (MAX_CALL_FRAMES).
+	for (int levels : { 2, 8 }) {
+		CAPTURE(levels);
+		auto code = nested_frame_program(levels);
+		bpftime_prog prog(code.data(), code.size(), "nested_frames",
+				  runtime_config{});
+		REQUIRE(prog.bpftime_prog_load(true) == 0);
+		uint64_t memory[4] = {};
+		uint64_t ret = 0;
+		REQUIRE(prog.bpftime_prog_exec(memory, sizeof(memory), &ret) ==
+			0);
+		REQUIRE(ret == nested_frame_sum(levels));
+
+		// The agent loads the objects the syscall server compiled (the
+		// AOT cache): the same frames there.
+		REQUIRE(prog.get_vm() != nullptr);
+		REQUIRE(prog.get_vm()->vm_instance != nullptr);
+		auto object = prog.get_vm()->vm_instance->do_aot_compile(false);
+		REQUIRE(!object.empty());
+		bpftime_prog loaded(code.data(), code.size(),
+				    "nested_frames_aot", runtime_config{});
+		REQUIRE(loaded.load_aot_object(object) == 0);
+		ret = 0;
+		REQUIRE(loaded.bpftime_prog_exec(memory, sizeof(memory),
+						 &ret) == 0);
+		REQUIRE(ret == nested_frame_sum(levels));
+	}
 }
 
 // A program calling an unregistered helper (funclatency's helper 37) cannot
