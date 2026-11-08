@@ -45,7 +45,9 @@ list(APPEND BPFTIME_LLVM_SOURCES "${BPFTIME_ARRAY_JIT_SOURCE}")
 
 # A bpf-to-bpf call at pc 0 never registered its return block, so the JIT
 # stored a null block address and crashed the traced process (libbpf-tools
-# funclatency's kretprobe). Same overlay scheme as above.
+# funclatency's kretprobe). A call also moved r10 by 64 bytes, not one
+# 512-byte frame, so a callee's stack overlapped its caller's. Same overlay
+# scheme as above.
 set(BPFTIME_LOCAL_CALL_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/local-call-return-block.patch")
 set(BPFTIME_LOCAL_CALL_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/compiler_local_call.cpp")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
