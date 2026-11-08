@@ -1,0 +1,25 @@
+#528 Feat: Enhance GPU SM architecture auto detection [MERGED] by Sy0307 created 2025-12-11T18:40:01Z updated 2025-12-12T06:06:18Z closed 2025-12-12T02:31:19Z
+LABELS: ['size/M']
+BODY:
+Fix #516 
+
+Test log:
+
+```
+[2025-12-11 10:28:50][info][254924] Remove extracted files..
+[2025-12-11 10:28:50][info][254924] Got 0 PTX files
+[2025-12-11 10:28:50][info][254924] Patching PTXs
+[2025-12-11 10:28:50][info][254924] Loading & patching current fatbin..
+[2025-12-11 10:28:50][info][254924] Auto-detected GPU SM arch: sm_120 (compute capability 12.0)
+[2025-12-11 10:28:50][info][254924] Compiling PTXs with sm_arch sm_120
+[2025-12-11 10:28:50][info][254924] Compiler version: 12.9
+```
+
+```
+[2025-12-12 02:33:56][info][3352563] cuCtxGetDevice failed with 201, falling back to device 0 for SM arch detection
+[2025-12-12 02:33:56][info][3352563] Auto-detected GPU SM arch: sm_61 (compute capability 6.1)
+[2025-12-12 02:33:56][info][3352563] Replaced .target with sm_61
+[2025-12-12 02:33:56][info][3352476] Using SM arch from BPFTIME_SM_ARCH: sm_61
+[2025-12-12 02:33:56][info][3352476] Compiling PTXs with sm_arch sm_61
+[2025-12-12 02:33:56][info][3352476] Compiler version: 12.6
+```

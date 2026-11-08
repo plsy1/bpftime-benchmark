@@ -1,0 +1,26 @@
+#526 Add prefetch example [OPEN] by Officeyutong created 2025-12-04T14:36:35Z updated 2026-08-09T09:33:43Z closed None
+LABELS: ['size/XXL']
+BODY:
+## Summary
+
+- add a GPU prefetch helper that emits PTX `prefetch.global.L2` operations
+- add a bpftime GPU prefetch example that captures `RunSeqConfig` from a userspace launch helper and prefetches pages from a GPU kprobe on `seq_chunk_kernel`
+- add synthetic UVM and GEMM comparison workloads plus build/run documentation
+- regenerate the trampoline PTX header after the helper changes
+
+## Behavior
+
+The bpftime path attaches to `launch_run_seq_kernel` to store the current workload configuration and to `seq_chunk_kernel` to issue bounded input/output page prefetches. The synthetic executable also provides an inline CUDA prefetch baseline for comparison.
+
+## Validation status
+
+- branch rebased onto current `master`
+- all completed GitHub checks are green on `6627dd4` (147 successful and 2 intentionally skipped at the time of this update; 6 matrix jobs still running or queued)
+- stale Copilot findings for the copied README, unused parameter/helpers, wrong kernel target, stale artifacts, naming/comments, and generated PTX structure have been checked against the current files and resolved
+- a maintainer-side hardware UVM benchmark result has not been recorded yet
+
+See `example/gpu/prefetch/README.md` for reproducible build and run commands.
+--- COMMENT by yunwei37 2026-07-19T08:51:34Z
+This branch is currently conflicting with `master`, and the unresolved review items are still substantive rather than cosmetic. The minimum path back to a reviewable state is: rebase, replace the copied `threadhist` README with prefetch-specific build/run documentation, make or remove the unused prefetch-distance parameter, remove stale build/cleanup entries, and resolve the target/toolchain assumptions raised in the inline threads. Please also replace the empty PR template with the intended helper semantics and a reproducible GPU test configuration.
+
+If you want to continue this PR, please push that scoped cleanup first; otherwise the current head is not ready for another CI/review cycle.

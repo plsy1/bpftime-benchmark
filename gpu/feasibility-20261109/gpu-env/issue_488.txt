@@ -1,0 +1,159 @@
+#488 Unable to map CUDA IPC memory for shared array map, error=201 [CLOSED] by cizzoo created 2025-11-03T14:55:21Z updated 2025-11-04T20:14:24Z closed 2025-11-04T20:14:24Z
+BODY:
+I am attempting to run the `gpu/mem_trace` example from the bpftime repository. I am running the components directly on my host machine (not within a Docker container) using root permissions and `CUDA 12.6`.
+
+I am encountering a fatal error in the server component (mem_trace) immediately after it starts.
+```
+[2025-11-03 15:02:47][info][2617448] Initializing nv_gpu_shared_array_map_impl at pid 2617448
+[2025-11-03 15:02:47][error][2617448] Unable to map CUDA IPC memory for shared array map, error=201
+[2025-11-03 15:02:47][error][2617448] Exception happened when performing map lookup elem: Unable to map CUDA IPC memory for shared array map!
+```
+
+I'm running the example using the following commands, both with root permission:
+```bash
+BPFTIME_LOG_OUTPUT=console LD_PRELOAD=build/runtime/syscall-server/libbpftime-syscall-server.so CUDA_VISIBLE_DEVICES=1 PATH=/opt/cuda-12.6:$PATH \
+  example/gpu/mem_trace/mem_trace
+```
+
+and then the agent:
+
+```bash
+BPFTIME_LOG_OUTPUT=console LD_PRELOAD=build/runtime/agent/libbpftime-agent.so CUDA_VISIBLE_DEVICES=1 PATH=/opt/cuda-12.6:$PATH example/gpu/mem_trace/vec_add
+````
+
+The vec_add application appears to start correctly.
+<details>
+<summary>agent output</summary>
+
+```
+[2025-11-03 15:30:39.402] [info] [bpftime_shm_internal.cpp:927] Registered shared memory with CUDA: addr=0x7feba5343000 size=20971520
+[2025-11-03 15:30:39.402] [info] [bpftime_shm_internal.cpp:755] Global shm constructed. shm_open_type 1 for bpftime_maps_shm
+[2025-11-03 15:30:39.402] [info] [bpftime_shm_internal.cpp:42] Global shm initialized
+[2025-11-03 15:30:39][info][2628804] Initializing CUDA shared memory
+[2025-11-03 15:30:41][info][2628804] CUDA context created
+[2025-11-03 15:30:41][info][2628804] bpf_attach_ctx constructed
+[2025-11-03 15:30:41][info][2628817] CUDA watcher thread started
+[2025-11-03 15:30:41][info][2628804] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2025-11-03 15:30:41][info][2628804] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2025-11-03 15:30:41][info][2628804] Register attach-impl defined helper bpf_get_retval, index 186
+[2025-11-03 15:30:41][info][2628804] Starting nv_attach_impl
+[2025-11-03 15:30:41][info][2628804] Parsing bundled executables: /.../bpftime/build/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/ptxpass_kprobe_entry:/.../bpftime/build/attach/nv_attach_impl/pass/ptxpass_kretprobe/ptxpass_kretprobe:/.../bpftime/build/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/ptxpass_kprobe_memcapture
+[2025-11-03 15:30:41][info][2628804] Found path: /.../bpftime/build/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/ptxpass_kprobe_entry, executing..
+[2025-11-03 15:30:42][info][2628804] Found path: /.../bpftime/build/attach/nv_attach_impl/pass/ptxpass_kretprobe/ptxpass_kretprobe, executing..
+[2025-11-03 15:30:43][info][2628804] Found path: /...i/bpftime/build/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/ptxpass_kprobe_memcapture, executing..
+[2025-11-03 15:30:44][info][2628804] Register attach-impl defined helper get_global_timer, index 502
+[2025-11-03 15:30:44][info][2628804] Register attach-impl defined helper get_block_idx, index 503
+[2025-11-03 15:30:44][info][2628804] Register attach-impl defined helper get_block_dim, index 504
+[2025-11-03 15:30:44][info][2628804] Register attach-impl defined helper get_thread_idx, index 505
+[2025-11-03 15:30:44][info][2628804] Register attach-impl defined helper gpu_membar_sys, index 506
+[2025-11-03 15:30:44][info][2628804] Initializing agent..
+[2025-11-03 15:30:44][info][2628804] Instantiating bpf link 73 and the corresponding program cuda__trace_cud is cuda program
+[2025-11-03 15:30:44][info][2628804] Skipping nv attach handler 73 since we are not handling nv handles
+[2025-11-03 15:30:44][info][2628804] Main initializing for handlers done, try to initialize cuda link handles....
+[2025-11-03 15:30:44][info][2628804] Instantiating bpf link 73 and the corresponding program cuda__trace_cud is cuda program
+[2025-11-03 15:30:44][info][2628804] Handling link to CUDA program: 73, recording it..
+[2025-11-03 15:30:44][info][2628804] Loaded 13 instructions (original) for cuda ebpf program
+[2025-11-03 15:30:44][info][2628804] Initializing nv_gpu_shared_array_map_impl at pid 2628804
+[2025-11-03 15:30:44][info][2628804] Mapped GPU memory for shared array map: 140649368125440
+[2025-11-03 15:30:44][info][2628804] Copying map fd 12 to device, key size=4, value size=8, max ent=4, map_type = 1503, gpu_buffer = 7feb7ba00000
+[2025-11-03 15:30:44][info][2628804] Recorded pass /.../bpftime/build/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/ptxpass_kprobe_memcapture for func __memcapture
+[2025-11-03 15:30:44][info][2628804] Attach successfully
+[2025-11-03 15:30:44][info][2628804] Got CUBIN section header size = 16, size = 3200
+[2025-11-03 15:30:44][info][2628804] Finally size = 3216
+[2025-11-03 15:30:44][info][2628804] Temporary fatbin written to /tmp/bpftime-fatbin-store.QGIRmN/temp.fatbin
+[2025-11-03 15:30:44][info][2628804] Listing functions in the patched ptx
+[2025-11-03 15:30:45][info][2628804] Extracted PTX at /tmp/bpftime-fatbin-store.QGIRmN/temp.ptx
+[2025-11-03 15:30:45][info][2628804] Running pass executable: /../bpftime/build/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/ptxpass_kprobe_memcapture, to_patch_kernel __memcapture, map_sym map_info, const_sym constData
+[2025-11-03 15:30:46][info][2628804] Recompiling PTX with nvcc..
+[2025-11-03 15:30:46][info][2628804] Working directory: /tmp/bpftime-recompile-nvcc
+[2025-11-03 15:30:46][info][2628804] PTX IN: /tmp/bpftime-recompile-nvcc/main.ptx
+[2025-11-03 15:30:46][info][2628804] Fatbin out /tmp/bpftime-recompile-nvcc/out.fatbin
+[2025-11-03 15:30:46][info][2628804] Starting nvcc: nvcc -O2 -G -g --keep-device-functions -arch=sm_60 /tmp/bpftime-recompile-nvcc/main.ptx -fatbin -o /tmp/bpftime-recompile-nvcc/out.fatbin
+ptxas warning :  .debug_abbrev section not found
+ptxas warning :  .debug_info section not found
+[2025-11-03 15:30:47][info][2628804] NVCC execution done.
+[2025-11-03 15:30:47][info][2628804] Got patched fatbin in 60104 bytes
+[2025-11-03 15:30:47][info][2628804] Registering trampoline memory
+[2025-11-03 15:30:47][info][2628804] Register trampoline memory done
+[2025-11-03 15:30:47][info][2628804] Copying data to device symbols..
+[2025-11-03 15:30:47][info][2628804] Copying the followed map info:
+[2025-11-03 15:30:47][info][2628804] Mapid 12, enabled = true, key_size = 4, value_size = 8, max_ent=4, type=1503
+[2025-11-03 15:30:47][info][2628804] constData and map_basic_info copied..
+C[0] = 0 (expected 0)
+C[1] = 3 (expected 3)
+C[0] = 0 (expected 0)
+C[1] 
+```
+</details>
+
+The server log shows it initializes correctly, loads the eBPF object, and creates the maps. But when it attempts to initialize the `nv_gpu_shared_array_map_impl`, it fails:
+
+<details>
+<summary>server output</summary>
+
+```
+libbpf: loading object 'mem_trace_bpf' from buffer
+[2025-11-03 15:30:37.377] [info] [syscall_context.cpp:87] Init bpftime syscall mocking..
+[2025-11-03 15:30:37.377] [info] [syscall_context.cpp:88] The log will be written to: console
+[2025-11-03 15:30:37.377] [info] [syscall_context.cpp:92] Initializing CUDA at syscall-server side
+[2025-11-03 15:30:37.412] [info] [syscall_server_utils.cpp:43] Starting syscall server..
+[2025-11-03 15:30:37][info][2628787] Initialize syscall server
+[2025-11-03 15:30:37][info][2628787] Global shm constructed. shm_open_type 0 for bpftime_maps_shm
+[2025-11-03 15:30:37][info][2628787] Global shm initialized
+[2025-11-03 15:30:37][info][2628787] bpftime-syscall-server started
+[2025-11-03 15:30:37][info][2628787] CUDA initialized at syscall server side
+libbpf: elf: section(2) .symtab, size 168, link 1, flags 0, type=2
+libbpf: elf: section(3) kprobe/__memcapture, size 104, link 0, flags 6, type=1
+libbpf: sec 'kprobe/__memcapture': found program 'cuda__trace_cuda_kernel' at insn offset 0 (0 bytes), code size 13 insns (104 bytes)
+libbpf: elf: section(4) .maps, size 32, link 0, flags 3, type=1
+libbpf: elf: section(5) license, size 4, link 0, flags 3, type=1
+libbpf: license of mem_trace_bpf is GPL
+libbpf: elf: section(6) .relkprobe/__memcapture, size 16, link 2, flags 40, type=9
+libbpf: elf: section(7) .BTF, size 1235, link 0, flags 0, type=1
+libbpf: elf: section(8) .BTF.ext, size 208, link 0, flags 0, type=1
+libbpf: looking for externs among 7 symbols...
+libbpf: collected 0 externs total
+libbpf: map 'counter': at sec_idx 4, offset 0.
+libbpf: map 'counter': found type = 1503.
+libbpf: map 'counter': found key [8], sz = 4.
+libbpf: map 'counter': found value [12], sz = 8.
+libbpf: map 'counter': found max_entries = 4.
+libbpf: sec '.relkprobe/__memcapture': collecting relocation for section(3) 'kprobe/__memcapture'
+libbpf: sec '.relkprobe/__memcapture': relo #0: insn #4 against 'counter'
+libbpf: prog 'cuda__trace_cuda_kernel': found map 0 (counter, sec 4, off 0) for insn #4
+libbpf: object 'mem_trace_bpf': failed (-22) to create BPF token from '/sys/fs/bpf', skipping optional step...
+[2025-11-03 15:30:37][info][2628787] syscall server: Set enable_mock_after_initialized to false
+[2025-11-03 15:30:37][info][2628787] CUDA context for thread 2628787 has been set to 55cff1049650
+[2025-11-03 15:30:37][info][2628787] Map ebpf_map_fd_counter (nv_gpu_shared_array_map_impl) shared array
+[2025-11-03 15:30:37][info][2628787] Initializing map type of BPF_MAP_TYPE_GPU_ARRAY_MAP (device), total_buffer_size=32
+[2025-11-03 15:30:37][info][2628787] syscall server: Set enable_mock_after_initialized to true
+[2025-11-03 15:30:37][info][2628787] syscall server: Set enable_mock_after_initialized to false
+[2025-11-03 15:30:37][info][2628787] CUDA context for thread 2628787 has been set to 55cff19c8ec0
+[2025-11-03 15:30:37][info][2628787] Map ebpf_map_fd_dup_counter (nv_gpu_shared_array_map_impl) shared array
+[2025-11-03 15:30:37][info][2628787] Initializing map type of BPF_MAP_TYPE_GPU_ARRAY_MAP (device), total_buffer_size=32
+[2025-11-03 15:30:37][info][2628787] syscall server: Set enable_mock_after_initialized to true
+libbpf: map 'counter': created successfully, fd=12
+[2025-11-03 15:30:37][info][2628787] Created kprobe/kretprobe perf event handler, func_name __memcapture, addr 0
+[2025-11-03 15:30:38][info][2628787] Initializing nv_gpu_shared_array_map_impl at pid 2628787
+[2025-11-03 15:30:38][error][2628787] Unable to map CUDA IPC memory for shared array map, error=201
+[2025-11-03 15:30:38][error][2628787] Exception happened when performing map lookup elem: Unable to map CUDA IPC memory for shared array map!
+```
+</details>
+
+Thank you in advance for any help or suggestions you can provide
+--- COMMENT by Sy0307 2025-11-03T15:26:06Z
+Thanks for reporting this issue, I am addressing the root cause and trying to fix it.
+--- COMMENT by Sy0307 2025-11-04T04:36:39Z
+We have fixed this issue #488 in PR #489. Try it again and feedback if you have any issue.
+--- COMMENT by cizzoo 2025-11-04T09:58:18Z
+Thanks! I've tried it again, and it works well now.
+
+I did notice one other thing. In the `vec_add` example, there are 7 `ld` and `st` instructions, but `memcapture` only seems to attach to 4 of them.
+
+It looks like the remaining instructions don't match the [regex](https://github.com/eunomia-bpf/bpftime/blob/1126075feb2e725181e247a95ef5a792c42e2ce5/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/main.cpp#L46) because the case for `float` is missing.
+
+Was this intentional?
+
+I wanted to ask here first, but if this is a new problem, I'm happy to open a dedicated issue for it.
+--- COMMENT by Sy0307 2025-11-04T10:49:30Z
+Thanks for feedback. Please open another issue and I will research on it.

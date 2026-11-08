@@ -1,0 +1,29 @@
+##### hostreg atom
+    cudaSetDeviceFlags(cudaDeviceMapHost)                                  -> 0 no error
+    cudaFree(0)                                                            -> 0 no error
+shm /dev/shm/gpu-env-atom-273268 size=1048576 mapped MAP_SHARED at 0xffff941d0000
+    cudaHostRegister(s.p, s.size, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer((void **)&db, s.p, 0)                         -> 0 no error
+[atom GPU-only] atomicAdd u32/u64 on registered shm: sync=no error u32=204800 u64=204800 expected=204800 (8.327 ms)
+[atom CPU+GPU] atomicAdd_system vs __atomic_fetch_add: sync=no error total=4048000 expected=4048000 lost=0; gpu window 0.0-67.3 ms, cpu window 0.1-82.5 ms (relative)
+[atom CAS lock in host mem] sync=no error counter=1600 expected=1600 lock=0
+exit=0
+##### hostreg dual
+    cudaSetDeviceFlags(cudaDeviceMapHost)                                  -> 0 no error
+    cudaFree(0)                                                            -> 0 no error
+shm /dev/shm/gpu-env-dual-273274 size=4194304 mapped MAP_SHARED at 0xffff90240000
+    cudaHostRegister(s.p, s.size, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer(&d, s.p, 0)                                   -> 0 no error
+[A pid=273274] host=0xffff90240000 dev=0x1021c4000 registered; spawning B while A holds its registration
+[B pid=273279] start
+    cudaSetDeviceFlags(cudaDeviceMapHost)                                  -> 0 no error
+    cudaHostRegister(p, st.st_size, cudaHostRegisterMapped)                -> 0 no error
+    cudaHostGetDevicePointer(&d, p, 0)                                     -> 0 no error
+[B] host=0xffff8ac30000 dev=0x1021c4000
+[B] k_touch +0x20000: sync=no error; B-CPU mismatches=0
+    cudaHostUnregister(p)                                                  -> 0 no error
+[A] B exit=0
+[A] A-CPU sees B-GPU writes: mismatches=0 of 1024
+[A] A-GPU sees B-GPU writes: sync=no error mismatches=0 of 1024
+    cudaHostUnregister(s.p)                                                -> 0 no error
+exit=0

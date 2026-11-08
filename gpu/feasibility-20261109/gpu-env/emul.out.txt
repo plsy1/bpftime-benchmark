@@ -1,0 +1,10 @@
+ptxpass: vec_add_sm87.ptx -> header ['.version 8.1', '.target sm_87', '.address_size 64']
+  ptxas sm_87 rc=0 
+ptxpass: vec_add_default.ptx -> header ['.version 8.1', '.target sm_87', '.address_size 64']
+  ptxas sm_87 rc=0 
+direct: k_sm_87.ptx -> header ['.version 8.1', '.target sm_87', '.address_size 64']
+  ptxas sm_87 rc=0 
+direct_llc15_sm87.ptx              P2[nvPTXCompiler]: compile OK elf=45944B; load(ELF)=no error; launch=no error sync=no error value=42 RAN-OK
+                                   P3[driver JIT]:   load(PTX)=0 no error; launch=no error sync=no error value=42 RAN-OK | cuModuleLoadData=0
+ptxpass_vec_add_sm87.ptx           P2[nvPTXCompiler]: compile OK elf=48704B; load(ELF)=no error; no kernel k (named symbol not found)
+                                   P3[driver JIT]:   load(PTX)=0 no error; no kernel k (named symbol not found) | cuModuleLoadData=0

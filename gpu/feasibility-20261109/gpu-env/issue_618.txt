@@ -1,0 +1,24 @@
+#618 Support CUDA attach across multiple GPU devices [CLOSED] by yunwei37 created 2026-08-01T08:18:22Z updated 2026-08-01T09:04:10Z closed 2026-08-01T09:04:10Z
+LABELS: ['enhancement']
+BODY:
+## Problem
+
+CUDA attach currently assumes one active GPU: SM selection, patched module caches, kernel lookup, and shared-memory pointers are not device-aware. Applications that launch the same kernel on multiple GPUs can therefore use a module or pointer created for the wrong CUDA context.
+
+## Requested behavior
+
+- Enumerate available CUDA devices and retain each device SM architecture.
+- Compile/load and look up patched PTX modules for the active device only.
+- Track patched kernel functions by device ordinal.
+- Use the appropriate shared-memory device pointer when running an attach entry.
+- Preserve single-GPU behavior and CUDA 12/13 compatibility.
+- Reject invalid device ordinals without throwing across the public run path.
+
+## Acceptance criteria
+
+- CUDA attach and runtime targets build with `BPFTIME_ENABLE_CUDA_ATTACH=ON`.
+- Device-manager/PTX-pass tests pass.
+- A minimal example builds and demonstrates per-device launch counting.
+- Existing single-GPU callers require no API changes.
+--- COMMENT by yunwei37 2026-08-01T09:04:10Z
+Closing as a duplicate of the original external-user request #497. PR #559 now links and implements #497 directly, so keeping a second issue would add unnecessary maintenance noise.

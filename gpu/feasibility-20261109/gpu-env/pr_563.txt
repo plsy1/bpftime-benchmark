@@ -1,0 +1,30 @@
+#563 fix(syscall-server): fix race condition in initialize_ctx() causing SIGSEGV [MERGED] by dr-xjx created 2026-04-07T13:25:42Z updated 2026-06-14T04:31:49Z closed 2026-06-14T04:27:40Z
+LABELS: ['size/S']
+BODY:
+## Summary
+
+Fix a race condition in `initialize_ctx()` that causes intermittent SIGSEGV crashes on multi-threaded programs using bpftime's syscall interception.
+
+### Problem
+
+The original `initialize_ctx()` used a two-state atomic flag (`0`=uninitialized, `1`=initialized). When thread A won the CAS and began constructing `syscall_context` via placement new, thread B's CAS failed — and since there was **no else branch to wait** — the function returned immediately. Thread B then called the `syscall()` wrapper which dereferenced `orig_syscall_fn` (still `NULL`), causing a NULL pointer dereference (`PC=0x0` via `blr x8` where `x8=0`).
+
+This is a pure logic bug (two-state CAS with no wait mechanism) that can trigger on **any architecture**. A common trigger was spdlog's async logger thread calling `syscall(SYS_gettid)` racing with the main thread's first intercepted syscall.
+
+### Fix
+
+1. **Three-state atomic flag**: `0`=uninitialized, `1`=in-progress, `2`=done
+   - Winner thread writes `2` with `__ATOMIC_RELEASE` semantics after construction
+   - Loser threads spin-wait with `__ATOMIC_ACQUIRE` semantics until `flag==2`, ensuring all initialization writes are visible before using the context
+   - `sched_yield()` in spin loop to avoid busy-waiting
+
+2. **TLS re-entrancy guard**: `static __thread int tls_initializing`
+   - During `syscall_context` construction, intercepted functions (e.g., `fopen()` called by logging) can re-enter `initialize_ctx()` on the same thread
+   - Without this guard, the initializing thread sees `flag==1`, enters the spin-wait path, and **deadlocks waiting for itself**
+   - The TLS flag allows the initializing thread to bypass the wait, which is safe because `orig_syscall_fn` is initialized first via `init_original_functions()`
+
+### Testing
+
+- Verified on AArch64 (NVIDIA Orin) — stable after 30+ minutes with no crashes
+- Previously crashed on every startup (5 core dumps with identical crash pattern)
+

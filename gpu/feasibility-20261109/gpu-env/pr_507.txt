@@ -1,0 +1,37 @@
+#507 [+]Feat: Reduce the cost of cudaHostRegister to improve performance [MERGED] by Sy0307 created 2025-11-19T18:22:49Z updated 2025-11-23T13:44:34Z closed 2025-11-23T13:44:34Z
+LABELS: ['size/L']
+BODY:
+**Related issue: #506** 
+
+## Thoughts of modification:
+
+Originally, when bpftime hooked CUDA kernels, it directly called cudaHostRegister on the CommSharedMem/IPC buffer within the nv_attach_impl code, and called cudaHostUnregister after the attach was completed.
+
+Current implementation: When the agent constructs bpftime_shm with SHM_OPEN_ONLY, it calls register_cuda_host_memory(). It first executes cudaSetDeviceFlags(cudaDeviceMapHost), then performs a single cudaHostRegister on the entire Boost managed_shared_memory segment (segment.get_address()/segment.get_size()), and calls cudaHostUnregister upon destruction, keeping the CommSharedMem/IPC buffer entirely pinned.
+
+Next, CUDAContext::CUDAContext() uses cudaHostGetDevicePointer to map the pinned segment into a GPU-visible address and writes it into cuda_shared_mem_device_pointer; finally, in bpf_attach_ctx::instantiate_bpf_link_handler_at(), nv_attach_impl::create_attach_with_ebpf_callback(), and fatbin_record::try_loading_ptxs(), this device pointer is passed to the NV attach in one go and written into the PTX's constData/map_info. 
+
+This way, the entire bpftime path reuses that single cudaHostRegister from the shared segment initialization, eliminating the extra overhead of individual registration/unregistration for each probe.
+
+
+
+## New test result :
+
+Comparing to the test result of #506, we reduce the cost of double calls of `cudaHostRegister`. 
+
+```
+ CUDA API Summary (cuda_api_sum):
+
+ Time (%)  Total Time (ns)  Num Calls    Avg (ns)       Med (ns)      Min (ns)     Max (ns)    StdDev (ns)           Name         
+ --------  ---------------  ---------  -------------  -------------  -----------  -----------  -----------  ----------------------
+     43.1      240,002,289     30,001        7,999.8        7,932.0        2,129       42,357      1,200.2  cudaDeviceSynchronize 
+     30.5      170,010,775     30,001        5,666.8        4,392.0        4,152   17,052,646     98,492.9  cudaLaunchKernel      
+     26.2      146,042,636          1  146,042,636.0  146,042,636.0  146,042,636  146,042,636          0.0  cudaMemcpyToSymbol    
+      0.0          266,539          3       88,846.3       20,868.0        6,369      239,302    130,499.9  cudaFree              
+      0.0          169,116          3       56,372.0        9,156.0        6,566      153,394     84,033.5  cudaMalloc            
+      0.0          120,452          3       40,150.7       43,209.0       27,790       49,453     11,150.6  cudaMemcpy            
+      0.0            1,551          1        1,551.0        1,551.0        1,551        1,551          0.0  cuModuleGetLoadingMode
+```
+
+
+

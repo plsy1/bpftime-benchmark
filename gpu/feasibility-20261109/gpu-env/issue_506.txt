@@ -1,0 +1,74 @@
+#506 [FEATURE] Reduce the cost of cudaHostRegister to improve performance [CLOSED] by Sy0307 created 2025-11-19T03:53:26Z updated 2025-11-24T12:35:51Z closed 2025-11-24T12:35:51Z
+LABELS: ['enhancement']
+BODY:
+Related issue #469 
+
+vec_add nsight result for now bpftime
+```
+ Time (%)  Total Time (ns)  Num Calls    Avg (ns)       Med (ns)      Min (ns)     Max (ns)    StdDev (ns)            Name         
+ --------  ---------------  ---------  -------------  -------------  -----------  -----------  ------------  ----------------------
+     47.2      448,435,103          2  224,217,551.5  224,217,551.5  171,298,053  277,137,050  74,839,472.5  cudaHostRegister      
+     28.3      268,809,479     30,001        8,960.0        8,261.0        6,683      915,571       6,258.5  cuLaunchKernel        
+     17.2      163,123,515     30,001        5,437.3        5,238.0        3,481      216,108       1,860.6  cudaDeviceSynchronize 
+      7.2       68,539,441          1   68,539,441.0   68,539,441.0   68,539,441   68,539,441           0.0  cuModuleLoadDataEx    
+      0.1          550,782          3      183,594.0       46,711.0       22,396      481,675     258,431.8  cudaFree              
+      0.1          505,629          3      168,543.0       13,873.0       10,598      481,158     270,737.5  cudaMalloc            
+      0.0          394,585          2      197,292.5      197,292.5      121,933      272,652     106,574.4  cuIpcOpenMemHandle_v2 
+      0.0          354,270          1      354,270.0      354,270.0      354,270      354,270           0.0  cudaMemcpyToSymbol    
+      0.0          147,059          3       49,019.7       40,644.0       27,430       78,985      26,778.6  cudaMemcpy            
+      0.0          126,001          3       42,000.3       37,488.0       33,020       55,493      11,896.6  cuMemcpyHtoD_v2       
+      0.0            1,063          1        1,063.0        1,063.0        1,063        1,063           0.0  cuModuleGetLoadingMode
+```
+
+Compared with vec_add baseline
+```
+ Time (%)  Total Time (ns)  Num Calls    Avg (ns)       Med (ns)      Min (ns)     Max (ns)    StdDev (ns)           Name         
+ --------  ---------------  ---------  -------------  -------------  -----------  -----------  -----------  ----------------------
+     50.5      349,991,074     30,001       11,666.0       10,447.0        9,662    6,515,480     37,782.9  cudaLaunchKernel      
+     28.4      196,683,156          1  196,683,156.0  196,683,156.0  196,683,156  196,683,156          0.0  cudaMemcpyToSymbol    
+     20.9      145,082,236     30,001        4,835.9        4,354.0        3,693       50,301      1,455.5  cudaDeviceSynchronize 
+      0.1          418,491          3      139,497.0       42,873.0       13,073      362,545    193,739.0  cudaFree              
+      0.0          304,018          3      101,339.3       10,415.0        9,445      284,158    158,326.4  cudaMalloc            
+      0.0          133,433          3       44,477.7       38,123.0       33,015       62,295     15,640.2  cudaMemcpy            
+      0.0            1,427          1        1,427.0        1,427.0        1,427        1,427          0.0  cuModuleGetLoadingMode
+
+```
+
+`cudaHostRegister` from the code below
+
+```cpp
+bool bpftime_shm::register_cuda_host_memory()
+{
+	if (open_type != shm_open_type::SHM_OPEN_ONLY) {
+		SPDLOG_WARN("Only agent side can register cuda host memory");
+		return false;
+	}
+
+	// 1. Get the base address and size of the Boost.Interprocess segment
+	void *base_addr = segment.get_address(); // Starting address
+	std::size_t seg_size = segment.get_size(); // Total bytes in segment
+
+	// 2. Register with CUDA
+    cudaError_t err =
+        cudaHostRegister(base_addr, seg_size, cudaHostRegisterMapped);
+	if (err != cudaSuccess) {
+		SPDLOG_ERROR("cudaHostRegister() failed: {}",
+			     cudaGetErrorString(err));
+		return false;
+	}
+
+	SPDLOG_INFO("Registered shared memory with CUDA: addr={} size={}",
+		    base_addr, seg_size);
+	return true;
+}
+```
+
+How to reduce the cost of `cudaHostRegister` to improve performance?
+--- COMMENT by Sy0307 2025-11-19T03:53:45Z
+cc @yunwei37 @Officeyutong  
+--- COMMENT by Sy0307 2025-11-19T06:17:47Z
+Analysis of potential reasons why the Baseline kernel launch is slower than bpftime:
+
+The current bpftime implementation intercepts __cudaRegisterFatBinary and __cudaRegisterFunction to extract PTX from the fat binary for instrumentation and record kernel symbols. Subsequently, within the cudaLaunchKernel hook, the control flow bypasses the standard runtime logic and calls the driver entry point directly (refer to the example_listener_on_enter function).
+
+Since we manually handle the "packaging/unpackaging" logic typically required between the runtime stub and the driver—and because constData and map_info are injected once during the attach phase—the CPU-side workload for each individual launch is significantly reduced. As a result, Nsight profiles the operation as cuLaunchKernel, showing an average duration of 8–9 µs.

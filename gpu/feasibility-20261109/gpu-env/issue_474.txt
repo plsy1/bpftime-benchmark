@@ -1,0 +1,97 @@
+#474 [BUG] threadhist example fails [OPEN] by zhipenggong created 2025-10-21T09:52:33Z updated 2025-10-23T01:19:26Z closed None
+LABELS: ['bug']
+BODY:
+Try the example according to example/gpu/threadhist/README.md, 
+Run example/gpu/threadhist/vec_add standalone can succeed, but run it with bpftime fails with the following error.
+Did I miss something here ?  
+
+I use one ubuntu 22.04 docker image to build bpftime
+
+
+$ BPFTIME_LOG_OUTPUT=console LD_PRELOAD=build/runtime/agent/libbpftime-agent.so  example/gpu/threadhist/vec_add
+[2025-10-21 16:54:22.541] [info] [bpftime_shm_internal.cpp:927] Registered shared memory with CUDA: addr=0x7fbb3592c000 size=20971520
+[2025-10-21 16:54:22.541] [info] [bpftime_shm_internal.cpp:755] Global shm constructed. shm_open_type 1 for bpftime_maps_shm
+[2025-10-21 16:54:22.541] [info] [bpftime_shm_internal.cpp:42] Global shm initialized
+[2025-10-21 16:54:22][info][3109801] Initializing CUDA shared memory
+[2025-10-21 16:54:23][info][3109801] CUDA context created
+[2025-10-21 16:54:23][info][3109801] bpf_attach_ctx constructed
+[2025-10-21 16:54:23][info][3109818] CUDA watcher thread started
+[2025-10-21 16:54:23][info][3109801] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2025-10-21 16:54:23][info][3109801] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2025-10-21 16:54:23][info][3109801] Register attach-impl defined helper bpf_get_retval, index 186
+[2025-10-21 16:54:23][info][3109801] Starting nv_attach_impl
+[2025-10-21 16:54:23][info][3109801] Initializing agent..
+[2025-10-21 16:54:23][info][3109801] Instantiating bpf link 81 and the corresponding program cuda__retprobe is cuda program
+[2025-10-21 16:54:23][info][3109801] Skipping nv attach handler 81 since we are not handling nv handles
+[2025-10-21 16:54:23][info][3109801] Main initializing for handlers done, try to initialize cuda link handles....
+[2025-10-21 16:54:23][info][3109801] Instantiating bpf link 81 and the corresponding program cuda__retprobe is cuda program
+[2025-10-21 16:54:23][info][3109801] Handling link to CUDA program: 81, recording it..
+[2025-10-21 16:54:23][info][3109801] Loaded 13 instructions (original) for cuda ebpf program
+[2025-10-21 16:54:23][info][3109801] Initializing nv_gpu_array_map_impl at pid 3109801
+[2025-10-21 16:54:23][info][3109801] Mapped GPU memory for gpu array map: 140432935747584
+[2025-10-21 16:54:23][info][3109801] Copying map fd 38 to device, key size=4, value size=8, max ent=1, map_type = 1502, gpu_buffer = 7fb917400000
+[2025-10-21 16:54:23][info][3109801] Recording kretprobe for _Z9vectorAddPKfS0_Pf
+[2025-10-21 16:54:23][info][3109801] Attach successfully
+[2025-10-21 16:54:23][info][3109801] Got CUBIN section header size = 16, size = 3312
+[2025-10-21 16:54:23][info][3109801] Finally size = 3328
+[2025-10-21 16:54:23][info][3109801] Temporary fatbin written to /tmp/bpftime-fatbin-store.sQZniF/temp.fatbin
+[2025-10-21 16:54:23][info][3109801] Listing functions in the patched ptx
+terminate called after throwing an instance of 'boost::process::process_error'
+  what():  execve failed: No such file or directory
+Aborted (core dumped)
+--- COMMENT by yunwei37 2025-10-21T12:46:29Z
+Hi @zhipenggong, thanks for reporting!
+
+Have you installed nvcc in your computer?
+This exec here is for nvcc. You also need to add nvcc to your path.
+
+We do need to make the error notice more friendly and do not abort the process, that's what we need to fix.
+
+--- COMMENT by zhipenggong 2025-10-22T00:56:01Z
+@yunwei37 Thank you very much for the help,  nvcc was installed and added to the path
+
+
+$ nvcc --version
+nvcc: NVIDIA (R) Cuda compiler driver
+Copyright (c) 2005-2025 NVIDIA Corporation
+Built on Wed_Jan_15_19:20:09_PST_2025
+Cuda compilation tools, release 12.8, V12.8.61
+Build cuda_12.8.r12.8/compiler.35404655_0
+
+$ LD_PRELOAD=build/runtime/agent/libbpftime-agent.so  example/gpu/threadhist/vec_add
+[2025-10-22 08:53:41.497] [info] [bpftime_shm_internal.cpp:927] Registered shared memory with CUDA: addr=0x7f5f2b75e000 size=20971520
+[2025-10-22 08:53:41.497] [info] [bpftime_shm_internal.cpp:755] Global shm constructed. shm_open_type 1 for bpftime_maps_shm
+[2025-10-22 08:53:41.497] [info] [bpftime_shm_internal.cpp:42] Global shm initialized
+[2025-10-22 08:53:41][info][3856950] Initializing CUDA shared memory
+[2025-10-22 08:53:42][info][3856950] CUDA context created
+[2025-10-22 08:53:42][info][3856950] bpf_attach_ctx constructed
+[2025-10-22 08:53:42][info][3856977] CUDA watcher thread started
+[2025-10-22 08:53:42][info][3856950] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2025-10-22 08:53:42][info][3856950] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2025-10-22 08:53:42][info][3856950] Register attach-impl defined helper bpf_get_retval, index 186
+[2025-10-22 08:53:42][info][3856950] Starting nv_attach_impl
+[2025-10-22 08:53:42][info][3856950] Initializing agent..
+[2025-10-22 08:53:42][info][3856950] Instantiating bpf link 81 and the corresponding program cuda__retprobe is cuda program
+[2025-10-22 08:53:42][info][3856950] Skipping nv attach handler 81 since we are not handling nv handles
+[2025-10-22 08:53:42][info][3856950] Main initializing for handlers done, try to initialize cuda link handles....
+[2025-10-22 08:53:42][info][3856950] Instantiating bpf link 81 and the corresponding program cuda__retprobe is cuda program
+[2025-10-22 08:53:42][info][3856950] Handling link to CUDA program: 81, recording it..
+[2025-10-22 08:53:42][info][3856950] Loaded 13 instructions (original) for cuda ebpf program
+[2025-10-22 08:53:42][info][3856950] Initializing nv_gpu_array_map_impl at pid 3856950
+[2025-10-22 08:53:42][info][3856950] Mapped GPU memory for gpu array map: 140037664538624
+[2025-10-22 08:53:42][info][3856950] Copying map fd 38 to device, key size=4, value size=8, max ent=1, map_type = 1502, gpu_buffer = 7f5d0f400000
+[2025-10-22 08:53:42][info][3856950] Recording kretprobe for _Z9vectorAddPKfS0_Pf
+[2025-10-22 08:53:42][info][3856950] Attach successfully
+[2025-10-22 08:53:42][info][3856950] Got CUBIN section header size = 16, size = 3312
+[2025-10-22 08:53:42][info][3856950] Finally size = 3328
+[2025-10-22 08:53:42][info][3856950] Temporary fatbin written to /tmp/bpftime-fatbin-store.4q884q/temp.fatbin
+[2025-10-22 08:53:42][info][3856950] Listing functions in the patched ptx
+terminate called after throwing an instance of 'boost::process::process_error'
+  what():  execve failed: No such file or directory
+Aborted (core dumped)
+--- COMMENT by zhipenggong 2025-10-23T00:59:50Z
+The issue is resovled after export /usr/local/cuda-12.8/bin to PATH, export /usr/loca/cuda/bin to PATH not work. 
+--- COMMENT by yunwei37 2025-10-23T01:19:26Z
+Thanks for confirming!
+
+Let's keep it open so we can make the error message more friendly in the future 🙂

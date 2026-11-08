@@ -1,0 +1,26 @@
+#645 bpftime rejects injected PTX on sm_103 (GB300) and does not build on CUDA 13 [CLOSED] by EzgiTastan created 2026-08-14T18:06:08Z updated 2026-08-14T21:52:22Z closed 2026-08-14T21:24:47Z
+BODY:
+## bpftime rejects injected PTX on `sm_103` (GB300) and does not build on CUDA 13
+
+On an NVIDIA **GB300** (Blackwell Ultra, compute capability 10.3 / `sm_103`), Grace/aarch64, CUDA 13.2, driver 595.71.05, two independent problems stop the CUDA/GPU-attach path from working:
+
+1. **PTX ISA version floor.** `rewrite_ptx_target()` (`attach/nv_attach_impl/nv_attach_utils.cpp`) stamps PTX `.version 8.5` for every `sm_num >= 100`. But `sm_103` was introduced in CUDA 12.9 = **PTX ISA 8.8**, so `ptxas` rejects every injected kernel with a version-too-low error.
+
+2. **CUDA 13 `cuCtxCreate` signature.** CUDA 13 remaps `cuCtxCreate` to the 4-argument `cuCtxCreate_v4` (`CUcontext*, CUctxCreateParams*, unsigned int, CUdevice`). Three call sites (`nv_attach_impl.cpp` ×1, `runtime/src/handler/map_handler.cpp` ×2) use the old 3-argument form and fail to compile on CUDA 13.
+
+Together these mean device-side eBPF can neither be built nor have its PTX compiled on a GB300. A PR fixing both follows (extends #541, which introduced the `rewrite_ptx_target` version ternary).
+
+Environment: GB300 (`sm_103`), 2× Grace Neoverse-V2 aarch64, CUDA 13.2, driver 595.71.05, kernel 6.14.0-1013-nvidia-64k, LLVM 18, bpftime `master` @ `f311de2`.
+
+--- COMMENT by yunwei37 2026-08-14T21:52:22Z
+Released in [`v0.9.0`](https://github.com/eunomia-bpf/bpftime/releases/tag/v0.9.0).
+
+The release tag points at `6bde654` and includes #647, so the GB300 / `sm_103` PTX ISA 8.8 update and CUDA 13 `cuCtxCreate` build fix are now available. The published Docker images are also available as:
+
+- `ghcr.io/eunomia-bpf/bpftime:0.9.0`
+- `ghcr.io/eunomia-bpf/bpftime:v0.9.0`
+
+I verified both image tags resolve to digest `sha256:1b221780afe3e5fab526ce6cf35a8c82900b6c82b3d4ec7a999b3a4e5da2ae1d`.
+
+The separate launch-time `_fini` resolution/runtime dispatch problem is still tracked in #646 and is not considered fixed by this issue.
+

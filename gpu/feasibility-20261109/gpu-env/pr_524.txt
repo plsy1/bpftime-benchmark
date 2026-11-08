@@ -1,0 +1,18 @@
+#524 gpu: Implement auto-detection for GPU SM architecture [MERGED] by yunwei37 created 2025-12-04T04:26:10Z updated 2025-12-04T05:48:18Z closed 2025-12-04T05:48:16Z
+LABELS: ['size/L']
+BODY:
+This pull request introduces a robust mechanism to determine the GPU SM (Streaming Multiprocessor) architecture string used throughout the codebase. Instead of relying solely on the `BPFTIME_SM_ARCH` environment variable, the code now attempts to auto-detect the SM architecture from the current CUDA device if the environment variable is not set. This ensures better compatibility and user experience across different GPU setups. Additionally, the `.target` directive in PTX is now properly updated to reflect the detected SM architecture, and related utility and build files have been updated.
+
+**GPU SM Architecture Handling:**
+
+* Added a new utility function `get_gpu_sm_arch()` in `nv_attach_utils.cpp`/`.hpp` that first checks the `BPFTIME_SM_ARCH` environment variable and, if unset, auto-detects the SM architecture using CUDA APIs. It logs the chosen architecture and falls back to `"sm_61"` if detection fails. [[1]](diffhunk://#diff-9102b42af1a92062d3ef6c3547c71a41f0e67f4fcbc4750ffc1da8f349bf01a9R47-R95) [[2]](diffhunk://#diff-9102b42af1a92062d3ef6c3547c71a41f0e67f4fcbc4750ffc1da8f349bf01a9R7-R8) [[3]](diffhunk://#diff-f646c38a5d027b527c83609405647cd592be3f9dcfc12b0a95d97a5d88c2cca6R40-R48)
+* Replaced all previous direct environment variable checks for SM architecture in `nv_attach_impl.cpp` and `nv_attach_fatbin_record.cpp` with calls to `get_gpu_sm_arch()`, ensuring consistent and robust SM architecture selection. [[1]](diffhunk://#diff-b14dd6b873a684fb5245eb39bc0dd6e100f4bbc5fdf378fa1f08c944ce2697b9L104-R104) [[2]](diffhunk://#diff-dfde31fc840d79453be95cc44156df26204e60d2426d73dbb961d774467403f3R521-R526) [[3]](diffhunk://#diff-dfde31fc840d79453be95cc44156df26204e60d2426d73dbb961d774467403f3L605-R608) [[4]](diffhunk://#diff-dfde31fc840d79453be95cc44156df26204e60d2426d73dbb961d774467403f3L619-R621)
+
+**PTX Processing Improvements:**
+
+* Updated the `filter_out_version_headers_ptx` function in `ptxpass/core.hpp` and `core.cpp` to accept an optional `target_sm` argument. When provided, the function replaces the `.target` directive in PTX with the specified SM architecture, ensuring that generated PTX targets the correct GPU. [[1]](diffhunk://#diff-a6afdd8f4ed6b8f631580d7cfcb944d60fc0696dd04801598b85ac5ef2823147L142-R144) [[2]](diffhunk://#diff-09bb88451a6ecb2538720d3984c21494d4b19cca3e423382c539c9399dcd7fc7L151-R157) [[3]](diffhunk://#diff-09bb88451a6ecb2538720d3984c21494d4b19cca3e423382c539c9399dcd7fc7L164-R177)
+
+**Build and Example Updates:**
+
+* Modified the `benchmark/gpu/Makefile` to build the `workload` directory in addition to `micro`.
+* Updated `.gitignore` in `example/gpu/kernel_trace` to exclude build artifacts and output files.

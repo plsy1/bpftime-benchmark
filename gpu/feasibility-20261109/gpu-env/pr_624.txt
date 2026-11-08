@@ -1,0 +1,115 @@
+#624 feat: add conservative GPU SIMT verification [OPEN] by yunwei37 created 2026-08-01T20:56:33Z updated 2026-08-05T13:13:46Z closed None
+LABELS: ['size/XXL']
+BODY:
+## Summary
+
+- verify device-side eBPF with PREVAIL before PTX compilation
+- add conservative SIMT checks for warp-uniform branches, atomic addresses, helper effects, stack writes, and GPU map access
+- expose strict, warning, and disabled runtime modes with a dedicated GPU-verifier rejection status
+- correct atomizer inputs and trace payload initialization required by strict verification
+- keep intentionally lane-varying demos in WARNING mode so verification and diagnostics still run without blocking intended behavior
+
+## Minimal replacement scope
+
+This is the reduced replacement for the now-closed #561. It keeps only the verifier mechanism, runtime integration, CI wiring, focused regression tests, and example corrections exposed by synchronized CI.
+
+- exact HEAD: `44c351140a792261d30193675c6591ab897981fd`
+- replacement: 22 files, +3087/-20
+- #561: 56 files, +8781/-38
+- fixed-policy helper table; no ambient helper/map registration or restoration scaffolding
+- no new test framework: verifier CI reuses the repository Catch2 pin, GPU CI reuses the existing example matrix
+- compatible real GPU examples run STRICT; intentional lane-varying behavior demos run WARNING
+
+## Validation
+
+- `bpftime_verifier_tests` built and passed
+- focused GPU verifier matrix passed
+- CUDA attach/verifier ON and OFF configurations passed at the synchronized base
+- rebuilt `example/gpu/atomizer/.output/atomizer.bpf.o`
+- applied its ELF map relocations and verified the complete atomizer instruction stream in STRICT mode: PASS
+- parsed both changed workflow YAML files
+- `git diff --check`
+- exact-head dedicated review: PASS
+- exact-head independent external read-only review: PASS
+- fresh exact-head Copilot review requested
+
+## Current-head CI fixes
+
+Synchronized CI exposed these PR-specific policy or runner failures:
+
+- atomizer could divide by a partition count not proven nonzero
+- kernel_trace, cudagraph, directly_run_on_gpu, and CUTLASS intentionally use lane-varying control flow
+- the persistent PTX runner retained a stale nested verifier conformance checkout
+
+Atomizer is corrected for STRICT mode. The intentional behavior demos use per-example WARNING mode; WARNING still executes the verifier and logs diagnostics, while the existing runtime-output, nonzero-count, victim verification, and crash assertions continue to gate the jobs. The PTX workflow removes only the stale nested conformance checkout before recursive initialization, matching its existing ubpf cleanup pattern.
+
+Exact-head CI is terminal: 87 checks passed, 2 were intentionally skipped, and none failed or remain pending. The 120-job integrated matrix and 17-job GPU matrix both passed; the final CUTLASS job completed its two-process runtime verification successfully. This PR is Ready (not Draft) and remains unmerged pending maintainer approval.
+
+--- COMMENT by yunwei37 2026-08-01T20:56:41Z
+Exact-head gate for `fbecb312523f0ef8ab179a4552706bb7daf2f596`: dedicated full-diff review PASS; independent remote-less full-diff review PASS. Local validation: GPU verifier 69/69 assertions, CPU verifier 11/11, CUDA attach 98/98, CUDA attach/agent/tool targets built, and non-CUDA runtime target built. The PR remains Draft until current-head CI is terminal green.
+--- COMMENT by yunwei37 2026-08-01T20:56:42Z
+@copilot review
+--- COMMENT by yunwei37 2026-08-01T21:00:08Z
+CI dependency update: the verifier workflow passed on exact HEAD. The GCC 13 failure is the unrelated base compile error in `runtime/syscall-server/syscall_context.cpp:75` (`construct_agent_config_from_env` was renamed); #604 fixes that one line. To preserve this PRs 19-file scope, I am not duplicating the base fix here. After #604 merges, I will sync `master`, rerun focused validation/review for the new exact HEAD, and require terminal-green CI before marking Ready.
+--- COMMENT by yunwei37 2026-08-02T01:59:46Z
+@copilot review
+--- COMMENT by yunwei37 2026-08-02T03:26:36Z
+Exact-head review evidence for 4d7e8d5d9651a2f69c05b0f2aa90967be07b5bc7:\n\n- subagent maintainer review: PASS, including full-diff minimality\n- independent read-only review: PASS\n- GPU verifier: 77 assertions / 9 cases\n- CPU verifier: 11 assertions / 6 cases\n- CUDA attach: 98 assertions / 22 cases\n- CUDA bpftime-agent, bpftimetool, and bpftime_nv_attach_tests builds: PASS\n- diff check, clang-format check, workflow YAML parse: PASS\n- current GPU CI confirms recursive verifier submodules are now present; it proceeds to compilation and stops only at the stale construct_agent_config_from_env call fixed separately by #626\n\nThe PR remains Draft. After #626 merges, it will be synchronized and all final exact-head/Copilot/terminal-green gates will be rerun.
+--- COMMENT by yunwei37 2026-08-02T04:12:22Z
+Exact-head reduction review for `5ee25461c8a01406f1e7421954f8cb69165f711c`: PASS.
+
+- Reduced from 19 files, +2944/-9 to 18 files, +2675/-9; the reduction commit is +95/-364 (net -269).
+- Dedicated subagent review: PASS; all previous ambient-registration, API-wrapper, test-only, unreachable-code, CMake, and fixture-growth blockers are closed.
+- Independent external read-only review: PASS; no remaining concrete safely removable block was identified.
+- Local validation: GPU verifier 73/9, CPU verifier 11/6, CUDA attach 94/21; agent/tool/test builds, YAML parse, diff-check, and clang-format all pass.
+- Remaining readiness gate is intentionally external to this PR: synchronize after #626 merges, then rerun both exact-head reviews, Copilot audit, and terminal CI.
+--- COMMENT by yunwei37 2026-08-02T05:52:04Z
+@copilot review
+
+Please review exact HEAD 0414fd1fa3663658d512d78cb972ff4139b62f10 after the integer-boundary hardening, verifier-mode attach regression, and combined-test-target reduction.
+--- COMMENT by yunwei37 2026-08-02T06:12:55Z
+@copilot review
+
+Please review exact HEAD 56a1796 after replacing the constant PREVAIL out-parameter prelude with writable-memory havoc semantics and adding the variable-offset rejection regression.
+--- COMMENT by yunwei37 2026-08-02T07:46:55Z
+@copilot review
+
+Please review exact commit 1baf62899cae488f1ecb0ab2b319eea57a005d8f, including the conservative variable-stack-store handling and verifier-enabled PTX CI.
+--- COMMENT by yunwei37 2026-08-05T09:01:18Z
+Pushed 1fca893 after the synchronized GPU run exposed two PR-specific verifier failures.
+
+- atomizer now rejects a zero partition count before both divisions, keeps the value as u64, and initializes every trace_printk payload slot required by STRICT SIMT checks
+- kernel_trace alone uses WARNING because its documented one-thread sampler intentionally branches on thread coordinates
+- rebuilt the atomizer BPF object and verified the complete relocated instruction stream locally in STRICT mode: PASS
+- workflow YAML and diff checks: PASS
+- exact-head dedicated and independent external read-only reviews: PASS
+
+Fresh checks are now queued for this exact head. @copilot review
+--- COMMENT by yunwei37 2026-08-05T10:05:13Z
+Current-head CI follow-up: the synchronized GPU run exposed two additional STRICT-policy failures in examples whose behavior is intentionally lane-varying:
+
+- cudagraph: warp-uniform branch condition — https://github.com/eunomia-bpf/bpftime/actions/runs/30991357562/job/92259298377
+- directly_run_on_gpu: host-bridge payload uniformity — https://github.com/eunomia-bpf/bpftime/actions/runs/30991357562/job/92259298406
+
+Commit `0bbdebb` scopes WARNING mode to those two matrix entries. The verifier still runs and logs diagnostics, while each job retains its runtime-output, crash, and non-zero GEMM assertions. YAML parsing, diff checks, the dedicated review, and the independent external read-only review all pass. Fresh exact-head CI is running.
+
+@copilot review
+--- COMMENT by yunwei37 2026-08-05T11:44:23Z
+@copilot review
+--- COMMENT by yunwei37 2026-08-05T11:46:12Z
+@copilot review
+--- COMMENT by yunwei37 2026-08-05T13:13:46Z
+Final OSS change gate for exact HEAD `44c351140a792261d30193675c6591ab897981fd`:
+
+- reduced replacement scope: 22 files, +3087/-20 (closed #561 had 56 files, +8781/-38)
+- targeted PTX workflow: passed after cleaning only the stale nested verifier conformance checkout
+- integrated matrix: 120/120 jobs completed successfully
+- GPU matrix: 17/17 jobs completed successfully
+- CUTLASS two-process runtime verification: passed with verifier diagnostics enabled in WARNING mode
+- full exact-head CI: 87 passed, 2 intentionally skipped, 0 failed, 0 pending
+- exact-head dedicated review: PASS
+- independent external read-only review: PASS
+- unresolved review threads: 0
+
+Ready for maintainer review; not merged.
+

@@ -1,0 +1,18 @@
+##### hostreg hsloop bpf 2000
+shm /dev/shm/gpu-env-hsloop-273580 size=1048576 mapped MAP_SHARED at 0xffffa1580000
+    cudaHostRegister(s.p, s.size, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer((void **)&db, s.p, 0)                         -> 0 no error
+[hsloop variant=bpf rounds=2000] launch=no error sync=no error done=2000 stale_resp=0 host_served=2000 kernel_total=9.807 ms avg_roundtrip=4.90 us max_roundtrip=23.10 us wall=10.795 ms
+exit=0
+##### hostreg hsloop vol 2000
+shm /dev/shm/gpu-env-hsloop-273587 size=1048576 mapped MAP_SHARED at 0xffffa8080000
+    cudaHostRegister(s.p, s.size, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer((void **)&db, s.p, 0)                         -> 0 no error
+[hsloop variant=vol rounds=2000] launch=no error sync=no error done=2000 stale_resp=0 host_served=2000 kernel_total=9.551 ms avg_roundtrip=4.78 us max_roundtrip=11.36 us wall=10.577 ms
+exit=0
+##### hostreg atomdev
+shm /dev/shm/gpu-env-atomdev-273594 size=1048576 mapped MAP_SHARED at 0xffff98990000
+    cudaHostRegister(s.p, s.size, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer((void **)&db, s.p, 0)                         -> 0 no error
+[atomdev CPU+GPU device-scope atomicAdd] sync=no error u32=4048000 u64=4048000 expected=4048000 lost32=0 lost64=0; gpu 0.0-124.3 ms, cpu 0.3-154.8 ms
+exit=0

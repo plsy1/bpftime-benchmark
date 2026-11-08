@@ -1,0 +1,69 @@
+#467 [FEATURE] Refactor and have a clear design of cuda attach to support different verdors [OPEN] by yunwei37 created 2025-10-18T06:21:34Z updated 2025-10-21T15:43:27Z closed None
+LABELS: ['enhancement']
+BODY:
+Currently the design was around cuda, and we want to have a more extendable arch:
+
+1. user can define their rewrite methods / hook points easily, like count instruction, attach to sync points, etc.
+2. we can easily extend it to support different nv maps and vendors
+--- COMMENT by Officeyutong 2025-10-19T08:52:43Z
+Places that used `BPFTIME_ENABLE_CUDA_ATTACH`
+
+## agent.cpp
+Hooked `__cudaRegisterFatBinary` to start bpftime agent when injected to CUDA program.
+
+## bpftime_prog.cpp
+Function `compile_ptx_to_elf` in `class bpftime_prog`. This function was abandoned now and can be removed.
+
+## bpftime_shm_internal.cpp
+Function `register_cuda_host_memory` and call to it. This function was used to map the whole section of boost shared memory to GPU. Here we should provide some callbacks so the attach implementation can do some custom stuff when shared memory was created.
+
+## bpftime_shm.cpp
+Function implementation of `bpftime_poll_gpu_ringbuf_map`
+
+## bpf_attach_ctx.cpp
+- Creation of `cuda_ctx`
+- Call to `start_cuda_watcher_thread`
+- Specially handle of `prog->is_cuda` at `instantiate_bpf_link_handler_at`
+These can be resolved by providing callbacks at initialization of `bpf_attach_ctx` and instantiation of each handler.
+
+## map_handler.cpp
+Isolate definition of GPU maps.
+
+## syscall_context.cpp
+- Call to `cuInit` at `syscall_context::syscall_context()`
+This can be resolved by providing callback when syscall server was initialized.
+
+## syscall_server_main.cpp
+Implementation of function `bpftime_syscall_server__poll_gpu_ringbuf_map`.
+
+## bpftimetool/main.cpp
+Support for `run_on_cuda`
+
+--- COMMENT by yunwei37 2025-10-20T02:58:43Z
+Thanks for the summary! Can you provide a more detail design?
+
+e.g. for each build target, we should provide a init callback, and allow register and init necessary things like cuInit in the init callback.
+
+For somewhere if we need to change cuda function behavior, it would be better if we can make them some callbacks, and isolated the API compatible layer.
+--- COMMENT by yunwei37 2025-10-20T02:59:26Z
+Or we can first start by do some clean up for the unnecessary code?
+--- COMMENT by Officeyutong 2025-10-20T15:12:54Z
+Hooks we need:
+- Shared memory initialization.
+- Initialization of `bpf_attach_ctx`
+- Instatiation of each handler in `instantiate_handler_at`
+- Initialization of `syscall_context`
+
+Callbacks can be provided by each attach implementation. The creation of a `bpf_attach_ctx` doesn't rely on shared memory, so call to bpf_attach_ctx at agent side would be:
+- Create a bpf_attach_ctx
+- Register attach implementations
+- Initialize global shared memory. Call callbacks related to initialization of shared memory registered by each attach implementation.
+- When called `bpf_attach_ctx::init_attach_ctx_from_handlers`, call callbacks `Initialization of bpf_attach_ctx` of all attach implementations
+- During the instantiating of each handler, call callbacks of each attach implemantations, providing the handler to the callback. 
+
+For the syscall server side, since we won't call bpf_attach_ctx, so the following way applies:
+- Syscall server provide a function to register callbacks for initialization of syscall server
+- Each attach implementation provide a `__attribute__((constructor))` function, in it attach implementation use `dlsym` to lookup the register function provided by syscall server, registering its callback
+- For nv_attach_impl, it will register a function to call `cuInit`
+
+

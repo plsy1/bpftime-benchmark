@@ -1,0 +1,37 @@
+hostreg.cu(158): warning #1650-D: result of call is not used
+   posix_memalign(&a, 4096, 65536);
+   ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+hostreg.cu(371): warning #1650-D: result of call is not used
+    posix_memalign(&hp, 4096, 1 << 20);
+    ^
+
+hostreg.cu(158): warning #1650-D: result of call is not used
+   posix_memalign(&a, 4096, 65536);
+   ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+hostreg.cu(371): warning #1650-D: result of call is not used
+    posix_memalign(&hp, 4096, 1 << 20);
+    ^
+
+hostreg.cu(533): warning #225-D: the format string ends before this argument
+          cpu_check(p, 1024, n, 0x20000), n);
+                                          ^
+
+hostreg.cu: In function ‘int mode_dual_b(const char*)’:
+hostreg.cu:532:15: warning: too many arguments for format [-Wformat-extra-args]
+  532 |         printf("[B] k_touch +0x20000: sync=%s; B-CPU mismatches=%zu\n", cudaGetErrorString(cudaDeviceSynchronize()),
+      |               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+hostreg.cu: In function ‘int mode_malloc()’:
+hostreg.cu:158:22: warning: ignoring return value of ‘int posix_memalign(void**, size_t, size_t)’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+  158 |         posix_memalign(&a, 4096, 65536);
+      |         ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~
+hostreg.cu: In function ‘int mode_hs(const char*, const char*, int)’:
+hostreg.cu:371:29: warning: ignoring return value of ‘int posix_memalign(void**, size_t, size_t)’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+  371 |                 posix_memalign(&hp, 4096, 1 << 20);
+      |                 ~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~
+timeout 180 /usr/local/cuda-13.2/bin/nvcc -arch=sm_87 -O2 -o hostreg  -lcuda  4.34s user 0.53s system 99% cpu 4.897 total

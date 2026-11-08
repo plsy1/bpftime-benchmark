@@ -1,0 +1,29 @@
+### [arch_sm87] nvcc -arch=sm_87
+    ELF file    1: tiny_arch_sm87.1.sm_87.cubin
+    ELF file    2: tiny_arch_sm87.2.sm_87.cubin
+    PTX file    1: tiny_arch_sm87.1.sm_87.ptx
+### [gencode_sm87] nvcc -gencode arch=compute_87,code=sm_87
+    ELF file    1: tiny_gencode_sm87.1.sm_87.cubin
+    ELF file    2: tiny_gencode_sm87.2.sm_87.cubin
+    cuobjdump info    : No PTX file found to extract from '/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/gpu-env/fatbin/tiny_gencode_sm87'. You may try with -all option.
+### [gencode_sm87_c87] nvcc -gencode=arch=compute_87,code=[sm_87,compute_87]
+    ELF file    1: tiny_gencode_sm87_c87.1.sm_87.cubin
+    ELF file    2: tiny_gencode_sm87_c87.2.sm_87.cubin
+    PTX file    1: tiny_gencode_sm87_c87.1.sm_87.ptx
+nvcc fatal   : Value of -arch option ('sm_87') must be a virtual code architecture
+### [arch_sm87_code_sm87] nvcc -arch=sm_87 -code=sm_87
+    cuobjdump fatal   : Could not open input file '/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/gpu-env/fatbin/tiny_arch_sm87_code_sm87'
+### [arch_c87] nvcc -arch=compute_87
+    PTX file    1: tiny_arch_c87.1.sm_87.ptx
+    cuobjdump info    : No ELF file found to extract from '/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/gpu-env/fatbin/tiny_arch_c87'. You may try with -all option.
+### [default_noarch] nvcc 
+    ELF file    1: tiny_default_noarch.1.sm_75.cubin
+    ELF file    2: tiny_default_noarch.2.sm_75.cubin
+    PTX file    1: tiny_default_noarch.1.sm_75.ptx
+### [native] nvcc -arch=native
+    ELF file    1: tiny_native.1.sm_87.cubin
+    ELF file    2: tiny_native.2.sm_87.cubin
+    cuobjdump info    : No PTX file found to extract from '/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/gpu-env/fatbin/tiny_native'. You may try with -all option.
+### [arch_c75_code_c75] nvcc -arch=compute_75 -code=compute_75
+    PTX file    1: tiny_arch_c75_code_c75.1.sm_75.ptx
+    cuobjdump info    : No ELF file found to extract from '/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/gpu-env/fatbin/tiny_arch_c75_code_c75'. You may try with -all option.

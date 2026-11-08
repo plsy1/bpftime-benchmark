@@ -1,0 +1,64 @@
+#498 Enhance error logging in CUDA kernel launch and improve build configu… [MERGED] by dr-xjx created 2025-11-10T06:56:51Z updated 2025-11-12T07:45:08Z closed 2025-11-12T07:45:08Z
+LABELS: ['size/M']
+BODY:
+…ration
+
+- Updated error handling in `nv_attach_impl_frida_setup.cpp` to provide more detailed logging on kernel launch failures.
+- Modified `nv_attach_impl.cpp` to dynamically set the SM architecture based on an environment variable, defaulting to `sm_60`.
+- Adjusted Makefile to use the dynamic architecture setting for generating trampoline PTX files.
+- Updated CMake configuration to detect target architecture and adjust library paths accordingly.
+
+
+**Please try to use the copilot to summary your PR. You don't need to fill all info below, just it can help giving your a checklist.**
+
+<!--# Pull Request Template-->
+
+## Description
+
+<!--Please include a summary of the change and which issue is fixed. Please also include relevant motivation and context. List any dependencies that are required for this change.-->
+
+Fixes # (issue)
+
+## Type of change
+
+<!--Please delete options that are not relevant.-->
+
+- [x] Bug fix (non-breaking change which fixes an issue)
+- [x] New feature (non-breaking change which adds functionality)
+- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
+- [ ] This change requires a documentation update
+
+## How Has This Been Tested?
+
+<!--Please describe the tests that you ran to verify your changes. Provide instructions so we can reproduce. Please also list any relevant details for your test configuration-->
+
+- [ ] Test A
+- [ ] Test B
+
+**Test Configuration**:
+
+- Firmware version:
+- Hardware:
+- Toolchain:
+- SDK:
+
+## Checklist
+
+- [ ] My code follows the style guidelines of this project
+- [ ] I have performed a self-review of my own code
+- [ ] I have commented my code, particularly in hard-to-understand areas
+- [ ] I have made corresponding changes to the documentation
+- [ ] My changes generate no new warnings
+- [ ] I have added tests that prove my fix is effective or that my feature works
+- [ ] New and existing unit tests pass locally with my changes
+- [ ] Any dependent changes have been merged and published in downstream modules
+- [ ] I have checked my code and corrected any misspellings
+
+--- COMMENT by yunwei37 2025-11-12T01:38:57Z
+LGTM, @Officeyutong @Sy0307  what do you think?
+--- COMMENT by Officeyutong 2025-11-12T07:38:29Z
+> LGTM, @Officeyutong @Sy0307  what do you think?
+
+Approved
+--- COMMENT by yunwei37 2025-11-12T07:44:48Z
+Thanks!

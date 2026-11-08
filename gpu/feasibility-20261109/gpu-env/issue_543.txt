@@ -1,0 +1,360 @@
+#543 [BUG] gpu_shared_map and launchlate do not execute occuring error [CLOSED] by binwon-Song created 2026-01-27T10:32:23Z updated 2026-01-28T11:41:50Z closed 2026-01-28T11:41:50Z
+LABELS: ['bug']
+BODY:
+**Describe the bug**
+build the example directory and execute executable file like  ./example/gpu/launchlate it will be failed.
+```
+/bpftime> BPFTIME_LOG_OUTPUT=console LD_PRELOAD=build/runtime/syscall-server/libbpftime-syscall-server.so  example/gpu/launchlate/launchlate
+libbpf: loading object 'launchlate_bpf' from buffer
+[2026-01-28 15:05:55.117] [info] [syscall_context.cpp:88] Init bpftime syscall mocking..
+[2026-01-28 15:05:55.117] [info] [syscall_context.cpp:89] The log will be written to: console
+[2026-01-28 15:05:55.117] [info] [syscall_context.cpp:93] Initializing CUDA at syscall-server side
+[2026-01-28 15:05:55.248] [info] [syscall_context.cpp:102] CUDA initialized at syscall server side
+[2026-01-28 15:05:55.248] [info] [syscall_server_utils.cpp:43] Starting syscall server..
+[2026-01-28 15:05:55][info][8673] Initialize syscall server
+[2026-01-28 15:05:55][info][8673] Global shm constructed. shm_open_type 0 for bpftime_maps_shm
+[2026-01-28 15:05:55][info][8673] Global shm initialized
+[2026-01-28 15:05:55][info][8673] bpftime-syscall-server started
+libbpf: elf: section(2) .symtab, size 432, link 1, flags 0, type=2
+libbpf: elf: section(3) uprobe, size 472, link 0, flags 6, type=1
+libbpf: sec 'uprobe': found program 'uprobe_cuda_launch' at insn offset 0 (0 bytes), code size 59 insns (472 bytes)
+libbpf: elf: section(4) kprobe/_Z9vectorAddPKfS0_Pf, size 1056, link 0, flags 6, type=1
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe' at insn offset 0 (0 bytes), code size 132 insns (1056 bytes)
+libbpf: elf: section(5) .maps, size 96, link 0, flags 3, type=1
+libbpf: elf: section(6) .rodata.str1.1, size 193, link 0, flags 32, type=1
+libbpf: elf: section(7) license, size 4, link 0, flags 3, type=1
+libbpf: license of launchlate_bpf is GPL
+libbpf: elf: section(8) .reluprobe, size 32, link 2, flags 40, type=9
+libbpf: elf: section(9) .relkprobe/_Z9vectorAddPKfS0_Pf, size 48, link 2, flags 40, type=9
+libbpf: elf: section(10) .BTF, size 2939, link 0, flags 0, type=1
+libbpf: elf: section(11) .BTF.ext, size 776, link 0, flags 0, type=1
+libbpf: looking for externs among 18 symbols...
+libbpf: collected 0 externs total
+libbpf: map 'last_uprobe_time': at sec_idx 5, offset 0.
+libbpf: map 'last_uprobe_time': found type = 2.
+libbpf: map 'last_uprobe_time': found key [8], sz = 4.
+libbpf: map 'last_uprobe_time': found value [12], sz = 8.
+libbpf: map 'last_uprobe_time': found max_entries = 32.
+libbpf: map 'time_histogram': at sec_idx 5, offset 32.
+libbpf: map 'time_histogram': found type = 1503.
+libbpf: map 'time_histogram': found key [8], sz = 4.
+libbpf: map 'time_histogram': found value [12], sz = 8.
+libbpf: map 'time_histogram': found max_entries = 10.
+libbpf: map 'clock_offset': at sec_idx 5, offset 64.
+libbpf: map 'clock_offset': found type = 2.
+libbpf: map 'clock_offset': found key [8], sz = 4.
+libbpf: map 'clock_offset': found value [24], sz = 8.
+libbpf: map 'clock_offset': found max_entries = 32.
+libbpf: map '.rodata.str1.1' (global data): at sec_idx 6, offset 0, flags 80.
+libbpf: map 3 is ".rodata.str1.1"
+libbpf: sec '.reluprobe': collecting relocation for section(3) 'uprobe'
+libbpf: sec '.reluprobe': relo #0: insn #42 against 'clock_offset'
+libbpf: prog 'uprobe_cuda_launch': found map 2 (clock_offset, sec 5, off 64) for insn #42
+libbpf: sec '.reluprobe': relo #1: insn #53 against 'last_uprobe_time'
+libbpf: prog 'uprobe_cuda_launch': found map 0 (last_uprobe_time, sec 5, off 0) for insn #53
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(4) 'kprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #6 against 'last_uprobe_time'
+libbpf: prog 'cuda__probe': found map 0 (last_uprobe_time, sec 5, off 0) for insn #6
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #51 against 'time_histogram'
+libbpf: prog 'cuda__probe': found map 1 (time_histogram, sec 5, off 32) for insn #51
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #96 against 'time_histogram'
+libbpf: prog 'cuda__probe': found map 1 (time_histogram, sec 5, off 32) for insn #96
+libbpf: object 'launchlate_bpf': failed (-22) to create BPF token from '/sys/fs/bpf', skipping optional step...
+libbpf: map 'last_uprobe_time': created successfully, fd=15
+[2026-01-28 15:05:55][info][8673] syscall server: Set enable_mock_after_initialized to false
+[2026-01-28 15:05:55][info][8673] CUDA context for thread 8673 has been set to 55cc040e7d50
+[2026-01-28 15:05:55][info][8673] Map ebpf_map_fd_time_histogram (nv_gpu_shared_array_map_impl) shared array
+[2026-01-28 15:05:55][info][8673] Initializing map type of BPF_MAP_TYPE_GPU_ARRAY_MAP (device), total_buffer_size=80
+[2026-01-28 15:05:55][info][8673] syscall server: Set enable_mock_after_initialized to true
+libbpf: map 'time_histogram': created successfully, fd=16
+libbpf: map 'clock_offset': created successfully, fd=17
+libbpf: map '.rodata.str1.1': created successfully, fd=18
+Clock calibration: REALTIME - MONOTONIC = 1769500319617281913 ns
+  MONOTONIC: 80035.825690371
+  REALTIME:  1769580355.442972284
+Attaching uprobe: binary_path='./vec_add', func_name='_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st'
+libbpf: elf: failed to open ./vec_add: -ENOENT
+Failed to attach uprobe to './vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st': No such file or directory
+[2026-01-28 15:05:55][warning][8673] Calling original ioctl: 9 34 140736146033520
+[2026-01-28 15:05:55][warning][8673] Calling original ioctl: 8 3222292009 140736146033760
+```
+host_map_test and malloc is works well. i think the bpf function 'bpf_create_map_xattr' is not work.
+any way to address this issue?
+
+**To Reproduce**
+1. cd example/gpu/launchlate
+2. make
+3. BPFTIME_LOG_OUTPUT=console LD_PRELOAD=build/runtime/syscall-server/libbpftime-syscall-server.so  example/gpu/launchlate/launchlate
+
+**Desktop (please complete the following information):**
+
+* OS: Ubuntu 24.04
+* Version 6.8.0-90-generic
+* CUDA 12
+
+--- COMMENT by Sy0307 2026-01-27T11:10:02Z
+Issue still exists?
+--- COMMENT by binwon-Song 2026-01-28T06:07:39Z
+@Sy0307 Yes i tried to resolve this problem  but i failed...
+can you explain how to tracking the gpu kernel?
+--- COMMENT by Sy0307 2026-01-28T08:46:58Z
+> [@Sy0307](https://github.com/Sy0307) Yes i tried to resolve this problem but i failed... can you explain how to tracking the gpu kernel?
+
+Maybe path in README can lead to errors. Will you try this command for lanuchlate example:
+
+```shell
+cd bpftime/example/gpu/launchlate
+make
+BPFTIME_LOG_OUTPUT=console LD_PRELOAD=../../../../build/runtime/syscall-server/libbpftime-syscall-server.so ./launchlate
+```
+--- COMMENT by binwon-Song 2026-01-28T08:53:19Z
+Thanks for the quick reply.
+
+However, it still returns the same error log.
+
+As far as I understand, the BPF code does not seem to recognize the CUDA kernel.
+I’m not very familiar with how eBPF handles, so I’m not sure how to proceed.
+
+Thank you for your support.
+
+```
+bpftime/example/gpu/launchlate> BPFTIME_LOG_OUTPUT=console LD_PRELOAD=../../../build/runtime/syscall-server/libbpftime-syscall-server.so ./launchlate
+
+
+libbpf: loading object 'launchlate_bpf' from buffer
+[2026-01-28 17:49:33.683] [info] [syscall_context.cpp:88] Init bpftime syscall mocking..
+[2026-01-28 17:49:33.683] [info] [syscall_context.cpp:89] The log will be written to: console
+[2026-01-28 17:49:33.683] [info] [syscall_context.cpp:93] Initializing CUDA at syscall-server side
+[2026-01-28 17:49:33.820] [info] [syscall_context.cpp:102] CUDA initialized at syscall server side
+[2026-01-28 17:49:33.820] [info] [syscall_server_utils.cpp:43] Starting syscall server..
+[2026-01-28 17:49:33][info][13114] Initialize syscall server
+[2026-01-28 17:49:33][info][13114] Global shm constructed. shm_open_type 0 for bpftime_maps_shm
+[2026-01-28 17:49:33][info][13114] Global shm initialized
+[2026-01-28 17:49:33][info][13114] bpftime-syscall-server started
+libbpf: elf: section(2) .symtab, size 432, link 1, flags 0, type=2
+libbpf: elf: section(3) uprobe, size 472, link 0, flags 6, type=1
+libbpf: sec 'uprobe': found program 'uprobe_cuda_launch' at insn offset 0 (0 bytes), code size 59 insns (472 bytes)
+libbpf: elf: section(4) kprobe/_Z9vectorAddPKfS0_Pf, size 1056, link 0, flags 6, type=1
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe' at insn offset 0 (0 bytes), code size 132 insns (1056 bytes)
+libbpf: elf: section(5) .maps, size 96, link 0, flags 3, type=1
+libbpf: elf: section(6) .rodata.str1.1, size 193, link 0, flags 32, type=1
+libbpf: elf: section(7) license, size 4, link 0, flags 3, type=1
+libbpf: license of launchlate_bpf is GPL
+libbpf: elf: section(8) .reluprobe, size 32, link 2, flags 40, type=9
+libbpf: elf: section(9) .relkprobe/_Z9vectorAddPKfS0_Pf, size 48, link 2, flags 40, type=9
+libbpf: elf: section(10) .BTF, size 2939, link 0, flags 0, type=1
+libbpf: elf: section(11) .BTF.ext, size 776, link 0, flags 0, type=1
+libbpf: looking for externs among 18 symbols...
+libbpf: collected 0 externs total
+libbpf: map 'last_uprobe_time': at sec_idx 5, offset 0.
+libbpf: map 'last_uprobe_time': found type = 2.
+libbpf: map 'last_uprobe_time': found key [8], sz = 4.
+libbpf: map 'last_uprobe_time': found value [12], sz = 8.
+libbpf: map 'last_uprobe_time': found max_entries = 32.
+libbpf: map 'time_histogram': at sec_idx 5, offset 32.
+libbpf: map 'time_histogram': found type = 1503.
+libbpf: map 'time_histogram': found key [8], sz = 4.
+libbpf: map 'time_histogram': found value [12], sz = 8.
+libbpf: map 'time_histogram': found max_entries = 10.
+libbpf: map 'clock_offset': at sec_idx 5, offset 64.
+libbpf: map 'clock_offset': found type = 2.
+libbpf: map 'clock_offset': found key [8], sz = 4.
+libbpf: map 'clock_offset': found value [24], sz = 8.
+libbpf: map 'clock_offset': found max_entries = 32.
+libbpf: map '.rodata.str1.1' (global data): at sec_idx 6, offset 0, flags 80.
+libbpf: map 3 is ".rodata.str1.1"
+libbpf: sec '.reluprobe': collecting relocation for section(3) 'uprobe'
+libbpf: sec '.reluprobe': relo #0: insn #42 against 'clock_offset'
+libbpf: prog 'uprobe_cuda_launch': found map 2 (clock_offset, sec 5, off 64) for insn #42
+libbpf: sec '.reluprobe': relo #1: insn #53 against 'last_uprobe_time'
+libbpf: prog 'uprobe_cuda_launch': found map 0 (last_uprobe_time, sec 5, off 0) for insn #53
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(4) 'kprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #6 against 'last_uprobe_time'
+libbpf: prog 'cuda__probe': found map 0 (last_uprobe_time, sec 5, off 0) for insn #6
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #51 against 'time_histogram'
+libbpf: prog 'cuda__probe': found map 1 (time_histogram, sec 5, off 32) for insn #51
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #96 against 'time_histogram'
+libbpf: prog 'cuda__probe': found map 1 (time_histogram, sec 5, off 32) for insn #96
+libbpf: object 'launchlate_bpf': failed (-22) to create BPF token from '/sys/fs/bpf', skipping optional step...
+libbpf: map 'last_uprobe_time': created successfully, fd=15
+[2026-01-28 17:49:33][info][13114] syscall server: Set enable_mock_after_initialized to false
+[2026-01-28 17:49:34][info][13114] CUDA context for thread 13114 has been set to 58ac37227d50
+[2026-01-28 17:49:34][info][13114] Map ebpf_map_fd_time_histogram (nv_gpu_shared_array_map_impl) shared array
+[2026-01-28 17:49:34][info][13114] Initializing map type of BPF_MAP_TYPE_GPU_ARRAY_MAP (device), total_buffer_size=80
+[2026-01-28 17:49:34][info][13114] syscall server: Set enable_mock_after_initialized to true
+libbpf: map 'time_histogram': created successfully, fd=16
+libbpf: map 'clock_offset': created successfully, fd=17
+libbpf: map '.rodata.str1.1': created successfully, fd=18
+Clock calibration: REALTIME - MONOTONIC = 1769500319617281916 ns
+  MONOTONIC: 89854.402445674
+  REALTIME:  1769590174.019727590
+Attaching uprobe: binary_path='./vec_add', func_name='_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st'
+libbpf: elf: '_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st' is 0 in symtab for './vec_add': should not be 0 in a shared library
+Failed to attach uprobe to './vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st': No such file or directory
+[2026-01-28 17:49:34][warning][13114] Calling original ioctl: 9 34 140720502556624
+[2026-01-28 17:49:34][warning][13114] Calling original ioctl: 8 3222292009 140720502556864
+```
+--- COMMENT by Sy0307 2026-01-28T09:50:39Z
+> Thanks for the quick reply.
+> 
+> However, it still returns the same error log.
+> 
+> As far as I understand, the BPF code does not seem to recognize the CUDA kernel. I’m not very familiar with how eBPF handles, so I’m not sure how to proceed.
+> 
+> Thank you for your support.
+> 
+> ```
+> bpftime/example/gpu/launchlate> BPFTIME_LOG_OUTPUT=console LD_PRELOAD=../../../build/runtime/syscall-server/libbpftime-syscall-server.so ./launchlate
+> 
+> 
+> libbpf: loading object 'launchlate_bpf' from buffer
+> [2026-01-28 17:49:33.683] [info] [syscall_context.cpp:88] Init bpftime syscall mocking..
+> [2026-01-28 17:49:33.683] [info] [syscall_context.cpp:89] The log will be written to: console
+> [2026-01-28 17:49:33.683] [info] [syscall_context.cpp:93] Initializing CUDA at syscall-server side
+> [2026-01-28 17:49:33.820] [info] [syscall_context.cpp:102] CUDA initialized at syscall server side
+> [2026-01-28 17:49:33.820] [info] [syscall_server_utils.cpp:43] Starting syscall server..
+> [2026-01-28 17:49:33][info][13114] Initialize syscall server
+> [2026-01-28 17:49:33][info][13114] Global shm constructed. shm_open_type 0 for bpftime_maps_shm
+> [2026-01-28 17:49:33][info][13114] Global shm initialized
+> [2026-01-28 17:49:33][info][13114] bpftime-syscall-server started
+> libbpf: elf: section(2) .symtab, size 432, link 1, flags 0, type=2
+> libbpf: elf: section(3) uprobe, size 472, link 0, flags 6, type=1
+> libbpf: sec 'uprobe': found program 'uprobe_cuda_launch' at insn offset 0 (0 bytes), code size 59 insns (472 bytes)
+> libbpf: elf: section(4) kprobe/_Z9vectorAddPKfS0_Pf, size 1056, link 0, flags 6, type=1
+> libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe' at insn offset 0 (0 bytes), code size 132 insns (1056 bytes)
+> libbpf: elf: section(5) .maps, size 96, link 0, flags 3, type=1
+> libbpf: elf: section(6) .rodata.str1.1, size 193, link 0, flags 32, type=1
+> libbpf: elf: section(7) license, size 4, link 0, flags 3, type=1
+> libbpf: license of launchlate_bpf is GPL
+> libbpf: elf: section(8) .reluprobe, size 32, link 2, flags 40, type=9
+> libbpf: elf: section(9) .relkprobe/_Z9vectorAddPKfS0_Pf, size 48, link 2, flags 40, type=9
+> libbpf: elf: section(10) .BTF, size 2939, link 0, flags 0, type=1
+> libbpf: elf: section(11) .BTF.ext, size 776, link 0, flags 0, type=1
+> libbpf: looking for externs among 18 symbols...
+> libbpf: collected 0 externs total
+> libbpf: map 'last_uprobe_time': at sec_idx 5, offset 0.
+> libbpf: map 'last_uprobe_time': found type = 2.
+> libbpf: map 'last_uprobe_time': found key [8], sz = 4.
+> libbpf: map 'last_uprobe_time': found value [12], sz = 8.
+> libbpf: map 'last_uprobe_time': found max_entries = 32.
+> libbpf: map 'time_histogram': at sec_idx 5, offset 32.
+> libbpf: map 'time_histogram': found type = 1503.
+> libbpf: map 'time_histogram': found key [8], sz = 4.
+> libbpf: map 'time_histogram': found value [12], sz = 8.
+> libbpf: map 'time_histogram': found max_entries = 10.
+> libbpf: map 'clock_offset': at sec_idx 5, offset 64.
+> libbpf: map 'clock_offset': found type = 2.
+> libbpf: map 'clock_offset': found key [8], sz = 4.
+> libbpf: map 'clock_offset': found value [24], sz = 8.
+> libbpf: map 'clock_offset': found max_entries = 32.
+> libbpf: map '.rodata.str1.1' (global data): at sec_idx 6, offset 0, flags 80.
+> libbpf: map 3 is ".rodata.str1.1"
+> libbpf: sec '.reluprobe': collecting relocation for section(3) 'uprobe'
+> libbpf: sec '.reluprobe': relo #0: insn #42 against 'clock_offset'
+> libbpf: prog 'uprobe_cuda_launch': found map 2 (clock_offset, sec 5, off 64) for insn #42
+> libbpf: sec '.reluprobe': relo #1: insn #53 against 'last_uprobe_time'
+> libbpf: prog 'uprobe_cuda_launch': found map 0 (last_uprobe_time, sec 5, off 0) for insn #53
+> libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(4) 'kprobe/_Z9vectorAddPKfS0_Pf'
+> libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #6 against 'last_uprobe_time'
+> libbpf: prog 'cuda__probe': found map 0 (last_uprobe_time, sec 5, off 0) for insn #6
+> libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #51 against 'time_histogram'
+> libbpf: prog 'cuda__probe': found map 1 (time_histogram, sec 5, off 32) for insn #51
+> libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #96 against 'time_histogram'
+> libbpf: prog 'cuda__probe': found map 1 (time_histogram, sec 5, off 32) for insn #96
+> libbpf: object 'launchlate_bpf': failed (-22) to create BPF token from '/sys/fs/bpf', skipping optional step...
+> libbpf: map 'last_uprobe_time': created successfully, fd=15
+> [2026-01-28 17:49:33][info][13114] syscall server: Set enable_mock_after_initialized to false
+> [2026-01-28 17:49:34][info][13114] CUDA context for thread 13114 has been set to 58ac37227d50
+> [2026-01-28 17:49:34][info][13114] Map ebpf_map_fd_time_histogram (nv_gpu_shared_array_map_impl) shared array
+> [2026-01-28 17:49:34][info][13114] Initializing map type of BPF_MAP_TYPE_GPU_ARRAY_MAP (device), total_buffer_size=80
+> [2026-01-28 17:49:34][info][13114] syscall server: Set enable_mock_after_initialized to true
+> libbpf: map 'time_histogram': created successfully, fd=16
+> libbpf: map 'clock_offset': created successfully, fd=17
+> libbpf: map '.rodata.str1.1': created successfully, fd=18
+> Clock calibration: REALTIME - MONOTONIC = 1769500319617281916 ns
+>   MONOTONIC: 89854.402445674
+>   REALTIME:  1769590174.019727590
+> Attaching uprobe: binary_path='./vec_add', func_name='_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st'
+> libbpf: elf: '_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st' is 0 in symtab for './vec_add': should not be 0 in a shared library
+> Failed to attach uprobe to './vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st': No such file or directory
+> [2026-01-28 17:49:34][warning][13114] Calling original ioctl: 9 34 140720502556624
+> [2026-01-28 17:49:34][warning][13114] Calling original ioctl: 8 3222292009 140720502556864
+> ```
+
+Have you installed cuda? Run this following command to check the cause of error:
+```shell
+readelf -Ws ./vec_add | rg "_Z16cudaLaunchKernel|cudaLaunchKernel"
+```
+--- COMMENT by binwon-Song 2026-01-28T10:02:23Z
+
+> Have you installed cuda? Run this following command to check the cause of error:
+readelf -Ws ./vec_add | rg "_Z16cudaLaunchKernel|cudaLaunchKernel"
+
+I’ve attached some information that may help your analysis, including the output of nvcc and nvidia-smi.
+I also ran the command you provided.
+
+Thanks for your support.
+
+---
+
+
+```
+bpftime/example/gpu/launchlate> readelf -Ws ./vec_add | rg "_Z16cudaLaunchKernel|cudaLaunchKernel"
+     3: 0000000000000000     0 FUNC    GLOBAL DEFAULT  UND cudaLaunchKernel@libcudart.so.12 (2)
+    34: 0000000000001c1c    84 FUNC    LOCAL  DEFAULT   16 _Z16cudaLaunchKernelIcE9cudaErrorPKT_4dim3S4_PPvmP11CUstream_st
+    73: 0000000000000000     0 FUNC    GLOBAL DEFAULT  UND cudaLaunchKernel@libcudart.so.12
+```
+
+```
+#nvcc --version
+nvcc: NVIDIA (R) Cuda compiler driver
+Copyright (c) 2005-2023 NVIDIA Corporation
+Built on Fri_Jan__6_16:45:21_PST_2023
+Cuda compilation tools, release 12.0, V12.0.140
+Build cuda_12.0.r12.0/compiler.32267302_0
+```
+
+```
+# nvidia-smi
+Wed Jan 28 18:58:26 2026
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.126.09             Driver Version: 580.126.09     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 3090        Off |   00000000:83:00.0 Off |                  N/A |
+|  0%   25C    P8             19W /  370W |   17568MiB /  24576MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+```
+--- COMMENT by Sy0307 2026-01-28T11:09:51Z
+Use this command to re-test? It looks like error caused by cuda version.
+
+```shell
+cd bpftime/example/gpu/launchlate
+BPFTIME_LOG_OUTPUT=console \
+LD_PRELOAD=../../../build/runtime/syscall-server/libbpftime-syscall-server.so \
+./launchlate "./vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPKT_4dim3S4_PPvmP11CUstream_st"
+```
+--- COMMENT by binwon-Song 2026-01-28T11:16:58Z
+WoooooooooooooooW it works well!
+can you explain how can i handle that error since i meet again?
+what means "_Z16cudaLaunchKernelIcE9cudaErrorPKT_4dim3S4_PPvmP11CUstream_st"?
+
+<img width="1154" height="482" alt="Image" src="https://github.com/user-attachments/assets/ba18174f-7db1-44c3-82d4-ad2a0f1d9ce2" />
+--- COMMENT by Sy0307 2026-01-28T11:41:11Z
+The reason for this issue is likely as follows: the hardcoded uprobe target function name in `launchlate` (a C++ mangled name, which encodes "function name + parameter type information" into a unique string to help the linker distinguish overloads/template instances) does not match the actual symbol name present in your `vec_add`/CUDA runtime on your machine. (Changes in CUDA versions/headers/compilation methods can lead to variations in symbol mangling. Our primary testing machines currently support CUDA 12.6, which might not be consistent with your CUDA 12.0).
+
+If you encounter similar problems next time, you can do the following:
+
+**Step 1:** First, confirm which `cudaLaunchKernel`-related symbols are actually present in `vec_add` (this is the GPU function you want to hook).
+`readelf -Ws ./vec_add | rg "_Z16cudaLaunchKernel|cudaLaunchKernel"`
+
+**Step 2:** Select a `_Z16cudaLaunchKernel...` symbol whose "address is not 0 and is not UND" (undefined), for example, `_Z16cudaLaunchKernelIcE9cudaErrorPKT_4dim3S4_PPvmP11CUstream_st`.
+
+**Step 3:**
+**Method A:** `./launchlate "./vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPKT_4dim3S4_PPvmP11CUstream_st"`
+**Or**
+**Method B:** Change `const char *uprobe_spec = "./vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st";` to `const char *uprobe_spec = "./vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPKT_4dim3S4_PPvmP11CUstream_st";`

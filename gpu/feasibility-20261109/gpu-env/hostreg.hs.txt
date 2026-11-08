@@ -1,0 +1,108 @@
+##### hostreg hs shm bpf 0
+shm /dev/shm/gpu-env-hs-273119 size=1048576 mapped MAP_SHARED at 0xffffa4910000
+    cudaHostRegister(s.p, s.size, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer(&db, s.p, 0)                                  -> 0 no error
+handshake mem=shm variant=bpf(0) xproc=0 host=0xffffa4920000 dev=0x1021d4000
+    host thread: saw flag1=yes after 0.903 ms (14391 polls)
+    kernel: launch=no error sync=no error saw flag2=yes spins=1 elapsed_in_kernel=5.248 us; wall 0.933 ms
+    final flags: flag1=0 flag2=0
+exit=0
+##### hostreg hs shm vol 0
+shm /dev/shm/gpu-env-hs-273126 size=1048576 mapped MAP_SHARED at 0xffff78ee0000
+    cudaHostRegister(s.p, s.size, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer(&db, s.p, 0)                                  -> 0 no error
+handshake mem=shm variant=vol(1) xproc=0 host=0xffff78ef0000 dev=0x1021d4000
+    host thread: saw flag1=yes after 0.939 ms (14940 polls)
+    kernel: launch=no error sync=no error saw flag2=yes spins=2 elapsed_in_kernel=5.248 us; wall 0.973 ms
+    final flags: flag1=0 flag2=0
+exit=0
+##### hostreg hs shm none 0
+shm /dev/shm/gpu-env-hs-273133 size=1048576 mapped MAP_SHARED at 0xffff945c0000
+    cudaHostRegister(s.p, s.size, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer(&db, s.p, 0)                                  -> 0 no error
+handshake mem=shm variant=none(2) xproc=0 host=0xffff945d0000 dev=0x1021d4000
+    host thread: saw flag1=yes after 0.883 ms (14039 polls)
+    kernel: launch=no error sync=no error saw flag2=yes spins=2 elapsed_in_kernel=3.392 us; wall 0.938 ms
+    final flags: flag1=0 flag2=0
+exit=0
+##### hostreg hs hostalloc bpf 0
+    cudaHostAlloc(&hp, 1 << 20, cudaHostAllocMapped)                       -> 0 no error
+    cudaHostGetDevicePointer(&d, hp, 0)                                    -> 0 no error
+handshake mem=hostalloc variant=bpf(0) xproc=0 host=0x1021d4000 dev=0x1021d4000
+    host thread: saw flag1=yes after 0.937 ms (14764 polls)
+    kernel: launch=no error sync=no error saw flag2=yes spins=1 elapsed_in_kernel=5.536 us; wall 0.967 ms
+    final flags: flag1=0 flag2=0
+exit=0
+##### hostreg hs hostalloc vol 0
+    cudaHostAlloc(&hp, 1 << 20, cudaHostAllocMapped)                       -> 0 no error
+    cudaHostGetDevicePointer(&d, hp, 0)                                    -> 0 no error
+handshake mem=hostalloc variant=vol(1) xproc=0 host=0x1021d4000 dev=0x1021d4000
+    host thread: saw flag1=yes after 0.458 ms (7282 polls)
+    kernel: launch=no error sync=no error saw flag2=yes spins=2 elapsed_in_kernel=4.832 us; wall 0.487 ms
+    final flags: flag1=0 flag2=0
+exit=0
+##### hostreg hs hostalloc none 0
+    cudaHostAlloc(&hp, 1 << 20, cudaHostAllocMapped)                       -> 0 no error
+    cudaHostGetDevicePointer(&d, hp, 0)                                    -> 0 no error
+handshake mem=hostalloc variant=none(2) xproc=0 host=0x1021d4000 dev=0x1021d4000
+    host thread: saw flag1=yes after 0.460 ms (7336 polls)
+    kernel: launch=no error sync=no error saw flag2=yes spins=2 elapsed_in_kernel=3.552 us; wall 0.487 ms
+    final flags: flag1=0 flag2=0
+exit=0
+##### hostreg hs malloc bpf 0
+    cudaHostRegister(hp, 1 << 20, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer(&d, hp, 0)                                    -> 0 no error
+handshake mem=malloc variant=bpf(0) xproc=0 host=0xaaaaefacd000 dev=0x1021d4000
+    host thread: saw flag1=yes after 0.307 ms (4880 polls)
+    kernel: launch=no error sync=no error saw flag2=yes spins=1 elapsed_in_kernel=5.504 us; wall 0.332 ms
+    final flags: flag1=0 flag2=0
+exit=0
+##### hostreg hs malloc vol 0
+    cudaHostRegister(hp, 1 << 20, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer(&d, hp, 0)                                    -> 0 no error
+handshake mem=malloc variant=vol(1) xproc=0 host=0xaaaaeecf0000 dev=0x1021d4000
+    host thread: saw flag1=yes after 0.323 ms (5130 polls)
+    kernel: launch=no error sync=no error saw flag2=yes spins=2 elapsed_in_kernel=4.928 us; wall 0.374 ms
+    final flags: flag1=0 flag2=0
+exit=0
+##### hostreg hs malloc none 0
+    cudaHostRegister(hp, 1 << 20, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer(&d, hp, 0)                                    -> 0 no error
+handshake mem=malloc variant=none(2) xproc=0 host=0xaaaae4624000 dev=0x1021d4000
+    host thread: saw flag1=yes after 0.328 ms (4950 polls)
+    kernel: launch=no error sync=no error saw flag2=yes spins=2 elapsed_in_kernel=3.360 us; wall 0.361 ms
+    final flags: flag1=0 flag2=0
+exit=0
+##### hostreg hs shm bpf 1 (cross-process host side)
+shm /dev/shm/gpu-env-hs-273184 size=1048576 mapped MAP_SHARED at 0xffff8d5e0000
+    cudaHostRegister(s.p, s.size, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer(&db, s.p, 0)                                  -> 0 no error
+handshake mem=shm variant=bpf(0) xproc=1 host=0xffff8d5f0000 dev=0x1021d4000
+[shmtool pid=273189] mapped /dev/shm/gpu-env-hs-273184 size=1048576 at 0xffff95230000
+[shmtool] hs saw flag1 after 199.471 ms (3199277 polls); set flag2=1
+    child exit=0
+    kernel: launch=no error sync=no error saw flag2=yes spins=1 elapsed_in_kernel=5.056 us; wall 0.975 ms
+    final flags: flag1=0 flag2=0
+exit=0
+##### hostreg hs shm vol 1 (cross-process host side)
+shm /dev/shm/gpu-env-hs-273192 size=1048576 mapped MAP_SHARED at 0xffffa6120000
+    cudaHostRegister(s.p, s.size, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer(&db, s.p, 0)                                  -> 0 no error
+handshake mem=shm variant=vol(1) xproc=1 host=0xffffa6130000 dev=0x1021d4000
+[shmtool pid=273197] mapped /dev/shm/gpu-env-hs-273192 size=1048576 at 0xffff9f510000
+[shmtool] hs saw flag1 after 199.486 ms (3191069 polls); set flag2=1
+    child exit=0
+    kernel: launch=no error sync=no error saw flag2=yes spins=2 elapsed_in_kernel=4.704 us; wall 0.912 ms
+    final flags: flag1=0 flag2=0
+exit=0
+##### hostreg hs shm none 1 (cross-process host side)
+shm /dev/shm/gpu-env-hs-273200 size=1048576 mapped MAP_SHARED at 0xffffad640000
+    cudaHostRegister(s.p, s.size, cudaHostRegisterMapped)                  -> 0 no error
+    cudaHostGetDevicePointer(&db, s.p, 0)                                  -> 0 no error
+handshake mem=shm variant=none(2) xproc=1 host=0xffffad650000 dev=0x1021d4000
+[shmtool pid=273205] mapped /dev/shm/gpu-env-hs-273200 size=1048576 at 0xffff8d560000
+[shmtool] hs saw flag1 after 199.451 ms (3198098 polls); set flag2=1
+    child exit=0
+    kernel: launch=no error sync=no error saw flag2=yes spins=2 elapsed_in_kernel=3.168 us; wall 0.875 ms
+    final flags: flag1=0 flag2=0
+exit=0

@@ -1,0 +1,155 @@
+##### hostreg shm 4 mapped
+    cudaSetDeviceFlags(cudaDeviceMapHost)                                  -> 0 no error
+    cudaFree(0)                                                            -> 0 no error
+shm /dev/shm/gpu-env-shm-272999 size=4194304 mapped MAP_SHARED at 0xffffaa580000
+register 4 MiB flags=mapped(0x2) prefault=1
+    cudaHostRegister(s.p, s.size, fl)                                      -> 0 no error
+    register took 0.980 ms
+    cudaHostGetDevicePointer(&d, s.p, 0)                                   -> 0 no error
+    cudaHostGetDevicePointer(&di, hi, 0)                                   -> 0 no error
+    cudaHostGetDevicePointer(&dl, hl, 0)                                   -> 0 no error
+    host base=0xffffaa580000 dev base=0x1021c4000 equal=no
+    interior +4112: dev=0x1021c5010 expected=0x1021c5010 OK
+    last u32: dev=0x1025c3ffc expected=0x1025c3ffc OK
+    cudaHostGetFlags=0x2 (no error)
+    kernel k_touch over 1024 pages: launch=no error sync=no error (0.783 ms)
+    same-process CPU check: mismatches=0 of 1024
+[shmtool pid=273004] mapped /dev/shm/gpu-env-shm-272999 size=4194304 at 0xffff8be30000
+[shmtool] check n=1024 stride=1024 add=0x1000 mismatches=0
+    second-process check exit=0
+[shmtool pid=273006] mapped /dev/shm/gpu-env-shm-272999 size=4194304 at 0xffff95190000
+[shmtool] filled n=1024 stride=1024 base=0xa0000000
+    second-process fill exit=0
+    GPU reads second-process writes: launch=no error sync=no error mismatches=0 of 1024
+    cudaHostUnregister(s.p)                                                -> 0 no error
+    unregister took 0.202 ms
+exit=0
+##### hostreg shm 128 mapped
+    cudaSetDeviceFlags(cudaDeviceMapHost)                                  -> 0 no error
+    cudaFree(0)                                                            -> 0 no error
+shm /dev/shm/gpu-env-shm-273008 size=134217728 mapped MAP_SHARED at 0xffff90000000
+register 128 MiB flags=mapped(0x2) prefault=1
+    cudaHostRegister(s.p, s.size, fl)                                      -> 0 no error
+    register took 16.052 ms
+    cudaHostGetDevicePointer(&d, s.p, 0)                                   -> 0 no error
+    cudaHostGetDevicePointer(&di, hi, 0)                                   -> 0 no error
+    cudaHostGetDevicePointer(&dl, hl, 0)                                   -> 0 no error
+    host base=0xffff90000000 dev base=0x1021c4000 equal=no
+    interior +4112: dev=0x1021c5010 expected=0x1021c5010 OK
+    last u32: dev=0x10a1c3ffc expected=0x10a1c3ffc OK
+    cudaHostGetFlags=0x2 (no error)
+    kernel k_touch over 32768 pages: launch=no error sync=no error (1.115 ms)
+    same-process CPU check: mismatches=0 of 32768
+[shmtool pid=273013] mapped /dev/shm/gpu-env-shm-273008 size=134217728 at 0xffff9eaa0000
+[shmtool] check n=32768 stride=1024 add=0x1000 mismatches=0
+    second-process check exit=0
+[shmtool pid=273015] mapped /dev/shm/gpu-env-shm-273008 size=134217728 at 0xffff8ed50000
+[shmtool] filled n=32768 stride=1024 base=0xa0000000
+    second-process fill exit=0
+    GPU reads second-process writes: launch=no error sync=no error mismatches=0 of 32768
+    cudaHostUnregister(s.p)                                                -> 0 no error
+    unregister took 3.807 ms
+exit=0
+##### hostreg shm 128 mapped nopf
+    cudaSetDeviceFlags(cudaDeviceMapHost)                                  -> 0 no error
+    cudaFree(0)                                                            -> 0 no error
+shm /dev/shm/gpu-env-shm-273017 size=134217728 mapped MAP_SHARED at 0xffff60000000
+register 128 MiB flags=mapped(0x2) prefault=0
+    cudaHostRegister(s.p, s.size, fl)                                      -> 0 no error
+    register took 16.490 ms
+    cudaHostGetDevicePointer(&d, s.p, 0)                                   -> 0 no error
+    cudaHostGetDevicePointer(&di, hi, 0)                                   -> 0 no error
+    cudaHostGetDevicePointer(&dl, hl, 0)                                   -> 0 no error
+    host base=0xffff60000000 dev base=0x1021c4000 equal=no
+    interior +4112: dev=0x1021c5010 expected=0x1021c5010 OK
+    last u32: dev=0x10a1c3ffc expected=0x10a1c3ffc OK
+    cudaHostGetFlags=0x2 (no error)
+    kernel k_touch over 32768 pages: launch=no error sync=no error (1.064 ms)
+    same-process CPU check: mismatches=0 of 32768
+[shmtool pid=273022] mapped /dev/shm/gpu-env-shm-273017 size=134217728 at 0xffff9b4a0000
+[shmtool] check n=32768 stride=1024 add=0x1000 mismatches=0
+    second-process check exit=0
+[shmtool pid=273024] mapped /dev/shm/gpu-env-shm-273017 size=134217728 at 0xffff9f660000
+[shmtool] filled n=32768 stride=1024 base=0xa0000000
+    second-process fill exit=0
+    GPU reads second-process writes: launch=no error sync=no error mismatches=0 of 32768
+    cudaHostUnregister(s.p)                                                -> 0 no error
+    unregister took 3.777 ms
+exit=0
+##### hostreg shm 128 default
+    cudaSetDeviceFlags(cudaDeviceMapHost)                                  -> 0 no error
+    cudaFree(0)                                                            -> 0 no error
+shm /dev/shm/gpu-env-shm-273026 size=134217728 mapped MAP_SHARED at 0xffff90000000
+register 128 MiB flags=default(0x0) prefault=1
+    cudaHostRegister(s.p, s.size, fl)                                      -> 0 no error
+    register took 16.528 ms
+    cudaHostGetDevicePointer(&d, s.p, 0)                                   -> 0 no error
+    cudaHostGetDevicePointer(&di, hi, 0)                                   -> 0 no error
+    cudaHostGetDevicePointer(&dl, hl, 0)                                   -> 0 no error
+    host base=0xffff90000000 dev base=0x1021c4000 equal=no
+    interior +4112: dev=0x1021c5010 expected=0x1021c5010 OK
+    last u32: dev=0x10a1c3ffc expected=0x10a1c3ffc OK
+    cudaHostGetFlags=0x2 (no error)
+    kernel k_touch over 32768 pages: launch=no error sync=no error (1.028 ms)
+    same-process CPU check: mismatches=0 of 32768
+[shmtool pid=273031] mapped /dev/shm/gpu-env-shm-273026 size=134217728 at 0xffff8d370000
+[shmtool] check n=32768 stride=1024 add=0x1000 mismatches=0
+    second-process check exit=0
+[shmtool pid=273033] mapped /dev/shm/gpu-env-shm-273026 size=134217728 at 0xffff80c80000
+[shmtool] filled n=32768 stride=1024 base=0xa0000000
+    second-process fill exit=0
+    GPU reads second-process writes: launch=no error sync=no error mismatches=0 of 32768
+    cudaHostUnregister(s.p)                                                -> 0 no error
+    unregister took 3.831 ms
+exit=0
+##### hostreg shm 4 portmap
+    cudaSetDeviceFlags(cudaDeviceMapHost)                                  -> 0 no error
+    cudaFree(0)                                                            -> 0 no error
+shm /dev/shm/gpu-env-shm-273035 size=4194304 mapped MAP_SHARED at 0xffff9a5b0000
+register 4 MiB flags=portmap(0x3) prefault=1
+    cudaHostRegister(s.p, s.size, fl)                                      -> 0 no error
+    register took 0.920 ms
+    cudaHostGetDevicePointer(&d, s.p, 0)                                   -> 0 no error
+    cudaHostGetDevicePointer(&di, hi, 0)                                   -> 0 no error
+    cudaHostGetDevicePointer(&dl, hl, 0)                                   -> 0 no error
+    host base=0xffff9a5b0000 dev base=0x1021c4000 equal=no
+    interior +4112: dev=0x1021c5010 expected=0x1021c5010 OK
+    last u32: dev=0x1025c3ffc expected=0x1025c3ffc OK
+    cudaHostGetFlags=0x3 (no error)
+    kernel k_touch over 1024 pages: launch=no error sync=no error (0.749 ms)
+    same-process CPU check: mismatches=0 of 1024
+[shmtool pid=273040] mapped /dev/shm/gpu-env-shm-273035 size=4194304 at 0xffff96380000
+[shmtool] check n=1024 stride=1024 add=0x1000 mismatches=0
+    second-process check exit=0
+[shmtool pid=273042] mapped /dev/shm/gpu-env-shm-273035 size=4194304 at 0xffff7fad0000
+[shmtool] filled n=1024 stride=1024 base=0xa0000000
+    second-process fill exit=0
+    GPU reads second-process writes: launch=no error sync=no error mismatches=0 of 1024
+    cudaHostUnregister(s.p)                                                -> 0 no error
+    unregister took 0.206 ms
+exit=0
+##### hostreg shm 128 drv
+    cudaSetDeviceFlags(cudaDeviceMapHost)                                  -> 0 no error
+    cudaFree(0)                                                            -> 0 no error
+shm /dev/shm/gpu-env-shm-273044 size=134217728 mapped MAP_SHARED at 0xffff68000000
+register 128 MiB flags=drv(0x3) prefault=1
+    cuMemHostRegister(s.p, s.size, fl)                                     -> 0 no error
+    register took 16.649 ms
+    cuMemHostGetDevicePointer(&a, s.p, 0)                                  -> 0 no error
+    cuMemHostGetDevicePointer(&b, hi, 0)                                   -> 0 no error
+    cuMemHostGetDevicePointer(&c, hl, 0)                                   -> 0 no error
+    host base=0xffff68000000 dev base=0x1021c4000 equal=no
+    interior +4112: dev=0x1021c5010 expected=0x1021c5010 OK
+    last u32: dev=0x10a1c3ffc expected=0x10a1c3ffc OK
+    kernel k_touch over 32768 pages: launch=no error sync=no error (1.043 ms)
+    same-process CPU check: mismatches=0 of 32768
+[shmtool pid=273049] mapped /dev/shm/gpu-env-shm-273044 size=134217728 at 0xffff8fb70000
+[shmtool] check n=32768 stride=1024 add=0x1000 mismatches=0
+    second-process check exit=0
+[shmtool pid=273051] mapped /dev/shm/gpu-env-shm-273044 size=134217728 at 0xffff9c5f0000
+[shmtool] filled n=32768 stride=1024 base=0xa0000000
+    second-process fill exit=0
+    GPU reads second-process writes: launch=no error sync=no error mismatches=0 of 32768
+    cuMemHostUnregister(s.p)                                               -> 0 no error
+    unregister took 4.006 ms
+exit=0

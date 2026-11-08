@@ -1,0 +1,44 @@
+#536 [+] Feat: Implement gdrcopy support for GPU maps [MERGED] by Sy0307 created 2026-01-03T14:01:17Z updated 2026-01-22T13:57:37Z closed 2026-01-22T13:57:36Z
+LABELS: ['size/XXL']
+BODY:
+**Implement #500.**
+
+*   **Enabled by:** `-DBPFTIME_ENABLE_GDRCOPY=ON`
+*   **Runtime controlled via:** `agent_config.enable_gpu_gdrcopy`, with transparent fallback to `cuMemcpyDtoH` on failure.
+
+### Features
+
+*   **Implement hybrid lookup policy:** For `BPF_MAP_TYPE_GPU_ARRAY_MAP` and `BPF_MAP_TYPE_PERGPUTD_ARRAY_MAP`, `elem_lookup` tries `copy_from_device_to_host_with_gdrcopy(...)` first, otherwise falls back to `cuMemcpyDtoH`.
+*   **Add per-key size threshold:** `agent_config.gpu_gdrcopy_max_per_key_bytes` (default `DEFAULT_GPU_GDRCOPY_MAX_PER_KEY_BYTES=4096`); skip GDRCopy when per-key bytes exceed the threshold.
+*   **Dynamic loading + fallback:** Uses `libgdrapi.so.2` + `dlsym`; missing `libgdrapi.so` or `/dev/gdrdrv` does not break functionality.
+
+## How to test
+
+### Build
+
+```bash
+cmake -S . -B build -G Ninja -DBPFTIME_ENABLE_CUDA_ATTACH=ON -DBPFTIME_CUDA_ROOT=/usr/local/cuda -DBPFTIME_ENABLE_GDRCOPY=ON
+cmake --build build -j --target gpu_array_map_host_perf gpu_per_thread_array_map_host_perf
+```
+
+### Run comparisons
+
+**Baseline:**
+```bash
+./build/benchmark/gpu/host/gpu_array_map_host_perf --iters 50000 --max-entries 1024 --value-size 8 --gdrcopy 0
+```
+
+**GDRCopy:**
+```bash
+./build/benchmark/gpu/host/gpu_array_map_host_perf --iters 50000 --max-entries 1024 --value-size 8 --gdrcopy 1 --gdrcopy-max-per-key-bytes 4096
+```
+
+**PERGPUTD baseline:**
+```bash
+./build/benchmark/gpu/host/gpu_per_thread_array_map_host_perf --iters 50000 --max-entries 1024 --value-size 8 --thread-count 32 --gdrcopy 0
+```
+
+**PERGPUTD GDRCopy:**
+```bash
+./build/benchmark/gpu/host/gpu_per_thread_array_map_host_perf --iters 50000 --max-entries 1024 --value-size 8 --thread-count 32 --gdrcopy 1 --gdrcopy-max-per-key-bytes 4096
+```

@@ -1,0 +1,26 @@
+FINDINGS SO FAR (gpu-env research agent)
+1. Upstream since base: 177a1dc..official/master (25e250d6) = 3 commits (7ab89fc9 logo, 1226e299 runtime_library example, 25e250d6 bpftimetool argparse); NONE touch attach/nv_attach_impl, runtime/src/bpf_map/gpu, example/gpu, benchmark/gpu, vm/llvm-jit. CMake change only adds BPFTIME_BUILD_RUNTIME_LIBRARY_EXAMPLE and makes BPFTIME_ENABLE_FRIDA a real option.
+2. Our branch nv_attach_impl history newest: 831caa95 (#695, 2026-10-03), 6bde654a (#647 CUDA13 cuCtxCreate_v4 + sm_103, 2026-08-15), 24b48722, fac864e5 (#542 dynamic attach) ...; our 222 local commits touch GPU paths only via cmake/StandardSettings.cmake (map diag/counters).
+3. Open upstream items relevant: PR #503 (OPEN; Orin X sm_87 CUDA 12.1/11.4; volatile CommSharedMem, ld.volatile spin, acquire fence, cudaHostRegisterPortable) - not in our tree (bpf_attach_ctx.hpp:93-98, default_trampoline.cu:154, bpftime_shm_internal.cpp:1424, bpf_attach_ctx_cuda.cpp:122).
+   IS #646 (OPEN): GB300 aarch64 CUDA 13.2 driver 595.71.05: patched kernel never dispatched, dladdr resolves stub to _fini (nv_attach_impl.cpp:1653 dladdr first; frida_setup.cpp:203-237).
+   PR #647 note: SBSA CUDA libs under targets/sbsa-linux, cmake/cuda.cmake:10-11 looks for aarch64-linux; board CUDA 13.2 only has targets/sbsa-linux (ls).
+4. NVIDIA: CUDA for Tegra 13.5 app note: pageable memory GPU access only Thor+; cudaHostRegister CC>=7.2 + HostRegisterSupported; memory-sharing CUDA IPC only on Tegra with open-source GPU driver from CUDA 13.0 (Thor) -> Orin nvgpu: no cuIpc*; concurrentManagedAccess=1 Thor+ only; cudaMemPrefetchAsync unsupported when 0; P2P/RDMA unsupported.
+   CUDA 13.0 RN: Maxwell/Pascal/Volta offline compilation removed; cudaDeviceProp fields removed.
+   JetPack 7.2.1 = L4T 39.2.1, CUDA 13.2.2, kernel 6.8; JP7.0/7.1 no Orin.
+5. Local: LLVM 15 llc lacks sm_87 (max sm_86, ptx75); -mcpu=sm_87 -> warning + .version 3.2 .target sm_87; bpftime strips headers (core.cpp:165-190,236) and uses trampoline .version 8.1 + rewritten target.
+   nvcc 13.2 default (no -arch) -> sm_75 cubin + compute_75 PTX .version 9.2.
+   libnvptxcompiler_static.a + libcupti_static.a present in targets/sbsa-linux/lib; extras/CUPTI has no lib64 (cuda.cmake:50 check fails -> dynamic cupti).
+6. Literature: eGPU (HCDS'25) eval on P40 + Xeon; gpu_ext arXiv 2512.12615 on RTX 5090 + P40 x86, modifies NVIDIA open kernel modules UVM; docs: CUDA 12.x recommended, LLVM 15+, GPU experimental. Upstream GPU CI: self-hosted X64 gpu runner, CUDA 12.x, LLVM 18 (ptxpass).
+
+VERIFIED ADDITIONS (2026-11-09)
+A. CUDA 13 launch ABI: host_runtime.h:129-145 (__cudaGetKernel + __cudaLaunchKernel_helper(handle)); device_functions.h:2938-2972; cupti_runtime_cbid.h:517-519 (_v13000).
+   libcudart.so.13 0x28780 __cudaLaunchKernel: 'b 77ff8 <cudaLaunchKernel>' (thunk). gdb on scratch 'launch': cudaLaunchKernel x0=0xaaaaabadace0 == cudaGetKernel handle; host stub 0xaaaaaaaa1510.
+   bpftime keys launches by hostFun (frida_setup.cpp:299-312), lookup frida_setup.cpp:159, late fallback 196-241 -> matches #646 '_fini'. -D__NV_LEGACY_LAUNCH fails to compile with nvcc 13.2.
+   CUDA 13 also hides __global__ stub visibility by default (NVIDIA blog); readelf: _Z1kPi GLOBAL HIDDEN, not in .dynsym.
+B. Probe (scratch probe.out): cc 8.7 integrated=1 hostRegisterSupported=1 canUseHostPtrForRegisteredMem=0 pageableMemoryAccess=0 concurrentManagedAccess=0 ipcEventSupported=1 posixFd=1 vmm=1; driver/runtime 13020;
+   cuIpcGetMemHandle=CUDA_ERROR_NOT_SUPPORTED; cudaHostRegister(MAP_SHARED /dev/shm 2MiB)=success, dev ptr != host ptr, GPU write visible (42); malloc ptr -> cudaErrorIllegalAddress.
+   libcuda.so.1 -> /opt/nvidia/l4t-gpu-libs/nvgpu/libcuda.so.1; libcudart/cupti/nvrtc -> /usr/local/cuda/targets/sbsa-linux/lib (ldconfig).
+C. IPC-backed maps: GPU_ARRAY_MAP (nv_gpu_shared_array_map.cpp:42-63 throws), PERGPUTD_ARRAY_MAP (nv_gpu_per_thread_array_map.cpp:61-80), GPU_HASH_MAP (wraps shared array map, nv_gpu_shared_hash_map.hpp:18).
+   CI examples NOT needing IPC: cuda-counter, cudagraph, threadscheduling (HASH CPU map), kernel_trace (GPU_RINGBUF), threadhist-gpu-kernel-shared-map (KERNEL_SHARED), host_map_test (HOST maps). Needing IPC: atomizer, gpu_shared_map, threadscheduling_dynamic_hook, directly_run_on_gpu, kernelretsnoop, threadhist, launchlate, launchlate-kernel-gpu-shared-map, mem_trace (+cutlass).
+D. Fatbin: .nv_fatbin magic 50ed55ba (0xBA55ED50), .nvFatBinSegment b1436246 (0x466243b1) unchanged with nvcc 13.2; nvcc default -> sm_75 cubin + compute_75 PTX .version 9.2; default --cudart static.
+E. LLVM: 15 lacks sm_87; llvm-16-dev installed (LLVMConfig.cmake) and emits .version 7.4 .target sm_87; llvm-17/18 dev not installed (candidates available). Ubuntu 24.04.4.

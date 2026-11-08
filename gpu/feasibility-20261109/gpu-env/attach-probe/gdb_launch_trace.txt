@@ -1,0 +1,39 @@
+### which launch entry points a CUDA 13.2 <<<>>> launch reaches
+Breakpoint 3 at 0xf70
+Breakpoint 4 at 0xdd0
+
+Thread 1 "vadd" hit Breakpoint 4, 0x0000fffff7ee869c in __cudaGetKernel () from /usr/local/cuda/targets/sbsa-linux/lib/libcudart.so.13
+#0  0x0000fffff7ee869c in __cudaGetKernel () from /usr/local/cuda/targets/sbsa-linux/lib/libcudart.so.13
+#1  0x0000aaaaaaaa14f4 in __device_stub__Z9vectorAddPKfS0_Pf (__par0=0x19f032000, __par1=0x19f033000, __par2=0x19f034000) at keep/vadd.cudafe1.stub.c:13
+#2  0x0000aaaaaaaa16a8 in vectorAdd (__cuda_0=0x19f032000, __cuda_1=0x19f033000, __cuda_2=0x19f034000) at /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/gpu-env/attach-probe/vadd.cu:11
+
+Thread 1 "vadd" hit Breakpoint 3, 0x0000fffff7ee8790 in __cudaLaunchKernel () from /usr/local/cuda/targets/sbsa-linux/lib/libcudart.so.13
+#0  0x0000fffff7ee8790 in __cudaLaunchKernel () from /usr/local/cuda/targets/sbsa-linux/lib/libcudart.so.13
+#1  0x0000aaaaaaaa11b8 in __cudaLaunchKernel_helper (kernel=0xaaaaabadf720, gridDim=..., blockDim=..., args=0xffffffffee50, sharedMem=0, stream=0x0) at /usr/local/cuda-13.2/bin/../targets/sbsa-linux/include/crt/device_functions.h:2971
+#2  0x0000aaaaaaaa1608 in __device_stub__Z9vectorAddPKfS0_Pf (__par0=0x19f032000, __par1=0x19f033000, __par2=0x19f034000) at keep/vadd.cudafe1.stub.c:13
+
+Thread 1 "vadd" hit Breakpoint 2, 0x0000fffff7f38034 in cudaLaunchKernel () from /usr/local/cuda/targets/sbsa-linux/lib/libcudart.so.13
+#0  0x0000fffff7f38034 in cudaLaunchKernel () from /usr/local/cuda/targets/sbsa-linux/lib/libcudart.so.13
+#1  0x0000aaaaaaaa11b8 in __cudaLaunchKernel_helper (kernel=0xaaaaabadf720, gridDim=..., blockDim=..., args=0xffffffffee50, sharedMem=0, stream=0x0) at /usr/local/cuda-13.2/bin/../targets/sbsa-linux/include/crt/device_functions.h:2971
+#2  0x0000aaaaaaaa1608 in __device_stub__Z9vectorAddPKfS0_Pf (__par0=0x19f032000, __par1=0x19f033000, __par2=0x19f034000) at keep/vadd.cudafe1.stub.c:13
+
+Thread 1 "vadd" hit Breakpoint 1, 0x0000fffff24e35e4 in cuLaunchKernel () from /opt/nvidia/l4t-gpu-libs/nvgpu/libcuda.so.1
+#0  0x0000fffff24e35e4 in cuLaunchKernel () from /opt/nvidia/l4t-gpu-libs/nvgpu/libcuda.so.1
+#1  0x0000fffff7ed8b58 in ?? () from /usr/local/cuda/targets/sbsa-linux/lib/libcudart.so.13
+#2  0x0000fffff7f3822c in cudaLaunchKernel () from /usr/local/cuda/targets/sbsa-linux/lib/libcudart.so.13
+#3  0x0000aaaaaaaa11b8 in __cudaLaunchKernel_helper (kernel=0xaaaaabadf720, gridDim=..., blockDim=..., args=0xffffffffee50, sharedMem=0, stream=0x0) at /usr/local/cuda-13.2/bin/../targets/sbsa-linux/include/crt/device_functions.h:2971
+sync=no error counter=1024
+[Inferior 1 (process 286673) exited normally]
+
+### the handle passed to cudaLaunchKernel / cuLaunchKernel and what cuFuncGetName / cuKernelGetName return for it
+
+Thread 1 "vadd" hit Breakpoint 1, 0x0000fffff7f38034 in cudaLaunchKernel () from /usr/local/cuda/targets/sbsa-linux/lib/libcudart.so.13
+cudaLaunchKernel func(x0)=0xaaaaabadf720  host vectorAdd=0xaaaaaaaa1684
+
+Thread 1 "vadd" hit Breakpoint 2, 0x0000fffff24e35e4 in cuLaunchKernel () from /opt/nvidia/l4t-gpu-libs/nvgpu/libcuda.so.1
+cuLaunchKernel f(x0)=0xaaaaabadf720
+cuFuncGetName -> 400
+cuKernelGetName -> 0
+0xaaaaabade618:	"_Z9vectorAddPKfS0_Pf"
+sync=no error counter=1024
+[Inferior 1 (process 286688) exited normally]

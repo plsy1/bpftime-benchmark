@@ -1,0 +1,41 @@
+  [seg 0xffff7da10000 after mmap+prefault+memset        ] present ffff7da10000-ffff7ea10000 rw-s 00000000 00:1a 39846                      /dev/shm/gpu-env-attach-probe-284775 (deleted)
+  cudaSetDeviceFlags(cudaDeviceMapHost)                      -> 0 no error
+  [seg 0xffff7da10000 after cudaSetDeviceFlags          ] present ffff7da10000-ffff7ea10000 rw-s 00000000 00:1a 39846                      /dev/shm/gpu-env-attach-probe-284775 (deleted)
+  cudaFree(0)                                                -> 0 no error
+  [seg 0xffff7da10000 after cudaFree(0) ctx init        ] present ffff7da10000-ffff7ea10000 rw-s 00000000 00:1a 39846                      /dev/shm/gpu-env-attach-probe-284775 (deleted)
+  cudaHostRegister(seg, seg_size, cudaHostRegisterMapped)    -> 0 no error
+  [seg 0xffff7da10000 after cudaHostRegister            ] present ffff7da10000-ffff7ea10000 rw-s 00000000 00:1a 39846                      /dev/shm/gpu-env-attach-probe-284775 (deleted)
+  cudaHostGetDevicePointer(&comm_dev, seg + comm_off, 0)     -> 0 no error
+  cuMemHostGetDevicePointer(&map_dev, seg + map_off, 0)      -> 0 CUDA_SUCCESS
+  comm host=0xffff7da11000 dev=0x1021c5000 | map host=0xffff7da50010 dev=0x102204010
+  nvPTXCompiler 13.2 compile(--gpu-name=sm_87 --verbose -O3) -> 0
+  compiled ELF 53688 bytes
+  [seg 0xffff7da10000 after nvPTXCompiler               ] present ffff7da10000-ffff7ea10000 rw-s 00000000 00:1a 39846                      /dev/shm/gpu-env-attach-probe-284775 (deleted)
+  cuModuleLoadDataEx(&mod, elf.data(), 4, o, ov)             -> 0 CUDA_SUCCESS
+  [seg 0xffff7da10000 after cuModuleLoadDataEx          ] present ffff7da10000-ffff7ea10000 rw-s 00000000 00:1a 39846                      /dev/shm/gpu-env-attach-probe-284775 (deleted)
+  cuModuleGetGlobal(&const_data, &const_data_size, mod, "constData") -> 0 CUDA_SUCCESS
+  cuModuleGetGlobal(&map_info, &map_info_size, mod, "map_info") -> 0 CUDA_SUCCESS
+  constData size=8 map_info size=40960
+  cuMemcpyHtoD(const_data, &shared_mem_ptr, const_data_size) -> 0 CUDA_SUCCESS
+  cuMemcpyHtoD(map_info, infos.data(), map_info_size)        -> 0 CUDA_SUCCESS
+  [seg 0xffff7da10000 after constData/map_info HtoD     ] present ffff7da10000-ffff7ea10000 rw-s 00000000 00:1a 39846                      /dev/shm/gpu-env-attach-probe-284775 (deleted)
+  cuModuleGetGlobal(&d_n, &sz, mod, "d_N")                   -> 0 CUDA_SUCCESS
+  cuModuleGetGlobal(&d_counter, &sz, mod, "d_counter")       -> 0 CUDA_SUCCESS
+  cuMemcpyHtoD(d_n, &n, sizeof(n))                           -> 0 CUDA_SUCCESS
+  cuMemcpyHtoD(d_counter, &zero, sizeof(zero))               -> 0 CUDA_SUCCESS
+  cuModuleGetFunction(&f, mod, kernel_name)                  -> 0 CUDA_SUCCESS
+  patched kernel: local=16488 B/thread regs=30
+  cuMemAlloc(&a, n * sizeof(float))                          -> 0 CUDA_SUCCESS
+  cuMemAlloc(&b, n * sizeof(float))                          -> 0 CUDA_SUCCESS
+  cuMemAlloc(&c, n * sizeof(float))                          -> 0 CUDA_SUCCESS
+  [seg 0xffff7da10000 after cuMemAlloc x3               ] present ffff7da10000-ffff7ea10000 rw-s 00000000 00:1a 39846                      /dev/shm/gpu-env-attach-probe-284775 (deleted)
+  cuLaunchKernel(f, 4, 1, 1, 256, 1, 1, 0, nullptr, args, nullptr) -> 0 CUDA_SUCCESS
+  [seg 0xffff7da10000 after cuLaunchKernel              ] present ffff7da10000-ffff7ea10000 rw-s 00000000 00:1a 39846                      /dev/shm/gpu-env-attach-probe-284775 (deleted)
+  cuCtxSynchronize()                                         -> 0 CUDA_SUCCESS
+  [seg 0xffff7da10000 after cuCtxSynchronize            ] present ffff7da10000-ffff7ea10000 rw-s 00000000 00:1a 39846                      /dev/shm/gpu-env-attach-probe-284775 (deleted)
+  MEM free before launch=3776 MiB after=3722 MiB (delta 53 MiB); CU_LIMIT_STACK_SIZE 1024 -> 16496
+  cuMemcpyDtoH(&counter, d_counter, sizeof(counter))         -> 0 CUDA_SUCCESS
+  [seg 0xffff7da10000 after cuMemcpyDtoH counter        ] present ffff7da10000-ffff7ea10000 rw-s 00000000 00:1a 39846                      /dev/shm/gpu-env-attach-probe-284775 (deleted)
+RESULT kernel counter=1024 (expect 1024) | host map[0]=1024 (expect 1024 probe hits) | host map[1] globaltimer=1177390666684000
+  cuModuleUnload(mod)                                        -> 0 CUDA_SUCCESS
+  cudaHostUnregister(seg)                                    -> 0 no error

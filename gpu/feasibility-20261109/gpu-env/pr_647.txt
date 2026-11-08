@@ -1,0 +1,30 @@
+#647 feat: support NVIDIA GB300 (sm_103) and CUDA 13 [MERGED] by EzgiTastan created 2026-08-14T18:09:39Z updated 2026-08-14T21:24:46Z closed 2026-08-14T21:24:46Z
+LABELS: ['size/S']
+BODY:
+Fixes #645. Follow-up to #541.
+
+## What this does
+
+Lets bpftime build and compile injected PTX on an NVIDIA GB300 (Blackwell Ultra, `sm_103`) with CUDA 13. Two small fixes:
+
+1. **PTX version for `sm_103`.** `rewrite_ptx_target()` set PTX `.version 8.5` for `sm_num >= 100`. `sm_103` needs `8.8` (CUDA 12.9), so `ptxas` rejected the injected PTX. Added an `sm_103 -> 8.8` case.
+2. **CUDA 13 `cuCtxCreate`.** In CUDA 13 `cuCtxCreate` takes 4 args (`cuCtxCreate_v4`). Three call sites used the old 3-arg form and did not compile. Guarded them with `#if CUDA_VERSION >= 13000`.
+
+## How I tested
+
+On a GB300 (Grace/aarch64, CUDA 13.2): it builds, and `example/gpu/cuda-counter` now compiles the injected PTX for `sm_103` (`ptxas ... for 'sm_103'` succeeds) and loads the patched module. Before the fix, `ptxas` rejected the PTX at version 8.5.
+
+## Notes
+
+- On Grace/SBSA the CUDA libs live under `targets/sbsa-linux/`, not the `targets/aarch64-linux/` that `cmake/cuda.cmake` looks for. I used a symlink to build; a `cuda.cmake` change could be a follow-up.
+- A separate runtime bug remains: at launch the kernel stub resolves to `_fini`, so the patched kernel is not run. Filed as #646.
+
+Happy to add a small unit test for `rewrite_ptx_target` if you'd like.
+
+## Checklist
+
+- [x] I agree to the CLA (per CONTRIBUTING).
+- [x] One root cause; checked all three `cuCtxCreate` call sites.
+
+--- COMMENT by yunwei37 2026-08-14T21:24:36Z
+Thanks！

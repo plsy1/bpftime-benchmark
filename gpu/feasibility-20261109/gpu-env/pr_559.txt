@@ -1,0 +1,58 @@
+#559 feat: add multi-GPU support for CUDA attach [CLOSED] by yunwei37 created 2026-03-11T14:53:37Z updated 2026-08-02T01:57:21Z closed 2026-08-02T01:57:21Z
+LABELS: ['size/XXL']
+BODY:
+## Summary
+
+- enumerate CUDA devices and retain each device SM architecture and module cache
+- load and resolve patched PTX, kernels, globals, and cache entries within the active device context
+- lazily load the current-device module on its first intercepted launch and fall back to the original CUDA path on failure
+- expose the device ordinal to GPU probes and reject invalid ordinals
+- preserve CUDA 12/13 and single-GPU compatibility
+- add focused device-manager, compiler-failure, and helper-registration coverage plus a minimal per-device launch-count example
+
+Fixes #497
+
+## Minimal-diff audit
+
+- reduced the PR from 30 files, +2105/-182 to 19 files, +1214/-181
+- replaced the 882-line dashboard example with a 300-line end-to-end example
+- removed the accidental scheduled-task lock, unused device APIs, duplicate shared-memory plumbing, and 50-line unused SM helper
+- removed the stacked #560 latency optimization and restored the existing three-argument PTX pass ABI; retained only the one helper-registration line required by this feature
+- retained only the locks needed for device-local caches, concurrent lazy loading, and session teardown
+
+## Validation
+
+- [x] cmake --build build-pr559 --target bpftime_nv_attach_tests -j2
+- [x] bpftime_nv_attach_tests: 25 cases, 103 assertions passed on RTX 5090
+- [x] compiler-creation failure propagates to the caller instead of terminating the worker process
+- [x] helper 512 compiles into a _bpf_helper_ext_0512 PTX call
+- [x] cmake --build build-pr559 --target bpftime_runtime_tests -j2
+- [x] make clean all -j2 in example/gpu/multi-gpu
+- [x] multi_gpu_vec_add 1 completed successfully
+- [x] clang-format changed-line check and git diff --check
+- [ ] GitHub GPU and cross-platform CI
+--- COMMENT by yunwei37 2026-07-16T23:02:58Z
+CI triage update (2026-07-16): the PR status still points at an older failing GPU check for `mem_trace` (`test-gpu-examples`). Earlier artifact-download symptoms looked transient, but the currently reported failure is on an old GPU run and the branch is behind/conflicting. I triggered a fresh workflow run where possible; without a current head run and with the GPU self-hosted runner instability seen on other PRs, I am not making speculative code changes on this branch.
+--- COMMENT by yunwei37 2026-07-16T23:03:07Z
+Current head `0b43109dda5666e401876455f2166d6098cc17ee` is mergeable. Both exact-head reviews found no blockers, and all 12 review threads are resolved. CI currently has 150 successful checks, two expected skips, eight GPU jobs still queued, and one failed GPU job: https://github.com/eunomia-bpf/bpftime/actions/runs/30694284058/job/91355919967
+
+The failed `threadhist-gpu-kernel-shared-map` job downloaded an incomplete artifact containing only `libbpftime-agent.so` and stopped at artifact verification. Other jobs in the same exact-head workflow downloaded and verified the build artifact and ran their examples successfully, so this isolated result does not establish a source regression. GitHub will not accept a failed-job rerun while the workflow is still active; the failed job should be rerun after the remaining GPU queue completes.
+
+No speculative code change has been pushed. Maintainer review and terminal CI are still required.
+
+AI-generated response; a maintainer will review and follow up later
+--- COMMENT by yunwei37 2026-08-01T09:50:49Z
+Exact-head OSS review for `0b43109dda5666e401876455f2166d6098cc17ee`:
+
+- **Dedicated fresh-worktree review: PASS.**
+- **Independent external read-only review: PASS.**
+- Local HEAD, remote branch, GitHub PR head, and pull ref all match this SHA; merge-base is `10328ff1e575e6bb943428046b44f768dc5c8fe0`; the worktree is clean.
+- Minimum-scope audit: **19 files, +1214/-181**, reduced from 30 files, +2105/-182. The 19th file contains only the required helper-512 registration; the independent #560 PTX latency/ABI scope remains removed and the existing three-argument pass ABI is preserved.
+- Reviewed fixes include device-keyed/synchronized symbol and module state, owning-context RAII module unload, exactly-once duplicate cleanup, per-device and PTX cache teardown under their mutexes, >=1 PTX worker, packaged-task exception propagation to fail-open callers, and CUDA 12/13 compatibility.
+- Local validation: attach tests **25 cases / 103 assertions passed**; helper-512 eBPF-to-PTX regression passed; compiler-failure regression passed; runtime test target built; example built; one-GPU smoke passed; formatting and diff checks passed.
+- Copilot reviewed 19/19 files with no new actionable comment. All **12/12** inline review threads are replied to and resolved.
+- Current exact-head CI: **17 passed, 8 pending, 1 expected skip, 0 failed**. GPU/cross-platform checks are still running, so this is code-review PASS rather than a claim of terminal CI green.
+
+No blocking code-review findings remain. I will continue monitoring the exact-head CI; I did not merge the PR.
+--- COMMENT by yunwei37 2026-08-02T01:57:20Z
+Superseded by #627, which preserves the requested behavior with a smaller and current review surface. Closing this older version so only the minimized replacement remains open. No branch is deleted; this PR can be reopened if maintainers need its history.

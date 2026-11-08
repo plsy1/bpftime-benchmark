@@ -1,0 +1,66 @@
+    cudaSetDeviceFlags(cudaDeviceMapHost)                                  -> 0 no error
+    cudaFree(0)                                                            -> 0 no error
+[A posix_memalign 64KiB, cudaHostRegisterMapped] host=0xaaaade4fa000 bytes=65536 page_aligned=1 flags=0x2 
+    cudaHostRegister(hp, bytes, flags)                                     -> 0 no error
+    cudaHostGetDevicePointer(&d, hp, 0)                                    -> 0 no error
+    device ptr=0x1021c4000  (equal to host ptr: no)
+    cudaHostGetFlags=0x2
+    kernel via device ptr: launch=no error sync=no error
+    CPU sees GPU writes: mismatches=0 of 16384 (h[0]=0x100 h[n-1]=0x40ff)
+    cudaHostUnregister(hp)                                                 -> 0 no error
+[B posix_memalign 64KiB, cudaHostRegisterDefault] host=0xaaaade4fa000 bytes=65536 page_aligned=1 flags=0x0 
+    cudaHostRegister(hp, bytes, flags)                                     -> 0 no error
+    cudaHostGetDevicePointer(&d, hp, 0)                                    -> 0 no error
+    device ptr=0x1021c4000  (equal to host ptr: no)
+    cudaHostGetFlags=0x2
+    kernel via device ptr: launch=no error sync=no error
+    CPU sees GPU writes: mismatches=0 of 16384 (h[0]=0x100 h[n-1]=0x40ff)
+    cudaHostUnregister(hp)                                                 -> 0 no error
+[C posix_memalign 64KiB, Portable|Mapped] host=0xaaaade4fa000 bytes=65536 page_aligned=1 flags=0x3 
+    cudaHostRegister(hp, bytes, flags)                                     -> 0 no error
+    cudaHostGetDevicePointer(&d, hp, 0)                                    -> 0 no error
+    device ptr=0x1021c4000  (equal to host ptr: no)
+    cudaHostGetFlags=0x3
+    kernel via device ptr: launch=no error sync=no error
+    CPU sees GPU writes: mismatches=0 of 16384 (h[0]=0x100 h[n-1]=0x40ff)
+    cudaHostUnregister(hp)                                                 -> 0 no error
+[D posix_memalign 64KiB, cuMemHostRegister(PORTABLE|DEVICEMAP)] host=0xaaaade4fa000 bytes=65536 page_aligned=1 flags=0x3 (driver API cuMemHostRegister)
+    cuMemHostRegister(hp, bytes, flags)                                    -> 0 no error
+    cuMemHostGetDevicePointer(&dp, hp, 0)                                  -> 0 no error
+    device ptr=0x1021c4000  (equal to host ptr: no)
+    kernel via device ptr: launch=no error sync=no error
+    CPU sees GPU writes: mismatches=0 of 16384 (h[0]=0x100 h[n-1]=0x40ff)
+    cuMemHostUnregister(hp)                                                -> 0 no error
+[E malloc(40) unaligned, Mapped] host=0xaaaade50a170 bytes=40 page_aligned=0 flags=0x2 
+    cudaHostRegister(hp, bytes, flags)                                     -> 0 no error
+    cudaHostGetDevicePointer(&d, hp, 0)                                    -> 0 no error
+    device ptr=0x1021c4170  (equal to host ptr: no)
+    cudaHostGetFlags=0x2
+    kernel via device ptr: launch=no error sync=no error
+    CPU sees GPU writes: mismatches=0 of 10 (h[0]=0x100 h[n-1]=0x109)
+    cudaHostUnregister(hp)                                                 -> 0 no error
+[F malloc(1MiB) (mmap chunk, unaligned), Mapped] host=0xaaaade55c570 bytes=1048576 page_aligned=0 flags=0x2 
+    cudaHostRegister(hp, bytes, flags)                                     -> 0 no error
+    cudaHostGetDevicePointer(&d, hp, 0)                                    -> 0 no error
+    device ptr=0x1021c4570  (equal to host ptr: no)
+    cudaHostGetFlags=0x2
+    kernel via device ptr: launch=no error sync=no error
+    CPU sees GPU writes: mismatches=0 of 262144 (h[0]=0x100 h[n-1]=0x400ff)
+    cudaHostUnregister(hp)                                                 -> 0 no error
+[G stack int (4 bytes), Mapped] host=0xffffcc5cff00 bytes=4 page_aligned=0 flags=0x2 
+    cudaHostRegister(hp, bytes, flags)                                     -> 0 no error
+    cudaHostGetDevicePointer(&d, hp, 0)                                    -> 0 no error
+    device ptr=0x1021c4f00  (equal to host ptr: no)
+    cudaHostGetFlags=0x2
+    kernel via device ptr: launch=no error sync=no error
+    CPU sees GPU writes: mismatches=0 of 1 (h[0]=0x100 h[n-1]=0x100)
+    cudaHostUnregister(hp)                                                 -> 0 no error
+[H static .data int (4 bytes), Mapped] host=0xaaaac7a60010 bytes=4 page_aligned=0 flags=0x2 
+    cudaHostRegister(hp, bytes, flags)                                     -> 0 no error
+    cudaHostGetDevicePointer(&d, hp, 0)                                    -> 0 no error
+    device ptr=0x1021c4010  (equal to host ptr: no)
+    cudaHostGetFlags=0x2
+    kernel via device ptr: launch=no error sync=no error
+    CPU sees GPU writes: mismatches=0 of 1 (h[0]=0x100 h[n-1]=0x100)
+    cudaHostUnregister(hp)                                                 -> 0 no error
+final cudaGetLastError=no error

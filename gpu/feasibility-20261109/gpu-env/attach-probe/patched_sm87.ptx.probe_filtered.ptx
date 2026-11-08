@@ -1,0 +1,110 @@
+
+
+	// .globl	__probe_func___Z9vectorAddPKfS0_Pf // -- Begin function __probe_func___Z9vectorAddPKfS0_Pf
+
+
+                                        // @__probe_func___Z9vectorAddPKfS0_Pf
+.visible .func __probe_func___Z9vectorAddPKfS0_Pf()
+{
+	.local .align 8 .b8 	__local_depot0[16464];
+	.reg .b64 	%SP;
+	.reg .b64 	%SPL;
+	.reg .pred 	%p<3>;
+	.reg .b32 	%r<3>;
+	.reg .b64 	%rd<19>;
+
+	mov.u64 	%SPL, __local_depot0;
+	add.u64 	%rd1, %SPL, 0;
+	add.s64 	%rd5, %rd1, 16376;
+	cvta.local.u64 	%rd6, %rd5;
+	mov.u32 	%r1, 0;
+	st.local.u32 	[%rd1+16376], %r1;
+	mov.u64 	%rd7, 3;
+	mov.u64 	%rd8, 0;
+	{ // callseq 0, 0
+	.reg .b32 temp_param_reg;
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd7;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %rd6;
+	.param .b64 param2;
+	st.param.b64 	[param2+0], %rd8;
+	.param .b64 param3;
+	st.param.b64 	[param3+0], %rd8;
+	.param .b64 param4;
+	st.param.b64 	[param4+0], %rd8;
+	.param .b64 retval0;
+	call.uni (retval0), 
+	_bpf_helper_ext_0001, 
+	(
+	param0, 
+	param1, 
+	param2, 
+	param3, 
+	param4
+	);
+	ld.param.b64 	%rd9, [retval0+0];
+	} // callseq 0
+	setp.eq.s64 	%p1, %rd9, 0;
+	@%p1 bra 	$L__BB0_2;
+	atom.add.u64 	%rd10, [%rd9], 1;
+$L__BB0_2:                              // %skip0
+	add.s64 	%rd11, %rd1, 16368;
+	cvta.local.u64 	%rd12, %rd11;
+	mov.u32 	%r2, 1;
+	st.local.u32 	[%rd1+16368], %r2;
+	{ // callseq 1, 0
+	.reg .b32 temp_param_reg;
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd7;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %rd12;
+	.param .b64 param2;
+	st.param.b64 	[param2+0], %rd8;
+	.param .b64 param3;
+	st.param.b64 	[param3+0], %rd8;
+	.param .b64 param4;
+	st.param.b64 	[param4+0], %rd8;
+	.param .b64 retval0;
+	call.uni (retval0), 
+	_bpf_helper_ext_0001, 
+	(
+	param0, 
+	param1, 
+	param2, 
+	param3, 
+	param4
+	);
+	ld.param.b64 	%rd15, [retval0+0];
+	} // callseq 1
+	setp.eq.s64 	%p2, %rd15, 0;
+	@%p2 bra 	$L__BB0_4;
+	{ // callseq 2, 0
+	.reg .b32 temp_param_reg;
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd8;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %rd8;
+	.param .b64 param2;
+	st.param.b64 	[param2+0], %rd8;
+	.param .b64 param3;
+	st.param.b64 	[param3+0], %rd8;
+	.param .b64 param4;
+	st.param.b64 	[param4+0], %rd8;
+	.param .b64 retval0;
+	call.uni (retval0), 
+	_bpf_helper_ext_0502, 
+	(
+	param0, 
+	param1, 
+	param2, 
+	param3, 
+	param4
+	);
+	ld.param.b64 	%rd17, [retval0+0];
+	} // callseq 2
+	st.u64 	[%rd15], %rd17;
+$L__BB0_4:                              // %done
+	ret;
+                                        // -- End function
+}

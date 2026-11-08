@@ -1,0 +1,138 @@
+#571 feat: Basic-block & Register tracing & Trampoline update [OPEN] by 4ar0nma0 created 2026-05-25T07:20:36Z updated 2026-08-24T22:11:37Z closed None
+LABELS: ['size/XXL']
+BODY:
+This pull request introduces significant improvements to the PTX attach and trampoline infrastructure, focusing on enhanced support for basic block (BB) tracepoints, improved PTX version compatibility, and better CUDA kernel function handling. The changes include a new pass for BB tracepoints, more robust fallback mechanisms for patched kernel launches, and a smarter PTX compiler that can automatically retry with a compatible version. Several device helper functions and build scripts have also been updated for modern CUDA support and reliability.
+
+**Key changes:**
+
+### BB Tracepoint Support
+
+* Added a new shared library pass, `ptxpass_bb_tracepoint`, with its own CMake configuration and integration into the build system, enabling BB tracepoint instrumentation. (`attach/nv_attach_impl/pass/ptxpass_bb_tracepoint/CMakeLists.txt`, `attach/nv_attach_impl/CMakeLists.txt`) [[1]](diffhunk://#diff-0c292ec632b5113d92b0f3a4f7e04e7435c54458aeee25f9a7f63525b451f47bR1-R12) [[2]](diffhunk://#diff-7da4b2faee416e54f83bd04eb5f26c2310fd7179e0480aab7a7378ef6a4af573R8-R13)
+* Updated the default configuration of the kprobe entry pass to exclude BB tracepoints, ensuring proper separation of instrumentation logic. (`attach/nv_attach_impl/pass/ptxpass_kprobe_entry/main.cpp`)
+
+### CUDA Kernel Function Management
+
+* Added `find_single_patched_kernel_function()` to allow fallback to a single available patched kernel when multiple mappings are unavailable, improving late attach reliability. This fallback is now used in both CUDA runtime and driver API launch paths. (`nv_attach_impl.cpp`, `nv_attach_impl.hpp`, `nv_attach_impl_frida_setup.cpp`) [[1]](diffhunk://#diff-dfde31fc840d79453be95cc44156df26204e60d2426d73dbb961d774467403f3R645-R666) [[2]](diffhunk://#diff-e39e32a5daca06a41195b48fbcdd9e71e4ba274b93717b56415201f2dd073924R181) [[3]](diffhunk://#diff-6db9148adc7e2ce0ba7caf9c61a2b191d369baed797da1bf57dbc50f9aba7c2fR238-R254) [[4]](diffhunk://#diff-6db9148adc7e2ce0ba7caf9c61a2b191d369baed797da1bf57dbc50f9aba7c2fR534-R538)
+* Enhanced kernel function prefill logic to heuristically map BB tracepoint and base kernel names, increasing the chances of successful patching after loading fatbins. (`nv_attach_impl.cpp`) [[1]](diffhunk://#diff-dfde31fc840d79453be95cc44156df26204e60d2426d73dbb961d774467403f3R1694-R1732) [[2]](diffhunk://#diff-dfde31fc840d79453be95cc44156df26204e60d2426d73dbb961d774467403f3R1742-R1783)
+
+### PTX Compiler Robustness
+
+* Improved the PTX compiler to automatically detect and retry compilation with the PTX version suggested by compiler diagnostics, increasing compatibility with different CUDA toolchains. (`ptx_compiler.cpp`) [[1]](diffhunk://#diff-a729371c6d4270c43d27732145ba117f7a739f9ca4bb9277c0ceacceccb590f1R7-R63) [[2]](diffhunk://#diff-a729371c6d4270c43d27732145ba117f7a739f9ca4bb9277c0ceacceccb590f1L50-R105) [[3]](diffhunk://#diff-a729371c6d4270c43d27732145ba117f7a739f9ca4bb9277c0ceacceccb590f1L71-R182)
+* Added helper functions for rewriting PTX version strings and extracting supported versions from error logs. (`ptx_compiler.cpp`)
+
+### Device Helper and Build System Updates
+
+* Registered new external helper functions (`get_ptx_reg`, `get_reg_count`) and updated device-side trampoline code for better argument preservation and atomic operations. (`ptxpass_core/src/core.cpp`, `trampoline/default_trampoline.cu`) [[1]](diffhunk://#diff-09bb88451a6ecb2538720d3984c21494d4b19cca3e423382c539c9399dcd7fc7R224-R225) [[2]](diffhunk://#diff-7081078b8537e60e1e27d59f1fe87c6d52dc454a1106fc5a66721b8cb8294ef3R121-R129) [[3]](diffhunk://#diff-7081078b8537e60e1e27d59f1fe87c6d52dc454a1106fc5a66721b8cb8294ef3L389-R403) [[4]](diffhunk://#diff-7081078b8537e60e1e27d59f1fe87c6d52dc454a1106fc5a66721b8cb8294ef3L432-R456)
+* Modernized the trampoline build system: switched to `nvcc` for PTX generation, updated the default architecture to `sm_75`, and improved the documentation accordingly. (`trampoline/Makefile`, `trampoline/README.md`) [[1]](diffhunk://#diff-1785c28c08f0c34e8968fb0c201c8d212442a4753a687cf4fab7da07f48d60d7L1-R31) [[2]](diffhunk://#diff-e1f9fe1048e34013064481167fe7bb4c6bf04ec9aa9289ca49f9cb6356ad0d4dL4-R5)
+
+### Miscellaneous
+
+* Added missing includes for `<algorithm>` and `<cctype>` to ensure portability and correctness. (`nv_attach_impl.cpp`, `ptx_compiler.cpp`) [[1]](diffhunk://#diff-dfde31fc840d79453be95cc44156df26204e60d2426d73dbb961d774467403f3R24-R25) [[2]](diffhunk://#diff-a729371c6d4270c43d27732145ba117f7a739f9ca4bb9277c0ceacceccb590f1R7-R63)
+
+These changes collectively improve instrumentation flexibility, reliability of kernel patching, and compatibility with modern CUDA environments.
+
+--- COMMENT by Officeyutong 2026-05-25T13:11:20Z
+- There should be some unit tests for the basic block parser. We may use Claude or Codex to generate unit tests and tell it try the best to find a pattern that makes the parser failed to parse.
+- CI seems to be broken
+--- COMMENT by 4ar0nma0 2026-05-27T02:13:32Z
+CI fix. Need to check if it is a CI config problem. Parser verification will be after that
+--- COMMENT by yunwei37 2026-07-16T23:02:51Z
+CI triage update (2026-07-16): this PR has real GPU regressions, not just runner queueing. The failing checks show two distinct issues: (1) `directly_run_on_gpu` reaches the direct nvPTXCompiler path and does not apply the PTX version downgrade/retry used elsewhere, so generated PTX with `.version 9.2` is rejected by a compiler supporting up to 8.5; (2) `cuda-counter` builds a trampoline from nvcc-generated PTX and then collides on duplicate `$str` symbols between app and trampoline PTX. This branch is also behind/conflicting with current `master`, so a safe fix should start with a rebase/conflict resolution and then keep the patch scoped to PTX version normalization plus trampoline symbol hygiene. I did not force-push into the contributor fork.
+
+AI-generated response; a maintainer will review and follow up later
+--- COMMENT by yunwei37 2026-07-16T23:03:17Z
+The earlier PTX-version and duplicate-symbol failures are no longer present on the rebased head `94a5d0f673e90ff14a5a4d48512ad38a6f548e90`. The contributor removed the duplicate `bpf_main` definition, corrected the perf-event test, and reran the affected GPU paths.
+
+The PR is now mergeable with 153 successful checks, two conditional skips, no failures, and no pending checks. The latest Copilot pass reviewed 23 of 24 changed files and produced no new inline findings. Five review threads remain formally unresolved, but every one is attached to outdated code; four are superseded Copilot findings and the remaining human thread concerns registration code that is no longer current.
+
+No additional source change is justified from the current checks. The next step is maintainer re-review of the rebased diff and a decision on the stale review threads and merge.
+
+AI-generated response; a maintainer will review and follow up later
+--- COMMENT by 4ar0nma0 2026-08-04T15:55:18Z
+Sorry I was sick recently. Rebased, fixed the string issue and removed some unnecessary code. Tested on local configuration, and looks good.
+
+-------
+Claude generated commit description
+-------
+# nv_attach: GPU basic-block/register tracing — rebase, CI fixes, and cleanup
+
+## Rebase
+
+The branch was rebased from its old base onto current `upstream/master` (`e382ed9`). Three commits were replayed:
+
+| Old | New | Title |
+|---|---|---|
+| `b849852` | `dead987` | ptx pass and helpers for basic block and register tracing |
+| `0153068` | `77ed31d` | Update BB pattern matching, CUDA trampoline and BB-reg example |
+| `abf4910` | `139684e` | Remove unnecesary registrations & CI fix for BB-register pass |
+
+One real conflict, in `prefill_patched_kernel_functions_from_loaded_fatbins`: upstream had refactored it to resolve entry points per fatbin record via `collect_ptx_entry_functions(rec->original_ptx)` with a `collect_all_kernels_to_patch()` fallback, while this branch had added basic-block name handling. Resolved by keeping upstream's structure and layering the BB handling on top.
+
+## Fix 1 — PTX ISA version normalization (`fd95778`)
+
+**Reported problem:** `directly_run_on_gpu` reached the direct nvPTXCompiler path without the version downgrade/retry used elsewhere, so PTX declaring `.version 9.2` was rejected by a compiler supporting up to 8.5.
+
+The version-handling logic was extracted into a new header-only `attach/nv_attach_impl/ptx_version_utils.hpp` (`bpftime::attach::ptx_version`) exposing `locate`, `rewrite`, `clamp_to`, and `supported_version_from_error_log`. Header-only is required here because `nv_attach_impl_ptx_compiler` is a shared library loaded through `dlopen` and does not link against `bpftime_nv_attach_impl`, so the two cannot share a compiled symbol.
+
+Both compile paths now clamp `.version` up-front against the compiler's reported capability, and on failure parse the supported version out of the error log (`current version is '8.5'`) and retry once. Also fixed an nvPTXCompiler handle leak on the error paths — `nvPTXCompilerDestroy` was missing.
+
+**Verified** by reproducing the exact failure locally with `ptxas -c -arch=sm_75` (local ptxas caps at PTX ISA 8.0): `ptxas fatal: Unsupported .version 9.2; current version is '8.0'` before, clean assembly after.
+
+## Fix 2 — trampoline symbol hygiene (`fd95778`)
+
+**Reported problem:** `cuda-counter` built a trampoline from nvcc-generated PTX, which then collided on duplicate `$str` symbols with the application PTX.
+
+The trampoline PTX is concatenated ahead of the application PTX before being handed to `ptxas`, so nvcc's generic string-literal symbols (`$str`, `$str$1`, …) collide. Generation now rewrites them to `$__bpftime_tramp_str*` and strips `.file`/`.loc` debug directives.
+
+One subtlety: the strip pattern must be anchored, because `.loc` also matches `.local` — the PTX depot declarations — and stripping those corrupts the output.
+
+**Verified** by reproducing the collision (`error: Duplicate definition of variable '$str'` / `Inconsistent redefinition of variable '$str'`) and confirming it assembles cleanly afterwards.
+
+## Fix 3 — dead code removal (`3677ce6`)
+
+A cleanup pass over the whole `upstream/master..dev` diff: **-602 / +352 lines**. Two of these were latent bugs rather than clutter.
+
+- **`default_trampoline.cu`** — removed the `__bpftime_helper_keepalive` global and twelve `bpftime_keep_args5` inline-asm barriers. Compared nvcc output with and without them: identical exported symbols (19 helpers) and identical helper parameter signatures; the barriers only emitted dead `ld.param` instructions. Unused parameters are unnamed again. This shrank the file's diff against upstream from 107 lines to 30.
+- **`nv_attach_impl.cpp`** *(bug)* — `derive_bb_tracepoint_entry` was unreachable and also incorrect: it resolved a `.func`, which `cuModuleGetFunction` can never return. Removing it also fixed the `CUfunction`→name cache being populated with the attach-spec string instead of the real module symbol.
+- **`nv_attach_impl_frida_setup.cpp`** *(bug)* — the single-patched-kernel fallback in `cu_launch_kernel_common` ran unconditionally, overwriting an already-resolved `CUfunction` and recording the launch twice. Now only used when the name-based lookup fails.
+- **`ptxpass_bb_tracepoint/main.cpp`** — `BBKprobeParams` was advertised through `cfg.parameters` but never deserialized or read; two label-position variables were only ever written.
+- **`ptx_compiler.cpp` / `trampoline/Makefile`** — unused includes, and leftover `CLANG`/`LLC`/`CLANG_FLAGS`/`CUDA_LIBS` from before PTX generation moved to nvcc.
+
+`trampoline_ptx.h` was regenerated (it still contained keepalive artifacts). It now declares `.version 8.0` rather than `9.2`, which is more portable — and the runtime normalizes it regardless.
+
+## Testing
+
+`bpftime_nv_attach_tests`: 94 assertions across 21 test cases, all passing. Both reported regressions reproduced before the fix and confirmed resolved after, using real `ptxas`.
+
+**Note on the diff size:** `trampoline_ptx.h` accounts for ~3000 of the changed lines. It is a generated artifact, produced by `attach/nv_attach_impl/trampoline/Makefile` from `default_trampoline.cu`; reviewing the `.cu` source and the Makefile rule is sufficient.
+--- COMMENT by 4ar0nma0 2026-08-05T04:55:55Z
+Fix two checks. 
+1. Removed bpf_main in trampoline_ptx.h
+2. Revised perf_event unit test
+--- COMMENT by yunwei37 2026-08-09T10:01:43Z
+Update for commit `3b82ad2`:
+
+- Removed the unconditional BB map/register-list `stderr` dump from `ptxpass_bb_tracepoint` success paths; error-path diagnostics remain.
+- Aligned the BB helper PTX codegen target with the other PTX passes (`sm_61`). The helper PTX headers are filtered before prepending, so this only constrains helper codegen.
+- Added explicit `<map>` / `<tuple>` and C loader `<stdbool.h>` / `<stdarg.h>` includes.
+- Fixed the reserved include guard in `ptx_version_utils.hpp`.
+- Corrected the bb-register README to match the shipped BPF program and loader output: `BB4`, `r2`, `rd8`.
+- Fixed the trampoline README typo.
+- Added a small `process_input` regression test for the BB tracepoint pass, including the no-debug-dump assertion.
+
+Local validation:
+
+- `git diff --check`
+- `cmake -S . -B build-pr571 -DCMAKE_BUILD_TYPE=Debug -DBPFTIME_ENABLE_CUDA_ATTACH=ON -DBPFTIME_CUDA_ROOT=/usr/local/cuda-12.9 -DBPFTIME_LLVM_JIT=YES -DBPFTIME_ENABLE_UNIT_TESTING=YES -DBUILD_BPFTIME_DAEMON=OFF -DLLVM_DIR=$(llvm-config --cmakedir)`
+- `cmake --build build-pr571 --target ptxpass_bb_tracepoint bpftime_nv_attach_tests -j 8`
+- `./build-pr571/attach/nv_attach_impl/test/bpftime_nv_attach_tests "[ptxpass_bb_tracepoint]"` -> 4 assertions in 1 test case passed
+- `./build-pr571/attach/nv_attach_impl/test/bpftime_nv_attach_tests` -> 98 assertions in 22 test cases passed
+- `make -C example/gpu/bb-register clean all`
+
+Review notes:
+
+- Two independent review passes on `3b82ad2` found no blocking findings.
+- Diff size is small and scoped: 7 files, 64 insertions, 36 deletions. Production code shrank; the net growth is mostly the regression test.
+
+The previously visible Copilot findings are now either directly fixed by this commit or attached to outdated code. CI has restarted for the new head and is still running.
+

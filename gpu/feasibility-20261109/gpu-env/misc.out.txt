@@ -1,0 +1,26 @@
+[1] cudaSetDeviceFlags(cudaDeviceMapHost) after the context exists (agent case)
+    cudaFree(0)                                                              -> 0 no error
+    cudaSetDeviceFlags(cudaDeviceMapHost)                                    -> 0 no error
+    cudaGetLastError()                                                       -> 0 no error
+    cudaGetDeviceFlags(&fl)                                                  -> 0 no error
+    device flags now 0x8 (cudaDeviceMapHost=0x8)
+[2] register from a non-main thread, use from main thread
+    cudaHostRegister in std::thread -> 0 no error
+    cudaHostGetDevicePointer(&d, p, 0)                                       -> 0 no error
+    cudaDeviceSynchronize()                                                  -> 0 no error
+    kernel read p[0]+p[1024] = 12 (expected 12)
+[3] register a sub-range of an already registered range, and the same range again
+    cudaHostRegister((char *)p + 8192, 8192, cudaHostRegisterMapped)         -> 712 part or all of the requested memory range is already mapped
+    cudaGetLastError()                                                       -> 712 part or all of the requested memory range is already mapped
+    cudaHostRegister(p, 1 << 20, cudaHostRegisterMapped)                     -> 712 part or all of the requested memory range is already mapped
+    cudaGetLastError()                                                       -> 712 part or all of the requested memory range is already mapped
+    cudaHostUnregister(p)                                                    -> 0 no error
+[4] PROT_READ MAP_SHARED mapping
+    cudaHostRegister(ro, 1 << 20, cudaHostRegisterMapped)                    -> 1 invalid argument
+    cudaGetLastError()                                                       -> 1 invalid argument
+    cudaHostRegister(ro, 1 << 20, cudaHostRegisterMapped | cudaHostRegisterReadOnly) -> 0 no error
+    cudaHostGetDevicePointer(&dr, ro, 0)                                     -> 0 no error
+    cudaDeviceSynchronize()                                                  -> 0 no error
+    kernel read via read-only registration = 12 (expected 12)
+    cudaHostUnregister(ro)                                                   -> 0 no error
+    cudaGetLastError()                                                       -> 0 no error

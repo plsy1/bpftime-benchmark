@@ -1,0 +1,56 @@
+#709 fix(attach): keep a single patched module set and demangle device-global mirror reads [OPEN] by emmajiafan created 2026-10-20T05:47:57Z updated 2026-10-20T07:27:56Z closed None
+LABELS: ['size/S']
+BODY:
+## Description
+
+When `kprobe` and `kretprobe` are attached to the same CUDA kernel, the attach layer boots a **second patched module set** on top of the first bootstrap's stale one, and the read-side symbol mirror misses demangled device globals. The result is a device-address split: the kernel writes one `__device__`/`__constant__` global copy while the host reads/writes another, so globals written by unattached kernels read back stale initial values (`counter` stuck at its initial value, `C[1]=0`).
+
+Two changes:
+
+1. **`nv_attach_impl.cpp`** — in `create_attach_with_ebpf_callback`, drop the previous bootstrap's module set (`clear_patched_state_for_next_session()`) before re-running bootstrap when a new hook is added after bootstrap. This keeps a single self-consistent patched module set instead of two (whose symbol/global/kernel caches were indexed inconsistently: launch locked onto the last set, mirroring onto the first).
+
+2. **`nv_attach_impl_frida_setup.cpp`** — in `mirror_cuda_memcpy_from_symbol`'s late-attach fallback, demangle the host symbol (`boost::core::demangle`, e.g. `_ZL7counter` → `counter`) and probe the plain name when the mangled lookup misses, matching the demangling already done on the `memcpy_to_symbol` side.
+
+Together with the already-merged STT_OBJECT/STT_NOTYPE collection and to-symbol demangling (PR #695), this restores host↔device consistency for device globals written by unattached kernels.
+
+Fixes #708
+
+## Type of change
+
+- [√] Bug fix (non-breaking change which fixes an issue)
+
+## How Has This Been Tested?
+
+- [√] Reproduced the split on `example/gpu/cuda-counter` (`cuda_probe` with `kprobe`+`kretprobe`, `vec_add` workload): before the fix, `counter` stuck at its initial value 233 and `C[1]=0`; after the fix, 14 rounds of `counter == expected` all pass and `C[0]=0`/`C[1]=3` hold.
+- [√] Verified the device addresses no longer split (single patched module set; no two divergent patch hashes, single `ingested … fatbin(s)` round).
+
+**Test Configuration**:
+
+- Hardware: NVIDIA L4 (Compute Capability 8.9 / sm_89), Hygon x86_64 (Kylin Ky11)
+- Toolchain: CUDA 12.8 (driver 13.0), LLVM 16
+- SDK: bpftime `build-llvm16` tree
+
+## Checklist
+
+- [√] My code follows the style guidelines of this project
+- [√] I have performed a self-review of my own code
+- [√] I have commented my code, particularly in hard-to-understand areas
+- [√] I have made corresponding changes to the documentation
+- [√] My changes generate no new warnings
+- [√] I have added tests that prove my fix is effective or that my feature works
+- [√] New and existing unit tests pass locally with my changes
+- [√] Any dependent changes have been merged and published in downstream modules
+- [√] I have checked my code and corrected any misspellings
+--- COMMENT by yunwei37 2026-10-20T07:27:56Z
+The root-cause analysis matches what the code does today: in `create_attach_with_ebpf_callback`, a second attach call (e.g. kretprobe after kprobe) reruns late bootstrap while `fatbin_records` still holds the first bootstrap's patched module set, and `mirror_cuda_memcpy_from_symbol` binds `cuModuleGetGlobal` against the first records — that is exactly how a kernel writes one `__device__` copy while the host reads another. The diff is clean (2 files) and full CI is green (154 SUCCESS + 3 SKIPPED).
+
+One risk worth addressing before merge:
+
+In `nv_attach_impl.cpp` (~line 209), `clear_patched_state_for_next_session()` is called when a *new hook* is added after bootstrap. The only existing call site of that function is the full-detach branch (`hook_entries.empty()`), which first calls `wait_for_patched_launch_events(std::chrono::seconds(2))` to quiesce in-flight patched kernels — and then unloads the modules via `old_records.clear()`. At the new call site there is no such quiesce step: with a first attach (kprobe) already in place the target kernels can be launching continuously, and `cuModuleUnload` of a module whose kernels are still in flight is undefined behavior per the CUDA driver contract. Two options: (a) call `wait_for_patched_launch_events(...)` (and optionally wait on a `cuStreamSynchronize` of known streams) before `clear_patched_state_for_next_session()` in this branch too — cost is bounded by the same 2s budget; or (b) if the intent is truly to keep the old modules alive until drained, defer the unload: swap records into a "retiring" list that is unloaded only after waiting, rather than immediately in `clear_patched_state_for_next_session()`.
+
+The demangle fallback in `mirror_cuda_memcpy_from_symbol` reads well: probing the demangled name only when the mangled lookup fails (`err != CUDA_SUCCESS`) preserves current behavior for pure-mangled paths, and the `demangled.empty() || demangled == *name` guard skips useless retries. `boost/core/demangle.hpp` is header-only and bpftime already links boost, so no dependency change is implied.
+
+Repro/review context: #708 (same reporter) describes the host-side stale read; this PR addresses the device-address split. As a follow-up beyond the scope here, it may still be worth asserting in a test that after two attach rounds, a `__device__` global's address from the mirror equals the one the launched kernel uses (the `cuda-counter/vec_add` example covers this end-to-end).
+
+AI-generated response; a maintainer will review and follow up later
+

@@ -1,0 +1,33 @@
+##### prlimit --memlock=8388608:8388608 ./hostreg shm 128 mapped
+  ulimit -l inside: 8192
+register 128 MiB flags=mapped(0x2) prefault=1
+    register took 12.406 ms
+    kernel k_touch over 32768 pages: launch=no error sync=no error (1.120 ms)
+    same-process CPU check: mismatches=0 of 32768
+    second-process check exit=0
+    GPU reads second-process writes: launch=no error sync=no error mismatches=0 of 32768
+    cudaHostUnregister(s.p)                                                -> 0 no error
+    unregister took 3.552 ms
+exit=0
+##### prlimit --memlock=65536:65536 ./hostreg shm 128 mapped
+  ulimit -l inside: 64
+register 128 MiB flags=mapped(0x2) prefault=1
+    register took 16.309 ms
+    kernel k_touch over 32768 pages: launch=no error sync=no error (1.060 ms)
+    same-process CPU check: mismatches=0 of 32768
+    second-process check exit=0
+    GPU reads second-process writes: launch=no error sync=no error mismatches=0 of 32768
+    cudaHostUnregister(s.p)                                                -> 0 no error
+    unregister took 4.462 ms
+exit=0
+##### prlimit --memlock=0:0 ./hostreg shm 128 mapped
+  ulimit -l inside: 0
+register 128 MiB flags=mapped(0x2) prefault=1
+    register took 19.383 ms
+    kernel k_touch over 32768 pages: launch=no error sync=no error (1.057 ms)
+    same-process CPU check: mismatches=0 of 32768
+    second-process check exit=0
+    GPU reads second-process writes: launch=no error sync=no error mismatches=0 of 32768
+    cudaHostUnregister(s.p)                                                -> 0 no error
+    unregister took 4.891 ms
+exit=0

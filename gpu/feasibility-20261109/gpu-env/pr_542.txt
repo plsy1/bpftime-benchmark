@@ -1,0 +1,54 @@
+#542 [+] Feat: Support dynamic attach [MERGED] by Sy0307 created 2026-01-25T17:46:42Z updated 2026-05-11T05:18:26Z closed 2026-05-11T05:18:26Z
+LABELS: ['size/XXL']
+BODY:
+**Support dynamic attach, use thread_scheduling as example for test. We can do something to adapt other examples.**
+
+**Also some changes is just re-format.**
+
+Key technical changes are shown following:
+
+## 1. CUDA late-attach bootstrap (fatbin/PTX recovery after missed registration)
+*   **Problem:** When the agent is injected after CUDA registration has already happened, hooks like `__cudaRegisterFatBinary`/`__cudaRegisterFunction` may be missed. The runtime then lacks fatbin/PTX material and “host stub → kernel” metadata to route launches through patched code, resulting in “no data”.
+*   **Solution:** After `nv_attach_impl` is initialized, a one-time bootstrap scans already-loaded ELF objects:
+    *   Enumerate loaded modules with `dl_iterate_phdr`;
+    *   Locate `.nv_fatbin` in-memory and walk fatbin wrapper(s);
+    *   Extract PTX, apply the existing ptxpass patching pipeline, compile, and load patched modules into the driver;
+    *   Pre-fill a `kernel_name → patched CUfunction` cache for launch-time routing.
+
+## 2. Launch routing with late-attach fallback
+*   The `cudaLaunchKernel` interception path no longer strictly depends on the registration-time `func_ptr → symbol_name` mapping.
+*   When the canonical mapping is missing, the hook attempts to resolve the host stub symbol name (dladdr + ELF symbol cache) and dispatches via the cached `kernel_name → CUfunction` mapping, preserving a safe fallback to the original runtime launch path if patched launch fails.
+
+## 3. Shared-memory session/epoch protocol (control-plane/data-plane consistency)
+*   **Root cause of repeat-trace instability** (“No data”, wrong data, random crashes): control-plane state in shm (handlers/maps/links) changes, while the injected target’s data-plane state (CUDA IPC pointers, device-side globals, patched module state) still points to the previous snapshot.
+*   **Mechanism:** This PR introduces `epoch_seq` in `bpftime_maps_shm` with seqlock semantics:
+    *   **Odd:** Server is mutating/resetting the snapshot;
+    *   **Even:** Stable snapshot; `session_id = epoch_seq / 2`.
+*   **Process:** The server advances `epoch_seq` and clears handlers at session start. The agent observes epoch changes and performs an ordered rebind:
+    *   Detach existing links → clear instantiated bookkeeping → re-instantiate from the new stable shm snapshot.
+
+## 4. Single-agent control plane (avoid multi-copy state splits)
+*   **Issue:** Repeated tracing previously could re-inject the agent and accidentally create multiple in-process agent instances, splitting state and making failures hard to diagnose.
+*   **Solution:** This PR adds a per-process agent control endpoint and uses IPC for `refresh/detach/status` whenever possible; injection becomes a fallback when IPC is not available.
+--- COMMENT by yunwei37 2026-03-19T17:59:06Z
+## Rebase onto `feat/multi-gpu-attach` + Test Results
+
+Rebased PR #542 onto `feat/multi-gpu-attach` (which includes PR #560 latency optimizations). The rebased branch is pushed to `dev/dynamic-attach-rebased`.
+
+### Build
+- Compiled successfully with `-DBPFTIME_ENABLE_CUDA_ATTACH=ON -DBPFTIME_LLVM_JIT=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo`
+- No ABI mismatches between PR #542 and the new 6-arg `process_input` pass interface from PR #560
+
+### Dynamic Attach Test (`bpftime trace` on `cuda-counter/vec_add`)
+
+| Metric | Value |
+|--------|-------|
+| Injection method | `bpftime trace --pid <pid> cuda_probe` |
+| Target | Running `vec_add` process (no LD_PRELOAD) |
+| Time to first kernel entry detected | **273 ms** |
+| Time to first loader stats output (`calls: 1`) | **1044 ms** |
+
+Dynamic attach successfully injected into the running `vec_add` process: PTX was extracted via `cuobjdump`, the loader started, the agent was Frida-injected, and the target began logging `Entered _Z9vectorAddPKfS0_Pf`.
+
+### Known Issue
+- `C[1] = 0 (expected 3)` correctness regression after attach — this appears to be a pre-existing issue in PR #542, not introduced by the rebase.

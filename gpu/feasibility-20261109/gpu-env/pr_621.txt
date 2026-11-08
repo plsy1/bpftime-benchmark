@@ -1,0 +1,117 @@
+#621 refactor(cuda): isolate PTX pass execution [OPEN] by yunwei37 created 2026-08-01T11:59:52Z updated 2026-08-05T12:32:20Z closed None
+LABELS: ['size/XL']
+BODY:
+Replaces #583 with a current-master implementation.
+
+## Why
+
+PTX pass DSOs currently run inside an already CUDA-initialized target process. Loading arbitrary pass code there couples pass crashes, global state, loader behavior, and preload hooks to the target; forking after CUDA initialization is also unsafe.
+
+## Change
+
+- add a one-shot `bpftime_ptxpass_runner` and invoke it with `posix_spawn`
+- keep pass DSOs out of the CUDA or injected parent
+- use stdin for input, stdout/stderr for diagnostics, and dedicated FD 3 for results
+- duplicate spawn source FDs above 3 before remapping, so closed standard FDs cannot collide with protocol descriptors
+- remove inherited `LD_PRELOAD`/`LD_AUDIT` and close inherited FDs before `dlopen`
+- tolerate an externally reaped child only when FD 3 contains a completed result
+- keep adaptive process output at 1 to 64 MiB and existing config, pass selection, caching, and ordering
+- treat malformed config output like other pass failures
+- restore the runner executable bit after artifact download before GPU example jobs
+
+## Minimal-diff audit
+
+Exact diff: 9 files, +445/-114.
+
+No generic IPC framework, service, CLI/config surface, public header API, or build matrix is added. The artifact correction is limited to validating the runner path, restoring its mode, and asserting the result.
+
+## Validation
+
+Exact HEAD: `2d06c05e90bb16eee6bfeb25c9e23a5782a5cb76`
+
+- testing-on `bpftime_nv_attach_tests` build
+- complete directory CTest suite: 3/3 passed
+- focused runner regression: 2 assertions in 1 case passed
+- testing-off `bpftime_nv_attach_tests` build
+- parsed `.github/workflows/test-gpu-examples.yml`
+- `git diff --check`
+- exact-head dedicated review: PASS
+- exact-head independent external read-only review: PASS
+
+## CI and merge status
+
+The prerequisite base repair has merged and this branch was synchronized. In run 30986750301, four GPU example jobs reached the new runner but `posix_spawn` failed with Permission denied after artifact download stripped its executable bit. The exact head now validates the runner artifact, restores its mode, and asserts it is executable. The integrated rerun completed all 120 jobs successfully; PR checks are terminal at 86 passed, 2 skipped, 0 failed or pending.
+
+#619 should merge first because both PRs touch the PTX test CMake file. This PR is Ready (not Draft) and remains unmerged pending maintainer approval.
+
+--- COMMENT by yunwei37 2026-08-01T22:16:42Z
+Exact-head OSS review gate for `133aed2d3cbb7ff05d4e80dfee7e729d510fdeaa`:
+
+- **Dedicated subagent full review: PASS.**
+- **Independent Claude full read-only review: PASS.**
+- Both reviews verified the complete `origin/master...HEAD` diff, merge-base `982edf825c92a1b2c303d153b7966cccd451fd12`, clean worktree, subprocess isolation, required `print_config` + `process_input` symbols, collision-safe FD 0/1/2/3 remapping, loader environment filtering, error handling, and minimality.
+- The parent-client regression really closes/restores descriptors 0–3 and calls `run_ptxpass_runner` in both modes.
+- `BPFTIME_ENABLE_UNIT_TESTING=OFF` has no fixture references; with testing ON, both fixture DSOs are explicit dependencies, preventing the incomplete-pass test from passing on a missing library.
+- Local validation: unit-testing ON configure/build passed; all 3 runner CTests passed; parent-client test passed; full PTX suite passed (96 assertions / 22 cases); separate unit-testing OFF configure and `bpftime_nv_attach_tests` build passed; `git diff --check` passed.
+
+Current generic CI failures are the known stale `construct_agent_config_from_env` call on master, fixed independently by prerequisite #626; no prerequisite hunk is mixed into this PR.
+
+--- COMMENT by yunwei37 2026-08-02T01:40:41Z
+@copilot review
+--- COMMENT by yunwei37 2026-08-02T01:59:46Z
+@copilot review
+--- COMMENT by tgoodwin 2026-08-02T03:33:31Z
+Exact-head review gate for `f13f113053790a68d47361fce10c28e8d758e9bd`: PASS.
+
+- Dedicated subagent review: PASS on the complete 8-file diff, including FD 0-3 collision handling, inherited-FD closure, environment filtering, runner exit/error/truncation behavior, testing-on/off build graph, and scope.
+- Independent cross-agent read-only review: PASS on the same pushed SHA.
+- Minimality: 8 files, +431/-112; production +337/-109; test/fixture/CI +94/-3. Both reviewers found no removable boilerplate or fixture bloat. The previous duplicate workflow targets and direct runner CTests are gone; only the distinct incomplete-symbol rejection remains.
+- Local validation repeated at this SHA: bpftime_nv_attach_tests 96 assertions / 22 cases; directory CTest 2/2; testing-off dependency build; diff check and targeted clang-format check.
+- GitHub `test-ptxpass` is green. The other eight failures are the known current-master stale `construct_agent_config_from_env` call fixed by #626.
+- Copilot audit: no submitted Copilot review or inline review comment exists on this SHA. The PR remains Draft; after #626 and conflicting #619 merge, it will be synchronized and the final exact-head reviews, official Copilot request, and terminal CI gate will be rerun.
+--- COMMENT by yunwei37 2026-08-02T08:45:13Z
+Exact-head minimality and review refresh for 0ace49f023ebb521dc6fa3d5d8b57199f1e1323b: PASS.
+
+- The dedicated subagent found one blocker at the prior SHA: obsolete <link.h> remained after removing dlmopen. The final signed-off commit deletes that line; exact diff is now 8 files, +438/-113.
+- Final exact-head subagent review: PASS. No remaining same-semantics safe reduction, fixture bloat, or correctness blocker.
+- Independent external read-only review: PASS on the complete diff. It verified posix_spawn without fork, FD 0-3 collision-safe remapping, inherited-FD closure, loader-environment filtering, FD 3 result isolation through dlclose/_exit, EINTR/partial-write handling, externally reaped children, adaptive output, and testing ON/OFF wiring.
+- Local exact-head validation: testing-on and testing-off target builds passed; directory CTest 3/3; focused runner case 2 assertions; diff and changed-range format checks passed.
+- The worktree, local HEAD, upstream branch, and GitHub PR head all match this SHA.
+
+The PR remains Draft. Exact-head Copilot review and current CI are pending; after prerequisites #626 and #619 merge, all changed-SHA gates will run again.
+--- COMMENT by yunwei37 2026-08-02T08:45:14Z
+@copilot review
+
+Please review exact HEAD 0ace49f023ebb521dc6fa3d5d8b57199f1e1323b, including the final unused-include reduction and the complete FD/environment/SIGCHLD isolation path.
+--- COMMENT by yunwei37 2026-08-02T08:46:32Z
+Exact-head CI terminal audit for 0ace49f023ebb521dc6fa3d5d8b57199f1e1323b:
+
+- 29 terminal checks: 12 passed, 8 failed, 5 canceled, 4 skipped.
+- I downloaded and inspected each of the 8 failed-job logs individually: Benchmarks, Fedora runtime, bpftrace syscall, Docker, GPU build, Fedora integrated examples, bpftrace malloc, and GCC 13.
+- Every failed job has exactly one compiler error: unmodified runtime/syscall-server/syscall_context.cpp:75 still calls construct_agent_config_from_env; the compiler points to construct_runtime_config_from_env. No PR-local runner/PTX failure appears in any failed log.
+- Directly relevant checks are green: PTX pass, both attach jobs, both tools jobs, Nginx, CodeQL, GitGuardian, and coverage aggregation.
+
+This is the one-line master regression isolated in full-green prerequisite #626. The PR remains Draft; no unrelated base fix will be duplicated here. After #626 and #619 merge, synchronize and rerun to terminal green before Ready.
+--- COMMENT by yunwei37 2026-08-05T09:01:18Z
+Pushed 2d06c05 to address the concrete failures in GPU run 30986750301.
+
+All four failed example jobs reached bpftime_ptxpass_runner, but posix_spawn returned Permission denied after the build artifact was downloaded. The workflow now:
+
+- validates that the runner is present in the normalized artifact
+- restores its executable bit when download-artifact strips it
+- asserts test -x before any GPU example runs
+
+YAML/diff checks and exact-head dedicated plus independent external read-only reviews passed. Fresh checks are queued. @copilot review
+--- COMMENT by yunwei37 2026-08-05T12:01:07Z
+@copilot review
+--- COMMENT by yunwei37 2026-08-05T12:32:16Z
+Final exact-head gate for `2d06c05e90bb16eee6bfeb25c9e23a5782a5cb76`:
+
+- Dedicated exact-head review: PASS.
+- Independent external read-only review: PASS.
+- Local testing-on/off builds, 3/3 CTest directory suite, and focused runner regression passed.
+- Workflow YAML and `git diff --check` passed.
+- No unresolved review threads; a fresh Copilot review was requested.
+- The integrated rerun completed all 120 jobs successfully; PR checks are terminal at 86 passed, 2 skipped, 0 failed/pending.
+
+Merge order remains #619 first because both PRs touch the PTX test CMake file. This PR is Ready (not Draft) and remains unmerged pending maintainer approval.

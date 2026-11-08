@@ -1,0 +1,41 @@
+#582 [codex] fix gpu example attach races [MERGED] by yunwei37 created 2026-06-15T08:52:54Z updated 2026-06-16T06:04:55Z closed 2026-06-16T06:04:52Z
+LABELS: ['size/L']
+BODY:
+## Summary
+
+Fix GPU example startup/teardown races in the existing runtime and syscall-server path. This PR keeps the change scoped to runtime/shared-memory coordination; it does **not** add the PTX pass subprocess runner from #583.
+
+What changed:
+
+- Move syscall-server CUDA initialization out of `syscall_context` construction and run it after global shared memory is created.
+- Guard CUDA initialization with an atomic `initializing_cuda` flag so intercepted syscalls fall back to the real libc/syscall path during CUDA startup.
+- Retry `cuda_comm_shared_mem` lookup for `SHM_OPEN_ONLY` clients before registering CUDA host memory, covering the window where the shared segment exists but the CUDA communication object is not visible yet.
+- Stop and clear the CUDA watcher thread state before `bpf_attach_ctx` teardown, including the global atexit pointer/stop flag, to avoid stale watcher-thread state at process exit.
+
+## Why
+
+Several GPU examples exposed races around startup and process teardown:
+
+- The syscall server could initialize CUDA before shared memory/CUDA communication memory was ready.
+- Clients could attach to the shared memory segment before `cuda_comm_shared_mem` had been constructed.
+- CUDA initialization itself could trigger intercepted syscalls and recurse into bpftime startup/mocking.
+- Direct-run style examples could leave stale CUDA watcher-thread globals during teardown.
+
+Together these showed up as flaky GPU example startup, dynamic attach failures, or exit-time aborts.
+
+## Scope
+
+This PR changes only runtime/syscall-server/shared-memory code:
+
+- `runtime/syscall-server/*`
+- `runtime/src/bpftime_shm_internal.cpp`
+- `runtime/src/attach/bpf_attach_ctx*.cpp`
+- `runtime/include/bpf_attach_ctx.hpp`
+
+The PTX pass isolation runner is intentionally split out into #583 and is not required for this PR to work.
+
+## Validation
+
+- CI is green for #582, including runtime, attach, tools, integrated examples, PTX pass executable checks, and GPU example workflow.
+- GPU examples passed in CI, including `atomizer`, `kernel_trace`, `gpu_shared_map`, `threadscheduling`, `threadscheduling_dynamic_hook`, `cudagraph`, `threadhist-gpu-kernel-shared-map`, `directly_run_on_gpu`, `kernelretsnoop`, `threadhist`, `cuda-counter`, `launchlate`, `launchlate-kernel-gpu-shared-map`, `mem_trace`, `host_map_test`, and `cutlass`.
+- Non-GPU integrated examples also pass in CI. Local no-GPU smoke covered `malloc`, `minimal`, `queue_demo`, `stack_demo`, `bloom_filter_demo`, `get_stack_id_example`, and `lpm_trie_demo`.
