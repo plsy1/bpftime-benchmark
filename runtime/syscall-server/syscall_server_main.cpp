@@ -5,6 +5,7 @@
  */
 #include "syscall_context.hpp"
 #include "syscall_server_utils.hpp"
+#include "bpftime_shm_internal.hpp"
 #if defined(__x86_64__)
 #include <asm/unistd_64.h>
 #else
@@ -238,6 +239,12 @@ __attribute__((constructor)) static void register_syscall_server_atfork()
 static bool initialize_ctx() noexcept
 {
 	if (tls_initializing)
+		return false;
+	// The segment is gone (__destruct_shm ran): every interposed call goes
+	// to libc. Destructors of libraries finalized after this one (at exit,
+	// libnvrm_mem closing /dev/nvmap) took the handler path on the
+	// unmapped segment, and every loader died with SIGSEGV.
+	if (bpftime::global_shm_released.load(std::memory_order_acquire))
 		return false;
 	int state = __atomic_load_n(&ctx_initialized, __ATOMIC_ACQUIRE);
 	if (state == 2)
