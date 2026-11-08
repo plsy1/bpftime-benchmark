@@ -1,0 +1,10 @@
+built: g++-13 -std=c++20 -O1 against build-probecheck (dev a2acb4f8 tree) libllvmbpf_vm.a + libspdlog.a, -lLLVM-15
+llvm-jit submodule: 87bac39 Link and register only the host LLVM backend plus NVPTX (#52)
+run 2026-11-09 06:05:05
+sizeof(llvmbpf_vm) seen here = 328
+kernel_compatible=0 sentinel at r10-128 -> returned 0x0 (CLOBBERED)
+kernel_compatible=0 sentinel at r10-48 -> returned 0x5a5a5a5a (intact)
+JIT session error: Symbols not found: [ __llvmbpf_pseudo_call_pc_00000005 ]
+[2026-11-09 06:05:05.726] [error] [llvm_jit_context_array_inline.cpp:1102] Unable to find symbol `bpf_main`: Failed to materialize symbols: { (main, { bpf_main }) }
+compile failed: Unable to link symbol `bpf_main`
+rc=3

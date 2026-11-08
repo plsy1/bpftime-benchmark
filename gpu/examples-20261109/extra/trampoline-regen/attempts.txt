@@ -1,0 +1,21 @@
+== clang++-16 -S default_trampoline.cu --cuda-gpu-arch=sm_61 -O2 --cuda-device-only --cuda-path=<cuda-13.2 alias root>
+clang: warning: CUDA version is newer than the latest partially supported version 11.8 [-Wunknown-cuda-version]
+/usr/include/aarch64-linux-gnu/bits/math-vector.h:100:25: error: '__neon_vector_type__' attribute is not supported on targets missing 'neon' or 'mve'; specify an appropriate -march= or -mcpu=
+/usr/include/aarch64-linux-gnu/bits/math-vector.h:101:25: error: '__neon_vector_type__' attribute is not supported on targets missing 'neon' or 'mve'; specify an appropriate -march= or -mcpu=
+/usr/include/aarch64-linux-gnu/bits/math-vector.h:106:9: error: unknown type name '__SVFloat32_t'
+/usr/include/aarch64-linux-gnu/bits/math-vector.h:107:9: error: unknown type name '__SVFloat64_t'
+/usr/include/aarch64-linux-gnu/bits/math-vector.h:108:9: error: unknown type name '__SVBool_t'
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/cuda-root/include/crt/math_functions.hpp:2987:40: error: expected function body after function declarator
+/usr/lib/llvm-16/lib/clang/16/include/__clang_cuda_runtime_wrapper.h:387:10: fatal error: 'texture_fetch_functions.h' file not found
+== clang++-15 -S default_trampoline.cu --cuda-gpu-arch=sm_61 -O2 --cuda-device-only --cuda-path=<cuda-13.2 alias root>
+clang: warning: CUDA version is newer than the latest supported version 11.5 [-Wunknown-cuda-version]
+/usr/include/aarch64-linux-gnu/bits/math-vector.h:100:25: error: '__neon_vector_type__' attribute is not supported on targets missing 'neon' or 'mve'; specify an appropriate -march= or -mcpu=
+/usr/include/aarch64-linux-gnu/bits/math-vector.h:101:25: error: '__neon_vector_type__' attribute is not supported on targets missing 'neon' or 'mve'; specify an appropriate -march= or -mcpu=
+/usr/include/aarch64-linux-gnu/bits/math-vector.h:106:9: error: unknown type name '__SVFloat32_t'
+/usr/include/aarch64-linux-gnu/bits/math-vector.h:107:9: error: unknown type name '__SVFloat64_t'
+/usr/include/aarch64-linux-gnu/bits/math-vector.h:108:9: error: unknown type name '__SVBool_t'
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/cuda-root/include/crt/math_functions.hpp:2987:40: error: expected function body after function declarator
+/usr/lib/llvm-15/lib/clang/15.0.7/include/__clang_cuda_texture_intrinsics.h:696:13: error: no template named 'texture'
+== nvcc 13.2 -ptx -arch=compute_75 -O2 (empty shim for __clang_cuda_builtin_vars.h)
+default_trampoline.cu(390): error: calling a __host__ function("__atomic_fetch_add_8") from a __device__ function("_bpf_helper_ext_0025") is not allowed
+1 error detected in the compilation of "default_trampoline.cu".
