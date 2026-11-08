@@ -1,0 +1,8 @@
+name=m-C-strace exdir=/home/jetson/src/bpftime-gpu-work/example/gpu/kt3-empty
+server: SRV_ENV='BPFTIME_SHM_MEMORY_MB=64 BPFTIME_MAP_GPU_THREAD_COUNT=16' ./kernel_trace
+victim: VIC_ENV='' NO_AGENT='1' strace -f -ttt --seccomp-bpf -e trace=execve,openat,exit_group -o /home/jetson/src/bpftime-gpu-work/runs/m-C-strace.trace env LD_PRELOAD=/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/runtime/agent/libbpftime-agent.so /home/jetson/src/bpftime-gpu-work/benchmark/gpu/workload/vec_add_legacy 5 3 5 1
+start 2026-11-09 04:18:52.528572298
+server ready 04:18:53.738436081
+client_rc=0 client_ms=1791
+server_rc=139
+end 2026-11-09 04:19:00.818063525

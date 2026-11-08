@@ -1,0 +1,494 @@
+[2026-11-09 04:03:43.213] [warning] [bpftime_vm_compat.hpp:284] VM factory for name: llvm already registered, overwriting
+[2026-11-09 04:03:43][debug][303657] Credential cache for bpf_get_current_uid_gid: enabled
+[2026-11-09 04:03:43][debug][303657] Entered bpftime_agent_main
+[2026-11-09 04:03:43][debug][303657] start: bpftime_shm for client setup
+[2026-11-09 04:03:43][debug][303657] done: bpftime_shm for client setup
+[2026-11-09 04:03:43][info][303657] Registered shared memory with CUDA: addr=0xffffaaba0000 size=67108864
+[2026-11-09 04:03:43][info][303657] Global shm constructed. shm_open_type 1 for bpftime_gpu_cg-vec_add_graph_legacy
+[2026-11-09 04:03:43][info][303657] Global shm initialized
+[2026-11-09 04:03:43][info][303657] bpf_attach_ctx constructed
+[2026-11-09 04:03:43][info][303657] Initializing CUDA shared memory
+[2026-11-09 04:03:43][info][303657] CommSharedMem host 0xffffaac9c9c8 mapped to device 0x1022c09c8
+[2026-11-09 04:03:43][info][303657] CUDA context created
+[2026-11-09 04:03:43][debug][303657] Register attach type 2 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:03:43][debug][303657] Initializing frida attach manager
+[2026-11-09 04:03:43][info][303657] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2026-11-09 04:03:43][info][303657] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2026-11-09 04:03:43][info][303657] Register attach-impl defined helper bpf_get_retval, index 186
+[2026-11-09 04:03:43][debug][303657] Register attach type 6 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:03:43][debug][303657] Register attach type 7 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:03:43][debug][303657] Register attach type 1008 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:03:43][debug][303657] Register attach type 1009 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:03:43][info][303657] Starting nv_attach_impl
+[2026-11-09 04:03:43][info][303657] Parsing bundled libraries: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so:/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so:/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-09 04:03:43][info][303657] Found path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so, executing..
+[2026-11-09 04:03:43][info][303657] Retrived config of /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so
+[2026-11-09 04:03:43][debug][303657] Config {
+    "attach_points": {
+        "excludes": [
+            "^kprobe/__memcapture$"
+        ],
+        "includes": [
+            "^kprobe/.*$"
+        ]
+    },
+    "attach_type": 8,
+    "description": "Instrument PTX at kprobe entry points, excluding __memcapture",
+    "name": "kprobe_entry",
+    "parameters": {
+        "emit_nops_for_alignment": false,
+        "pad_nops": 0,
+        "save_strategy": "minimal",
+        "stub_name": "__bpftime_cuda__kernel_trace"
+    },
+    "validation": null
+}
+[2026-11-09 04:03:43][info][303657] Found path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so, executing..
+[2026-11-09 04:03:43][info][303657] Retrived config of /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so
+[2026-11-09 04:03:43][debug][303657] Config {
+    "attach_points": {
+        "excludes": [],
+        "includes": [
+            "^kretprobe/.*$"
+        ]
+    },
+    "attach_type": 9,
+    "description": "Inject call before ret/exit for kretprobe/*",
+    "name": "kretprobe",
+    "parameters": {},
+    "validation": {}
+}
+[2026-11-09 04:03:43][info][303657] Found path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so, executing..
+[2026-11-09 04:03:43][info][303657] Retrived config of /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-09 04:03:43][debug][303657] Config {
+    "attach_points": {
+        "excludes": [],
+        "includes": [
+            "^kprobe/__memcapture$"
+        ]
+    },
+    "attach_type": 8,
+    "description": "Emit a probe per ld/st and push source line text to eBPF stack",
+    "name": "kprobe_memcapture",
+    "parameters": {},
+    "validation": {}
+}
+[2026-11-09 04:03:43][debug][303657] Register attach type 8 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:03:43][debug][303657] Register attach type 9 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:03:43][info][303657] Initializing agent..
+[2026-11-09 04:03:43][info][303657] bpftime: shm epoch_seq = 2
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 3
+[2026-11-09 04:03:43][debug][303657] Instantiating type 1
+[2026-11-09 04:03:43][debug][303657] Instantiating done: 3
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 13
+[2026-11-09 04:03:43][debug][303657] Instantiating type 1
+[2026-11-09 04:03:43][debug][303657] Instantiating done: 13
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 14
+[2026-11-09 04:03:43][debug][303657] Instantiating type 1
+[2026-11-09 04:03:43][debug][303657] Instantiating done: 14
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 15
+[2026-11-09 04:03:43][debug][303657] Creating bpftime_prog with name cuda__probe
+[2026-11-09 04:03:43][debug][303657] Creating vm with name llvm
+[2026-11-09 04:03:43][debug][303657] Initializing llvm
+[2026-11-09 04:03:43][info][303657] Using specialized hash lookup helper for program cuda__probe
+[2026-11-09 04:03:43][info][303657] Using specialized hash update helper for program cuda__probe
+[2026-11-09 04:03:43][debug][303657] Load insn cnt 59
+[2026-11-09 04:03:43][debug][303657] Instantiating done: 15
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 16
+[2026-11-09 04:03:43][debug][303657] Creating bpftime_prog with name cuda__retprobe
+[2026-11-09 04:03:43][debug][303657] Creating vm with name llvm
+[2026-11-09 04:03:43][info][303657] Using specialized hash lookup helper for program cuda__retprobe
+[2026-11-09 04:03:43][info][303657] Using specialized hash update helper for program cuda__retprobe
+[2026-11-09 04:03:43][info][303657] Using specialized hash delete helper for program cuda__retprobe
+[2026-11-09 04:03:43][debug][303657] Load insn cnt 65
+[2026-11-09 04:03:43][debug][303657] Instantiating done: 16
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 17
+[2026-11-09 04:03:43][debug][303657] Instantiating perf event handler at 17, type 8
+[2026-11-09 04:03:43][debug][303657] Created kprobe/kretprobe private data at id 17, string value nv_attach_private_data: func_name=_Z9vectorAddPKfS0_Pf func_names=_Z9vectorAddPKfS0_Pf comm_shared_mem=0 
+[2026-11-09 04:03:43][debug][303657] Instantiated perf event handler 17
+[2026-11-09 04:03:43][debug][303657] Instantiating done: 17
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 18
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 15
+[2026-11-09 04:03:43][debug][303657] Handler 15 already instantiated
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 17
+[2026-11-09 04:03:43][debug][303657] Handler 17 already instantiated
+[2026-11-09 04:03:43][debug][303657] Instantiating link handler: prog 15 -> perf event 17, cookie 0
+[2026-11-09 04:03:43][debug][303657] Instantiating bpf link 18, bpftime_prog->prog_name() = cuda__probe
+[2026-11-09 04:03:43][info][303657] Instantiating bpf link 18 and the corresponding program cuda__probe is cuda program
+[2026-11-09 04:03:43][info][303657] Skipping nv attach handler 18 since we are not handling nv handles
+[2026-11-09 04:03:43][debug][303657] Instantiating done: 18
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 19
+[2026-11-09 04:03:43][debug][303657] Instantiating perf event handler at 19, type 9
+[2026-11-09 04:03:43][debug][303657] Created kprobe/kretprobe private data at id 19, string value nv_attach_private_data: func_name=_Z9vectorAddPKfS0_Pf func_names=_Z9vectorAddPKfS0_Pf comm_shared_mem=0 
+[2026-11-09 04:03:43][debug][303657] Instantiated perf event handler 19
+[2026-11-09 04:03:43][debug][303657] Instantiating done: 19
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 20
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 16
+[2026-11-09 04:03:43][debug][303657] Handler 16 already instantiated
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 19
+[2026-11-09 04:03:43][debug][303657] Handler 19 already instantiated
+[2026-11-09 04:03:43][debug][303657] Instantiating link handler: prog 16 -> perf event 19, cookie 0
+[2026-11-09 04:03:43][debug][303657] Instantiating bpf link 20, bpftime_prog->prog_name() = cuda__retprobe
+[2026-11-09 04:03:43][info][303657] Instantiating bpf link 20 and the corresponding program cuda__retprobe is cuda program
+[2026-11-09 04:03:43][info][303657] Skipping nv attach handler 20 since we are not handling nv handles
+[2026-11-09 04:03:43][debug][303657] Instantiating done: 20
+[2026-11-09 04:03:43][debug][303657] Main initializing for handlers done; initializing CUDA link handles
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 3
+[2026-11-09 04:03:43][debug][303657] Instantiating type 1
+[2026-11-09 04:03:43][debug][303657] Instantiating done: 3
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 13
+[2026-11-09 04:03:43][debug][303657] Instantiating type 1
+[2026-11-09 04:03:43][debug][303657] Instantiating done: 13
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 14
+[2026-11-09 04:03:43][debug][303657] Instantiating type 1
+[2026-11-09 04:03:43][debug][303657] Instantiating done: 14
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 15
+[2026-11-09 04:03:43][debug][303657] Handler 15 already instantiated
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 16
+[2026-11-09 04:03:43][debug][303657] Handler 16 already instantiated
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 17
+[2026-11-09 04:03:43][debug][303657] Handler 17 already instantiated
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 18
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 15
+[2026-11-09 04:03:43][debug][303657] Handler 15 already instantiated
+[2026-11-09 04:03:43][debug][303657] Instantiating handler at 17
+[2026-11-09 04:03:43][debug][303657] Handler 17 already instantiated
+[2026-11-09 04:03:43][debug][303657] Instantiating link handler: prog 15 -> perf event 17, cookie 0
+[2026-11-09 04:03:43][debug][303657] Instantiating bpf link 18, bpftime_prog->prog_name() = cuda__probe
+[2026-11-09 04:03:43][info][303657] Instantiating bpf link 18 and the corresponding program cuda__probe is cuda program
+[2026-11-09 04:03:43][info][303657] Handling link to CUDA program: 18, recording it..
+[2026-11-09 04:03:43][info][303657] Loaded 59 instructions (original) for cuda ebpf program
+[2026-11-09 04:03:43][warning][303657] Not a GPU map!
+[2026-11-09 04:03:43][info][303657] Copying map fd 3 to device, key size=4, value size=8, max ent=1024, map_type = 1, gpu_buffer = 0
+[2026-11-09 04:03:43][debug][303657] Not a GPU map!
+[2026-11-09 04:03:43][warning][303657] Not a GPU map!
+[2026-11-09 04:03:43][info][303657] Copying map fd 13 to device, key size=4, value size=8, max ent=1024, map_type = 1, gpu_buffer = 0
+[2026-11-09 04:03:43][debug][303657] Not a GPU map!
+[2026-11-09 04:03:43][warning][303657] Not a GPU map!
+[2026-11-09 04:03:43][info][303657] Copying map fd 14 to device, key size=4, value size=8, max ent=1024, map_type = 1, gpu_buffer = 0
+[2026-11-09 04:03:43][debug][303657] Not a GPU map!
+[2026-11-09 04:03:43][info][303657] Cached shared_mem_ptr at 1022c09c8
+[2026-11-09 04:03:43][info][303657] Recorded pass /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so for func _Z9vectorAddPKfS0_Pf
+[2026-11-09 04:03:44][info][303657] nv_attach_impl: cached 556824 host symbols
+[2026-11-09 04:03:44][info][303657] nv_attach_impl: late attach bootstrap scanning fatbins..
+[2026-11-09 04:03:44][info][303657] Temporary fatbin written to /tmp/bpftime-fatbin-work.MqU6yb/temp.fatbin
+[2026-11-09 04:03:44][info][303657] Extracting PTX in the fatbin...
+[2026-11-09 04:03:44][info][303657] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.MqU6yb/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 04:03:44][info][303657] Got 1 PTX files
+[2026-11-09 04:03:44][info][303657] Loading & patching current fatbin..
+[2026-11-09 04:03:44][info][303674] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 04:03:44][debug][303674] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":503},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967264},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967256},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967248},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":4294484345,"upper_32bit":0},{"lower_32bit":2687317,"upper_32bit":0},{"lower_32bit":4293960057,"upper_32bit":0},{"lower_32bit":2556245,"upper_32bit":0},{"lower_32bit":4293435769,"upper_32bit":0},{"lower_32bit":2425173,"upper_32bit":0},{"lower_32bit":4292911481,"upper_32bit":0},{"lower_32bit":2294101,"upper_32bit":0},{"lower_32bit":4292387193,"upper_32bit":0},{"lower_32bit":2163029,"upper_32bit":0},{"lower_32bit":4291862905,"upper_32bit":0},{"lower_32bit":2031957,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":14},{"lower_32bit":119,"upper_32bit":32},{"lower_32bit":4291562083,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":4290775675,"upper_32bit":0},{"lower_32bit":42687,"upper_32bit":0},{"lower_32bit":1543,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967232},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":25279,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":25279,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":131093,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":1},{"lower_32bit":4290255483,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967224},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n.reg .f32 %f<4>;\n.reg .b32 %r<5>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\ncvta.to.global.u64 %rd4, %rd3;\ncvta.to.global.u64 %rd5, %rd2;\ncvta.to.global.u64 %rd6, %rd1;\nmov.u32 %r1, %ctaid.x;\nmov.u32 %r2, %ntid.x;\nmov.u32 %r3, %tid.x;\nmad.lo.s32 %r4, %r1, %r2, %r3;\nmul.wide.s32 %rd7, %r4, 4;\nadd.s64 %rd8, %rd6, %rd7;\nld.global.f32 %f1, [%rd8];\nadd.s64 %rd9, %rd5, %rd7;\nld.global.f32 %f2, [%rd9];\nadd.f32 %f3, %f1, %f2;\nadd.s64 %rd10, %rd4, %rd7;\nst.global.f32 [%rd10], %f3;\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 04:03:44][info][303674] Patching request 69f3fc9e93c8ed9aa42bb171f40b2843bc434de580cea38ec10d0739656cb1b9 not found in cache, patching..
+[2026-11-09 04:03:44.818] [info] [core.cpp:321] [ptxpass] kprobe_entry: matched=1, in=840, out=5932
+[2026-11-09 04:03:44][debug][303657] Writing patched PTX to /tmp/bpftime-fatbin-work.lAjjFx
+[2026-11-09 04:03:44][info][303657] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-09 04:03:44][info][303657] Compiling PTXs with sm_arch sm_87
+[2026-11-09 04:03:44][info][303657] Compiler version: 13.2
+[2026-11-09 04:03:44][info][303675] Start compiling patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-09 04:03:44][debug][303675] Info: ptxas info    : 346 bytes gmem, 40968 bytes cmem[3], 80 bytes cmem[4]
+ptxas info    : Compiling entry function '_Z9vectorAddPKfS0_Pf' for 'sm_87'
+ptxas info    : Function properties for _Z9vectorAddPKfS0_Pf
+ptxas         .     16488 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 36 registers, used 0 barriers, 16488 bytes cumulative stack size, 376 bytes cmem[0], 32 bytes cmem[2]
+ptxas info    : Compile time = 96.951 ms
+ptxas info    : Function properties for __probe_func___Z9vectorAddPKfS0_Pf
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0001
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0002
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0014
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0502
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0503
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0505
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+
+[2026-11-09 04:03:44][info][303675] Compile of patched.temp.1.sm_75.ptx done
+[2026-11-09 04:03:44][info][303657] Loading module: patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-09 04:03:44][info][303657] Copying trampoline data to device
+[2026-11-09 04:03:44][info][303657] constData symbol device_ptr=19f032000 size=8 shared_mem_ptr=1022c09c8
+[2026-11-09 04:03:44][info][303657] map_info symbol device_ptr=19f032008 size=40960
+[2026-11-09 04:03:44][info][303657] Trampoline data copied
+[2026-11-09 04:03:44][info][303657] Loaded module: patched.temp.1.sm_75.ptx
+[2026-11-09 04:03:44][info][303657] nv_attach_impl: ingested fatbin from .nv_fatbin in /home/jetson/src/bpftime-gpu-work/example/gpu/cudagraph/vec_add_graph_legacy
+[2026-11-09 04:03:44][info][303657] nv_attach_impl: found 2 fatbin wrapper(s) in /home/jetson/src/bpftime-gpu-work/example/gpu/cudagraph/vec_add_graph_legacy
+[2026-11-09 04:03:44][info][303657] Temporary fatbin written to /tmp/bpftime-fatbin-work.jc7Uya/temp.fatbin
+[2026-11-09 04:03:44][info][303657] Extracting PTX in the fatbin...
+[2026-11-09 04:03:44][info][303657] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.jc7Uya/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 04:03:44][info][303657] Got 1 PTX files
+[2026-11-09 04:03:44][info][303657] Loading & patching current fatbin..
+[2026-11-09 04:03:44][info][303688] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 04:03:44][debug][303688] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":503},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967264},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967256},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967248},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":4294484345,"upper_32bit":0},{"lower_32bit":2687317,"upper_32bit":0},{"lower_32bit":4293960057,"upper_32bit":0},{"lower_32bit":2556245,"upper_32bit":0},{"lower_32bit":4293435769,"upper_32bit":0},{"lower_32bit":2425173,"upper_32bit":0},{"lower_32bit":4292911481,"upper_32bit":0},{"lower_32bit":2294101,"upper_32bit":0},{"lower_32bit":4292387193,"upper_32bit":0},{"lower_32bit":2163029,"upper_32bit":0},{"lower_32bit":4291862905,"upper_32bit":0},{"lower_32bit":2031957,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":14},{"lower_32bit":119,"upper_32bit":32},{"lower_32bit":4291562083,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":4290775675,"upper_32bit":0},{"lower_32bit":42687,"upper_32bit":0},{"lower_32bit":1543,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967232},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":25279,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":25279,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":131093,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":1},{"lower_32bit":4290255483,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967224},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n.reg .f32 %f<4>;\n.reg .b32 %r<5>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\ncvta.to.global.u64 %rd4, %rd3;\ncvta.to.global.u64 %rd5, %rd2;\ncvta.to.global.u64 %rd6, %rd1;\nmov.u32 %r1, %ctaid.x;\nmov.u32 %r2, %ntid.x;\nmov.u32 %r3, %tid.x;\nmad.lo.s32 %r4, %r1, %r2, %r3;\nmul.wide.s32 %rd7, %r4, 4;\nadd.s64 %rd8, %rd6, %rd7;\nld.global.f32 %f1, [%rd8];\nadd.s64 %rd9, %rd5, %rd7;\nld.global.f32 %f2, [%rd9];\nadd.f32 %f3, %f1, %f2;\nadd.s64 %rd10, %rd4, %rd7;\nst.global.f32 [%rd10], %f3;\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 04:03:44][info][303688] Patching request 69f3fc9e93c8ed9aa42bb171f40b2843bc434de580cea38ec10d0739656cb1b9 found in cache
+[2026-11-09 04:03:44][debug][303657] Writing patched PTX to /tmp/bpftime-fatbin-work.NGzWGb
+[2026-11-09 04:03:44][info][303657] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-09 04:03:44][info][303657] Compiling PTXs with sm_arch sm_87
+[2026-11-09 04:03:44][info][303657] Compiler version: 13.2
+[2026-11-09 04:03:44][info][303689] PTX patched.temp.1.sm_75.ptx (b9a1f43d89e606959bcd1dce2a84c4ecabed7517c4a9524844255b897c3772b4) found in cache
+[2026-11-09 04:03:44][info][303657] Module patched.temp.1.sm_75.ptx found in cache
+[2026-11-09 04:03:44][info][303657] Temporary fatbin written to /tmp/bpftime-fatbin-work.A7Rh1J/temp.fatbin
+[2026-11-09 04:03:44][info][303657] Extracting PTX in the fatbin...
+[2026-11-09 04:03:44][info][303657] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.A7Rh1J/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 04:03:44][info][303657] Got 1 PTX files
+[2026-11-09 04:03:44][info][303657] Loading & patching current fatbin..
+[2026-11-09 04:03:44][info][303697] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 04:03:44][debug][303697] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":503},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967264},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967256},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967248},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":4294484345,"upper_32bit":0},{"lower_32bit":2687317,"upper_32bit":0},{"lower_32bit":4293960057,"upper_32bit":0},{"lower_32bit":2556245,"upper_32bit":0},{"lower_32bit":4293435769,"upper_32bit":0},{"lower_32bit":2425173,"upper_32bit":0},{"lower_32bit":4292911481,"upper_32bit":0},{"lower_32bit":2294101,"upper_32bit":0},{"lower_32bit":4292387193,"upper_32bit":0},{"lower_32bit":2163029,"upper_32bit":0},{"lower_32bit":4291862905,"upper_32bit":0},{"lower_32bit":2031957,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":14},{"lower_32bit":119,"upper_32bit":32},{"lower_32bit":4291562083,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":4290775675,"upper_32bit":0},{"lower_32bit":42687,"upper_32bit":0},{"lower_32bit":1543,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967232},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":25279,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":25279,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":131093,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":1},{"lower_32bit":4290255483,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967224},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n.reg .f32 %f<4>;\n.reg .b32 %r<5>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\ncvta.to.global.u64 %rd4, %rd3;\ncvta.to.global.u64 %rd5, %rd2;\ncvta.to.global.u64 %rd6, %rd1;\nmov.u32 %r1, %ctaid.x;\nmov.u32 %r2, %ntid.x;\nmov.u32 %r3, %tid.x;\nmad.lo.s32 %r4, %r1, %r2, %r3;\nmul.wide.s32 %rd7, %r4, 4;\nadd.s64 %rd8, %rd6, %rd7;\nld.global.f32 %f1, [%rd8];\nadd.s64 %rd9, %rd5, %rd7;\nld.global.f32 %f2, [%rd9];\nadd.f32 %f3, %f1, %f2;\nadd.s64 %rd10, %rd4, %rd7;\nst.global.f32 [%rd10], %f3;\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 04:03:44][info][303697] Patching request 69f3fc9e93c8ed9aa42bb171f40b2843bc434de580cea38ec10d0739656cb1b9 found in cache
+[2026-11-09 04:03:44][debug][303657] Writing patched PTX to /tmp/bpftime-fatbin-work.jCI8wt
+[2026-11-09 04:03:44][info][303657] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-09 04:03:44][info][303657] Compiling PTXs with sm_arch sm_87
+[2026-11-09 04:03:44][info][303657] Compiler version: 13.2
+[2026-11-09 04:03:44][info][303703] PTX patched.temp.1.sm_75.ptx (b9a1f43d89e606959bcd1dce2a84c4ecabed7517c4a9524844255b897c3772b4) found in cache
+[2026-11-09 04:03:44][info][303657] Module patched.temp.1.sm_75.ptx found in cache
+[2026-11-09 04:03:44][info][303657] nv_attach_impl: late attach bootstrap ingested 3 fatbin(s)
+[2026-11-09 04:03:44][debug][303657] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 04:03:44][debug][303657] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 04:03:44][debug][303657] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 04:03:44][debug][303657] Instantiating done: 18
+[2026-11-09 04:03:44][debug][303657] Instantiating handler at 19
+[2026-11-09 04:03:44][debug][303657] Handler 19 already instantiated
+[2026-11-09 04:03:44][debug][303657] Instantiating handler at 20
+[2026-11-09 04:03:44][debug][303657] Instantiating handler at 16
+[2026-11-09 04:03:44][debug][303657] Handler 16 already instantiated
+[2026-11-09 04:03:44][debug][303657] Instantiating handler at 19
+[2026-11-09 04:03:44][debug][303657] Handler 19 already instantiated
+[2026-11-09 04:03:44][debug][303657] Instantiating link handler: prog 16 -> perf event 19, cookie 0
+[2026-11-09 04:03:44][debug][303657] Instantiating bpf link 20, bpftime_prog->prog_name() = cuda__retprobe
+[2026-11-09 04:03:44][info][303657] Instantiating bpf link 20 and the corresponding program cuda__retprobe is cuda program
+[2026-11-09 04:03:44][info][303657] Handling link to CUDA program: 20, recording it..
+[2026-11-09 04:03:44][info][303657] Loaded 65 instructions (original) for cuda ebpf program
+[2026-11-09 04:03:44][warning][303657] Not a GPU map!
+[2026-11-09 04:03:44][info][303657] Copying map fd 3 to device, key size=4, value size=8, max ent=1024, map_type = 1, gpu_buffer = 0
+[2026-11-09 04:03:44][debug][303657] Not a GPU map!
+[2026-11-09 04:03:44][warning][303657] Not a GPU map!
+[2026-11-09 04:03:44][info][303657] Copying map fd 13 to device, key size=4, value size=8, max ent=1024, map_type = 1, gpu_buffer = 0
+[2026-11-09 04:03:44][debug][303657] Not a GPU map!
+[2026-11-09 04:03:44][warning][303657] Not a GPU map!
+[2026-11-09 04:03:44][info][303657] Copying map fd 14 to device, key size=4, value size=8, max ent=1024, map_type = 1, gpu_buffer = 0
+[2026-11-09 04:03:44][debug][303657] Not a GPU map!
+[2026-11-09 04:03:44][info][303657] nv_attach_impl: new hook added after bootstrap; rerunning late bootstrap
+[2026-11-09 04:03:44][info][303657] Recorded pass /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so for func _Z9vectorAddPKfS0_Pf
+[2026-11-09 04:03:44][info][303657] nv_attach_impl: late attach bootstrap scanning fatbins..
+[2026-11-09 04:03:44][info][303657] Temporary fatbin written to /tmp/bpftime-fatbin-work.Kw3h6D/temp.fatbin
+[2026-11-09 04:03:44][info][303657] Extracting PTX in the fatbin...
+[2026-11-09 04:03:44][info][303657] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.Kw3h6D/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 04:03:44][info][303657] Got 1 PTX files
+[2026-11-09 04:03:44][info][303657] Loading & patching current fatbin..
+[2026-11-09 04:03:44][info][303716] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 04:03:44][debug][303716] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":503},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967264},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967256},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967248},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":4294484345,"upper_32bit":0},{"lower_32bit":2687317,"upper_32bit":0},{"lower_32bit":4293960057,"upper_32bit":0},{"lower_32bit":2556245,"upper_32bit":0},{"lower_32bit":4293435769,"upper_32bit":0},{"lower_32bit":2425173,"upper_32bit":0},{"lower_32bit":4292911481,"upper_32bit":0},{"lower_32bit":2294101,"upper_32bit":0},{"lower_32bit":4292387193,"upper_32bit":0},{"lower_32bit":2163029,"upper_32bit":0},{"lower_32bit":4291862905,"upper_32bit":0},{"lower_32bit":2031957,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":14},{"lower_32bit":119,"upper_32bit":32},{"lower_32bit":4291562083,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":4290775675,"upper_32bit":0},{"lower_32bit":42687,"upper_32bit":0},{"lower_32bit":1543,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967232},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":25279,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":25279,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":131093,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":1},{"lower_32bit":4290255483,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967224},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n.reg .f32 %f<4>;\n.reg .b32 %r<5>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\ncvta.to.global.u64 %rd4, %rd3;\ncvta.to.global.u64 %rd5, %rd2;\ncvta.to.global.u64 %rd6, %rd1;\nmov.u32 %r1, %ctaid.x;\nmov.u32 %r2, %ntid.x;\nmov.u32 %r3, %tid.x;\nmad.lo.s32 %r4, %r1, %r2, %r3;\nmul.wide.s32 %rd7, %r4, 4;\nadd.s64 %rd8, %rd6, %rd7;\nld.global.f32 %f1, [%rd8];\nadd.s64 %rd9, %rd5, %rd7;\nld.global.f32 %f2, [%rd9];\nadd.f32 %f3, %f1, %f2;\nadd.s64 %rd10, %rd4, %rd7;\nst.global.f32 [%rd10], %f3;\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 04:03:44][info][303716] Patching request 69f3fc9e93c8ed9aa42bb171f40b2843bc434de580cea38ec10d0739656cb1b9 found in cache
+[2026-11-09 04:03:44][debug][303716] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":503},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967264},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967256},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967248},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":4294484345,"upper_32bit":0},{"lower_32bit":3080533,"upper_32bit":0},{"lower_32bit":4293960057,"upper_32bit":0},{"lower_32bit":2949461,"upper_32bit":0},{"lower_32bit":4293435769,"upper_32bit":0},{"lower_32bit":2818389,"upper_32bit":0},{"lower_32bit":4292911481,"upper_32bit":0},{"lower_32bit":2687317,"upper_32bit":0},{"lower_32bit":4292387193,"upper_32bit":0},{"lower_32bit":2556245,"upper_32bit":0},{"lower_32bit":4291862905,"upper_32bit":0},{"lower_32bit":2425173,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":14},{"lower_32bit":119,"upper_32bit":32},{"lower_32bit":4291562083,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":1983,"upper_32bit":0},{"lower_32bit":1771285,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":1727,"upper_32bit":0},{"lower_32bit":30841,"upper_32bit":0},{"lower_32bit":42943,"upper_32bit":0},{"lower_32bit":1799,"upper_32bit":4294967244},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":29375,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":3},{"lower_32bit":34335,"upper_32bit":0},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":29375,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":196629,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":24847,"upper_32bit":0},{"lower_32bit":5823,"upper_32bit":0},{"lower_32bit":4290800251,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967232},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\t// .globl\t__probe_func___Z9vectorAddPKfS0_Pf\n\n\n\n\n\n\n\n.visible .func __probe_func___Z9vectorAddPKfS0_Pf()\n{\n\t.local .align 8 .b8 \t__local_depot0[16464];\n\t.reg .b64 \t%SP;\n\t.reg .b64 \t%SPL;\n\t.reg .pred \t%p<8>;\n\t.reg .b64 \t%rd<58>;\n\n\tmov.u64 \t%SPL, __local_depot0;\n\tcvta.local.u64 \t%SP, %SPL;\n\tadd.u64 \t%rd9, %SP, 0;\n\tadd.u64 \t%rd1, %SPL, 0;\n\tadd.s64 \t%rd10, %rd9, 16376;\n\tadd.s64 \t%rd11, %rd9, 16368;\n\tadd.s64 \t%rd12, %rd9, 16360;\n\t{ // callseq 0, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd10;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd11;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd12;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd13;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd14;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0503, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd15, [retval0+0];\n\t} // callseq 0\n\tadd.s64 \t%rd17, %rd9, 16352;\n\tadd.s64 \t%rd3, %rd9, 16344;\n\tadd.s64 \t%rd4, %rd9, 16336;\n\t{ // callseq 1, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd17;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd3;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd4;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd18;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd19;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0505, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd20, [retval0+0];\n\t} // callseq 1\n\tld.local.u64 \t%rd22, [%rd1+16376];\n\tsetp.ne.s64 \t%p1, %rd22, 0;\n\t@%p1 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd23, [%rd1+16368];\n\tsetp.ne.s64 \t%p2, %rd23, 0;\n\t@%p2 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd24, [%rd1+16360];\n\tsetp.ne.s64 \t%p3, %rd24, 0;\n\t@%p3 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd25, [%rd1+16352];\n\tsetp.ne.s64 \t%p4, %rd25, 0;\n\t@%p4 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd26, [%rd1+16344];\n\tsetp.ne.s64 \t%p5, %rd26, 0;\n\t@%p5 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd27, [%rd1+16336];\n\tsetp.ne.s64 \t%p6, %rd27, 0;\n\t@%p6 bra \t$L__BB0_9;\n\tadd.s64 \t%rd2, %rd9, 16384;\n\tmov.u64 \t%rd29, 0;\n\t{ // callseq 2, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd29;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd3;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd4;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd30;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd31;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0014, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd32, [retval0+0];\n\t} // callseq 2\n\tshr.u64 \t%rd34, %rd32, 32;\n\tst.local.u32 \t[%rd1+16332], %rd34;\n\t{ // callseq 3, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd29;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd3;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd4;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd35;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd36;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0502, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd37, [retval0+0];\n\t} // callseq 3\n\tst.local.u64 \t[%rd1+16320], %rd37;\n\tadd.s64 \t%rd5, %rd2, -52;\n\tadd.s64 \t%rd39, %rd2, -64;\n\tmov.u64 \t%rd40, 3;\n\t{ // callseq 4, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd40;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd5;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd39;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd29;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd41;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0002, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd42, [retval0+0];\n\t} // callseq 4\n\tmov.u64 \t%rd44, 13;\n\t{ // callseq 5, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd44;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd5;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd39;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd29;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd45;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0001, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd46, [retval0+0];\n\t} // callseq 5\n\tsetp.eq.s64 \t%p7, %rd46, 0;\n\tmov.u64 \t%rd57, 1;\n\t@%p7 bra \t$L__BB0_8;\n\tld.u32 \t%rd47, [%rd46];\n\tld.u32 \t%rd48, [%rd46+4];\n\tshl.b64 \t%rd49, %rd48, 32;\n\tor.b64  \t%rd50, %rd49, %rd47;\n\tadd.s64 \t%rd57, %rd50, 1;\n$L__BB0_8:\n\tst.local.u64 \t[%rd1+16312], %rd57;\n\tadd.s64 \t%rd51, %rd2, -72;\n\t{ // callseq 6, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd44;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd5;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd51;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd29;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd54;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0002, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd55, [retval0+0];\n\t} // callseq 6\n$L__BB0_9:\n\tret;\n\n}\n\n\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n\n    call __probe_func___Z9vectorAddPKfS0_Pf;\n.reg .f32 %f<4>;\n.reg .b32 %r<5>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\ncvta.to.global.u64 %rd4, %rd3;\ncvta.to.global.u64 %rd5, %rd2;\ncvta.to.global.u64 %rd6, %rd1;\nmov.u32 %r1, %ctaid.x;\nmov.u32 %r2, %ntid.x;\nmov.u32 %r3, %tid.x;\nmad.lo.s32 %r4, %r1, %r2, %r3;\nmul.wide.s32 %rd7, %r4, 4;\nadd.s64 %rd8, %rd6, %rd7;\nld.global.f32 %f1, [%rd8];\nadd.s64 %rd9, %rd5, %rd7;\nld.global.f32 %f2, [%rd9];\nadd.f32 %f3, %f1, %f2;\nadd.s64 %rd10, %rd4, %rd7;\nst.global.f32 [%rd10], %f3;\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 04:03:44][info][303716] Patching request 02910f0001b72d3efa9826569381605c03effd1029b3ef2cd0737baa474801cd not found in cache, patching..
+[2026-11-09 04:03:44.982] [info] [core.cpp:321] [ptxpass] kretprobe: matched=1, in=5932, out=11650
+[2026-11-09 04:03:44][debug][303657] Writing patched PTX to /tmp/bpftime-fatbin-work.E0bpxO
+[2026-11-09 04:03:44][info][303657] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-09 04:03:44][info][303657] Compiling PTXs with sm_arch sm_87
+[2026-11-09 04:03:44][info][303657] Compiler version: 13.2
+[2026-11-09 04:03:44][info][303717] Start compiling patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-09 04:03:45][debug][303717] Info: ptxas info    : 346 bytes gmem, 40968 bytes cmem[3], 80 bytes cmem[4]
+ptxas info    : Compiling entry function '_Z9vectorAddPKfS0_Pf' for 'sm_87'
+ptxas info    : Function properties for _Z9vectorAddPKfS0_Pf
+ptxas         .     16488 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 36 registers, used 0 barriers, 16488 bytes cumulative stack size, 376 bytes cmem[0], 32 bytes cmem[2]
+ptxas info    : Compile time = 123.263 ms
+ptxas info    : Function properties for __probe_func___Z9vectorAddPKfS0_Pf
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for __retprobe_func___Z9vectorAddPKfS0_Pf
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0001
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0002
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0003
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0014
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0502
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0503
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0505
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+
+[2026-11-09 04:03:45][info][303717] Compile of patched.temp.1.sm_75.ptx done
+[2026-11-09 04:03:45][info][303657] Loading module: patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-09 04:03:45][info][303657] Copying trampoline data to device
+[2026-11-09 04:03:45][info][303657] constData symbol device_ptr=19dd72000 size=8 shared_mem_ptr=1022c09c8
+[2026-11-09 04:03:45][info][303657] map_info symbol device_ptr=19dd72008 size=40960
+[2026-11-09 04:03:45][info][303657] Trampoline data copied
+[2026-11-09 04:03:45][info][303657] Loaded module: patched.temp.1.sm_75.ptx
+[2026-11-09 04:03:45][info][303657] nv_attach_impl: ingested fatbin from .nv_fatbin in /home/jetson/src/bpftime-gpu-work/example/gpu/cudagraph/vec_add_graph_legacy
+[2026-11-09 04:03:45][info][303657] nv_attach_impl: found 2 fatbin wrapper(s) in /home/jetson/src/bpftime-gpu-work/example/gpu/cudagraph/vec_add_graph_legacy
+[2026-11-09 04:03:45][info][303657] Temporary fatbin written to /tmp/bpftime-fatbin-work.YQFZIH/temp.fatbin
+[2026-11-09 04:03:45][info][303657] Extracting PTX in the fatbin...
+[2026-11-09 04:03:45][info][303657] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.YQFZIH/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 04:03:45][info][303657] Got 1 PTX files
+[2026-11-09 04:03:45][info][303657] Loading & patching current fatbin..
+[2026-11-09 04:03:45][info][303730] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 04:03:45][debug][303730] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":503},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967264},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967256},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967248},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":4294484345,"upper_32bit":0},{"lower_32bit":2687317,"upper_32bit":0},{"lower_32bit":4293960057,"upper_32bit":0},{"lower_32bit":2556245,"upper_32bit":0},{"lower_32bit":4293435769,"upper_32bit":0},{"lower_32bit":2425173,"upper_32bit":0},{"lower_32bit":4292911481,"upper_32bit":0},{"lower_32bit":2294101,"upper_32bit":0},{"lower_32bit":4292387193,"upper_32bit":0},{"lower_32bit":2163029,"upper_32bit":0},{"lower_32bit":4291862905,"upper_32bit":0},{"lower_32bit":2031957,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":14},{"lower_32bit":119,"upper_32bit":32},{"lower_32bit":4291562083,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":4290775675,"upper_32bit":0},{"lower_32bit":42687,"upper_32bit":0},{"lower_32bit":1543,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967232},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":25279,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":25279,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":131093,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":1},{"lower_32bit":4290255483,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967224},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n.reg .f32 %f<4>;\n.reg .b32 %r<5>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\ncvta.to.global.u64 %rd4, %rd3;\ncvta.to.global.u64 %rd5, %rd2;\ncvta.to.global.u64 %rd6, %rd1;\nmov.u32 %r1, %ctaid.x;\nmov.u32 %r2, %ntid.x;\nmov.u32 %r3, %tid.x;\nmad.lo.s32 %r4, %r1, %r2, %r3;\nmul.wide.s32 %rd7, %r4, 4;\nadd.s64 %rd8, %rd6, %rd7;\nld.global.f32 %f1, [%rd8];\nadd.s64 %rd9, %rd5, %rd7;\nld.global.f32 %f2, [%rd9];\nadd.f32 %f3, %f1, %f2;\nadd.s64 %rd10, %rd4, %rd7;\nst.global.f32 [%rd10], %f3;\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 04:03:45][info][303730] Patching request 69f3fc9e93c8ed9aa42bb171f40b2843bc434de580cea38ec10d0739656cb1b9 found in cache
+[2026-11-09 04:03:45][debug][303730] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":503},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967264},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967256},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967248},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":4294484345,"upper_32bit":0},{"lower_32bit":3080533,"upper_32bit":0},{"lower_32bit":4293960057,"upper_32bit":0},{"lower_32bit":2949461,"upper_32bit":0},{"lower_32bit":4293435769,"upper_32bit":0},{"lower_32bit":2818389,"upper_32bit":0},{"lower_32bit":4292911481,"upper_32bit":0},{"lower_32bit":2687317,"upper_32bit":0},{"lower_32bit":4292387193,"upper_32bit":0},{"lower_32bit":2556245,"upper_32bit":0},{"lower_32bit":4291862905,"upper_32bit":0},{"lower_32bit":2425173,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":14},{"lower_32bit":119,"upper_32bit":32},{"lower_32bit":4291562083,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":1983,"upper_32bit":0},{"lower_32bit":1771285,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":1727,"upper_32bit":0},{"lower_32bit":30841,"upper_32bit":0},{"lower_32bit":42943,"upper_32bit":0},{"lower_32bit":1799,"upper_32bit":4294967244},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":29375,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":3},{"lower_32bit":34335,"upper_32bit":0},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":29375,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":196629,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":24847,"upper_32bit":0},{"lower_32bit":5823,"upper_32bit":0},{"lower_32bit":4290800251,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967232},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\t// .globl\t__probe_func___Z9vectorAddPKfS0_Pf\n\n\n\n\n\n\n\n.visible .func __probe_func___Z9vectorAddPKfS0_Pf()\n{\n\t.local .align 8 .b8 \t__local_depot0[16464];\n\t.reg .b64 \t%SP;\n\t.reg .b64 \t%SPL;\n\t.reg .pred \t%p<8>;\n\t.reg .b64 \t%rd<58>;\n\n\tmov.u64 \t%SPL, __local_depot0;\n\tcvta.local.u64 \t%SP, %SPL;\n\tadd.u64 \t%rd9, %SP, 0;\n\tadd.u64 \t%rd1, %SPL, 0;\n\tadd.s64 \t%rd10, %rd9, 16376;\n\tadd.s64 \t%rd11, %rd9, 16368;\n\tadd.s64 \t%rd12, %rd9, 16360;\n\t{ // callseq 0, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd10;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd11;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd12;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd13;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd14;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0503, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd15, [retval0+0];\n\t} // callseq 0\n\tadd.s64 \t%rd17, %rd9, 16352;\n\tadd.s64 \t%rd3, %rd9, 16344;\n\tadd.s64 \t%rd4, %rd9, 16336;\n\t{ // callseq 1, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd17;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd3;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd4;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd18;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd19;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0505, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd20, [retval0+0];\n\t} // callseq 1\n\tld.local.u64 \t%rd22, [%rd1+16376];\n\tsetp.ne.s64 \t%p1, %rd22, 0;\n\t@%p1 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd23, [%rd1+16368];\n\tsetp.ne.s64 \t%p2, %rd23, 0;\n\t@%p2 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd24, [%rd1+16360];\n\tsetp.ne.s64 \t%p3, %rd24, 0;\n\t@%p3 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd25, [%rd1+16352];\n\tsetp.ne.s64 \t%p4, %rd25, 0;\n\t@%p4 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd26, [%rd1+16344];\n\tsetp.ne.s64 \t%p5, %rd26, 0;\n\t@%p5 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd27, [%rd1+16336];\n\tsetp.ne.s64 \t%p6, %rd27, 0;\n\t@%p6 bra \t$L__BB0_9;\n\tadd.s64 \t%rd2, %rd9, 16384;\n\tmov.u64 \t%rd29, 0;\n\t{ // callseq 2, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd29;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd3;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd4;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd30;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd31;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0014, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd32, [retval0+0];\n\t} // callseq 2\n\tshr.u64 \t%rd34, %rd32, 32;\n\tst.local.u32 \t[%rd1+16332], %rd34;\n\t{ // callseq 3, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd29;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd3;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd4;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd35;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd36;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0502, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd37, [retval0+0];\n\t} // callseq 3\n\tst.local.u64 \t[%rd1+16320], %rd37;\n\tadd.s64 \t%rd5, %rd2, -52;\n\tadd.s64 \t%rd39, %rd2, -64;\n\tmov.u64 \t%rd40, 3;\n\t{ // callseq 4, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd40;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd5;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd39;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd29;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd41;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0002, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd42, [retval0+0];\n\t} // callseq 4\n\tmov.u64 \t%rd44, 13;\n\t{ // callseq 5, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd44;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd5;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd39;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd29;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd45;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0001, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd46, [retval0+0];\n\t} // callseq 5\n\tsetp.eq.s64 \t%p7, %rd46, 0;\n\tmov.u64 \t%rd57, 1;\n\t@%p7 bra \t$L__BB0_8;\n\tld.u32 \t%rd47, [%rd46];\n\tld.u32 \t%rd48, [%rd46+4];\n\tshl.b64 \t%rd49, %rd48, 32;\n\tor.b64  \t%rd50, %rd49, %rd47;\n\tadd.s64 \t%rd57, %rd50, 1;\n$L__BB0_8:\n\tst.local.u64 \t[%rd1+16312], %rd57;\n\tadd.s64 \t%rd51, %rd2, -72;\n\t{ // callseq 6, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd44;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd5;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd51;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd29;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd54;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0002, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd55, [retval0+0];\n\t} // callseq 6\n$L__BB0_9:\n\tret;\n\n}\n\n\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n\n    call __probe_func___Z9vectorAddPKfS0_Pf;\n.reg .f32 %f<4>;\n.reg .b32 %r<5>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\ncvta.to.global.u64 %rd4, %rd3;\ncvta.to.global.u64 %rd5, %rd2;\ncvta.to.global.u64 %rd6, %rd1;\nmov.u32 %r1, %ctaid.x;\nmov.u32 %r2, %ntid.x;\nmov.u32 %r3, %tid.x;\nmad.lo.s32 %r4, %r1, %r2, %r3;\nmul.wide.s32 %rd7, %r4, 4;\nadd.s64 %rd8, %rd6, %rd7;\nld.global.f32 %f1, [%rd8];\nadd.s64 %rd9, %rd5, %rd7;\nld.global.f32 %f2, [%rd9];\nadd.f32 %f3, %f1, %f2;\nadd.s64 %rd10, %rd4, %rd7;\nst.global.f32 [%rd10], %f3;\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 04:03:45][info][303730] Patching request 02910f0001b72d3efa9826569381605c03effd1029b3ef2cd0737baa474801cd found in cache
+[2026-11-09 04:03:45][debug][303657] Writing patched PTX to /tmp/bpftime-fatbin-work.qeejBk
+[2026-11-09 04:03:45][info][303657] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-09 04:03:45][info][303657] Compiling PTXs with sm_arch sm_87
+[2026-11-09 04:03:45][info][303657] Compiler version: 13.2
+[2026-11-09 04:03:45][info][303731] PTX patched.temp.1.sm_75.ptx (1394f439767c99d14e78a7ea9111180f1c39a186eede3a43a74234bf1c40dc96) found in cache
+[2026-11-09 04:03:45][info][303657] Module patched.temp.1.sm_75.ptx found in cache
+[2026-11-09 04:03:45][info][303657] Temporary fatbin written to /tmp/bpftime-fatbin-work.HxVo13/temp.fatbin
+[2026-11-09 04:03:45][info][303657] Extracting PTX in the fatbin...
+[2026-11-09 04:03:45][info][303657] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.HxVo13/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 04:03:45][info][303657] Got 1 PTX files
+[2026-11-09 04:03:45][info][303657] Loading & patching current fatbin..
+[2026-11-09 04:03:45][info][303744] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 04:03:45][debug][303744] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":503},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967264},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967256},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967248},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":4294484345,"upper_32bit":0},{"lower_32bit":2687317,"upper_32bit":0},{"lower_32bit":4293960057,"upper_32bit":0},{"lower_32bit":2556245,"upper_32bit":0},{"lower_32bit":4293435769,"upper_32bit":0},{"lower_32bit":2425173,"upper_32bit":0},{"lower_32bit":4292911481,"upper_32bit":0},{"lower_32bit":2294101,"upper_32bit":0},{"lower_32bit":4292387193,"upper_32bit":0},{"lower_32bit":2163029,"upper_32bit":0},{"lower_32bit":4291862905,"upper_32bit":0},{"lower_32bit":2031957,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":14},{"lower_32bit":119,"upper_32bit":32},{"lower_32bit":4291562083,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":4290775675,"upper_32bit":0},{"lower_32bit":42687,"upper_32bit":0},{"lower_32bit":1543,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967232},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":25279,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":25279,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":131093,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":1},{"lower_32bit":4290255483,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967224},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n.reg .f32 %f<4>;\n.reg .b32 %r<5>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\ncvta.to.global.u64 %rd4, %rd3;\ncvta.to.global.u64 %rd5, %rd2;\ncvta.to.global.u64 %rd6, %rd1;\nmov.u32 %r1, %ctaid.x;\nmov.u32 %r2, %ntid.x;\nmov.u32 %r3, %tid.x;\nmad.lo.s32 %r4, %r1, %r2, %r3;\nmul.wide.s32 %rd7, %r4, 4;\nadd.s64 %rd8, %rd6, %rd7;\nld.global.f32 %f1, [%rd8];\nadd.s64 %rd9, %rd5, %rd7;\nld.global.f32 %f2, [%rd9];\nadd.f32 %f3, %f1, %f2;\nadd.s64 %rd10, %rd4, %rd7;\nst.global.f32 [%rd10], %f3;\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 04:03:45][info][303744] Patching request 69f3fc9e93c8ed9aa42bb171f40b2843bc434de580cea38ec10d0739656cb1b9 found in cache
+[2026-11-09 04:03:45][debug][303744] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":503},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967264},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967256},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967248},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":4294484345,"upper_32bit":0},{"lower_32bit":3080533,"upper_32bit":0},{"lower_32bit":4293960057,"upper_32bit":0},{"lower_32bit":2949461,"upper_32bit":0},{"lower_32bit":4293435769,"upper_32bit":0},{"lower_32bit":2818389,"upper_32bit":0},{"lower_32bit":4292911481,"upper_32bit":0},{"lower_32bit":2687317,"upper_32bit":0},{"lower_32bit":4292387193,"upper_32bit":0},{"lower_32bit":2556245,"upper_32bit":0},{"lower_32bit":4291862905,"upper_32bit":0},{"lower_32bit":2425173,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":14},{"lower_32bit":119,"upper_32bit":32},{"lower_32bit":4291562083,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":1983,"upper_32bit":0},{"lower_32bit":1771285,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":1727,"upper_32bit":0},{"lower_32bit":30841,"upper_32bit":0},{"lower_32bit":42943,"upper_32bit":0},{"lower_32bit":1799,"upper_32bit":4294967244},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":29375,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":3},{"lower_32bit":34335,"upper_32bit":0},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":29375,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":196629,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":24847,"upper_32bit":0},{"lower_32bit":5823,"upper_32bit":0},{"lower_32bit":4290800251,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967232},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\t// .globl\t__probe_func___Z9vectorAddPKfS0_Pf\n\n\n\n\n\n\n\n.visible .func __probe_func___Z9vectorAddPKfS0_Pf()\n{\n\t.local .align 8 .b8 \t__local_depot0[16464];\n\t.reg .b64 \t%SP;\n\t.reg .b64 \t%SPL;\n\t.reg .pred \t%p<8>;\n\t.reg .b64 \t%rd<58>;\n\n\tmov.u64 \t%SPL, __local_depot0;\n\tcvta.local.u64 \t%SP, %SPL;\n\tadd.u64 \t%rd9, %SP, 0;\n\tadd.u64 \t%rd1, %SPL, 0;\n\tadd.s64 \t%rd10, %rd9, 16376;\n\tadd.s64 \t%rd11, %rd9, 16368;\n\tadd.s64 \t%rd12, %rd9, 16360;\n\t{ // callseq 0, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd10;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd11;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd12;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd13;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd14;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0503, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd15, [retval0+0];\n\t} // callseq 0\n\tadd.s64 \t%rd17, %rd9, 16352;\n\tadd.s64 \t%rd3, %rd9, 16344;\n\tadd.s64 \t%rd4, %rd9, 16336;\n\t{ // callseq 1, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd17;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd3;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd4;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd18;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd19;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0505, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd20, [retval0+0];\n\t} // callseq 1\n\tld.local.u64 \t%rd22, [%rd1+16376];\n\tsetp.ne.s64 \t%p1, %rd22, 0;\n\t@%p1 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd23, [%rd1+16368];\n\tsetp.ne.s64 \t%p2, %rd23, 0;\n\t@%p2 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd24, [%rd1+16360];\n\tsetp.ne.s64 \t%p3, %rd24, 0;\n\t@%p3 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd25, [%rd1+16352];\n\tsetp.ne.s64 \t%p4, %rd25, 0;\n\t@%p4 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd26, [%rd1+16344];\n\tsetp.ne.s64 \t%p5, %rd26, 0;\n\t@%p5 bra \t$L__BB0_9;\n\tld.local.u64 \t%rd27, [%rd1+16336];\n\tsetp.ne.s64 \t%p6, %rd27, 0;\n\t@%p6 bra \t$L__BB0_9;\n\tadd.s64 \t%rd2, %rd9, 16384;\n\tmov.u64 \t%rd29, 0;\n\t{ // callseq 2, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd29;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd3;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd4;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd30;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd31;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0014, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd32, [retval0+0];\n\t} // callseq 2\n\tshr.u64 \t%rd34, %rd32, 32;\n\tst.local.u32 \t[%rd1+16332], %rd34;\n\t{ // callseq 3, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd29;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd3;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd4;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd35;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd36;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0502, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd37, [retval0+0];\n\t} // callseq 3\n\tst.local.u64 \t[%rd1+16320], %rd37;\n\tadd.s64 \t%rd5, %rd2, -52;\n\tadd.s64 \t%rd39, %rd2, -64;\n\tmov.u64 \t%rd40, 3;\n\t{ // callseq 4, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd40;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd5;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd39;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd29;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd41;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0002, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd42, [retval0+0];\n\t} // callseq 4\n\tmov.u64 \t%rd44, 13;\n\t{ // callseq 5, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd44;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd5;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd39;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd29;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd45;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0001, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd46, [retval0+0];\n\t} // callseq 5\n\tsetp.eq.s64 \t%p7, %rd46, 0;\n\tmov.u64 \t%rd57, 1;\n\t@%p7 bra \t$L__BB0_8;\n\tld.u32 \t%rd47, [%rd46];\n\tld.u32 \t%rd48, [%rd46+4];\n\tshl.b64 \t%rd49, %rd48, 32;\n\tor.b64  \t%rd50, %rd49, %rd47;\n\tadd.s64 \t%rd57, %rd50, 1;\n$L__BB0_8:\n\tst.local.u64 \t[%rd1+16312], %rd57;\n\tadd.s64 \t%rd51, %rd2, -72;\n\t{ // callseq 6, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd44;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd5;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd51;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd29;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd54;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0002, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd55, [retval0+0];\n\t} // callseq 6\n$L__BB0_9:\n\tret;\n\n}\n\n\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n\n    call __probe_func___Z9vectorAddPKfS0_Pf;\n.reg .f32 %f<4>;\n.reg .b32 %r<5>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\ncvta.to.global.u64 %rd4, %rd3;\ncvta.to.global.u64 %rd5, %rd2;\ncvta.to.global.u64 %rd6, %rd1;\nmov.u32 %r1, %ctaid.x;\nmov.u32 %r2, %ntid.x;\nmov.u32 %r3, %tid.x;\nmad.lo.s32 %r4, %r1, %r2, %r3;\nmul.wide.s32 %rd7, %r4, 4;\nadd.s64 %rd8, %rd6, %rd7;\nld.global.f32 %f1, [%rd8];\nadd.s64 %rd9, %rd5, %rd7;\nld.global.f32 %f2, [%rd9];\nadd.f32 %f3, %f1, %f2;\nadd.s64 %rd10, %rd4, %rd7;\nst.global.f32 [%rd10], %f3;\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 04:03:45][info][303744] Patching request 02910f0001b72d3efa9826569381605c03effd1029b3ef2cd0737baa474801cd found in cache
+[2026-11-09 04:03:45][debug][303657] Writing patched PTX to /tmp/bpftime-fatbin-work.4XXTAY
+[2026-11-09 04:03:45][info][303657] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-09 04:03:45][info][303657] Compiling PTXs with sm_arch sm_87
+[2026-11-09 04:03:45][info][303657] Compiler version: 13.2
+[2026-11-09 04:03:45][info][303745] PTX patched.temp.1.sm_75.ptx (1394f439767c99d14e78a7ea9111180f1c39a186eede3a43a74234bf1c40dc96) found in cache
+[2026-11-09 04:03:45][info][303657] Module patched.temp.1.sm_75.ptx found in cache
+[2026-11-09 04:03:45][info][303657] nv_attach_impl: late attach bootstrap ingested 3 fatbin(s)
+[2026-11-09 04:03:45][debug][303657] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 04:03:45][debug][303657] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 04:03:45][debug][303657] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 04:03:45][debug][303657] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 04:03:45][debug][303657] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 04:03:45][debug][303657] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 04:03:45][debug][303657] Instantiating done: 20
+[2026-11-09 04:03:45][debug][303657] Registering signal handler
+[2026-11-09 04:03:45][info][303657] agent ipc: listening (abstract) for pid 303657
+[2026-11-09 04:03:45][debug][303657] Set environment variable BPFTIME_USED
+[2026-11-09 04:03:45][info][303657] Attach successfully
+[2026-11-09 04:03:45][debug][303657] Entering cudaMalloc..
+[2026-11-09 04:03:45][debug][303657] Entering cudaMalloc..
+[2026-11-09 04:03:45][debug][303657] Entering cudaMalloc..
+[2026-11-09 04:03:45][debug][303657] grid_dim: 4096, 1, 1
+[2026-11-09 04:03:45][debug][303657] block_dim: 256, 1, 1
+[2026-11-09 04:03:45][debug][303657] Late attach launch: resolved _Z9vectorAddPKfS0_Pf -> patched CUfunction
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 14, map_ptr = 0, map_fd = 0
+[2026-11-09 04:03:45][debug][303661] Called get_current_pid_tgid: pid=303661, tgid=303657
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 2, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map update for 3, result = 0
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 1, map_ptr = 13, map_fd = 13
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map lookup for 13, key= 4a229 result = 0
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 2, map_ptr = 13, map_fd = 13
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map update for 13, result = 0
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 14, map_ptr = 0, map_fd = 0
+[2026-11-09 04:03:45][debug][303661] Called get_current_pid_tgid: pid=303661, tgid=303657
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 1, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map lookup for 3, key= 4a229 result = 1024c5cd0
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 3, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map delete for 3, result = 0
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 1, map_ptr = 14, map_fd = 14
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map lookup for 14, key= 4a229 result = 0
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 2, map_ptr = 14, map_fd = 14
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map update for 14, result = 0
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 14, map_ptr = 0, map_fd = 0
+[2026-11-09 04:03:45][debug][303661] Called get_current_pid_tgid: pid=303661, tgid=303657
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 2, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map update for 3, result = 0
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 1, map_ptr = 13, map_fd = 13
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map lookup for 13, key= 4a229 result = 1024ce590
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 2, map_ptr = 13, map_fd = 13
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map update for 13, result = 0
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 14, map_ptr = 0, map_fd = 0
+[2026-11-09 04:03:45][debug][303661] Called get_current_pid_tgid: pid=303661, tgid=303657
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 1, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map lookup for 3, key= 4a229 result = 1024c5cd0
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 3, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map delete for 3, result = 0
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 1, map_ptr = 14, map_fd = 14
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map lookup for 14, key= 4a229 result = 1024d6e50
+[2026-11-09 04:03:45][debug][303661] CUDA Received call request id 2, map_ptr = 14, map_fd = 14
+[2026-11-09 04:03:45][debug][303661] CUDA: Executing map update for 14, result = 0
+C[0]=0.0 (expected 0), C[1]=3.0 (expected 3)
+[2026-11-09 04:03:46][debug][303661] CUDA Received call request id 14, map_ptr = 0, map_fd = 0
+[2026-11-09 04:03:46][debug][303661] Called get_current_pid_tgid: pid=303661, tgid=303657
+[2026-11-09 04:03:46][debug][303661] CUDA Received call request id 2, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:46][debug][303661] CUDA: Executing map update for 3, result = 0
+[2026-11-09 04:03:46][debug][303661] CUDA Received call request id 1, map_ptr = 13, map_fd = 13
+[2026-11-09 04:03:46][debug][303661] CUDA: Executing map lookup for 13, key= 4a229 result = 1024d1620
+[2026-11-09 04:03:46][debug][303661] CUDA Received call request id 2, map_ptr = 13, map_fd = 13
+[2026-11-09 04:03:46][debug][303661] CUDA: Executing map update for 13, result = 0
+[2026-11-09 04:03:46][debug][303661] CUDA Received call request id 14, map_ptr = 0, map_fd = 0
+[2026-11-09 04:03:46][debug][303661] Called get_current_pid_tgid: pid=303661, tgid=303657
+[2026-11-09 04:03:46][debug][303661] CUDA Received call request id 1, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:46][debug][303661] CUDA: Executing map lookup for 3, key= 4a229 result = 1024c5cd0
+[2026-11-09 04:03:46][debug][303661] CUDA Received call request id 3, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:46][debug][303661] CUDA: Executing map delete for 3, result = 0
+[2026-11-09 04:03:46][debug][303661] CUDA Received call request id 1, map_ptr = 14, map_fd = 14
+[2026-11-09 04:03:46][debug][303661] CUDA: Executing map lookup for 14, key= 4a229 result = 1024da270
+[2026-11-09 04:03:46][debug][303661] CUDA Received call request id 2, map_ptr = 14, map_fd = 14
+[2026-11-09 04:03:46][debug][303661] CUDA: Executing map update for 14, result = 0
+C[0]=0.0 (expected 0), C[1]=3.0 (expected 3)
+[2026-11-09 04:03:47][debug][303661] CUDA Received call request id 14, map_ptr = 0, map_fd = 0
+[2026-11-09 04:03:47][debug][303661] Called get_current_pid_tgid: pid=303661, tgid=303657
+[2026-11-09 04:03:47][debug][303661] CUDA Received call request id 2, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:47][debug][303661] CUDA: Executing map update for 3, result = 0
+[2026-11-09 04:03:47][debug][303661] CUDA Received call request id 1, map_ptr = 13, map_fd = 13
+[2026-11-09 04:03:47][debug][303661] CUDA: Executing map lookup for 13, key= 4a229 result = 1024ce590
+[2026-11-09 04:03:47][debug][303661] CUDA Received call request id 2, map_ptr = 13, map_fd = 13
+[2026-11-09 04:03:47][debug][303661] CUDA: Executing map update for 13, result = 0
+[2026-11-09 04:03:47][debug][303661] CUDA Received call request id 14, map_ptr = 0, map_fd = 0
+[2026-11-09 04:03:47][debug][303661] Called get_current_pid_tgid: pid=303661, tgid=303657
+[2026-11-09 04:03:47][debug][303661] CUDA Received call request id 1, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:47][debug][303661] CUDA: Executing map lookup for 3, key= 4a229 result = 1024c5cd0
+[2026-11-09 04:03:47][debug][303661] CUDA Received call request id 3, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:47][debug][303661] CUDA: Executing map delete for 3, result = 0
+[2026-11-09 04:03:47][debug][303661] CUDA Received call request id 1, map_ptr = 14, map_fd = 14
+[2026-11-09 04:03:47][debug][303661] CUDA: Executing map lookup for 14, key= 4a229 result = 1024d6e50
+[2026-11-09 04:03:47][debug][303661] CUDA Received call request id 2, map_ptr = 14, map_fd = 14
+[2026-11-09 04:03:47][debug][303661] CUDA: Executing map update for 14, result = 0
+C[0]=0.0 (expected 0), C[1]=3.0 (expected 3)
+[2026-11-09 04:03:48][debug][303661] CUDA Received call request id 14, map_ptr = 0, map_fd = 0
+[2026-11-09 04:03:48][debug][303661] Called get_current_pid_tgid: pid=303661, tgid=303657
+[2026-11-09 04:03:48][debug][303661] CUDA Received call request id 2, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:48][debug][303661] CUDA: Executing map update for 3, result = 0
+[2026-11-09 04:03:48][debug][303661] CUDA Received call request id 1, map_ptr = 13, map_fd = 13
+[2026-11-09 04:03:48][debug][303661] CUDA: Executing map lookup for 13, key= 4a229 result = 1024d1620
+[2026-11-09 04:03:48][debug][303661] CUDA Received call request id 2, map_ptr = 13, map_fd = 13
+[2026-11-09 04:03:48][debug][303661] CUDA: Executing map update for 13, result = 0
+[2026-11-09 04:03:48][debug][303661] CUDA Received call request id 14, map_ptr = 0, map_fd = 0
+[2026-11-09 04:03:48][debug][303661] Called get_current_pid_tgid: pid=303661, tgid=303657
+[2026-11-09 04:03:48][debug][303661] CUDA Received call request id 1, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:48][debug][303661] CUDA: Executing map lookup for 3, key= 4a229 result = 1024c5cd0
+[2026-11-09 04:03:48][debug][303661] CUDA Received call request id 3, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:48][debug][303661] CUDA: Executing map delete for 3, result = 0
+[2026-11-09 04:03:48][debug][303661] CUDA Received call request id 1, map_ptr = 14, map_fd = 14
+[2026-11-09 04:03:48][debug][303661] CUDA: Executing map lookup for 14, key= 4a229 result = 1024da270
+[2026-11-09 04:03:48][debug][303661] CUDA Received call request id 2, map_ptr = 14, map_fd = 14
+[2026-11-09 04:03:48][debug][303661] CUDA: Executing map update for 14, result = 0
+C[0]=0.0 (expected 0), C[1]=3.0 (expected 3)
+[2026-11-09 04:03:49][debug][303661] CUDA Received call request id 14, map_ptr = 0, map_fd = 0
+[2026-11-09 04:03:49][debug][303661] Called get_current_pid_tgid: pid=303661, tgid=303657
+[2026-11-09 04:03:49][debug][303661] CUDA Received call request id 2, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:49][debug][303661] CUDA: Executing map update for 3, result = 0
+[2026-11-09 04:03:49][debug][303661] CUDA Received call request id 1, map_ptr = 13, map_fd = 13
+[2026-11-09 04:03:49][debug][303661] CUDA: Executing map lookup for 13, key= 4a229 result = 1024ce590
+[2026-11-09 04:03:49][debug][303661] CUDA Received call request id 2, map_ptr = 13, map_fd = 13
+[2026-11-09 04:03:49][debug][303661] CUDA: Executing map update for 13, result = 0
+[2026-11-09 04:03:49][debug][303661] CUDA Received call request id 14, map_ptr = 0, map_fd = 0
+[2026-11-09 04:03:49][debug][303661] Called get_current_pid_tgid: pid=303661, tgid=303657
+[2026-11-09 04:03:49][debug][303661] CUDA Received call request id 1, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:49][debug][303661] CUDA: Executing map lookup for 3, key= 4a229 result = 1024c5cd0
+[2026-11-09 04:03:49][debug][303661] CUDA Received call request id 3, map_ptr = 3, map_fd = 3
+[2026-11-09 04:03:49][debug][303661] CUDA: Executing map delete for 3, result = 0
+[2026-11-09 04:03:49][debug][303661] CUDA Received call request id 1, map_ptr = 14, map_fd = 14
+[2026-11-09 04:03:49][debug][303661] CUDA: Executing map lookup for 14, key= 4a229 result = 1024d6e50
+[2026-11-09 04:03:49][debug][303661] CUDA Received call request id 2, map_ptr = 14, map_fd = 14
+[2026-11-09 04:03:49][debug][303661] CUDA: Executing map update for 14, result = 0
+C[0]=0.0 (expected 0), C[1]=3.0 (expected 3)
+[2026-11-09 04:03:50][info][303661] Exiting CUDA watcher thread

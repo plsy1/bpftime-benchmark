@@ -1,0 +1,223 @@
+[2026-11-09 04:04:30.003] [warning] [bpftime_vm_compat.hpp:284] VM factory for name: llvm already registered, overwriting
+[2026-11-09 04:04:30][debug][303960] Credential cache for bpf_get_current_uid_gid: enabled
+[2026-11-09 04:04:30][debug][303960] Entered bpftime_agent_main
+[2026-11-09 04:04:30][debug][303960] start: bpftime_shm for client setup
+[2026-11-09 04:04:30][debug][303960] done: bpftime_shm for client setup
+[2026-11-09 04:04:30][info][303960] Registered shared memory with CUDA: addr=0xffff83840000 size=268435456
+[2026-11-09 04:04:30][info][303960] Global shm constructed. shm_open_type 1 for bpftime_gpu_kt-legacy
+[2026-11-09 04:04:30][info][303960] Global shm initialized
+[2026-11-09 04:04:30][info][303960] bpf_attach_ctx constructed
+[2026-11-09 04:04:30][info][303960] Initializing CUDA shared memory
+[2026-11-09 04:04:30][info][303960] CommSharedMem host 0xffff8393c9c8 mapped to device 0x1022c09c8
+[2026-11-09 04:04:30][info][303960] CUDA context created
+[2026-11-09 04:04:30][debug][303960] Register attach type 2 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:04:30][debug][303960] Initializing frida attach manager
+[2026-11-09 04:04:30][info][303960] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2026-11-09 04:04:30][info][303960] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2026-11-09 04:04:30][info][303960] Register attach-impl defined helper bpf_get_retval, index 186
+[2026-11-09 04:04:30][debug][303960] Register attach type 6 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:04:30][debug][303960] Register attach type 7 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:04:30][debug][303960] Register attach type 1008 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:04:30][debug][303960] Register attach type 1009 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:04:30][info][303960] Starting nv_attach_impl
+[2026-11-09 04:04:30][info][303960] Parsing bundled libraries: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so:/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so:/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-09 04:04:30][info][303960] Found path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so, executing..
+[2026-11-09 04:04:30][info][303960] Retrived config of /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so
+[2026-11-09 04:04:30][debug][303960] Config {
+    "attach_points": {
+        "excludes": [
+            "^kprobe/__memcapture$"
+        ],
+        "includes": [
+            "^kprobe/.*$"
+        ]
+    },
+    "attach_type": 8,
+    "description": "Instrument PTX at kprobe entry points, excluding __memcapture",
+    "name": "kprobe_entry",
+    "parameters": {
+        "emit_nops_for_alignment": false,
+        "pad_nops": 0,
+        "save_strategy": "minimal",
+        "stub_name": "__bpftime_cuda__kernel_trace"
+    },
+    "validation": null
+}
+[2026-11-09 04:04:30][info][303960] Found path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so, executing..
+[2026-11-09 04:04:30][info][303960] Retrived config of /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so
+[2026-11-09 04:04:30][debug][303960] Config {
+    "attach_points": {
+        "excludes": [],
+        "includes": [
+            "^kretprobe/.*$"
+        ]
+    },
+    "attach_type": 9,
+    "description": "Inject call before ret/exit for kretprobe/*",
+    "name": "kretprobe",
+    "parameters": {},
+    "validation": {}
+}
+[2026-11-09 04:04:30][info][303960] Found path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so, executing..
+[2026-11-09 04:04:30][info][303960] Retrived config of /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-09 04:04:30][debug][303960] Config {
+    "attach_points": {
+        "excludes": [],
+        "includes": [
+            "^kprobe/__memcapture$"
+        ]
+    },
+    "attach_type": 8,
+    "description": "Emit a probe per ld/st and push source line text to eBPF stack",
+    "name": "kprobe_memcapture",
+    "parameters": {},
+    "validation": {}
+}
+[2026-11-09 04:04:30][debug][303960] Register attach type 8 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:04:30][debug][303960] Register attach type 9 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 04:04:30][info][303960] Initializing agent..
+[2026-11-09 04:04:30][info][303960] bpftime: shm epoch_seq = 2
+[2026-11-09 04:04:30][debug][303960] Instantiating handler at 3
+[2026-11-09 04:04:30][debug][303960] Instantiating type 1
+[2026-11-09 04:04:30][debug][303960] Instantiating done: 3
+[2026-11-09 04:04:30][debug][303960] Instantiating handler at 13
+[2026-11-09 04:04:30][debug][303960] Creating bpftime_prog with name cuda__kernel_tr
+[2026-11-09 04:04:30][debug][303960] Creating vm with name llvm
+[2026-11-09 04:04:30][debug][303960] Initializing llvm
+[2026-11-09 04:04:30][debug][303960] Load insn cnt 46
+[2026-11-09 04:04:30][debug][303960] Instantiating done: 13
+[2026-11-09 04:04:30][debug][303960] Instantiating handler at 47
+[2026-11-09 04:04:30][debug][303960] Instantiating perf event handler at 47, type 8
+[2026-11-09 04:04:30][debug][303960] Created kprobe/kretprobe private data at id 47, string value nv_attach_private_data: func_name=_Z9vectorAddPKfS0_Pfi func_names=_Z9vectorAddPKfS0_Pfi comm_shared_mem=0 
+[2026-11-09 04:04:30][debug][303960] Instantiated perf event handler 47
+[2026-11-09 04:04:30][debug][303960] Instantiating done: 47
+[2026-11-09 04:04:30][debug][303960] Instantiating handler at 48
+[2026-11-09 04:04:30][debug][303960] Instantiating handler at 13
+[2026-11-09 04:04:30][debug][303960] Handler 13 already instantiated
+[2026-11-09 04:04:30][debug][303960] Instantiating handler at 47
+[2026-11-09 04:04:30][debug][303960] Handler 47 already instantiated
+[2026-11-09 04:04:30][debug][303960] Instantiating link handler: prog 13 -> perf event 47, cookie 0
+[2026-11-09 04:04:30][debug][303960] Instantiating bpf link 48, bpftime_prog->prog_name() = cuda__kernel_tr
+[2026-11-09 04:04:30][info][303960] Instantiating bpf link 48 and the corresponding program cuda__kernel_tr is cuda program
+[2026-11-09 04:04:30][info][303960] Skipping nv attach handler 48 since we are not handling nv handles
+[2026-11-09 04:04:30][debug][303960] Instantiating done: 48
+[2026-11-09 04:04:30][debug][303960] Main initializing for handlers done; initializing CUDA link handles
+[2026-11-09 04:04:30][debug][303960] Instantiating handler at 3
+[2026-11-09 04:04:30][debug][303960] Instantiating type 1
+[2026-11-09 04:04:30][debug][303960] Instantiating done: 3
+[2026-11-09 04:04:30][debug][303960] Instantiating handler at 13
+[2026-11-09 04:04:30][debug][303960] Handler 13 already instantiated
+[2026-11-09 04:04:30][debug][303960] Instantiating handler at 47
+[2026-11-09 04:04:30][debug][303960] Handler 47 already instantiated
+[2026-11-09 04:04:30][debug][303960] Instantiating handler at 48
+[2026-11-09 04:04:30][debug][303960] Instantiating handler at 13
+[2026-11-09 04:04:30][debug][303960] Handler 13 already instantiated
+[2026-11-09 04:04:30][debug][303960] Instantiating handler at 47
+[2026-11-09 04:04:30][debug][303960] Handler 47 already instantiated
+[2026-11-09 04:04:30][debug][303960] Instantiating link handler: prog 13 -> perf event 47, cookie 0
+[2026-11-09 04:04:30][debug][303960] Instantiating bpf link 48, bpftime_prog->prog_name() = cuda__kernel_tr
+[2026-11-09 04:04:30][info][303960] Instantiating bpf link 48 and the corresponding program cuda__kernel_tr is cuda program
+[2026-11-09 04:04:30][info][303960] Handling link to CUDA program: 48, recording it..
+[2026-11-09 04:04:30][info][303960] Loaded 46 instructions (original) for cuda ebpf program
+[2026-11-09 04:04:30][info][303960] Initializing nv_gpu_ringbuf_map_impl at pid 303960
+[2026-11-09 04:04:30][info][303960] Mapped GPU memory for gpu ringbuf map: 4333506416
+[2026-11-09 04:04:30][info][303960] Copying map fd 3 to device, key size=4, value size=56, max ent=16, map_type = 1527, gpu_buffer = 1024c0f70
+[2026-11-09 04:04:30][info][303960] Cached shared_mem_ptr at 1022c09c8
+[2026-11-09 04:04:30][info][303960] Recorded pass /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so for func _Z9vectorAddPKfS0_Pfi
+[2026-11-09 04:04:31][info][303960] nv_attach_impl: cached 556820 host symbols
+[2026-11-09 04:04:31][info][303960] nv_attach_impl: late attach bootstrap scanning fatbins..
+[2026-11-09 04:04:31][info][303960] Temporary fatbin written to /tmp/bpftime-fatbin-work.g8UZ0h/temp.fatbin
+[2026-11-09 04:04:31][info][303960] Extracting PTX in the fatbin...
+[2026-11-09 04:04:31][info][303960] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.g8UZ0h/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 04:04:31][info][303960] Got 1 PTX files
+[2026-11-09 04:04:31][info][303960] Loading & patching current fatbin..
+[2026-11-09 04:04:31][info][303988] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 04:04:31][debug][303988] Input: {"ebpf_instructions":[{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4294449787,"upper_32bit":0},{"lower_32bit":4293925499,"upper_32bit":0},{"lower_32bit":4293401211,"upper_32bit":0},{"lower_32bit":4292876923,"upper_32bit":0},{"lower_32bit":4292352635,"upper_32bit":0},{"lower_32bit":4291828347,"upper_32bit":0},{"lower_32bit":4291304059,"upper_32bit":0},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967240},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967248},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967256},{"lower_32bit":133,"upper_32bit":503},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967264},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967272},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967280},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":4291338617,"upper_32bit":0},{"lower_32bit":1311061,"upper_32bit":0},{"lower_32bit":4291862905,"upper_32bit":0},{"lower_32bit":1179989,"upper_32bit":0},{"lower_32bit":4292387193,"upper_32bit":0},{"lower_32bit":1048917,"upper_32bit":0},{"lower_32bit":4292911481,"upper_32bit":0},{"lower_32bit":917845,"upper_32bit":0},{"lower_32bit":4293435769,"upper_32bit":0},{"lower_32bit":786773,"upper_32bit":0},{"lower_32bit":4293960057,"upper_32bit":0},{"lower_32bit":655701,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":4294445691,"upper_32bit":0},{"lower_32bit":42175,"upper_32bit":0},{"lower_32bit":1031,"upper_32bit":4294967240},{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4632,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":951,"upper_32bit":0},{"lower_32bit":1463,"upper_32bit":56},{"lower_32bit":133,"upper_32bit":25},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n\n.visible .entry _Z9vectorAddPKfS0_Pfi(\n.param .u64 _Z9vectorAddPKfS0_Pfi_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pfi_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pfi_param_2,\n.param .u32 _Z9vectorAddPKfS0_Pfi_param_3\n)\n{\n.reg .pred %p<2>;\n.reg .f32 %f<4>;\n.reg .b32 %r<6>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pfi_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pfi_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pfi_param_2];\nld.param.u32 %r2, [_Z9vectorAddPKfS0_Pfi_param_3];\nmov.u32 %r3, %ctaid.x;\nmov.u32 %r4, %ntid.x;\nmov.u32 %r5, %tid.x;\nmad.lo.s32 %r1, %r3, %r4, %r5;\nsetp.ge.s32 %p1, %r1, %r2;\n@%p1 bra $L__BB0_2;\n\ncvta.to.global.u64 %rd4, %rd1;\nmul.wide.s32 %rd5, %r1, 4;\nadd.s64 %rd6, %rd4, %rd5;\ncvta.to.global.u64 %rd7, %rd2;\nadd.s64 %rd8, %rd7, %rd5;\nld.global.f32 %f1, [%rd8];\nld.global.f32 %f2, [%rd6];\nadd.f32 %f3, %f2, %f1;\ncvta.to.global.u64 %rd9, %rd3;\nadd.s64 %rd10, %rd9, %rd5;\nst.global.f32 [%rd10], %f3;\n\n$L__BB0_2:\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pfi"}}
+[2026-11-09 04:04:31][info][303988] Patching request 82ce588dec50ab5e32ca87c644af186b171dc14835d1aa83495d4fcdc86eb42b not found in cache, patching..
+[2026-11-09 04:04:31.783] [info] [core.cpp:321] [ptxpass] kprobe_entry: matched=1, in=1019, out=4329
+[2026-11-09 04:04:31][debug][303960] Writing patched PTX to /tmp/bpftime-fatbin-work.VmdV1q
+[2026-11-09 04:04:31][info][303960] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-09 04:04:31][info][303960] Compiling PTXs with sm_arch sm_87
+[2026-11-09 04:04:31][info][303960] Compiler version: 13.2
+[2026-11-09 04:04:31][info][303989] Start compiling patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-09 04:04:31][debug][303989] Info: ptxas info    : 346 bytes gmem, 40968 bytes cmem[3], 80 bytes cmem[4]
+ptxas info    : Compiling entry function '_Z9vectorAddPKfS0_Pfi' for 'sm_87'
+ptxas info    : Function properties for _Z9vectorAddPKfS0_Pfi
+ptxas         .     16464 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 28 registers, used 0 barriers, 16464 bytes cumulative stack size, 380 bytes cmem[0], 16 bytes cmem[2]
+ptxas info    : Compile time = 33.082 ms
+ptxas info    : Function properties for __probe_func___Z9vectorAddPKfS0_Pfi
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0025
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0502
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0503
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0505
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+
+[2026-11-09 04:04:31][info][303989] Compile of patched.temp.1.sm_75.ptx done
+[2026-11-09 04:04:31][info][303960] Loading module: patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-09 04:04:31][info][303960] Copying trampoline data to device
+[2026-11-09 04:04:31][info][303960] constData symbol device_ptr=19f032000 size=8 shared_mem_ptr=1022c09c8
+[2026-11-09 04:04:31][info][303960] map_info symbol device_ptr=19f032008 size=40960
+[2026-11-09 04:04:31][info][303960] Trampoline data copied
+[2026-11-09 04:04:31][info][303960] Loaded module: patched.temp.1.sm_75.ptx
+[2026-11-09 04:04:31][info][303960] nv_attach_impl: ingested fatbin from .nv_fatbin in /home/jetson/src/bpftime-gpu-work/example/gpu/kernel_trace/vec_add_legacy
+[2026-11-09 04:04:31][info][303960] nv_attach_impl: found 2 fatbin wrapper(s) in /home/jetson/src/bpftime-gpu-work/example/gpu/kernel_trace/vec_add_legacy
+[2026-11-09 04:04:31][info][303960] Temporary fatbin written to /tmp/bpftime-fatbin-work.CDlAI2/temp.fatbin
+[2026-11-09 04:04:31][info][303960] Extracting PTX in the fatbin...
+[2026-11-09 04:04:31][info][303960] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.CDlAI2/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 04:04:31][info][303960] Got 1 PTX files
+[2026-11-09 04:04:31][info][303960] Loading & patching current fatbin..
+[2026-11-09 04:04:31][info][304002] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 04:04:31][debug][304002] Input: {"ebpf_instructions":[{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4294449787,"upper_32bit":0},{"lower_32bit":4293925499,"upper_32bit":0},{"lower_32bit":4293401211,"upper_32bit":0},{"lower_32bit":4292876923,"upper_32bit":0},{"lower_32bit":4292352635,"upper_32bit":0},{"lower_32bit":4291828347,"upper_32bit":0},{"lower_32bit":4291304059,"upper_32bit":0},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967240},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967248},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967256},{"lower_32bit":133,"upper_32bit":503},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967264},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967272},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967280},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":4291338617,"upper_32bit":0},{"lower_32bit":1311061,"upper_32bit":0},{"lower_32bit":4291862905,"upper_32bit":0},{"lower_32bit":1179989,"upper_32bit":0},{"lower_32bit":4292387193,"upper_32bit":0},{"lower_32bit":1048917,"upper_32bit":0},{"lower_32bit":4292911481,"upper_32bit":0},{"lower_32bit":917845,"upper_32bit":0},{"lower_32bit":4293435769,"upper_32bit":0},{"lower_32bit":786773,"upper_32bit":0},{"lower_32bit":4293960057,"upper_32bit":0},{"lower_32bit":655701,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":4294445691,"upper_32bit":0},{"lower_32bit":42175,"upper_32bit":0},{"lower_32bit":1031,"upper_32bit":4294967240},{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4632,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":951,"upper_32bit":0},{"lower_32bit":1463,"upper_32bit":56},{"lower_32bit":133,"upper_32bit":25},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n\n.visible .entry _Z9vectorAddPKfS0_Pfi(\n.param .u64 _Z9vectorAddPKfS0_Pfi_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pfi_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pfi_param_2,\n.param .u32 _Z9vectorAddPKfS0_Pfi_param_3\n)\n{\n.reg .pred %p<2>;\n.reg .f32 %f<4>;\n.reg .b32 %r<6>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pfi_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pfi_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pfi_param_2];\nld.param.u32 %r2, [_Z9vectorAddPKfS0_Pfi_param_3];\nmov.u32 %r3, %ctaid.x;\nmov.u32 %r4, %ntid.x;\nmov.u32 %r5, %tid.x;\nmad.lo.s32 %r1, %r3, %r4, %r5;\nsetp.ge.s32 %p1, %r1, %r2;\n@%p1 bra $L__BB0_2;\n\ncvta.to.global.u64 %rd4, %rd1;\nmul.wide.s32 %rd5, %r1, 4;\nadd.s64 %rd6, %rd4, %rd5;\ncvta.to.global.u64 %rd7, %rd2;\nadd.s64 %rd8, %rd7, %rd5;\nld.global.f32 %f1, [%rd8];\nld.global.f32 %f2, [%rd6];\nadd.f32 %f3, %f2, %f1;\ncvta.to.global.u64 %rd9, %rd3;\nadd.s64 %rd10, %rd9, %rd5;\nst.global.f32 [%rd10], %f3;\n\n$L__BB0_2:\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pfi"}}
+[2026-11-09 04:04:31][info][304002] Patching request 82ce588dec50ab5e32ca87c644af186b171dc14835d1aa83495d4fcdc86eb42b found in cache
+[2026-11-09 04:04:31][debug][303960] Writing patched PTX to /tmp/bpftime-fatbin-work.G96FOG
+[2026-11-09 04:04:31][info][303960] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-09 04:04:31][info][303960] Compiling PTXs with sm_arch sm_87
+[2026-11-09 04:04:31][info][303960] Compiler version: 13.2
+[2026-11-09 04:04:31][info][304003] PTX patched.temp.1.sm_75.ptx (9c38f9b397c9bde2af49f88a133151aaaf18eda41d26a1d22e9b7bdd538d5965) found in cache
+[2026-11-09 04:04:31][info][303960] Module patched.temp.1.sm_75.ptx found in cache
+[2026-11-09 04:04:31][info][303960] Temporary fatbin written to /tmp/bpftime-fatbin-work.TlEaP6/temp.fatbin
+[2026-11-09 04:04:31][info][303960] Extracting PTX in the fatbin...
+[2026-11-09 04:04:31][info][303960] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.TlEaP6/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 04:04:31][info][303960] Got 1 PTX files
+[2026-11-09 04:04:31][info][303960] Loading & patching current fatbin..
+[2026-11-09 04:04:31][info][304016] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 04:04:31][debug][304016] Input: {"ebpf_instructions":[{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4294449787,"upper_32bit":0},{"lower_32bit":4293925499,"upper_32bit":0},{"lower_32bit":4293401211,"upper_32bit":0},{"lower_32bit":4292876923,"upper_32bit":0},{"lower_32bit":4292352635,"upper_32bit":0},{"lower_32bit":4291828347,"upper_32bit":0},{"lower_32bit":4291304059,"upper_32bit":0},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967240},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967248},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967256},{"lower_32bit":133,"upper_32bit":503},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967264},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967272},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967280},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":4291338617,"upper_32bit":0},{"lower_32bit":1311061,"upper_32bit":0},{"lower_32bit":4291862905,"upper_32bit":0},{"lower_32bit":1179989,"upper_32bit":0},{"lower_32bit":4292387193,"upper_32bit":0},{"lower_32bit":1048917,"upper_32bit":0},{"lower_32bit":4292911481,"upper_32bit":0},{"lower_32bit":917845,"upper_32bit":0},{"lower_32bit":4293435769,"upper_32bit":0},{"lower_32bit":786773,"upper_32bit":0},{"lower_32bit":4293960057,"upper_32bit":0},{"lower_32bit":655701,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":4294445691,"upper_32bit":0},{"lower_32bit":42175,"upper_32bit":0},{"lower_32bit":1031,"upper_32bit":4294967240},{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4632,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":951,"upper_32bit":0},{"lower_32bit":1463,"upper_32bit":56},{"lower_32bit":133,"upper_32bit":25},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n\n.visible .entry _Z9vectorAddPKfS0_Pfi(\n.param .u64 _Z9vectorAddPKfS0_Pfi_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pfi_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pfi_param_2,\n.param .u32 _Z9vectorAddPKfS0_Pfi_param_3\n)\n{\n.reg .pred %p<2>;\n.reg .f32 %f<4>;\n.reg .b32 %r<6>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pfi_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pfi_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pfi_param_2];\nld.param.u32 %r2, [_Z9vectorAddPKfS0_Pfi_param_3];\nmov.u32 %r3, %ctaid.x;\nmov.u32 %r4, %ntid.x;\nmov.u32 %r5, %tid.x;\nmad.lo.s32 %r1, %r3, %r4, %r5;\nsetp.ge.s32 %p1, %r1, %r2;\n@%p1 bra $L__BB0_2;\n\ncvta.to.global.u64 %rd4, %rd1;\nmul.wide.s32 %rd5, %r1, 4;\nadd.s64 %rd6, %rd4, %rd5;\ncvta.to.global.u64 %rd7, %rd2;\nadd.s64 %rd8, %rd7, %rd5;\nld.global.f32 %f1, [%rd8];\nld.global.f32 %f2, [%rd6];\nadd.f32 %f3, %f2, %f1;\ncvta.to.global.u64 %rd9, %rd3;\nadd.s64 %rd10, %rd9, %rd5;\nst.global.f32 [%rd10], %f3;\n\n$L__BB0_2:\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pfi"}}
+[2026-11-09 04:04:31][info][304016] Patching request 82ce588dec50ab5e32ca87c644af186b171dc14835d1aa83495d4fcdc86eb42b found in cache
+[2026-11-09 04:04:31][debug][303960] Writing patched PTX to /tmp/bpftime-fatbin-work.gJIb6Z
+[2026-11-09 04:04:31][info][303960] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-09 04:04:31][info][303960] Compiling PTXs with sm_arch sm_87
+[2026-11-09 04:04:31][info][303960] Compiler version: 13.2
+[2026-11-09 04:04:31][info][304017] PTX patched.temp.1.sm_75.ptx (9c38f9b397c9bde2af49f88a133151aaaf18eda41d26a1d22e9b7bdd538d5965) found in cache
+[2026-11-09 04:04:31][info][303960] Module patched.temp.1.sm_75.ptx found in cache
+[2026-11-09 04:04:31][info][303960] nv_attach_impl: late attach bootstrap ingested 3 fatbin(s)
+[2026-11-09 04:04:31][debug][303960] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pfi
+[2026-11-09 04:04:31][debug][303960] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pfi
+[2026-11-09 04:04:31][debug][303960] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pfi
+[2026-11-09 04:04:31][debug][303960] Instantiating done: 48
+[2026-11-09 04:04:31][debug][303960] Registering signal handler
+[2026-11-09 04:04:31][info][303960] agent ipc: listening (abstract) for pid 303960
+[2026-11-09 04:04:31][debug][303960] Set environment variable BPFTIME_USED
+[2026-11-09 04:04:31][info][303960] Attach successfully
+[2026-11-09 04:04:31][debug][303960] Entering cudaMalloc..
+[2026-11-09 04:04:31][debug][303960] Entering cudaMalloc..
+[2026-11-09 04:04:31][debug][303960] Entering cudaMalloc..
+[2026-11-09 04:04:31][debug][303960] grid_dim: 32, 1, 1
+[2026-11-09 04:04:31][debug][303960] block_dim: 128, 1, 1
+[2026-11-09 04:04:31][debug][303960] Late attach launch: resolved _Z9vectorAddPKfS0_Pfi -> patched CUfunction
+[2026-11-09 04:04:32][debug][303960] grid_dim: 32, 1, 1
+[2026-11-09 04:04:32][debug][303960] block_dim: 128, 1, 1
+[2026-11-09 04:04:32][debug][303960] Late attach launch: resolved _Z9vectorAddPKfS0_Pfi -> patched CUfunction
+[2026-11-09 04:04:33][debug][303960] grid_dim: 32, 1, 1
+[2026-11-09 04:04:33][debug][303960] block_dim: 128, 1, 1
+[2026-11-09 04:04:33][debug][303960] Late attach launch: resolved _Z9vectorAddPKfS0_Pfi -> patched CUfunction
+[2026-11-09 04:04:34][debug][303960] grid_dim: 32, 1, 1
+[2026-11-09 04:04:34][debug][303960] block_dim: 128, 1, 1
+[2026-11-09 04:04:34][debug][303960] Late attach launch: resolved _Z9vectorAddPKfS0_Pfi -> patched CUfunction

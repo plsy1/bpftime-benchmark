@@ -1,0 +1,254 @@
+libbpf: loading object 'cuda_probe_bpf' from buffer
+libbpf: elf: section(2) .symtab, size 384, link 1, flags 0, type=2
+libbpf: elf: section(3) kprobe/_Z9vectorAddPKfS0_Pf, size 504, link 0, flags 6, type=1
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe' at insn offset 0 (0 bytes), code size 63 insns (504 bytes)
+libbpf: elf: section(4) kretprobe/_Z9vectorAddPKfS0_Pf, size 912, link 0, flags 6, type=1
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe' at insn offset 0 (0 bytes), code size 114 insns (912 bytes)
+libbpf: elf: section(5) .maps, size 96, link 0, flags 3, type=1
+libbpf: elf: section(6) .rodata.str1.1, size 164, link 0, flags 32, type=1
+libbpf: elf: section(7) license, size 4, link 0, flags 3, type=1
+libbpf: license of cuda_probe_bpf is GPL
+libbpf: elf: section(8) .relkprobe/_Z9vectorAddPKfS0_Pf, size 48, link 2, flags 40, type=9
+libbpf: elf: section(9) .relkretprobe/_Z9vectorAddPKfS0_Pf, size 80, link 2, flags 40, type=9
+libbpf: elf: section(10) .BTF, size 1702, link 0, flags 0, type=1
+libbpf: elf: section(11) .BTF.ext, size 776, link 0, flags 0, type=1
+libbpf: looking for externs among 16 symbols...
+libbpf: collected 0 externs total
+[2026-11-09 03:59:42][info][302691] Setting BPFTIME_SHM_MEMORY_MB to: 64
+[2026-11-09 03:59:42][info][302691] Init bpftime syscall mocking..
+[2026-11-09 03:59:42][info][302691] The log will be written to: console
+[2026-11-09 03:59:42][info][302691] Starting syscall server..
+[2026-11-09 03:59:42][info][302691] Setting BPFTIME_SHM_MEMORY_MB to: 64
+[2026-11-09 03:59:42][info][302691] Initialize syscall server
+[2026-11-09 03:59:42][info][302691] Setting BPFTIME_SHM_MEMORY_MB to: 64
+[2026-11-09 03:59:42][info][302691] Global shm constructed. shm_open_type 4 for bpftime_gpu_cc-legacy
+[2026-11-09 03:59:42][info][302691] Global shm initialized
+[2026-11-09 03:59:42][info][302691] Initializing CUDA at syscall-server side
+[2026-11-09 03:59:42][info][302691] CUDA initialized at syscall server side
+[2026-11-09 03:59:42][info][302691] bpftime-syscall-server started
+libbpf: map 'start_ts': at sec_idx 5, offset 0.
+libbpf: map 'start_ts': found type = 1.
+libbpf: map 'start_ts': found key [8], sz = 4.
+libbpf: map 'start_ts': found value [12], sz = 8.
+libbpf: map 'start_ts': found max_entries = 1024.
+libbpf: map 'call_count': at sec_idx 5, offset 32.
+libbpf: map 'call_count': found type = 1.
+libbpf: map 'call_count': found key [8], sz = 4.
+libbpf: map 'call_count': found value [12], sz = 8.
+libbpf: map 'call_count': found max_entries = 1024.
+libbpf: map 'total_time_ns': at sec_idx 5, offset 64.
+libbpf: map 'total_time_ns': found type = 1.
+libbpf: map 'total_time_ns': found key [8], sz = 4.
+libbpf: map 'total_time_ns': found value [12], sz = 8.
+libbpf: map 'total_time_ns': found max_entries = 1024.
+libbpf: map '.rodata.str1.1' (global data): at sec_idx 6, offset 0, flags 80.
+libbpf: map 3 is ".rodata.str1.1"
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(3) 'kprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #15 against 'start_ts'
+libbpf: prog 'cuda__probe': found map 0 (start_ts, sec 5, off 0) for insn #15
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #24 against 'call_count'
+libbpf: prog 'cuda__probe': found map 1 (call_count, sec 5, off 32) for insn #24
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #34 against 'call_count'
+libbpf: prog 'cuda__probe': found map 1 (call_count, sec 5, off 32) for insn #34
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(4) 'kretprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #11 against 'start_ts'
+libbpf: prog 'cuda__retprobe': found map 0 (start_ts, sec 5, off 0) for insn #11
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #24 against 'start_ts'
+libbpf: prog 'cuda__retprobe': found map 0 (start_ts, sec 5, off 0) for insn #24
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #28 against 'total_time_ns'
+libbpf: prog 'cuda__retprobe': found map 2 (total_time_ns, sec 5, off 64) for insn #28
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #3: insn #38 against 'total_time_ns'
+libbpf: prog 'cuda__retprobe': found map 2 (total_time_ns, sec 5, off 64) for insn #38
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #4: insn #73 against 'total_time_ns'
+libbpf: prog 'cuda__retprobe': found map 2 (total_time_ns, sec 5, off 64) for insn #73
+libbpf: object 'cuda_probe_bpf': failed (-EACCES) to open BPF FS mount at '/sys/fs/bpf', skipping optional step...
+libbpf: Kernel doesn't support BTF, skipping uploading it.
+libbpf: map 'start_ts': created successfully, fd=3
+libbpf: map 'call_count': created successfully, fd=13
+libbpf: map 'total_time_ns': created successfully, fd=14
+libbpf: map '.rodata.str1.1': created successfully, fd=15
+[2026-11-09 03:59:42][info][302691] Using specialized hash lookup helper for program cuda__probe
+[2026-11-09 03:59:42][info][302691] Using specialized hash update helper for program cuda__probe
+[2026-11-09 03:59:42][info][302691] Using specialized hash lookup helper for program cuda__retprobe
+[2026-11-09 03:59:42][info][302691] Using specialized hash update helper for program cuda__retprobe
+[2026-11-09 03:59:42][info][302691] Using specialized hash delete helper for program cuda__retprobe
+[2026-11-09 03:59:42][info][302691] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+[2026-11-09 03:59:42][info][302691] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+03:59:43 
+03:59:44 
+03:59:45 
+03:59:46 
+03:59:47 
+03:59:48 
+03:59:49 
+03:59:50 
+03:59:51 
+03:59:52 
+03:59:53 
+03:59:54 
+03:59:55 
+03:59:56 
+03:59:57 
+03:59:58 
+03:59:59 
+04:00:00 
+04:00:01 
+04:00:02 
+04:00:03 
+04:00:04 
+04:00:05 
+04:00:06 
+04:00:07 
+04:00:08 
+04:00:09 
+04:00:10 
+04:00:11 
+04:00:12 
+04:00:13 
+04:00:14 
+04:00:15 
+04:00:16 
+04:00:17 
+04:00:18 
+04:00:19 
+04:00:20 
+04:00:21 
+04:00:22 
+04:00:23 
+04:00:24 
+04:00:25 
+04:00:26 
+04:00:27 
+04:00:28 
+04:00:29 
+04:00:30 
+04:00:31 
+04:00:32 
+04:00:33 
+04:00:34 
+04:00:35 
+04:00:36 
+04:00:37 
+04:00:38 
+04:00:39 
+04:00:40 
+04:00:41 
+04:00:42 
+04:00:43 
+04:00:44 
+04:00:45 
+04:00:46 
+04:00:47 
+04:00:48 
+04:00:49 
+04:00:50 
+04:00:51 
+04:00:52 
+04:00:53 
+04:00:54 
+04:00:55 
+04:00:56 
+04:00:57 
+04:00:58 
+04:00:59 
+04:01:00 
+04:01:01 
+04:01:02 
+04:01:03 
+04:01:04 
+04:01:05 
+04:01:06 
+04:01:07 
+04:01:08 
+04:01:09 
+04:01:10 
+04:01:11 
+04:01:12 
+04:01:13 
+04:01:14 
+04:01:15 
+04:01:16 
+04:01:17 
+04:01:18 
+04:01:19 
+04:01:20 
+04:01:21 
+04:01:22 
+04:01:23 
+04:01:24 
+	pid=303115 	calls: 31
+04:01:25 
+	pid=303115 	calls: 51
+04:01:26 
+	pid=303115 	calls: 51
+04:01:27 
+	pid=303115 	calls: 51
+04:01:28 
+	pid=303115 	calls: 51
+04:01:29 
+	pid=303115 	calls: 51
+04:01:30 
+	pid=303115 	calls: 51
+04:01:31 
+	pid=303115 	calls: 51
+04:01:32 
+	pid=303115 	calls: 51
+04:01:33 
+	pid=303115 	calls: 51
+04:01:34 
+	pid=303115 	calls: 51
+04:01:35 
+	pid=303115 	calls: 51
+04:01:36 
+	pid=303115 	calls: 51
+04:01:37 
+	pid=303115 	calls: 51
+04:01:38 
+	pid=303115 	calls: 51
+04:01:39 
+	pid=303115 	calls: 51
+04:01:40 
+	pid=303115 	calls: 51
+04:01:41 
+	pid=303115 	calls: 51
+04:01:42 
+	pid=303115 	calls: 51
+04:01:43 
+	pid=303115 	calls: 51
+04:01:44 
+	pid=303115 	calls: 51
+04:01:45 
+	pid=303115 	calls: 51
+04:01:46 
+	pid=303115 	calls: 51
+04:01:47 
+	pid=303115 	calls: 51
+04:01:48 
+	pid=303115 	calls: 51
+04:01:49 
+	pid=303115 	calls: 51
+04:01:50 
+	pid=303115 	calls: 51
+04:01:51 
+	pid=303115 	calls: 51
+04:01:52 
+	pid=303115 	calls: 51
+04:01:53 
+	pid=303115 	calls: 51
+04:01:54 
+	pid=303115 	calls: 51
+04:01:55 
+	pid=303115 	calls: 51
+04:01:56 
+	pid=303115 	calls: 51
+04:01:57 
+	pid=303115 	calls: 51
+04:01:58 
+	pid=303115 	calls: 51
+04:01:59 
+	pid=303115 	calls: 51
+04:02:00 
+	pid=303115 	calls: 51
+04:02:00 
+	pid=303115 	calls: 51
+timeout: the monitored command dumped core

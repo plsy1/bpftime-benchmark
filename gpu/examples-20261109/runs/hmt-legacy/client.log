@@ -1,0 +1,866 @@
+[2026-11-09 03:59:17.908] [warning] [bpftime_vm_compat.hpp:284] VM factory for name: llvm already registered, overwriting
+[2026-11-09 03:59:17][debug][302544] Credential cache for bpf_get_current_uid_gid: enabled
+[2026-11-09 03:59:17][debug][302544] Entered bpftime_agent_main
+[2026-11-09 03:59:17][debug][302544] start: bpftime_shm for client setup
+[2026-11-09 03:59:17][debug][302544] done: bpftime_shm for client setup
+[2026-11-09 03:59:18][info][302544] Registered shared memory with CUDA: addr=0xffff809b0000 size=67108864
+[2026-11-09 03:59:18][info][302544] Global shm constructed. shm_open_type 1 for bpftime_gpu_hmt-legacy
+[2026-11-09 03:59:18][info][302544] Global shm initialized
+[2026-11-09 03:59:18][info][302544] bpf_attach_ctx constructed
+[2026-11-09 03:59:18][info][302544] Initializing CUDA shared memory
+[2026-11-09 03:59:18][info][302544] CommSharedMem host 0xffff80aac9c8 mapped to device 0x1022c09c8
+[2026-11-09 03:59:18][info][302544] CUDA context created
+[2026-11-09 03:59:18][debug][302544] Register attach type 2 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 03:59:18][debug][302544] Initializing frida attach manager
+[2026-11-09 03:59:18][info][302544] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2026-11-09 03:59:18][info][302544] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2026-11-09 03:59:18][info][302544] Register attach-impl defined helper bpf_get_retval, index 186
+[2026-11-09 03:59:18][debug][302544] Register attach type 6 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 03:59:18][debug][302544] Register attach type 7 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 03:59:18][debug][302544] Register attach type 1008 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 03:59:18][debug][302544] Register attach type 1009 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 03:59:18][info][302544] Starting nv_attach_impl
+[2026-11-09 03:59:18][info][302544] Parsing bundled libraries: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so:/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so:/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-09 03:59:18][info][302544] Found path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so, executing..
+[2026-11-09 03:59:18][info][302544] Retrived config of /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so
+[2026-11-09 03:59:18][debug][302544] Config {
+    "attach_points": {
+        "excludes": [
+            "^kprobe/__memcapture$"
+        ],
+        "includes": [
+            "^kprobe/.*$"
+        ]
+    },
+    "attach_type": 8,
+    "description": "Instrument PTX at kprobe entry points, excluding __memcapture",
+    "name": "kprobe_entry",
+    "parameters": {
+        "emit_nops_for_alignment": false,
+        "pad_nops": 0,
+        "save_strategy": "minimal",
+        "stub_name": "__bpftime_cuda__kernel_trace"
+    },
+    "validation": null
+}
+[2026-11-09 03:59:18][info][302544] Found path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so, executing..
+[2026-11-09 03:59:18][info][302544] Retrived config of /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so
+[2026-11-09 03:59:18][debug][302544] Config {
+    "attach_points": {
+        "excludes": [],
+        "includes": [
+            "^kretprobe/.*$"
+        ]
+    },
+    "attach_type": 9,
+    "description": "Inject call before ret/exit for kretprobe/*",
+    "name": "kretprobe",
+    "parameters": {},
+    "validation": {}
+}
+[2026-11-09 03:59:18][info][302544] Found path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so, executing..
+[2026-11-09 03:59:18][info][302544] Retrived config of /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-09 03:59:18][debug][302544] Config {
+    "attach_points": {
+        "excludes": [],
+        "includes": [
+            "^kprobe/__memcapture$"
+        ]
+    },
+    "attach_type": 8,
+    "description": "Emit a probe per ld/st and push source line text to eBPF stack",
+    "name": "kprobe_memcapture",
+    "parameters": {},
+    "validation": {}
+}
+[2026-11-09 03:59:18][debug][302544] Register attach type 8 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 03:59:18][debug][302544] Register attach type 9 with attach impl PN7bpftime6attach16base_attach_implE
+[2026-11-09 03:59:18][info][302544] Initializing agent..
+[2026-11-09 03:59:18][info][302544] bpftime: shm epoch_seq = 2
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 3
+[2026-11-09 03:59:18][debug][302544] Instantiating type 1
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 3
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 13
+[2026-11-09 03:59:18][debug][302544] Instantiating type 1
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 13
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 14
+[2026-11-09 03:59:18][debug][302544] Instantiating type 1
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 14
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 15
+[2026-11-09 03:59:18][debug][302544] Instantiating type 1
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 15
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 16
+[2026-11-09 03:59:18][debug][302544] Creating bpftime_prog with name cuda__probe
+[2026-11-09 03:59:18][debug][302544] Creating vm with name llvm
+[2026-11-09 03:59:18][debug][302544] Initializing llvm
+[2026-11-09 03:59:18][debug][302544] Load insn cnt 66
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 16
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 17
+[2026-11-09 03:59:18][debug][302544] Creating bpftime_prog with name cuda__retprobe
+[2026-11-09 03:59:18][debug][302544] Creating vm with name llvm
+[2026-11-09 03:59:18][debug][302544] Load insn cnt 91
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 17
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 18
+[2026-11-09 03:59:18][debug][302544] Instantiating perf event handler at 18, type 8
+[2026-11-09 03:59:18][debug][302544] Created kprobe/kretprobe private data at id 18, string value nv_attach_private_data: func_name=_Z9vectorAddPKfS0_Pf func_names=_Z9vectorAddPKfS0_Pf comm_shared_mem=0 
+[2026-11-09 03:59:18][debug][302544] Instantiated perf event handler 18
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 18
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 19
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 16
+[2026-11-09 03:59:18][debug][302544] Handler 16 already instantiated
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 18
+[2026-11-09 03:59:18][debug][302544] Handler 18 already instantiated
+[2026-11-09 03:59:18][debug][302544] Instantiating link handler: prog 16 -> perf event 18, cookie 0
+[2026-11-09 03:59:18][debug][302544] Instantiating bpf link 19, bpftime_prog->prog_name() = cuda__probe
+[2026-11-09 03:59:18][info][302544] Instantiating bpf link 19 and the corresponding program cuda__probe is cuda program
+[2026-11-09 03:59:18][info][302544] Skipping nv attach handler 19 since we are not handling nv handles
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 19
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 20
+[2026-11-09 03:59:18][debug][302544] Instantiating perf event handler at 20, type 9
+[2026-11-09 03:59:18][debug][302544] Created kprobe/kretprobe private data at id 20, string value nv_attach_private_data: func_name=_Z9vectorAddPKfS0_Pf func_names=_Z9vectorAddPKfS0_Pf comm_shared_mem=0 
+[2026-11-09 03:59:18][debug][302544] Instantiated perf event handler 20
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 20
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 21
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 17
+[2026-11-09 03:59:18][debug][302544] Handler 17 already instantiated
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 20
+[2026-11-09 03:59:18][debug][302544] Handler 20 already instantiated
+[2026-11-09 03:59:18][debug][302544] Instantiating link handler: prog 17 -> perf event 20, cookie 0
+[2026-11-09 03:59:18][debug][302544] Instantiating bpf link 21, bpftime_prog->prog_name() = cuda__retprobe
+[2026-11-09 03:59:18][info][302544] Instantiating bpf link 21 and the corresponding program cuda__retprobe is cuda program
+[2026-11-09 03:59:18][info][302544] Skipping nv attach handler 21 since we are not handling nv handles
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 21
+[2026-11-09 03:59:18][debug][302544] Main initializing for handlers done; initializing CUDA link handles
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 3
+[2026-11-09 03:59:18][debug][302544] Instantiating type 1
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 3
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 13
+[2026-11-09 03:59:18][debug][302544] Instantiating type 1
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 13
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 14
+[2026-11-09 03:59:18][debug][302544] Instantiating type 1
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 14
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 15
+[2026-11-09 03:59:18][debug][302544] Instantiating type 1
+[2026-11-09 03:59:18][debug][302544] Instantiating done: 15
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 16
+[2026-11-09 03:59:18][debug][302544] Handler 16 already instantiated
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 17
+[2026-11-09 03:59:18][debug][302544] Handler 17 already instantiated
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 18
+[2026-11-09 03:59:18][debug][302544] Handler 18 already instantiated
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 19
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 16
+[2026-11-09 03:59:18][debug][302544] Handler 16 already instantiated
+[2026-11-09 03:59:18][debug][302544] Instantiating handler at 18
+[2026-11-09 03:59:18][debug][302544] Handler 18 already instantiated
+[2026-11-09 03:59:18][debug][302544] Instantiating link handler: prog 16 -> perf event 18, cookie 0
+[2026-11-09 03:59:18][debug][302544] Instantiating bpf link 19, bpftime_prog->prog_name() = cuda__probe
+[2026-11-09 03:59:18][info][302544] Instantiating bpf link 19 and the corresponding program cuda__probe is cuda program
+[2026-11-09 03:59:18][info][302544] Handling link to CUDA program: 19, recording it..
+[2026-11-09 03:59:18][info][302544] Loaded 66 instructions (original) for cuda ebpf program
+[2026-11-09 03:59:18][info][302544] Initializing nv_gpu_array_host_map_impl at pid 302544, shared mem addr=ffff80cacb30
+[2026-11-09 03:59:18][info][302544] Mapped shared memory for GPU access: cpu=ffff80cacb30, gpu=1024c0b30
+[2026-11-09 03:59:18][info][302544] Copying map fd 3 to device, key size=4, value size=8, max ent=1, map_type = 1512, gpu_buffer = 1024c0b30
+[2026-11-09 03:59:18][info][302544] Initializing nv_gpu_shared_array_host_map_impl at pid 302544, shared mem addr=ffff80caec10
+[2026-11-09 03:59:18][info][302544] Mapped shared memory for GPU access: cpu=ffff80caec10, gpu=1024c2c10
+[2026-11-09 03:59:18][info][302544] Copying map fd 13 to device, key size=4, value size=8, max ent=10, map_type = 1513, gpu_buffer = 1024c2c10
+[2026-11-09 03:59:18][info][302544] Initializing nv_gpu_array_host_map_impl at pid 302544, shared mem addr=ffff80caed50
+[2026-11-09 03:59:18][info][302544] Mapped shared memory for GPU access: cpu=ffff80caed50, gpu=1024c2d50
+[2026-11-09 03:59:18][info][302544] Copying map fd 14 to device, key size=4, value size=8, max ent=10, map_type = 1512, gpu_buffer = 1024c2d50
+[2026-11-09 03:59:18][warning][302544] Not a GPU map!
+[2026-11-09 03:59:18][info][302544] Copying map fd 15 to device, key size=4, value size=90, max ent=1, map_type = 2, gpu_buffer = 0
+[2026-11-09 03:59:18][debug][302544] Not a GPU map!
+[2026-11-09 03:59:18][info][302544] Cached shared_mem_ptr at 1022c09c8
+[2026-11-09 03:59:18][info][302544] Recorded pass /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so for func _Z9vectorAddPKfS0_Pf
+[2026-11-09 03:59:19][info][302544] nv_attach_impl: cached 556752 host symbols
+[2026-11-09 03:59:19][info][302544] nv_attach_impl: late attach bootstrap scanning fatbins..
+[2026-11-09 03:59:19][info][302544] Temporary fatbin written to /tmp/bpftime-fatbin-work.vz1BMq/temp.fatbin
+[2026-11-09 03:59:19][info][302544] Extracting PTX in the fatbin...
+[2026-11-09 03:59:19][info][302544] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.vz1BMq/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 03:59:19][info][302544] Got 1 PTX files
+[2026-11-09 03:59:19][info][302544] Loading & patching current fatbin..
+[2026-11-09 03:59:19][info][302557] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 03:59:19][debug][302557] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4293139043,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":4292348539,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967268},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967256},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":4294484345,"upper_32bit":0},{"lower_32bit":407,"upper_32bit":10},{"lower_32bit":4292090467,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967252},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":196629,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":1},{"lower_32bit":65541,"upper_32bit":0},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":4289206907,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967252},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967208},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":280,"upper_32bit":1030976544},{"lower_32bit":0,"upper_32bit":175467557},{"lower_32bit":4291304059,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1919249184},{"lower_32bit":0,"upper_32bit":745301358},{"lower_32bit":4290779771,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1953391904},{"lower_32bit":0,"upper_32bit":1684370021},{"lower_32bit":4290255483,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":745892901},{"lower_32bit":0,"upper_32bit":691022896},{"lower_32bit":4289731195,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1701996628},{"lower_32bit":0,"upper_32bit":673211489},{"lower_32bit":4289206907,"upper_32bit":0},{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4291828339,"upper_32bit":0},{"lower_32bit":4294484857,"upper_32bit":0},{"lower_32bit":4292387961,"upper_32bit":0},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967208},{"lower_32bit":695,"upper_32bit":41},{"lower_32bit":133,"upper_32bit":6},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n.const .align 4 .u32 d_N;\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n.reg .pred %p<2>;\n.reg .f32 %f<4>;\n.reg .b32 %r<6>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\nmov.u32 %r2, %ctaid.x;\nmov.u32 %r3, %ntid.x;\nmov.u32 %r4, %tid.x;\nmad.lo.s32 %r1, %r2, %r3, %r4;\nld.const.u32 %r5, [d_N];\nsetp.ge.s32 %p1, %r1, %r5;\n@%p1 bra $L__BB0_2;\n\ncvta.to.global.u64 %rd4, %rd1;\nmul.wide.s32 %rd5, %r1, 4;\nadd.s64 %rd6, %rd4, %rd5;\ncvta.to.global.u64 %rd7, %rd2;\nadd.s64 %rd8, %rd7, %rd5;\nld.global.f32 %f1, [%rd8];\nld.global.f32 %f2, [%rd6];\nadd.f32 %f3, %f2, %f1;\ncvta.to.global.u64 %rd9, %rd3;\nadd.s64 %rd10, %rd9, %rd5;\nst.global.f32 [%rd10], %f3;\n\n$L__BB0_2:\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 03:59:19][info][302557] Patching request dc4af588a310683361948738fc02f24935fcc1e87b8bd3204c952c2b3e75883b not found in cache, patching..
+[2026-11-09 03:59:19.554] [info] [core.cpp:321] [ptxpass] kprobe_entry: matched=1, in=969, out=5735
+[2026-11-09 03:59:19][debug][302544] Writing patched PTX to /tmp/bpftime-fatbin-work.ThXzEo
+[2026-11-09 03:59:19][info][302544] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-09 03:59:19][info][302544] Compiling PTXs with sm_arch sm_87
+[2026-11-09 03:59:19][info][302544] Compiler version: 13.2
+[2026-11-09 03:59:19][info][302558] Start compiling patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-09 03:59:19][debug][302558] Info: ptxas info    : 346 bytes gmem, 40972 bytes cmem[3], 80 bytes cmem[4]
+ptxas info    : Compiling entry function '_Z9vectorAddPKfS0_Pf' for 'sm_87'
+ptxas info    : Function properties for _Z9vectorAddPKfS0_Pf
+ptxas         .     16488 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 34 registers, used 0 barriers, 16488 bytes cumulative stack size, 376 bytes cmem[0], 40 bytes cmem[2]
+ptxas info    : Compile time = 99.908 ms
+ptxas info    : Function properties for __probe_func___Z9vectorAddPKfS0_Pf
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0001
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0002
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0006
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0502
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0505
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+
+[2026-11-09 03:59:19][info][302558] Compile of patched.temp.1.sm_75.ptx done
+[2026-11-09 03:59:19][info][302544] Loading module: patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-09 03:59:19][info][302544] Copying trampoline data to device
+[2026-11-09 03:59:19][info][302544] constData symbol device_ptr=19f032000 size=8 shared_mem_ptr=1022c09c8
+[2026-11-09 03:59:19][info][302544] map_info symbol device_ptr=19f032008 size=40960
+[2026-11-09 03:59:19][info][302544] Trampoline data copied
+[2026-11-09 03:59:19][info][302544] Loaded module: patched.temp.1.sm_75.ptx
+[2026-11-09 03:59:19][info][302544] nv_attach_impl: ingested fatbin from .nv_fatbin in /home/jetson/src/bpftime-gpu-work/benchmark/gpu/workload/vec_add_legacy
+[2026-11-09 03:59:19][info][302544] nv_attach_impl: found 1 fatbin wrapper(s) in /home/jetson/src/bpftime-gpu-work/benchmark/gpu/workload/vec_add_legacy
+[2026-11-09 03:59:19][info][302544] Temporary fatbin written to /tmp/bpftime-fatbin-work.eYH1bW/temp.fatbin
+[2026-11-09 03:59:19][info][302544] Extracting PTX in the fatbin...
+[2026-11-09 03:59:19][info][302544] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.eYH1bW/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 03:59:19][info][302544] Got 1 PTX files
+[2026-11-09 03:59:19][info][302544] Loading & patching current fatbin..
+[2026-11-09 03:59:19][info][302571] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 03:59:19][debug][302571] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4293139043,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":4292348539,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967268},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967256},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":4294484345,"upper_32bit":0},{"lower_32bit":407,"upper_32bit":10},{"lower_32bit":4292090467,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967252},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":196629,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":1},{"lower_32bit":65541,"upper_32bit":0},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":4289206907,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967252},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967208},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":280,"upper_32bit":1030976544},{"lower_32bit":0,"upper_32bit":175467557},{"lower_32bit":4291304059,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1919249184},{"lower_32bit":0,"upper_32bit":745301358},{"lower_32bit":4290779771,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1953391904},{"lower_32bit":0,"upper_32bit":1684370021},{"lower_32bit":4290255483,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":745892901},{"lower_32bit":0,"upper_32bit":691022896},{"lower_32bit":4289731195,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1701996628},{"lower_32bit":0,"upper_32bit":673211489},{"lower_32bit":4289206907,"upper_32bit":0},{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4291828339,"upper_32bit":0},{"lower_32bit":4294484857,"upper_32bit":0},{"lower_32bit":4292387961,"upper_32bit":0},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967208},{"lower_32bit":695,"upper_32bit":41},{"lower_32bit":133,"upper_32bit":6},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n.const .align 4 .u32 d_N;\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n.reg .pred %p<2>;\n.reg .f32 %f<4>;\n.reg .b32 %r<6>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\nmov.u32 %r2, %ctaid.x;\nmov.u32 %r3, %ntid.x;\nmov.u32 %r4, %tid.x;\nmad.lo.s32 %r1, %r2, %r3, %r4;\nld.const.u32 %r5, [d_N];\nsetp.ge.s32 %p1, %r1, %r5;\n@%p1 bra $L__BB0_2;\n\ncvta.to.global.u64 %rd4, %rd1;\nmul.wide.s32 %rd5, %r1, 4;\nadd.s64 %rd6, %rd4, %rd5;\ncvta.to.global.u64 %rd7, %rd2;\nadd.s64 %rd8, %rd7, %rd5;\nld.global.f32 %f1, [%rd8];\nld.global.f32 %f2, [%rd6];\nadd.f32 %f3, %f2, %f1;\ncvta.to.global.u64 %rd9, %rd3;\nadd.s64 %rd10, %rd9, %rd5;\nst.global.f32 [%rd10], %f3;\n\n$L__BB0_2:\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 03:59:19][info][302571] Patching request dc4af588a310683361948738fc02f24935fcc1e87b8bd3204c952c2b3e75883b found in cache
+[2026-11-09 03:59:19][debug][302544] Writing patched PTX to /tmp/bpftime-fatbin-work.amDXw0
+[2026-11-09 03:59:19][info][302544] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-09 03:59:19][info][302544] Compiling PTXs with sm_arch sm_87
+[2026-11-09 03:59:19][info][302544] Compiler version: 13.2
+[2026-11-09 03:59:19][info][302572] PTX patched.temp.1.sm_75.ptx (c9edd452225002faecbc594f7cf4509cba73256b3089ab104aa077cbbaac5d7e) found in cache
+[2026-11-09 03:59:19][info][302544] Module patched.temp.1.sm_75.ptx found in cache
+[2026-11-09 03:59:19][info][302544] nv_attach_impl: late attach bootstrap ingested 2 fatbin(s)
+[2026-11-09 03:59:19][debug][302544] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 03:59:19][debug][302544] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 03:59:19][debug][302544] Instantiating done: 19
+[2026-11-09 03:59:19][debug][302544] Instantiating handler at 20
+[2026-11-09 03:59:19][debug][302544] Handler 20 already instantiated
+[2026-11-09 03:59:19][debug][302544] Instantiating handler at 21
+[2026-11-09 03:59:19][debug][302544] Instantiating handler at 17
+[2026-11-09 03:59:19][debug][302544] Handler 17 already instantiated
+[2026-11-09 03:59:19][debug][302544] Instantiating handler at 20
+[2026-11-09 03:59:19][debug][302544] Handler 20 already instantiated
+[2026-11-09 03:59:19][debug][302544] Instantiating link handler: prog 17 -> perf event 20, cookie 0
+[2026-11-09 03:59:19][debug][302544] Instantiating bpf link 21, bpftime_prog->prog_name() = cuda__retprobe
+[2026-11-09 03:59:19][info][302544] Instantiating bpf link 21 and the corresponding program cuda__retprobe is cuda program
+[2026-11-09 03:59:19][info][302544] Handling link to CUDA program: 21, recording it..
+[2026-11-09 03:59:19][info][302544] Loaded 91 instructions (original) for cuda ebpf program
+[2026-11-09 03:59:19][info][302544] Copying map fd 3 to device, key size=4, value size=8, max ent=1, map_type = 1512, gpu_buffer = 1024c0b30
+[2026-11-09 03:59:19][info][302544] Copying map fd 13 to device, key size=4, value size=8, max ent=10, map_type = 1513, gpu_buffer = 1024c2c10
+[2026-11-09 03:59:19][info][302544] Copying map fd 14 to device, key size=4, value size=8, max ent=10, map_type = 1512, gpu_buffer = 1024c2d50
+[2026-11-09 03:59:19][warning][302544] Not a GPU map!
+[2026-11-09 03:59:19][info][302544] Copying map fd 15 to device, key size=4, value size=90, max ent=1, map_type = 2, gpu_buffer = 0
+[2026-11-09 03:59:19][debug][302544] Not a GPU map!
+[2026-11-09 03:59:19][info][302544] nv_attach_impl: new hook added after bootstrap; rerunning late bootstrap
+[2026-11-09 03:59:19][info][302544] Recorded pass /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so for func _Z9vectorAddPKfS0_Pf
+[2026-11-09 03:59:19][info][302544] nv_attach_impl: late attach bootstrap scanning fatbins..
+[2026-11-09 03:59:19][info][302544] Temporary fatbin written to /tmp/bpftime-fatbin-work.gradLM/temp.fatbin
+[2026-11-09 03:59:19][info][302544] Extracting PTX in the fatbin...
+[2026-11-09 03:59:19][info][302544] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.gradLM/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 03:59:19][info][302544] Got 1 PTX files
+[2026-11-09 03:59:19][info][302544] Loading & patching current fatbin..
+[2026-11-09 03:59:19][info][302585] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 03:59:19][debug][302585] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4293139043,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":4292348539,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967268},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967256},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":4294484345,"upper_32bit":0},{"lower_32bit":407,"upper_32bit":10},{"lower_32bit":4292090467,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967252},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":196629,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":1},{"lower_32bit":65541,"upper_32bit":0},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":4289206907,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967252},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967208},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":280,"upper_32bit":1030976544},{"lower_32bit":0,"upper_32bit":175467557},{"lower_32bit":4291304059,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1919249184},{"lower_32bit":0,"upper_32bit":745301358},{"lower_32bit":4290779771,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1953391904},{"lower_32bit":0,"upper_32bit":1684370021},{"lower_32bit":4290255483,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":745892901},{"lower_32bit":0,"upper_32bit":691022896},{"lower_32bit":4289731195,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1701996628},{"lower_32bit":0,"upper_32bit":673211489},{"lower_32bit":4289206907,"upper_32bit":0},{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4291828339,"upper_32bit":0},{"lower_32bit":4294484857,"upper_32bit":0},{"lower_32bit":4292387961,"upper_32bit":0},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967208},{"lower_32bit":695,"upper_32bit":41},{"lower_32bit":133,"upper_32bit":6},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n.const .align 4 .u32 d_N;\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n.reg .pred %p<2>;\n.reg .f32 %f<4>;\n.reg .b32 %r<6>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\nmov.u32 %r2, %ctaid.x;\nmov.u32 %r3, %ntid.x;\nmov.u32 %r4, %tid.x;\nmad.lo.s32 %r1, %r2, %r3, %r4;\nld.const.u32 %r5, [d_N];\nsetp.ge.s32 %p1, %r1, %r5;\n@%p1 bra $L__BB0_2;\n\ncvta.to.global.u64 %rd4, %rd1;\nmul.wide.s32 %rd5, %r1, 4;\nadd.s64 %rd6, %rd4, %rd5;\ncvta.to.global.u64 %rd7, %rd2;\nadd.s64 %rd8, %rd7, %rd5;\nld.global.f32 %f1, [%rd8];\nld.global.f32 %f2, [%rd6];\nadd.f32 %f3, %f2, %f1;\ncvta.to.global.u64 %rd9, %rd3;\nadd.s64 %rd10, %rd9, %rd5;\nst.global.f32 [%rd10], %f3;\n\n$L__BB0_2:\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 03:59:19][info][302585] Patching request dc4af588a310683361948738fc02f24935fcc1e87b8bd3204c952c2b3e75883b found in cache
+[2026-11-09 03:59:19][debug][302585] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":1975,"upper_32bit":0},{"lower_32bit":4293163619,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967268},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":1727,"upper_32bit":0},{"lower_32bit":4292377211,"upper_32bit":0},{"lower_32bit":394773,"upper_32bit":0},{"lower_32bit":24953,"upper_32bit":0},{"lower_32bit":262421,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":24953,"upper_32bit":0},{"lower_32bit":4127,"upper_32bit":0},{"lower_32bit":4292348539,"upper_32bit":0},{"lower_32bit":4292115043,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967252},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":196629,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":1},{"lower_32bit":65541,"upper_32bit":0},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":4288158331,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967252},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967192},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":4291828323,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967248},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967256},{"lower_32bit":1719,"upper_32bit":0},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":439,"upper_32bit":2},{"lower_32bit":4291566179,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967288},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":280,"upper_32bit":1970021693},{"lower_32bit":0,"upper_32bit":175336992},{"lower_32bit":4290779771,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1634891108},{"lower_32bit":0,"upper_32bit":1852795252},{"lower_32bit":4290255483,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1852990827},{"lower_32bit":0,"upper_32bit":539782245},{"lower_32bit":4289731195,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1769497888},{"lower_32bit":0,"upper_32bit":543450484},{"lower_32bit":4289206907,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":745892901},{"lower_32bit":0,"upper_32bit":691022896},{"lower_32bit":4288682619,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1701996628},{"lower_32bit":0,"upper_32bit":673211489},{"lower_32bit":4288158331,"upper_32bit":0},{"lower_32bit":4291324531,"upper_32bit":0},{"lower_32bit":4294484857,"upper_32bit":0},{"lower_32bit":4292387961,"upper_32bit":0},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967192},{"lower_32bit":695,"upper_32bit":49},{"lower_32bit":133,"upper_32bit":6},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\t// .globl\t__probe_func___Z9vectorAddPKfS0_Pf\n\n\n\n\n\n\n.visible .func __probe_func___Z9vectorAddPKfS0_Pf()\n{\n\t.local .align 8 .b8 \t__local_depot0[16464];\n\t.reg .b64 \t%SP;\n\t.reg .b64 \t%SPL;\n\t.reg .pred \t%p<2>;\n\t.reg .b16 \t%rs<2>;\n\t.reg .b32 \t%r<2>;\n\t.reg .b64 \t%rd<57>;\n\n\tmov.u64 \t%SPL, __local_depot0;\n\tcvta.local.u64 \t%SP, %SPL;\n\tadd.u64 \t%rd8, %SP, 0;\n\tadd.u64 \t%rd1, %SPL, 0;\n\tadd.s64 \t%rd2, %rd8, 16384;\n\tadd.s64 \t%rd9, %rd8, 16376;\n\tadd.s64 \t%rd10, %rd8, 16368;\n\tadd.s64 \t%rd11, %rd8, 16360;\n\t{ // callseq 0, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd9;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd10;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd11;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd12;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd13;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0505, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd14, [retval0+0];\n\t} // callseq 0\n\tmov.u32 \t%r1, 0;\n\tst.local.u32 \t[%rd1+16356], %r1;\n\tmov.u64 \t%rd16, 0;\n\t{ // callseq 1, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd16;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd10;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd11;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd17;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd18;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0502, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd19, [retval0+0];\n\t} // callseq 1\n\tst.local.u64 \t[%rd1+16344], %rd19;\n\tadd.s64 \t%rd21, %rd8, 16356;\n\tadd.s64 \t%rd22, %rd8, 16344;\n\tmov.u64 \t%rd23, 3;\n\t{ // callseq 2, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd23;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd21;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd22;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd16;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd24;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0002, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd25, [retval0+0];\n\t} // callseq 2\n\tld.local.u64 \t%rd27, [%rd1+16376];\n\tmul.hi.u64 \t%rd28, %rd27, -3689348814741910323;\n\tshr.u64 \t%rd29, %rd28, 3;\n\tmul.lo.s64 \t%rd30, %rd29, 10;\n\tsub.s64 \t%rd31, %rd27, %rd30;\n\tst.local.u32 \t[%rd1+16340], %rd31;\n\tadd.s64 \t%rd3, %rd8, 16340;\n\tmov.u64 \t%rd32, 13;\n\t{ // callseq 3, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd32;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd3;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd22;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd16;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd33;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0001, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd34, [retval0+0];\n\t} // callseq 3\n\tsetp.eq.s64 \t%p1, %rd34, 0;\n\tmov.u64 \t%rd56, 1;\n\t@%p1 bra \t$L__BB0_2;\n\tld.u32 \t%rd35, [%rd34];\n\tld.u32 \t%rd36, [%rd34+4];\n\tshl.b64 \t%rd37, %rd36, 32;\n\tor.b64  \t%rd38, %rd37, %rd35;\n\tadd.s64 \t%rd56, %rd38, 1;\n$L__BB0_2:\n\tst.local.u64 \t[%rd1+16296], %rd56;\n\tadd.s64 \t%rd39, %rd2, -88;\n\t{ // callseq 4, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd32;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd3;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd39;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd16;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd42;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0002, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd43, [retval0+0];\n\t} // callseq 4\n\tmov.u64 \t%rd45, 753627419854992416;\n\tst.local.u64 \t[%rd1+16328], %rd45;\n\tmov.u64 \t%rd46, 3201044960193637152;\n\tst.local.u64 \t[%rd1+16320], %rd46;\n\tmov.u64 \t%rd47, 7234314156511225120;\n\tst.local.u64 \t[%rd1+16312], %rd47;\n\tmov.u64 \t%rd48, 2967920739853102117;\n\tst.local.u64 \t[%rd1+16304], %rd48;\n\tmov.u64 \t%rd49, 2891421330248460372;\n\tst.local.u64 \t[%rd1+16296], %rd49;\n\tmov.u16 \t%rs1, 0;\n\tst.local.u8 \t[%rd1+16336], %rs1;\n\tld.local.u64 \t%rd50, [%rd1+16376];\n\tld.local.u64 \t%rd51, [%rd1+16344];\n\tmov.u64 \t%rd52, 41;\n\t{ // callseq 5, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd39;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd52;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd50;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd51;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd53;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0006, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd54, [retval0+0];\n\t} // callseq 5\n\tret;\n\n}\n\n\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n.const .align 4 .u32 d_N;\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n\n    call __probe_func___Z9vectorAddPKfS0_Pf;\n.reg .pred %p<2>;\n.reg .f32 %f<4>;\n.reg .b32 %r<6>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\nmov.u32 %r2, %ctaid.x;\nmov.u32 %r3, %ntid.x;\nmov.u32 %r4, %tid.x;\nmad.lo.s32 %r1, %r2, %r3, %r4;\nld.const.u32 %r5, [d_N];\nsetp.ge.s32 %p1, %r1, %r5;\n@%p1 bra $L__BB0_2;\n\ncvta.to.global.u64 %rd4, %rd1;\nmul.wide.s32 %rd5, %r1, 4;\nadd.s64 %rd6, %rd4, %rd5;\ncvta.to.global.u64 %rd7, %rd2;\nadd.s64 %rd8, %rd7, %rd5;\nld.global.f32 %f1, [%rd8];\nld.global.f32 %f2, [%rd6];\nadd.f32 %f3, %f2, %f1;\ncvta.to.global.u64 %rd9, %rd3;\nadd.s64 %rd10, %rd9, %rd5;\nst.global.f32 [%rd10], %f3;\n\n$L__BB0_2:\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 03:59:19][info][302585] Patching request 6b704186a3f7742b37f64fe46b3b3eb917b44f38111242c077f0d71885ba2d52 not found in cache, patching..
+[2026-11-09 03:59:19.719] [info] [core.cpp:321] [ptxpass] kretprobe: matched=1, in=5735, out=11948
+[2026-11-09 03:59:19][debug][302544] Writing patched PTX to /tmp/bpftime-fatbin-work.zu4CnP
+[2026-11-09 03:59:19][info][302544] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-09 03:59:19][info][302544] Compiling PTXs with sm_arch sm_87
+[2026-11-09 03:59:19][info][302544] Compiler version: 13.2
+[2026-11-09 03:59:19][info][302586] Start compiling patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-09 03:59:19][debug][302586] Info: ptxas info    : 346 bytes gmem, 40972 bytes cmem[3], 80 bytes cmem[4]
+ptxas info    : Compiling entry function '_Z9vectorAddPKfS0_Pf' for 'sm_87'
+ptxas info    : Function properties for _Z9vectorAddPKfS0_Pf
+ptxas         .     16488 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 38 registers, used 0 barriers, 16488 bytes cumulative stack size, 376 bytes cmem[0], 40 bytes cmem[2]
+ptxas info    : Compile time = 112.804 ms
+ptxas info    : Function properties for __probe_func___Z9vectorAddPKfS0_Pf
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for __retprobe_func___Z9vectorAddPKfS0_Pf
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0001
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0002
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0006
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0502
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Function properties for _bpf_helper_ext_0505
+ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+
+[2026-11-09 03:59:19][info][302586] Compile of patched.temp.1.sm_75.ptx done
+[2026-11-09 03:59:19][info][302544] Loading module: patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-09 03:59:19][info][302544] Copying trampoline data to device
+[2026-11-09 03:59:19][info][302544] constData symbol device_ptr=19dd72000 size=8 shared_mem_ptr=1022c09c8
+[2026-11-09 03:59:19][info][302544] map_info symbol device_ptr=19dd72008 size=40960
+[2026-11-09 03:59:19][info][302544] Trampoline data copied
+[2026-11-09 03:59:19][info][302544] Loaded module: patched.temp.1.sm_75.ptx
+[2026-11-09 03:59:19][info][302544] nv_attach_impl: ingested fatbin from .nv_fatbin in /home/jetson/src/bpftime-gpu-work/benchmark/gpu/workload/vec_add_legacy
+[2026-11-09 03:59:19][info][302544] nv_attach_impl: found 1 fatbin wrapper(s) in /home/jetson/src/bpftime-gpu-work/benchmark/gpu/workload/vec_add_legacy
+[2026-11-09 03:59:19][info][302544] Temporary fatbin written to /tmp/bpftime-fatbin-work.prgLvH/temp.fatbin
+[2026-11-09 03:59:19][info][302544] Extracting PTX in the fatbin...
+[2026-11-09 03:59:19][info][302544] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.prgLvH/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 03:59:19][info][302544] Got 1 PTX files
+[2026-11-09 03:59:19][info][302544] Loading & patching current fatbin..
+[2026-11-09 03:59:19][info][302594] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 03:59:19][debug][302594] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4293139043,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":4292348539,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967268},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967256},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":4294484345,"upper_32bit":0},{"lower_32bit":407,"upper_32bit":10},{"lower_32bit":4292090467,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967252},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":196629,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":1},{"lower_32bit":65541,"upper_32bit":0},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":4289206907,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967252},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967208},{"lower_32bit":4376,"upper_32bit":13},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":280,"upper_32bit":1030976544},{"lower_32bit":0,"upper_32bit":175467557},{"lower_32bit":4291304059,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1919249184},{"lower_32bit":0,"upper_32bit":745301358},{"lower_32bit":4290779771,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1953391904},{"lower_32bit":0,"upper_32bit":1684370021},{"lower_32bit":4290255483,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":745892901},{"lower_32bit":0,"upper_32bit":691022896},{"lower_32bit":4289731195,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1701996628},{"lower_32bit":0,"upper_32bit":673211489},{"lower_32bit":4289206907,"upper_32bit":0},{"lower_32bit":439,"upper_32bit":0},{"lower_32bit":4291828339,"upper_32bit":0},{"lower_32bit":4294484857,"upper_32bit":0},{"lower_32bit":4292387961,"upper_32bit":0},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967208},{"lower_32bit":695,"upper_32bit":41},{"lower_32bit":133,"upper_32bit":6},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n.const .align 4 .u32 d_N;\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n.reg .pred %p<2>;\n.reg .f32 %f<4>;\n.reg .b32 %r<6>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\nmov.u32 %r2, %ctaid.x;\nmov.u32 %r3, %ntid.x;\nmov.u32 %r4, %tid.x;\nmad.lo.s32 %r1, %r2, %r3, %r4;\nld.const.u32 %r5, [d_N];\nsetp.ge.s32 %p1, %r1, %r5;\n@%p1 bra $L__BB0_2;\n\ncvta.to.global.u64 %rd4, %rd1;\nmul.wide.s32 %rd5, %r1, 4;\nadd.s64 %rd6, %rd4, %rd5;\ncvta.to.global.u64 %rd7, %rd2;\nadd.s64 %rd8, %rd7, %rd5;\nld.global.f32 %f1, [%rd8];\nld.global.f32 %f2, [%rd6];\nadd.f32 %f3, %f2, %f1;\ncvta.to.global.u64 %rd9, %rd3;\nadd.s64 %rd10, %rd9, %rd5;\nst.global.f32 [%rd10], %f3;\n\n$L__BB0_2:\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 03:59:19][info][302594] Patching request dc4af588a310683361948738fc02f24935fcc1e87b8bd3204c952c2b3e75883b found in cache
+[2026-11-09 03:59:19][debug][302594] Input: {"ebpf_instructions":[{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967288},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967280},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967272},{"lower_32bit":133,"upper_32bit":505},{"lower_32bit":1975,"upper_32bit":0},{"lower_32bit":4293163619,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967268},{"lower_32bit":4376,"upper_32bit":3},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":1727,"upper_32bit":0},{"lower_32bit":4292377211,"upper_32bit":0},{"lower_32bit":394773,"upper_32bit":0},{"lower_32bit":24953,"upper_32bit":0},{"lower_32bit":262421,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":502},{"lower_32bit":24953,"upper_32bit":0},{"lower_32bit":4127,"upper_32bit":0},{"lower_32bit":4292348539,"upper_32bit":0},{"lower_32bit":4292115043,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967252},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":1},{"lower_32bit":196629,"upper_32bit":0},{"lower_32bit":377,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":1},{"lower_32bit":65541,"upper_32bit":0},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":4288158331,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967252},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967192},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":439,"upper_32bit":1},{"lower_32bit":4291828323,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967248},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967256},{"lower_32bit":1719,"upper_32bit":0},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":439,"upper_32bit":2},{"lower_32bit":4291566179,"upper_32bit":0},{"lower_32bit":41663,"upper_32bit":0},{"lower_32bit":519,"upper_32bit":4294967244},{"lower_32bit":41919,"upper_32bit":0},{"lower_32bit":775,"upper_32bit":4294967288},{"lower_32bit":4376,"upper_32bit":14},{"lower_32bit":0,"upper_32bit":0},{"lower_32bit":1207,"upper_32bit":0},{"lower_32bit":133,"upper_32bit":2},{"lower_32bit":280,"upper_32bit":1970021693},{"lower_32bit":0,"upper_32bit":175336992},{"lower_32bit":4290779771,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1634891108},{"lower_32bit":0,"upper_32bit":1852795252},{"lower_32bit":4290255483,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1852990827},{"lower_32bit":0,"upper_32bit":539782245},{"lower_32bit":4289731195,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1769497888},{"lower_32bit":0,"upper_32bit":543450484},{"lower_32bit":4289206907,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":745892901},{"lower_32bit":0,"upper_32bit":691022896},{"lower_32bit":4288682619,"upper_32bit":0},{"lower_32bit":280,"upper_32bit":1701996628},{"lower_32bit":0,"upper_32bit":673211489},{"lower_32bit":4288158331,"upper_32bit":0},{"lower_32bit":4291324531,"upper_32bit":0},{"lower_32bit":4294484857,"upper_32bit":0},{"lower_32bit":4292387961,"upper_32bit":0},{"lower_32bit":41407,"upper_32bit":0},{"lower_32bit":263,"upper_32bit":4294967192},{"lower_32bit":695,"upper_32bit":49},{"lower_32bit":133,"upper_32bit":6},{"lower_32bit":183,"upper_32bit":0},{"lower_32bit":149,"upper_32bit":0}],"input":{"ebpf_communication_data_symbol":"constData","full_ptx":"\n\n\t// .globl\t__probe_func___Z9vectorAddPKfS0_Pf\n\n\n\n\n\n\n.visible .func __probe_func___Z9vectorAddPKfS0_Pf()\n{\n\t.local .align 8 .b8 \t__local_depot0[16464];\n\t.reg .b64 \t%SP;\n\t.reg .b64 \t%SPL;\n\t.reg .pred \t%p<2>;\n\t.reg .b16 \t%rs<2>;\n\t.reg .b32 \t%r<2>;\n\t.reg .b64 \t%rd<57>;\n\n\tmov.u64 \t%SPL, __local_depot0;\n\tcvta.local.u64 \t%SP, %SPL;\n\tadd.u64 \t%rd8, %SP, 0;\n\tadd.u64 \t%rd1, %SPL, 0;\n\tadd.s64 \t%rd2, %rd8, 16384;\n\tadd.s64 \t%rd9, %rd8, 16376;\n\tadd.s64 \t%rd10, %rd8, 16368;\n\tadd.s64 \t%rd11, %rd8, 16360;\n\t{ // callseq 0, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd9;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd10;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd11;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd12;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd13;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0505, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd14, [retval0+0];\n\t} // callseq 0\n\tmov.u32 \t%r1, 0;\n\tst.local.u32 \t[%rd1+16356], %r1;\n\tmov.u64 \t%rd16, 0;\n\t{ // callseq 1, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd16;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd10;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd11;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd17;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd18;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0502, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd19, [retval0+0];\n\t} // callseq 1\n\tst.local.u64 \t[%rd1+16344], %rd19;\n\tadd.s64 \t%rd21, %rd8, 16356;\n\tadd.s64 \t%rd22, %rd8, 16344;\n\tmov.u64 \t%rd23, 3;\n\t{ // callseq 2, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd23;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd21;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd22;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd16;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd24;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0002, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd25, [retval0+0];\n\t} // callseq 2\n\tld.local.u64 \t%rd27, [%rd1+16376];\n\tmul.hi.u64 \t%rd28, %rd27, -3689348814741910323;\n\tshr.u64 \t%rd29, %rd28, 3;\n\tmul.lo.s64 \t%rd30, %rd29, 10;\n\tsub.s64 \t%rd31, %rd27, %rd30;\n\tst.local.u32 \t[%rd1+16340], %rd31;\n\tadd.s64 \t%rd3, %rd8, 16340;\n\tmov.u64 \t%rd32, 13;\n\t{ // callseq 3, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd32;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd3;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd22;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd16;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd33;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0001, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd34, [retval0+0];\n\t} // callseq 3\n\tsetp.eq.s64 \t%p1, %rd34, 0;\n\tmov.u64 \t%rd56, 1;\n\t@%p1 bra \t$L__BB0_2;\n\tld.u32 \t%rd35, [%rd34];\n\tld.u32 \t%rd36, [%rd34+4];\n\tshl.b64 \t%rd37, %rd36, 32;\n\tor.b64  \t%rd38, %rd37, %rd35;\n\tadd.s64 \t%rd56, %rd38, 1;\n$L__BB0_2:\n\tst.local.u64 \t[%rd1+16296], %rd56;\n\tadd.s64 \t%rd39, %rd2, -88;\n\t{ // callseq 4, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd32;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd3;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd39;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd16;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd42;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0002, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd43, [retval0+0];\n\t} // callseq 4\n\tmov.u64 \t%rd45, 753627419854992416;\n\tst.local.u64 \t[%rd1+16328], %rd45;\n\tmov.u64 \t%rd46, 3201044960193637152;\n\tst.local.u64 \t[%rd1+16320], %rd46;\n\tmov.u64 \t%rd47, 7234314156511225120;\n\tst.local.u64 \t[%rd1+16312], %rd47;\n\tmov.u64 \t%rd48, 2967920739853102117;\n\tst.local.u64 \t[%rd1+16304], %rd48;\n\tmov.u64 \t%rd49, 2891421330248460372;\n\tst.local.u64 \t[%rd1+16296], %rd49;\n\tmov.u16 \t%rs1, 0;\n\tst.local.u8 \t[%rd1+16336], %rs1;\n\tld.local.u64 \t%rd50, [%rd1+16376];\n\tld.local.u64 \t%rd51, [%rd1+16344];\n\tmov.u64 \t%rd52, 41;\n\t{ // callseq 5, 0\n\t.reg .b32 temp_param_reg;\n\t.param .b64 param0;\n\tst.param.b64 \t[param0+0], %rd39;\n\t.param .b64 param1;\n\tst.param.b64 \t[param1+0], %rd52;\n\t.param .b64 param2;\n\tst.param.b64 \t[param2+0], %rd50;\n\t.param .b64 param3;\n\tst.param.b64 \t[param3+0], %rd51;\n\t.param .b64 param4;\n\tst.param.b64 \t[param4+0], %rd53;\n\t.param .b64 retval0;\n\tcall.uni (retval0), \n\t_bpf_helper_ext_0006, \n\t(\n\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n\tld.param.b64 \t%rd54, [retval0+0];\n\t} // callseq 5\n\tret;\n\n}\n\n\n\n\n\n\n\n\n\n.version 9.2\n.target sm_75\n.address_size 64\n\n\n.const .align 4 .u32 d_N;\n\n.visible .entry _Z9vectorAddPKfS0_Pf(\n.param .u64 _Z9vectorAddPKfS0_Pf_param_0,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_1,\n.param .u64 _Z9vectorAddPKfS0_Pf_param_2\n)\n{\n\n    call __probe_func___Z9vectorAddPKfS0_Pf;\n.reg .pred %p<2>;\n.reg .f32 %f<4>;\n.reg .b32 %r<6>;\n.reg .b64 %rd<11>;\n\n\nld.param.u64 %rd1, [_Z9vectorAddPKfS0_Pf_param_0];\nld.param.u64 %rd2, [_Z9vectorAddPKfS0_Pf_param_1];\nld.param.u64 %rd3, [_Z9vectorAddPKfS0_Pf_param_2];\nmov.u32 %r2, %ctaid.x;\nmov.u32 %r3, %ntid.x;\nmov.u32 %r4, %tid.x;\nmad.lo.s32 %r1, %r2, %r3, %r4;\nld.const.u32 %r5, [d_N];\nsetp.ge.s32 %p1, %r1, %r5;\n@%p1 bra $L__BB0_2;\n\ncvta.to.global.u64 %rd4, %rd1;\nmul.wide.s32 %rd5, %r1, 4;\nadd.s64 %rd6, %rd4, %rd5;\ncvta.to.global.u64 %rd7, %rd2;\nadd.s64 %rd8, %rd7, %rd5;\nld.global.f32 %f1, [%rd8];\nld.global.f32 %f2, [%rd6];\nadd.f32 %f3, %f2, %f1;\ncvta.to.global.u64 %rd9, %rd3;\nadd.s64 %rd10, %rd9, %rd5;\nst.global.f32 [%rd10], %f3;\n\n$L__BB0_2:\nret;\n\n}\n\n","global_ebpf_map_info_symbol":"map_info","to_patch_kernel":"_Z9vectorAddPKfS0_Pf"}}
+[2026-11-09 03:59:19][info][302594] Patching request 6b704186a3f7742b37f64fe46b3b3eb917b44f38111242c077f0d71885ba2d52 found in cache
+[2026-11-09 03:59:19][debug][302544] Writing patched PTX to /tmp/bpftime-fatbin-work.mCqxmx
+[2026-11-09 03:59:19][info][302544] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-09 03:59:19][info][302544] Compiling PTXs with sm_arch sm_87
+[2026-11-09 03:59:19][info][302544] Compiler version: 13.2
+[2026-11-09 03:59:19][info][302605] PTX patched.temp.1.sm_75.ptx (6b16d4c982f0f03dcc5f00444bfb34783afc3f27063dd371b94deacb4feb3b5f) found in cache
+[2026-11-09 03:59:19][info][302544] Module patched.temp.1.sm_75.ptx found in cache
+[2026-11-09 03:59:19][info][302544] nv_attach_impl: late attach bootstrap ingested 2 fatbin(s)
+[2026-11-09 03:59:19][debug][302544] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 03:59:19][debug][302544] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 03:59:19][debug][302544] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 03:59:19][debug][302544] Prefilled patched CUDA kernel _Z9vectorAddPKfS0_Pf
+[2026-11-09 03:59:19][debug][302544] Instantiating done: 21
+[2026-11-09 03:59:19][debug][302544] Registering signal handler
+[2026-11-09 03:59:19][info][302544] agent ipc: listening (abstract) for pid 302544
+[2026-11-09 03:59:19][debug][302544] Set environment variable BPFTIME_USED
+[2026-11-09 03:59:19][info][302544] Attach successfully
+[2026-11-09 03:59:19][debug][302544] Entering cudaMalloc..
+[2026-11-09 03:59:19][debug][302544] Entering cudaMalloc..
+[2026-11-09 03:59:19][debug][302544] Entering cudaMalloc..
+[2026-11-09 03:59:19][debug][302544] grid_dim: 1, 1, 1
+[2026-11-09 03:59:19][debug][302544] block_dim: 10, 1, 1
+[2026-11-09 03:59:19][debug][302544] Late attach launch: resolved _Z9vectorAddPKfS0_Pf -> patched CUfunction
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142476078560
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142476078560, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142476078560
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142476078560, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142476078560
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142476078560, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142476078560
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142476078560, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142476078560
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142476078560, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142476078560
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142476078560, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142476078560
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142476078560, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142476078560
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142476078560, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142476078560
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142476078560, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142476078560
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142476078560, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10197344 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10197344, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10197344 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10197344, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10197344 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10197344, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10197344 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10197344, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10197344 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10197344, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10197344 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10197344, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10197344 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10197344, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10197344 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10197344, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10197344 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10197344, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10197344 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10197344, arg3=1946156096
+Running benchmark with 5 iterations...
+Kernel: vectorAdd
+Data size: 0 MB
+Grid config: 1 blocks × 10 threads/block = 10 total threads
+
+[2026-11-09 03:59:19][debug][302544] grid_dim: 1, 1, 1
+[2026-11-09 03:59:19][debug][302544] block_dim: 10, 1, 1
+[2026-11-09 03:59:19][debug][302544] Late attach launch: resolved _Z9vectorAddPKfS0_Pf -> patched CUfunction
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142497029152
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142497029152, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142497029152
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142497029152, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142497029152
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142497029152, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142497029152
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142497029152, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142497029152
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142497029152, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142497029152
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142497029152, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142497029152
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142497029152, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142497029152
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142497029152, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142497029152
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142497029152, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142497029152
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142497029152, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10506944 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10506944, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10506944 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10506944, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10506944 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10506944, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10506944 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10506944, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10506944 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10506944, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10506944 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10506944, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10506944 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10506944, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10506944 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10506944, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10506944 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10506944, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10506944 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10506944, arg3=1946156096
+[2026-11-09 03:59:19][debug][302544] grid_dim: 1, 1, 1
+[2026-11-09 03:59:19][debug][302544] block_dim: 10, 1, 1
+[2026-11-09 03:59:19][debug][302544] Late attach launch: resolved _Z9vectorAddPKfS0_Pf -> patched CUfunction
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142518235456
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142518235456, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142518235456
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142518235456, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142518235456
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142518235456, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142518235456
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142518235456, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142518235456
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142518235456, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142518235456
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142518235456, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142518235456
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142518235456, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142518235456
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142518235456, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142518235456
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142518235456, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142518235456
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142518235456, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10521888 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10521888, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10521888 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10521888, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10521888 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10521888, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10521888 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10521888, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10521888 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10521888, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10521888 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10521888, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10521888 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10521888, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10521888 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10521888, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10521888 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10521888, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10521888 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10521888, arg3=1946156096
+[2026-11-09 03:59:19][debug][302544] grid_dim: 1, 1, 1
+[2026-11-09 03:59:19][debug][302544] block_dim: 10, 1, 1
+[2026-11-09 03:59:19][debug][302544] Late attach launch: resolved _Z9vectorAddPKfS0_Pf -> patched CUfunction
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142539423552
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142539423552, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142539423552
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142539423552, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142539423552
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142539423552, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142539423552
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142539423552, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142539423552
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142539423552, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142539423552
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142539423552, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142539423552
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142539423552, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142539423552
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142539423552, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142539423552
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142539423552, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142539423552
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142539423552, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10585728 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10585728, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10585728 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10585728, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10585728 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10585728, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10585728 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10585728, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10585728 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10585728, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10585728 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10585728, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10585728 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10585728, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10585728 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10585728, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10585728 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10585728, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10585728 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10585728, arg3=1946156096
+[2026-11-09 03:59:19][debug][302544] grid_dim: 1, 1, 1
+[2026-11-09 03:59:19][debug][302544] block_dim: 10, 1, 1
+[2026-11-09 03:59:19][debug][302544] Late attach launch: resolved _Z9vectorAddPKfS0_Pf -> patched CUfunction
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142560700160
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142560700160, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142560700160
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142560700160, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142560700160
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142560700160, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142560700160
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142560700160, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142560700160
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142560700160, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142560700160
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142560700160, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142560700160
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142560700160, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142560700160
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142560700160, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142560700160
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142560700160, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142560700160
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142560700160, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10582976 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10582976, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10582976 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10582976, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10582976 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10582976, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10582976 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10582976, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10582976 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10582976, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10582976 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10582976, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10582976 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10582976, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10582976 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10582976, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10582976 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10582976, arg3=1946156096
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10582976 ns
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10582976, arg3=1946156096
+[2026-11-09 03:59:19][debug][302544] grid_dim: 1, 1, 1
+[2026-11-09 03:59:19][debug][302544] block_dim: 10, 1, 1
+[2026-11-09 03:59:19][debug][302544] Late attach launch: resolved _Z9vectorAddPKfS0_Pf -> patched CUfunction
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142581974208
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142581974208, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142581974208
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142581974208, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142581974208
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142581974208, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142581974208
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142581974208, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142581974208
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142581974208, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142581974208
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142581974208, arg3=1946156104
+[2026-11-09 03:59:19][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142581974208
+[2026-11-09 03:59:19][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142581974208, arg3=1946156104
+[2026-11-09 03:59:20][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142581974208
+[2026-11-09 03:59:20][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142581974208, arg3=1946156104
+[2026-11-09 03:59:20][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142581974208
+[2026-11-09 03:59:20][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142581974208, arg3=1946156104
+[2026-11-09 03:59:20][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) entered kernel, ts=1184142581974208
+[2026-11-09 03:59:20][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) entered kernel, ts=%lu
+, arg1=0, arg2=1184142581974208, arg3=1946156104
+[2026-11-09 03:59:20][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10613536 ns
+[2026-11-09 03:59:20][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10613536, arg3=1946156096
+[2026-11-09 03:59:20][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10613536 ns
+[2026-11-09 03:59:20][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10613536, arg3=1946156096
+[2026-11-09 03:59:20][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10613536 ns
+[2026-11-09 03:59:20][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10613536, arg3=1946156096
+[2026-11-09 03:59:20][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10613536 ns
+[2026-11-09 03:59:20][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10613536, arg3=1946156096
+[2026-11-09 03:59:20][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10613536 ns
+[2026-11-09 03:59:20][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10613536, arg3=1946156096
+[2026-11-09 03:59:20][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10613536 ns
+[2026-11-09 03:59:20][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10613536, arg3=1946156096
+[2026-11-09 03:59:20][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10613536 ns
+[2026-11-09 03:59:20][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10613536, arg3=1946156096
+[2026-11-09 03:59:20][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10613536 ns
+[2026-11-09 03:59:20][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10613536, arg3=1946156096
+[2026-11-09 03:59:20][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10613536 ns
+[2026-11-09 03:59:20][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10613536, arg3=1946156096
+[2026-11-09 03:59:20][debug][302548] CUDA Received call request id 6, map_ptr = 0, map_fd = 0
+Thread (0,0,0) exited kernel, duration=10613536 ns
+[2026-11-09 03:59:20][debug][302548] CUDA: Executing bpf_printk: Thread (%lu,0,0) exited kernel, duration=%lu ns
+, arg1=0, arg2=10613536, arg3=1946156096
+========================================
+Benchmark results:
+========================================
+Setup phase:
+  Host allocation:   1 us
+  Device allocation: 285 us
+  Host to device:    170 us (0.22 GB/s)
+  Device to host:    89 us (0.43 GB/s)
+
+Kernel execution:
+  Total time:        106294.40 us
+  Average kernel time: 21258.88 us
+  Throughput:        47.04 kernels/sec
+
+Detailed statistics (μs):
+  Mean:              21258.78 us
+  Median:            21273.54 us
+  Min:               21203.29 us
+  Max:               21325.09 us
+  P95:               21325.09 us
+  P99:               21325.09 us
+  Std dev:           46.40 us
+
+Validation check: C[0] = 0.00, C[1] = 0.00
+========================================
+[2026-11-09 03:59:20][info][302548] Exiting CUDA watcher thread
