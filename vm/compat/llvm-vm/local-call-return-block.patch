@@ -1,5 +1,7 @@
-compiler.cpp: the return block of a bpf-to-bpf call at pc 0, and for the AOT
-cache: a pseudo map value LDDW as a symbol in relocatable mode.
+compiler.cpp: the return block of a bpf-to-bpf call at pc 0; a bpf-to-bpf call
+moves r10 by one whole frame (STACK_SIZE 8-byte slots, 512 bytes; it moved 64
+bytes, so a callee's stack overlapped its caller's); and for the AOT cache: a
+pseudo map value LDDW as a symbol in relocatable mode.
 --- a/src/compiler.cpp
 +++ b/src/compiler.cpp
 @@ -478,8 +478,10 @@
@@ -15,7 +17,24 @@ cache: a pseudo map value LDDW as a symbol in relocatable mode.
  				    insts[i - 1].opcode == EBPF_OP_CALL &&
  				    insts[i - 1].src == 0x01) {
  					auto blockAddr =
-@@ -1135,6 +1137,18 @@
+@@ -544,13 +546,14 @@
+ 						  builder.getInt64(5)),
+ 				callItemCnt);
+ 			// Restore data stack
+-			// r10 += stack_size
++			// r10 += stack_size, in bytes: one frame is
++			// STACK_SIZE 8-byte slots (see stackBegin).
+ 			builder.CreateStore(
+ 				builder.CreateAdd(
+ 					builder.CreateLoad(
+ 						builder.getInt64Ty(),
+ 						regs[10]),
+-					builder.getInt64(STACK_SIZE)),
++					builder.getInt64(STACK_SIZE * 8)),
+ 				regs[10]);
+ 			auto indrBr = builder.CreateIndirectBr(targetAddr);
+ 			for (const auto &item : localFuncRetBlks) {
+@@ -1135,6 +1138,18 @@
  					builder.CreateStore(
  						emitKernelPseudoSymbol(
  							builder,
@@ -34,3 +53,20 @@ cache: a pseudo map value LDDW as a symbol in relocatable mode.
  							kernel_pseudo_map_value_symbol(
  								inst.imm,
  								nextinst.imm)),
+@@ -1451,13 +1466,14 @@
+ 									4)) }));
+ 				}
+ 				// Move data stack
+-				// r10 -= stackSize
++				// r10 -= stackSize, in bytes: one frame is
++				// STACK_SIZE 8-byte slots (see stackBegin).
+ 				builder.CreateStore(
+ 					builder.CreateSub(
+ 						builder.CreateLoad(
+ 							builder.getInt64Ty(),
+ 							regs[10]),
+-						builder.getInt64(STACK_SIZE)),
++						builder.getInt64(STACK_SIZE * 8)),
+ 					regs[10]);
+ 				if (auto dstBlk = loadCallDstBlock(pc, inst,
+ 								   instBlocks);
