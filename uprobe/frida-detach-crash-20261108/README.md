@@ -34,7 +34,11 @@ no suspension; `gum_thread_suspend` on Linux is `tgkill(SIGSTOP)`, which
 stops the whole process), `_gum_interceptor_backend_activate_trampoline`
 (16-byte form: `put_ldr_reg_address` + `put_br_reg`, then `flush`),
 `gum_arm64_writer_commit_literals` (patches the ldr's imm19 after writing
-the literal). frida-gum main (copy of 2026-11-04) writes the same way.
+the literal). frida-gum main (read 2026-11-09) writes the same way: the
+writer's order is unchanged, and on Linux `gum_memory_patch_code_pages` takes
+its RWX branch (`gum_memory_can_remap_writable` is FALSE there), which writes
+in place without suspending; only the non-RWX branch writes a copy and
+suspends threads. Upgrading Gum does not close the window.
 
 ## Fix (bpftime test code)
 
@@ -67,6 +71,16 @@ Mutations on the fix (`mutations.sh`, 5 runs of the three detach cases each):
 
 no-grace on "No probe callback" alone, 10 runs: 4/10 new order, 3/10 old
 order (`cb-*`): not weakened by the reordering.
+
+Coverage the reordering removed: the detach test's first cycle also added
+Gum's leave listener to the hooked function under load
+(`gum_function_context_add_listener`: entries copied, old array freed when a
+plain read of `trampoline_usage_counter` sees 0). Not covered now; no crash
+was traced to it (all 15 diag crashes have the redirect-write signature).
+
+bpftime commit: `4af39252` on local branch `dev/frida-detach-crash-20261109`
+(worktree `bpftime-daily-state/worktrees/177a1dc465ff/frida-detach-crash`,
+parent 9898ed19). Not pushed.
 
 ## Exposure and options
 
