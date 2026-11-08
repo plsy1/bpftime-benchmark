@@ -36,6 +36,11 @@ if(BPFTIME_ENABLE_UNIT_TESTING OR
     (NOT DEFINED BPFTIME_TRAP_ATTACH_BUILD_TESTS OR BPFTIME_TRAP_ATTACH_BUILD_TESTS)))
   enable_testing()
 endif()
+if(BPFTIME_ENABLE_UNIT_TESTING)
+  # cmake/cuda.cmake's layout detection on fake CUDA roots (no CUDA needed).
+  add_test(NAME bpftime_find_cuda_layouts
+    COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test/find_cuda_layouts.cmake)
+endif()
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Debug")
