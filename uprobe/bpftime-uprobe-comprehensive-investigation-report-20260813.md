@@ -514,15 +514,15 @@ Lookup/update 对 key size 的斜率在同一 map 类型中几乎相同，进一
 
 ### 主要原始结果
 
-- [ARM64 顶层结果](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/uprobe/uprobe-top-arm64-20260803)
-- [x64 顶层结果](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/uprobe/uprobe-top-x64-20260802)
-- [跨架构汇总](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/uprobe/uprobe-top-cross-arch-20260803)
-- [ARM64 matched BPFtime–kernel 差额](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/uprobe/relative-kernel-attribution-arm64-20260812)
-- [Production-path A/B](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/uprobe/map-production-leaf-ab-arm64-20260813)
-- [Per-CPU hash lookup 叶子 A/B](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/uprobe/percpu-hash-lookup-leaf-ab-arm64-20260813)
-- [其余四项叶子 A/B](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/uprobe/remaining-map-leaf-ab-arm64-20260813)
-- [Per-CPU hash delete 分层](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/uprobe/percpu-hash-delete-layers-arm64-20260805)
-- [Hash workload 稳健性原始结果](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/uprobe/hash-workload-robustness-arm64-20260816)
+- [ARM64 顶层结果](https://github.com/plsy1/bpftime-benchmark/tree/jetson-results-before-cleanup-20261110/uprobe/uprobe-top-arm64-20260803)
+- [x64 顶层结果](https://github.com/plsy1/bpftime-benchmark/tree/jetson-results-before-cleanup-20261110/uprobe/uprobe-top-x64-20260802)
+- [跨架构汇总](https://github.com/plsy1/bpftime-benchmark/tree/jetson-results-before-cleanup-20261110/uprobe/uprobe-top-cross-arch-20260803)
+- [ARM64 matched BPFtime–kernel 差额](https://github.com/plsy1/bpftime-benchmark/tree/jetson-results-before-cleanup-20261110/uprobe/relative-kernel-attribution-arm64-20260812)
+- [Production-path A/B](https://github.com/plsy1/bpftime-benchmark/tree/jetson-results-before-cleanup-20261110/uprobe/map-production-leaf-ab-arm64-20260813)
+- [Per-CPU hash lookup 叶子 A/B](https://github.com/plsy1/bpftime-benchmark/tree/jetson-results-before-cleanup-20261110/uprobe/percpu-hash-lookup-leaf-ab-arm64-20260813)
+- [其余四项叶子 A/B](https://github.com/plsy1/bpftime-benchmark/tree/jetson-results-before-cleanup-20261110/uprobe/remaining-map-leaf-ab-arm64-20260813)
+- [Per-CPU hash delete 分层](https://github.com/plsy1/bpftime-benchmark/tree/jetson-results-before-cleanup-20261110/uprobe/percpu-hash-delete-layers-arm64-20260805)
+- [Hash workload 稳健性原始结果](https://github.com/plsy1/bpftime-benchmark/tree/jetson-results-before-cleanup-20261110/uprobe/hash-workload-robustness-arm64-20260816)
 
 ## 18. 仍可回答的后续问题
 
