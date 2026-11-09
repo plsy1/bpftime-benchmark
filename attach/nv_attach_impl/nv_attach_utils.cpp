@@ -7,6 +7,7 @@
 #include <openssl/sha.h>
 #include <cstdlib>
 #include <cuda.h>
+#include <mutex>
 namespace fmt_lib = spdlog::fmt_lib;
 namespace bpftime
 {
@@ -102,70 +103,52 @@ std::string get_gpu_sm_arch()
 	// First check environment variable
 	const char *sm_arch_env = std::getenv("BPFTIME_SM_ARCH");
 	if (sm_arch_env && sm_arch_env[0] != '\0') {
-		SPDLOG_INFO("Using SM arch from BPFTIME_SM_ARCH: {}",
-			    sm_arch_env);
+		SPDLOG_DEBUG("Using SM arch from BPFTIME_SM_ARCH: {}",
+			     sm_arch_env);
 		return sm_arch_env;
 	}
 
-	// Auto-detect from CUDA driver
+	// Detected once and kept here: it used to be stored with setenv in
+	// the application's environment. A failure is not kept (the driver may
+	// not be initialized yet), and gives no architecture: the old sm_61
+	// fallback is refused by CUDA 13 and wrong for any newer device.
+	static std::mutex detected_mutex;
+	static std::string detected;
+	std::lock_guard<std::mutex> guard(detected_mutex);
+	if (!detected.empty())
+		return detected;
+
 	CUdevice device;
 	int major = 0, minor = 0;
 
 	// Prefer current context if one exists; otherwise fall back to device 0.
 	CUresult err = cuCtxGetDevice(&device);
 	if (err != CUDA_SUCCESS) {
-		SPDLOG_INFO(
-			"cuCtxGetDevice failed with {}, falling back to device 0 for SM arch detection",
+		SPDLOG_DEBUG(
+			"cuCtxGetDevice failed with {}, using device 0 for SM arch detection",
 			(int)err);
-
-		err = cuInit(0);
-		if (err != CUDA_SUCCESS) {
-			SPDLOG_WARN(
-				"Failed to initialize CUDA driver ({}), falling back to sm_61",
-				(int)err);
-			return "sm_61";
-		}
-
-		err = cuDeviceGet(&device, 0);
-		if (err != CUDA_SUCCESS) {
-			SPDLOG_WARN(
-				"Failed to get CUDA device 0 ({}), falling back to sm_61",
-				(int)err);
-			return "sm_61";
-		}
+		if (err = cuInit(0); err == CUDA_SUCCESS)
+			err = cuDeviceGet(&device, 0);
 	}
-
-	err = cuDeviceGetAttribute(&major,
-				   CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR,
-				   device);
+	if (err == CUDA_SUCCESS)
+		err = cuDeviceGetAttribute(
+			&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR,
+			device);
+	if (err == CUDA_SUCCESS)
+		err = cuDeviceGetAttribute(
+			&minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR,
+			device);
 	if (err != CUDA_SUCCESS) {
 		SPDLOG_WARN(
-			"Failed to get compute capability major ({}), falling back to sm_61",
+			"Unable to detect the GPU's SM architecture (CUDA error {}); set BPFTIME_SM_ARCH. Kernels stay unpatched",
 			(int)err);
-		return "sm_61";
+		return {};
 	}
 
-	err = cuDeviceGetAttribute(&minor,
-				   CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR,
-				   device);
-	if (err != CUDA_SUCCESS) {
-		SPDLOG_WARN(
-			"Failed to get compute capability minor ({}), falling back to sm_61",
-			(int)err);
-		return "sm_61";
-	}
-
-	std::string sm_arch = "sm_" + std::to_string(major * 10 + minor);
+	detected = "sm_" + std::to_string(major * 10 + minor);
 	SPDLOG_INFO("Auto-detected GPU SM arch: {} (compute capability {}.{})",
-		    sm_arch, major, minor);
-
-	if (setenv("BPFTIME_SM_ARCH", sm_arch.c_str(), 1) != 0) {
-		SPDLOG_WARN(
-			"Failed to set BPFTIME_SM_ARCH environment variable to {}",
-			sm_arch);
-	}
-
-	return sm_arch;
+		    detected, major, minor);
+	return detected;
 }
 
 } // namespace attach

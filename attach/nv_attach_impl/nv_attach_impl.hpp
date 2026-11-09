@@ -206,6 +206,10 @@ class nv_attach_impl final : public base_attach_impl {
 	// Whether the fatbins in bytes (one or more, back to back) have a PTX
 	// entry; true when their layout is not understood.
 	static bool fatbin_has_ptx(const std::vector<uint8_t> &bytes);
+	// BPFTIME_CUDA_KEEP_PTX=1: the extracted and the patched PTX stay in
+	// /tmp/bpftime-fatbin-work.* (debug logging used to keep them, one
+	// directory per fatbin and run, never removed).
+	static bool keeps_ptx_work_dirs();
 	std::optional<std::map<std::string, std::tuple<std::string, bool>>>
 		hack_fatbin(std::map<std::string, std::string>);
 	std::map<std::string, std::string>

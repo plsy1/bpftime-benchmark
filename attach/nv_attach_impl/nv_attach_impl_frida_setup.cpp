@@ -544,11 +544,23 @@ static CUresult cu_launch_kernel_common(
 	auto kernel_name = cuda_graph_maybe_get_kernel_name_from_cufunction(
 		*impl, func);
 	if (kernel_name) {
+		// A patched function is what the cudaLaunchKernel redirect
+		// passes here: it records its own launch.
 		if (auto patched = impl->find_patched_kernel_function(*kernel_name);
-		    patched) {
-			func = *patched;
-			impl->record_patched_launch(
-				reinterpret_cast<cudaStream_t>(stream));
+		    patched && *patched != func) {
+			auto err = original(*patched, grid_dim_x, grid_dim_y,
+					    grid_dim_z, block_dim_x, block_dim_y,
+					    block_dim_z, shared_mem_bytes, stream,
+					    kernel_params, extra);
+			if (err == CUDA_SUCCESS) {
+				// after the launch: detach waits for it
+				impl->record_patched_launch(
+					reinterpret_cast<cudaStream_t>(stream));
+				return err;
+			}
+			BPFTIME_LOG_WARN_RATELIMITED(
+				"nv_attach_impl: late path: the patched launch of {} failed ({}); launching the original",
+				kernel_name->c_str(), (int)err);
 		}
 	} else {
 		BPFTIME_LOG_WARN_RATELIMITED(

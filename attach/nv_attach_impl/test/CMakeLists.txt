@@ -5,6 +5,7 @@ set(TEST_SOURCES
     test_ptx_failure.cpp
     test_load_substitution.cpp
     test_late_path.cpp
+    test_robustness.cpp
     # test_kernel_finder.cpp
 )
 add_executable(bpftime_nv_attach_tests ${TEST_SOURCES})
@@ -36,7 +37,7 @@ if(${TEST_LCOV})
 else()
     target_link_libraries(bpftime_nv_attach_tests PRIVATE Catch2::Catch2WithMain bpftime_nv_attach_impl ptxpass_core spdlog::spdlog cuda)
 endif()
-target_include_directories(bpftime_nv_attach_tests PRIVATE ${CMAKE_SOURCE_DIR}/runtime/ ${NV_ATTACH_IMPL_INCLUDE} ${CMAKE_SOURCE_DIR}/attach/nv_attach_impl/pass/ptxpass_core/include ${Catch2_INCLUDE} ${SPDLOG_INCLUDE})
+target_include_directories(bpftime_nv_attach_tests PRIVATE ${CMAKE_SOURCE_DIR}/runtime/ ${NV_ATTACH_IMPL_INCLUDE} ${CMAKE_CURRENT_BINARY_DIR}/.. ${CMAKE_SOURCE_DIR}/attach/nv_attach_impl/pass/ptxpass_core/include ${Catch2_INCLUDE} ${SPDLOG_INCLUDE})
 
 add_test(NAME bpftime_nv_attach_tests COMMAND bpftime_nv_attach_tests)
 

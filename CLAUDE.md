@@ -2208,10 +2208,44 @@ Per-thread array maps (1502, 1512) and single-copy GPU arrays (1503, 1504,
 thread of a module prints one warning in the application (it used to print
 per thread and write past the map: threadhist corrupted the segment).
 
+A map lookup answers with `cuda::gpu_address_of_map_value`: device and
+managed memory as they are, host memory through the device mapping of the
+registered range it lies in (`cuMemHostGetDevicePointer`), NULL for memory
+the GPU cannot reach (it used to add the value's distance from
+`CommSharedMem` to `CommSharedMem`'s device address: an illegal address
+outside the segment). That driver call needs a current context, so the
+watcher thread makes the device's primary context current when it starts
+(without it every lookup returned NULL: the host-call test fails).
+
 Not covered: several CUDA processes on one segment (each agent zeroes
 `CommSharedMem` at start, and any process's watcher may serve a request).
 Tests: `[cuda-host-call]`, `[cuda-ringbuf]` (bpftime_runtime_tests; the GPU
 cases load the trampoline with small PTX kernels and skip without a GPU).
+
+## CUDA Attach: Effects On The Application
+
+The agent runs inside the application and shares its libc under
+`LD_PRELOAD`, so its CUDA attach code must not change process state:
+- `get_gpu_sm_arch` reads `BPFTIME_SM_ARCH`, else detects the device's
+  architecture once and keeps it in a static (it used to `setenv` it into the
+  application). When the driver cannot be queried it returns an empty string
+  and `compile_ptxs` throws, so the original image is loaded (the old answer,
+  sm_61, is refused by CUDA 13).
+- The PTX compiler library runs nvPTXCompiler under a "C" locale for the
+  compiling thread (`uselocale`); `setlocale(LC_ALL, "")` there switched the
+  whole application to its environment's locale.
+- The extracted and patched PTX stay in `/tmp/bpftime-fatbin-work.*` only
+  with `BPFTIME_CUDA_KEEP_PTX=1` (debug logging used to keep them, one
+  directory per fatbin and run).
+- Late path launches: one CUevent per stream, recorded again after each
+  patched launch (detach waits for it); the `cuLaunchKernel` hook records
+  after the launch and, if the patched launch fails, launches the original.
+  The redirect from `cudaLaunchKernel` calls `cuLaunchKernel` with the
+  patched function, which the hook passes through without recording again
+  (each launch used to create and destroy two events, one recorded before
+  the kernel was queued).
+Tests: `[sm-arch]` (the failure case in a child without visible devices),
+`[ptx-compiler]`, `[ptx-work-dir]` (bpftime_nv_attach_tests).
 
 ## Map Usage Counters
 
