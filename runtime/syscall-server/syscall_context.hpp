@@ -155,6 +155,9 @@ class syscall_context {
 	std::atomic<bool> enable_mock{ true };
 	// Initializing CUDA
 	std::atomic<bool> initializing_cuda{ false };
+	// The GPU is integrated (no CUDA IPC): maps exporting device memory
+	// through IPC are created in host memory (gpu_map_type_without_cuda_ipc).
+	bool cuda_gpu_integrated = false;
 	// Whether enable mock after syscall server has been initialized
 	std::atomic<bool> enable_mock_after_initialized{ true };
 	// fds of bpftime objects inherited from the parent by a fork child of a

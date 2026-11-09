@@ -1043,6 +1043,13 @@ int bpf_map_handler::map_init(managed_shared_memory &memory)
 	try {
 		return map_init_checked(memory);
 	} catch (const std::exception &e) {
+#if defined(BPFTIME_ENABLE_CUDA_ATTACH)
+		// GPU map cases turn the syscall server's mock off around their
+		// constructor (the driver's own system calls must reach the
+		// kernel); a constructor that threw left it off, and every later
+		// bpf() of the tool went to the kernel.
+		shm_holder.global_shared_memory.set_enable_mock(true);
+#endif
 		// Sizes that overflow were refused above: what remains is the
 		// segment running out. Boost's container length_error
 		// ("allocator's max size reached") is not a std::length_error
@@ -1305,6 +1312,8 @@ int bpf_map_handler::map_init_checked(managed_shared_memory &memory)
 		}
 		// Allow configuring thread count by environment variables
 		auto thread_count = get_thread_count(attr);
+		// get_userspace_value_size sizes bpf() values with it
+		attr.gpu_thread_count = thread_count;
 		SPDLOG_INFO(
 			"Map {} (nv_gpu_per_thread_array_map_impl) has space for thread count {}",
 			name.c_str(), thread_count);
@@ -1411,6 +1420,10 @@ int bpf_map_handler::map_init_checked(managed_shared_memory &memory)
 	}
 	// HOST versions: use boost::interprocess + cudaHostRegister (for Tegra)
 	case bpf_map_type::BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP: {
+		// BPFTIME_MAP_GPU_THREAD_COUNT as for 1502 (which integrated GPUs
+		// create as this type); kept in attr, which sizes the values bpf()
+		// returns (get_userspace_value_size).
+		attr.gpu_thread_count = get_thread_count(attr);
 		SPDLOG_INFO(
 			"Map {} (nv_gpu_array_host_map_impl) has space for thread count {}",
 			name.c_str(), attr.gpu_thread_count);

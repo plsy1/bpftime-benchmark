@@ -134,6 +134,25 @@ enum class bpf_map_type {
 	BPF_MAP_TYPE_MAX = 2048,
 };
 
+// On a GPU without CUDA IPC (integrated GPUs such as Jetson: cuIpcGetMemHandle
+// is CUDA_ERROR_NOT_SUPPORTED), the map types that export device memory
+// through it are created in host memory instead: the HOST variants, whose
+// layouts the device code reads the same way, and for the GPU hash map, whose
+// every device operation is a host call, an ordinary hash map.
+inline int gpu_map_type_without_cuda_ipc(int type)
+{
+	switch ((bpf_map_type)type) {
+	case bpf_map_type::BPF_MAP_TYPE_PERGPUTD_ARRAY_MAP:
+		return (int)bpf_map_type::BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP;
+	case bpf_map_type::BPF_MAP_TYPE_GPU_ARRAY_MAP:
+		return (int)bpf_map_type::BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP;
+	case bpf_map_type::BPF_MAP_TYPE_GPU_HASH_MAP:
+		return (int)bpf_map_type::BPF_MAP_TYPE_HASH;
+	default:
+		return type;
+	}
+}
+
 enum class shm_open_type {
 	SHM_REMOVE_AND_CREATE,
 	SHM_OPEN_ONLY,

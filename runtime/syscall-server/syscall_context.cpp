@@ -232,7 +232,22 @@ void syscall_context::initialize_cuda()
 		throw std::runtime_error(
 			"Unable to initialize CUDA from syscall server side");
 	}
-	SPDLOG_INFO("CUDA initialized at syscall server side");
+	{
+		int ordinal = 0;
+		if (const char *p = getenv("BPFTIME_CUDA_DEVICE");
+		    p && p[0] != '\0')
+			ordinal = std::max(0, atoi(p));
+		CUdevice device = 0;
+		int integrated = 0;
+		if (cuDeviceGet(&device, ordinal) == CUDA_SUCCESS &&
+		    cuDeviceGetAttribute(&integrated,
+					 CU_DEVICE_ATTRIBUTE_INTEGRATED,
+					 device) == CUDA_SUCCESS)
+			cuda_gpu_integrated = integrated != 0;
+	}
+	SPDLOG_INFO("CUDA initialized at syscall server side{}",
+		    cuda_gpu_integrated ? " (integrated GPU: no CUDA IPC)" :
+					  "");
 }
 #endif
 
@@ -548,10 +563,23 @@ long syscall_context::handle_sysbpf(int cmd, union bpf_attr *attr, size_t size)
 			"Creating map type={}, name={}, key_size={}, value_size={}",
 			attr->map_type, attr->map_name, attr->key_size,
 			attr->value_size);
+		int map_type = (int)attr->map_type;
+#ifdef BPFTIME_ENABLE_CUDA_ATTACH
+		if (cuda_gpu_integrated) {
+			int host_type =
+				bpftime::gpu_map_type_without_cuda_ipc(map_type);
+			if (host_type != map_type) {
+				SPDLOG_INFO(
+					"Map {}: type {} exports device memory through CUDA IPC, which this integrated GPU lacks; creating type {} in host memory",
+					attr->map_name, map_type, host_type);
+				map_type = host_type;
+			}
+		}
+#endif
 		int id = bpftime_maps_create(
 			-1 /* let the shm alloc fd for us */, attr->map_name,
 			bpftime::bpf_map_attr{
-				(int)attr->map_type,
+				map_type,
 				attr->key_size,
 				attr->value_size,
 				attr->max_entries,
