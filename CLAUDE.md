@@ -2128,10 +2128,22 @@ the managed-variable victim untraced).
 Not covered: fatbins without PTX (SASS only), `-rdc` (cudart links those at
 run time), cubin or PTX images and driver-API applications' `cuModuleLoad*`,
 several GPUs (the globals are written in one device's primary context),
-applications launching in other contexts. After the last probe detaches,
-substituted kernels keep running their probes (the watcher still answers
-their host calls). Tests: `[load-substitution]` (bpftime_nv_attach_tests);
-end to end, the example matrix (results `gpu/fixes-20261109`, `fix-matrix.sh`).
+applications launching in other contexts. Tests: `[load-substitution]`
+(bpftime_nv_attach_tests); end to end, the example matrix (results
+`gpu/fixes-20261109`, `fix-matrix.sh`).
+
+A patched image cannot be unloaded (cudart holds the library), so the probes
+in it are switched off instead: every probe function starts by loading
+`__bpftime_probes_enabled` (declared beside the trampoline, initialized to
+1; `gate_probe_function` in ptxpass_core, for every pass) and returns at once
+when it is 0, and the last detach writes 0 into every substituted library
+(`turn_off_substituted_probes`). Kernels launched afterwards run unprobed;
+kernels already running finish with their probes. A later session's probes are
+not patched into those modules (they fall back to the late path). Cost: one
+cached global load per probe call. End to end (`detach-switch.sh`, a victim
+launching once a second, SIGUSR1 after 5 s): events stop at the detach (5 then
+6, the launch SIGUSR1 starts by cutting `sleep(1)` short); without the
+switch-off 5 then 11.
 
 ## Map Usage Counters
 

@@ -149,6 +149,8 @@ std::string compile_ebpf_to_ptx_from_words(
 	bool add_register_guard_and_filter_version_headers,
 	bool with_arguments);
 std::string filter_compiled_ptx_for_ebpf_program(std::string input);
+// Insert the probe switch check at the start of func_name's body.
+std::string gate_probe_function(std::string ptx, const std::string &func_name);
 // Find kernel body range [begin, end) for a given kernel name using .visible
 // .entry and brace depth Returns pair(begin,end); if not found, returns
 // {std::string::npos, std::string::npos}

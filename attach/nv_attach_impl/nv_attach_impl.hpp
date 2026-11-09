@@ -29,6 +29,7 @@
 #include <vector>
 #include <atomic>
 #include <deque>
+#include <functional>
 
 namespace bpftime
 {
@@ -275,6 +276,10 @@ class nv_attach_impl final : public base_attach_impl {
 		const std::vector<uint8_t> *patched_image_for_fatbin(
 			const void *fatbin);
 		bool write_trampoline_globals(CUlibrary library);
+		// Under load_substitution_mutex: run fn with a context current
+		// (this thread's, else the retained primary context).
+		bool with_cuda_context(const std::function<bool()> &fn);
+		void turn_off_substituted_probes();
 		// try_loading_ptxs; on failure log it (the fatbin stays
 		// unpatched) and return false.
 		bool try_loading_or_log(fatbin_record &rec, const char *where);
@@ -312,6 +317,9 @@ class nv_attach_impl final : public base_attach_impl {
 			std::map<const void *, const std::vector<uint8_t> *>
 				image_by_fatbin;
 			CUcontext retained_primary_context = nullptr;
+			// Libraries loaded from patched images: their probes can
+			// only be switched off (__bpftime_probes_enabled).
+			std::vector<CUlibrary> substituted_libraries;
 			// Late bootstrap needs to be repeatable across trace sessions.
 			// Using a heap-allocated once_flag allows resetting it after detach.
 			std::unique_ptr<std::once_flag> late_bootstrap_once =
