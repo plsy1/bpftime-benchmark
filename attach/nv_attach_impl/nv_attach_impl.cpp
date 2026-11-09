@@ -896,8 +896,11 @@ nv_attach_impl::hack_fatbin(std::map<std::string, std::string> all_ptx)
 	std::map<std::string, std::tuple<std::string, bool>> ptx_out;
 	std::mutex map_mutex;
 	std::mutex cache_mutex;
+	// An exception leaving a pool task ends the process (std::terminate).
+	std::string first_error;
 	for (auto &[file_name, original_ptx] : all_ptx) {
-		boost::asio::post(pool, [this, original_ptx, file_name, &map_mutex, &ptx_out, &cache_mutex]() -> void {
+		boost::asio::post(pool, [this, original_ptx, file_name, &map_mutex, &ptx_out, &cache_mutex, &first_error]() -> void {
+		try {
 			auto current_ptx = original_ptx;
 			SPDLOG_INFO("Patching PTX: {}", file_name);
 			bool should_add_trampoline = false;
@@ -1045,9 +1048,22 @@ nv_attach_impl::hack_fatbin(std::map<std::string, std::string> all_ptx)
 			std::lock_guard<std::mutex> _guard(map_mutex);
 			ptx_out["patched." + file_name] = std::make_tuple(
 				current_ptx, should_add_trampoline);
+		} catch (const std::exception &e) {
+			std::lock_guard<std::mutex> _guard(map_mutex);
+			if (first_error.empty())
+				first_error = file_name + ": " + e.what();
+		} catch (...) {
+			std::lock_guard<std::mutex> _guard(map_mutex);
+			if (first_error.empty())
+				first_error = file_name + ": unknown error";
+		}
 		});
 	}
 	pool.join();
+	if (!first_error.empty()) {
+		SPDLOG_ERROR("PTX passes failed: {}", first_error);
+		return std::nullopt;
+	}
 	if (spdlog::should_log(spdlog::level::debug)) {
 		char tmp_dir[] = "/tmp/bpftime-fatbin-work.XXXXXX";
 		if (mkdtemp(tmp_dir) == nullptr) {
@@ -1811,6 +1827,20 @@ read_fatbin_bytes_from_wrapper(const __fatBinC_Wrapper_t &wrapper)
 }
 } // namespace
 
+bool nv_attach_impl::try_loading_or_log(fatbin_record &rec,
+					const char *where)
+{
+	try {
+		rec.try_loading_ptxs(*this);
+		return true;
+	} catch (const std::exception &e) {
+		SPDLOG_ERROR(
+			"nv_attach_impl: a fatbin of {} could not be patched ({}); its kernels run unpatched",
+			where, e.what());
+	}
+	return false;
+}
+
 void nv_attach_impl::bootstrap_existing_fatbins()
 {
 	SPDLOG_INFO("nv_attach_impl: late attach bootstrap scanning fatbins..");
@@ -1837,13 +1867,15 @@ void nv_attach_impl::bootstrap_existing_fatbins()
 						std::move(extracted_ptx);
 					rec->module_pool = module_pool;
 					rec->ptx_pool = ptx_pool;
-					rec->try_loading_ptxs(*this);
-					fatbin_records.emplace_back(
-						std::move(rec));
-					ingested++;
-					SPDLOG_INFO(
-						"nv_attach_impl: ingested fatbin from .nv_fatbin in {}",
-						mod.path.c_str());
+					if (try_loading_or_log(*rec,
+							       mod.path.c_str())) {
+						fatbin_records.emplace_back(
+							std::move(rec));
+						ingested++;
+						SPDLOG_INFO(
+							"nv_attach_impl: ingested fatbin from .nv_fatbin in {}",
+							mod.path.c_str());
+					}
 				}
 			}
 		}
@@ -1874,7 +1906,8 @@ void nv_attach_impl::bootstrap_existing_fatbins()
 				rec->original_ptx = std::move(extracted_ptx);
 				rec->module_pool = module_pool;
 				rec->ptx_pool = ptx_pool;
-				rec->try_loading_ptxs(*this);
+				if (!try_loading_or_log(*rec, mod.path.c_str()))
+					continue;
 				fatbin_records.emplace_back(std::move(rec));
 				ingested++;
 			}
@@ -1891,11 +1924,12 @@ void nv_attach_impl::bootstrap_existing_fatbins()
 			rec->original_ptx = std::move(extracted_ptx);
 			rec->module_pool = module_pool;
 			rec->ptx_pool = ptx_pool;
-			rec->try_loading_ptxs(*this);
-			fatbin_records.emplace_back(std::move(rec));
-			ingested++;
-			SPDLOG_INFO(
-				"nv_attach_impl: ingested fatbin via external PTX directory fallback");
+			if (try_loading_or_log(*rec, "BPFTIME_CUDA_LATE_PTX_DIR")) {
+				fatbin_records.emplace_back(std::move(rec));
+				ingested++;
+				SPDLOG_INFO(
+					"nv_attach_impl: ingested fatbin via external PTX directory fallback");
+			}
 		}
 	}
 
