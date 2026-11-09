@@ -1,414 +1,221 @@
-# Jetson BPFtime benchmark 结果索引
+# Jetson bpftime results
 
-本分支保存 Jetson ARM64 与固定频率 x64 上的 `ssl-nginx`、`benchmark/uprobe`
-原始结果、统计汇总、复现脚本和环境记录。分析结论位于
-[`summry/jetson`](https://github.com/plsy1/bpftime-benchmark/tree/summry/jetson) 分支。
+Results of bpftime on the Jetson Orin Nano 8 GB (aarch64, L4T R39.2.1, BTF kernel
+6.8.12-1021-tegra-btf since 2026-10-26): raw data, summaries, the scripts that produced them and the
+board state. Results from the x86 NUC are on
+[`benchmark-results/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/x86-nuc);
+the earlier analysis reports are on
+[`summry/jetson`](https://github.com/plsy1/bpftime-benchmark/tree/summry/jetson). Since late
+October each round's conclusions are in its own README here.
 
-用户 x86 NUC（i5-1240P）上的结果在 [`benchmark-results/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/x86-nuc) 分支
-（10/26 曾短暂提交在本分支，已搬走）。
+## Branches
 
-**分支改名（2026-10-26）**：去掉了 `codex/` 前缀。`codex/uprobe-official-177a1dc465ff` → `dev/uprobe-official-177a1dc465ff`（开发分支），
-`codex/uprobe-official-8da867d541f8` → `archive/uprobe-official-8da867d541f8`，`codex/uprobe-map-optimization` →
-`archive/uprobe-map-optimization`，`codex/official-no-btf` → `archive/official-no-btf`。提交号不变；各结果目录里的旧名
-（`source-state.txt`、日志、当时的说明）是当时的记录，未改动，按上面的对应关系换成新名即可。
+- Development: `dev/uprobe-official-4708f4092d1e` (official 4708f409) since 2026-11-10
+  ([base-4708f409-20261110](uprobe/base-4708f409-20261110/)). Before it
+  `dev/uprobe-official-177a1dc465ff`, archived as `archive/uprobe-official-177a1dc465ff`; before
+  that `archive/uprobe-official-8da867d541f8`. Both archives hold commits of the daily list: keep
+  them.
+- Daily: `automation/jetson-daily` replays the list onto each new official commit as
+  `dev/uprobe-official-<SHA>` and runs the official uprobe benchmark
+  ([official-daily](uprobe/official-daily/)).
+- Results directories record the branch names of their day (`codex/` until 2026-10-26, the
+  177a1dc465ff dev branch until 2026-11-10); the commit ids are unchanged.
 
-## 快速入口
+## Removed on 2026-11-10
 
-最新工程与实验状态（2026-10-21）：
-[默认 array JIT + delete 回退修复](uprobe/array-jit-default-delete-fix-20261021/RESULT.md)，
-[完整十轮与 consuming 对比表](uprobe/array-jit-default-delete-fix-20261021/full10/ten-operation-comparison.md)。
-完整十轮于 14:59:07 JST 结束，退出码/样本/SHA/默认内联审计通过；优化源码已提交推送为 `c0939bd`，尚未加入每日补丁栈。
-本次同步选定结果文本，不包含本机二进制、完整源码快照及所有中间实验。模型接力见
-[研究进度与接力文档](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/bpftime-uprobe-handoff-20261021.md)。
+Results from before 2026-10-19 were removed from this branch: the July ssl-nginx ablations
+(`empty-probe`, `full-aligned`, `full-unaligned`, `no-copy_no-output`, `no-output`,
+`v4-ablation`), the August and September map path studies and official benchmark reproductions,
+and the October 11-18 hash and per-CPU A/B rounds (141 directories and 60 loose logs and notes). They are at the
+tag [`jetson-results-before-cleanup-20261110`](https://github.com/plsy1/bpftime-benchmark/tree/jetson-results-before-cleanup-20261110),
+as is this README's previous index. Kept from before 10-19, because later results build on them:
+the 10-07 official benchmark reproduction and the 10-18 lookup follow-ups.
 
-| 主题 | 结果入口 | 对应结论 |
-|---|---|---|
-| uprobe 普通 map 系统调查 | [ARM64/x64 顶层对照](uprobe/uprobe-top-cross-arch-20260803/) | [系统报告](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/ordinary/bpftime-uprobe-ordinary-map-systematic-report-20260804.md) |
-| uprobe per-CPU map | [ARM64 路径诊断](uprobe/arm64-bpftime-vs-kernel-paths-20260803/) | [跨架构分析](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/percpu/bpftime-uprobe-percpu-cross-architecture-analysis-20260728.md) |
-| uprobe ARM64 matched 顶层差额 | [统一 lookup/update 对照](uprobe/relative-kernel-attribution-arm64-20260812/) | [口径与结论](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/attribution/bpftime-uprobe-matched-kernel-gap-arm64-20260812.md) |
-| uprobe ARM64 生产路径归因 | [生产 runtime A/B 与 PMU](uprobe/map-production-leaf-ab-arm64-20260813/) | [具体操作归因](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/attribution/bpftime-uprobe-production-path-attribution-arm64-20260813.md) |
-| 五项 map 操作叶子归因 | [per-CPU hash lookup数据](uprobe/percpu-hash-lookup-leaf-ab-arm64-20260813/) · [其余四项数据](uprobe/remaining-map-leaf-ab-arm64-20260813/) | [统一五项报告](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/attribution/bpftime-uprobe-five-map-leaf-attribution-arm64-20260813.md) |
-| Hash workload 稳健性 | [load/key/value matched sweep](uprobe/hash-workload-robustness-arm64-20260816/) | [稳健性报告](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/attribution/bpftime-uprobe-hash-workload-robustness-arm64-20260816.md) |
-| ssl-nginx V1–V4 消融 | [Empty Probe](empty-probe/run01/) · [No-copy/No-output](no-copy_no-output/run01/) · [No-output](no-output/run01/) · [Full aligned](full-aligned/) | [ARM 根因总览](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/ssl-nginx/bpftime-arm-performance-root-cause-20260727.md) |
-| software perf record 对齐 | [Full unaligned](full-unaligned/) 与 [Full aligned](full-aligned/) | [对齐修复报告](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/archive/bpftime-software-perf-record-alignment-fix-20260722.md) |
+## Index
 
-## uprobe 数据索引
+The reviews: [reviews-20261031](reviews-20261031/README.md),
+[reviews-20261105](reviews-20261105/README.md) (with its reports `report-*.md`).
 
-### 顶层官方 benchmark
+### GPU (CUDA attach on the Orin Nano)
 
-| 目录 | 内容 |
+| results | what |
 |---|---|
-| [uprobe-top-arm64-20261007-strict-repro-official-no-btf](uprobe/uprobe-top-arm64-20261007-strict-repro-official-no-btf/) | Jetson MAXN_SUPER、CPU5 固定 1.728 GHz、GCC 13 + LLVM 15、LTO ON、checks OFF，2026-10-07 完整 10 轮复现结果 |
-| [uprobe-top-arm64-20260910-strict-repro-official-no-btf](uprobe/uprobe-top-arm64-20260910-strict-repro-official-no-btf/) | Jetson MAXN_SUPER、CPU5 固定 1.728 GHz、GCC 13 + LLVM 15、LTO ON、checks OFF，10 轮 official no-BTF uprobe 严格复现结果 |
-| [uprobe-top-arm64-20260909-maxn-super-official-no-btf](uprobe/uprobe-top-arm64-20260909-maxn-super-official-no-btf/) | Jetson MAXN_SUPER、`jetson_clocks`、1.728 GHz CPU、10 轮 official no-BTF uprobe 完整结果 |
-| [uprobe-top-arm64-20260909-official-no-btf](uprobe/uprobe-top-arm64-20260909-official-no-btf/) | Jetson 25W、`jetson_clocks`、10 轮 official no-BTF uprobe 完整结果 |
-| [uprobe-top-arm64-20260803](uprobe/uprobe-top-arm64-20260803/) | Jetson CPU5、5 个独立 victim 的完整官方 uprobe 顶层结果 |
-| [uprobe-top-x64-20260803-fixedfreq](uprobe/uprobe-top-x64-20260803-fixedfreq/) | 固定频率 x64 的对应顶层结果 |
-| [uprobe-top-cross-arch-20260803](uprobe/uprobe-top-cross-arch-20260803/) | 两个平台统一口径的 raw、net helper 与比较表 |
-| [uprobe-top-x64-20260802](uprobe/uprobe-top-x64-20260802/) | x64 早期顶层实验，保留用于审计 |
+| [feasibility-20261109](gpu/feasibility-20261109/) | bpftime CUDA attach on the Orin Nano (first look) |
+| [examples-20261109](gpu/examples-20261109/) | bpftime CUDA attach on the Orin Nano: example runs, measurements, problems |
+| [fixes-20261109](gpu/fixes-20261109/) | CUDA attach on the Orin Nano, the fix round |
 
-### BPFtime helper 与 userspace map 路径
+### System call tracing (aarch64 rewriting)
 
-| 目录 | 内容 |
+| results | what |
 |---|---|
-| [percpu-array-optimization-arm64-20261011](uprobe/percpu-array-optimization-arm64-20261011/) | 第一项正式优化：移除 per-CPU array 的 std::function 包装；独立构建、正确性测试、原版/优化版 matched A/B 和完整回归状态 |
-| [helper-map-ladder-arm64-20260804](uprobe/helper-map-ladder-arm64-20260804/) | Jetson matched helper ladder、direct L0–L3 与 PMU |
-| [array-path-arm-diagnosis-20260801](uprobe/array-path-arm-diagnosis-20260801/) | Jetson array map userspace 路径分解 |
-| [hash-path-arm-diagnosis-20260801](uprobe/hash-path-arm-diagnosis-20260801/) | Jetson hash map userspace 路径分解 |
-| [map-path-x64-20260802](uprobe/map-path-x64-20260802/) | x64 对应 map 路径数据 |
-| [hash-l0-perf-x64-20260802](uprobe/hash-l0-perf-x64-20260802/) | x64 hash L0 microbenchmark 与 perf 数据 |
-| [top-hash-residual-arm64-20260803](uprobe/top-hash-residual-arm64-20260803/) | Jetson hash lookup 顶层 matched 边界与 PMU |
-| [relative-kernel-attribution-arm64-20260812](uprobe/relative-kernel-attribution-arm64-20260812/) | 普通/per-CPU lookup/update 的统一 matched BPFtime−kernel 顶层差额；目录名保留，但不将跨 harness 余项解释为归因阶段 |
-| [map-production-leaf-ab-arm64-20260813](uprobe/map-production-leaf-ab-arm64-20260813/) | 同一诊断 runtime 二进制上的生产路径 A/B、PMU 复核与 per-CPU hash delete 延迟回收实验 |
-| [percpu-hash-lookup-leaf-ab-arm64-20260813](uprobe/percpu-hash-lookup-leaf-ab-arm64-20260813/) | per-CPU hash lookup 的 key assign、2×2 hash/equality、完整 find 边界和 perf 路径确认 |
-| [remaining-map-leaf-ab-arm64-20260813](uprobe/remaining-map-leaf-ab-arm64-20260813/) | per-CPU hash update、per-CPU array lookup/update与ordinary array update的叶子A/B、PMU和perf |
-| [hash-workload-robustness-arm64-20260816](uprobe/hash-workload-robustness-arm64-20260816/) | Ordinary/per-CPU hash 的 load factor、key size、value size matched wall/PMU sweep |
+| [arm64-trampoline-20261028](syscall/arm64-trampoline-20261028/) | aarch64 system call rewriting: end-to-end check (2026-10-28) |
+| [breakdown-20261029](syscall/breakdown-20261029/) | Where bpftime's per-syscall cost goes (ARM64, 2026-10-29) |
+| [dispatch-fix-20261029](syscall/dispatch-fix-20261029/) | System call dispatch fix: remeasured (2026-10-29, Jetson) |
+| [official-syscall-20261029](syscall/official-syscall-20261029/) | Official benchmark/syscall on ARM64 (2026-10-29) |
+| [syscount-nginx-20261029](syscall/syscount-nginx-20261029/) | Official syscount-nginx on the Jetson (2026-10-29) |
+| [coverage-20261030](syscall/coverage-20261030/) | aarch64 system call rewriting: what it misses, and the fixes (2026-10-30) |
+| [fuse-20261030](syscall/fuse-20261030/) | fuse benchmark on the Jetson (2026-10-30) |
+| [realapps-20261102](syscall/realapps-20261102/) | System call rewriting on real runtimes: Go, Node, Java (2026-11-02) |
 
-### Kernel map runtime 与跨架构诊断
+### Kernel and board
 
-| 目录 | 内容 |
+| results | what |
 |---|---|
-| [kernel-map-runtime-arm64-20260803-profile](uprobe/kernel-map-runtime-arm64-20260803-profile/) | Jetson kernel helper wall、PMU、perf report 和反汇编 |
-| [kernel-map-runtime-x64-20260803-fixedfreq](uprobe/kernel-map-runtime-x64-20260803-fixedfreq/) | 固定频率 x64 的对应 kernel runtime 数据 |
-| [kernel-array-update-sizes-arm64-20260803](uprobe/kernel-array-update-sizes-arm64-20260803/) | Jetson array update 8B–256B value-size sweep |
-| [kernel-array-update-sizes-x64-20260803-fixedfreq](uprobe/kernel-array-update-sizes-x64-20260803-fixedfreq/) | x64 的对应 value-size sweep |
-| [kernel-array-update-internal-x64-20260803-fixedfreq](uprobe/kernel-array-update-internal-x64-20260803-fixedfreq/) | x64 kernel array update 内部路径诊断 |
-| [kernel-map-runtime-arm64-20260801](uprobe/kernel-map-runtime-arm64-20260801/) | Jetson 第一阶段 kernel runtime A/B |
-| [kernel-map-runtime-x64-20260802](uprobe/kernel-map-runtime-x64-20260802/) | x64 第一阶段 kernel runtime A/B |
+| [crash-20261024](kernel/crash-20261024/) | Kernel panic on 2026-10-24 ~05:50 JST (stock 6.8.12-1021-tegra) |
+| [memtest-20261025](kernel/memtest-20261025/) | Memory test after the 2026-10-24 kernel panic (2026-10-25) |
+| [l4t-r39.2.1-btf](kernel/l4t-r39.2.1-btf/) | Building and booting the L4T R39.2.1 kernel with BTF |
 
-### 其他 ARM64 诊断
+### Reviews
 
-| 目录 | 内容 |
+| results | what |
 |---|---|
-| [arm64-bpftime-vs-kernel-paths-20260803](uprobe/arm64-bpftime-vs-kernel-paths-20260803/) | ARM64 BPFtime/kernel 路径与 PMU 对照 |
+| [rereview](reviews-20261031/rereview/) | Second round of independent reviews (2026-10-31, dev f2d6ae7d) |
+| [rereview2](reviews-20261031/rereview2/) | Third review: the second round's fixes (2026-10-31, dev 9aeb2863) |
+| [rereview3](reviews-20261031/rereview3/) | Fourth review: the third round's fixes, with a severity bar (2026-11-01, dev 6ab9cbfe) |
+| [fixes](reviews-20261031/fixes/) | Fixes for the review findings (2026-10-31) |
+| [refixes](reviews-20261031/refixes/) | Fixes for the second review's findings (2026-10-31) |
+| [refixes2](reviews-20261031/refixes2/) | Fixes for the third review's findings (2026-10-31) |
+| [experiments](reviews-20261031/experiments/) | Experiments of the reviews |
+| [fixes](reviews-20261105/fixes/) | Fixes for the fifth review and problem 13 (2026-11-05, dev 94f9ba8f -> d46ceb8f) |
+| [experiments](reviews-20261105/experiments/) | Experiments of the fifth review |
 
-任务交接要求保存在
-[ARM64-BPFTIME-KERNEL-PATH-TASK-20260803.md](uprobe/ARM64-BPFTIME-KERNEL-PATH-TASK-20260803.md)。
+### uprobe: array and hash lookups, array JIT (10-18 to 10-21)
 
-## ssl-nginx 数据索引
-
-| 目录 | 变体或用途 |
+| results | what |
 |---|---|
-| [empty-probe/run01](empty-probe/run01/) | V1：probe 立即返回，只保留 hook/runtime/JIT 基础路径 |
-| [no-copy_no-output](no-copy_no-output/) | V2：metadata helper、map、事件准备；无 copy、无 output |
-| [no-output/run01](no-output/run01/) | V3：增加 `bpf_probe_read_user`；无 perf-event output |
-| [full-aligned](full-aligned/) | V4 正式结果：完整路径并应用 software perf record 8 字节对齐 |
-| [full-unaligned](full-unaligned/) | V4 异常对照：未修复对齐问题 |
-| [v4-ablation](v4-ablation/) | Full 内部子路径短测和 fair-scope 对照 |
-| [old](old/) | 历史、失败和 v0.2.0 结果；不用于当前正式结论 |
-
-## 归档约定
-
-- 每个正式结果目录应包含 `README.md` 或环境说明、统计表、解析脚本和原始输出。
-- 顶层吞吐量汇总使用 `size_benchmark_*.txt/.json`；单 payload 原始样本使用
-  `benchmark_results_*.json`。
-- 临时构建产物、staging 二进制、`__pycache__` 和超过结果复核所需范围的大型 perf
-  数据不应提交。
-- `old/` 只用于历史审计；引用当前结论时优先使用上表列出的正式目录。
-
----
-
-## `ssl-nginx` 路径消融实验说明
-
-## 技术摘要
-
-本目录保存 Jetson 上 `ssl-nginx` benchmark 的路径消融实验。实验逐步恢复 `sslsniff.bpf.c` 的执行路径，通过端到端吞吐量（Requests/sec）变化，比较 kernel eBPF 与 BPFtime，并近似判断不同路径对吞吐量的影响。
-
-当前正式对比使用 V1、V2、V3 和修复 software perf record 8 字节对齐问题后的 V4 Full：
-
-- V1 空 Probe 下，BPFtime 在全部 payload 上比 kernel eBPF 快 `6.76%～14.90%`。
-- V2 恢复 metadata helper、map 和事件准备后，BPFtime 仍比 kernel 快 `5.65%～15.18%`。
-- V3 恢复 `bpf_probe_read_user` 后，BPFtime 优势收窄到 `2.92%～4.95%`。
-- V4 恢复完整 event-output 路径后，BPFtime 在全部 payload 上转为比 kernel 慢 `4.86%～12.28%`。
-- V4 相对 V3 增加了约 `15.56～19.70` 个百分点的 BPFtime 吞吐量损失，是当前四级消融中影响最大的阶段。
-- 对齐修复使 V4 BPFtime 的七种 payload 平均 CV 从 `13.54%` 降至 `3.47%`，此前的明显双峰消失。
-
-因此，这组吞吐量消融实验支持：
-
-> BPFtime 的基础 probe/runtime 路径本身具有优势；helper、map 和明文复制逐步消耗这项优势；完整 perf-event 输出、传输和消费路径进一步造成最大的吞吐量下降，并使最终 Full 结果低于 kernel eBPF。
-
-本文只分析当前目录中的新实验，不包含 `old/`。
-
-## 一个 `run` 具体执行了什么
-
-每个 `runXX/` 都表示完整执行一次：
-
-```bash
-python3 benchmark/ssl-nginx/draw_figture.py
-```
-
-`draw_figture.py` 依次生成并测试七种 payload：
-
-```text
-16B、1KB、2KB、4KB、16KB、128KB、256KB
-```
-
-对于每种 payload，脚本调用一次：
-
-```bash
-python3 benchmark/ssl-nginx/benchmark.py
-```
-
-`benchmark.py` 中 `NUM_RUNS = 10`，因此每种 payload 包含：
-
-- Baseline：10 次 `wrk`
-- Kernel sslsniff：10 次 `wrk`
-- BPFtime sslsniff：10 次 `wrk`
-
-每次 `wrk` 使用 100 个连接并持续 10 秒：
-
-```bash
-wrk https://127.0.0.1:4043/index.html -c 100 -d 10
-```
-
-因此：
-
-- 一次完整 `draw_figture.py` 包含 `7 × 3 × 10 = 210` 个吞吐量样本。
-- V1、V2、V3 各有一次完整 run，每种 payload、每种模式各有 10 个样本。
-- V4 Full aligned 有两次完整 run，每种 payload、每种模式合计各有 20 个样本。
-- V4 Full unaligned 也保留两次完整 run，但只作为未对齐 bug 的异常对照。
-
-这里的“一次 run”不是单次 `wrk`，而是包含七种 payload 和三种运行模式的完整 benchmark。
-
-## 四个正式消融版本
-
-### V1：Empty Probe
-
-目录：
-
-```text
-empty-probe/run01/
-```
-
-`SSL_read`、`SSL_write` 和 handshake 的 entry/return probe 均直接返回 `0`。
-
-该版本只保留：
-
-- uprobe/uretprobe 触发
-- 上下文保存与恢复
-- BPF 程序分发
-- kernel BPF 或 BPFtime JIT 执行
-- 返回 nginx
-
-它排除 helper、map、metadata 准备、明文复制、perf-event 输出、数据传输和消费者处理。因此，V1 反映基础 probe/runtime 路径对 benchmark 吞吐量的影响。
-
-### V2：No-copy + No-output
-
-目录：
-
-```text
-no-copy_no-output/run01/
-```
-
-该版本恢复：
-
-- `bpf_get_current_pid_tgid`
-- `bpf_get_current_uid_gid`
-- `bpf_ktime_get_ns`
-- `bpf_get_current_comm`
-- map update、lookup 和 delete
-- per-CPU array lookup
-- event metadata 初始化
-
-仍禁用：
-
-```c
-bpf_probe_read_user(...);
-bpf_perf_event_output(...);
-```
-
-V2 相对 V1 的吞吐量变化，近似反映 metadata helper、map 操作和 event preparation 的影响。
-
-### V3：No-output
-
-目录：
-
-```text
-no-output/run01/
-```
-
-该版本恢复：
-
-```c
-bpf_probe_read_user(...);
-```
-
-但仍禁用：
-
-```c
-bpf_perf_event_output(...);
-```
-
-V3 相对 V2 的吞吐量变化，近似反映 SSL 明文复制路径的影响。
-
-### V4：Full aligned
-
-目录：
-
-```text
-full-aligned/run01/
-full-aligned/run02/
-```
-
-该版本恢复完整 `sslsniff.bpf.c`，包括：
-
-- probe/runtime 执行
-- metadata helper
-- map 操作
-- `bpf_probe_read_user`
-- `bpf_perf_event_output`
-- perf-buffer 数据传输
-- userspace `sslsniff` 消费者
-
-容器中的 BPFtime runtime 使用修复后的 agent、syscall-server 和 `bpftimetool`，software perf record 按 8 字节对齐。V4 相对 V3 的吞吐量变化，近似反映完整 event-output、传输和消费路径的端到端影响。
-
-## V4 aligned 的完整吞吐量结果
-
-下表汇总 `full-aligned/run01` 和 `run02`，每项为 20 个样本的平均值。CV 为 BPFtime Requests/sec 的变异系数。
-
-| Payload | Baseline RPS | Kernel RPS | BPFtime RPS | BPFtime 相对 Kernel | BPFtime CV |
-|---|---:|---:|---:|---:|---:|
-| 16B | 16541.78 | 11259.38 | 10315.27 | −8.39% | 2.11% |
-| 1KB | 15896.07 | 10883.89 | 10079.05 | −7.39% | 3.46% |
-| 2KB | 15131.01 | 10457.03 | 9812.67 | −6.16% | 2.13% |
-| 4KB | 14330.22 | 9924.30 | 9441.82 | −4.86% | 3.76% |
-| 16KB | 9916.62 | 7059.99 | 6193.26 | −12.28% | 3.96% |
-| 128KB | 2966.59 | 2028.68 | 1929.99 | −4.86% | 4.37% |
-| 256KB | 1644.17 | 1164.48 | 1061.72 | −8.82% | 4.47% |
-
-两次 aligned run 分开计算时，七种 payload 中 BPFtime 也都低于 kernel，说明方向在两轮之间一致：
-
-- `run01`：BPFtime 相对 kernel 为 `−4.97%～−12.56%`
-- `run02`：BPFtime 相对 kernel 为 `−3.76%～−11.99%`
-
-当前数据没有显示“输出路径只在大 payload 才明显变重”的单调趋势。完整输出路径在全部 payload 上都造成了较大的额外吞吐量损失。
-
-## BPFtime 相对 kernel eBPF 的逐级变化
-
-计算方式：
-
-```text
-BPFtime relative to kernel =
-    (BPFtime RPS / Kernel RPS - 1) × 100%
-```
-
-正数表示 BPFtime 吞吐量高于 kernel eBPF，负数表示低于 kernel eBPF。
-
-| Payload | V1 Empty | V2 No-copy/No-output | V3 No-output | V4 Full aligned |
-|---|---:|---:|---:|---:|
-| 16B | +8.39% | +5.65% | +3.60% | **−8.39%** |
-| 1KB | +12.96% | +7.68% | +4.95% | **−7.39%** |
-| 2KB | +6.76% | +10.99% | +2.92% | **−6.16%** |
-| 4KB | +7.35% | +5.83% | +3.91% | **−4.86%** |
-| 16KB | +9.53% | +10.14% | +4.92% | **−12.28%** |
-| 128KB | +10.88% | +15.18% | +3.95% | **−4.86%** |
-| 256KB | +14.90% | +10.92% | +4.18% | **−8.82%** |
-
-V1 到 V3 中，BPFtime 始终优于 kernel。性能关系在 V4 恢复完整输出路径后统一翻转，因此当前最主要的吞吐量分界出现在 `bpf_perf_event_output` 及其后续传输和消费链路。
-
-## 各阶段引入的 BPFtime 吞吐量损失
-
-每个版本首先相对其同轮 baseline 计算吞吐量损失：
-
-```text
-Throughput impact =
-    (Baseline RPS - BPFtime RPS) / Baseline RPS × 100%
-```
-
-再比较相邻版本的 impact 差值，单位为百分点（percentage points，pp）。
-
-| Payload | V2−V1：helper/map/准备 | V3−V2：明文复制 | V4 aligned−V3：完整输出路径 |
-|---|---:|---:|---:|
-| 16B | +7.67 pp | +2.46 pp | **+17.81 pp** |
-| 1KB | +6.89 pp | +2.63 pp | **+17.49 pp** |
-| 2KB | +6.21 pp | +3.23 pp | **+16.15 pp** |
-| 4KB | +5.98 pp | +3.91 pp | **+15.56 pp** |
-| 16KB | +6.48 pp | +4.23 pp | **+19.70 pp** |
-| 128KB | +6.37 pp | +3.80 pp | **+17.69 pp** |
-| 256KB | +5.83 pp | +5.29 pp | **+18.27 pp** |
-
-从吞吐量角度看：
-
-- helper、map 和事件准备路径带来约 `5.83～7.67 pp` 的额外损失。
-- `bpf_probe_read_user` 路径带来约 `2.46～5.29 pp` 的额外损失。
-- 完整输出路径带来约 `15.56～19.70 pp` 的额外损失，是前三段增量中最大的一段。
-
-这些数值是不同时间执行的相邻消融版本之间的 benchmark 吞吐量差异，不是函数级 CPU 时间，也不应解释为严格可加的绝对执行成本。
-
-## 字节对齐修复消除了 V4 双峰
-
-`full-unaligned/` 保存未应用 software perf record 8 字节对齐修复的两轮 V4：
-
-```text
-full-unaligned/run01/
-full-unaligned/run02/
-```
-
-未对齐 V4 会使 libbpf perf-buffer 消费者在跨 ring 边界读取 record header 时停滞，引起消费者空转、隐藏丢事件和双峰吞吐量。该目录只作为 bug 对照，不参与正式 V1–V4 路径归因。
-
-| Payload | V1 CV | V2 CV | V3 CV | V4 unaligned CV | V4 aligned CV |
-|---|---:|---:|---:|---:|---:|
-| 16B | 1.36% | 0.89% | 0.74% | 16.58% | **2.11%** |
-| 1KB | 0.62% | 1.51% | 1.10% | 14.89% | **3.46%** |
-| 2KB | 1.31% | 1.40% | 2.36% | 12.63% | **2.13%** |
-| 4KB | 1.12% | 2.81% | 1.86% | 12.46% | **3.76%** |
-| 16KB | 0.67% | 1.30% | 1.95% | 15.28% | **3.96%** |
-| 128KB | 0.58% | 1.18% | 3.25% | 14.17% | **4.37%** |
-| 256KB | 1.58% | 2.71% | 2.66% | 8.73% | **4.47%** |
-
-七种 payload 的 V4 BPFtime 平均 CV：
-
-```text
-unaligned：13.54%
-aligned：   3.47%
-下降：     74.4%
-```
-
-例如未对齐 V4 `run01` 的 16B BPFtime 同时出现约 10k 和约 14k RPS：
-
-```text
-10436 10358 14182 14354 10387
-14210 10381 10574 9953 14266
-```
-
-修复后不再出现这一明显双峰。这说明字节对齐修复主要恢复了 perf-buffer 消费的正确性和测量稳定性；未对齐版本中被隐藏丢事件抬高的部分吞吐量不能视为真实性能。
-
-## 结果文件的读取方式
-
-每个完整 run 中：
-
-- `size_benchmark_*.txt`：七种 payload 的汇总表和完整文本输出。
-- `size_benchmark_*.json`：七种 payload 的结构化汇总结果。
-- `benchmark_results_*.json`：单个 payload 中 baseline、kernel 和 BPFtime 各 10 次的原始吞吐量样本。
-- `absolute_performance.png`：该次完整 run 生成的吞吐量图。
-- `*.log`：完整执行日志。
-
-`no-copy_no-output/run01/` 没有单独保存 `benchmark_results_*.json` 和 `size_benchmark_*.json`，但 `size_benchmark_20260724_171625.txt` 的 raw output 中包含全部 210 个吞吐量样本，可以恢复并核对均值与方差。
-
-以下文件时间戳早于本轮路径消融实验，分析时未纳入：
-
-```text
-benchmark_results_20260711_081448.json
-```
-
-`v4-ablation/` 保存对 V4 内部子路径的后续短测和 fair-scope 验证，不与本 README 中四个完整 `draw_figture.py` run 的主表混合。
-
-## 结论边界与后续问题
-
-这组吞吐量消融能够回答：
-
-> 启用某段 `sslsniff` 路径后，完整 `ssl-nginx` benchmark 的吞吐量发生了多大变化？
-
-它不能单独回答：
-
-> 某个 helper 或函数实际执行了多少 CPU 指令或消耗了多少 CPU 时间？
-
-当前最可靠的结论是：
-
-1. BPFtime 的基础 probe/runtime 路径在七种 payload 上均优于 kernel eBPF。
-2. metadata helper、map 操作和明文复制逐步缩小 BPFtime 的吞吐量优势。
-3. aligned V4 的完整输出路径带来最大的吞吐量损失，使 BPFtime 在七种 payload 上均转为低于 kernel。
-4. 8 字节对齐修复消除了未对齐 V4 的明显双峰，使 Full 结果从异常状态恢复为可用于路径归因的稳定测量。
-5. 相邻版本在不同时间顺序执行，因此各阶段差值是近似吞吐量归因；如需更强的因果证据，应采用同一时段交错执行 V1–V4。
-
-后续如果继续分解 V4，应分别消融 `bpf_perf_event_output` 的 producer helper、software perf ring 写入以及 userspace consumer，并保持相同 attach scope、网络模式、构建产物和执行顺序。
+| [uprobe-top-arm64-20261007-strict-repro-official-no-btf](uprobe/uprobe-top-arm64-20261007-strict-repro-official-no-btf/) | Official uprobe benchmark, strict 10-round reproduction (2026-10-07): the baseline of the array JIT rounds |
+| [hash-lookup-optimization-20261018.md](uprobe/hash-lookup-optimization-20261018.md) | Accepted ARM64 hash lookup optimizations — 2026-10-18 |
+| [ordinary-hash-loop-20261018](uprobe/ordinary-hash-loop-20261018/) | Ordinary hash lookup C++ implementation experiments |
+| [percpu-hash-lookup-followup-20261018](uprobe/percpu-hash-lookup-followup-20261018/) | Per-CPU hash lookup follow-up |
+| [percpu-hash-flatten-full10-arm64-20261018](uprobe/percpu-hash-flatten-full10-arm64-20261018/) | Per-CPU hash flatten: full ten rounds (2026-10-18) |
+| [percpu-array-lookup-followup-20261018](uprobe/percpu-array-lookup-followup-20261018/) | Per-CPU array lookup follow-up |
+| [ordinary-array-lookup-cold-20261019](uprobe/ordinary-array-lookup-cold-20261019/) | Ordinary array lookup cold-error-path experiment |
+| [percpu-array-lookup-cold-20261019](uprobe/percpu-array-lookup-cold-20261019/) | Per-CPU array lookup: cold-error-path-only experiment |
+| [percpu-array-address-dependency-20261019](uprobe/percpu-array-address-dependency-20261019/) | Per-CPU array lookup: address-dependency experiment |
+| [array-lookup-load-order-20261019](uprobe/array-lookup-load-order-20261019/) | Ordinary array lookup load-order candidate |
+| [array-lookup-reprofile-20261019](uprobe/array-lookup-reprofile-20261019/) | Accepted array lookup reprofile |
+| [array-offset-branch-20261019](uprobe/array-offset-branch-20261019/) | Local array implementation offset-pointer decoding experiment |
+| [array-jit-inline-poc-20261019](uprobe/array-jit-inline-poc-20261019/) | Ordinary array lookup JIT inline POC |
+| [array-jit-inline-integrated-20261020](uprobe/array-jit-inline-integrated-20261020/) | Ordinary-array JIT integration and lifetime validation |
+| [percpu-array-jit-inline-20261020](uprobe/percpu-array-jit-inline-20261020/) | Per-CPU array lookup JIT specialization |
+| [percpu-array-jit-direct-cpu-20261020](uprobe/percpu-array-jit-direct-cpu-20261020/) | Direct CPU query in the inlined per-CPU array lookup |
+| [percpu-array-jit-cpu-abi-20261020](uprobe/percpu-array-jit-cpu-abi-20261020/) | Zero-argument CPU alias: rejected |
+| [array-jit-default-20261021](uprobe/array-jit-default-20261021/) | Automatic per-call-site array lookup JIT |
+| [array-jit-default-delete-fix-20261021](uprobe/array-jit-default-delete-fix-20261021/) | Default-on array JIT: formal delete regression repair |
+| [array-jit-global-data-20261021](uprobe/array-jit-global-data-20261021/) | Array JIT: libbpf global data in bound programs (2026-10-21) |
+| [jit-eligibility-survey-20261021](uprobe/jit-eligibility-survey-20261021/) | Array JIT eligibility survey (2026-10-21) |
+| [consuming-official-vs-optimized-20261021](uprobe/consuming-official-vs-optimized-20261021/) | Consuming array lookup: unpatched official vs optimized (2026-10-21) |
+| [baseline-177a1dc-jit-llvm16-20261021](uprobe/baseline-177a1dc-jit-llvm16-20261021/) | 177a1dc development baseline (array JIT, LLVM 16) |
+| [daily-jit-stack-validation-20261021](uprobe/daily-jit-stack-validation-20261021/) | Daily patch stack + array JIT replay validation (2026-10-21) |
+| [hash-lookup-helper-gap-20261021](uprobe/hash-lookup-helper-gap-20261021/) | Hash lookup helper gap (2026-10-21) |
+
+### uprobe: hash helpers (10-22, 10-23)
+
+| results | what |
+|---|---|
+| [hash-gap-history-20261022](uprobe/hash-gap-history-20261022/) | Hash helper gap across the optimization history (2026-10-22) |
+| [hash-shape-20261022](uprobe/hash-shape-20261022/) | Hash lookup shape: key order, fill, value use and misses (2026-10-22) |
+| [hash-mutate-20261022](uprobe/hash-mutate-20261022/) | Hash update/delete in three program shapes (2026-10-22) |
+| [hash-probe-bound-20261022](uprobe/hash-probe-bound-20261022/) | Bounded hash probing (1cb20807, 2026-10-22) |
+| [hash-bound-shrink-20261022](uprobe/hash-bound-shrink-20261022/) | Shrinking hash probe bound (af10949b, 2026-10-22) |
+| [hash-helper-fixes-20261022](uprobe/hash-helper-fixes-20261022/) | Hash helper fixes (started 2026-10-22; fixes done, formal validation pending) |
+| [direct-map-helpers-20261022](uprobe/direct-map-helpers-20261022/) | Direct original map helpers in bound programs (f26cc335, 2026-10-22) |
+| [hash-typed-delete-20261023](uprobe/hash-typed-delete-20261023/) | Typed hash delete helper (72aebadd, 2026-10-23) |
+| [fork-child-binding-20261023](uprobe/fork-child-binding-20261023/) | a90fa447: fork children execute inherited array JIT programs (2026-10-23) |
+
+### uprobe: ssl-nginx, perf output, credentials (10-23, 10-24)
+
+| results | what |
+|---|---|
+| [ssl-nginx-2x2-20261023](uprobe/ssl-nginx-2x2-20261023/) | ssl-nginx: does the map optimization show up end to end? (2026-10-23) |
+| [ssl-nginx-netns-recheck-20261023](uprobe/ssl-nginx-netns-recheck-20261023/) | Re-check: does the host network namespace (Tailscale/netfilter) cost bpftime extra? (2026-10-23) |
+| [perf-lost-wakeup-20261023](uprobe/perf-lost-wakeup-20261023/) | db3d475f: report dropped perf samples and wake the consumer before the ring fills (2026-10-23) |
+| [perf-output-no-affinity-20261023](uprobe/perf-output-no-affinity-20261023/) | Software perf output without CPU affinity (2026-10-23) |
+| [perf-output-identity-20261024](uprobe/perf-output-identity-20261024/) | bca2ebce: cache the producer pid and tid in software perf output (2026-10-24) |
+| [uid-gid-cache-20261024](uprobe/uid-gid-cache-20261024/) | 7ed339ad: cache bpf_get_current_uid_gid, invalidate on credential changes (2026-10-24) |
+| [ssl-nginx-ablation-20261024](uprobe/ssl-nginx-ablation-20261024/) | sslsniff path ablation on db3d475f, fair scope (2026-10-24) |
+| [ssl-nginx-ablation2-20261024](uprobe/ssl-nginx-ablation2-20261024/) | Path ablation on 7ed339ad, stage 1 split and perf profile (2026-10-24) |
+| [ssl-nginx-copysize-20261024](uprobe/ssl-nginx-copysize-20261024/) | Why bpftime's lead over kernel narrows with payload size (2026-10-24) |
+| [ssl-nginx-sweep-bca2ebce-20261024](uprobe/ssl-nginx-sweep-bca2ebce-20261024/) | Fair payload sweep with bca2ebce (2026-10-24 20:31-21:01 JST) |
+
+### uprobe: real programs, BTF kernel, DeepFlow (10-25 to 10-27)
+
+| results | what |
+|---|---|
+| [realprog-audit-20261025](uprobe/realprog-audit-20261025/) | Real-program functional audit (2026-10-25) |
+| [realprog-measure-20261025](uprobe/realprog-measure-20261025/) | Real-tool throughput: no tracing / kernel / official / bca2ebce (2026-10-25) |
+| [realprog-fixes-20261025](uprobe/realprog-fixes-20261025/) | Fixes for the real-program audit failures (2026-10-25) |
+| [realprog-next-20261025](uprobe/realprog-next-20261025/) | Frame-pointer stacks, stack trace map, cgroup arrays (2026-10-25) |
+| [realprog-rest-20261026](uprobe/realprog-rest-20261026/) | Remaining bpftime issues from the real-program audit (2026-10-26) |
+| [btf-kernel-20261026](uprobe/btf-kernel-20261026/) | BTF kernel: CO-RE real-tool audit and kernel baselines (2026-10-26) |
+| [nuc-fixes-20261026](uprobe/nuc-fixes-20261026/) | Fixes for the x86 NUC findings (2026-10-26) |
+| [deepflow-btf-20261026](uprobe/deepflow-btf-20261026/) | DeepFlow on ARM64: kernel vs bpftime daemon mode (2026-10-26/27) |
+| [map-usage-20261027](uprobe/map-usage-20261027/) | Runtime map usage of real tools on bpftime (2026-10-27/28) |
+
+### uprobe: maps under threads (10-28)
+
+| results | what |
+|---|---|
+| [dimension-walkthrough-zh.md](uprobe/dimension-walkthrough-zh.md) | 多维度对比：逐项说明（2026-10-28） |
+| [dimension-plan.md](uprobe/dimension-plan.md) | Dimension coverage: consolidated problems and improvement plan (draft, 2026-10-28) |
+| [dimension-problems.md](uprobe/dimension-problems.md) | Dimension coverage: problems found (running list) |
+| [map-threads-20261028](uprobe/map-threads-20261028/) | Entry/exit churn on 1-6 threads: kernel vs bpftime (2026-10-28) |
+| [map-table-20261028](uprobe/map-table-20261028/) | Map tables under threads: tracking table and shared counters (2026-10-28) |
+| [map-scratch-20261028](uprobe/map-scratch-20261028/) | Large per-CPU scratch value under threads (2026-10-28) |
+| [map-torn-20261028](uprobe/map-torn-20261028/) | Torn reads through a hash lookup pointer (2026-10-28) |
+| [percpu-unpinned-20261028](uprobe/percpu-unpinned-20261028/) | Per-CPU maps with unpinned threads lose counts (2026-10-28) |
+| [percpu-hash-fix-20261028](uprobe/percpu-hash-fix-20261028/) | Per-CPU hash fixes: shared counters before and after (2026-10-28) |
+| [dead-holder-20261028](uprobe/dead-holder-20261028/) | Killing a traced process can leave a map lock held forever (2026-10-28) |
+| [probe-path-profile-20261028](uprobe/probe-path-profile-20261028/) | Why bpftime's probe path slows down with threads (2026-10-28) |
+
+### uprobe: multi-thread hash maps and their dev runs (10-30 to 11-04)
+
+| results | what |
+|---|---|
+| [hash-lockfree-lookup-20261030](uprobe/hash-lockfree-lookup-20261030/) | Step 1 of the multi-thread hash map plan: lookups take no lock (2026-10-30) |
+| [hash-striped-writers-20261030](uprobe/hash-striped-writers-20261030/) | Step 2 of the multi-thread hash map plan: writers lock stripes (2026-10-30) |
+| [dev-6ab9cbfe-20261101](uprobe/dev-6ab9cbfe-20261101/) | uprobe suite and ssl-nginx on dev 6ab9cbfe (2026-11-01 03:58-05:07 JST) |
+| [dev-68f19c1f-20261102](uprobe/dev-68f19c1f-20261102/) | uprobe suite and ssl-nginx on dev 68f19c1f (2026-11-02 04:15-05:34 JST) |
+| [dev-a4ac0d31-20261102](uprobe/dev-a4ac0d31-20261102/) | uprobe suite and ssl-nginx on dev a4ac0d31 (2026-11-02 18:47-20:38 JST) |
+| [perf-lost-audit-20261102](uprobe/perf-lost-audit-20261102/) | Perf event loss re-audit on the Jetson (2026-11-02) |
+| [percpu-hash-lockfree-20261102](uprobe/percpu-hash-lockfree-20261102/) | Per-CPU hash without the map lock (2026-11-02) |
+| [hash-single-thread-20261102](uprobe/hash-single-thread-20261102/) | Hash maps' single-thread cost, phase 1 (2026-11-02) |
+| [hash-redesign-survey-20261102](uprobe/hash-redesign-survey-20261102/) | Hash map redesign: survey (2026-11-02) |
+| [hash-keypattern-20261103](uprobe/hash-keypattern-20261103/) | Hash map churn by key pattern, capacity and load, through BPF programs (2026-11-03 00:13-00:47) |
+| [dev-e5ba4aa7-20261103](uprobe/dev-e5ba4aa7-20261103/) | Hash map step 2 (dev e5ba4aa7): elements in u32 chains, per-CPU free lists (2026-11-03 04:12-06:07) |
+| [dev-b7ded27a-20261103](uprobe/dev-b7ded27a-20261103/) | Review fixes for hash map step 2 (dev 199e23ec, 48767d88, b7ded27a), 2026-11-03 16:20-17:00 |
+| [dev-518a6b99-20261103](uprobe/dev-518a6b99-20261103/) | Hash map: updates of existing keys take a spare element (dev 518a6b99), 2026-11-03 17:30-18:35 |
+| [dev-7ad5a152-20261104](uprobe/dev-7ad5a152-20261104/) | Hash map: updates in place, lookups re-check their link (dev 7ad5a152), 2026-11-04 00:20-01:25 |
+
+### uprobe: real tools and the problems they found (11-04, 11-05)
+
+| results | what |
+|---|---|
+| [detach-crash-20261104](uprobe/detach-crash-20261104/) | Problem 7: detach crashes a thread entering a probed function (2026-11-04) |
+| [memleak-fix-20261104](uprobe/memleak-fix-20261104/) | memleak deadlock fix, dev ff5515d8 (2026-11-04) |
+| [stackmap-lockfree-20261104](uprobe/stackmap-lockfree-20261104/) | Stack trace map found without the lock, dev efe08cbd (2026-11-04) |
+| [vs-pre-mt-20261104](uprobe/vs-pre-mt-20261104/) | Real tools before and after the multi-thread map work (2026-11-04) |
+| [realtools-20261104](uprobe/realtools-20261104/) | Real tools end to end, dev 7ad5a152 (2026-11-04) |
+| [harness-gaps-20261104](uprobe/harness-gaps-20261104/) | Harness gaps closed, four new problems (2026-11-04) |
+| [opensnoop-loss-20261105](uprobe/opensnoop-loss-20261105/) | opensnoop delivers half the opens under bpftime: ring buffer, no wakeup |
+| [ringbuf-fd-20261105](uprobe/ringbuf-fd-20261105/) | Problem 9 fixed: ringbuf helpers find the map again, dev 6a15a271 (2026-11-05) |
+| [rodata-dead-code-20261105](uprobe/rodata-dead-code-20261105/) | Dead code by frozen read-only constants, dev 94f9ba8f (2026-11-05) |
+| [exit-log-poison-20261105](uprobe/exit-log-poison-20261105/) | Problems 10 and 11 (2026-11-05) |
+
+### uprobe: dimensions, improvements, start-up (11-06 to 11-10)
+
+| results | what |
+|---|---|
+| [output-dims-20261106](uprobe/output-dims-20261106/) | Event output by dimension: kernel bpf vs bpftime (2026-11-05/06) |
+| [more-dims-20261106](uprobe/more-dims-20261106/) | More dimensions: what the earlier rounds did not measure (2026-11-06) |
+| [improve-20261106](uprobe/improve-20261106/) | Improvements from the 11-06 measurements (2026-11-06) |
+| [remeasure-20261108](uprobe/remeasure-20261108/) | Where bpftime is still slower than bpf (2026-11-08) |
+| [startup-20261108](uprobe/startup-20261108/) | the AOT cache (traced processes link precompiled programs) |
+| [frida-detach-crash-20261108](uprobe/frida-detach-crash-20261108/) | Frida detach tests crash intermittently (2026-11-08/09) |
+| [base-4708f409-20261110](uprobe/base-4708f409-20261110/) | the development base moves to official 4708f409 |
+
+### Daily
+
+| results | what |
+|---|---|
+| [official-daily](uprobe/official-daily/) | The daily official-benchmark runs (history.jsonl, latest.json, one directory per official SHA) |
