@@ -1386,6 +1386,24 @@ int bpftime_shm::add_custom_perf_event(int type, const char *attach_argument)
 	return fd;
 }
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
+std::atomic<int> cuda_driver_initialized_before_agent{ -1 };
+
+int cuda_device_ordinal() noexcept
+{
+	int ordinal = 0;
+	if (const char *p = getenv("BPFTIME_CUDA_DEVICE"); p && p[0] != '\0') {
+		char *end = nullptr;
+		long v = strtol(p, &end, 10);
+		if (end != p && v >= 0 && v <= INT_MAX)
+			ordinal = (int)v;
+	}
+	return ordinal;
+}
+
+// Driver API only: a runtime API call here would initialize the
+// application's shared cudart (the agent links libcudart.so too), and cudart
+// loads every fatbin the application registered (cuLibraryLoadData) before
+// the agent knows its probes, so they could not be patched at load time.
 bool bpftime_shm::register_cuda_host_memory()
 {
 	if (open_type != shm_open_type::SHM_OPEN_ONLY) {
@@ -1402,29 +1420,51 @@ bool bpftime_shm::register_cuda_host_memory()
 		}
 	};
 
-	// Ensure we can map host memory into device address space
-	cudaError_t flag_err = cudaSetDeviceFlags(cudaDeviceMapHost);
-	if (flag_err != cudaSuccess &&
-	    flag_err != cudaErrorSetOnActiveProcess) {
-		SPDLOG_WARN("cudaSetDeviceFlags(cudaDeviceMapHost) failed: {}",
-			    cudaGetErrorString(flag_err));
+	// Before our cuInit: cuDeviceGetCount fails with
+	// CUDA_ERROR_NOT_INITIALIZED until somebody (cudart) called cuInit.
+	{
+		int count = 0;
+		CUresult probe = cuDeviceGetCount(&count);
+		int expected = -1;
+		cuda_driver_initialized_before_agent.compare_exchange_strong(
+			expected, probe == CUDA_ERROR_NOT_INITIALIZED ? 0 : 1);
 	}
-	if (flag_err == cudaErrorSetOnActiveProcess) {
-		// Clear the sticky error
-		cudaGetLastError();
+	CUresult err = cuInit(0);
+	if (err != CUDA_SUCCESS) {
+		SPDLOG_ERROR("cuInit() failed: {}", (int)err);
+		return false;
 	}
+	CUdevice device = 0;
+	if (err = cuDeviceGet(&device, cuda_device_ordinal());
+	    err != CUDA_SUCCESS) {
+		SPDLOG_ERROR("cuDeviceGet({}) failed: {}", cuda_device_ordinal(),
+			     (int)err);
+		return false;
+	}
+	// No cudaSetDeviceFlags(cudaDeviceMapHost) equivalent: since CUDA 11
+	// every context maps pinned memory (CU_CTX_MAP_HOST has no effect, and
+	// cuDevicePrimaryCtxSetFlags rejects it).
+	// The primary context, current on this thread, as cudart's implicit
+	// initialization left it. The reference is kept for the process.
+	CUcontext primary = nullptr;
+	if (err = cuDevicePrimaryCtxRetain(&primary, device);
+	    err != CUDA_SUCCESS) {
+		SPDLOG_ERROR("cuDevicePrimaryCtxRetain() failed: {}", (int)err);
+		return false;
+	}
+	cuCtxSetCurrent(primary);
 
 	// 1. Get the base address and size of the Boost.Interprocess segment
 	void *base_addr = segment.get_address(); // Starting address
 	std::size_t seg_size = segment.get_size(); // Total bytes in segment
 	prefault_range(base_addr, seg_size);
 
-	// 2. Register with CUDA
-	cudaError_t err =
-		cudaHostRegister(base_addr, seg_size, cudaHostRegisterMapped);
-	if (err != cudaSuccess) {
-		SPDLOG_ERROR("cudaHostRegister() failed: {}",
-			     cudaGetErrorString(err));
+	// 2. Register with CUDA (portable: valid in every context)
+	err = cuMemHostRegister(base_addr, seg_size,
+				CU_MEMHOSTREGISTER_DEVICEMAP |
+					CU_MEMHOSTREGISTER_PORTABLE);
+	if (err != CUDA_SUCCESS) {
+		SPDLOG_ERROR("cuMemHostRegister() failed: {}", (int)err);
 		return false;
 	}
 
@@ -1445,21 +1485,21 @@ bpftime::bpftime_shm::~bpftime_shm()
 	if (!cuda_host_memory_registered) {
 		return;
 	}
-	cudaError_t err = cudaHostUnregister(base_addr);
+	CUresult err = cuMemHostUnregister(base_addr);
 	// Use fprintf here to avoid spdlog de-initialized issues
-	if (err != cudaSuccess) {
+	if (err != CUDA_SUCCESS) {
 		// Suppress noisy teardown errors which are benign during
 		// shutdown
-		if (err == cudaErrorCudartUnloading ||
-		    err == cudaErrorInvalidValue ||
-		    err == cudaErrorInsufficientDriver) {
+		if (err == CUDA_ERROR_DEINITIALIZED ||
+		    err == CUDA_ERROR_INVALID_VALUE ||
+		    err == CUDA_ERROR_HOST_MEMORY_NOT_REGISTERED ||
+		    err == CUDA_ERROR_INVALID_CONTEXT) {
 			return;
 		}
-		fprintf(stderr, "cudaHostUnregister() failed: %s\n",
-			cudaGetErrorString(err));
+		fprintf(stderr, "cuMemHostUnregister() failed: %d\n",
+			(int)err);
 		return;
 	}
-	fprintf(stderr, "bpftime_shm: Unregistered host memory from CUDA\n");
 #endif
 }
 

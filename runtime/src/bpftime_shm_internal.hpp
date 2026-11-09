@@ -392,6 +392,15 @@ extern bpftime_shm_holder shm_holder;
 // Probes stay attached until the process ends, so hooked calls made by later
 // destructors must not run programs against the unmapped segment.
 extern std::atomic<bool> global_shm_released;
+#ifdef BPFTIME_ENABLE_CUDA_ATTACH
+// Agent: whether the CUDA driver was initialized (by the application) before
+// the agent's first CUDA call, recorded by register_cuda_host_memory before
+// its cuInit: 1 yes, 0 no, -1 not recorded. With 0, cudart has loaded no
+// fatbin yet, so every one can be patched when it is loaded.
+extern std::atomic<int> cuda_driver_initialized_before_agent;
+// BPFTIME_CUDA_DEVICE, default 0.
+int cuda_device_ordinal() noexcept;
+#endif
 
 } // namespace bpftime
 
