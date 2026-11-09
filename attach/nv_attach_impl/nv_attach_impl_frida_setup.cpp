@@ -246,7 +246,8 @@ cuda_launch_kernel_common(nv_attach_impl *impl, void *original_fn_ptr,
 	return original(func, grid_dim, block_dim, args, shared_mem, stream);
 }
 
-static void example_listener_on_enter_impl(GumInvocationContext *ic)
+static void listener_on_enter_unguarded(GumInvocationListener *listener,
+					GumInvocationContext *ic)
 {
 	auto gum_ctx = gum_interceptor_get_current_invocation();
 	auto context =
@@ -395,12 +396,24 @@ static void example_listener_on_enter_impl(GumInvocationContext *ic)
 	}
 }
 
-// Frida-Gum invokes these listeners through a C frame. A C++ exception
-// escaping across that frame is undefined behavior and surfaces as a glib
-// assertion (SIGTRAP with a core dump), the host crash reported in issue
-// #409. The wrappers contain every failure so the original CUDA runtime
-// call continues untouched when instrumentation cannot proceed.
+// An exception must not unwind through Gum's frames (std::terminate): a fatbin
+// that cannot be patched keeps its original module.
 static void example_listener_on_enter(GumInvocationListener *listener,
+				      GumInvocationContext *ic)
+{
+	try {
+		listener_on_enter_unguarded(listener, ic);
+	} catch (const std::exception &e) {
+		SPDLOG_ERROR(
+			"nv_attach_impl: CUDA registration hook failed ({}); the kernels run unpatched",
+			e.what());
+	} catch (...) {
+		SPDLOG_ERROR(
+			"nv_attach_impl: CUDA registration hook failed; the kernels run unpatched");
+	}
+}
+
+static void example_listener_on_leave(GumInvocationListener *listener,
 				      GumInvocationContext *ic)
 {
 	try {
