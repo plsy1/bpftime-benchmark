@@ -134,16 +134,17 @@ read_function_symbols_impl(std::ifstream &ifs, std::uintptr_t base)
 				strtab.data(), strtab.size()))
 			continue;
 
+		if (sh.sh_entsize != sizeof(Sym))
+			continue;
+		// The whole table in one read (one read per symbol took
+		// 1.4 s for the agent's and the PTX compiler's tables).
 		const std::size_t sym_count =
 			(std::size_t)(sh.sh_size / sh.sh_entsize);
-		for (std::size_t si = 0; si < sym_count; si++) {
-			Sym sym;
-			const std::uint64_t sym_off =
-				(std::uint64_t)sh.sh_offset +
-				(std::uint64_t)sh.sh_entsize *
-					(std::uint64_t)si;
-			if (!read_exact(ifs, sym_off, &sym, sizeof(sym)))
-				break;
+		std::vector<Sym> syms(sym_count);
+		if (!read_exact(ifs, (std::uint64_t)sh.sh_offset, syms.data(),
+				sym_count * sizeof(Sym)))
+			continue;
+		for (const Sym &sym : syms) {
 
 			const unsigned char type = ELF64_ST_TYPE(sym.st_info);
 			// Collect both functions and data objects. CUDA
@@ -158,7 +159,9 @@ read_function_symbols_impl(std::ifstream &ifs, std::uintptr_t base)
 			const char *name = "";
 			if (sym.st_name < strtab.size())
 				name = strtab.data() + sym.st_name;
-			if (name[0] == '\0')
+			// AArch64 mapping symbols ($x, $d, $x.<n>) mark code and
+			// data at the same addresses as real symbols.
+			if (name[0] == '\0' || name[0] == '$')
 				continue;
 			std::uintptr_t start = base + (std::uintptr_t)sym.st_value;
 			std::uintptr_t end = start;
@@ -172,10 +175,14 @@ read_function_symbols_impl(std::ifstream &ifs, std::uintptr_t base)
 		}
 	}
 
-	std::sort(out.begin(), out.end(),
-		  [](const symbol_range &a, const symbol_range &b) {
-			  return a.start < b.start;
-		  });
+	// At one address, sized symbols last: a lookup takes the last
+	// symbol at or below the address.
+	std::stable_sort(out.begin(), out.end(),
+			 [](const symbol_range &a, const symbol_range &b) {
+				 if (a.start != b.start)
+					 return a.start < b.start;
+				 return (a.end > a.start) < (b.end > b.start);
+			 });
 	return out;
 }
 
@@ -288,6 +295,72 @@ std::vector<symbol_range> read_function_symbols(const loaded_module &mod)
 			ifs, mod.base_addr);
 	}
 	return out;
+}
+
+std::optional<loaded_module> module_containing(std::uintptr_t addr)
+{
+	struct search {
+		std::uintptr_t addr;
+		std::optional<loaded_module> found;
+	} state{ addr, std::nullopt };
+	dl_iterate_phdr(
+		[](struct dl_phdr_info *info, size_t, void *data) -> int {
+			auto &state = *static_cast<search *>(data);
+			for (int i = 0; i < info->dlpi_phnum; i++) {
+				const auto &ph = info->dlpi_phdr[i];
+				if (ph.p_type != PT_LOAD)
+					continue;
+				const std::uintptr_t start =
+					info->dlpi_addr + ph.p_vaddr;
+				if (state.addr < start ||
+				    state.addr - start >= ph.p_memsz)
+					continue;
+				loaded_module mod;
+				mod.path = normalize_module_path(
+					info->dlpi_name ? info->dlpi_name : "");
+				mod.base_addr = (std::uintptr_t)info->dlpi_addr;
+				state.found = std::move(mod);
+				return 1;
+			}
+			return 0;
+		},
+		&state);
+	return state.found;
+}
+
+std::optional<std::string> host_symbol_resolver::resolve(std::uintptr_t addr)
+{
+	auto mod = module_containing(addr);
+	if (!mod || mod->path.empty())
+		return std::nullopt;
+	std::lock_guard<std::mutex> guard(mutex);
+	auto key = std::make_pair(mod->path, mod->base_addr);
+	auto it = symbols_by_module.find(key);
+	if (it == symbols_by_module.end()) {
+		auto symbols = read_function_symbols(*mod);
+		SPDLOG_DEBUG("nv_attach_impl: read {} host symbols of {}",
+			     symbols.size(), mod->path);
+		it = symbols_by_module.emplace(key, std::move(symbols)).first;
+	}
+	const auto &symbols = it->second;
+	auto next = std::upper_bound(
+		symbols.begin(), symbols.end(), addr,
+		[](std::uintptr_t v, const symbol_range &s) {
+			return v < s.start;
+		});
+	if (next == symbols.begin())
+		return std::nullopt;
+	const auto &sym = *std::prev(next);
+	// a sized symbol covers [start, end); an unsized one only its address
+	if (sym.end > sym.start ? addr >= sym.end : addr != sym.start)
+		return std::nullopt;
+	return sym.name;
+}
+
+std::size_t host_symbol_resolver::modules_read() const
+{
+	std::lock_guard<std::mutex> guard(mutex);
+	return symbols_by_module.size();
 }
 
 } // namespace bpftime::attach::elf_introspect

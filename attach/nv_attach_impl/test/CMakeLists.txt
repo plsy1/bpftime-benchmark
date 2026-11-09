@@ -4,6 +4,7 @@ set(TEST_SOURCES
     test_ptxpass.cpp
     test_ptx_failure.cpp
     test_load_substitution.cpp
+    test_late_path.cpp
     # test_kernel_finder.cpp
 )
 add_executable(bpftime_nv_attach_tests ${TEST_SOURCES})
