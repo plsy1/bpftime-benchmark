@@ -66,6 +66,11 @@ struct CUDAContext {
 
 std::optional<std::unique_ptr<cuda::CUDAContext>> create_cuda_context();
 
+// The address a GPU thread uses for a map value the host found: device and
+// managed memory as they are, host memory through the device mapping of the
+// registered range it lies in; nullptr when the GPU cannot reach it.
+void *gpu_address_of_map_value(const void *value);
+
 inline std::atomic<uintptr_t> &cuda_shared_mem_device_pointer_storage() noexcept
 {
 	static std::atomic<uintptr_t> value{ 0 };

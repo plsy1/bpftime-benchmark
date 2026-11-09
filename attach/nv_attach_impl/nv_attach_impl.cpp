@@ -949,8 +949,10 @@ nv_attach_impl::extract_ptxs(std::vector<uint8_t> &&data_vec)
 			all_ptx[entry.path().filename()] = buffer.str();
 		}
 	}
-	if (!spdlog::should_log(spdlog::level::debug)) {
-		SPDLOG_INFO("Remove extracted files..");
+	if (keeps_ptx_work_dirs()) {
+		SPDLOG_INFO("Extracted PTX kept in {}", working_dir.c_str());
+	} else {
+		SPDLOG_DEBUG("Remove extracted files..");
 		std::filesystem::remove_all(working_dir);
 	}
 	SPDLOG_INFO("Got {} PTX files", all_ptx.size());
@@ -1134,7 +1136,7 @@ nv_attach_impl::hack_fatbin(std::map<std::string, std::string> all_ptx)
 		SPDLOG_ERROR("PTX passes failed: {}", first_error);
 		return std::nullopt;
 	}
-	if (spdlog::should_log(spdlog::level::debug)) {
+	if (keeps_ptx_work_dirs()) {
 		char tmp_dir[] = "/tmp/bpftime-fatbin-work.XXXXXX";
 		if (mkdtemp(tmp_dir) == nullptr) {
 			SPDLOG_ERROR("mkdtemp failed for {}: {}", tmp_dir,
@@ -1143,7 +1145,7 @@ nv_attach_impl::hack_fatbin(std::map<std::string, std::string> all_ptx)
 		}
 		auto working_dir = std::filesystem::path(tmp_dir);
 
-		SPDLOG_DEBUG("Writing patched PTX to {}", working_dir.c_str());
+		SPDLOG_INFO("Writing patched PTX to {}", working_dir.c_str());
 		for (const auto &[file_name, ptx] : ptx_out) {
 			auto path = working_dir / (file_name);
 			std::ofstream ofs(path);
@@ -1213,6 +1215,12 @@ int nv_attach_impl::run_attach_entry_on_gpu(int attach_id, int run_count,
 
 	// Get SM architecture (auto-detect or from BPFTIME_SM_ARCH env)
 	std::string sm_arch = get_gpu_sm_arch();
+	if (sm_arch.empty()) {
+		SPDLOG_ERROR(
+			"The GPU's SM architecture is unknown (set BPFTIME_SM_ARCH); cannot run attach {} on GPU",
+			attach_id);
+		return -1;
+	}
 	SPDLOG_INFO("Using SM architecture: {}", sm_arch);
 
 	std::vector<uint64_t> ebpf_words;
@@ -1513,25 +1521,21 @@ void nv_attach_impl::record_patched_launch(cudaStream_t stream)
 
 void nv_attach_impl::record_patched_launch_event(CUstream stream)
 {
-	CUevent ev = nullptr;
-	if (cuEventCreate(&ev, CU_EVENT_DISABLE_TIMING) != CUDA_SUCCESS ||
-	    ev == nullptr) {
+	// One event per stream, recorded again at each launch (a record
+	// replaces the event's work with the stream's latest): detach waits for
+	// the last launch. It used to create and destroy an event per launch.
+	std::lock_guard<std::mutex> guard(launch_event_mutex);
+	auto [it, inserted] =
+		pending_launch_events_by_stream.try_emplace(stream, nullptr);
+	if (it->second == nullptr &&
+	    cuEventCreate(&it->second, CU_EVENT_DISABLE_TIMING) !=
+		    CUDA_SUCCESS) {
+		pending_launch_events_by_stream.erase(it);
 		return;
 	}
-	if (cuEventRecord(ev, stream) != CUDA_SUCCESS) {
-		cuEventDestroy(ev);
-		return;
-	}
-	{
-		std::lock_guard<std::mutex> guard(launch_event_mutex);
-		auto it = pending_launch_events_by_stream.find(stream);
-		if (it != pending_launch_events_by_stream.end()) {
-			if (it->second)
-				cuEventDestroy(it->second);
-			it->second = ev;
-		} else {
-			pending_launch_events_by_stream.emplace(stream, ev);
-		}
+	if (cuEventRecord(it->second, stream) != CUDA_SUCCESS) {
+		cuEventDestroy(it->second);
+		pending_launch_events_by_stream.erase(it);
 	}
 }
 
@@ -1879,6 +1883,12 @@ bool nv_attach_impl::try_loading_or_log(fatbin_record &rec,
 			where, e.what());
 	}
 	return false;
+}
+
+bool nv_attach_impl::keeps_ptx_work_dirs()
+{
+	const char *keep = std::getenv("BPFTIME_CUDA_KEEP_PTX");
+	return keep != nullptr && keep[0] == '1';
 }
 
 std::vector<const void *>
