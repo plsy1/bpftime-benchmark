@@ -1,4 +1,5 @@
 #include "nv_attach_impl.hpp"
+#include "bpftime_ratelimited_log.hpp"
 #include "cuda_runtime_api.h"
 #include "driver_types.h"
 #include "ebpf_inst.h"
@@ -141,6 +142,19 @@ int nv_attach_impl::detach_by_id(int id)
 		}
 		hook_entries.erase(itr);
 		last = hook_entries.empty();
+		if (last && substitutes_at_load() &&
+		    !late_path_allowed.load(std::memory_order_acquire)) {
+			// Without this nothing said a probe never ran.
+			for (const auto &kernel : probe_kernels)
+				if (!matched_probe_kernels.count(kernel))
+					SPDLOG_WARN(
+						"nv_attach_impl: the probe on {} never ran: no module with that kernel was loaded while it was attached",
+						kernel);
+		}
+		if (last) {
+			probe_kernels.clear();
+			matched_probe_kernels.clear();
+		}
 	}
 	if (last) {
 		SPDLOG_INFO(
@@ -212,6 +226,8 @@ int nv_attach_impl::create_attach_with_ebpf_callback(
 		// late_bootstrap_mutex before load_substitution_mutex; never the
 		// reverse.
 		std::unique_lock<std::mutex> load_guard(load_substitution_mutex);
+		for (const auto &kernel : entry.kernels)
+			probe_kernels.insert(kernel);
 		hook_entries[id] = std::move(entry);
 		this->map_basic_info = data.map_basic_info;
 		if (data.comm_shared_mem == 0) {
@@ -1367,8 +1383,12 @@ void nv_attach_impl::mirror_cuda_memcpy_to_symbol(
 		// name-mangled (e.g. _ZL3d_N), while the device module exports
 		// the plain symbol (e.g. d_N); try both.
 		auto name = resolve_host_function_symbol((void *)symbol);
-		if (!name)
+		if (!name) {
+			BPFTIME_LOG_WARN_RATELIMITED(
+				"nv_attach_impl: a cudaMemcpyToSymbol to {} could not be named; the patched module keeps its old value",
+				symbol);
 			return;
+		}
 		std::vector<std::string> candidates{ *name };
 		{
 			std::string demangled =
@@ -1428,8 +1448,12 @@ void nv_attach_impl::mirror_cuda_memcpy_to_symbol(
 		}
 	}
 
-	if (!resolved_var)
+	if (!resolved_var) {
+		BPFTIME_LOG_WARN_RATELIMITED(
+			"nv_attach_impl: a cudaMemcpyToSymbol to {} found no patched variable; the patched module keeps its old value",
+			symbol);
 		return;
+	}
 
 	auto &var_info = *resolved_var;
 	if (offset >= var_info.size) {
@@ -2324,8 +2348,12 @@ CUresult nv_attach_impl::load_library_with_probes(
 			fatbin, e.what());
 		return load(code);
 	}
-	if (image == nullptr)
+	if (image == nullptr) {
+		SPDLOG_DEBUG(
+			"nv_attach_impl: the fatbin at {} has no probed kernel; loaded as it is",
+			fatbin);
 		return load(code);
+	}
 	if (auto err = load(image->data()); err != CUDA_SUCCESS) {
 		SPDLOG_ERROR(
 			"nv_attach_impl: cuLibraryLoadData refused the patched image of the fatbin at {} ({}); its kernels run unpatched",
@@ -2341,8 +2369,14 @@ CUresult nv_attach_impl::load_library_with_probes(
 	}
 	std::string kernels;
 	for (const auto &[_, entry] : hook_entries)
-		for (const auto &kernel : entry.kernels)
+		for (const auto &kernel : entry.kernels) {
+			CUkernel handle = nullptr;
+			if (cuLibraryGetKernel(&handle, *library,
+					       kernel.c_str()) != CUDA_SUCCESS)
+				continue; // in another fatbin
 			kernels += (kernels.empty() ? "" : ", ") + kernel;
+			matched_probe_kernels.insert(kernel);
+		}
 	substituted_libraries.push_back(*library);
 	SPDLOG_INFO(
 		"nv_attach_impl: loaded the patched image of the fatbin at {} ({} bytes; probes on {})",

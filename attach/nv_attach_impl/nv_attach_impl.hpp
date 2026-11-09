@@ -320,6 +320,10 @@ class nv_attach_impl final : public base_attach_impl {
 			// Libraries loaded from patched images: their probes can
 			// only be switched off (__bpftime_probes_enabled).
 			std::vector<CUlibrary> substituted_libraries;
+			// Kernels of the session's probes, and those found in a
+			// patched image (a warning at the last detach names the rest).
+			std::set<std::string> probe_kernels;
+			std::set<std::string> matched_probe_kernels;
 			// Late bootstrap needs to be repeatable across trace sessions.
 			// Using a heap-allocated once_flag allows resetting it after detach.
 			std::unique_ptr<std::once_flag> late_bootstrap_once =
