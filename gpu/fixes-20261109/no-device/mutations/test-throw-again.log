@@ -1,0 +1,32 @@
+[2026-11-10 06:46:22.048] [info] [bpf_attach_ctx.cpp:301] bpf_attach_ctx constructed
+[2026-11-10 06:46:22.048] [info] [bpf_attach_ctx_cuda.cpp:387] Initializing CUDA shared memory
+[2026-11-10 06:46:22.048] [error] [bpf_attach_ctx_cuda.cpp:391] CUDA shared communication memory not initialized in shared segment
+[2026-11-10 06:46:22.048] [warning] [bpf_attach_ctx.cpp:307] CUDA attach is disabled in this process; other probes run as usual
+Filters: [cuda-no-device]
+Randomness seeded to: 2613502083
+[2026-11-10 06:46:22.087] [info] [bpftime_shm_internal.cpp:1201] Global shm constructed. shm_open_type 0 for bpftime-cuda-no-device-581886
+[2026-11-10 06:46:22.087] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-10 06:46:22.149] [warning] [bpftime_shm_internal.cpp:1042] NOT creating global shm. This is only for testing purpose.
+[2026-11-10 06:46:22.149] [info] [bpftime_shm_internal.cpp:1201] Global shm constructed. shm_open_type 2 for bpftime-cuda-no-device-581886
+[2026-11-10 06:46:22.149] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_runtime_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+Without a usable GPU the attach context runs without CUDA attach
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_no_device.cpp:65
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_no_device.cpp:129: FAILED:
+  REQUIRE( (((status) & 0xff00) >> 8) == 0 )
+with expansion:
+  1 == 0
+
+===============================================================================
+test cases: 1 | 1 failed
+assertions: 8 | 7 passed | 1 failed
+
+[2026-11-10 06:46:22.149] [info] [bpf_attach_ctx.cpp:289] Destructor: bpf_attach_ctx

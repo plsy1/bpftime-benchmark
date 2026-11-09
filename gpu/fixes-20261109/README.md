@@ -1,7 +1,7 @@
 # fixes-20261109: CUDA attach on the Orin Nano, the fix round
 
 Board: Orin Nano 8 GB, CUDA 13.2, sm_87, kernel 6.8.12-1021-tegra-btf. Dev branch
-`dev/uprobe-official-177a1dc465ff`, 13 commits from e94e2c04 to af4a1a8d on top of a2acb4f8 (the
+`dev/uprobe-official-177a1dc465ff`, 13 commits from e94e2c04 to af4a1a8d (and 0decdfab, from the verification) on top of a2acb4f8 (the
 start-up round). 2026-11-09 08:05 (plan approved) to 2026-11-10. The problems are those of
 `../examples-20261109` (numbers 1-17 there, and its list "found by reading only"). build-cuda
 (RelWithDebInfo, `BPFTIME_CUDA_ROOT=/usr/local/cuda-13.2`) is never installed and never used for
@@ -17,6 +17,7 @@ make the test fail. The three directories here hold the data of the later groups
 | `costs/` | 五 GPU stack frame, late-path symbols and fatbins | 45743763 |
 | `robustness/` | 六 environment, locale, lookup pointers, launch events | af4a1a8d |
 | `verification/` | the final checks below | af4a1a8d |
+| `no-device/` | found in the verification: a CUDA build's agent without a usable GPU | 0decdfab |
 
 Group 四 (attaching to a running CUDA process, `bpftime attach`) was deferred.
 
@@ -61,9 +62,10 @@ Still open: the late path's problems above (it is reached by an injected agent, 
 initialized in a static constructor); several CUDA processes on one segment; `cudaLaunchKernelEx`,
 cooperative launches, stream capture, `cudaFuncSetAttribute`; SASS-only fatbins, `-rdc`,
 driver-API `cuModuleLoad*`, several GPUs; detaching one of several probes (they stop at the last
-detach only); LLVM 15 not knowing sm_87 (a warning); a CUDA build's agent in a process without a
-usable GPU disables itself entirely, CPU probes included (found in the verification, older than
-this round). Not tested: the fence placement of the host
+detach only); LLVM 15 not knowing sm_87 (a warning). Found in the verification and fixed
+afterwards (0decdfab, `no-device/`): a CUDA build's agent in a process without a usable GPU
+disabled itself entirely, CPU probes included (older than this round). Not tested: the fence
+placement of the host
 call and ringbuf protocol (no mutation), discrete GPUs (the system-memory CAS lock, 1502 in device
 memory), map 1504, the `cuLaunchKernel` fallback branch.
 
@@ -137,7 +139,9 @@ Found with it (`cuda-no-device/`): the same exception disables a CUDA build's wh
 process without a usable GPU. funclatency on callloop with build-cuda's agent and server: GPU
 visible, 7,157,000 calls counted 7,157,000; `CUDA_VISIBLE_DEVICES=` (cuInit 100): 1,123,346,000
 calls counted 0, the agent's CPU probes never attached (the agent's catch-all turns an exception
-from `bpf_attach_ctx`'s constructor into `init_fail`). Not fixed.
+from `bpf_attach_ctx`'s constructor into `init_fail`). Fixed afterwards in 0decdfab
+(`no-device/`: the attach context comes up without CUDA attach; 6,845,000 of 6,845,000 calls
+counted without a visible GPU, the four CUDA-build-only failures above pass, matrix 19/19).
 
 ### x86 (NUC)
 
