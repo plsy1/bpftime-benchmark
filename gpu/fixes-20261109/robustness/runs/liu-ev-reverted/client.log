@@ -1,0 +1,88 @@
+[2026-11-09 23:34:47][info][501262] Registered shared memory with CUDA: addr=0xffff8dfc0000 size=67108864
+[2026-11-09 23:34:47][info][501262] Global shm constructed. shm_open_type 1 for bpftime_gpu_liu-ev-reverted
+[2026-11-09 23:34:47][info][501262] Global shm initialized
+[2026-11-09 23:34:47][info][501262] bpf_attach_ctx constructed
+[2026-11-09 23:34:47][info][501262] Initializing CUDA shared memory
+[2026-11-09 23:34:47][info][501262] CommSharedMem host 0xffff8e0bc9c8 mapped to device 0x1022c09c8
+[2026-11-09 23:34:47][info][501262] CUDA context created
+[2026-11-09 23:34:47][info][501262] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2026-11-09 23:34:47][info][501262] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2026-11-09 23:34:47][info][501262] Register attach-impl defined helper bpf_get_retval, index 186
+[2026-11-09 23:34:47][info][501262] Starting nv_attach_impl
+[2026-11-09 23:34:47][info][501262] nv_attach_impl: late attach: patched copies of loaded fatbins, launches redirected by kernel name
+[2026-11-09 23:34:47][info][501262] Parsing bundled libraries: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so:/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so:/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-09 23:34:47][info][501262] Found path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so, executing..
+[2026-11-09 23:34:47][info][501262] Retrived config of /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so
+[2026-11-09 23:34:47][info][501262] Found path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so, executing..
+[2026-11-09 23:34:47][info][501262] Retrived config of /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so
+[2026-11-09 23:34:47][info][501262] Found path: /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so, executing..
+[2026-11-09 23:34:47][info][501262] Retrived config of /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-09 23:34:48][info][501262] Initializing agent..
+[2026-11-09 23:34:48][info][501262] bpftime: shm epoch_seq = 2
+[2026-11-09 23:34:48][info][501262] Instantiating bpf link 48 and the corresponding program cuda__retprobe is cuda program
+[2026-11-09 23:34:48][info][501262] Skipping nv attach handler 48 since we are not handling nv handles
+[2026-11-09 23:34:48][info][501262] Instantiating bpf link 48 and the corresponding program cuda__retprobe is cuda program
+[2026-11-09 23:34:48][info][501262] Handling link to CUDA program: 48, recording it..
+[2026-11-09 23:34:48][info][501262] Loaded 19 instructions (original) for cuda ebpf program
+[2026-11-09 23:34:48][info][501262] Initializing nv_gpu_ringbuf_map_impl at pid 501262
+[2026-11-09 23:34:48][info][501262] Mapped GPU memory for gpu ringbuf map: 4333521904
+[2026-11-09 23:34:48][info][501262] Copying map fd 3 to device, key size=4, value size=1024, max ent=16, map_type = 1527, gpu_buffer = 1024c4bf0
+[2026-11-09 23:34:48][info][501262] Cached shared_mem_ptr at 1022c09c8
+[2026-11-09 23:34:48][info][501262] Recorded pass /home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so for func _Z9vectorAddPKfS0_Pf
+[2026-11-09 23:34:48][info][501262] nv_attach_impl: late attach bootstrap scanning fatbins..
+[2026-11-09 23:34:48][info][501262] nv_attach_impl: found 1 fatbin wrapper(s) in /home/jetson/src/bpftime-gpu-work/benchmark/gpu/workload/vec_add_legacy
+[2026-11-09 23:34:48][info][501262] Temporary fatbin written to /tmp/bpftime-fatbin-work.2P7gMc/temp.fatbin
+[2026-11-09 23:34:48][info][501262] Extracting PTX in the fatbin...
+[2026-11-09 23:34:48][info][501262] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.2P7gMc/temp.fatbin
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-09 23:34:48][info][501262] Got 1 PTX files
+[2026-11-09 23:34:48][info][501262] Loading & patching current fatbin..
+[2026-11-09 23:34:48][info][501269] Patching PTX: temp.1.sm_75.ptx
+[2026-11-09 23:34:48][info][501269] Patching request 1a06e7ebdb31fbc94a35245c79a1bcfe94b394d59a95a3fb3710870a78641840 not found in cache, patching..
+[2026-11-09 23:34:48.232] [info] [core.cpp:351] [ptxpass] kretprobe: matched=1, in=969, out=3173
+[2026-11-09 23:34:48][info][501262] Compiling PTXs with sm_arch sm_87
+[2026-11-09 23:34:48][info][501262] Compiler version: 13.2
+[2026-11-09 23:34:48][info][501275] Start compiling patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-09 23:34:48][info][501275] Compile of patched.temp.1.sm_75.ptx done
+[2026-11-09 23:34:48][info][501262] Loading module: patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-09 23:34:48][info][501262] Copying trampoline data to device
+[2026-11-09 23:34:48][info][501262] constData symbol device_ptr=19f032000 size=8 shared_mem_ptr=1022c09c8
+[2026-11-09 23:34:48][info][501262] map_info symbol device_ptr=19f032008 size=40960
+[2026-11-09 23:34:48][info][501262] Trampoline data copied
+[2026-11-09 23:34:48][info][501262] Loaded module: patched.temp.1.sm_75.ptx
+[2026-11-09 23:34:48][info][501262] nv_attach_impl: ingested fatbin at 0xaaaac0883700 in /home/jetson/src/bpftime-gpu-work/benchmark/gpu/workload/vec_add_legacy
+[2026-11-09 23:34:48][info][501262] nv_attach_impl: late attach bootstrap ingested 1 fatbin(s)
+[2026-11-09 23:34:48][info][501262] agent ipc: listening (abstract) for pid 501262
+[2026-11-09 23:34:48][info][501262] Attach successfully
+Running benchmark with 3 iterations...
+Kernel: vectorAdd
+Data size: 0 MB
+Grid config: 1 blocks × 5 threads/block = 5 total threads
+
+========================================
+Benchmark results:
+========================================
+Setup phase:
+  Host allocation:   1 us
+  Device allocation: 284 us
+  Host to device:    32 us (0.60 GB/s)
+  Device to host:    56 us (0.34 GB/s)
+
+Kernel execution:
+  Total time:        210.06 us
+  Average kernel time: 70.02 us
+  Throughput:        14281.91 kernels/sec
+
+Detailed statistics (μs):
+  Mean:              69.89 us
+  Median:            68.74 us
+  Min:               63.52 us
+  Max:               77.41 us
+  P95:               77.41 us
+  P99:               77.41 us
+  Std dev:           5.73 us
+
+Validation check: C[0] = 0.00, C[1] = 3.00
+========================================
+[2026-11-09 23:34:48][info][501266] Exiting CUDA watcher thread
+event-shim: cuEventCreate disable_timing=8 other=0
