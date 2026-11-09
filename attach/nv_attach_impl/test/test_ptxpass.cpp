@@ -1,6 +1,8 @@
 #include "catch2/catch_test_macros.hpp"
 #include "ptxpass/core.hpp"
+#include <algorithm>
 #include <memory>
+#include <regex>
 #include <fstream>
 #include <iostream>
 #include <spdlog/logger.h>
@@ -291,6 +293,61 @@ TEST_CASE("compile_ebpf_to_ptx_from_words compiles eBPF to PTX",
 
 	REQUIRE_FALSE(ptx.empty());
 	REQUIRE(ptx.find("ret") != std::string::npos);
+}
+
+// The largest per-thread local array (`.local ... __local_depotN[size]`) in
+// the PTX.
+static size_t largest_local_depot(const std::string &ptx)
+{
+	static const std::regex depot(R"(__local_depot\d+\[(\d+)\])");
+	size_t largest = 0;
+	for (auto it = std::sregex_iterator(ptx.begin(), ptx.end(), depot);
+	     it != std::sregex_iterator(); ++it)
+		largest = std::max<size_t>(largest, std::stoul((*it)[1].str()));
+	return largest;
+}
+
+// On the GPU every thread holds the whole eBPF stack in local memory: 32
+// frames of 512 bytes, 16 KiB a thread (backed by the driver for every
+// resident thread) whenever a stack address escapes, as when a helper gets a
+// pointer to the stack. One frame is enough without bpf-to-bpf calls.
+TEST_CASE("A GPU program without bpf-to-bpf calls gets one stack frame",
+	  "[ptxpass_core]")
+{
+	// *(u64 *)(r10 - 8) = 7; map_lookup(r1, r10 - 8); return 0
+	const std::vector<uint64_t> no_calls = {
+		0x00000007000001b7ULL, // r1 = 7
+		0x00000000fff81a7bULL, // *(u64 *)(r10 - 8) = r1
+		0x000000000000a2bfULL, // r2 = r10
+		0xfffffff800000207ULL, // r2 += -8
+		0x0000000100000085ULL, // call 1
+		0x00000000000000b7ULL, // r0 = 0
+		0x0000000000000095ULL, // exit
+	};
+	// the same, then a bpf-to-bpf call
+	const std::vector<uint64_t> with_call = {
+		0x00000007000001b7ULL, // r1 = 7
+		0x00000000fff81a7bULL, // *(u64 *)(r10 - 8) = r1
+		0x000000000000a2bfULL, // r2 = r10
+		0xfffffff800000207ULL, // r2 += -8
+		0x0000000100000085ULL, // call 1
+		0x0000000200001085ULL, // call pc + 1 + 2 (bpf-to-bpf)
+		0x00000000000000b7ULL, // r0 = 0
+		0x0000000000000095ULL, // exit
+		0x00000001000000b7ULL, // r0 = 1
+		0x0000000000000095ULL, // exit
+	};
+	const size_t one_frame = largest_local_depot(
+		compile_ebpf_to_ptx_from_words(no_calls, "sm_60", "__probe__",
+					       true, false));
+	const size_t all_frames = largest_local_depot(
+		compile_ebpf_to_ptx_from_words(with_call, "sm_60", "__probe__",
+					       true, false));
+	INFO("local depot: " << one_frame << " bytes without calls, "
+			     << all_frames << " with a call");
+	CHECK(one_frame >= 512);
+	CHECK(one_frame < 1024);
+	CHECK(all_frames >= 32 * 512);
 }
 
 TEST_CASE("log_transform_stats emits stats through spdlog",
