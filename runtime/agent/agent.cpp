@@ -1084,9 +1084,15 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
 			// Register cuda attach impl
+			// Patch fatbins as cudart loads them, unless the
+			// application initialized CUDA before the agent (then
+			// some may be loaded already: only the late path can
+			// patch those).
 			ctx_holder.ctx.register_attach_impl(
 				{ ATTACH_CUDA_PROBE, ATTACH_CUDA_RETPROBE },
-				std::make_unique<attach::nv_attach_impl>(),
+				std::make_unique<attach::nv_attach_impl>(
+					bpftime::cuda_driver_initialized_before_agent
+						.load() == 0),
 				[](const std::string_view &sv, int &err) {
 					std::unique_ptr<attach_private_data>
 						priv_data =

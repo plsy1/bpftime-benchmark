@@ -131,13 +131,18 @@ extern GType cuda_runtime_function_hooker_get_type();
 
 int nv_attach_impl::detach_by_id(int id)
 {
-	auto itr = hook_entries.find(id);
-	if (itr == hook_entries.end()) {
-		SPDLOG_WARN("nv_attach_impl: detach unknown id {}", id);
-		return -ENOENT;
+	bool last = false;
+	{
+		std::lock_guard<std::mutex> load_guard(load_substitution_mutex);
+		auto itr = hook_entries.find(id);
+		if (itr == hook_entries.end()) {
+			SPDLOG_WARN("nv_attach_impl: detach unknown id {}", id);
+			return -ENOENT;
+		}
+		hook_entries.erase(itr);
+		last = hook_entries.empty();
 	}
-	hook_entries.erase(itr);
-	if (hook_entries.empty()) {
+	if (last) {
 		SPDLOG_INFO(
 			"nv_attach_impl: last entry detached; disabling CUDA launch replacement");
 		enabled.store(false, std::memory_order_release);
@@ -201,19 +206,12 @@ int nv_attach_impl::create_attach_with_ebpf_callback(
 		entry.program_name = data.program_name;
 		entry.config = matched;
 
+		// hook_entries, map_basic_info and shared_mem_ptr are read by
+		// the cuLibraryLoadData hook on application threads. Lock order:
+		// late_bootstrap_mutex before load_substitution_mutex; never the
+		// reverse.
+		std::unique_lock<std::mutex> load_guard(load_substitution_mutex);
 		hook_entries[id] = std::move(entry);
-		// Late bootstrap may have already patched/loaded modules for earlier
-		// hooks (e.g. kprobe). If a new hook is added afterwards (e.g.
-		// kretprobe), we must rerun bootstrap so the new pass is applied to
-		// existing fatbins as well.
-		if (late_bootstrap_done.load(std::memory_order_acquire)) {
-			SPDLOG_INFO(
-				"nv_attach_impl: new hook added after bootstrap; rerunning late bootstrap");
-			// Drop the previous bootstrap's module set so the rerun doesn't
-			// leave two sets with split device-global addresses.
-			clear_patched_state_for_next_session();
-			reset_late_bootstrap_state_for_next_attach();
-		}
 		this->map_basic_info = data.map_basic_info;
 		if (data.comm_shared_mem == 0) {
 			SPDLOG_ERROR(
@@ -228,6 +226,35 @@ int nv_attach_impl::create_attach_with_ebpf_callback(
 		}
 		SPDLOG_INFO("Recorded pass {} for func {}",
 			    matched->executable_path.c_str(), func_name);
+		const bool loaded_already = library_loaded_through_hook.load(
+			std::memory_order_acquire);
+		load_guard.unlock();
+		// Late bootstrap may have already patched/loaded modules for earlier
+		// hooks (e.g. kprobe). If a new hook is added afterwards (e.g.
+		// kretprobe), we must rerun bootstrap so the new pass is applied to
+		// existing fatbins as well.
+		if (late_bootstrap_done.load(std::memory_order_acquire)) {
+			SPDLOG_INFO(
+				"nv_attach_impl: new hook added after bootstrap; rerunning late bootstrap");
+			// Drop the previous bootstrap's module set so the rerun doesn't
+			// leave two sets with split device-global addresses
+			// (upstream #709). It takes late_bootstrap_mutex and
+			// load_substitution_mutex: after load_guard is released.
+			clear_patched_state_for_next_session();
+			reset_late_bootstrap_state_for_next_attach();
+		}
+		if (substitutes_at_load() && !loaded_already) {
+			SPDLOG_INFO(
+				"nv_attach_impl: {} will be patched when cudart loads its module",
+				func_name);
+			return id;
+		}
+		if (substitutes_at_load()) {
+			SPDLOG_WARN(
+				"nv_attach_impl: modules were loaded before the probe on {}; patching loaded modules the late way (patched copies, launches redirected by kernel name)",
+				func_name);
+			late_path_allowed.store(true, std::memory_order_release);
+		}
 		start_late_bootstrap_async();
 		return id;
 	}
@@ -277,11 +304,29 @@ cudaError_t cuda_runtime_function__cudaMemcpyFromSymbol(
 cudaError_t cuda_runtime_function__cudaMemcpyFromSymbolAsync(
 	void *dst, const void *symbol, size_t count, size_t offset,
 	cudaMemcpyKind kind, cudaStream_t stream = 0);
+CUresult cuda_driver_function__cuLibraryLoadData(
+	CUlibrary *library, const void *code, CUjit_option *jitOptions,
+	void **jitOptionsValues, unsigned int numJitOptions,
+	CUlibraryOption *libraryOptions, void **libraryOptionValues,
+	unsigned int numLibraryOptions);
 }
 
-nv_attach_impl::nv_attach_impl()
+nv_attach_impl::nv_attach_impl(bool substitute_at_load)
 {
 	SPDLOG_INFO("Starting nv_attach_impl");
+	{
+		bool substitute = substitute_at_load;
+		if (const char *p = getenv("BPFTIME_CUDA_LOAD_SUBSTITUTION");
+		    p && strcmp(p, "0") == 0)
+			substitute = false;
+		// Before any hook is installed: the hooks read it.
+		load_substitution.store(substitute, std::memory_order_release);
+		SPDLOG_INFO(
+			"nv_attach_impl: {}",
+			substitute ?
+				"patching fatbins as cudart loads them" :
+				"late attach: patched copies of loaded fatbins, launches redirected by kernel name");
+	}
 	// Ensure CUDA driver library is loaded before we attempt to hook driver
 	// APIs such as cuGraph*.
 	{
@@ -464,6 +509,11 @@ nv_attach_impl::nv_attach_impl()
 		"cudaMemcpyFromSymbolAsync",
 		(gpointer)&cuda_runtime_function__cudaMemcpyFromSymbolAsync,
 		hook_state.orig_cuda_memcpy_from_symbol_async);
+	// The driver's: reached from static cudart as well (it finds driver
+	// functions with cuGetProcAddress, past any symbol interposition).
+	replace_hook_once("cuLibraryLoadData",
+			  (gpointer)&cuda_driver_function__cuLibraryLoadData,
+			  hook_state.orig_cu_library_load_data);
 	gum_interceptor_end_transaction(interceptor);
 
 	nv_attach_set_active_impl(this);
@@ -1292,7 +1342,8 @@ void nv_attach_impl::mirror_cuda_memcpy_to_symbol(
 	const void *symbol, const void *src, size_t count, size_t offset,
 	cudaMemcpyKind kind, cudaStream_t stream, bool async)
 {
-	if (!is_enabled())
+	// Substituted fatbins have one module: nothing to mirror.
+	if (!is_enabled() || !late_path_active())
 		return;
 	bootstrap_existing_fatbins_once();
 
@@ -1554,6 +1605,10 @@ void nv_attach_impl::clear_patched_state_for_next_session()
 	std::vector<std::unique_ptr<fatbin_record>> old_records;
 	{
 		std::lock_guard<std::mutex> guard(late_bootstrap_mutex);
+		std::lock_guard<std::mutex> load_guard(load_substitution_mutex);
+		// A fatbin cudart loads again (after a reset) gets this
+		// session's probes; loaded images stay (preserved_images).
+		image_by_fatbin.clear();
 		old_records.swap(fatbin_records);
 		current_fatbin = nullptr;
 		symbol_address_to_fatbin.clear();
@@ -1944,7 +1999,7 @@ void nv_attach_impl::bootstrap_existing_fatbins()
 
 void nv_attach_impl::bootstrap_existing_fatbins_once()
 {
-	if (!is_enabled())
+	if (!is_enabled() || !late_path_active())
 		return;
 	if (shared_mem_ptr == 0)
 		return;
@@ -1964,6 +2019,10 @@ void nv_attach_impl::bootstrap_existing_fatbins_once()
 		// If the bootstrap lambda throws, std::call_once will allow a
 		// subsequent retry. Do not swallow exceptions inside the lambda.
 		std::call_once(*late_bootstrap_once, [&]() {
+			// The caches and hook entries are shared with the
+			// cuLibraryLoadData hook.
+			std::lock_guard<std::mutex> load_guard(
+				load_substitution_mutex);
 			ensure_cuda_context_for_current_thread();
 			build_host_symbol_cache_once();
 			bootstrap_existing_fatbins();
@@ -2015,6 +2074,249 @@ void nv_attach_impl::start_late_bootstrap_async()
 		this->late_bootstrap_started.store(false,
 						   std::memory_order_release);
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Load-time substitution. cudart (shared or static) loads each fatbin it
+// registered with cuLibraryLoadData (the image is the fatbin wrapper,
+// CU_LIBRARY_BINARY_IS_PRESERVED set), at its first runtime call, and then
+// asks for kernels, variables and managed variables by name. Loading the
+// patched image in that call gives the process one module per fatbin: every
+// launch (stub address, CUDA 13 kernel handle, graph, static cudart) runs the
+// patched kernels, and every variable access sees the kernels' own storage.
+
+namespace
+{
+int nv_cuda_device_ordinal()
+{
+	int ordinal = 0;
+	if (const char *p = getenv("BPFTIME_CUDA_DEVICE"); p && p[0] != '\0') {
+		char *end = nullptr;
+		long v = strtol(p, &end, 10);
+		if (end != p && v >= 0 && v <= INT_MAX)
+			ordinal = (int)v;
+	}
+	return ordinal;
+}
+
+int sm_number(const std::string &arch)
+{
+	auto pos = arch.find("sm_");
+	if (pos == std::string::npos)
+		return -1;
+	return atoi(arch.c_str() + pos + 3);
+}
+} // namespace
+
+const void *nv_attach_impl::fatbin_data_of_image(const void *image)
+{
+	constexpr uint32_t fatbinc_magic = 0x466243b1;
+	constexpr uint32_t fatbin_magic = 0xBA55ED50;
+	if (image == nullptr || !is_mapped_address(image))
+		return nullptr;
+	uint32_t magic = 0;
+	memcpy(&magic, image, sizeof(magic));
+	if (magic == fatbin_magic)
+		return image;
+	if (magic != fatbinc_magic)
+		return nullptr;
+	const auto *wrapper = static_cast<const __fatBinC_Wrapper_t *>(image);
+	const void *data = wrapper->data;
+	if (data == nullptr || !is_mapped_address(data))
+		return nullptr;
+	memcpy(&magic, data, sizeof(magic));
+	return magic == fatbin_magic ? data : nullptr;
+}
+
+std::optional<std::string> nv_attach_impl::pick_patched_ptx(
+	const std::map<std::string, std::tuple<std::string, bool>> &patched,
+	int device_sm)
+{
+	std::optional<std::string> best;
+	int best_sm = -1;
+	for (const auto &[name, entry] : patched) {
+		if (!std::get<1>(entry))
+			continue; // no probed kernel in it
+		int sm = 0; // no architecture in the name: lowest preference
+		if (auto pos = name.rfind(".sm_"); pos != std::string::npos)
+			sm = std::max(atoi(name.c_str() + pos + 4), 0);
+		if (device_sm > 0 && sm > device_sm)
+			continue; // PTX for a newer GPU
+		if (sm > best_sm) {
+			best_sm = sm;
+			best = name;
+		}
+	}
+	return best;
+}
+
+// Under load_substitution_mutex.
+const std::vector<uint8_t> *
+nv_attach_impl::patched_image_for_fatbin(const void *fatbin)
+{
+	if (auto itr = image_by_fatbin.find(fatbin);
+	    itr != image_by_fatbin.end())
+		return itr->second;
+	const auto remember = [&](const std::vector<uint8_t> *image) {
+		image_by_fatbin[fatbin] = image;
+		return image;
+	};
+	auto bytes = read_fatbin_bytes_from_ptr(fatbin);
+	if (!bytes)
+		return remember(nullptr);
+	auto all_ptx = extract_ptxs(std::move(*bytes));
+	if (all_ptx.empty()) {
+		SPDLOG_WARN(
+			"nv_attach_impl: the fatbin at {} holds no PTX; its kernels cannot be patched",
+			fatbin);
+		return remember(nullptr);
+	}
+	auto patched = hack_fatbin(all_ptx);
+	if (!patched)
+		throw std::runtime_error("PTX passes failed");
+	auto name = pick_patched_ptx(*patched, sm_number(get_gpu_sm_arch()));
+	if (!name)
+		return remember(nullptr); // no probed kernel in this fatbin
+	fatbin_record compiler;
+	compiler.module_pool = module_pool;
+	compiler.ptx_pool = ptx_pool;
+	auto compiled =
+		compiler.compile_ptxs(*this, { { *name, patched->at(*name) } });
+	preserved_images.push_back(std::move(compiled.at(*name)));
+	return remember(&preserved_images.back());
+}
+
+// Under load_substitution_mutex. The globals the trampoline reads, in the
+// context current on this thread; cudart loads before it has a context, so
+// then in the device's primary context (retained for the process: cudart
+// uses the same one).
+bool nv_attach_impl::write_trampoline_globals(CUlibrary library)
+{
+	if (!map_basic_info)
+		return false;
+	CUcontext current = nullptr;
+	bool pushed = false;
+	if (cuCtxGetCurrent(&current) != CUDA_SUCCESS || current == nullptr) {
+		if (retained_primary_context == nullptr) {
+			CUdevice device = 0;
+			if (auto err = cuDeviceGet(&device,
+						   nv_cuda_device_ordinal());
+			    err != CUDA_SUCCESS) {
+				SPDLOG_ERROR("nv_attach_impl: cuDeviceGet: {}",
+					     (int)err);
+				return false;
+			}
+			if (auto err = cuDevicePrimaryCtxRetain(
+				    &retained_primary_context, device);
+			    err != CUDA_SUCCESS) {
+				retained_primary_context = nullptr;
+				SPDLOG_ERROR(
+					"nv_attach_impl: cuDevicePrimaryCtxRetain: {}",
+					(int)err);
+				return false;
+			}
+		}
+		if (auto err = cuCtxPushCurrent(retained_primary_context);
+		    err != CUDA_SUCCESS) {
+			SPDLOG_ERROR("nv_attach_impl: cuCtxPushCurrent: {}",
+				     (int)err);
+			return false;
+		}
+		pushed = true;
+	}
+	bool ok = true;
+	const auto write = [&](const char *name, const void *src,
+			       size_t src_size) {
+		CUdeviceptr ptr = 0;
+		size_t size = 0;
+		if (auto err = cuLibraryGetGlobal(&ptr, &size, library, name);
+		    err != CUDA_SUCCESS) {
+			SPDLOG_ERROR("nv_attach_impl: cuLibraryGetGlobal({}): {}",
+				     name, (int)err);
+			ok = false;
+			return;
+		}
+		if (size > src_size) {
+			SPDLOG_ERROR(
+				"nv_attach_impl: {} is {} bytes in the patched image, {} on the host",
+				name, size, src_size);
+			ok = false;
+			return;
+		}
+		if (auto err = cuMemcpyHtoD(ptr, src, size);
+		    err != CUDA_SUCCESS) {
+			SPDLOG_ERROR("nv_attach_impl: writing {}: {}", name,
+				     (int)err);
+			ok = false;
+		}
+	};
+	write("constData", &shared_mem_ptr, sizeof(shared_mem_ptr));
+	write("map_info", map_basic_info->data(),
+	      map_basic_info->size() * sizeof(MapBasicInfo));
+	if (pushed) {
+		CUcontext popped = nullptr;
+		cuCtxPopCurrent(&popped);
+	}
+	return ok;
+}
+
+CUresult nv_attach_impl::load_library_with_probes(
+	void *original_fn, CUlibrary *library, const void *code,
+	CUjit_option *jit_options, void **jit_option_values,
+	unsigned int num_jit_options, CUlibraryOption *library_options,
+	void **library_option_values, unsigned int num_library_options)
+{
+	using load_fn_t = CUresult (*)(CUlibrary *, const void *,
+				       CUjit_option *, void **, unsigned int,
+				       CUlibraryOption *, void **, unsigned int);
+	auto original = reinterpret_cast<load_fn_t>(original_fn);
+	const auto load = [&](const void *image) {
+		return original(library, image, jit_options, jit_option_values,
+				num_jit_options, library_options,
+				library_option_values, num_library_options);
+	};
+	if (!substitutes_at_load() || library == nullptr)
+		return load(code);
+	const void *fatbin = fatbin_data_of_image(code);
+	if (fatbin == nullptr)
+		return load(code); // a cubin or PTX: not patched here
+	std::lock_guard<std::mutex> guard(load_substitution_mutex);
+	library_loaded_through_hook.store(true, std::memory_order_release);
+	if (!is_enabled() || hook_entries.empty() || shared_mem_ptr == 0 ||
+	    !map_basic_info)
+		return load(code);
+	const std::vector<uint8_t> *image = nullptr;
+	try {
+		image = patched_image_for_fatbin(fatbin);
+	} catch (const std::exception &e) {
+		SPDLOG_ERROR(
+			"nv_attach_impl: the fatbin at {} could not be patched ({}); its kernels run unpatched",
+			fatbin, e.what());
+		return load(code);
+	}
+	if (image == nullptr)
+		return load(code);
+	if (auto err = load(image->data()); err != CUDA_SUCCESS) {
+		SPDLOG_ERROR(
+			"nv_attach_impl: cuLibraryLoadData refused the patched image of the fatbin at {} ({}); its kernels run unpatched",
+			fatbin, (int)err);
+		return load(code);
+	}
+	if (!write_trampoline_globals(*library)) {
+		cuLibraryUnload(*library);
+		SPDLOG_ERROR(
+			"nv_attach_impl: the trampoline globals of the fatbin at {} could not be set; its kernels run unpatched",
+			fatbin);
+		return load(code);
+	}
+	std::string kernels;
+	for (const auto &[_, entry] : hook_entries)
+		for (const auto &kernel : entry.kernels)
+			kernels += (kernels.empty() ? "" : ", ") + kernel;
+	SPDLOG_INFO(
+		"nv_attach_impl: loaded the patched image of the fatbin at {} ({} bytes; probes on {})",
+		fatbin, image->size(), kernels);
+	return CUDA_SUCCESS;
 }
 
 } // namespace bpftime::attach

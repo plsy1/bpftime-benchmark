@@ -408,16 +408,19 @@ CUDAContext::CUDAContext(cuda::CommSharedMem *mem)
 {
 	// Move CommSharedMem from the agent’s local memory to shared memory to
 	// improve performance.
-	void *device_ptr = nullptr;
-	auto err = cudaHostGetDevicePointer(&device_ptr,
-					    (void *)cuda_shared_mem, 0);
-	if (err != cudaSuccess) {
+	// Driver API: a runtime call would initialize the application's shared
+	// cudart before the probes are known (see register_cuda_host_memory).
+	CUdeviceptr device_addr = 0;
+	auto err = cuMemHostGetDevicePointer(&device_addr,
+					     (void *)cuda_shared_mem, 0);
+	if (err != CUDA_SUCCESS) {
 		SPDLOG_ERROR(
-			"cudaHostGetDevicePointer failed for CommSharedMem: {}",
-			cudaGetErrorString(err));
+			"cuMemHostGetDevicePointer failed for CommSharedMem: {}",
+			(int)err);
 		throw std::runtime_error(
 			"Unable to get device pointer for CommSharedMem");
 	}
+	void *device_ptr = reinterpret_cast<void *>(device_addr);
 	cuda_shared_mem_device_pointer =
 		reinterpret_cast<uintptr_t>(device_ptr);
 	set_cuda_shared_mem_device_pointer(cuda_shared_mem_device_pointer);
