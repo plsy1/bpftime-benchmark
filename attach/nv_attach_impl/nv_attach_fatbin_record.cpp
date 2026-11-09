@@ -105,6 +105,9 @@ std::map<std::string, std::vector<uint8_t>> fatbin_record::compile_ptxs(
 	std::map<std::string, std::tuple<std::string, bool>> patched_ptx)
 {
 	std::string sm_arch = get_gpu_sm_arch();
+	if (sm_arch.empty())
+		throw std::runtime_error(
+			"the GPU's SM architecture is unknown (set BPFTIME_SM_ARCH)");
 	SPDLOG_INFO("Compiling PTXs with sm_arch {}", sm_arch);
 
 	unsigned major, minor;

@@ -3,6 +3,7 @@
 #include "driver_types.h"
 #include "nv_attach_impl.hpp"
 #include <bpf_attach_ctx.hpp>
+#include "bpftime_ratelimited_log.hpp"
 #include <algorithm>
 #include <chrono>
 #include <memory>
@@ -127,35 +128,11 @@ void serve_cuda_request(cuda::CUDAContext *ctx)
 		auto ptr = bpftime_map_lookup_elem(map_fd, req.key);
 		resp.value = nullptr;
 		if (ptr) {
-			const auto host_ptr = reinterpret_cast<uintptr_t>(ptr);
-			CUmemorytype mem_type = CU_MEMORYTYPE_HOST;
-			bool is_device_ptr = false;
-			if (cuPointerGetAttribute(
-				    &mem_type, CU_POINTER_ATTRIBUTE_MEMORY_TYPE,
-				    (CUdeviceptr)host_ptr) == CUDA_SUCCESS) {
-				is_device_ptr =
-					(mem_type == CU_MEMORYTYPE_DEVICE) ||
-					(mem_type == CU_MEMORYTYPE_UNIFIED);
-			}
-
-			if (is_device_ptr) {
-				// GPU maps can return a CUDA device pointer
-				// directly.
-				resp.value = const_cast<void *>(ptr);
-			} else {
-				const auto comm_host_base =
-					reinterpret_cast<uintptr_t>(comm);
-				const auto comm_device_base =
-					ctx->cuda_shared_mem_device_pointer;
-				const auto offset =
-					static_cast<intptr_t>(host_ptr) -
-					static_cast<intptr_t>(comm_host_base);
-				resp.value = reinterpret_cast<void *>(
-					static_cast<uintptr_t>(
-						static_cast<intptr_t>(
-							comm_device_base) +
-						offset));
-			}
+			resp.value = cuda::gpu_address_of_map_value(ptr);
+			if (resp.value == nullptr)
+				BPFTIME_LOG_WARN_RATELIMITED(
+					"CUDA: map {} lookup found a value at {:p}, which the GPU cannot reach; the GPU thread gets NULL",
+					map_fd, ptr);
 		}
 		SPDLOG_DEBUG(
 			"CUDA: Executing map lookup for {}, key= {:x} result = {:x}",
@@ -231,6 +208,19 @@ void bpf_attach_ctx::start_cuda_watcher_thread()
 	auto flag = cuda_ctx->cuda_watcher_should_stop;
 	cuda_watcher_thread = std::thread([flag, this]() {
 		auto *ctx = cuda_ctx.get();
+		// The device's primary context (the agent retained it, cudart
+		// uses it): map lookups ask the driver for their values' device
+		// addresses, which needs a current context.
+		CUdevice device = 0;
+		CUcontext primary = nullptr;
+		if (cuDeviceGet(&device, cuda_device_ordinal()) ==
+			    CUDA_SUCCESS &&
+		    cuDevicePrimaryCtxRetain(&primary, device) == CUDA_SUCCESS)
+			cuCtxSetCurrent(primary);
+		else
+			SPDLOG_WARN(
+				"CUDA watcher: no context for device {}; GPU map lookups through host calls return NULL",
+				cuda_device_ordinal());
 		using clock = std::chrono::steady_clock;
 		auto last_request = clock::now() - cuda_watcher_busy_window;
 		auto idle_sleep = std::chrono::duration_cast<
@@ -265,6 +255,10 @@ void bpf_attach_ctx::start_cuda_watcher_thread()
 			std::this_thread::sleep_for(idle_sleep);
 			idle_sleep = std::min<std::chrono::microseconds>(
 				idle_sleep * 2, cuda_watcher_max_sleep);
+		}
+		if (primary != nullptr) {
+			cuCtxSetCurrent(nullptr);
+			cuDevicePrimaryCtxRelease(device);
 		}
 		SPDLOG_INFO("Exiting CUDA watcher thread");
 	});
@@ -361,6 +355,23 @@ bpf_attach_ctx::create_map_basic_info(int filled_size)
 
 namespace cuda
 {
+
+void *gpu_address_of_map_value(const void *value)
+{
+	CUmemorytype type = CU_MEMORYTYPE_HOST;
+	if (cuPointerGetAttribute(&type, CU_POINTER_ATTRIBUTE_MEMORY_TYPE,
+				  (CUdeviceptr)value) == CUDA_SUCCESS &&
+	    (type == CU_MEMORYTYPE_DEVICE || type == CU_MEMORYTYPE_UNIFIED))
+		return const_cast<void *>(value);
+	// Host memory: its address in a registered range's device mapping.
+	// The offset from CommSharedMem used here before gave an illegal
+	// address for anything outside the registered segment.
+	CUdeviceptr device = 0;
+	if (cuMemHostGetDevicePointer(&device, const_cast<void *>(value), 0) ==
+	    CUDA_SUCCESS)
+		return reinterpret_cast<void *>(device);
+	return nullptr;
+}
 
 void cuda_context_destroyer(CUcontext ptr)
 {

@@ -48,9 +48,12 @@ std::string rewrite_ptx_target(std::string ptx, const std::string &sm_arch);
 /**
  * @brief Get the SM architecture string for the current GPU.
  * First checks BPFTIME_SM_ARCH environment variable, then auto-detects
- * from the current CUDA device if not set.
+ * from the current CUDA device (or device 0) if not set; a detected value is
+ * kept for the process (the environment is not changed).
  *
- * @return std::string SM architecture string (e.g., "sm_86", "sm_120")
+ * @return std::string SM architecture string (e.g., "sm_86", "sm_120"), or
+ * an empty string when the device cannot be queried (callers then leave the
+ * application's kernels unpatched).
  */
 std::string get_gpu_sm_arch();
 
