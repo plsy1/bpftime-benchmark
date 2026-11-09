@@ -1,3 +1,38 @@
+#ifdef BPFTIME_TRAMPOLINE_DEVICE_ONLY
+// Device code only, without CUDA's or the host's headers:
+//   clang++ -x cuda --cuda-device-only -nocudainc -nocudalib
+//     --cuda-gpu-arch=sm_61 -O2 -S -DBPFTIME_TRAMPOLINE_DEVICE_ONLY
+// clang 15/16 cannot parse CUDA 13's headers, nor glibc's aarch64 vector math
+// declarations in a device pass. These are the definitions clang's CUDA
+// headers give the CUDA functions used below.
+#include <__clang_cuda_builtin_vars.h>
+#include <cstdint>
+#define __device__ __attribute__((device))
+#define __global__ __attribute__((global))
+#define __constant__ __attribute__((constant))
+#define __forceinline__ __inline__ __attribute__((always_inline))
+#define __noinline__ __attribute__((noinline))
+// as CUDA's crt/common_functions.h declares it (device calls become vprintf)
+extern "C" __attribute__((host)) __device__ int printf(const char *, ...);
+static __device__ __forceinline__ int atomicCAS(int *p, int cmp, int val)
+{
+	return __nvvm_atom_cas_gen_i(p, cmp, val);
+}
+static __device__ __forceinline__ int atomicExch(int *p, int val)
+{
+	return __nvvm_atom_xchg_gen_i(p, val);
+}
+static __device__ __forceinline__ unsigned int __activemask()
+{
+	unsigned int mask;
+	asm volatile("activemask.b32 %0;" : "=r"(mask));
+	return mask;
+}
+static __device__ __forceinline__ void __syncwarp(unsigned int mask)
+{
+	__nvvm_bar_warp_sync(mask);
+}
+#else
 #include <__clang_cuda_builtin_vars.h>
 #include <atomic>
 #include <chrono>
@@ -15,10 +50,12 @@
 #include <thread>
 #include <vector>
 
+#endif
+
 /* clang++-17 -S ./default_trampoline.cu -Wall --cuda-gpu-arch=sm_60 -O2
  * -L/usr/local/cuda/lib64/ -lcudart*/
 // The old 1<<30 value makes the shared segment too large for Boost IPC.
-static constexpr int GPU_HELPER_MAX_BUF = 1 << 24;
+static constexpr int GPU_HELPER_MAX_BUF = 1 << 20;
 
 enum class HelperOperation {
 	MAP_LOOKUP = 1,
@@ -514,6 +551,7 @@ _bpf_helper_ext_0511(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
     return (uint64_t)lane_id;
 }
 
+#ifndef BPFTIME_TRAMPOLINE_DEVICE_ONLY
 extern "C" __global__ void bpf_main(void *mem, size_t sz)
 {
 	printf("kernel function entered, mem=%lx, memsz=%ld\n", (uintptr_t)mem,
@@ -668,3 +706,5 @@ int main()
 	std::cout << "All done.\n";
 	return 0;
 }
+
+#endif
