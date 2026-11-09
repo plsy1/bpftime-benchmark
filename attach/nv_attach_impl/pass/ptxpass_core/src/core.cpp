@@ -193,6 +193,36 @@ static uint64_t test_func(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
 	return 0;
 }
 
+// The probe switch: bpftime writes 0 to __bpftime_probes_enabled (declared
+// beside the trampoline) to turn a session's probes off in a module it cannot
+// unload (a fatbin patched as cudart loaded it). The function returns at once
+// then. A plain load: kernels launched after the write see it.
+std::string gate_probe_function(std::string ptx, const std::string &func_name)
+{
+	static const std::string gate =
+		"\t{\n"
+		"\t.reg .pred \t%bpftime_off;\n"
+		"\t.reg .b32 \t%bpftime_on;\n"
+		"\tld.global.u32 \t%bpftime_on, [__bpftime_probes_enabled];\n"
+		"\tsetp.eq.s32 \t%bpftime_off, %bpftime_on, 0;\n"
+		"\t@%bpftime_off ret;\n"
+		"\t}\n";
+	const std::string header = ".func " + func_name + "(";
+	auto pos = ptx.find(header);
+	if (pos == std::string::npos)
+		throw std::runtime_error("probe function " + func_name +
+					 " not found in its PTX");
+	auto params_end = ptx.find(')', pos + header.size());
+	auto brace = ptx.find('{', params_end);
+	if (params_end == std::string::npos || brace == std::string::npos)
+		throw std::runtime_error("malformed probe function " +
+					 func_name);
+	auto line_end = ptx.find('\n', brace);
+	ptx.insert(line_end == std::string::npos ? brace + 1 : line_end + 1,
+		   gate);
+	return ptx;
+}
+
 std::string compile_ebpf_to_ptx_from_words(
 	const std::vector<uint64_t> &words, const std::string &target_sm,
 	const std::string &func_name,
@@ -240,7 +270,7 @@ std::string compile_ebpf_to_ptx_from_words(
 			bpftime::attach::add_register_guard_for_ebpf_ptx_func(
 				filtered_ptx);
 	}
-	return filtered_ptx;
+	return gate_probe_function(std::move(filtered_ptx), func_name);
 }
 std::string filter_compiled_ptx_for_ebpf_program(std::string input)
 {

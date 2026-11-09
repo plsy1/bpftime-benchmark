@@ -146,6 +146,7 @@ int nv_attach_impl::detach_by_id(int id)
 		SPDLOG_INFO(
 			"nv_attach_impl: last entry detached; disabling CUDA launch replacement");
 		enabled.store(false, std::memory_order_release);
+		turn_off_substituted_probes();
 		// Wait for in-flight patched kernels to complete before the
 		// loader exits and tears down CUDA IPC buffers.
 		wait_for_patched_launch_events(std::chrono::seconds(2));
@@ -2186,78 +2187,107 @@ nv_attach_impl::patched_image_for_fatbin(const void *fatbin)
 	return remember(&preserved_images.back());
 }
 
-// Under load_substitution_mutex. The globals the trampoline reads, in the
-// context current on this thread; cudart loads before it has a context, so
-// then in the device's primary context (retained for the process: cudart
-// uses the same one).
+// Under load_substitution_mutex. cudart loads before it has a context, so
+// then the device's primary context (retained for the process: cudart uses
+// the same one).
+bool nv_attach_impl::with_cuda_context(const std::function<bool()> &fn)
+{
+	CUcontext current = nullptr;
+	if (cuCtxGetCurrent(&current) == CUDA_SUCCESS && current != nullptr)
+		return fn();
+	if (retained_primary_context == nullptr) {
+		CUdevice device = 0;
+		if (auto err = cuDeviceGet(&device, nv_cuda_device_ordinal());
+		    err != CUDA_SUCCESS) {
+			SPDLOG_ERROR("nv_attach_impl: cuDeviceGet: {}", (int)err);
+			return false;
+		}
+		if (auto err = cuDevicePrimaryCtxRetain(
+			    &retained_primary_context, device);
+		    err != CUDA_SUCCESS) {
+			retained_primary_context = nullptr;
+			SPDLOG_ERROR("nv_attach_impl: cuDevicePrimaryCtxRetain: {}",
+				     (int)err);
+			return false;
+		}
+	}
+	if (auto err = cuCtxPushCurrent(retained_primary_context);
+	    err != CUDA_SUCCESS) {
+		SPDLOG_ERROR("nv_attach_impl: cuCtxPushCurrent: {}", (int)err);
+		return false;
+	}
+	bool ok = fn();
+	CUcontext popped = nullptr;
+	cuCtxPopCurrent(&popped);
+	return ok;
+}
+
+namespace
+{
+bool write_library_global(CUlibrary library, const char *name,
+			  const void *src, size_t src_size)
+{
+	CUdeviceptr ptr = 0;
+	size_t size = 0;
+	if (auto err = cuLibraryGetGlobal(&ptr, &size, library, name);
+	    err != CUDA_SUCCESS) {
+		SPDLOG_ERROR("nv_attach_impl: cuLibraryGetGlobal({}): {}", name,
+			     (int)err);
+		return false;
+	}
+	if (size > src_size) {
+		SPDLOG_ERROR(
+			"nv_attach_impl: {} is {} bytes in the patched image, {} on the host",
+			name, size, src_size);
+		return false;
+	}
+	if (auto err = cuMemcpyHtoD(ptr, src, size); err != CUDA_SUCCESS) {
+		SPDLOG_ERROR("nv_attach_impl: writing {}: {}", name, (int)err);
+		return false;
+	}
+	return true;
+}
+} // namespace
+
+// Under load_substitution_mutex: the globals the trampoline reads.
 bool nv_attach_impl::write_trampoline_globals(CUlibrary library)
 {
 	if (!map_basic_info)
 		return false;
-	CUcontext current = nullptr;
-	bool pushed = false;
-	if (cuCtxGetCurrent(&current) != CUDA_SUCCESS || current == nullptr) {
-		if (retained_primary_context == nullptr) {
-			CUdevice device = 0;
-			if (auto err = cuDeviceGet(&device,
-						   nv_cuda_device_ordinal());
-			    err != CUDA_SUCCESS) {
-				SPDLOG_ERROR("nv_attach_impl: cuDeviceGet: {}",
-					     (int)err);
-				return false;
-			}
-			if (auto err = cuDevicePrimaryCtxRetain(
-				    &retained_primary_context, device);
-			    err != CUDA_SUCCESS) {
-				retained_primary_context = nullptr;
-				SPDLOG_ERROR(
-					"nv_attach_impl: cuDevicePrimaryCtxRetain: {}",
-					(int)err);
-				return false;
-			}
-		}
-		if (auto err = cuCtxPushCurrent(retained_primary_context);
-		    err != CUDA_SUCCESS) {
-			SPDLOG_ERROR("nv_attach_impl: cuCtxPushCurrent: {}",
-				     (int)err);
-			return false;
-		}
-		pushed = true;
-	}
-	bool ok = true;
-	const auto write = [&](const char *name, const void *src,
-			       size_t src_size) {
-		CUdeviceptr ptr = 0;
-		size_t size = 0;
-		if (auto err = cuLibraryGetGlobal(&ptr, &size, library, name);
-		    err != CUDA_SUCCESS) {
-			SPDLOG_ERROR("nv_attach_impl: cuLibraryGetGlobal({}): {}",
-				     name, (int)err);
-			ok = false;
-			return;
-		}
-		if (size > src_size) {
-			SPDLOG_ERROR(
-				"nv_attach_impl: {} is {} bytes in the patched image, {} on the host",
-				name, size, src_size);
-			ok = false;
-			return;
-		}
-		if (auto err = cuMemcpyHtoD(ptr, src, size);
-		    err != CUDA_SUCCESS) {
-			SPDLOG_ERROR("nv_attach_impl: writing {}: {}", name,
-				     (int)err);
-			ok = false;
-		}
-	};
-	write("constData", &shared_mem_ptr, sizeof(shared_mem_ptr));
-	write("map_info", map_basic_info->data(),
-	      map_basic_info->size() * sizeof(MapBasicInfo));
-	if (pushed) {
-		CUcontext popped = nullptr;
-		cuCtxPopCurrent(&popped);
-	}
-	return ok;
+	return with_cuda_context([&]() {
+		bool ok = write_library_global(library, "constData",
+					       &shared_mem_ptr,
+					       sizeof(shared_mem_ptr));
+		ok = write_library_global(
+			     library, "map_info", map_basic_info->data(),
+			     map_basic_info->size() * sizeof(MapBasicInfo)) &&
+		     ok;
+		return ok;
+	});
+}
+
+// A patched image cannot be unloaded (cudart holds the library), so the
+// last detach switches its probes off: kernels launched afterwards return
+// from them at once. A later session's probes cannot be patched into it
+// (it falls back to the late path).
+void nv_attach_impl::turn_off_substituted_probes()
+{
+	std::lock_guard<std::mutex> guard(load_substitution_mutex);
+	if (substituted_libraries.empty())
+		return;
+	const uint32_t off = 0;
+	size_t done = 0;
+	with_cuda_context([&]() {
+		for (auto library : substituted_libraries)
+			if (write_library_global(library,
+						 "__bpftime_probes_enabled",
+						 &off, sizeof(off)))
+				done++;
+		return true;
+	});
+	SPDLOG_INFO(
+		"nv_attach_impl: probes switched off in {} of {} patched module(s)",
+		done, substituted_libraries.size());
 }
 
 CUresult nv_attach_impl::load_library_with_probes(
@@ -2313,6 +2343,7 @@ CUresult nv_attach_impl::load_library_with_probes(
 	for (const auto &[_, entry] : hook_entries)
 		for (const auto &kernel : entry.kernels)
 			kernels += (kernels.empty() ? "" : ", ") + kernel;
+	substituted_libraries.push_back(*library);
 	SPDLOG_INFO(
 		"nv_attach_impl: loaded the patched image of the fatbin at {} ({} bytes; probes on {})",
 		fatbin, image->size(), kernels);
