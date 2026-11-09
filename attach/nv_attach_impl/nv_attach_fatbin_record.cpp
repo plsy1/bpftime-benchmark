@@ -116,13 +116,18 @@ std::map<std::string, std::vector<uint8_t>> fatbin_record::compile_ptxs(
 	const auto &handler = impl.ptx_compiler;
 	boost::asio::thread_pool pool(std::thread::hardware_concurrency());
 	std::mutex map_lock;
+	// An exception leaving a pool task ends the process (std::terminate):
+	// keep the first one and rethrow it after join, so that the caller can
+	// keep the original module.
+	std::string first_error;
 	for (const auto &[name, ptx_and_trampoline_flag] : patched_ptx) {
 		const auto &ptx = std::get<0>(ptx_and_trampoline_flag);
 
 			boost::asio::post(
 				pool,
 				[&handler, ptx, name, &compiled_ptx, &map_lock, this,
-				 sm_arch]() -> void {
+				 sm_arch, &first_error]() -> void {
+				try {
 					const auto ptx_fixed =
 						rewrite_ptx_target(ptx, sm_arch);
 					auto sha256_string =
@@ -182,9 +187,20 @@ std::map<std::string, std::vector<uint8_t>> fatbin_record::compile_ptxs(
 						compiled_program));
 					SPDLOG_INFO("Compile of {} done", name);
 				}
+				} catch (const std::exception &e) {
+					std::lock_guard<std::mutex> _guard(map_lock);
+					if (first_error.empty())
+						first_error = name + ": " + e.what();
+				} catch (...) {
+					std::lock_guard<std::mutex> _guard(map_lock);
+					if (first_error.empty())
+						first_error = name + ": unknown error";
+				}
 			});
 	}
 	pool.join();
+	if (!first_error.empty())
+		throw std::runtime_error("PTX compile failed: " + first_error);
 	return compiled_ptx;
 }
 void fatbin_record::try_loading_ptxs(class nv_attach_impl &impl)
@@ -197,7 +213,10 @@ void fatbin_record::try_loading_ptxs(class nv_attach_impl &impl)
 	}
 	SPDLOG_INFO("Loading & patching current fatbin..");
 
-	auto patched_ptx = *impl.hack_fatbin(original_ptx);
+	auto patched = impl.hack_fatbin(original_ptx);
+	if (!patched)
+		throw std::runtime_error("PTX passes failed");
+	auto patched_ptx = std::move(*patched);
 
 	auto compiled_ptx = compile_ptxs(impl, patched_ptx);
 

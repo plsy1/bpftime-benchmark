@@ -234,6 +234,9 @@ class nv_attach_impl final : public base_attach_impl {
 		void clear_patched_state_for_next_session();
 
 		void bootstrap_existing_fatbins();
+		// try_loading_ptxs; on failure log it (the fatbin stays
+		// unpatched) and return false.
+		bool try_loading_or_log(fatbin_record &rec, const char *where);
 		void reset_late_bootstrap_state_for_next_attach();
 		void build_host_symbol_cache_once();
 		void prefill_patched_kernel_functions_from_loaded_fatbins();
