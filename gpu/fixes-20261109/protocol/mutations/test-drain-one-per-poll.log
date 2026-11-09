@@ -1,0 +1,55 @@
+[2026-11-09 21:30:41.526] [info] [bpf_attach_ctx.cpp:301] bpf_attach_ctx constructed
+[2026-11-09 21:30:41.527] [info] [bpf_attach_ctx_cuda.cpp:376] Initializing CUDA shared memory
+[2026-11-09 21:30:41.527] [error] [bpf_attach_ctx_cuda.cpp:380] CUDA shared communication memory not initialized in shared segment
+[2026-11-09 21:30:41.527] [warning] [bpf_attach_ctx.cpp:307] CUDA shared communication memory not available; CUDA attach will be disabled for this process
+Filters: [cuda-ringbuf],[cuda-host-call]
+Randomness seeded to: 3878436575
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_runtime_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+A GPU ringbuf poll passes every published record once
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:410
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:434: FAILED:
+  REQUIRE( rb->drain_data(collect) == 7 )
+with expansion:
+  2 == 7
+
+[2026-11-09 21:30:41.635] [info] [bpftime_shm_internal.cpp:1201] Global shm constructed. shm_open_type 0 for bpftime-cuda-host-call-474480
+[2026-11-09 21:30:41.635] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-09 21:30:41.745] [info] [bpftime_shm_internal.cpp:1471] Registered shared memory with CUDA: addr=0xffff60000000 size=134217728
+[2026-11-09 21:30:41.745] [info] [bpftime_shm_internal.cpp:1201] Global shm constructed. shm_open_type 1 for bpftime-cuda-host-call-474480
+[2026-11-09 21:30:41.745] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-09 21:30:41.745] [info] [bpf_attach_ctx.cpp:301] bpf_attach_ctx constructed
+[2026-11-09 21:30:41.745] [info] [bpf_attach_ctx_cuda.cpp:376] Initializing CUDA shared memory
+[2026-11-09 21:30:41.745] [info] [bpf_attach_ctx_cuda.cpp:418] CommSharedMem host 0xffff600fc9c8 mapped to device 0x1022c09c8
+[2026-11-09 21:30:41.745] [info] [bpf_attach_ctx_cuda.cpp:389] CUDA context created
+[2026-11-09 21:30:41.795] [info] [bpf_attach_ctx.cpp:289] Destructor: bpf_attach_ctx
+[2026-11-09 21:30:41.795] [info] [bpf_attach_ctx_cuda.cpp:269] Exiting CUDA watcher thread
+[2026-11-09 21:30:41.795] [info] [bpf_attach_ctx_cuda.cpp:394] Destructing CUDAContext
+[2026-11-09 21:30:41.839] [warning] [bpftime_shm_internal.cpp:1042] NOT creating global shm. This is only for testing purpose.
+[2026-11-09 21:30:41.839] [info] [bpftime_shm_internal.cpp:1201] Global shm constructed. shm_open_type 2 for bpftime-cuda-host-call-474480
+[2026-11-09 21:30:41.839] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-09 21:30:41.844] [warning] [nv_gpu_ringbuf_map.cpp:98] GPU ringbuf: the GPU dropped 128 records since the last poll (128 in all): full, larger than the 16-byte value size, or written by two threads at once
+-------------------------------------------------------------------------------
+GPU threads write whole ringbuf records and count the dropped ones
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:548
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:594: FAILED:
+  REQUIRE( drain(rb, records, &sizes) == (int)(n * entries) )
+with expansion:
+  64 == 256 (0x100)
+
+bpftime: GPU thread 64, key 0 is outside map 6 (64 threads, 2 entries): lookups return NULL, updates fail. Set BPFTIME_MAP_GPU_THREAD_COUNT for the syscall server to cover every thread
+===============================================================================
+test cases:   4 |   2 passed | 2 failed
+assertions: 633 | 631 passed | 2 failed
+
+[2026-11-09 21:30:41.848] [info] [bpf_attach_ctx.cpp:289] Destructor: bpf_attach_ctx

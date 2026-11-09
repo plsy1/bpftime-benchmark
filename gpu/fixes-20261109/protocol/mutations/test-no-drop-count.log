@@ -1,0 +1,935 @@
+[2026-11-09 21:27:53.602] [info] [bpf_attach_ctx.cpp:301] bpf_attach_ctx constructed
+[2026-11-09 21:27:53.602] [info] [bpf_attach_ctx_cuda.cpp:376] Initializing CUDA shared memory
+[2026-11-09 21:27:53.602] [error] [bpf_attach_ctx_cuda.cpp:380] CUDA shared communication memory not initialized in shared segment
+[2026-11-09 21:27:53.602] [warning] [bpf_attach_ctx.cpp:307] CUDA shared communication memory not available; CUDA attach will be disabled for this process
+Filters: [cuda-ringbuf],[cuda-host-call]
+Randomness seeded to: 4082026423
+[2026-11-09 21:27:53.607] [warning] [nv_gpu_ringbuf_map.cpp:83] GPU ringbuf thread 1: record of 1048576 bytes in a map of 16-byte values; passing 16
+[2026-11-09 21:27:53.714] [info] [bpftime_shm_internal.cpp:1201] Global shm constructed. shm_open_type 0 for bpftime-cuda-host-call-473397
+[2026-11-09 21:27:53.714] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-09 21:27:53.827] [info] [bpftime_shm_internal.cpp:1471] Registered shared memory with CUDA: addr=0xffff64000000 size=134217728
+[2026-11-09 21:27:53.827] [info] [bpftime_shm_internal.cpp:1201] Global shm constructed. shm_open_type 1 for bpftime-cuda-host-call-473397
+[2026-11-09 21:27:53.827] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-09 21:27:53.827] [info] [bpf_attach_ctx.cpp:301] bpf_attach_ctx constructed
+[2026-11-09 21:27:53.827] [info] [bpf_attach_ctx_cuda.cpp:376] Initializing CUDA shared memory
+[2026-11-09 21:27:53.827] [info] [bpf_attach_ctx_cuda.cpp:418] CommSharedMem host 0xffff640fc9c8 mapped to device 0x1022c09c8
+[2026-11-09 21:27:53.827] [info] [bpf_attach_ctx_cuda.cpp:389] CUDA context created
+[2026-11-09 21:27:54.117] [info] [bpf_attach_ctx.cpp:289] Destructor: bpf_attach_ctx
+[2026-11-09 21:27:54.117] [info] [bpf_attach_ctx_cuda.cpp:269] Exiting CUDA watcher thread
+[2026-11-09 21:27:54.117] [info] [bpf_attach_ctx_cuda.cpp:394] Destructing CUDAContext
+[2026-11-09 21:27:54.163] [warning] [bpftime_shm_internal.cpp:1042] NOT creating global shm. This is only for testing purpose.
+[2026-11-09 21:27:54.163] [info] [bpftime_shm_internal.cpp:1201] Global shm constructed. shm_open_type 2 for bpftime-cuda-host-call-473397
+[2026-11-09 21:27:54.163] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_runtime_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+GPU threads write whole ringbuf records and count the dropped ones
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:548
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 0
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 1
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 2
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 3
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 4
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 5
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 6
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 7
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 8
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 9
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 10
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 11
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 12
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 13
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 14
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 15
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 16
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 17
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 18
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 19
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 20
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 21
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 22
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 23
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 24
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 25
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 26
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 27
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 28
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 29
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 30
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 31
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 32
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 33
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 34
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 35
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 36
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 37
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 38
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 39
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 40
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 41
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 42
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 43
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 44
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 45
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 46
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 47
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 48
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 49
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 50
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 51
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 52
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 53
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 54
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 55
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 56
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 57
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 58
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 59
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 60
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 61
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 62
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:600: FAILED:
+  CHECK( dropped(i) == 2 )
+with expansion:
+  0 == 2
+with message:
+  thread 63
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 0
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 1
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 2
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 3
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 4
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 5
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 6
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 7
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 8
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 9
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 10
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 11
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 12
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 13
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 14
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 15
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 16
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 17
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 18
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 19
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 20
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 21
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 22
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 23
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 24
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 25
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 26
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 27
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 28
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 29
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 30
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 31
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 32
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 33
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 34
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 35
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 36
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 37
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 38
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 39
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 40
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 41
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 42
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 43
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 44
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 45
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 46
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 47
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 48
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 49
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 50
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 51
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 52
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 53
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 54
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 55
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 56
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 57
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 58
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 59
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 60
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 61
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 62
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:614: FAILED:
+  CHECK( dropped(i) == 5 )
+with expansion:
+  0 == 5
+with message:
+  thread 63
+
+bpftime: GPU thread 64, key 0 is outside map 6 (64 threads, 2 entries): lookups return NULL, updates fail. Set BPFTIME_MAP_GPU_THREAD_COUNT for the syscall server to cover every thread
+===============================================================================
+test cases:    4 |    3 passed |   1 failed
+assertions: 1300 | 1172 passed | 128 failed
+
+[2026-11-09 21:27:54.175] [info] [bpf_attach_ctx.cpp:289] Destructor: bpf_attach_ctx

@@ -1,0 +1,3122 @@
+[2026-11-09 21:25:09.208] [info] [bpf_attach_ctx.cpp:301] bpf_attach_ctx constructed
+[2026-11-09 21:25:09.208] [info] [bpf_attach_ctx_cuda.cpp:376] Initializing CUDA shared memory
+[2026-11-09 21:25:09.208] [error] [bpf_attach_ctx_cuda.cpp:380] CUDA shared communication memory not initialized in shared segment
+[2026-11-09 21:25:09.208] [warning] [bpf_attach_ctx.cpp:307] CUDA shared communication memory not available; CUDA attach will be disabled for this process
+Filters: [cuda-ringbuf],[cuda-host-call]
+Randomness seeded to: 1817211860
+[2026-11-09 21:25:09.213] [warning] [nv_gpu_ringbuf_map.cpp:83] GPU ringbuf thread 1: record of 1048576 bytes in a map of 16-byte values; passing 16
+[2026-11-09 21:25:09.323] [info] [bpftime_shm_internal.cpp:1201] Global shm constructed. shm_open_type 0 for bpftime-cuda-host-call-472306
+[2026-11-09 21:25:09.323] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-09 21:25:09.434] [info] [bpftime_shm_internal.cpp:1471] Registered shared memory with CUDA: addr=0xffff64000000 size=134217728
+[2026-11-09 21:25:09.434] [info] [bpftime_shm_internal.cpp:1201] Global shm constructed. shm_open_type 1 for bpftime-cuda-host-call-472306
+[2026-11-09 21:25:09.435] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-09 21:25:09.435] [info] [bpf_attach_ctx.cpp:301] bpf_attach_ctx constructed
+[2026-11-09 21:25:09.435] [info] [bpf_attach_ctx_cuda.cpp:376] Initializing CUDA shared memory
+[2026-11-09 21:25:09.435] [info] [bpf_attach_ctx_cuda.cpp:418] CommSharedMem host 0xffff640fc9c8 mapped to device 0x1022c09c8
+[2026-11-09 21:25:09.435] [info] [bpf_attach_ctx_cuda.cpp:389] CUDA context created
+[2026-11-09 21:25:09.700] [info] [bpf_attach_ctx.cpp:289] Destructor: bpf_attach_ctx
+[2026-11-09 21:25:09.701] [info] [bpf_attach_ctx_cuda.cpp:269] Exiting CUDA watcher thread
+[2026-11-09 21:25:09.701] [info] [bpf_attach_ctx_cuda.cpp:394] Destructing CUDAContext
+[2026-11-09 21:25:09.748] [warning] [bpftime_shm_internal.cpp:1042] NOT creating global shm. This is only for testing purpose.
+[2026-11-09 21:25:09.748] [info] [bpftime_shm_internal.cpp:1201] Global shm constructed. shm_open_type 2 for bpftime-cuda-host-call-472306
+[2026-11-09 21:25:09.748] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-09 21:25:09.753] [warning] [nv_gpu_ringbuf_map.cpp:98] GPU ringbuf: the GPU dropped 128 records since the last poll (128 in all): full, larger than the 16-byte value size, or written by two threads at once
+[2026-11-09 21:25:09.753] [warning] [nv_gpu_ringbuf_map.cpp:98] GPU ringbuf: the GPU dropped 192 records since the last poll (320 in all): full, larger than the 16-byte value size, or written by two threads at once
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_runtime_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+Per-thread GPU maps refuse threads and keys outside them
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:630
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 64
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373632 (0x1021c4200) == 0
+with message:
+  thread 64
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 65
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373640 (0x1021c4208) == 0
+with message:
+  thread 65
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 66
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373648 (0x1021c4210) == 0
+with message:
+  thread 66
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 67
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373656 (0x1021c4218) == 0
+with message:
+  thread 67
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 68
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373664 (0x1021c4220) == 0
+with message:
+  thread 68
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 69
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373672 (0x1021c4228) == 0
+with message:
+  thread 69
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 70
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373680 (0x1021c4230) == 0
+with message:
+  thread 70
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 71
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373688 (0x1021c4238) == 0
+with message:
+  thread 71
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 72
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373696 (0x1021c4240) == 0
+with message:
+  thread 72
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 73
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373704 (0x1021c4248) == 0
+with message:
+  thread 73
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 74
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373712 (0x1021c4250) == 0
+with message:
+  thread 74
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 75
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373720 (0x1021c4258) == 0
+with message:
+  thread 75
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 76
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373728 (0x1021c4260) == 0
+with message:
+  thread 76
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 77
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373736 (0x1021c4268) == 0
+with message:
+  thread 77
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 78
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373744 (0x1021c4270) == 0
+with message:
+  thread 78
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 79
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373752 (0x1021c4278) == 0
+with message:
+  thread 79
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 80
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373760 (0x1021c4280) == 0
+with message:
+  thread 80
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 81
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373768 (0x1021c4288) == 0
+with message:
+  thread 81
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 82
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373776 (0x1021c4290) == 0
+with message:
+  thread 82
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 83
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373784 (0x1021c4298) == 0
+with message:
+  thread 83
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 84
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373792 (0x1021c42a0) == 0
+with message:
+  thread 84
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 85
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373800 (0x1021c42a8) == 0
+with message:
+  thread 85
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 86
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373808 (0x1021c42b0) == 0
+with message:
+  thread 86
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 87
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373816 (0x1021c42b8) == 0
+with message:
+  thread 87
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 88
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373824 (0x1021c42c0) == 0
+with message:
+  thread 88
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 89
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373832 (0x1021c42c8) == 0
+with message:
+  thread 89
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 90
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373840 (0x1021c42d0) == 0
+with message:
+  thread 90
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 91
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373848 (0x1021c42d8) == 0
+with message:
+  thread 91
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 92
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373856 (0x1021c42e0) == 0
+with message:
+  thread 92
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 93
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373864 (0x1021c42e8) == 0
+with message:
+  thread 93
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 94
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373872 (0x1021c42f0) == 0
+with message:
+  thread 94
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 95
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373880 (0x1021c42f8) == 0
+with message:
+  thread 95
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 96
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373888 (0x1021c4300) == 0
+with message:
+  thread 96
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 97
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373896 (0x1021c4308) == 0
+with message:
+  thread 97
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 98
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373904 (0x1021c4310) == 0
+with message:
+  thread 98
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 99
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373912 (0x1021c4318) == 0
+with message:
+  thread 99
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 100
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373920 (0x1021c4320) == 0
+with message:
+  thread 100
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 101
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373928 (0x1021c4328) == 0
+with message:
+  thread 101
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 102
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373936 (0x1021c4330) == 0
+with message:
+  thread 102
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 103
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373944 (0x1021c4338) == 0
+with message:
+  thread 103
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 104
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373952 (0x1021c4340) == 0
+with message:
+  thread 104
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 105
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373960 (0x1021c4348) == 0
+with message:
+  thread 105
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 106
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373968 (0x1021c4350) == 0
+with message:
+  thread 106
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 107
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373976 (0x1021c4358) == 0
+with message:
+  thread 107
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 108
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373984 (0x1021c4360) == 0
+with message:
+  thread 108
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 109
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330373992 (0x1021c4368) == 0
+with message:
+  thread 109
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 110
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374000 (0x1021c4370) == 0
+with message:
+  thread 110
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 111
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374008 (0x1021c4378) == 0
+with message:
+  thread 111
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 112
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374016 (0x1021c4380) == 0
+with message:
+  thread 112
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 113
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374024 (0x1021c4388) == 0
+with message:
+  thread 113
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 114
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374032 (0x1021c4390) == 0
+with message:
+  thread 114
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 115
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374040 (0x1021c4398) == 0
+with message:
+  thread 115
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 116
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374048 (0x1021c43a0) == 0
+with message:
+  thread 116
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 117
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374056 (0x1021c43a8) == 0
+with message:
+  thread 117
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 118
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374064 (0x1021c43b0) == 0
+with message:
+  thread 118
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 119
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374072 (0x1021c43b8) == 0
+with message:
+  thread 119
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 120
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374080 (0x1021c43c0) == 0
+with message:
+  thread 120
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 121
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374088 (0x1021c43c8) == 0
+with message:
+  thread 121
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 122
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374096 (0x1021c43d0) == 0
+with message:
+  thread 122
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 123
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374104 (0x1021c43d8) == 0
+with message:
+  thread 123
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 124
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374112 (0x1021c43e0) == 0
+with message:
+  thread 124
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 125
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374120 (0x1021c43e8) == 0
+with message:
+  thread 125
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 126
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374128 (0x1021c43f0) == 0
+with message:
+  thread 126
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:679: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 127
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:680: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374136 (0x1021c43f8) == 0
+with message:
+  thread 127
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:684: FAILED:
+  CHECK( untouched(map_threads * value_size) )
+with expansion:
+  false
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 0
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374144 (0x1021c4400) == 0
+with message:
+  thread 0
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 1
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374152 (0x1021c4408) == 0
+with message:
+  thread 1
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 2
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374160 (0x1021c4410) == 0
+with message:
+  thread 2
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 3
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374168 (0x1021c4418) == 0
+with message:
+  thread 3
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 4
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374176 (0x1021c4420) == 0
+with message:
+  thread 4
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 5
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374184 (0x1021c4428) == 0
+with message:
+  thread 5
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 6
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374192 (0x1021c4430) == 0
+with message:
+  thread 6
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 7
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374200 (0x1021c4438) == 0
+with message:
+  thread 7
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 8
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374208 (0x1021c4440) == 0
+with message:
+  thread 8
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 9
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374216 (0x1021c4448) == 0
+with message:
+  thread 9
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 10
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374224 (0x1021c4450) == 0
+with message:
+  thread 10
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 11
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374232 (0x1021c4458) == 0
+with message:
+  thread 11
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 12
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374240 (0x1021c4460) == 0
+with message:
+  thread 12
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 13
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374248 (0x1021c4468) == 0
+with message:
+  thread 13
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 14
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374256 (0x1021c4470) == 0
+with message:
+  thread 14
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 15
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374264 (0x1021c4478) == 0
+with message:
+  thread 15
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 16
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374272 (0x1021c4480) == 0
+with message:
+  thread 16
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 17
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374280 (0x1021c4488) == 0
+with message:
+  thread 17
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 18
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374288 (0x1021c4490) == 0
+with message:
+  thread 18
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 19
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374296 (0x1021c4498) == 0
+with message:
+  thread 19
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 20
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374304 (0x1021c44a0) == 0
+with message:
+  thread 20
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 21
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374312 (0x1021c44a8) == 0
+with message:
+  thread 21
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 22
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374320 (0x1021c44b0) == 0
+with message:
+  thread 22
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 23
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374328 (0x1021c44b8) == 0
+with message:
+  thread 23
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 24
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374336 (0x1021c44c0) == 0
+with message:
+  thread 24
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 25
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374344 (0x1021c44c8) == 0
+with message:
+  thread 25
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 26
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374352 (0x1021c44d0) == 0
+with message:
+  thread 26
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 27
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374360 (0x1021c44d8) == 0
+with message:
+  thread 27
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 28
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374368 (0x1021c44e0) == 0
+with message:
+  thread 28
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 29
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374376 (0x1021c44e8) == 0
+with message:
+  thread 29
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 30
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374384 (0x1021c44f0) == 0
+with message:
+  thread 30
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 31
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374392 (0x1021c44f8) == 0
+with message:
+  thread 31
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 32
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374400 (0x1021c4500) == 0
+with message:
+  thread 32
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 33
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374408 (0x1021c4508) == 0
+with message:
+  thread 33
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 34
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374416 (0x1021c4510) == 0
+with message:
+  thread 34
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 35
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374424 (0x1021c4518) == 0
+with message:
+  thread 35
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 36
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374432 (0x1021c4520) == 0
+with message:
+  thread 36
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 37
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374440 (0x1021c4528) == 0
+with message:
+  thread 37
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 38
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374448 (0x1021c4530) == 0
+with message:
+  thread 38
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 39
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374456 (0x1021c4538) == 0
+with message:
+  thread 39
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 40
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374464 (0x1021c4540) == 0
+with message:
+  thread 40
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 41
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374472 (0x1021c4548) == 0
+with message:
+  thread 41
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 42
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374480 (0x1021c4550) == 0
+with message:
+  thread 42
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 43
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374488 (0x1021c4558) == 0
+with message:
+  thread 43
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 44
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374496 (0x1021c4560) == 0
+with message:
+  thread 44
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 45
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374504 (0x1021c4568) == 0
+with message:
+  thread 45
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 46
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374512 (0x1021c4570) == 0
+with message:
+  thread 46
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 47
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374520 (0x1021c4578) == 0
+with message:
+  thread 47
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 48
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374528 (0x1021c4580) == 0
+with message:
+  thread 48
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 49
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374536 (0x1021c4588) == 0
+with message:
+  thread 49
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 50
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374544 (0x1021c4590) == 0
+with message:
+  thread 50
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 51
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374552 (0x1021c4598) == 0
+with message:
+  thread 51
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 52
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374560 (0x1021c45a0) == 0
+with message:
+  thread 52
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 53
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374568 (0x1021c45a8) == 0
+with message:
+  thread 53
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 54
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374576 (0x1021c45b0) == 0
+with message:
+  thread 54
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 55
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374584 (0x1021c45b8) == 0
+with message:
+  thread 55
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 56
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374592 (0x1021c45c0) == 0
+with message:
+  thread 56
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 57
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374600 (0x1021c45c8) == 0
+with message:
+  thread 57
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 58
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374608 (0x1021c45d0) == 0
+with message:
+  thread 58
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 59
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374616 (0x1021c45d8) == 0
+with message:
+  thread 59
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 60
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374624 (0x1021c45e0) == 0
+with message:
+  thread 60
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 61
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374632 (0x1021c45e8) == 0
+with message:
+  thread 61
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 62
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374640 (0x1021c45f0) == 0
+with message:
+  thread 62
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 63
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374648 (0x1021c45f8) == 0
+with message:
+  thread 63
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 64
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374656 (0x1021c4600) == 0
+with message:
+  thread 64
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 65
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374664 (0x1021c4608) == 0
+with message:
+  thread 65
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 66
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374672 (0x1021c4610) == 0
+with message:
+  thread 66
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 67
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374680 (0x1021c4618) == 0
+with message:
+  thread 67
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 68
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374688 (0x1021c4620) == 0
+with message:
+  thread 68
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 69
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374696 (0x1021c4628) == 0
+with message:
+  thread 69
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 70
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374704 (0x1021c4630) == 0
+with message:
+  thread 70
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 71
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374712 (0x1021c4638) == 0
+with message:
+  thread 71
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 72
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374720 (0x1021c4640) == 0
+with message:
+  thread 72
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 73
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374728 (0x1021c4648) == 0
+with message:
+  thread 73
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 74
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374736 (0x1021c4650) == 0
+with message:
+  thread 74
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 75
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374744 (0x1021c4658) == 0
+with message:
+  thread 75
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 76
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374752 (0x1021c4660) == 0
+with message:
+  thread 76
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 77
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374760 (0x1021c4668) == 0
+with message:
+  thread 77
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 78
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374768 (0x1021c4670) == 0
+with message:
+  thread 78
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 79
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374776 (0x1021c4678) == 0
+with message:
+  thread 79
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 80
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374784 (0x1021c4680) == 0
+with message:
+  thread 80
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 81
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374792 (0x1021c4688) == 0
+with message:
+  thread 81
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 82
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374800 (0x1021c4690) == 0
+with message:
+  thread 82
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 83
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374808 (0x1021c4698) == 0
+with message:
+  thread 83
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 84
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374816 (0x1021c46a0) == 0
+with message:
+  thread 84
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 85
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374824 (0x1021c46a8) == 0
+with message:
+  thread 85
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 86
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374832 (0x1021c46b0) == 0
+with message:
+  thread 86
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 87
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374840 (0x1021c46b8) == 0
+with message:
+  thread 87
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 88
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374848 (0x1021c46c0) == 0
+with message:
+  thread 88
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 89
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374856 (0x1021c46c8) == 0
+with message:
+  thread 89
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 90
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374864 (0x1021c46d0) == 0
+with message:
+  thread 90
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 91
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374872 (0x1021c46d8) == 0
+with message:
+  thread 91
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 92
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374880 (0x1021c46e0) == 0
+with message:
+  thread 92
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 93
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374888 (0x1021c46e8) == 0
+with message:
+  thread 93
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 94
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374896 (0x1021c46f0) == 0
+with message:
+  thread 94
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 95
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374904 (0x1021c46f8) == 0
+with message:
+  thread 95
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 96
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374912 (0x1021c4700) == 0
+with message:
+  thread 96
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 97
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374920 (0x1021c4708) == 0
+with message:
+  thread 97
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 98
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374928 (0x1021c4710) == 0
+with message:
+  thread 98
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 99
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374936 (0x1021c4718) == 0
+with message:
+  thread 99
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 100
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374944 (0x1021c4720) == 0
+with message:
+  thread 100
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 101
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374952 (0x1021c4728) == 0
+with message:
+  thread 101
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 102
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374960 (0x1021c4730) == 0
+with message:
+  thread 102
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 103
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374968 (0x1021c4738) == 0
+with message:
+  thread 103
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 104
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374976 (0x1021c4740) == 0
+with message:
+  thread 104
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 105
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374984 (0x1021c4748) == 0
+with message:
+  thread 105
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 106
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330374992 (0x1021c4750) == 0
+with message:
+  thread 106
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 107
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375000 (0x1021c4758) == 0
+with message:
+  thread 107
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 108
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375008 (0x1021c4760) == 0
+with message:
+  thread 108
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 109
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375016 (0x1021c4768) == 0
+with message:
+  thread 109
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 110
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375024 (0x1021c4770) == 0
+with message:
+  thread 110
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 111
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375032 (0x1021c4778) == 0
+with message:
+  thread 111
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 112
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375040 (0x1021c4780) == 0
+with message:
+  thread 112
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 113
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375048 (0x1021c4788) == 0
+with message:
+  thread 113
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 114
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375056 (0x1021c4790) == 0
+with message:
+  thread 114
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 115
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375064 (0x1021c4798) == 0
+with message:
+  thread 115
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 116
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375072 (0x1021c47a0) == 0
+with message:
+  thread 116
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 117
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375080 (0x1021c47a8) == 0
+with message:
+  thread 117
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 118
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375088 (0x1021c47b0) == 0
+with message:
+  thread 118
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 119
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375096 (0x1021c47b8) == 0
+with message:
+  thread 119
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 120
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375104 (0x1021c47c0) == 0
+with message:
+  thread 120
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 121
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375112 (0x1021c47c8) == 0
+with message:
+  thread 121
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 122
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375120 (0x1021c47d0) == 0
+with message:
+  thread 122
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 123
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375128 (0x1021c47d8) == 0
+with message:
+  thread 123
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 124
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375136 (0x1021c47e0) == 0
+with message:
+  thread 124
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 125
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375144 (0x1021c47e8) == 0
+with message:
+  thread 125
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 126
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375152 (0x1021c47f0) == 0
+with message:
+  thread 126
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:691: FAILED:
+  CHECK( results[2 * i] == E2BIG_RESULT )
+with expansion:
+  0
+  ==
+  18446744073709551609 (0xfffffffffffffff9)
+with message:
+  thread 127
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:692: FAILED:
+  CHECK( results[2 * i + 1] == 0 )
+with expansion:
+  4330375160 (0x1021c47f8) == 0
+with message:
+  thread 127
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/cuda/test_cuda_host_call.cpp:694: FAILED:
+  CHECK( untouched(map_threads * value_size) )
+with expansion:
+  false
+
+===============================================================================
+test cases:    4 |   3 passed |   1 failed
+assertions: 1300 | 914 passed | 386 failed
+
+[2026-11-09 21:25:09.760] [info] [bpf_attach_ctx.cpp:289] Destructor: bpf_attach_ctx
