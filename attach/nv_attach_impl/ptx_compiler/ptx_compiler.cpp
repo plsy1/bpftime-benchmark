@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <clocale>
+#include <locale.h>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <vector>
@@ -16,12 +17,28 @@ struct nv_attach_impl_ptx_compiler {
 	std::vector<uint8_t> compiled_program;
 };
 
+namespace
+{
+// nvPTXCompiler calls libc's ctype functions (isalpha) and parses numbers in
+// the PTX: it runs with the "C" locale, set for the compiling thread only.
+// setlocale(LC_ALL, "") here switched the whole application (the agent and
+// this library share its libc under LD_PRELOAD) to its environment's locale.
+struct c_locale_for_this_thread {
+	locale_t c = newlocale(LC_ALL_MASK, "C", (locale_t)0);
+	locale_t previous = c ? uselocale(c) : (locale_t)0;
+	~c_locale_for_this_thread()
+	{
+		if (c) {
+			uselocale(previous);
+			freelocale(c);
+		}
+	}
+};
+} // namespace
+
 extern "C" {
 nv_attach_impl_ptx_compiler *nv_attach_impl_create_compiler()
 {
-	// nvPTXCompiler might call libc locale/ctype functions early (e.g. isalpha).
-	// Initialize locale configuration before it's calling to avoid SIGSEGV in some environments.
-	setlocale(LC_ALL, "");
 	return new nv_attach_impl_ptx_compiler;
 }
 
@@ -39,6 +56,7 @@ int nv_attach_impl_compile(nv_attach_impl_ptx_compiler *ptr, const char *ptx,
 {
 	if (!ptr || !ptx)
 		return -1;
+	c_locale_for_this_thread locale;
 
 	ptr->error_log.clear();
 	ptr->info_log.clear();

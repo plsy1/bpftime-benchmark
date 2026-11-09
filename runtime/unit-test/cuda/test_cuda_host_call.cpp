@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <memory>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -694,4 +695,33 @@ TEST_CASE("Per-thread GPU maps refuse threads and keys outside them",
 		CHECK(untouched(map_threads * value_size));
 	}
 	cuMemFreeHost(host);
+}
+
+// The watcher turned a map value's host address into "CommSharedMem's
+// device address + the distance from CommSharedMem": an illegal address for
+// memory outside the registered segment, which the GPU thread then used.
+TEST_CASE("Map values reach the GPU only through memory it can address",
+	  "[cuda-host-call]")
+{
+	if (!use_primary_context())
+		SKIP("no CUDA device");
+	void *registered = nullptr;
+	REQUIRE(cuMemHostAlloc(&registered, 1 << 16,
+			       CU_MEMHOSTALLOC_DEVICEMAP) == CUDA_SUCCESS);
+	CUdeviceptr mapped;
+	REQUIRE(cuMemHostGetDevicePointer(&mapped, registered, 0) ==
+		CUDA_SUCCESS);
+	CHECK(cuda::gpu_address_of_map_value((char *)registered + 100) ==
+	      (void *)(mapped + 100));
+
+	auto unregistered = std::make_unique<uint64_t[]>(1024);
+	CHECK(cuda::gpu_address_of_map_value(unregistered.get() + 3) ==
+	      nullptr);
+
+	CUdeviceptr device;
+	REQUIRE(cuMemAlloc(&device, 4096) == CUDA_SUCCESS);
+	CHECK(cuda::gpu_address_of_map_value((void *)(device + 8)) ==
+	      (void *)(device + 8));
+	cuMemFree(device);
+	cuMemFreeHost(registered);
 }
