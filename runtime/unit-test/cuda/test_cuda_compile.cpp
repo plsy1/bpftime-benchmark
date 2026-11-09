@@ -3,8 +3,13 @@
 #include "bpftime_helper_group.hpp"
 #include "bpftime_shm_internal.hpp"
 #include "catch2/catch_test_macros.hpp"
+#include "cuda.h"
+#include <boost/interprocess/shared_memory_object.hpp>
 #include <bpftime_prog.hpp>
 #include <chrono>
+#include <cstdlib>
+#include <string>
+#include <unistd.h>
 #include <iterator>
 #include <thread>
 using namespace bpftime;
@@ -83,16 +88,43 @@ TEST_CASE("Test cuda compile")
 
 TEST_CASE("CUDA watcher stops before shared-memory teardown")
 {
-	bpftime_initialize_global_shm(shm_open_type::SHM_REMOVE_AND_CREATE);
-	bpf_attach_ctx ctx;
-	auto *comm = shm_holder.global_shared_memory.get_cuda_comm_shared_mem();
-	comm->request_id = -1;
-	comm->flag2 = 0;
-	comm->flag1 = 1;
-	for (int attempt = 0; attempt < 100 && comm->flag2 != 1; attempt++)
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
-	REQUIRE(comm->flag2 == 1);
-
+	int devices = 0;
+	if (cuInit(0) != CUDA_SUCCESS ||
+	    cuDeviceGetCount(&devices) != CUDA_SUCCESS || devices == 0)
+		SKIP("no CUDA device");
+	const std::string name =
+		"bpftime-cuda-watcher-" + std::to_string(getpid());
+	const char *had = getenv("BPFTIME_GLOBAL_SHM_NAME");
+	const std::string previous = had ? had : "";
 	bpftime_destroy_global_shm();
-	std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
+	// The syscall server creates the segment; the agent opens it and
+	// registers it with CUDA, which CUDAContext needs (opened only on the
+	// server side, the segment is not registered and the context throws).
+	bpftime_initialize_global_shm(shm_open_type::SHM_REMOVE_AND_CREATE);
+	bpftime_destroy_global_shm();
+	bpftime_initialize_global_shm(shm_open_type::SHM_OPEN_ONLY);
+	{
+		bpf_attach_ctx ctx;
+		auto *comm = shm_holder.global_shared_memory
+				     .get_cuda_comm_shared_mem();
+		comm->request_id = -1;
+		comm->flag2 = 0;
+		comm->flag1 = 1;
+		for (int attempt = 0; attempt < 100 && comm->flag2 != 1;
+		     attempt++)
+			std::this_thread::sleep_for(
+				std::chrono::milliseconds(1));
+		REQUIRE(comm->flag2 == 1);
+		CHECK(comm->flag1 == 0);
+
+		bpftime_destroy_global_shm();
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	}
+	boost::interprocess::shared_memory_object::remove(name.c_str());
+	bpftime_initialize_global_shm(shm_open_type::SHM_NO_CREATE);
+	if (had)
+		setenv("BPFTIME_GLOBAL_SHM_NAME", previous.c_str(), 1);
+	else
+		unsetenv("BPFTIME_GLOBAL_SHM_NAME");
 }
