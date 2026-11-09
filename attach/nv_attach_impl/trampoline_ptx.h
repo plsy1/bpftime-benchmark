@@ -7,7 +7,7 @@ static const char TRAMPOLINE_PTX[] = R"(
 .target sm_61
 .address_size 64
 
-	// .globl	spin_lock
+	// .globl	_Z17getGlobalThreadIdv
 .extern .func  (.param .b32 func_retval0) vprintf
 (
 	.param .b64 vprintf_param_0,
@@ -16,104 +16,11 @@ static const char TRAMPOLINE_PTX[] = R"(
 ;
 .visible .const .align 8 .u64 constData;
 .visible .const .align 8 .b8 map_info[40960];
-.visible .global .align 4 .u32 __bpftime_comm_lock;
-.global .align 1 .b8 _$_str[139] = {87, 65, 82, 78, 73, 78, 71, 58, 32, 103, 101, 116, 71, 108, 111, 98, 97, 108, 84, 104, 114, 101, 97, 100, 73, 100, 40, 37, 108, 117, 41, 32, 101, 120, 99, 101, 101, 100, 115, 32, 109, 97, 120, 95, 116, 104, 114, 101, 97, 100, 95, 99, 111, 117, 110, 116, 32, 40, 37, 108, 117, 41, 32, 111, 102, 32, 109, 97, 112, 32, 37, 108, 117, 44, 32, 112, 108, 101, 97, 115, 101, 32, 115, 101, 116, 32, 66, 80, 70, 84, 73, 77, 69, 95, 77, 65, 80, 95, 71, 80, 85, 95, 84, 72, 82, 69, 65, 68, 95, 67, 79, 85, 78, 84, 32, 97, 116, 32, 115, 121, 115, 99, 97, 108, 108, 45, 115, 101, 114, 118, 101, 114, 32, 115, 105, 100, 101, 10, 0};
-.global .align 1 .b8 _$_str1[50] = {67, 97, 108, 108, 105, 110, 103, 32, 98, 112, 102, 95, 112, 101, 114, 102, 95, 101, 118, 101, 110, 116, 95, 111, 117, 116, 112, 117, 116, 32, 111, 110, 32, 117, 110, 115, 117, 112, 112, 111, 114, 116, 101, 100, 32, 109, 97, 112, 33, 0};
+.visible .global .align 4 .u32 __bpftime_module_comm_lock;
+.visible .global .align 4 .u32 __bpftime_map_bounds_warned;
+.global .align 1 .b8 _$_str[50] = {67, 97, 108, 108, 105, 110, 103, 32, 98, 112, 102, 95, 112, 101, 114, 102, 95, 101, 118, 101, 110, 116, 95, 111, 117, 116, 112, 117, 116, 32, 111, 110, 32, 117, 110, 115, 117, 112, 112, 111, 114, 116, 101, 100, 32, 109, 97, 112, 33, 0};
+.global .align 1 .b8 _$_str1[193] = {98, 112, 102, 116, 105, 109, 101, 58, 32, 71, 80, 85, 32, 116, 104, 114, 101, 97, 100, 32, 37, 108, 117, 44, 32, 107, 101, 121, 32, 37, 108, 117, 32, 105, 115, 32, 111, 117, 116, 115, 105, 100, 101, 32, 109, 97, 112, 32, 37, 108, 117, 32, 40, 37, 108, 117, 32, 116, 104, 114, 101, 97, 100, 115, 44, 32, 37, 100, 32, 101, 110, 116, 114, 105, 101, 115, 41, 58, 32, 108, 111, 111, 107, 117, 112, 115, 32, 114, 101, 116, 117, 114, 110, 32, 78, 85, 76, 76, 44, 32, 117, 112, 100, 97, 116, 101, 115, 32, 102, 97, 105, 108, 46, 32, 83, 101, 116, 32, 66, 80, 70, 84, 73, 77, 69, 95, 77, 65, 80, 95, 71, 80, 85, 95, 84, 72, 82, 69, 65, 68, 95, 67, 79, 85, 78, 84, 32, 102, 111, 114, 32, 116, 104, 101, 32, 115, 121, 115, 99, 97, 108, 108, 32, 115, 101, 114, 118, 101, 114, 32, 116, 111, 32, 99, 111, 118, 101, 114, 32, 101, 118, 101, 114, 121, 32, 116, 104, 114, 101, 97, 100, 10, 0};
 
-.visible .func spin_lock(
-	.param .b64 spin_lock_param_0
-)
-{
-	.reg .pred 	%p<2>;
-	.reg .b32 	%r<2>;
-	.reg .b64 	%rd<2>;
-
-	ld.param.u64 	%rd1, [spin_lock_param_0];
-$L__BB0_1:
-	atom.cas.b32 	%r1, [%rd1], 0, 1;
-	setp.eq.s32 	%p1, %r1, 1;
-	@%p1 bra 	$L__BB0_1;
-	ret;
-
-}
-	// .globl	spin_unlock
-.visible .func spin_unlock(
-	.param .b64 spin_unlock_param_0
-)
-{
-	.reg .b32 	%r<2>;
-	.reg .b64 	%rd<2>;
-
-	ld.param.u64 	%rd1, [spin_unlock_param_0];
-	atom.exch.b32 	%r1, [%rd1], 0;
-	ret;
-
-}
-	// .globl	make_helper_call
-.visible .func  (.param .align 8 .b8 func_retval0[8]) make_helper_call(
-	.param .b64 make_helper_call_param_0,
-	.param .b32 make_helper_call_param_1
-)
-{
-	.reg .pred 	%p<6>;
-	.reg .b32 	%r<15>;
-	.reg .b64 	%rd<14>;
-
-	ld.param.u32 	%r5, [make_helper_call_param_1];
-	ld.param.u64 	%rd6, [make_helper_call_param_0];
-	ld.const.u64 	%rd1, [constData];
-	mov.u32 	%r7, %tid.x;
-	and.b32  	%r1, %r7, 31;
-	add.s64 	%rd10, %rd1, 4;
-	mov.u32 	%r14, 0;
-	mov.u64 	%rd13, 0;
-	mov.u64 	%rd8, __bpftime_comm_lock;
-	mov.u32 	%r12, 42;
-	bra.uni 	$L__BB2_1;
-$L__BB2_4:
-	bar.warp.sync 	%r3;
-	add.s32 	%r14, %r14, 1;
-	setp.eq.s32 	%p5, %r14, 32;
-	@%p5 bra 	$L__BB2_5;
-$L__BB2_1:
-	// begin inline asm
-	activemask.b32 %r3;
-	// end inline asm
-	shr.u32 	%r9, %r3, %r14;
-	and.b32  	%r10, %r9, 1;
-	setp.eq.b32 	%p1, %r10, 1;
-	setp.eq.s32 	%p2, %r1, %r14;
-	and.pred  	%p3, %p1, %p2;
-	@!%p3 bra 	$L__BB2_4;
-	bra.uni 	$L__BB2_2;
-$L__BB2_2:
-	atom.global.cas.b32 	%r11, [%rd8], 0, 1;
-	setp.eq.s32 	%p4, %r11, 1;
-	@%p4 bra 	$L__BB2_2;
-	st.u32 	[%rd1+12], %r5;
-	st.u64 	[%rd1+16], %rd6;
-	// begin inline asm
-	.reg .pred p0;                   
-	membar.sys;                      
-	st.global.u32 [%rd1], 1;           
-	spin_wait:                       
-	membar.sys;                      
-	ld.global.u32 %r12, [%rd10];          
-	setp.eq.u32 p0, %r12, 0;           
-	@p0 bra spin_wait;               
-	st.global.u32 [%rd10], 0;           
-	membar.sys;                      
-	
-	// end inline asm
-	ld.u64 	%rd13, [%rd1+2097184];
-	atom.global.exch.b32 	%r13, [%rd8], 0;
-	bra.uni 	$L__BB2_4;
-$L__BB2_5:
-	st.param.b64 	[func_retval0+0], %rd13;
-	ret;
-
-}
-	// .globl	_Z17getGlobalThreadIdv
 .visible .func  (.param .b64 func_retval0) _Z17getGlobalThreadIdv()
 {
 	.reg .b32 	%r<18>;
@@ -154,18 +61,17 @@ $L__BB2_5:
 	.param .b64 _Z16array_map_offsetmRK12MapBasicInfom_param_2
 )
 {
-	.local .align 8 .b8 	__local_depot4[24];
+	.local .align 8 .b8 	__local_depot1[40];
 	.reg .b64 	%SP;
 	.reg .b64 	%SPL;
-	.reg .pred 	%p<2>;
-	.reg .b32 	%r<20>;
-	.reg .b64 	%rd<26>;
+	.reg .pred 	%p<5>;
+	.reg .b32 	%r<22>;
+	.reg .b64 	%rd<29>;
 
-	mov.u64 	%SPL, __local_depot4;
+	mov.u64 	%SPL, __local_depot1;
 	cvta.local.u64 	%SP, %SPL;
 	ld.param.u64 	%rd7, [_Z16array_map_offsetmRK12MapBasicInfom_param_1];
 	ld.param.u64 	%rd6, [_Z16array_map_offsetmRK12MapBasicInfom_param_0];
-	ld.u64 	%rd25, [%rd7+32];
 	mov.u32 	%r1, %ctaid.x;
 	mov.u32 	%r2, %ntid.x;
 	mov.u32 	%r3, %tid.x;
@@ -189,21 +95,43 @@ $L__BB2_5:
 	cvt.s64.s32 	%rd13, %r17;
 	cvt.s64.s32 	%rd14, %r4;
 	add.s64 	%rd15, %rd13, %rd14;
-	add.s64 	%rd3, %rd15, %rd12;
-	setp.gt.u64 	%p1, %rd25, %rd3;
-	@%p1 bra 	$L__BB4_2;
+	add.s64 	%rd2, %rd15, %rd12;
+	ld.u64 	%rd3, [%rd7+32];
+	setp.lt.u64 	%p1, %rd2, %rd3;
+	ld.s32 	%rd16, [%rd7+12];
+	setp.gt.u64 	%p2, %rd16, %rd6;
+	and.pred  	%p3, %p1, %p2;
+	@%p3 bra 	$L__BB1_4;
+	bra.uni 	$L__BB1_1;
+$L__BB1_4:
+	ld.u64 	%rd23, [%rd7+24];
+	ld.s32 	%rd24, [%rd7+8];
+	mul.lo.s64 	%rd25, %rd3, %rd6;
+	add.s64 	%rd26, %rd25, %rd2;
+	mul.lo.s64 	%rd27, %rd26, %rd24;
+	add.s64 	%rd28, %rd27, %rd23;
+	bra.uni 	$L__BB1_5;
+$L__BB1_1:
+	mov.u64 	%rd17, __bpftime_map_bounds_warned;
+	atom.global.exch.b32 	%r18, [%rd17], 1;
+	setp.ne.s32 	%p4, %r18, 0;
+	@%p4 bra 	$L__BB1_3;
 	ld.param.u64 	%rd8, [_Z16array_map_offsetmRK12MapBasicInfom_param_2];
 	add.u64 	%rd9, %SP, 0;
 	add.u64 	%rd1, %SPL, 0;
-	st.local.u64 	[%rd1], %rd3;
-	st.local.u64 	[%rd1+8], %rd25;
+	ld.u64 	%rd18, [%rd7+32];
+	ld.u32 	%r19, [%rd7+12];
+	st.local.u64 	[%rd1], %rd2;
+	st.local.u64 	[%rd1+8], %rd6;
 	st.local.u64 	[%rd1+16], %rd8;
-	mov.u64 	%rd16, _$_str;
-	cvta.global.u64 	%rd17, %rd16;
+	st.local.u64 	[%rd1+24], %rd18;
+	st.local.u32 	[%rd1+32], %r19;
+	mov.u64 	%rd19, _$_str1;
+	cvta.global.u64 	%rd20, %rd19;
 	{ // callseq 0, 0
 	.reg .b32 temp_param_reg;
 	.param .b64 param0;
-	st.param.b64 	[param0+0], %rd17;
+	st.param.b64 	[param0+0], %rd20;
 	.param .b64 param1;
 	st.param.b64 	[param1+0], %rd9;
 	.param .b32 retval0;
@@ -213,17 +141,12 @@ $L__BB2_5:
 	param0, 
 	param1
 	);
-	ld.param.b32 	%r18, [retval0+0];
+	ld.param.b32 	%r20, [retval0+0];
 	} // callseq 0
-	ld.u64 	%rd25, [%rd7+32];
-$L__BB4_2:
-	ld.u64 	%rd19, [%rd7+24];
-	ld.s32 	%rd20, [%rd7+8];
-	mul.lo.s64 	%rd21, %rd25, %rd6;
-	add.s64 	%rd22, %rd21, %rd3;
-	mul.lo.s64 	%rd23, %rd22, %rd20;
-	add.s64 	%rd24, %rd23, %rd19;
-	st.param.b64 	[func_retval0+0], %rd24;
+$L__BB1_3:
+	mov.u64 	%rd28, 0;
+$L__BB1_5:
+	st.param.b64 	[func_retval0+0], %rd28;
 	ret;
 
 }
@@ -236,99 +159,150 @@ $L__BB4_2:
 	.param .b64 _bpf_helper_ext_0001_param_4
 )
 {
-	.local .align 8 .b8 	__local_depot5[24];
+	.local .align 8 .b8 	__local_depot2[40];
 	.reg .b64 	%SP;
 	.reg .b64 	%SPL;
-	.reg .pred 	%p<18>;
+	.reg .pred 	%p<28>;
 	.reg .b16 	%rs<6>;
-	.reg .b32 	%r<67>;
-	.reg .b64 	%rd<124>;
+	.reg .b32 	%r<114>;
+	.reg .b64 	%rd<173>;
 
-	mov.u64 	%SPL, __local_depot5;
+	mov.u64 	%SPL, __local_depot2;
 	cvta.local.u64 	%SP, %SPL;
-	ld.param.u64 	%rd41, [_bpf_helper_ext_0001_param_1];
-	ld.param.u64 	%rd40, [_bpf_helper_ext_0001_param_0];
-	add.u64 	%rd42, %SP, 0;
+	ld.param.u64 	%rd45, [_bpf_helper_ext_0001_param_1];
+	ld.param.u64 	%rd44, [_bpf_helper_ext_0001_param_0];
+	add.u64 	%rd46, %SP, 0;
 	add.u64 	%rd1, %SPL, 0;
-	ld.const.u64 	%rd120, [constData];
-	mul.lo.s64 	%rd44, %rd40, 40;
-	mov.u64 	%rd45, map_info;
-	add.s64 	%rd46, %rd45, %rd44;
-	ld.const.u32 	%r10, [%rd46+16];
+	mul.lo.s64 	%rd50, %rd44, 40;
+	mov.u64 	%rd51, map_info;
+	add.s64 	%rd52, %rd51, %rd50;
+	ld.const.u32 	%r10, [%rd52+16];
 	setp.gt.s32 	%p1, %r10, 1511;
-	@%p1 bra 	$L__BB5_6;
+	@%p1 bra 	$L__BB2_7;
 	add.s32 	%r11, %r10, -1503;
 	setp.lt.u32 	%p4, %r11, 2;
-	@%p4 bra 	$L__BB5_9;
-	bra.uni 	$L__BB5_2;
-$L__BB5_9:
-	ld.u32 	%rd74, [%rd41];
-	ld.const.u64 	%rd78, [%rd46+24];
-	ld.const.s32 	%rd79, [%rd46+8];
-	mul.lo.s64 	%rd80, %rd79, %rd74;
-	add.s64 	%rd123, %rd78, %rd80;
-	bra.uni 	$L__BB5_26;
-$L__BB5_6:
+	@%p4 bra 	$L__BB2_25;
+	bra.uni 	$L__BB2_2;
+$L__BB2_25:
+	ld.u32 	%rd11, [%rd45];
+	ld.const.s32 	%rd106, [%rd52+12];
+	setp.gt.u64 	%p12, %rd106, %rd11;
+	@%p12 bra 	$L__BB2_29;
+	bra.uni 	$L__BB2_26;
+$L__BB2_29:
+	ld.const.u64 	%rd126, [%rd52+24];
+	ld.const.s32 	%rd127, [%rd52+8];
+	mul.lo.s64 	%rd128, %rd127, %rd11;
+	add.s64 	%rd172, %rd126, %rd128;
+	bra.uni 	$L__BB2_42;
+$L__BB2_7:
 	setp.eq.s32 	%p2, %r10, 1512;
-	@%p2 bra 	$L__BB5_10;
+	@%p2 bra 	$L__BB2_30;
 	setp.eq.s32 	%p3, %r10, 1513;
-	@%p3 bra 	$L__BB5_8;
-	bra.uni 	$L__BB5_13;
-$L__BB5_8:
-	ld.u32 	%rd47, [%rd41];
-	ld.const.u64 	%rd51, [%rd46+24];
-	// begin inline asm
-	membar.sys;
-	// end inline asm
-	ld.const.s32 	%rd52, [%rd46+8];
-	mul.lo.s64 	%rd53, %rd52, %rd47;
-	add.s64 	%rd123, %rd51, %rd53;
-	bra.uni 	$L__BB5_26;
-$L__BB5_2:
+	@%p3 bra 	$L__BB2_36;
+	bra.uni 	$L__BB2_9;
+$L__BB2_36:
+	ld.u32 	%rd21, [%rd45];
+	ld.const.s32 	%rd56, [%rd52+12];
+	setp.gt.u64 	%p6, %rd56, %rd21;
+	@%p6 bra 	$L__BB2_40;
+	bra.uni 	$L__BB2_37;
+$L__BB2_40:
+	ld.const.u64 	%rd76, [%rd52+24];
+	ld.const.s32 	%rd77, [%rd52+8];
+	mul.lo.s64 	%rd78, %rd77, %rd21;
+	add.s64 	%rd172, %rd76, %rd78;
+	bra.uni 	$L__BB2_41;
+$L__BB2_2:
 	setp.eq.s32 	%p5, %r10, 1502;
-	@%p5 bra 	$L__BB5_3;
-	bra.uni 	$L__BB5_13;
-$L__BB5_3:
-	ld.u32 	%rd5, [%rd41];
-	ld.const.u64 	%rd115, [%rd46+32];
-	mov.u32 	%r31, %ctaid.x;
-	mov.u32 	%r32, %ntid.x;
-	mov.u32 	%r33, %tid.x;
-	mad.lo.s32 	%r34, %r31, %r32, %r33;
-	mov.u32 	%r35, %ctaid.y;
-	mov.u32 	%r36, %ntid.y;
-	mov.u32 	%r37, %tid.y;
-	mad.lo.s32 	%r38, %r35, %r36, %r37;
-	mov.u32 	%r39, %ctaid.z;
-	mov.u32 	%r40, %ntid.z;
-	mov.u32 	%r41, %tid.z;
-	mad.lo.s32 	%r42, %r39, %r40, %r41;
-	mov.u32 	%r43, %nctaid.x;
-	mul.lo.s32 	%r44, %r43, %r32;
-	mov.u32 	%r45, %nctaid.y;
-	mul.lo.s32 	%r46, %r45, %r36;
-	cvt.s64.s32 	%rd84, %r42;
-	mul.wide.s32 	%rd85, %r46, %r44;
-	mul.lo.s64 	%rd86, %rd85, %rd84;
-	mul.lo.s32 	%r47, %r38, %r44;
-	cvt.s64.s32 	%rd87, %r47;
-	cvt.s64.s32 	%rd88, %r34;
-	add.s64 	%rd89, %rd87, %rd88;
-	add.s64 	%rd8, %rd89, %rd86;
-	setp.gt.u64 	%p7, %rd115, %rd8;
-	@%p7 bra 	$L__BB5_5;
-	add.s64 	%rd6, %rd46, 32;
-	st.local.u64 	[%rd1], %rd8;
-	st.local.u64 	[%rd1+8], %rd115;
-	st.local.u64 	[%rd1+16], %rd40;
-	mov.u64 	%rd90, _$_str;
-	cvta.global.u64 	%rd91, %rd90;
-	{ // callseq 2, 0
+	@%p5 bra 	$L__BB2_3;
+	bra.uni 	$L__BB2_9;
+$L__BB2_3:
+	ld.u32 	%rd5, [%rd45];
+	mov.u32 	%r75, %ctaid.x;
+	mov.u32 	%r76, %ntid.x;
+	mov.u32 	%r77, %tid.x;
+	mad.lo.s32 	%r78, %r75, %r76, %r77;
+	mov.u32 	%r79, %ctaid.y;
+	mov.u32 	%r80, %ntid.y;
+	mov.u32 	%r81, %tid.y;
+	mad.lo.s32 	%r82, %r79, %r80, %r81;
+	mov.u32 	%r83, %ctaid.z;
+	mov.u32 	%r84, %ntid.z;
+	mov.u32 	%r85, %tid.z;
+	mad.lo.s32 	%r86, %r83, %r84, %r85;
+	mov.u32 	%r87, %nctaid.x;
+	mul.lo.s32 	%r88, %r87, %r76;
+	mov.u32 	%r89, %nctaid.y;
+	mul.lo.s32 	%r90, %r89, %r80;
+	cvt.s64.s32 	%rd129, %r86;
+	mul.wide.s32 	%rd130, %r90, %r88;
+	mul.lo.s64 	%rd131, %rd130, %rd129;
+	mul.lo.s32 	%r91, %r82, %r88;
+	cvt.s64.s32 	%rd132, %r91;
+	cvt.s64.s32 	%rd133, %r78;
+	add.s64 	%rd134, %rd132, %rd133;
+	add.s64 	%rd6, %rd134, %rd131;
+	ld.const.u64 	%rd8, [%rd52+32];
+	setp.lt.u64 	%p14, %rd6, %rd8;
+	ld.const.s32 	%rd138, [%rd52+12];
+	setp.gt.u64 	%p15, %rd138, %rd5;
+	and.pred  	%p16, %p14, %p15;
+	@%p16 bra 	$L__BB2_24;
+	bra.uni 	$L__BB2_4;
+$L__BB2_24:
+	ld.const.u64 	%rd148, [%rd52+24];
+	ld.const.s32 	%rd149, [%rd52+8];
+	mul.lo.s64 	%rd150, %rd8, %rd5;
+	add.s64 	%rd151, %rd150, %rd6;
+	mul.lo.s64 	%rd152, %rd151, %rd149;
+	add.s64 	%rd172, %rd152, %rd148;
+	bra.uni 	$L__BB2_42;
+$L__BB2_26:
+	mov.u64 	%rd107, __bpftime_map_bounds_warned;
+	atom.global.exch.b32 	%r54, [%rd107], 1;
+	setp.ne.s32 	%p13, %r54, 0;
+	@%p13 bra 	$L__BB2_28;
+	add.s64 	%rd12, %rd52, 12;
+	mov.u32 	%r55, %ctaid.y;
+	mov.u32 	%r56, %ntid.y;
+	mov.u32 	%r57, %tid.y;
+	mad.lo.s32 	%r58, %r55, %r56, %r57;
+	mov.u32 	%r59, %nctaid.x;
+	mov.u32 	%r60, %ntid.x;
+	mul.lo.s32 	%r61, %r59, %r60;
+	mul.lo.s32 	%r62, %r58, %r61;
+	cvt.s64.s32 	%rd108, %r62;
+	mov.u32 	%r63, %ctaid.x;
+	mov.u32 	%r64, %tid.x;
+	mad.lo.s32 	%r65, %r63, %r60, %r64;
+	cvt.s64.s32 	%rd109, %r65;
+	add.s64 	%rd110, %rd108, %rd109;
+	mov.u32 	%r66, %nctaid.y;
+	mul.lo.s32 	%r67, %r66, %r56;
+	mul.wide.s32 	%rd111, %r67, %r61;
+	mov.u32 	%r68, %ctaid.z;
+	mov.u32 	%r69, %ntid.z;
+	mov.u32 	%r70, %tid.z;
+	mad.lo.s32 	%r71, %r68, %r69, %r70;
+	cvt.s64.s32 	%rd112, %r71;
+	mul.lo.s64 	%rd113, %rd111, %rd112;
+	add.s64 	%rd114, %rd110, %rd113;
+	ld.const.u64 	%rd118, [%rd52+32];
+	ld.const.u32 	%r72, [%rd12];
+	st.local.u64 	[%rd1], %rd114;
+	st.local.u64 	[%rd1+8], %rd11;
+	st.local.u64 	[%rd1+16], %rd44;
+	st.local.u64 	[%rd1+24], %rd118;
+	st.local.u32 	[%rd1+32], %r72;
+	mov.u64 	%rd119, _$_str1;
+	cvta.global.u64 	%rd120, %rd119;
+	{ // callseq 3, 0
 	.reg .b32 temp_param_reg;
 	.param .b64 param0;
-	st.param.b64 	[param0+0], %rd91;
+	st.param.b64 	[param0+0], %rd120;
 	.param .b64 param1;
-	st.param.b64 	[param1+0], %rd42;
+	st.param.b64 	[param1+0], %rd46;
 	.param .b32 retval0;
 	call.uni (retval0), 
 	vprintf, 
@@ -336,20 +310,1349 @@ $L__BB5_3:
 	param0, 
 	param1
 	);
-	ld.param.b32 	%r48, [retval0+0];
+	ld.param.b32 	%r73, [retval0+0];
+	} // callseq 3
+$L__BB2_28:
+	mov.u64 	%rd172, 0;
+	bra.uni 	$L__BB2_42;
+$L__BB2_30:
+	ld.u32 	%rd14, [%rd45];
+	mov.u32 	%r33, %ctaid.x;
+	mov.u32 	%r34, %ntid.x;
+	mov.u32 	%r35, %tid.x;
+	mad.lo.s32 	%r36, %r33, %r34, %r35;
+	mov.u32 	%r37, %ctaid.y;
+	mov.u32 	%r38, %ntid.y;
+	mov.u32 	%r39, %tid.y;
+	mad.lo.s32 	%r40, %r37, %r38, %r39;
+	mov.u32 	%r41, %ctaid.z;
+	mov.u32 	%r42, %ntid.z;
+	mov.u32 	%r43, %tid.z;
+	mad.lo.s32 	%r44, %r41, %r42, %r43;
+	mov.u32 	%r45, %nctaid.x;
+	mul.lo.s32 	%r46, %r45, %r34;
+	mov.u32 	%r47, %nctaid.y;
+	mul.lo.s32 	%r48, %r47, %r38;
+	cvt.s64.s32 	%rd79, %r44;
+	mul.wide.s32 	%rd80, %r48, %r46;
+	mul.lo.s64 	%rd81, %rd80, %rd79;
+	mul.lo.s32 	%r49, %r40, %r46;
+	cvt.s64.s32 	%rd82, %r49;
+	cvt.s64.s32 	%rd83, %r36;
+	add.s64 	%rd84, %rd82, %rd83;
+	add.s64 	%rd15, %rd84, %rd81;
+	ld.const.u64 	%rd17, [%rd52+32];
+	setp.lt.u64 	%p8, %rd15, %rd17;
+	ld.const.s32 	%rd88, [%rd52+12];
+	setp.gt.u64 	%p9, %rd88, %rd14;
+	and.pred  	%p10, %p8, %p9;
+	@%p10 bra 	$L__BB2_34;
+	bra.uni 	$L__BB2_31;
+$L__BB2_34:
+	ld.const.u64 	%rd98, [%rd52+24];
+	ld.const.s32 	%rd99, [%rd52+8];
+	mul.lo.s64 	%rd100, %rd17, %rd14;
+	add.s64 	%rd101, %rd100, %rd15;
+	mul.lo.s64 	%rd102, %rd101, %rd99;
+	add.s64 	%rd172, %rd102, %rd98;
+	bra.uni 	$L__BB2_35;
+$L__BB2_9:
+	ld.const.u64 	%rd25, [constData];
+	// begin inline asm
+	mov.u32 %r96, %laneid;
+	// end inline asm
+	add.s64 	%rd29, %rd25, 24;
+	add.s64 	%rd27, %rd52, 4;
+	add.s64 	%rd28, %rd45, 3;
+	mov.u32 	%r97, 0;
+	mov.u64 	%rd172, 0;
+	mov.u32 	%r101, 1;
+	mov.u32 	%r111, %r97;
+	bra.uni 	$L__BB2_10;
+$L__BB2_23:
+	bar.warp.sync 	%r98;
+	add.s32 	%r111, %r111, 1;
+	setp.ne.s32 	%p27, %r111, 32;
+	@%p27 bra 	$L__BB2_10;
+	bra.uni 	$L__BB2_42;
+$L__BB2_10:
+	// begin inline asm
+	activemask.b32 %r98;
+	// end inline asm
+	setp.ne.s32 	%p18, %r96, %r111;
+	@%p18 bra 	$L__BB2_23;
+$L__BB2_11:
+	mov.u64 	%rd157, __bpftime_module_comm_lock;
+	atom.global.cas.b32 	%r99, [%rd157], 0, 1;
+	setp.ne.s32 	%p19, %r99, 0;
+	@%p19 bra 	$L__BB2_11;
+$L__BB2_12:
+	add.s64 	%rd158, %rd25, 8;
+	atom.cas.b32 	%r100, [%rd158], 0, 1;
+	setp.ne.s32 	%p20, %r100, 0;
+	@%p20 bra 	$L__BB2_12;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	st.u32 	[%rd25+12], %r101;
+	st.u64 	[%rd25+16], %rd44;
+	ld.const.u32 	%r102, [%rd27];
+	setp.lt.s32 	%p21, %r102, 1;
+	@%p21 bra 	$L__BB2_20;
+	cvt.u64.u32 	%rd31, %r102;
+	cvt.u32.u64 	%r104, %rd31;
+	setp.lt.u32 	%p22, %r104, 4;
+	mov.u32 	%r112, %r97;
+	@%p22 bra 	$L__BB2_17;
+	and.b64  	%rd32, %rd31, 4294967292;
+	mov.u64 	%rd168, 0;
+$L__BB2_16:
+	add.s64 	%rd160, %rd28, %rd168;
+	ld.u8 	%rs1, [%rd160+-3];
+	add.s64 	%rd161, %rd29, %rd168;
+	st.u8 	[%rd161], %rs1;
+	ld.u8 	%rs2, [%rd160+-2];
+	st.u8 	[%rd161+1], %rs2;
+	ld.u8 	%rs3, [%rd160+-1];
+	st.u8 	[%rd161+2], %rs3;
+	ld.u8 	%rs4, [%rd160];
+	st.u8 	[%rd161+3], %rs4;
+	add.s64 	%rd168, %rd168, 4;
+	cvt.u32.u64 	%r112, %rd168;
+	cvt.u32.u64 	%r105, %rd32;
+	setp.ne.s32 	%p23, %r105, %r112;
+	@%p23 bra 	$L__BB2_16;
+$L__BB2_17:
+	and.b32  	%r113, %r104, 3;
+	setp.eq.s32 	%p24, %r113, 0;
+	@%p24 bra 	$L__BB2_20;
+	cvt.u64.u32 	%rd162, %r112;
+	add.s64 	%rd170, %rd29, %rd162;
+	add.s64 	%rd169, %rd45, %rd162;
+$L__BB2_19:
+	.pragma "nounroll";
+	ld.u8 	%rs5, [%rd169];
+	st.u8 	[%rd170], %rs5;
+	add.s64 	%rd170, %rd170, 1;
+	add.s64 	%rd169, %rd169, 1;
+	add.s32 	%r113, %r113, -1;
+	setp.ne.s32 	%p25, %r113, 0;
+	@%p25 bra 	$L__BB2_19;
+$L__BB2_20:
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	st.volatile.u32 	[%rd25], %r101;
+$L__BB2_21:
+	ld.volatile.u32 	%r107, [%rd25+4];
+	setp.eq.s32 	%p26, %r107, 0;
+	@%p26 bra 	$L__BB2_21;
+	mov.u32 	%r108, 0;
+	st.volatile.u32 	[%rd25+4], %r108;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	ld.u64 	%rd172, [%rd25+2097184];
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	atom.exch.b32 	%r109, [%rd158], 0;
+	atom.global.exch.b32 	%r110, [%rd157], 0;
+	bra.uni 	$L__BB2_23;
+$L__BB2_37:
+	mov.u64 	%rd57, __bpftime_map_bounds_warned;
+	atom.global.exch.b32 	%r12, [%rd57], 1;
+	setp.ne.s32 	%p7, %r12, 0;
+	@%p7 bra 	$L__BB2_39;
+	add.s64 	%rd22, %rd52, 12;
+	mov.u32 	%r13, %ctaid.y;
+	mov.u32 	%r14, %ntid.y;
+	mov.u32 	%r15, %tid.y;
+	mad.lo.s32 	%r16, %r13, %r14, %r15;
+	mov.u32 	%r17, %nctaid.x;
+	mov.u32 	%r18, %ntid.x;
+	mul.lo.s32 	%r19, %r17, %r18;
+	mul.lo.s32 	%r20, %r16, %r19;
+	cvt.s64.s32 	%rd58, %r20;
+	mov.u32 	%r21, %ctaid.x;
+	mov.u32 	%r22, %tid.x;
+	mad.lo.s32 	%r23, %r21, %r18, %r22;
+	cvt.s64.s32 	%rd59, %r23;
+	add.s64 	%rd60, %rd58, %rd59;
+	mov.u32 	%r24, %nctaid.y;
+	mul.lo.s32 	%r25, %r24, %r14;
+	mul.wide.s32 	%rd61, %r25, %r19;
+	mov.u32 	%r26, %ctaid.z;
+	mov.u32 	%r27, %ntid.z;
+	mov.u32 	%r28, %tid.z;
+	mad.lo.s32 	%r29, %r26, %r27, %r28;
+	cvt.s64.s32 	%rd62, %r29;
+	mul.lo.s64 	%rd63, %rd61, %rd62;
+	add.s64 	%rd64, %rd60, %rd63;
+	ld.const.u64 	%rd68, [%rd52+32];
+	ld.const.u32 	%r30, [%rd22];
+	st.local.u64 	[%rd1], %rd64;
+	st.local.u64 	[%rd1+8], %rd21;
+	st.local.u64 	[%rd1+16], %rd44;
+	st.local.u64 	[%rd1+24], %rd68;
+	st.local.u32 	[%rd1+32], %r30;
+	mov.u64 	%rd69, _$_str1;
+	cvta.global.u64 	%rd70, %rd69;
+	{ // callseq 1, 0
+	.reg .b32 temp_param_reg;
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd70;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %rd46;
+	.param .b32 retval0;
+	call.uni (retval0), 
+	vprintf, 
+	(
+	param0, 
+	param1
+	);
+	ld.param.b32 	%r31, [retval0+0];
+	} // callseq 1
+$L__BB2_39:
+	mov.u64 	%rd172, 0;
+$L__BB2_41:
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	bra.uni 	$L__BB2_42;
+$L__BB2_4:
+	mov.u64 	%rd139, __bpftime_map_bounds_warned;
+	atom.global.exch.b32 	%r92, [%rd139], 1;
+	setp.ne.s32 	%p17, %r92, 0;
+	@%p17 bra 	$L__BB2_6;
+	add.s64 	%rd7, %rd52, 32;
+	add.s64 	%rd9, %rd52, 12;
+	ld.const.u64 	%rd140, [%rd7];
+	ld.const.u32 	%r93, [%rd9];
+	st.local.u64 	[%rd1], %rd6;
+	st.local.u64 	[%rd1+8], %rd5;
+	st.local.u64 	[%rd1+16], %rd44;
+	st.local.u64 	[%rd1+24], %rd140;
+	st.local.u32 	[%rd1+32], %r93;
+	mov.u64 	%rd141, _$_str1;
+	cvta.global.u64 	%rd142, %rd141;
+	{ // callseq 4, 0
+	.reg .b32 temp_param_reg;
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd142;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %rd46;
+	.param .b32 retval0;
+	call.uni (retval0), 
+	vprintf, 
+	(
+	param0, 
+	param1
+	);
+	ld.param.b32 	%r94, [retval0+0];
+	} // callseq 4
+$L__BB2_6:
+	mov.u64 	%rd172, 0;
+	bra.uni 	$L__BB2_42;
+$L__BB2_31:
+	mov.u64 	%rd89, __bpftime_map_bounds_warned;
+	atom.global.exch.b32 	%r50, [%rd89], 1;
+	setp.ne.s32 	%p11, %r50, 0;
+	@%p11 bra 	$L__BB2_33;
+	add.s64 	%rd16, %rd52, 32;
+	add.s64 	%rd18, %rd52, 12;
+	ld.const.u64 	%rd90, [%rd16];
+	ld.const.u32 	%r51, [%rd18];
+	st.local.u64 	[%rd1], %rd15;
+	st.local.u64 	[%rd1+8], %rd14;
+	st.local.u64 	[%rd1+16], %rd44;
+	st.local.u64 	[%rd1+24], %rd90;
+	st.local.u32 	[%rd1+32], %r51;
+	mov.u64 	%rd91, _$_str1;
+	cvta.global.u64 	%rd92, %rd91;
+	{ // callseq 2, 0
+	.reg .b32 temp_param_reg;
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd92;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %rd46;
+	.param .b32 retval0;
+	call.uni (retval0), 
+	vprintf, 
+	(
+	param0, 
+	param1
+	);
+	ld.param.b32 	%r52, [retval0+0];
 	} // callseq 2
-	ld.const.u64 	%rd115, [%rd6];
-$L__BB5_5:
-	ld.const.u64 	%rd96, [%rd46+24];
-	ld.const.s32 	%rd97, [%rd46+8];
-	mul.lo.s64 	%rd98, %rd115, %rd5;
-	add.s64 	%rd99, %rd98, %rd8;
-	mul.lo.s64 	%rd100, %rd99, %rd97;
-	add.s64 	%rd123, %rd100, %rd96;
-	bra.uni 	$L__BB5_26;
+$L__BB2_33:
+	mov.u64 	%rd172, 0;
+$L__BB2_35:
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+$L__BB2_42:
+	st.param.b64 	[func_retval0+0], %rd172;
+	ret;
+
+}
+	// .globl	_bpf_helper_ext_0002
+.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0002(
+	.param .b64 _bpf_helper_ext_0002_param_0,
+	.param .b64 _bpf_helper_ext_0002_param_1,
+	.param .b64 _bpf_helper_ext_0002_param_2,
+	.param .b64 _bpf_helper_ext_0002_param_3,
+	.param .b64 _bpf_helper_ext_0002_param_4
+)
+{
+	.local .align 8 .b8 	__local_depot3[40];
+	.reg .b64 	%SP;
+	.reg .b64 	%SPL;
+	.reg .pred 	%p<57>;
+	.reg .b16 	%rs<31>;
+	.reg .b32 	%r<169>;
+	.reg .b64 	%rd<296>;
+
+	mov.u64 	%SPL, __local_depot3;
+	cvta.local.u64 	%SP, %SPL;
+	ld.param.u64 	%rd107, [_bpf_helper_ext_0002_param_2];
+	ld.param.u64 	%rd106, [_bpf_helper_ext_0002_param_1];
+	ld.param.u64 	%rd105, [_bpf_helper_ext_0002_param_0];
+	add.u64 	%rd109, %SP, 0;
+	add.u64 	%rd1, %SPL, 0;
+	mul.lo.s64 	%rd113, %rd105, 40;
+	mov.u64 	%rd114, map_info;
+	add.s64 	%rd115, %rd114, %rd113;
+	ld.const.u32 	%r35, [%rd115+16];
+	setp.gt.s32 	%p1, %r35, 1511;
+	@%p1 bra 	$L__BB3_7;
+	add.s32 	%r36, %r35, -1503;
+	setp.lt.u32 	%p4, %r36, 2;
+	@%p4 bra 	$L__BB3_41;
+	bra.uni 	$L__BB3_2;
+$L__BB3_41:
+	ld.u32 	%rd17, [%rd106];
+	ld.const.s32 	%rd187, [%rd115+12];
+	setp.gt.u64 	%p24, %rd187, %rd17;
+	@%p24 bra 	$L__BB3_45;
+	bra.uni 	$L__BB3_42;
+$L__BB3_45:
+	ld.const.u64 	%rd207, [%rd115+24];
+	ld.const.s32 	%rd208, [%rd115+8];
+	mul.lo.s64 	%rd209, %rd208, %rd17;
+	add.s64 	%rd273, %rd207, %rd209;
+	bra.uni 	$L__BB3_46;
+$L__BB3_7:
+	setp.eq.s32 	%p2, %r35, 1512;
+	@%p2 bra 	$L__BB3_55;
+	setp.eq.s32 	%p3, %r35, 1513;
+	@%p3 bra 	$L__BB3_69;
+	bra.uni 	$L__BB3_9;
+$L__BB3_69:
+	ld.u32 	%rd50, [%rd106];
+	ld.const.s32 	%rd119, [%rd115+12];
+	setp.gt.u64 	%p6, %rd119, %rd50;
+	@%p6 bra 	$L__BB3_73;
+	bra.uni 	$L__BB3_70;
+$L__BB3_73:
+	ld.const.u64 	%rd139, [%rd115+24];
+	ld.const.s32 	%rd140, [%rd115+8];
+	mul.lo.s64 	%rd141, %rd140, %rd50;
+	add.s64 	%rd281, %rd139, %rd141;
+	bra.uni 	$L__BB3_74;
+$L__BB3_2:
+	setp.eq.s32 	%p5, %r35, 1502;
+	@%p5 bra 	$L__BB3_3;
+	bra.uni 	$L__BB3_9;
+$L__BB3_3:
+	ld.u32 	%rd5, [%rd106];
+	mov.u32 	%r112, %ctaid.x;
+	mov.u32 	%r113, %ntid.x;
+	mov.u32 	%r114, %tid.x;
+	mad.lo.s32 	%r115, %r112, %r113, %r114;
+	mov.u32 	%r116, %ctaid.y;
+	mov.u32 	%r117, %ntid.y;
+	mov.u32 	%r118, %tid.y;
+	mad.lo.s32 	%r119, %r116, %r117, %r118;
+	mov.u32 	%r120, %ctaid.z;
+	mov.u32 	%r121, %ntid.z;
+	mov.u32 	%r122, %tid.z;
+	mad.lo.s32 	%r123, %r120, %r121, %r122;
+	mov.u32 	%r124, %nctaid.x;
+	mul.lo.s32 	%r125, %r124, %r113;
+	mov.u32 	%r126, %nctaid.y;
+	mul.lo.s32 	%r127, %r126, %r117;
+	cvt.s64.s32 	%rd219, %r123;
+	mul.wide.s32 	%rd220, %r127, %r125;
+	mul.lo.s64 	%rd221, %rd220, %rd219;
+	mul.lo.s32 	%r128, %r119, %r125;
+	cvt.s64.s32 	%rd222, %r128;
+	cvt.s64.s32 	%rd223, %r115;
+	add.s64 	%rd224, %rd222, %rd223;
+	add.s64 	%rd6, %rd224, %rd221;
+	ld.const.u64 	%rd8, [%rd115+32];
+	setp.lt.u64 	%p32, %rd6, %rd8;
+	ld.const.s32 	%rd228, [%rd115+12];
+	setp.gt.u64 	%p33, %rd228, %rd5;
+	and.pred  	%p34, %p32, %p33;
+	@%p34 bra 	$L__BB3_32;
+	bra.uni 	$L__BB3_4;
+$L__BB3_32:
+	ld.const.u64 	%rd238, [%rd115+24];
+	ld.const.s32 	%rd239, [%rd115+8];
+	mul.lo.s64 	%rd240, %rd8, %rd5;
+	add.s64 	%rd241, %rd240, %rd6;
+	mul.lo.s64 	%rd242, %rd241, %rd239;
+	add.s64 	%rd271, %rd242, %rd238;
+	bra.uni 	$L__BB3_33;
+$L__BB3_42:
+	mov.u64 	%rd188, __bpftime_map_bounds_warned;
+	atom.global.exch.b32 	%r87, [%rd188], 1;
+	setp.ne.s32 	%p25, %r87, 0;
+	@%p25 bra 	$L__BB3_44;
+	add.s64 	%rd18, %rd115, 12;
+	mov.u32 	%r88, %ctaid.y;
+	mov.u32 	%r89, %ntid.y;
+	mov.u32 	%r90, %tid.y;
+	mad.lo.s32 	%r91, %r88, %r89, %r90;
+	mov.u32 	%r92, %nctaid.x;
+	mov.u32 	%r93, %ntid.x;
+	mul.lo.s32 	%r94, %r92, %r93;
+	mul.lo.s32 	%r95, %r91, %r94;
+	cvt.s64.s32 	%rd189, %r95;
+	mov.u32 	%r96, %ctaid.x;
+	mov.u32 	%r97, %tid.x;
+	mad.lo.s32 	%r98, %r96, %r93, %r97;
+	cvt.s64.s32 	%rd190, %r98;
+	add.s64 	%rd191, %rd189, %rd190;
+	mov.u32 	%r99, %nctaid.y;
+	mul.lo.s32 	%r100, %r99, %r89;
+	mul.wide.s32 	%rd192, %r100, %r94;
+	mov.u32 	%r101, %ctaid.z;
+	mov.u32 	%r102, %ntid.z;
+	mov.u32 	%r103, %tid.z;
+	mad.lo.s32 	%r104, %r101, %r102, %r103;
+	cvt.s64.s32 	%rd193, %r104;
+	mul.lo.s64 	%rd194, %rd192, %rd193;
+	add.s64 	%rd195, %rd191, %rd194;
+	ld.const.u64 	%rd199, [%rd115+32];
+	ld.const.u32 	%r105, [%rd18];
+	st.local.u64 	[%rd1], %rd195;
+	st.local.u64 	[%rd1+8], %rd17;
+	st.local.u64 	[%rd1+16], %rd105;
+	st.local.u64 	[%rd1+24], %rd199;
+	st.local.u32 	[%rd1+32], %r105;
+	mov.u64 	%rd200, _$_str1;
+	cvta.global.u64 	%rd201, %rd200;
+	{ // callseq 7, 0
+	.reg .b32 temp_param_reg;
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd201;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %rd109;
+	.param .b32 retval0;
+	call.uni (retval0), 
+	vprintf, 
+	(
+	param0, 
+	param1
+	);
+	ld.param.b32 	%r106, [retval0+0];
+	} // callseq 7
+$L__BB3_44:
+	mov.u64 	%rd273, 0;
+$L__BB3_46:
+	setp.eq.s64 	%p26, %rd273, 0;
+	mov.u64 	%rd295, -7;
+	@%p26 bra 	$L__BB3_83;
+	ld.const.u32 	%r108, [%rd115+8];
+	setp.lt.s32 	%p27, %r108, 1;
+	@%p27 bra 	$L__BB3_54;
+	cvt.u64.u32 	%rd21, %r108;
+	cvt.u32.u64 	%r110, %rd21;
+	and.b32  	%r157, %r110, 3;
+	setp.lt.u32 	%p28, %r110, 4;
+	mov.u32 	%r156, 0;
+	@%p28 bra 	$L__BB3_51;
+	and.b64  	%rd22, %rd21, 4294967292;
+	add.s64 	%rd23, %rd107, 3;
+	mov.u64 	%rd274, 0;
+	cvt.u32.u64 	%r111, %rd22;
+$L__BB3_50:
+	add.s64 	%rd215, %rd23, %rd274;
+	ld.u8 	%rs11, [%rd215+-3];
+	add.s64 	%rd216, %rd273, %rd274;
+	st.u8 	[%rd216], %rs11;
+	ld.u8 	%rs12, [%rd215+-2];
+	st.u8 	[%rd216+1], %rs12;
+	ld.u8 	%rs13, [%rd215+-1];
+	st.u8 	[%rd216+2], %rs13;
+	ld.u8 	%rs14, [%rd215];
+	st.u8 	[%rd216+3], %rs14;
+	add.s64 	%rd274, %rd274, 4;
+	cvt.u32.u64 	%r156, %rd274;
+	setp.ne.s32 	%p29, %r111, %r156;
+	@%p29 bra 	$L__BB3_50;
+$L__BB3_51:
+	setp.eq.s32 	%p30, %r157, 0;
+	@%p30 bra 	$L__BB3_54;
+	cvt.u64.u32 	%rd217, %r156;
+	add.s64 	%rd276, %rd273, %rd217;
+	add.s64 	%rd275, %rd107, %rd217;
+$L__BB3_53:
+	.pragma "nounroll";
+	ld.u8 	%rs15, [%rd275];
+	st.u8 	[%rd276], %rs15;
+	add.s64 	%rd276, %rd276, 1;
+	add.s64 	%rd275, %rd275, 1;
+	add.s32 	%r157, %r157, -1;
+	setp.ne.s32 	%p31, %r157, 0;
+	@%p31 bra 	$L__BB3_53;
+$L__BB3_54:
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	mov.u64 	%rd295, 0;
+	bra.uni 	$L__BB3_83;
+$L__BB3_55:
+	ld.u32 	%rd32, [%rd106];
+	mov.u32 	%r62, %ctaid.x;
+	mov.u32 	%r63, %ntid.x;
+	mov.u32 	%r64, %tid.x;
+	mad.lo.s32 	%r65, %r62, %r63, %r64;
+	mov.u32 	%r66, %ctaid.y;
+	mov.u32 	%r67, %ntid.y;
+	mov.u32 	%r68, %tid.y;
+	mad.lo.s32 	%r69, %r66, %r67, %r68;
+	mov.u32 	%r70, %ctaid.z;
+	mov.u32 	%r71, %ntid.z;
+	mov.u32 	%r72, %tid.z;
+	mad.lo.s32 	%r73, %r70, %r71, %r72;
+	mov.u32 	%r74, %nctaid.x;
+	mul.lo.s32 	%r75, %r74, %r63;
+	mov.u32 	%r76, %nctaid.y;
+	mul.lo.s32 	%r77, %r76, %r67;
+	cvt.s64.s32 	%rd151, %r73;
+	mul.wide.s32 	%rd152, %r77, %r75;
+	mul.lo.s64 	%rd153, %rd152, %rd151;
+	mul.lo.s32 	%r78, %r69, %r75;
+	cvt.s64.s32 	%rd154, %r78;
+	cvt.s64.s32 	%rd155, %r65;
+	add.s64 	%rd156, %rd154, %rd155;
+	add.s64 	%rd33, %rd156, %rd153;
+	ld.const.u64 	%rd35, [%rd115+32];
+	setp.lt.u64 	%p14, %rd33, %rd35;
+	ld.const.s32 	%rd160, [%rd115+12];
+	setp.gt.u64 	%p15, %rd160, %rd32;
+	and.pred  	%p16, %p14, %p15;
+	@%p16 bra 	$L__BB3_59;
+	bra.uni 	$L__BB3_56;
+$L__BB3_59:
+	ld.const.u64 	%rd170, [%rd115+24];
+	ld.const.s32 	%rd171, [%rd115+8];
+	mul.lo.s64 	%rd172, %rd35, %rd32;
+	add.s64 	%rd173, %rd172, %rd33;
+	mul.lo.s64 	%rd174, %rd173, %rd171;
+	add.s64 	%rd277, %rd174, %rd170;
+	bra.uni 	$L__BB3_60;
+$L__BB3_9:
+	ld.param.u64 	%rd108, [_bpf_helper_ext_0002_param_3];
+	ld.const.u64 	%rd65, [constData];
+	// begin inline asm
+	mov.u32 %r137, %laneid;
+	// end inline asm
+	add.s64 	%rd71, %rd65, 24;
+	add.s64 	%rd67, %rd65, 1048600;
+	add.s64 	%rd68, %rd115, 4;
+	add.s64 	%rd69, %rd115, 8;
+	add.s64 	%rd70, %rd106, 3;
+	add.s64 	%rd72, %rd107, 3;
+	mov.u32 	%r138, 0;
+	mov.u64 	%rd292, 0;
+	mov.u32 	%r142, 2;
+	mov.u32 	%r162, %r138;
+	bra.uni 	$L__BB3_10;
+$L__BB3_30:
+	bar.warp.sync 	%r139;
+	add.s32 	%r162, %r162, 1;
+	setp.ne.s32 	%p56, %r162, 32;
+	@%p56 bra 	$L__BB3_10;
+	bra.uni 	$L__BB3_31;
+$L__BB3_10:
+	// begin inline asm
+	activemask.b32 %r139;
+	// end inline asm
+	setp.ne.s32 	%p42, %r137, %r162;
+	@%p42 bra 	$L__BB3_30;
+$L__BB3_11:
+	mov.u64 	%rd258, __bpftime_module_comm_lock;
+	atom.global.cas.b32 	%r140, [%rd258], 0, 1;
+	setp.ne.s32 	%p43, %r140, 0;
+	@%p43 bra 	$L__BB3_11;
+$L__BB3_12:
+	add.s64 	%rd259, %rd65, 8;
+	atom.cas.b32 	%r141, [%rd259], 0, 1;
+	setp.ne.s32 	%p44, %r141, 0;
+	@%p44 bra 	$L__BB3_12;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	st.u32 	[%rd65+12], %r142;
+	st.u64 	[%rd65+16], %rd105;
+	ld.const.u32 	%r143, [%rd68];
+	setp.lt.s32 	%p45, %r143, 1;
+	@%p45 bra 	$L__BB3_20;
+	cvt.u64.u32 	%rd75, %r143;
+	cvt.u32.u64 	%r145, %rd75;
+	setp.lt.u32 	%p46, %r145, 4;
+	mov.u32 	%r163, %r138;
+	@%p46 bra 	$L__BB3_17;
+	and.b64  	%rd76, %rd75, 4294967292;
+	mov.u64 	%rd286, 0;
+$L__BB3_16:
+	add.s64 	%rd261, %rd70, %rd286;
+	ld.u8 	%rs21, [%rd261+-3];
+	add.s64 	%rd262, %rd71, %rd286;
+	st.u8 	[%rd262], %rs21;
+	ld.u8 	%rs22, [%rd261+-2];
+	st.u8 	[%rd262+1], %rs22;
+	ld.u8 	%rs23, [%rd261+-1];
+	st.u8 	[%rd262+2], %rs23;
+	ld.u8 	%rs24, [%rd261];
+	st.u8 	[%rd262+3], %rs24;
+	add.s64 	%rd286, %rd286, 4;
+	cvt.u32.u64 	%r163, %rd286;
+	cvt.u32.u64 	%r146, %rd76;
+	setp.ne.s32 	%p47, %r146, %r163;
+	@%p47 bra 	$L__BB3_16;
+$L__BB3_17:
+	and.b32  	%r164, %r145, 3;
+	setp.eq.s32 	%p48, %r164, 0;
+	@%p48 bra 	$L__BB3_20;
+	cvt.u64.u32 	%rd263, %r163;
+	add.s64 	%rd288, %rd71, %rd263;
+	add.s64 	%rd287, %rd106, %rd263;
+$L__BB3_19:
+	.pragma "nounroll";
+	ld.u8 	%rs25, [%rd287];
+	st.u8 	[%rd288], %rs25;
+	add.s64 	%rd288, %rd288, 1;
+	add.s64 	%rd287, %rd287, 1;
+	add.s32 	%r164, %r164, -1;
+	setp.ne.s32 	%p49, %r164, 0;
+	@%p49 bra 	$L__BB3_19;
+$L__BB3_20:
+	ld.const.u32 	%r147, [%rd69];
+	setp.lt.s32 	%p50, %r147, 1;
+	@%p50 bra 	$L__BB3_27;
+	cvt.u64.u32 	%rd85, %r147;
+	cvt.u32.u64 	%r149, %rd85;
+	setp.lt.u32 	%p51, %r149, 4;
+	mov.u32 	%r165, 0;
+	@%p51 bra 	$L__BB3_24;
+	and.b64  	%rd86, %rd85, 4294967292;
+	mov.u64 	%rd289, 0;
+$L__BB3_23:
+	add.s64 	%rd265, %rd72, %rd289;
+	ld.u8 	%rs26, [%rd265+-3];
+	add.s64 	%rd266, %rd67, %rd289;
+	st.u8 	[%rd266], %rs26;
+	ld.u8 	%rs27, [%rd265+-2];
+	st.u8 	[%rd266+1], %rs27;
+	ld.u8 	%rs28, [%rd265+-1];
+	st.u8 	[%rd266+2], %rs28;
+	ld.u8 	%rs29, [%rd265];
+	st.u8 	[%rd266+3], %rs29;
+	add.s64 	%rd289, %rd289, 4;
+	cvt.u32.u64 	%r165, %rd289;
+	cvt.u32.u64 	%r150, %rd86;
+	setp.ne.s32 	%p52, %r150, %r165;
+	@%p52 bra 	$L__BB3_23;
+$L__BB3_24:
+	and.b32  	%r166, %r149, 3;
+	setp.eq.s32 	%p53, %r166, 0;
+	@%p53 bra 	$L__BB3_27;
+	cvt.u64.u32 	%rd267, %r165;
+	add.s64 	%rd291, %rd67, %rd267;
+	add.s64 	%rd290, %rd107, %rd267;
+$L__BB3_26:
+	.pragma "nounroll";
+	ld.u8 	%rs30, [%rd290];
+	st.u8 	[%rd291], %rs30;
+	add.s64 	%rd291, %rd291, 1;
+	add.s64 	%rd290, %rd290, 1;
+	add.s32 	%r166, %r166, -1;
+	setp.ne.s32 	%p54, %r166, 0;
+	@%p54 bra 	$L__BB3_26;
+$L__BB3_27:
+	st.u64 	[%rd65+2097176], %rd108;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	mov.u32 	%r151, 1;
+	st.volatile.u32 	[%rd65], %r151;
+$L__BB3_28:
+	ld.volatile.u32 	%r152, [%rd65+4];
+	setp.eq.s32 	%p55, %r152, 0;
+	@%p55 bra 	$L__BB3_28;
+	mov.u32 	%r153, 0;
+	st.volatile.u32 	[%rd65+4], %r153;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	ld.u64 	%rd292, [%rd65+2097184];
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	atom.exch.b32 	%r154, [%rd259], 0;
+	atom.global.exch.b32 	%r155, [%rd258], 0;
+	bra.uni 	$L__BB3_30;
+$L__BB3_31:
+	cvt.s64.s32 	%rd295, %rd292;
+	bra.uni 	$L__BB3_83;
+$L__BB3_70:
+	mov.u64 	%rd120, __bpftime_map_bounds_warned;
+	atom.global.exch.b32 	%r37, [%rd120], 1;
+	setp.ne.s32 	%p7, %r37, 0;
+	@%p7 bra 	$L__BB3_72;
+	add.s64 	%rd51, %rd115, 12;
+	mov.u32 	%r38, %ctaid.y;
+	mov.u32 	%r39, %ntid.y;
+	mov.u32 	%r40, %tid.y;
+	mad.lo.s32 	%r41, %r38, %r39, %r40;
+	mov.u32 	%r42, %nctaid.x;
+	mov.u32 	%r43, %ntid.x;
+	mul.lo.s32 	%r44, %r42, %r43;
+	mul.lo.s32 	%r45, %r41, %r44;
+	cvt.s64.s32 	%rd121, %r45;
+	mov.u32 	%r46, %ctaid.x;
+	mov.u32 	%r47, %tid.x;
+	mad.lo.s32 	%r48, %r46, %r43, %r47;
+	cvt.s64.s32 	%rd122, %r48;
+	add.s64 	%rd123, %rd121, %rd122;
+	mov.u32 	%r49, %nctaid.y;
+	mul.lo.s32 	%r50, %r49, %r39;
+	mul.wide.s32 	%rd124, %r50, %r44;
+	mov.u32 	%r51, %ctaid.z;
+	mov.u32 	%r52, %ntid.z;
+	mov.u32 	%r53, %tid.z;
+	mad.lo.s32 	%r54, %r51, %r52, %r53;
+	cvt.s64.s32 	%rd125, %r54;
+	mul.lo.s64 	%rd126, %rd124, %rd125;
+	add.s64 	%rd127, %rd123, %rd126;
+	ld.const.u64 	%rd131, [%rd115+32];
+	ld.const.u32 	%r55, [%rd51];
+	st.local.u64 	[%rd1], %rd127;
+	st.local.u64 	[%rd1+8], %rd50;
+	st.local.u64 	[%rd1+16], %rd105;
+	st.local.u64 	[%rd1+24], %rd131;
+	st.local.u32 	[%rd1+32], %r55;
+	mov.u64 	%rd132, _$_str1;
+	cvta.global.u64 	%rd133, %rd132;
+	{ // callseq 5, 0
+	.reg .b32 temp_param_reg;
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd133;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %rd109;
+	.param .b32 retval0;
+	call.uni (retval0), 
+	vprintf, 
+	(
+	param0, 
+	param1
+	);
+	ld.param.b32 	%r56, [retval0+0];
+	} // callseq 5
+$L__BB3_72:
+	mov.u64 	%rd281, 0;
+$L__BB3_74:
+	setp.eq.s64 	%p8, %rd281, 0;
+	mov.u64 	%rd295, -7;
+	@%p8 bra 	$L__BB3_83;
+	ld.const.u32 	%r58, [%rd115+8];
+	setp.lt.s32 	%p9, %r58, 1;
+	@%p9 bra 	$L__BB3_82;
+	cvt.u64.u32 	%rd54, %r58;
+	cvt.u32.u64 	%r60, %rd54;
+	and.b32  	%r161, %r60, 3;
+	setp.lt.u32 	%p10, %r60, 4;
+	mov.u32 	%r160, 0;
+	@%p10 bra 	$L__BB3_79;
+	and.b64  	%rd55, %rd54, 4294967292;
+	add.s64 	%rd56, %rd107, 3;
+	mov.u64 	%rd282, 0;
+	cvt.u32.u64 	%r61, %rd55;
+$L__BB3_78:
+	add.s64 	%rd147, %rd56, %rd282;
+	ld.u8 	%rs1, [%rd147+-3];
+	add.s64 	%rd148, %rd281, %rd282;
+	st.u8 	[%rd148], %rs1;
+	ld.u8 	%rs2, [%rd147+-2];
+	st.u8 	[%rd148+1], %rs2;
+	ld.u8 	%rs3, [%rd147+-1];
+	st.u8 	[%rd148+2], %rs3;
+	ld.u8 	%rs4, [%rd147];
+	st.u8 	[%rd148+3], %rs4;
+	add.s64 	%rd282, %rd282, 4;
+	cvt.u32.u64 	%r160, %rd282;
+	setp.ne.s32 	%p11, %r61, %r160;
+	@%p11 bra 	$L__BB3_78;
+$L__BB3_79:
+	setp.eq.s32 	%p12, %r161, 0;
+	@%p12 bra 	$L__BB3_82;
+	cvt.u64.u32 	%rd149, %r160;
+	add.s64 	%rd284, %rd281, %rd149;
+	add.s64 	%rd283, %rd107, %rd149;
+$L__BB3_81:
+	.pragma "nounroll";
+	ld.u8 	%rs5, [%rd283];
+	st.u8 	[%rd284], %rs5;
+	add.s64 	%rd284, %rd284, 1;
+	add.s64 	%rd283, %rd283, 1;
+	add.s32 	%r161, %r161, -1;
+	setp.ne.s32 	%p13, %r161, 0;
+	@%p13 bra 	$L__BB3_81;
+$L__BB3_82:
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	mov.u64 	%rd295, 0;
+	bra.uni 	$L__BB3_83;
+$L__BB3_4:
+	mov.u64 	%rd229, __bpftime_map_bounds_warned;
+	atom.global.exch.b32 	%r129, [%rd229], 1;
+	setp.ne.s32 	%p35, %r129, 0;
+	@%p35 bra 	$L__BB3_6;
+	add.s64 	%rd7, %rd115, 32;
+	add.s64 	%rd9, %rd115, 12;
+	ld.const.u64 	%rd230, [%rd7];
+	ld.const.u32 	%r130, [%rd9];
+	st.local.u64 	[%rd1], %rd6;
+	st.local.u64 	[%rd1+8], %rd5;
+	st.local.u64 	[%rd1+16], %rd105;
+	st.local.u64 	[%rd1+24], %rd230;
+	st.local.u32 	[%rd1+32], %r130;
+	mov.u64 	%rd231, _$_str1;
+	cvta.global.u64 	%rd232, %rd231;
+	{ // callseq 8, 0
+	.reg .b32 temp_param_reg;
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd232;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %rd109;
+	.param .b32 retval0;
+	call.uni (retval0), 
+	vprintf, 
+	(
+	param0, 
+	param1
+	);
+	ld.param.b32 	%r131, [retval0+0];
+	} // callseq 8
+$L__BB3_6:
+	mov.u64 	%rd271, 0;
+$L__BB3_33:
+	setp.eq.s64 	%p36, %rd271, 0;
+	mov.u64 	%rd295, -7;
+	@%p36 bra 	$L__BB3_83;
+	ld.const.u32 	%r133, [%rd115+8];
+	setp.lt.s32 	%p37, %r133, 1;
+	mov.u64 	%rd295, 0;
+	@%p37 bra 	$L__BB3_83;
+	cvt.u64.u32 	%rd12, %r133;
+	cvt.u32.u64 	%r135, %rd12;
+	and.b32  	%r168, %r135, 3;
+	setp.lt.u32 	%p38, %r135, 4;
+	mov.u32 	%r167, 0;
+	@%p38 bra 	$L__BB3_38;
+	and.b64  	%rd13, %rd12, 4294967292;
+	add.s64 	%rd14, %rd107, 3;
+	mov.u64 	%rd272, 0;
+	cvt.u32.u64 	%r136, %rd13;
+$L__BB3_37:
+	add.s64 	%rd249, %rd14, %rd272;
+	ld.u8 	%rs16, [%rd249+-3];
+	add.s64 	%rd250, %rd271, %rd272;
+	st.u8 	[%rd250], %rs16;
+	ld.u8 	%rs17, [%rd249+-2];
+	st.u8 	[%rd250+1], %rs17;
+	ld.u8 	%rs18, [%rd249+-1];
+	st.u8 	[%rd250+2], %rs18;
+	ld.u8 	%rs19, [%rd249];
+	st.u8 	[%rd250+3], %rs19;
+	add.s64 	%rd272, %rd272, 4;
+	cvt.u32.u64 	%r167, %rd272;
+	setp.eq.s32 	%p39, %r136, %r167;
+	@%p39 bra 	$L__BB3_38;
+	bra.uni 	$L__BB3_37;
+$L__BB3_38:
+	setp.eq.s32 	%p40, %r168, 0;
+	@%p40 bra 	$L__BB3_83;
+	cvt.u64.u32 	%rd252, %r167;
+	add.s64 	%rd294, %rd271, %rd252;
+	add.s64 	%rd293, %rd107, %rd252;
+$L__BB3_40:
+	.pragma "nounroll";
+	ld.u8 	%rs20, [%rd293];
+	st.u8 	[%rd294], %rs20;
+	add.s64 	%rd294, %rd294, 1;
+	add.s64 	%rd293, %rd293, 1;
+	add.s32 	%r168, %r168, -1;
+	setp.ne.s32 	%p41, %r168, 0;
+	@%p41 bra 	$L__BB3_40;
+	bra.uni 	$L__BB3_83;
+$L__BB3_56:
+	mov.u64 	%rd161, __bpftime_map_bounds_warned;
+	atom.global.exch.b32 	%r79, [%rd161], 1;
+	setp.ne.s32 	%p17, %r79, 0;
+	@%p17 bra 	$L__BB3_58;
+	add.s64 	%rd34, %rd115, 32;
+	add.s64 	%rd36, %rd115, 12;
+	ld.const.u64 	%rd162, [%rd34];
+	ld.const.u32 	%r80, [%rd36];
+	st.local.u64 	[%rd1], %rd33;
+	st.local.u64 	[%rd1+8], %rd32;
+	st.local.u64 	[%rd1+16], %rd105;
+	st.local.u64 	[%rd1+24], %rd162;
+	st.local.u32 	[%rd1+32], %r80;
+	mov.u64 	%rd163, _$_str1;
+	cvta.global.u64 	%rd164, %rd163;
+	{ // callseq 6, 0
+	.reg .b32 temp_param_reg;
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd164;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %rd109;
+	.param .b32 retval0;
+	call.uni (retval0), 
+	vprintf, 
+	(
+	param0, 
+	param1
+	);
+	ld.param.b32 	%r81, [retval0+0];
+	} // callseq 6
+$L__BB3_58:
+	mov.u64 	%rd277, 0;
+$L__BB3_60:
+	setp.eq.s64 	%p18, %rd277, 0;
+	mov.u64 	%rd295, -7;
+	@%p18 bra 	$L__BB3_83;
+	ld.const.u32 	%r83, [%rd115+8];
+	setp.lt.s32 	%p19, %r83, 1;
+	@%p19 bra 	$L__BB3_68;
+	cvt.u64.u32 	%rd39, %r83;
+	cvt.u32.u64 	%r85, %rd39;
+	and.b32  	%r159, %r85, 3;
+	setp.lt.u32 	%p20, %r85, 4;
+	mov.u32 	%r158, 0;
+	@%p20 bra 	$L__BB3_65;
+	and.b64  	%rd40, %rd39, 4294967292;
+	add.s64 	%rd41, %rd107, 3;
+	mov.u64 	%rd278, 0;
+	cvt.u32.u64 	%r86, %rd40;
+$L__BB3_64:
+	add.s64 	%rd180, %rd41, %rd278;
+	ld.u8 	%rs6, [%rd180+-3];
+	add.s64 	%rd181, %rd277, %rd278;
+	st.u8 	[%rd181], %rs6;
+	ld.u8 	%rs7, [%rd180+-2];
+	st.u8 	[%rd181+1], %rs7;
+	ld.u8 	%rs8, [%rd180+-1];
+	st.u8 	[%rd181+2], %rs8;
+	ld.u8 	%rs9, [%rd180];
+	st.u8 	[%rd181+3], %rs9;
+	add.s64 	%rd278, %rd278, 4;
+	cvt.u32.u64 	%r158, %rd278;
+	setp.ne.s32 	%p21, %r86, %r158;
+	@%p21 bra 	$L__BB3_64;
+$L__BB3_65:
+	setp.eq.s32 	%p22, %r159, 0;
+	@%p22 bra 	$L__BB3_68;
+	cvt.u64.u32 	%rd182, %r158;
+	add.s64 	%rd280, %rd277, %rd182;
+	add.s64 	%rd279, %rd107, %rd182;
+$L__BB3_67:
+	.pragma "nounroll";
+	ld.u8 	%rs10, [%rd279];
+	st.u8 	[%rd280], %rs10;
+	add.s64 	%rd280, %rd280, 1;
+	add.s64 	%rd279, %rd279, 1;
+	add.s32 	%r159, %r159, -1;
+	setp.ne.s32 	%p23, %r159, 0;
+	@%p23 bra 	$L__BB3_67;
+$L__BB3_68:
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	mov.u64 	%rd295, 0;
+$L__BB3_83:
+	st.param.b64 	[func_retval0+0], %rd295;
+	ret;
+
+}
+	// .globl	_bpf_helper_ext_0003
+.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0003(
+	.param .b64 _bpf_helper_ext_0003_param_0,
+	.param .b64 _bpf_helper_ext_0003_param_1,
+	.param .b64 _bpf_helper_ext_0003_param_2,
+	.param .b64 _bpf_helper_ext_0003_param_3,
+	.param .b64 _bpf_helper_ext_0003_param_4
+)
+{
+	.reg .pred 	%p<11>;
+	.reg .b16 	%rs<6>;
+	.reg .b32 	%r<28>;
+	.reg .b64 	%rd<39>;
+
+	ld.param.u64 	%rd20, [_bpf_helper_ext_0003_param_1];
+	ld.param.u64 	%rd19, [_bpf_helper_ext_0003_param_0];
+	ld.const.u64 	%rd1, [constData];
+	// begin inline asm
+	mov.u32 %r10, %laneid;
+	// end inline asm
+	add.s64 	%rd5, %rd1, 24;
+	mul.lo.s64 	%rd22, %rd19, 40;
+	mov.u64 	%rd23, map_info;
+	add.s64 	%rd24, %rd23, %rd22;
+	add.s64 	%rd3, %rd24, 4;
+	add.s64 	%rd4, %rd20, 3;
+	mov.u32 	%r11, 0;
+	mov.u64 	%rd38, 0;
+	mov.u32 	%r15, 3;
+	mov.u32 	%r25, %r11;
+	bra.uni 	$L__BB4_1;
+$L__BB4_14:
+	bar.warp.sync 	%r12;
+	add.s32 	%r25, %r25, 1;
+	setp.ne.s32 	%p10, %r25, 32;
+	@%p10 bra 	$L__BB4_1;
+	bra.uni 	$L__BB4_15;
+$L__BB4_1:
+	// begin inline asm
+	activemask.b32 %r12;
+	// end inline asm
+	setp.ne.s32 	%p1, %r10, %r25;
+	@%p1 bra 	$L__BB4_14;
+$L__BB4_2:
+	mov.u64 	%rd25, __bpftime_module_comm_lock;
+	atom.global.cas.b32 	%r13, [%rd25], 0, 1;
+	setp.ne.s32 	%p2, %r13, 0;
+	@%p2 bra 	$L__BB4_2;
+$L__BB4_3:
+	add.s64 	%rd26, %rd1, 8;
+	atom.cas.b32 	%r14, [%rd26], 0, 1;
+	setp.ne.s32 	%p3, %r14, 0;
+	@%p3 bra 	$L__BB4_3;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	st.u32 	[%rd1+12], %r15;
+	st.u64 	[%rd1+16], %rd19;
+	ld.const.u32 	%r16, [%rd3];
+	setp.lt.s32 	%p4, %r16, 1;
+	@%p4 bra 	$L__BB4_11;
+	cvt.u64.u32 	%rd7, %r16;
+	cvt.u32.u64 	%r18, %rd7;
+	setp.lt.u32 	%p5, %r18, 4;
+	mov.u32 	%r26, %r11;
+	@%p5 bra 	$L__BB4_8;
+	and.b64  	%rd8, %rd7, 4294967292;
+	mov.u64 	%rd35, 0;
+$L__BB4_7:
+	add.s64 	%rd28, %rd4, %rd35;
+	ld.u8 	%rs1, [%rd28+-3];
+	add.s64 	%rd29, %rd5, %rd35;
+	st.u8 	[%rd29], %rs1;
+	ld.u8 	%rs2, [%rd28+-2];
+	st.u8 	[%rd29+1], %rs2;
+	ld.u8 	%rs3, [%rd28+-1];
+	st.u8 	[%rd29+2], %rs3;
+	ld.u8 	%rs4, [%rd28];
+	st.u8 	[%rd29+3], %rs4;
+	add.s64 	%rd35, %rd35, 4;
+	cvt.u32.u64 	%r26, %rd35;
+	cvt.u32.u64 	%r19, %rd8;
+	setp.ne.s32 	%p6, %r19, %r26;
+	@%p6 bra 	$L__BB4_7;
+$L__BB4_8:
+	and.b32  	%r27, %r18, 3;
+	setp.eq.s32 	%p7, %r27, 0;
+	@%p7 bra 	$L__BB4_11;
+	cvt.u64.u32 	%rd30, %r26;
+	add.s64 	%rd37, %rd5, %rd30;
+	add.s64 	%rd36, %rd20, %rd30;
+$L__BB4_10:
+	.pragma "nounroll";
+	ld.u8 	%rs5, [%rd36];
+	st.u8 	[%rd37], %rs5;
+	add.s64 	%rd37, %rd37, 1;
+	add.s64 	%rd36, %rd36, 1;
+	add.s32 	%r27, %r27, -1;
+	setp.ne.s32 	%p8, %r27, 0;
+	@%p8 bra 	$L__BB4_10;
+$L__BB4_11:
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	mov.u32 	%r20, 1;
+	st.volatile.u32 	[%rd1], %r20;
+$L__BB4_12:
+	ld.volatile.u32 	%r21, [%rd1+4];
+	setp.eq.s32 	%p9, %r21, 0;
+	@%p9 bra 	$L__BB4_12;
+	mov.u32 	%r22, 0;
+	st.volatile.u32 	[%rd1+4], %r22;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	ld.u64 	%rd38, [%rd1+2097184];
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	atom.exch.b32 	%r23, [%rd26], 0;
+	atom.global.exch.b32 	%r24, [%rd25], 0;
+	bra.uni 	$L__BB4_14;
+$L__BB4_15:
+	cvt.s64.s32 	%rd33, %rd38;
+	st.param.b64 	[func_retval0+0], %rd33;
+	ret;
+
+}
+	// .globl	_bpf_helper_ext_0006
+.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0006(
+	.param .b64 _bpf_helper_ext_0006_param_0,
+	.param .b64 _bpf_helper_ext_0006_param_1,
+	.param .b64 _bpf_helper_ext_0006_param_2,
+	.param .b64 _bpf_helper_ext_0006_param_3,
+	.param .b64 _bpf_helper_ext_0006_param_4
+)
+{
+	.reg .pred 	%p<12>;
+	.reg .b16 	%rs<7>;
+	.reg .b32 	%r<18>;
+	.reg .b64 	%rd<44>;
+
+	ld.param.u64 	%rd25, [_bpf_helper_ext_0006_param_4];
+	ld.param.u64 	%rd24, [_bpf_helper_ext_0006_param_3];
+	ld.param.u64 	%rd23, [_bpf_helper_ext_0006_param_2];
+	ld.param.u64 	%rd22, [_bpf_helper_ext_0006_param_1];
+	ld.param.u64 	%rd21, [_bpf_helper_ext_0006_param_0];
+	ld.const.u64 	%rd1, [constData];
+	// begin inline asm
+	mov.u32 %r6, %laneid;
+	// end inline asm
+	min.u64 	%rd2, %rd22, 1000;
+	cvt.u32.u64 	%r2, %rd2;
+	and.b64  	%rd3, %rd2, 3;
+	and.b64  	%rd4, %rd2, 1020;
+	add.s64 	%rd5, %rd21, 1;
+	add.s64 	%rd6, %rd1, 24;
+	mov.u32 	%r17, 0;
+	mov.u64 	%rd43, 0;
+	setp.eq.s64 	%p4, %rd2, 0;
+	mov.u32 	%r11, 6;
+	setp.gt.u64 	%p9, %rd22, 999;
+	mov.u16 	%rs6, 0;
+	mov.u32 	%r12, 1;
+	setp.lt.u64 	%p5, %rd2, 4;
+	setp.eq.s64 	%p7, %rd3, 0;
+	bra.uni 	$L__BB5_1;
+$L__BB5_16:
+	bar.warp.sync 	%r8;
+	add.s32 	%r17, %r17, 1;
+	setp.ne.s32 	%p11, %r17, 32;
+	@%p11 bra 	$L__BB5_1;
+	bra.uni 	$L__BB5_17;
+$L__BB5_1:
+	// begin inline asm
+	activemask.b32 %r8;
+	// end inline asm
+	setp.ne.s32 	%p1, %r6, %r17;
+	@%p1 bra 	$L__BB5_16;
+$L__BB5_2:
+	mov.u64 	%rd27, __bpftime_module_comm_lock;
+	atom.global.cas.b32 	%r9, [%rd27], 0, 1;
+	setp.ne.s32 	%p2, %r9, 0;
+	@%p2 bra 	$L__BB5_2;
+$L__BB5_3:
+	add.s64 	%rd28, %rd1, 8;
+	atom.cas.b32 	%r10, [%rd28], 0, 1;
+	setp.ne.s32 	%p3, %r10, 0;
+	@%p3 bra 	$L__BB5_3;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	st.u32 	[%rd1+12], %r11;
+	mov.u64 	%rd42, 0;
+	st.u64 	[%rd1+16], %rd42;
+	@%p4 bra 	$L__BB5_11;
+	@%p5 bra 	$L__BB5_8;
+	mov.u64 	%rd42, 0;
+$L__BB5_7:
+	add.s64 	%rd32, %rd5, %rd42;
+	ld.u8 	%rs1, [%rd32+-1];
+	add.s64 	%rd33, %rd1, %rd42;
+	st.u8 	[%rd33+24], %rs1;
+	ld.u8 	%rs2, [%rd32];
+	st.u8 	[%rd33+25], %rs2;
+	ld.u8 	%rs3, [%rd32+1];
+	st.u8 	[%rd33+26], %rs3;
+	ld.u8 	%rs4, [%rd32+2];
+	st.u8 	[%rd33+27], %rs4;
+	add.s64 	%rd42, %rd42, 4;
+	setp.eq.s64 	%p6, %rd4, %rd42;
+	@%p6 bra 	$L__BB5_8;
+	bra.uni 	$L__BB5_7;
+$L__BB5_8:
+	@%p7 bra 	$L__BB5_11;
+	add.s64 	%rd41, %rd6, %rd42;
+	add.s64 	%rd40, %rd21, %rd42;
+	mov.u64 	%rd39, %rd3;
 $L__BB5_10:
-	ld.u32 	%rd13, [%rd41];
-	ld.const.u64 	%rd116, [%rd46+32];
+	.pragma "nounroll";
+	ld.u8 	%rs5, [%rd40];
+	st.u8 	[%rd41], %rs5;
+	add.s64 	%rd41, %rd41, 1;
+	add.s64 	%rd40, %rd40, 1;
+	add.s64 	%rd39, %rd39, -1;
+	setp.ne.s64 	%p8, %rd39, 0;
+	@%p8 bra 	$L__BB5_10;
+$L__BB5_11:
+	@%p9 bra 	$L__BB5_12;
+	bra.uni 	$L__BB5_13;
+$L__BB5_12:
+	st.u8 	[%rd1+1023], %rs6;
+$L__BB5_13:
+	st.u32 	[%rd1+1024], %r2;
+	st.u64 	[%rd1+1032], %rd23;
+	st.u64 	[%rd1+1040], %rd24;
+	st.u64 	[%rd1+1048], %rd25;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	st.volatile.u32 	[%rd1], %r12;
+$L__BB5_14:
+	ld.volatile.u32 	%r13, [%rd1+4];
+	setp.eq.s32 	%p10, %r13, 0;
+	@%p10 bra 	$L__BB5_14;
+	mov.u32 	%r14, 0;
+	st.volatile.u32 	[%rd1+4], %r14;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	ld.u64 	%rd43, [%rd1+2097184];
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	atom.exch.b32 	%r15, [%rd28], 0;
+	atom.global.exch.b32 	%r16, [%rd27], 0;
+	bra.uni 	$L__BB5_16;
+$L__BB5_17:
+	cvt.s64.s32 	%rd36, %rd43;
+	st.param.b64 	[func_retval0+0], %rd36;
+	ret;
+
+}
+	// .globl	_bpf_helper_ext_0014
+.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0014(
+	.param .b64 _bpf_helper_ext_0014_param_0,
+	.param .b64 _bpf_helper_ext_0014_param_1,
+	.param .b64 _bpf_helper_ext_0014_param_2,
+	.param .b64 _bpf_helper_ext_0014_param_3,
+	.param .b64 _bpf_helper_ext_0014_param_4
+)
+{
+	.reg .pred 	%p<6>;
+	.reg .b32 	%r<17>;
+	.reg .b64 	%rd<13>;
+
+	ld.const.u64 	%rd1, [constData];
+	mov.u32 	%r6, 0;
+	mov.u64 	%rd5, 0;
+	// begin inline asm
+	mov.u32 %r5, %laneid;
+	// end inline asm
+	mov.u64 	%rd6, __bpftime_module_comm_lock;
+	add.s64 	%rd7, %rd1, 8;
+	mov.u32 	%r10, 14;
+	mov.u32 	%r11, 1;
+	mov.u64 	%rd12, %rd5;
+	mov.u32 	%r16, %r6;
+	bra.uni 	$L__BB6_1;
+$L__BB6_7:
+	bar.warp.sync 	%r7;
+	add.s32 	%r16, %r16, 1;
+	setp.ne.s32 	%p5, %r16, 32;
+	@%p5 bra 	$L__BB6_1;
+	bra.uni 	$L__BB6_8;
+$L__BB6_1:
+	// begin inline asm
+	activemask.b32 %r7;
+	// end inline asm
+	setp.ne.s32 	%p1, %r5, %r16;
+	@%p1 bra 	$L__BB6_7;
+$L__BB6_2:
+	atom.global.cas.b32 	%r8, [%rd6], 0, 1;
+	setp.ne.s32 	%p2, %r8, 0;
+	@%p2 bra 	$L__BB6_2;
+$L__BB6_3:
+	atom.cas.b32 	%r9, [%rd7], 0, 1;
+	setp.ne.s32 	%p3, %r9, 0;
+	@%p3 bra 	$L__BB6_3;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	st.u32 	[%rd1+12], %r10;
+	st.u64 	[%rd1+16], %rd5;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	st.volatile.u32 	[%rd1], %r11;
+$L__BB6_5:
+	ld.volatile.u32 	%r12, [%rd1+4];
+	setp.eq.s32 	%p4, %r12, 0;
+	@%p4 bra 	$L__BB6_5;
+	st.volatile.u32 	[%rd1+4], %r6;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	ld.u64 	%rd12, [%rd1+2097184];
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	atom.exch.b32 	%r14, [%rd7], 0;
+	atom.global.exch.b32 	%r15, [%rd6], 0;
+	bra.uni 	$L__BB6_7;
+$L__BB6_8:
+	st.param.b64 	[func_retval0+0], %rd12;
+	ret;
+
+}
+	// .globl	_bpf_helper_ext_0025
+.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0025(
+	.param .b64 _bpf_helper_ext_0025_param_0,
+	.param .b64 _bpf_helper_ext_0025_param_1,
+	.param .b64 _bpf_helper_ext_0025_param_2,
+	.param .b64 _bpf_helper_ext_0025_param_3,
+	.param .b64 _bpf_helper_ext_0025_param_4
+)
+{
+	.reg .pred 	%p<12>;
+	.reg .b16 	%rs<6>;
+	.reg .b32 	%r<45>;
+	.reg .b64 	%rd<83>;
+
+	ld.param.u64 	%rd18, [_bpf_helper_ext_0025_param_1];
+	mul.lo.s64 	%rd21, %rd18, 40;
+	mov.u64 	%rd22, map_info;
+	add.s64 	%rd23, %rd22, %rd21;
+	ld.const.u32 	%r9, [%rd23+16];
+	setp.eq.s32 	%p1, %r9, 1527;
+	@%p1 bra 	$L__BB7_2;
+	bra.uni 	$L__BB7_1;
+$L__BB7_2:
 	mov.u32 	%r12, %ctaid.x;
 	mov.u32 	%r13, %ntid.x;
 	mov.u32 	%r14, %tid.x;
@@ -366,28 +1669,44 @@ $L__BB5_10:
 	mul.lo.s32 	%r25, %r24, %r13;
 	mov.u32 	%r26, %nctaid.y;
 	mul.lo.s32 	%r27, %r26, %r17;
-	cvt.s64.s32 	%rd57, %r23;
-	mul.wide.s32 	%rd58, %r27, %r25;
-	mul.lo.s64 	%rd59, %rd58, %rd57;
+	cvt.s64.s32 	%rd29, %r23;
+	mul.wide.s32 	%rd30, %r27, %r25;
+	mul.lo.s64 	%rd31, %rd30, %rd29;
 	mul.lo.s32 	%r28, %r19, %r25;
-	cvt.s64.s32 	%rd60, %r28;
-	cvt.s64.s32 	%rd61, %r15;
-	add.s64 	%rd62, %rd60, %rd61;
-	add.s64 	%rd16, %rd62, %rd59;
-	setp.gt.u64 	%p6, %rd116, %rd16;
-	@%p6 bra 	$L__BB5_12;
-	add.s64 	%rd14, %rd46, 32;
-	st.local.u64 	[%rd1], %rd16;
-	st.local.u64 	[%rd1+8], %rd116;
-	st.local.u64 	[%rd1+16], %rd40;
-	mov.u64 	%rd63, _$_str;
-	cvta.global.u64 	%rd64, %rd63;
-	{ // callseq 1, 0
+	cvt.s64.s32 	%rd32, %r28;
+	cvt.s64.s32 	%rd33, %r15;
+	add.s64 	%rd34, %rd32, %rd33;
+	add.s64 	%rd1, %rd34, %rd31;
+	ld.const.u64 	%rd38, [%rd23+32];
+	setp.ge.u64 	%p2, %rd1, %rd38;
+	mov.u64 	%rd82, 1;
+	@%p2 bra 	$L__BB7_20;
+	ld.param.u64 	%rd20, [_bpf_helper_ext_0025_param_4];
+	ld.const.v2.u32 	{%r29, %r30}, [%rd23+8];
+	cvt.s64.s32 	%rd2, %r30;
+	cvt.s64.s32 	%rd42, %r29;
+	add.s64 	%rd3, %rd42, 8;
+	ld.const.u64 	%rd43, [%rd23+24];
+	mul.lo.s64 	%rd44, %rd3, %rd2;
+	add.s64 	%rd45, %rd44, 24;
+	mul.lo.s64 	%rd46, %rd45, %rd1;
+	add.s64 	%rd4, %rd43, %rd46;
+	setp.ge.u64 	%p3, %rd42, %rd20;
+	@%p3 bra 	$L__BB7_5;
+	add.s64 	%rd78, %rd4, 20;
+	atom.add.u32 	%r41, [%rd78], 1;
+	mov.u64 	%rd82, 3;
+	bra.uni 	$L__BB7_20;
+$L__BB7_1:
+	mov.u64 	%rd25, _$_str;
+	cvta.global.u64 	%rd26, %rd25;
+	mov.u64 	%rd27, 0;
+	{ // callseq 9, 0
 	.reg .b32 temp_param_reg;
 	.param .b64 param0;
-	st.param.b64 	[param0+0], %rd64;
+	st.param.b64 	[param0+0], %rd26;
 	.param .b64 param1;
-	st.param.b64 	[param1+0], %rd42;
+	st.param.b64 	[param1+0], %rd27;
 	.param .b32 retval0;
 	call.uni (retval0), 
 	vprintf, 
@@ -395,1090 +1714,132 @@ $L__BB5_10:
 	param0, 
 	param1
 	);
-	ld.param.b32 	%r29, [retval0+0];
-	} // callseq 1
-	ld.const.u64 	%rd116, [%rd14];
-$L__BB5_12:
-	ld.const.u64 	%rd69, [%rd46+24];
-	ld.const.s32 	%rd70, [%rd46+8];
-	mul.lo.s64 	%rd71, %rd116, %rd13;
-	add.s64 	%rd72, %rd71, %rd16;
-	mul.lo.s64 	%rd73, %rd72, %rd70;
-	add.s64 	%rd123, %rd73, %rd69;
-	// begin inline asm
-	membar.sys;
-	// end inline asm
-$L__BB5_26:
-	st.param.b64 	[func_retval0+0], %rd123;
+	ld.param.b32 	%r10, [retval0+0];
+	} // callseq 9
+	mov.u64 	%rd82, 1;
+$L__BB7_20:
+	st.param.b64 	[func_retval0+0], %rd82;
 	ret;
-$L__BB5_13:
-	ld.const.u32 	%r50, [%rd46+4];
-	setp.lt.s32 	%p8, %r50, 1;
-	@%p8 bra 	$L__BB5_21;
-	cvt.u64.u32 	%rd22, %r50;
-	cvt.u32.u64 	%r52, %rd22;
-	and.b32  	%r65, %r52, 3;
-	setp.lt.u32 	%p9, %r52, 4;
-	mov.u32 	%r64, 0;
-	@%p9 bra 	$L__BB5_17;
-	add.s64 	%rd4, %rd120, 24;
-	and.b64  	%rd23, %rd22, 4294967292;
-	add.s64 	%rd24, %rd41, 3;
-	mov.u64 	%rd117, 0;
-	cvt.u32.u64 	%r53, %rd23;
-$L__BB5_16:
-	add.s64 	%rd105, %rd24, %rd117;
-	ld.u8 	%rs1, [%rd105+-3];
-	add.s64 	%rd106, %rd4, %rd117;
-	st.u8 	[%rd106], %rs1;
-	ld.u8 	%rs2, [%rd105+-2];
-	st.u8 	[%rd106+1], %rs2;
-	ld.u8 	%rs3, [%rd105+-1];
-	st.u8 	[%rd106+2], %rs3;
-	ld.u8 	%rs4, [%rd105];
-	st.u8 	[%rd106+3], %rs4;
-	add.s64 	%rd117, %rd117, 4;
-	cvt.u32.u64 	%r64, %rd117;
-	setp.ne.s32 	%p10, %r53, %r64;
-	@%p10 bra 	$L__BB5_16;
-$L__BB5_17:
-	setp.eq.s32 	%p11, %r65, 0;
-	@%p11 bra 	$L__BB5_20;
-	cvt.u64.u32 	%rd107, %r64;
-	add.s64 	%rd108, %rd107, %rd120;
-	add.s64 	%rd119, %rd108, 24;
-	add.s64 	%rd118, %rd41, %rd107;
-$L__BB5_19:
-	.pragma "nounroll";
-	ld.u8 	%rs5, [%rd118];
-	st.u8 	[%rd119], %rs5;
-	add.s64 	%rd119, %rd119, 1;
-	add.s64 	%rd118, %rd118, 1;
-	add.s32 	%r65, %r65, -1;
-	setp.ne.s32 	%p12, %r65, 0;
-	@%p12 bra 	$L__BB5_19;
-$L__BB5_20:
-	ld.const.u64 	%rd120, [constData];
-$L__BB5_21:
-	mov.u32 	%r66, 0;
-	mov.u64 	%rd123, 0;
-	mov.u32 	%r55, %tid.x;
-	and.b32  	%r6, %r55, 31;
-	add.s64 	%rd112, %rd120, 4;
-	mov.u64 	%rd110, __bpftime_comm_lock;
-	mov.u32 	%r61, 1;
-	mov.u32 	%r60, 42;
-	bra.uni 	$L__BB5_22;
-$L__BB5_25:
-	bar.warp.sync 	%r8;
-	add.s32 	%r66, %r66, 1;
-	setp.ne.s32 	%p17, %r66, 32;
-	@%p17 bra 	$L__BB5_22;
-	bra.uni 	$L__BB5_26;
-$L__BB5_22:
-	// begin inline asm
-	activemask.b32 %r8;
-	// end inline asm
-	shr.u32 	%r57, %r8, %r66;
-	and.b32  	%r58, %r57, 1;
-	setp.eq.b32 	%p13, %r58, 1;
-	setp.eq.s32 	%p14, %r6, %r66;
-	and.pred  	%p15, %p13, %p14;
-	@!%p15 bra 	$L__BB5_25;
-	bra.uni 	$L__BB5_23;
-$L__BB5_23:
-	atom.global.cas.b32 	%r59, [%rd110], 0, 1;
-	setp.eq.s32 	%p16, %r59, 1;
-	@%p16 bra 	$L__BB5_23;
-	st.u32 	[%rd120+12], %r61;
-	st.u64 	[%rd120+16], %rd40;
-	// begin inline asm
-	.reg .pred p0;                   
-	membar.sys;                      
-	st.global.u32 [%rd120], 1;           
-	spin_wait:                       
-	membar.sys;                      
-	ld.global.u32 %r60, [%rd112];          
-	setp.eq.u32 p0, %r60, 0;           
-	@p0 bra spin_wait;               
-	st.global.u32 [%rd112], 0;           
-	membar.sys;                      
-	
-	// end inline asm
-	ld.u64 	%rd123, [%rd120+2097184];
-	atom.global.exch.b32 	%r62, [%rd110], 0;
-	bra.uni 	$L__BB5_25;
-
-}
-	// .globl	_bpf_helper_ext_0002
-.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0002(
-	.param .b64 _bpf_helper_ext_0002_param_0,
-	.param .b64 _bpf_helper_ext_0002_param_1,
-	.param .b64 _bpf_helper_ext_0002_param_2,
-	.param .b64 _bpf_helper_ext_0002_param_3,
-	.param .b64 _bpf_helper_ext_0002_param_4
-)
-{
-	.local .align 8 .b8 	__local_depot6[24];
-	.reg .b64 	%SP;
-	.reg .b64 	%SPL;
-	.reg .pred 	%p<43>;
-	.reg .b16 	%rs<31>;
-	.reg .b32 	%r<121>;
-	.reg .b64 	%rd<227>;
-
-	mov.u64 	%SPL, __local_depot6;
-	cvta.local.u64 	%SP, %SPL;
-	ld.param.u64 	%rd101, [_bpf_helper_ext_0002_param_2];
-	ld.param.u64 	%rd100, [_bpf_helper_ext_0002_param_1];
-	ld.param.u64 	%rd99, [_bpf_helper_ext_0002_param_0];
-	add.u64 	%rd103, %SP, 0;
-	add.u64 	%rd1, %SPL, 0;
-	ld.const.u64 	%rd3, [constData];
-	mul.lo.s64 	%rd105, %rd99, 40;
-	mov.u64 	%rd106, map_info;
-	add.s64 	%rd107, %rd106, %rd105;
-	ld.const.u32 	%r35, [%rd107+16];
-	setp.gt.s32 	%p1, %r35, 1511;
-	@%p1 bra 	$L__BB6_12;
-	add.s32 	%r36, %r35, -1503;
-	setp.lt.u32 	%p4, %r36, 2;
-	@%p4 bra 	$L__BB6_22;
-	bra.uni 	$L__BB6_2;
-$L__BB6_22:
-	ld.const.u32 	%r64, [%rd107+8];
-	setp.lt.s32 	%p17, %r64, 1;
-	@%p17 bra 	$L__BB6_29;
-	ld.u32 	%rd144, [%rd100];
-	ld.const.u64 	%rd17, [%rd107+24];
-	cvt.u64.u32 	%rd18, %r64;
-	cvt.s64.s32 	%rd148, %r64;
-	mul.lo.s64 	%rd19, %rd148, %rd144;
-	cvt.u32.u64 	%r66, %rd18;
-	and.b32  	%r109, %r66, 3;
-	setp.lt.u32 	%p18, %r66, 4;
-	mov.u32 	%r108, 0;
-	@%p18 bra 	$L__BB6_26;
-	add.s64 	%rd20, %rd17, %rd19;
-	and.b64  	%rd21, %rd18, 4294967292;
-	add.s64 	%rd22, %rd101, 3;
-	mov.u64 	%rd206, 0;
-	cvt.u32.u64 	%r67, %rd21;
-$L__BB6_25:
-	add.s64 	%rd150, %rd22, %rd206;
-	ld.u8 	%rs11, [%rd150+-3];
-	add.s64 	%rd151, %rd20, %rd206;
-	st.u8 	[%rd151], %rs11;
-	ld.u8 	%rs12, [%rd150+-2];
-	st.u8 	[%rd151+1], %rs12;
-	ld.u8 	%rs13, [%rd150+-1];
-	st.u8 	[%rd151+2], %rs13;
-	ld.u8 	%rs14, [%rd150];
-	st.u8 	[%rd151+3], %rs14;
-	add.s64 	%rd206, %rd206, 4;
-	cvt.u32.u64 	%r108, %rd206;
-	setp.ne.s32 	%p19, %r67, %r108;
-	@%p19 bra 	$L__BB6_25;
-$L__BB6_26:
-	setp.eq.s32 	%p20, %r109, 0;
-	@%p20 bra 	$L__BB6_29;
-	cvt.u64.u32 	%rd152, %r108;
-	add.s64 	%rd153, %rd19, %rd152;
-	add.s64 	%rd208, %rd17, %rd153;
-	add.s64 	%rd207, %rd101, %rd152;
-$L__BB6_28:
-	.pragma "nounroll";
-	ld.u8 	%rs15, [%rd207];
-	st.u8 	[%rd208], %rs15;
-	add.s64 	%rd208, %rd208, 1;
-	add.s64 	%rd207, %rd207, 1;
-	add.s32 	%r109, %r109, -1;
-	setp.ne.s32 	%p21, %r109, 0;
-	@%p21 bra 	$L__BB6_28;
-$L__BB6_29:
-	// begin inline asm
-	membar.sys;                      
-	
-	// end inline asm
-	mov.u64 	%rd226, 0;
-	bra.uni 	$L__BB6_60;
-$L__BB6_12:
-	setp.eq.s32 	%p2, %r35, 1512;
-	@%p2 bra 	$L__BB6_30;
-	setp.eq.s32 	%p3, %r35, 1513;
-	@%p3 bra 	$L__BB6_14;
-	bra.uni 	$L__BB6_40;
-$L__BB6_14:
-	ld.const.u32 	%r37, [%rd107+8];
-	setp.lt.s32 	%p6, %r37, 1;
-	@%p6 bra 	$L__BB6_21;
-	ld.u32 	%rd108, [%rd100];
-	ld.const.u64 	%rd49, [%rd107+24];
-	cvt.u64.u32 	%rd50, %r37;
-	cvt.s64.s32 	%rd112, %r37;
-	mul.lo.s64 	%rd51, %rd112, %rd108;
-	cvt.u32.u64 	%r39, %rd50;
-	and.b32  	%r113, %r39, 3;
-	setp.lt.u32 	%p7, %r39, 4;
-	mov.u32 	%r112, 0;
-	@%p7 bra 	$L__BB6_18;
-	add.s64 	%rd52, %rd49, %rd51;
-	and.b64  	%rd53, %rd50, 4294967292;
-	add.s64 	%rd54, %rd101, 3;
-	mov.u64 	%rd213, 0;
-	cvt.u32.u64 	%r40, %rd53;
-$L__BB6_17:
-	add.s64 	%rd114, %rd54, %rd213;
-	ld.u8 	%rs1, [%rd114+-3];
-	add.s64 	%rd115, %rd52, %rd213;
-	st.u8 	[%rd115], %rs1;
-	ld.u8 	%rs2, [%rd114+-2];
-	st.u8 	[%rd115+1], %rs2;
-	ld.u8 	%rs3, [%rd114+-1];
-	st.u8 	[%rd115+2], %rs3;
-	ld.u8 	%rs4, [%rd114];
-	st.u8 	[%rd115+3], %rs4;
-	add.s64 	%rd213, %rd213, 4;
-	cvt.u32.u64 	%r112, %rd213;
-	setp.ne.s32 	%p8, %r40, %r112;
-	@%p8 bra 	$L__BB6_17;
-$L__BB6_18:
-	setp.eq.s32 	%p9, %r113, 0;
-	@%p9 bra 	$L__BB6_21;
-	cvt.u64.u32 	%rd116, %r112;
-	add.s64 	%rd117, %rd51, %rd116;
-	add.s64 	%rd215, %rd49, %rd117;
-	add.s64 	%rd214, %rd101, %rd116;
-$L__BB6_20:
-	.pragma "nounroll";
-	ld.u8 	%rs5, [%rd214];
-	st.u8 	[%rd215], %rs5;
-	add.s64 	%rd215, %rd215, 1;
-	add.s64 	%rd214, %rd214, 1;
-	add.s32 	%r113, %r113, -1;
-	setp.ne.s32 	%p10, %r113, 0;
-	@%p10 bra 	$L__BB6_20;
-$L__BB6_21:
-	mov.u64 	%rd226, 0;
-	// begin inline asm
-	membar.sys;
-	// end inline asm
-	bra.uni 	$L__BB6_60;
-$L__BB6_2:
-	setp.eq.s32 	%p5, %r35, 1502;
-	@%p5 bra 	$L__BB6_3;
-	bra.uni 	$L__BB6_40;
-$L__BB6_3:
-	ld.u32 	%rd5, [%rd100];
-	ld.const.u64 	%rd204, [%rd107+32];
-	mov.u32 	%r68, %ctaid.x;
-	mov.u32 	%r69, %ntid.x;
-	mov.u32 	%r70, %tid.x;
-	mad.lo.s32 	%r71, %r68, %r69, %r70;
-	mov.u32 	%r72, %ctaid.y;
-	mov.u32 	%r73, %ntid.y;
-	mov.u32 	%r74, %tid.y;
-	mad.lo.s32 	%r75, %r72, %r73, %r74;
-	mov.u32 	%r76, %ctaid.z;
-	mov.u32 	%r77, %ntid.z;
-	mov.u32 	%r78, %tid.z;
-	mad.lo.s32 	%r79, %r76, %r77, %r78;
-	mov.u32 	%r80, %nctaid.x;
-	mul.lo.s32 	%r81, %r80, %r69;
-	mov.u32 	%r82, %nctaid.y;
-	mul.lo.s32 	%r83, %r82, %r73;
-	cvt.s64.s32 	%rd158, %r79;
-	mul.wide.s32 	%rd159, %r83, %r81;
-	mul.lo.s64 	%rd160, %rd159, %rd158;
-	mul.lo.s32 	%r84, %r75, %r81;
-	cvt.s64.s32 	%rd161, %r84;
-	cvt.s64.s32 	%rd162, %r71;
-	add.s64 	%rd163, %rd161, %rd162;
-	add.s64 	%rd8, %rd163, %rd160;
-	setp.gt.u64 	%p22, %rd204, %rd8;
-	@%p22 bra 	$L__BB6_5;
-	add.s64 	%rd6, %rd107, 32;
-	st.local.u64 	[%rd1], %rd8;
-	st.local.u64 	[%rd1+8], %rd204;
-	st.local.u64 	[%rd1+16], %rd99;
-	mov.u64 	%rd164, _$_str;
-	cvta.global.u64 	%rd165, %rd164;
-	{ // callseq 4, 0
-	.reg .b32 temp_param_reg;
-	.param .b64 param0;
-	st.param.b64 	[param0+0], %rd165;
-	.param .b64 param1;
-	st.param.b64 	[param1+0], %rd103;
-	.param .b32 retval0;
-	call.uni (retval0), 
-	vprintf, 
-	(
-	param0, 
-	param1
-	);
-	ld.param.b32 	%r85, [retval0+0];
-	} // callseq 4
-	ld.const.u64 	%rd204, [%rd6];
-$L__BB6_5:
-	ld.const.u32 	%r87, [%rd107+8];
-	setp.lt.s32 	%p23, %r87, 1;
-	mov.u64 	%rd226, 0;
-	@%p23 bra 	$L__BB6_60;
-	ld.const.u64 	%rd171, [%rd107+24];
-	cvt.u64.u32 	%rd11, %r87;
-	cvt.s64.s32 	%rd172, %r87;
-	mul.lo.s64 	%rd173, %rd204, %rd5;
-	add.s64 	%rd174, %rd173, %rd8;
-	mul.lo.s64 	%rd175, %rd174, %rd172;
-	add.s64 	%rd12, %rd175, %rd171;
-	cvt.u32.u64 	%r89, %rd11;
-	and.b32  	%r120, %r89, 3;
-	setp.lt.u32 	%p24, %r89, 4;
-	mov.u32 	%r119, 0;
-	@%p24 bra 	$L__BB6_9;
-	and.b64  	%rd13, %rd11, 4294967292;
-	add.s64 	%rd14, %rd101, 3;
-	mov.u64 	%rd205, 0;
-	cvt.u32.u64 	%r90, %rd13;
-$L__BB6_8:
-	add.s64 	%rd177, %rd14, %rd205;
-	ld.u8 	%rs16, [%rd177+-3];
-	add.s64 	%rd178, %rd12, %rd205;
-	st.u8 	[%rd178], %rs16;
-	ld.u8 	%rs17, [%rd177+-2];
-	st.u8 	[%rd178+1], %rs17;
-	ld.u8 	%rs18, [%rd177+-1];
-	st.u8 	[%rd178+2], %rs18;
-	ld.u8 	%rs19, [%rd177];
-	st.u8 	[%rd178+3], %rs19;
-	add.s64 	%rd205, %rd205, 4;
-	cvt.u32.u64 	%r119, %rd205;
-	setp.eq.s32 	%p25, %r90, %r119;
-	@%p25 bra 	$L__BB6_9;
-	bra.uni 	$L__BB6_8;
-$L__BB6_9:
-	setp.eq.s32 	%p26, %r120, 0;
-	@%p26 bra 	$L__BB6_60;
-	cvt.u64.u32 	%rd180, %r119;
-	add.s64 	%rd225, %rd12, %rd180;
-	add.s64 	%rd224, %rd101, %rd180;
-$L__BB6_11:
-	.pragma "nounroll";
-	ld.u8 	%rs20, [%rd224];
-	st.u8 	[%rd225], %rs20;
-	add.s64 	%rd225, %rd225, 1;
-	add.s64 	%rd224, %rd224, 1;
-	add.s32 	%r120, %r120, -1;
-	setp.ne.s32 	%p27, %r120, 0;
-	@%p27 bra 	$L__BB6_11;
-	bra.uni 	$L__BB6_60;
-$L__BB6_30:
-	ld.u32 	%rd31, [%rd100];
-	ld.const.u64 	%rd209, [%rd107+32];
-	mov.u32 	%r41, %ctaid.x;
-	mov.u32 	%r42, %ntid.x;
-	mov.u32 	%r43, %tid.x;
-	mad.lo.s32 	%r44, %r41, %r42, %r43;
-	mov.u32 	%r45, %ctaid.y;
-	mov.u32 	%r46, %ntid.y;
-	mov.u32 	%r47, %tid.y;
-	mad.lo.s32 	%r48, %r45, %r46, %r47;
-	mov.u32 	%r49, %ctaid.z;
-	mov.u32 	%r50, %ntid.z;
-	mov.u32 	%r51, %tid.z;
-	mad.lo.s32 	%r52, %r49, %r50, %r51;
-	mov.u32 	%r53, %nctaid.x;
-	mul.lo.s32 	%r54, %r53, %r42;
-	mov.u32 	%r55, %nctaid.y;
-	mul.lo.s32 	%r56, %r55, %r46;
-	cvt.s64.s32 	%rd122, %r52;
-	mul.wide.s32 	%rd123, %r56, %r54;
-	mul.lo.s64 	%rd124, %rd123, %rd122;
-	mul.lo.s32 	%r57, %r48, %r54;
-	cvt.s64.s32 	%rd125, %r57;
-	cvt.s64.s32 	%rd126, %r44;
-	add.s64 	%rd127, %rd125, %rd126;
-	add.s64 	%rd34, %rd127, %rd124;
-	setp.gt.u64 	%p11, %rd209, %rd34;
-	@%p11 bra 	$L__BB6_32;
-	add.s64 	%rd32, %rd107, 32;
-	st.local.u64 	[%rd1], %rd34;
-	st.local.u64 	[%rd1+8], %rd209;
-	st.local.u64 	[%rd1+16], %rd99;
-	mov.u64 	%rd128, _$_str;
-	cvta.global.u64 	%rd129, %rd128;
-	{ // callseq 3, 0
-	.reg .b32 temp_param_reg;
-	.param .b64 param0;
-	st.param.b64 	[param0+0], %rd129;
-	.param .b64 param1;
-	st.param.b64 	[param1+0], %rd103;
-	.param .b32 retval0;
-	call.uni (retval0), 
-	vprintf, 
-	(
-	param0, 
-	param1
-	);
-	ld.param.b32 	%r58, [retval0+0];
-	} // callseq 3
-	ld.const.u64 	%rd209, [%rd32];
-$L__BB6_32:
-	ld.const.u32 	%r60, [%rd107+8];
-	setp.lt.s32 	%p12, %r60, 1;
-	@%p12 bra 	$L__BB6_39;
-	ld.const.u64 	%rd134, [%rd107+24];
-	cvt.u64.u32 	%rd37, %r60;
-	cvt.s64.s32 	%rd135, %r60;
-	mul.lo.s64 	%rd136, %rd209, %rd31;
-	add.s64 	%rd137, %rd136, %rd34;
-	mul.lo.s64 	%rd138, %rd137, %rd135;
-	add.s64 	%rd38, %rd138, %rd134;
-	cvt.u32.u64 	%r62, %rd37;
-	and.b32  	%r111, %r62, 3;
-	setp.lt.u32 	%p13, %r62, 4;
-	mov.u32 	%r110, 0;
-	@%p13 bra 	$L__BB6_36;
-	and.b64  	%rd39, %rd37, 4294967292;
-	add.s64 	%rd40, %rd101, 3;
-	mov.u64 	%rd210, 0;
-	cvt.u32.u64 	%r63, %rd39;
-$L__BB6_35:
-	add.s64 	%rd140, %rd40, %rd210;
-	ld.u8 	%rs6, [%rd140+-3];
-	add.s64 	%rd141, %rd38, %rd210;
-	st.u8 	[%rd141], %rs6;
-	ld.u8 	%rs7, [%rd140+-2];
-	st.u8 	[%rd141+1], %rs7;
-	ld.u8 	%rs8, [%rd140+-1];
-	st.u8 	[%rd141+2], %rs8;
-	ld.u8 	%rs9, [%rd140];
-	st.u8 	[%rd141+3], %rs9;
-	add.s64 	%rd210, %rd210, 4;
-	cvt.u32.u64 	%r110, %rd210;
-	setp.ne.s32 	%p14, %r63, %r110;
-	@%p14 bra 	$L__BB6_35;
-$L__BB6_36:
-	setp.eq.s32 	%p15, %r111, 0;
-	@%p15 bra 	$L__BB6_39;
-	cvt.u64.u32 	%rd142, %r110;
-	add.s64 	%rd212, %rd38, %rd142;
-	add.s64 	%rd211, %rd101, %rd142;
-$L__BB6_38:
-	.pragma "nounroll";
-	ld.u8 	%rs10, [%rd211];
-	st.u8 	[%rd212], %rs10;
-	add.s64 	%rd212, %rd212, 1;
-	add.s64 	%rd211, %rd211, 1;
-	add.s32 	%r111, %r111, -1;
-	setp.ne.s32 	%p16, %r111, 0;
-	@%p16 bra 	$L__BB6_38;
-$L__BB6_39:
-	// begin inline asm
-	membar.sys;
-	// end inline asm
-	mov.u64 	%rd226, 0;
-	bra.uni 	$L__BB6_60;
-$L__BB6_40:
-	ld.const.u32 	%r91, [%rd107+4];
-	setp.lt.s32 	%p28, %r91, 1;
-	@%p28 bra 	$L__BB6_47;
-	cvt.u64.u32 	%rd63, %r91;
-	cvt.u32.u64 	%r93, %rd63;
-	and.b32  	%r115, %r93, 3;
-	setp.lt.u32 	%p29, %r93, 4;
-	mov.u32 	%r114, 0;
-	@%p29 bra 	$L__BB6_44;
-	add.s64 	%rd4, %rd3, 24;
-	and.b64  	%rd64, %rd63, 4294967292;
-	add.s64 	%rd65, %rd100, 3;
-	mov.u64 	%rd216, 0;
-	cvt.u32.u64 	%r94, %rd64;
-$L__BB6_43:
-	add.s64 	%rd186, %rd65, %rd216;
-	ld.u8 	%rs21, [%rd186+-3];
-	add.s64 	%rd187, %rd4, %rd216;
-	st.u8 	[%rd187], %rs21;
-	ld.u8 	%rs22, [%rd186+-2];
-	st.u8 	[%rd187+1], %rs22;
-	ld.u8 	%rs23, [%rd186+-1];
-	st.u8 	[%rd187+2], %rs23;
-	ld.u8 	%rs24, [%rd186];
-	st.u8 	[%rd187+3], %rs24;
-	add.s64 	%rd216, %rd216, 4;
-	cvt.u32.u64 	%r114, %rd216;
-	setp.ne.s32 	%p30, %r94, %r114;
-	@%p30 bra 	$L__BB6_43;
-$L__BB6_44:
-	setp.eq.s32 	%p31, %r115, 0;
-	@%p31 bra 	$L__BB6_47;
-	cvt.u64.u32 	%rd188, %r114;
-	add.s64 	%rd189, %rd188, %rd3;
-	add.s64 	%rd218, %rd189, 24;
-	add.s64 	%rd217, %rd100, %rd188;
-$L__BB6_46:
-	.pragma "nounroll";
-	ld.u8 	%rs25, [%rd217];
-	st.u8 	[%rd218], %rs25;
-	add.s64 	%rd218, %rd218, 1;
-	add.s64 	%rd217, %rd217, 1;
-	add.s32 	%r115, %r115, -1;
-	setp.ne.s32 	%p32, %r115, 0;
-	@%p32 bra 	$L__BB6_46;
-$L__BB6_47:
-	ld.param.u64 	%rd102, [_bpf_helper_ext_0002_param_3];
-	ld.const.u32 	%r95, [%rd107+8];
-	setp.lt.s32 	%p33, %r95, 1;
-	@%p33 bra 	$L__BB6_54;
-	cvt.u64.u32 	%rd75, %r95;
-	cvt.u32.u64 	%r97, %rd75;
-	and.b32  	%r117, %r97, 3;
-	setp.lt.u32 	%p34, %r97, 4;
-	mov.u32 	%r116, 0;
-	@%p34 bra 	$L__BB6_51;
-	add.s64 	%rd74, %rd3, 1048600;
-	and.b64  	%rd76, %rd75, 4294967292;
-	add.s64 	%rd77, %rd101, 3;
-	mov.u64 	%rd219, 0;
-	cvt.u32.u64 	%r98, %rd76;
-$L__BB6_50:
-	add.s64 	%rd194, %rd77, %rd219;
-	ld.u8 	%rs26, [%rd194+-3];
-	add.s64 	%rd195, %rd74, %rd219;
-	st.u8 	[%rd195], %rs26;
-	ld.u8 	%rs27, [%rd194+-2];
-	st.u8 	[%rd195+1], %rs27;
-	ld.u8 	%rs28, [%rd194+-1];
-	st.u8 	[%rd195+2], %rs28;
-	ld.u8 	%rs29, [%rd194];
-	st.u8 	[%rd195+3], %rs29;
-	add.s64 	%rd219, %rd219, 4;
-	cvt.u32.u64 	%r116, %rd219;
-	setp.ne.s32 	%p35, %r98, %r116;
-	@%p35 bra 	$L__BB6_50;
-$L__BB6_51:
-	setp.eq.s32 	%p36, %r117, 0;
-	@%p36 bra 	$L__BB6_54;
-	cvt.u64.u32 	%rd196, %r116;
-	add.s64 	%rd197, %rd196, %rd3;
-	add.s64 	%rd221, %rd197, 1048600;
-	add.s64 	%rd220, %rd101, %rd196;
-$L__BB6_53:
-	.pragma "nounroll";
-	ld.u8 	%rs30, [%rd220];
-	st.u8 	[%rd221], %rs30;
-	add.s64 	%rd221, %rd221, 1;
-	add.s64 	%rd220, %rd220, 1;
-	add.s32 	%r117, %r117, -1;
-	setp.ne.s32 	%p37, %r117, 0;
-	@%p37 bra 	$L__BB6_53;
-$L__BB6_54:
-	st.u64 	[%rd3+2097176], %rd102;
-	ld.const.u64 	%rd200, [constData];
-	mov.u32 	%r100, %tid.x;
-	and.b32  	%r28, %r100, 31;
-	add.s64 	%rd201, %rd200, 4;
-	mov.u32 	%r118, 0;
-	mov.u64 	%rd223, 0;
-	mov.u64 	%rd199, __bpftime_comm_lock;
-	mov.u32 	%r106, 2;
-	mov.u32 	%r105, 42;
-	bra.uni 	$L__BB6_55;
-$L__BB6_58:
-	bar.warp.sync 	%r30;
-	add.s32 	%r118, %r118, 1;
-	setp.ne.s32 	%p42, %r118, 32;
-	@%p42 bra 	$L__BB6_55;
-	bra.uni 	$L__BB6_59;
-$L__BB6_55:
-	// begin inline asm
-	activemask.b32 %r30;
-	// end inline asm
-	shr.u32 	%r102, %r30, %r118;
-	and.b32  	%r103, %r102, 1;
-	setp.eq.b32 	%p38, %r103, 1;
-	setp.eq.s32 	%p39, %r28, %r118;
-	and.pred  	%p40, %p38, %p39;
-	@!%p40 bra 	$L__BB6_58;
-	bra.uni 	$L__BB6_56;
-$L__BB6_56:
-	atom.global.cas.b32 	%r104, [%rd199], 0, 1;
-	setp.eq.s32 	%p41, %r104, 1;
-	@%p41 bra 	$L__BB6_56;
-	st.u32 	[%rd200+12], %r106;
-	st.u64 	[%rd200+16], %rd99;
-	// begin inline asm
-	.reg .pred p0;                   
-	membar.sys;                      
-	st.global.u32 [%rd200], 1;           
-	spin_wait:                       
-	membar.sys;                      
-	ld.global.u32 %r105, [%rd201];          
-	setp.eq.u32 p0, %r105, 0;           
-	@p0 bra spin_wait;               
-	st.global.u32 [%rd201], 0;           
-	membar.sys;                      
-	
-	// end inline asm
-	ld.u64 	%rd223, [%rd200+2097184];
-	atom.global.exch.b32 	%r107, [%rd199], 0;
-	bra.uni 	$L__BB6_58;
-$L__BB6_59:
-	cvt.s64.s32 	%rd226, %rd223;
-$L__BB6_60:
-	st.param.b64 	[func_retval0+0], %rd226;
-	ret;
-
-}
-	// .globl	_bpf_helper_ext_0003
-.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0003(
-	.param .b64 _bpf_helper_ext_0003_param_0,
-	.param .b64 _bpf_helper_ext_0003_param_1,
-	.param .b64 _bpf_helper_ext_0003_param_2,
-	.param .b64 _bpf_helper_ext_0003_param_3,
-	.param .b64 _bpf_helper_ext_0003_param_4
-)
-{
-	.reg .pred 	%p<11>;
-	.reg .b16 	%rs<6>;
-	.reg .b32 	%r<27>;
-	.reg .b64 	%rd<44>;
-
-	ld.param.u64 	%rd21, [_bpf_helper_ext_0003_param_0];
-	ld.const.u64 	%rd41, [constData];
-	mul.lo.s64 	%rd23, %rd21, 40;
-	mov.u64 	%rd24, map_info;
-	add.s64 	%rd25, %rd24, %rd23;
-	ld.const.u32 	%r10, [%rd25+4];
-	setp.lt.s32 	%p1, %r10, 1;
-	@%p1 bra 	$L__BB7_8;
-	ld.param.u64 	%rd22, [_bpf_helper_ext_0003_param_1];
-	cvt.u64.u32 	%rd4, %r10;
-	cvt.u32.u64 	%r12, %rd4;
-	and.b32  	%r25, %r12, 3;
-	setp.lt.u32 	%p2, %r12, 4;
-	mov.u32 	%r24, 0;
-	@%p2 bra 	$L__BB7_4;
-	add.s64 	%rd3, %rd41, 24;
-	and.b64  	%rd5, %rd4, 4294967292;
-	add.s64 	%rd6, %rd22, 3;
-	mov.u64 	%rd38, 0;
-	cvt.u32.u64 	%r13, %rd5;
-$L__BB7_3:
-	add.s64 	%rd27, %rd6, %rd38;
-	ld.u8 	%rs1, [%rd27+-3];
-	add.s64 	%rd28, %rd3, %rd38;
-	st.u8 	[%rd28], %rs1;
-	ld.u8 	%rs2, [%rd27+-2];
-	st.u8 	[%rd28+1], %rs2;
-	ld.u8 	%rs3, [%rd27+-1];
-	st.u8 	[%rd28+2], %rs3;
-	ld.u8 	%rs4, [%rd27];
-	st.u8 	[%rd28+3], %rs4;
-	add.s64 	%rd38, %rd38, 4;
-	cvt.u32.u64 	%r24, %rd38;
-	setp.ne.s32 	%p3, %r13, %r24;
-	@%p3 bra 	$L__BB7_3;
-$L__BB7_4:
-	setp.eq.s32 	%p4, %r25, 0;
+$L__BB7_5:
+	add.s64 	%rd47, %rd4, 16;
+	atom.cas.b32 	%r31, [%rd47], 0, 1;
+	setp.eq.s32 	%p4, %r31, 0;
 	@%p4 bra 	$L__BB7_7;
-	cvt.u64.u32 	%rd29, %r24;
-	add.s64 	%rd30, %rd29, %rd41;
-	add.s64 	%rd40, %rd30, 24;
-	add.s64 	%rd39, %rd22, %rd29;
-$L__BB7_6:
-	.pragma "nounroll";
-	ld.u8 	%rs5, [%rd39];
-	st.u8 	[%rd40], %rs5;
-	add.s64 	%rd40, %rd40, 1;
-	add.s64 	%rd39, %rd39, 1;
-	add.s32 	%r25, %r25, -1;
-	setp.ne.s32 	%p5, %r25, 0;
-	@%p5 bra 	$L__BB7_6;
+	bra.uni 	$L__BB7_6;
 $L__BB7_7:
-	ld.const.u64 	%rd41, [constData];
-$L__BB7_8:
-	mov.u32 	%r26, 0;
-	mov.u64 	%rd43, 0;
-	mov.u32 	%r15, %tid.x;
-	and.b32  	%r6, %r15, 31;
-	add.s64 	%rd34, %rd41, 4;
-	mov.u64 	%rd32, __bpftime_comm_lock;
-	mov.u32 	%r21, 3;
-	mov.u32 	%r20, 42;
-	bra.uni 	$L__BB7_9;
-$L__BB7_12:
-	bar.warp.sync 	%r8;
-	add.s32 	%r26, %r26, 1;
-	setp.ne.s32 	%p10, %r26, 32;
-	@%p10 bra 	$L__BB7_9;
-	bra.uni 	$L__BB7_13;
+	// begin inline asm
+	membar.gl;
+	// end inline asm
+	ld.volatile.u64 	%rd5, [%rd4+8];
+	ld.volatile.u64 	%rd50, [%rd4];
+	sub.s64 	%rd51, %rd5, %rd50;
+	setp.lt.u64 	%p5, %rd51, %rd2;
+	@%p5 bra 	$L__BB7_9;
+	bra.uni 	$L__BB7_8;
 $L__BB7_9:
-	// begin inline asm
-	activemask.b32 %r8;
-	// end inline asm
-	shr.u32 	%r17, %r8, %r26;
-	and.b32  	%r18, %r17, 1;
-	setp.eq.b32 	%p6, %r18, 1;
-	setp.eq.s32 	%p7, %r6, %r26;
-	and.pred  	%p8, %p6, %p7;
-	@!%p8 bra 	$L__BB7_12;
+	add.s64 	%rd6, %rd4, 24;
+	or.b64  	%rd55, %rd5, %rd2;
+	and.b64  	%rd56, %rd55, -4294967296;
+	setp.ne.s64 	%p6, %rd56, 0;
+	@%p6 bra 	$L__BB7_11;
 	bra.uni 	$L__BB7_10;
-$L__BB7_10:
-	atom.global.cas.b32 	%r19, [%rd32], 0, 1;
-	setp.eq.s32 	%p9, %r19, 1;
-	@%p9 bra 	$L__BB7_10;
-	st.u32 	[%rd41+12], %r21;
-	st.u64 	[%rd41+16], %rd21;
-	// begin inline asm
-	.reg .pred p0;                   
-	membar.sys;                      
-	st.global.u32 [%rd41], 1;           
-	spin_wait:                       
-	membar.sys;                      
-	ld.global.u32 %r20, [%rd34];          
-	setp.eq.u32 p0, %r20, 0;           
-	@p0 bra spin_wait;               
-	st.global.u32 [%rd34], 0;           
-	membar.sys;                      
-	
-	// end inline asm
-	ld.u64 	%rd43, [%rd41+2097184];
-	atom.global.exch.b32 	%r22, [%rd32], 0;
+$L__BB7_11:
+	rem.u64 	%rd79, %rd5, %rd2;
 	bra.uni 	$L__BB7_12;
-$L__BB7_13:
-	cvt.s64.s32 	%rd36, %rd43;
-	st.param.b64 	[func_retval0+0], %rd36;
-	ret;
-
-}
-	// .globl	_bpf_helper_ext_0006
-.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0006(
-	.param .b64 _bpf_helper_ext_0006_param_0,
-	.param .b64 _bpf_helper_ext_0006_param_1,
-	.param .b64 _bpf_helper_ext_0006_param_2,
-	.param .b64 _bpf_helper_ext_0006_param_3,
-	.param .b64 _bpf_helper_ext_0006_param_4
-)
-{
-	.reg .pred 	%p<8>;
-	.reg .b16 	%rs<2>;
-	.reg .b32 	%r<15>;
-	.reg .b64 	%rd<33>;
-
-	ld.param.u64 	%rd16, [_bpf_helper_ext_0006_param_4];
-	ld.param.u64 	%rd15, [_bpf_helper_ext_0006_param_3];
-	ld.param.u64 	%rd14, [_bpf_helper_ext_0006_param_2];
-	ld.param.u64 	%rd13, [_bpf_helper_ext_0006_param_1];
-	ld.const.u64 	%rd1, [constData];
-	setp.eq.s64 	%p1, %rd13, 0;
-	mov.u64 	%rd29, %rd1;
-	@%p1 bra 	$L__BB8_4;
-	ld.param.u64 	%rd12, [_bpf_helper_ext_0006_param_0];
-	add.s64 	%rd3, %rd1, 24;
-	mov.u64 	%rd32, 0;
-$L__BB8_2:
-	add.s64 	%rd18, %rd12, %rd32;
-	ld.u8 	%rs1, [%rd18];
-	add.s64 	%rd19, %rd3, %rd32;
-	st.u8 	[%rd19], %rs1;
-	add.s64 	%rd20, %rd32, 1;
-	and.b64  	%rd32, %rd20, 4294967295;
-	setp.lt.u64 	%p2, %rd32, %rd13;
-	@%p2 bra 	$L__BB8_2;
-	ld.const.u64 	%rd29, [constData];
-$L__BB8_4:
-	st.u32 	[%rd1+1024], %rd13;
-	st.u64 	[%rd1+1032], %rd14;
-	st.u64 	[%rd1+1040], %rd15;
-	st.u64 	[%rd1+1048], %rd16;
-	mov.u32 	%r6, %tid.x;
-	and.b32  	%r1, %r6, 31;
-	add.s64 	%rd24, %rd29, 4;
-	mov.u32 	%r14, 0;
-	mov.u64 	%rd31, 0;
-	mov.u32 	%r12, 6;
-	mov.u32 	%r11, 42;
-	bra.uni 	$L__BB8_5;
-$L__BB8_8:
-	bar.warp.sync 	%r3;
-	add.s32 	%r14, %r14, 1;
-	setp.ne.s32 	%p7, %r14, 32;
-	@%p7 bra 	$L__BB8_5;
-	bra.uni 	$L__BB8_9;
-$L__BB8_5:
+$L__BB7_6:
+	add.s64 	%rd49, %rd4, 20;
+	atom.add.u32 	%r32, [%rd49], 1;
+	mov.u64 	%rd82, 2;
+	bra.uni 	$L__BB7_20;
+$L__BB7_8:
+	add.s64 	%rd53, %rd4, 20;
+	atom.add.u32 	%r33, [%rd53], 1;
 	// begin inline asm
-	activemask.b32 %r3;
+	membar.gl;
 	// end inline asm
-	shr.u32 	%r8, %r3, %r14;
-	and.b32  	%r9, %r8, 1;
-	setp.eq.b32 	%p3, %r9, 1;
-	setp.eq.s32 	%p4, %r1, %r14;
-	and.pred  	%p5, %p3, %p4;
-	@!%p5 bra 	$L__BB8_8;
-	bra.uni 	$L__BB8_6;
-$L__BB8_6:
-	mov.u64 	%rd22, __bpftime_comm_lock;
-	atom.global.cas.b32 	%r10, [%rd22], 0, 1;
-	setp.eq.s32 	%p6, %r10, 1;
-	@%p6 bra 	$L__BB8_6;
-	st.u32 	[%rd29+12], %r12;
-	mov.u64 	%rd25, 0;
-	st.u64 	[%rd29+16], %rd25;
-	// begin inline asm
-	.reg .pred p0;                   
-	membar.sys;                      
-	st.global.u32 [%rd29], 1;           
-	spin_wait:                       
-	membar.sys;                      
-	ld.global.u32 %r11, [%rd24];          
-	setp.eq.u32 p0, %r11, 0;           
-	@p0 bra spin_wait;               
-	st.global.u32 [%rd24], 0;           
-	membar.sys;                      
-	
-	// end inline asm
-	ld.u64 	%rd31, [%rd29+2097184];
-	atom.global.exch.b32 	%r13, [%rd22], 0;
-	bra.uni 	$L__BB8_8;
-$L__BB8_9:
-	cvt.s64.s32 	%rd27, %rd31;
-	st.param.b64 	[func_retval0+0], %rd27;
-	ret;
-
-}
-	// .globl	_bpf_helper_ext_0014
-.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0014(
-	.param .b64 _bpf_helper_ext_0014_param_0,
-	.param .b64 _bpf_helper_ext_0014_param_1,
-	.param .b64 _bpf_helper_ext_0014_param_2,
-	.param .b64 _bpf_helper_ext_0014_param_3,
-	.param .b64 _bpf_helper_ext_0014_param_4
-)
-{
-	.reg .pred 	%p<6>;
-	.reg .b32 	%r<15>;
-	.reg .b64 	%rd<14>;
-
-	ld.const.u64 	%rd8, [constData];
-	mov.u32 	%r6, %tid.x;
-	and.b32  	%r1, %r6, 31;
-	add.s64 	%rd9, %rd8, 4;
-	mov.u32 	%r14, 0;
-	mov.u64 	%rd6, 0;
-	mov.u64 	%rd7, __bpftime_comm_lock;
-	mov.u32 	%r12, 14;
-	mov.u32 	%r11, 42;
-	mov.u64 	%rd13, %rd6;
-	bra.uni 	$L__BB9_1;
-$L__BB9_4:
-	bar.warp.sync 	%r3;
-	add.s32 	%r14, %r14, 1;
-	setp.ne.s32 	%p5, %r14, 32;
-	@%p5 bra 	$L__BB9_1;
-	bra.uni 	$L__BB9_5;
-$L__BB9_1:
-	// begin inline asm
-	activemask.b32 %r3;
-	// end inline asm
-	shr.u32 	%r8, %r3, %r14;
-	and.b32  	%r9, %r8, 1;
-	setp.eq.b32 	%p1, %r9, 1;
-	setp.eq.s32 	%p2, %r1, %r14;
-	and.pred  	%p3, %p1, %p2;
-	@!%p3 bra 	$L__BB9_4;
-	bra.uni 	$L__BB9_2;
-$L__BB9_2:
-	atom.global.cas.b32 	%r10, [%rd7], 0, 1;
-	setp.eq.s32 	%p4, %r10, 1;
-	@%p4 bra 	$L__BB9_2;
-	st.u32 	[%rd8+12], %r12;
-	st.u64 	[%rd8+16], %rd6;
-	// begin inline asm
-	.reg .pred p0;                   
-	membar.sys;                      
-	st.global.u32 [%rd8], 1;           
-	spin_wait:                       
-	membar.sys;                      
-	ld.global.u32 %r11, [%rd9];          
-	setp.eq.u32 p0, %r11, 0;           
-	@p0 bra spin_wait;               
-	st.global.u32 [%rd9], 0;           
-	membar.sys;                      
-	
-	// end inline asm
-	ld.u64 	%rd13, [%rd8+2097184];
-	atom.global.exch.b32 	%r13, [%rd7], 0;
-	bra.uni 	$L__BB9_4;
-$L__BB9_5:
-	st.param.b64 	[func_retval0+0], %rd13;
-	ret;
-
-}
-	// .globl	_bpf_helper_ext_0025
-.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0025(
-	.param .b64 _bpf_helper_ext_0025_param_0,
-	.param .b64 _bpf_helper_ext_0025_param_1,
-	.param .b64 _bpf_helper_ext_0025_param_2,
-	.param .b64 _bpf_helper_ext_0025_param_3,
-	.param .b64 _bpf_helper_ext_0025_param_4
-)
-{
-	.reg .pred 	%p<10>;
-	.reg .b16 	%rs<6>;
-	.reg .b32 	%r<44>;
-	.reg .b64 	%rd<72>;
-
-	ld.param.u64 	%rd17, [_bpf_helper_ext_0025_param_1];
-	mul.lo.s64 	%rd20, %rd17, 40;
-	mov.u64 	%rd21, map_info;
-	add.s64 	%rd22, %rd21, %rd20;
-	ld.const.u32 	%r10, [%rd22+16];
-	setp.ne.s32 	%p1, %r10, 1527;
-	@%p1 bra 	$L__BB10_14;
-	mov.u32 	%r13, %ctaid.x;
-	mov.u32 	%r14, %ntid.x;
-	mov.u32 	%r15, %tid.x;
-	mad.lo.s32 	%r16, %r13, %r14, %r15;
-	mov.u32 	%r17, %ctaid.y;
-	mov.u32 	%r18, %ntid.y;
-	mov.u32 	%r19, %tid.y;
-	mad.lo.s32 	%r20, %r17, %r18, %r19;
-	mov.u32 	%r21, %ctaid.z;
-	mov.u32 	%r22, %ntid.z;
-	mov.u32 	%r23, %tid.z;
-	mad.lo.s32 	%r24, %r21, %r22, %r23;
-	mov.u32 	%r25, %nctaid.x;
-	mul.lo.s32 	%r26, %r25, %r14;
-	mov.u32 	%r27, %nctaid.y;
-	mul.lo.s32 	%r28, %r27, %r18;
-	cvt.s64.s32 	%rd28, %r24;
-	mul.wide.s32 	%rd29, %r28, %r26;
-	mul.lo.s64 	%rd30, %rd29, %rd28;
-	mul.lo.s32 	%r29, %r20, %r26;
-	cvt.s64.s32 	%rd31, %r29;
-	cvt.s64.s32 	%rd32, %r16;
-	add.s64 	%rd33, %rd31, %rd32;
-	add.s64 	%rd1, %rd33, %rd30;
-	ld.const.u64 	%rd37, [%rd22+32];
-	setp.ge.u64 	%p2, %rd1, %rd37;
-	mov.u64 	%rd71, 1;
-	@%p2 bra 	$L__BB10_15;
-	ld.const.v2.u32 	{%r30, %r31}, [%rd22+8];
-	cvt.s64.s32 	%rd42, %r31;
-	cvt.s64.s32 	%rd43, %r30;
-	add.s64 	%rd44, %rd43, 8;
-	mul.lo.s64 	%rd45, %rd44, %rd42;
-	add.s64 	%rd46, %rd45, 24;
-	mul.lo.s64 	%rd47, %rd46, %rd1;
-	ld.const.u64 	%rd48, [%rd22+24];
-	add.s64 	%rd3, %rd48, %rd47;
-	ld.u64 	%rd49, [%rd3+8];
-	ld.u64 	%rd50, [%rd3];
-	sub.s64 	%rd51, %rd49, %rd50;
-	setp.eq.s64 	%p3, %rd51, %rd42;
-	mov.u64 	%rd71, 2;
-	@%p3 bra 	$L__BB10_15;
-	ld.param.u64 	%rd19, [_bpf_helper_ext_0025_param_4];
-	add.s64 	%rd2, %rd22, 8;
-	mov.u32 	%r32, 1;
-	st.u32 	[%rd3+16], %r32;
-	add.s64 	%rd52, %rd3, 8;
-	atom.add.u64 	%rd4, [%rd52], 1;
-	ld.const.v2.u32 	{%r1, %r33}, [%rd2];
-	cvt.s64.s32 	%rd5, %r33;
-	or.b64  	%rd53, %rd4, %rd5;
-	and.b64  	%rd54, %rd53, -4294967296;
-	setp.ne.s64 	%p4, %rd54, 0;
-	@%p4 bra 	$L__BB10_5;
-	bra.uni 	$L__BB10_4;
-$L__BB10_5:
-	rem.u64 	%rd68, %rd4, %rd5;
-	bra.uni 	$L__BB10_6;
-$L__BB10_14:
-	mov.u64 	%rd24, _$_str1;
-	cvta.global.u64 	%rd25, %rd24;
-	mov.u64 	%rd26, 0;
-	{ // callseq 5, 0
-	.reg .b32 temp_param_reg;
-	.param .b64 param0;
-	st.param.b64 	[param0+0], %rd25;
-	.param .b64 param1;
-	st.param.b64 	[param1+0], %rd26;
-	.param .b32 retval0;
-	call.uni (retval0), 
-	vprintf, 
-	(
-	param0, 
-	param1
-	);
-	ld.param.b32 	%r11, [retval0+0];
-	} // callseq 5
-	mov.u64 	%rd71, 1;
-$L__BB10_15:
-	st.param.b64 	[func_retval0+0], %rd71;
-	ret;
-$L__BB10_4:
-	cvt.u32.u64 	%r34, %rd5;
-	cvt.u32.u64 	%r35, %rd4;
-	rem.u32 	%r36, %r35, %r34;
-	cvt.u64.u32 	%rd68, %r36;
-$L__BB10_6:
-	cvt.s64.s32 	%rd55, %r1;
-	add.s64 	%rd56, %rd55, 8;
-	mul.lo.s64 	%rd57, %rd56, %rd68;
-	add.s64 	%rd58, %rd3, %rd57;
-	st.u64 	[%rd58+24], %rd19;
-	cvt.u32.u64 	%r2, %rd19;
-	setp.lt.s32 	%p5, %r2, 1;
-	mov.u32 	%r40, 0;
-	@%p5 bra 	$L__BB10_13;
-	ld.param.u64 	%rd18, [_bpf_helper_ext_0025_param_3];
-	add.s64 	%rd9, %rd58, 32;
-	and.b32  	%r42, %r2, 3;
-	setp.lt.u32 	%p6, %r2, 4;
-	mov.u32 	%r43, %r40;
-	@%p6 bra 	$L__BB10_10;
-	cvt.u64.u32 	%rd60, %r2;
-	and.b64  	%rd10, %rd60, 4294967292;
-	mov.u64 	%rd69, 0;
-	cvt.u32.u64 	%r38, %rd10;
-$L__BB10_9:
-	and.b64  	%rd61, %rd69, 4294967295;
-	add.s64 	%rd62, %rd18, %rd69;
-	ld.u8 	%rs1, [%rd62];
-	add.s64 	%rd63, %rd9, %rd61;
-	st.u8 	[%rd63], %rs1;
-	ld.u8 	%rs2, [%rd62+1];
-	st.u8 	[%rd63+1], %rs2;
-	ld.u8 	%rs3, [%rd62+2];
-	st.u8 	[%rd63+2], %rs3;
-	ld.u8 	%rs4, [%rd62+3];
-	st.u8 	[%rd63+3], %rs4;
-	add.s64 	%rd69, %rd69, 4;
-	cvt.u32.u64 	%r43, %rd69;
-	setp.ne.s32 	%p7, %r38, %r43;
-	@%p7 bra 	$L__BB10_9;
-$L__BB10_10:
-	setp.eq.s32 	%p8, %r42, 0;
-	@%p8 bra 	$L__BB10_13;
-	cvt.u64.u32 	%rd64, %r43;
-	add.s64 	%rd70, %rd18, %rd64;
-$L__BB10_12:
+	atom.exch.b32 	%r34, [%rd47], 0;
+	mov.u64 	%rd82, 2;
+	bra.uni 	$L__BB7_20;
+$L__BB7_10:
+	cvt.u32.u64 	%r35, %rd2;
+	cvt.u32.u64 	%r36, %rd5;
+	rem.u32 	%r37, %r36, %r35;
+	cvt.u64.u32 	%rd79, %r37;
+$L__BB7_12:
+	mul.lo.s64 	%rd57, %rd79, %rd3;
+	add.s64 	%rd58, %rd6, %rd57;
+	shr.u64 	%rd59, %rd20, 8;
+	shr.u64 	%rd60, %rd20, 16;
+	shr.u64 	%rd61, %rd20, 24;
+	shr.u64 	%rd62, %rd20, 32;
+	shr.u64 	%rd63, %rd20, 40;
+	shr.u64 	%rd64, %rd20, 48;
+	shr.u64 	%rd65, %rd20, 56;
+	st.u8 	[%rd58], %rd20;
+	st.u8 	[%rd58+1], %rd59;
+	st.u8 	[%rd58+2], %rd60;
+	st.u8 	[%rd58+3], %rd61;
+	st.u8 	[%rd58+4], %rd62;
+	st.u8 	[%rd58+5], %rd63;
+	st.u8 	[%rd58+6], %rd64;
+	st.u8 	[%rd58+7], %rd65;
+	cvt.u32.u64 	%r1, %rd20;
+	setp.lt.s32 	%p7, %r1, 1;
+	@%p7 bra 	$L__BB7_19;
+	ld.param.u64 	%rd19, [_bpf_helper_ext_0025_param_3];
+	add.s64 	%rd10, %rd58, 8;
+	and.b32  	%r43, %r1, 3;
+	setp.lt.u32 	%p8, %r1, 4;
+	mov.u32 	%r44, 0;
+	@%p8 bra 	$L__BB7_16;
+	cvt.u64.u32 	%rd67, %r1;
+	and.b64  	%rd11, %rd67, 4294967292;
+	mov.u64 	%rd80, 0;
+	cvt.u32.u64 	%r39, %rd11;
+$L__BB7_15:
+	and.b64  	%rd68, %rd80, 4294967295;
+	add.s64 	%rd69, %rd19, %rd80;
+	ld.u8 	%rs1, [%rd69];
+	add.s64 	%rd70, %rd10, %rd68;
+	st.u8 	[%rd70], %rs1;
+	ld.u8 	%rs2, [%rd69+1];
+	st.u8 	[%rd70+1], %rs2;
+	ld.u8 	%rs3, [%rd69+2];
+	st.u8 	[%rd70+2], %rs3;
+	ld.u8 	%rs4, [%rd69+3];
+	st.u8 	[%rd70+3], %rs4;
+	add.s64 	%rd80, %rd80, 4;
+	cvt.u32.u64 	%r44, %rd80;
+	setp.ne.s32 	%p9, %r39, %r44;
+	@%p9 bra 	$L__BB7_15;
+$L__BB7_16:
+	setp.eq.s32 	%p10, %r43, 0;
+	@%p10 bra 	$L__BB7_19;
+	cvt.u64.u32 	%rd71, %r44;
+	add.s64 	%rd81, %rd19, %rd71;
+$L__BB7_18:
 	.pragma "nounroll";
-	cvt.u64.u32 	%rd65, %r43;
-	ld.u8 	%rs5, [%rd70];
-	add.s64 	%rd66, %rd9, %rd65;
-	st.u8 	[%rd66], %rs5;
-	add.s32 	%r43, %r43, 1;
-	add.s64 	%rd70, %rd70, 1;
-	add.s32 	%r42, %r42, -1;
-	setp.ne.s32 	%p9, %r42, 0;
-	@%p9 bra 	$L__BB10_12;
-$L__BB10_13:
-	st.u32 	[%rd3+16], %r40;
-	mov.u64 	%rd71, 0;
-	bra.uni 	$L__BB10_15;
+	cvt.u64.u32 	%rd72, %r44;
+	ld.u8 	%rs5, [%rd81];
+	add.s64 	%rd73, %rd10, %rd72;
+	st.u8 	[%rd73], %rs5;
+	add.s32 	%r44, %r44, 1;
+	add.s64 	%rd81, %rd81, 1;
+	add.s32 	%r43, %r43, -1;
+	setp.ne.s32 	%p11, %r43, 0;
+	@%p11 bra 	$L__BB7_18;
+$L__BB7_19:
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	add.s64 	%rd75, %rd5, 1;
+	st.volatile.u64 	[%rd4+8], %rd75;
+	// begin inline asm
+	membar.gl;
+	// end inline asm
+	atom.exch.b32 	%r40, [%rd47], 0;
+	mov.u64 	%rd82, 0;
+	bra.uni 	$L__BB7_20;
 
 }
 	// .globl	_bpf_helper_ext_0501
@@ -1490,85 +1851,111 @@ $L__BB10_13:
 	.param .b64 _bpf_helper_ext_0501_param_4
 )
 {
-	.reg .pred 	%p<8>;
-	.reg .b16 	%rs<6>;
-	.reg .b32 	%r<15>;
-	.reg .b64 	%rd<29>;
+	.reg .pred 	%p<10>;
+	.reg .b16 	%rs<5>;
+	.reg .b32 	%r<26>;
+	.reg .b64 	%rd<25>;
 
-	ld.param.u64 	%rd11, [_bpf_helper_ext_0501_param_0];
-	ld.const.u64 	%rd13, [constData];
-	add.s64 	%rd1, %rd13, 24;
-	ld.u8 	%rs5, [%rd11];
-	setp.eq.s16 	%p1, %rs5, 0;
-	mov.u64 	%rd28, 0;
-	mov.u64 	%rd26, %rd28;
-	@%p1 bra 	$L__BB11_3;
-	add.s64 	%rd2, %rd11, 1;
-	mov.u64 	%rd26, 0;
-$L__BB11_2:
-	add.s64 	%rd15, %rd1, %rd26;
-	st.u8 	[%rd15], %rs5;
-	add.s64 	%rd16, %rd2, %rd26;
-	ld.u8 	%rs5, [%rd16];
-	setp.ne.s16 	%p2, %rs5, 0;
-	add.s64 	%rd26, %rd26, 1;
-	@%p2 bra 	$L__BB11_2;
-$L__BB11_3:
-	add.s64 	%rd18, %rd1, %rd26;
+	ld.param.u64 	%rd13, [_bpf_helper_ext_0501_param_0];
+	ld.const.u64 	%rd1, [constData];
+	add.s64 	%rd2, %rd1, 26;
+	// begin inline asm
+	mov.u32 %r9, %laneid;
+	// end inline asm
+	add.s64 	%rd3, %rd1, 24;
+	add.s64 	%rd4, %rd13, 2;
+	mov.u32 	%r10, 0;
+	mov.u64 	%rd24, 0;
+	mov.u32 	%r14, 501;
 	mov.u16 	%rs4, 0;
+	mov.u32 	%r19, 1;
+	mov.u32 	%r24, %r10;
+	bra.uni 	$L__BB8_1;
+$L__BB8_15:
+	bar.warp.sync 	%r11;
+	add.s32 	%r24, %r24, 1;
+	setp.ne.s32 	%p9, %r24, 32;
+	@%p9 bra 	$L__BB8_1;
+	bra.uni 	$L__BB8_16;
+$L__BB8_1:
+	// begin inline asm
+	activemask.b32 %r11;
+	// end inline asm
+	setp.ne.s32 	%p1, %r9, %r24;
+	@%p1 bra 	$L__BB8_15;
+$L__BB8_2:
+	mov.u64 	%rd14, __bpftime_module_comm_lock;
+	atom.global.cas.b32 	%r12, [%rd14], 0, 1;
+	setp.ne.s32 	%p2, %r12, 0;
+	@%p2 bra 	$L__BB8_2;
+$L__BB8_3:
+	add.s64 	%rd15, %rd1, 8;
+	atom.cas.b32 	%r13, [%rd15], 0, 1;
+	setp.ne.s32 	%p3, %r13, 0;
+	@%p3 bra 	$L__BB8_3;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	st.u32 	[%rd1+12], %r14;
+	mov.u64 	%rd6, 0;
+	st.u64 	[%rd1+16], %rd6;
+$L__BB8_5:
+	add.s64 	%rd7, %rd4, %rd6;
+	ld.u8 	%rs1, [%rd7+-2];
+	setp.eq.s16 	%p4, %rs1, 0;
+	@%p4 bra 	$L__BB8_11;
+	add.s64 	%rd8, %rd2, %rd6;
+	st.u8 	[%rd8+-2], %rs1;
+	ld.u8 	%rs2, [%rd7+-1];
+	setp.eq.s16 	%p5, %rs2, 0;
+	@%p5 bra 	$L__BB8_9;
+	st.u8 	[%rd8+-1], %rs2;
+	ld.u8 	%rs3, [%rd7];
+	setp.eq.s16 	%p6, %rs3, 0;
+	@%p6 bra 	$L__BB8_10;
+	st.u8 	[%rd8], %rs3;
+	add.s64 	%rd6, %rd6, 3;
+	cvt.u32.u64 	%r16, %rd6;
+	setp.eq.s32 	%p7, %r16, 9999;
+	mov.u32 	%r25, 9999;
+	@%p7 bra 	$L__BB8_12;
+	bra.uni 	$L__BB8_5;
+$L__BB8_11:
+	cvt.u32.u64 	%r25, %rd6;
+	bra.uni 	$L__BB8_12;
+$L__BB8_9:
+	cvt.u32.u64 	%r18, %rd6;
+	add.s32 	%r25, %r18, 1;
+	bra.uni 	$L__BB8_12;
+$L__BB8_10:
+	cvt.u32.u64 	%r17, %rd6;
+	add.s32 	%r25, %r17, 2;
+$L__BB8_12:
+	cvt.u64.u32 	%rd17, %r25;
+	add.s64 	%rd18, %rd3, %rd17;
 	st.u8 	[%rd18], %rs4;
-	ld.const.u64 	%rd20, [constData];
-	mov.u32 	%r6, %tid.x;
-	and.b32  	%r1, %r6, 31;
-	add.s64 	%rd21, %rd20, 4;
-	mov.u32 	%r14, 0;
-	mov.u64 	%rd19, __bpftime_comm_lock;
-	mov.u32 	%r12, 501;
-	mov.u32 	%r11, 42;
-	bra.uni 	$L__BB11_4;
-$L__BB11_7:
-	bar.warp.sync 	%r3;
-	add.s32 	%r14, %r14, 1;
-	setp.ne.s32 	%p7, %r14, 32;
-	@%p7 bra 	$L__BB11_4;
-	bra.uni 	$L__BB11_8;
-$L__BB11_4:
 	// begin inline asm
-	activemask.b32 %r3;
+	membar.sys;
 	// end inline asm
-	shr.u32 	%r8, %r3, %r14;
-	and.b32  	%r9, %r8, 1;
-	setp.eq.b32 	%p3, %r9, 1;
-	setp.eq.s32 	%p4, %r1, %r14;
-	and.pred  	%p5, %p3, %p4;
-	@!%p5 bra 	$L__BB11_7;
-	bra.uni 	$L__BB11_5;
-$L__BB11_5:
-	atom.global.cas.b32 	%r10, [%rd19], 0, 1;
-	setp.eq.s32 	%p6, %r10, 1;
-	@%p6 bra 	$L__BB11_5;
-	st.u32 	[%rd20+12], %r12;
-	mov.u64 	%rd22, 0;
-	st.u64 	[%rd20+16], %rd22;
+	st.volatile.u32 	[%rd2+-26], %r19;
+$L__BB8_13:
+	ld.volatile.u32 	%r20, [%rd1+4];
+	setp.eq.s32 	%p8, %r20, 0;
+	@%p8 bra 	$L__BB8_13;
+	st.volatile.u32 	[%rd1+4], %r10;
 	// begin inline asm
-	.reg .pred p0;                   
-	membar.sys;                      
-	st.global.u32 [%rd20], 1;           
-	spin_wait:                       
-	membar.sys;                      
-	ld.global.u32 %r11, [%rd21];          
-	setp.eq.u32 p0, %r11, 0;           
-	@p0 bra spin_wait;               
-	st.global.u32 [%rd21], 0;           
-	membar.sys;                      
-	
+	membar.sys;
 	// end inline asm
-	ld.u64 	%rd28, [%rd20+2097184];
-	atom.global.exch.b32 	%r13, [%rd19], 0;
-	bra.uni 	$L__BB11_7;
-$L__BB11_8:
-	cvt.s64.s32 	%rd24, %rd28;
-	st.param.b64 	[func_retval0+0], %rd24;
+	ld.u64 	%rd24, [%rd1+2097184];
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	atom.exch.b32 	%r22, [%rd15], 0;
+	atom.global.exch.b32 	%r23, [%rd14], 0;
+	bra.uni 	$L__BB8_15;
+$L__BB8_16:
+	cvt.s64.s32 	%rd21, %rd24;
+	st.param.b64 	[func_retval0+0], %rd21;
 	ret;
 
 }

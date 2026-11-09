@@ -25,6 +25,7 @@
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
 #include "cuda.h"
 #include "nv_attach_impl.hpp"
+#include "trampoline/gpu_helper_protocol.h"
 #endif
 typedef struct _GumInterceptor GumInterceptor;
 typedef struct _GumInvocationListener GumInvocationListener;
@@ -35,71 +36,14 @@ namespace bpftime
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
 namespace cuda
 {
-	// The old 1<<30 value makes the shared segment too large for Boost IPC.
-#ifndef BPFTIME_GPU_HELPER_MAX_BUF
-	// Upper bound for key/value staging buffers used by the GPU->host helper
-	// bridge. This is a layout-affecting constant: if you change it, you must
-	// also regenerate `attach/nv_attach_impl/trampoline_ptx.h`.
-#define BPFTIME_GPU_HELPER_MAX_BUF (1 << 20)
-#endif
-static constexpr std::size_t GPU_HELPER_MAX_BUF = BPFTIME_GPU_HELPER_MAX_BUF;
+// The memory the GPU trampoline shares with the host:
+// attach/nv_attach_impl/trampoline/gpu_helper_protocol.h.
+using bpftime_gpu::CommSharedMem;
+using bpftime_gpu::GPU_HELPER_MAX_BUF;
+using bpftime_gpu::HelperCallRequest;
+using bpftime_gpu::HelperCallResponse;
+using bpftime_gpu::HelperOperation;
 
-enum class HelperOperation {
-	MAP_LOOKUP = 1,
-	MAP_UPDATE = 2,
-	MAP_DELETE = 3,
-	MAP_GET_NEXT_KEY = 4,
-	TRACE_PRINTK = 6,
-	GET_CURRENT_PID_TGID = 14,
-	PUTS = 501
-};
-
-union HelperCallRequest {
-	struct {
-		char key[GPU_HELPER_MAX_BUF];
-	} map_lookup;
-	struct {
-		char key[GPU_HELPER_MAX_BUF];
-		char value[GPU_HELPER_MAX_BUF];
-		uint64_t flags;
-	} map_update;
-	struct {
-		char key[GPU_HELPER_MAX_BUF];
-	} map_delete;
-
-	struct {
-		char fmt[1000];
-		int fmt_size;
-		unsigned long arg1, arg2, arg3;
-	} trace_printk;
-	struct {
-		char data[10000];
-	} puts;
-	struct {
-	} get_tid_pgid;
-};
-
-union HelperCallResponse {
-	struct {
-		int result;
-	} map_update, map_delete, trace_printk, puts;
-	struct {
-		const void *value;
-	} map_lookup;
-	struct {
-		uint64_t result;
-	} get_tid_pgid;
-};
-struct CommSharedMem {
-	int flag1;
-	int flag2;
-	int occupy_flag;
-	int request_id;
-	long map_id;
-	HelperCallRequest req;
-	HelperCallResponse resp;
-	uint64_t time_sum[8];
-};
 struct CUDAContext {
 	// Indicate whether cuda watcher thread should stop
 	std::shared_ptr<std::atomic<bool>> cuda_watcher_should_stop =

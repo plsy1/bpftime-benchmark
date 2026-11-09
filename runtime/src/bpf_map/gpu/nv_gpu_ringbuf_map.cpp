@@ -56,28 +56,51 @@ nv_gpu_ringbuf_map_impl::try_initialize_for_agent_and_get_mapped_address()
 int nv_gpu_ringbuf_map_impl::drain_data(
 	const std::function<void(const void *, uint64_t)> &fn)
 {
-	// Memory barrier: ensure we see latest GPU writes before reading header
-	std::atomic_thread_fence(std::memory_order_acquire);
+	const uint64_t record_size = value_size + sizeof(uint64_t);
+	int records = 0;
+	uint64_t drops = 0;
 	for (uint64_t i = 0; i < thread_count; i++) {
 		auto header = (ringbuf_header *)(uintptr_t)(data_buffer.data() +
 							    i * entry_size);
-		if (header->dirty) {
-			SPDLOG_WARN("Ignored dirty pages");
-			return 0;
+		// acquire: the GPU wrote the records below tail before tail
+		// (membar.sys)
+		const uint64_t tail =
+			__atomic_load_n(&header->tail, __ATOMIC_ACQUIRE);
+		uint64_t head = __atomic_load_n(&header->head, __ATOMIC_RELAXED);
+		if (tail - head > max_entries) {
+			SPDLOG_WARN(
+				"GPU ringbuf thread {}: head {} and tail {} are more than {} records apart; skipping to the last {}",
+				i, head, tail, max_entries, max_entries);
+			head = tail - max_entries;
 		}
-		if (header->head != header->tail) {
-			// Got data!
-			auto real_head = header->head % max_entries;
-			__atomic_fetch_add(&header->head, 1, __ATOMIC_SEQ_CST);
-			auto buffer_start =
-				((char *)header) + sizeof(ringbuf_header) +
-				real_head * (value_size + sizeof(uint64_t));
-			fn(buffer_start + sizeof(uint64_t),
-			   *(uint64_t *)(uintptr_t)buffer_start);
+		for (; head != tail; head++) {
+			auto record = (const char *)header +
+				      sizeof(ringbuf_header) +
+				      (head % max_entries) * record_size;
+			uint64_t size;
+			memcpy(&size, record, sizeof(size));
+			if (size > value_size) {
+				SPDLOG_WARN(
+					"GPU ringbuf thread {}: record of {} bytes in a map of {}-byte values; passing {}",
+					i, size, value_size, value_size);
+				size = value_size;
+			}
+			fn(record + sizeof(uint64_t), size);
+			records++;
+			// release: the record has been read before the GPU
+			// may write its place again
+			__atomic_store_n(&header->head, head + 1,
+					 __ATOMIC_RELEASE);
 		}
+		drops += __atomic_load_n(&header->dropped, __ATOMIC_RELAXED);
 	}
-
-	return 0;
+	if (drops > reported_drops) {
+		SPDLOG_WARN(
+			"GPU ringbuf: the GPU dropped {} records since the last poll ({} in all): full, larger than the {}-byte value size, or written by two threads at once",
+			drops - reported_drops, drops, value_size);
+		reported_drops = drops;
+	}
+	return records;
 }
 
 nv_gpu_ringbuf_map_impl::~nv_gpu_ringbuf_map_impl()
