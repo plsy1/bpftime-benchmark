@@ -305,7 +305,7 @@ bpf_attach_ctx::bpf_attach_ctx()
 		start_cuda_watcher_thread();
 	} else {
 		SPDLOG_WARN(
-			"CUDA shared communication memory not available; CUDA attach will be disabled for this process");
+			"CUDA attach is disabled in this process; other probes run as usual");
 	}
 #endif
 }
