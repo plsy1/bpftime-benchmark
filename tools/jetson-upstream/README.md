@@ -75,6 +75,14 @@ not the original historical commit IDs. Candidate branches were renamed from
 This makes the patch stack portable to another Jetson without relying on a
 machine-local `rerere` cache.
 
+Commits accepted later, up to 2026-11-10 (`0decdfab`), are commits of the dev
+branch `dev/uprobe-official-177a1dc465ff`, renamed `archive/uprobe-official-177a1dc465ff`
+on 2026-11-10 when development moved to `dev/uprobe-official-4708f4092d1e`
+(`811b841f`, the one adapted commit, is there). 194 commits of the list exist
+only on that archive branch and 41 only on `archive/uprobe-official-8da867d541f8`:
+deleting either breaks the replay on another machine, and here once git prunes
+them.
+
 The maintained stack now ends with the default array lookup JIT (accepted
 2026-10-21): `9ffbffba8325` adds the owned ordinary array JIT binding,
 `c0939bdf8e3e` makes ordinary and per-CPU array lookup specialization the
