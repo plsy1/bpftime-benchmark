@@ -100,6 +100,8 @@ int main(int argc, char **argv)
 	int map_fd = bpf_map__fd(skel->maps.events);
 	struct poll_state state = {};
 
+	// Each GPU thread has room for max_entries records; poll often enough
+	// that a busy thread does not fill them.
 	while (!exiting) {
 		int polled = poll_fn(map_fd, &state, poll_callback);
 		if (polled < 0) {
@@ -107,11 +109,11 @@ int main(int argc, char **argv)
 			err = polled;
 			break;
 		}
-		if (state.events) {
+		if (polled > 0) {
 			printf("[kernel_trace] total events: %llu\n",
 			       (unsigned long long)state.events);
 		}
-		sleep(1);
+		usleep(10 * 1000);
 	}
 
 cleanup:

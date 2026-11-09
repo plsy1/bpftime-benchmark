@@ -21,11 +21,12 @@
 #include <memory>
 
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
+#include "trampoline/gpu_helper_protocol.h"
 namespace bpftime
 {
 namespace cuda
 {
-struct CommSharedMem;
+using bpftime_gpu::CommSharedMem;
 }
 } // namespace bpftime
 #endif
