@@ -3,6 +3,8 @@
 #include "driver_types.h"
 #include "nv_attach_impl.hpp"
 #include <bpf_attach_ctx.hpp>
+#include <algorithm>
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <cstdlib>
@@ -108,6 +110,118 @@ bpf_attach_ctx::find_nv_attach_impl() const
 	}
 	return {};
 }
+namespace
+{
+// Serves the request the GPU posted in ctx's CommSharedMem: reads the
+// request, writes the response. The caller signals completion.
+void serve_cuda_request(cuda::CUDAContext *ctx)
+{
+	auto *comm = ctx->cuda_shared_mem;
+	const auto req_id = comm->request_id;
+	const auto map_fd = comm->map_id;
+	SPDLOG_DEBUG("CUDA Received call request id {}, map_fd = {}", req_id,
+		     map_fd);
+	if (req_id == (int)cuda::HelperOperation::MAP_LOOKUP) {
+		const auto &req = comm->req.map_lookup;
+		auto &resp = comm->resp.map_lookup;
+		auto ptr = bpftime_map_lookup_elem(map_fd, req.key);
+		resp.value = nullptr;
+		if (ptr) {
+			const auto host_ptr = reinterpret_cast<uintptr_t>(ptr);
+			CUmemorytype mem_type = CU_MEMORYTYPE_HOST;
+			bool is_device_ptr = false;
+			if (cuPointerGetAttribute(
+				    &mem_type, CU_POINTER_ATTRIBUTE_MEMORY_TYPE,
+				    (CUdeviceptr)host_ptr) == CUDA_SUCCESS) {
+				is_device_ptr =
+					(mem_type == CU_MEMORYTYPE_DEVICE) ||
+					(mem_type == CU_MEMORYTYPE_UNIFIED);
+			}
+
+			if (is_device_ptr) {
+				// GPU maps can return a CUDA device pointer
+				// directly.
+				resp.value = const_cast<void *>(ptr);
+			} else {
+				const auto comm_host_base =
+					reinterpret_cast<uintptr_t>(comm);
+				const auto comm_device_base =
+					ctx->cuda_shared_mem_device_pointer;
+				const auto offset =
+					static_cast<intptr_t>(host_ptr) -
+					static_cast<intptr_t>(comm_host_base);
+				resp.value = reinterpret_cast<void *>(
+					static_cast<uintptr_t>(
+						static_cast<intptr_t>(
+							comm_device_base) +
+						offset));
+			}
+		}
+		SPDLOG_DEBUG(
+			"CUDA: Executing map lookup for {}, key= {:x} result = {:x}",
+			map_fd, *(uintptr_t *)(uintptr_t)&req.key,
+			(uintptr_t)resp.value);
+	} else if (req_id == (int)cuda::HelperOperation::MAP_UPDATE) {
+		const auto &req = comm->req.map_update;
+		auto &resp = comm->resp.map_update;
+		resp.result = bpftime_map_update_elem(map_fd, req.key,
+						      req.value, req.flags);
+		SPDLOG_DEBUG("CUDA: Executing map update for {}, result = {}",
+			     map_fd, resp.result);
+	} else if (req_id == (int)cuda::HelperOperation::MAP_DELETE) {
+		const auto &req = comm->req.map_delete;
+		auto &resp = comm->resp.map_delete;
+		resp.result = bpftime_map_delete_elem(map_fd, req.key);
+		SPDLOG_DEBUG("CUDA: Executing map delete for {}, result = {}",
+			     map_fd, resp.result);
+	} else if (req_id == (int)cuda::HelperOperation::TRACE_PRINTK) {
+		const auto &req = comm->req.trace_printk;
+		auto &resp = comm->resp.trace_printk;
+		resp.result = bpftime_trace_printk((uintptr_t)req.fmt,
+						   req.fmt_size, req.arg1,
+						   req.arg2, req.arg3);
+		SPDLOG_DEBUG(
+			"CUDA: Executing bpf_printk: {}, arg1={}, arg2={}, arg3={}",
+			req.fmt, req.arg1, req.arg2, req.arg3);
+	} else if (req_id ==
+		   (int)cuda::HelperOperation::GET_CURRENT_PID_TGID) {
+		auto &resp = comm->resp.get_tid_pgid;
+		static int tgid = getpid();
+		static thread_local int tid = -1;
+		if (tid == -1) {
+			tid = gettid();
+		}
+		SPDLOG_DEBUG("Called get_current_pid_tgid: pid={}, tgid={}",
+			     tid, tgid);
+		resp.result = (((uint64_t)tgid) << 32) | tid;
+	} else if (req_id == (int)cuda::HelperOperation::PUTS) {
+		const auto &req = comm->req.puts;
+		auto &resp = comm->resp.puts;
+		SPDLOG_INFO("eBPF: {}", req.data);
+		resp.result = 0;
+	} else {
+		SPDLOG_WARN("Unknown request id {}", req_id);
+	}
+}
+
+// After serving a request the watcher keeps polling this long before it
+// sleeps: the next GPU thread posts its request only after it has read this
+// response, a few microseconds later.
+constexpr auto cuda_watcher_busy_window = std::chrono::microseconds(200);
+// Idle, the watcher sleeps for this long, doubling up to the maximum.
+constexpr auto cuda_watcher_min_sleep = std::chrono::microseconds(50);
+constexpr auto cuda_watcher_max_sleep = std::chrono::microseconds(1000);
+
+inline void cpu_relax()
+{
+#if defined(__aarch64__)
+	asm volatile("yield" ::: "memory");
+#elif defined(__x86_64__) || defined(__i386__)
+	__builtin_ia32_pause();
+#endif
+}
+} // namespace
+
 void bpf_attach_ctx::start_cuda_watcher_thread()
 {
 	if (!cuda_ctx)
@@ -117,163 +231,40 @@ void bpf_attach_ctx::start_cuda_watcher_thread()
 	auto flag = cuda_ctx->cuda_watcher_should_stop;
 	cuda_watcher_thread = std::thread([flag, this]() {
 		auto *ctx = cuda_ctx.get();
+		using clock = std::chrono::steady_clock;
+		auto last_request = clock::now() - cuda_watcher_busy_window;
+		auto idle_sleep = std::chrono::duration_cast<
+			std::chrono::microseconds>(cuda_watcher_min_sleep);
 
-		while (!flag->load()) {
-			if (ctx != nullptr && ctx->cuda_shared_mem->flag1 == 1) {
-				ctx->cuda_shared_mem->flag1 = 0;
-				auto req_id = ctx->cuda_shared_mem->request_id;
-
-				auto map_ptr = ctx->cuda_shared_mem->map_id;
-				auto map_fd = map_ptr;
-				SPDLOG_DEBUG(
-					"CUDA Received call request id {}, map_ptr = {}, map_fd = {}",
-					req_id, map_ptr, map_fd);
-				auto start_time =
-					std::chrono::high_resolution_clock::now();
-				if (req_id ==
-				    (int)cuda::HelperOperation::MAP_LOOKUP) {
-					const auto &req =
-						ctx->cuda_shared_mem->req
-							.map_lookup;
-					auto &resp = ctx->cuda_shared_mem->resp
-							     .map_lookup;
-					auto ptr = bpftime_map_lookup_elem(
-						map_fd, req.key);
-					resp.value = nullptr;
-					if (ptr) {
-						const auto host_ptr =
-							reinterpret_cast<
-								uintptr_t>(ptr);
-						CUmemorytype mem_type =
-							CU_MEMORYTYPE_HOST;
-						bool is_device_ptr = false;
-						if (cuPointerGetAttribute(
-							    &mem_type,
-							    CU_POINTER_ATTRIBUTE_MEMORY_TYPE,
-							    (CUdeviceptr)host_ptr) ==
-						    CUDA_SUCCESS) {
-							is_device_ptr =
-								(mem_type ==
-								 CU_MEMORYTYPE_DEVICE) ||
-								(mem_type ==
-								 CU_MEMORYTYPE_UNIFIED);
-						}
-
-						if (is_device_ptr) {
-							// GPU maps can return a CUDA device pointer directly.
-							resp.value = const_cast<void *>(ptr);
-						} else {
-							const auto comm_host_base =
-								reinterpret_cast<
-									uintptr_t>(
-									ctx->cuda_shared_mem);
-							const auto comm_device_base =
-								ctx->cuda_shared_mem_device_pointer;
-							const auto offset =
-								static_cast<
-									intptr_t>(
-									host_ptr) -
-								static_cast<
-									intptr_t>(
-									comm_host_base);
-							resp.value =
-								reinterpret_cast<void *>(
-									static_cast<uintptr_t>(
-										static_cast<intptr_t>(
-											comm_device_base) +
-										offset));
-						}
-					}
-					SPDLOG_DEBUG(
-						"CUDA: Executing map lookup for {}, key= {:x} result = {:x}",
-						map_fd,
-						*(uintptr_t *)(uintptr_t)&req
-							 .key,
-						(uintptr_t)resp.value);
-
-				} else if (req_id ==
-					   (int)cuda::HelperOperation::
-						   MAP_UPDATE) {
-					const auto &req =
-						ctx->cuda_shared_mem->req
-							.map_update;
-					auto &resp = ctx->cuda_shared_mem->resp
-							     .map_update;
-					resp.result = bpftime_map_update_elem(
-						map_fd, req.key, req.value,
-						req.flags);
-					SPDLOG_DEBUG(
-						"CUDA: Executing map update for {}, result = {}",
-						map_fd, resp.result);
-				} else if (req_id ==
-					   (int)cuda::HelperOperation::
-						   MAP_DELETE) {
-					const auto &req =
-						ctx->cuda_shared_mem->req
-							.map_delete;
-					auto &resp = ctx->cuda_shared_mem->resp
-							     .map_delete;
-
-					resp.result = bpftime_map_delete_elem(
-						map_fd, req.key);
-					SPDLOG_DEBUG(
-						"CUDA: Executing map delete for {}, result = {}",
-						map_fd, resp.result);
-				} else if (req_id ==
-					   (int)cuda::HelperOperation::
-						   TRACE_PRINTK) {
-					const auto &req =
-						ctx->cuda_shared_mem->req
-							.trace_printk;
-					auto &resp = ctx->cuda_shared_mem->resp
-							     .trace_printk;
-
-					resp.result = bpftime_trace_printk(
-						(uintptr_t)req.fmt,
-						req.fmt_size, req.arg1,
-						req.arg2, req.arg3);
-					SPDLOG_DEBUG(
-						"CUDA: Executing bpf_printk: {}, arg1={}, arg2={}, arg3={}",
-						req.fmt, req.arg1, req.arg2,
-						req.arg3);
-				} else if (req_id ==
-					   (int)cuda::HelperOperation::
-						   GET_CURRENT_PID_TGID) {
-					auto &resp = ctx->cuda_shared_mem->resp
-							     .get_tid_pgid;
-					static int tgid = getpid();
-					static thread_local int tid = -1;
-					if (tid == -1) {
-						tid = gettid();
-					}
-					SPDLOG_DEBUG(
-						"Called get_current_pid_tgid: pid={}, tgid={}",
-						tid, tgid);
-					resp.result =
-						(((uint64_t)tgid) << 32) | tid;
-				} else if (req_id ==
-					   (int)cuda::HelperOperation::PUTS) {
-					const auto &req =
-						ctx->cuda_shared_mem->req.puts;
-					auto &resp =
-						ctx->cuda_shared_mem->resp.puts;
-					SPDLOG_INFO("eBPF: {}", req.data);
-					resp.result = 0;
+		while (!flag->load(std::memory_order_acquire)) {
+			if (ctx != nullptr) {
+				auto *comm = ctx->cuda_shared_mem;
+				int posted = 1;
+				// flag1 1 -> 0 takes the request; acquire: the
+				// GPU wrote it before flag1 (membar.sys)
+				if (__atomic_load_n(&comm->flag1,
+						    __ATOMIC_RELAXED) == 1 &&
+				    __atomic_compare_exchange_n(
+					    &comm->flag1, &posted, 0, false,
+					    __ATOMIC_ACQUIRE,
+					    __ATOMIC_RELAXED)) {
+					serve_cuda_request(ctx);
+					// release: the response before flag2
+					__atomic_store_n(&comm->flag2, 1,
+							 __ATOMIC_RELEASE);
+					last_request = clock::now();
+					idle_sleep = cuda_watcher_min_sleep;
+					continue;
 				}
-
-				else {
-					SPDLOG_WARN("Unknown request id {}",
-						    req_id);
-				}
-
-				// Make sure response writes are visible before signaling completion.
-				std::atomic_thread_fence(std::memory_order_seq_cst);
-				ctx->cuda_shared_mem->flag2 = 1;
-				std::atomic_thread_fence(
-					std::memory_order_seq_cst);
 			}
-			std::this_thread::sleep_for(
-				std::chrono::milliseconds(1));
+			if (clock::now() - last_request <
+			    cuda_watcher_busy_window) {
+				cpu_relax();
+				continue;
+			}
+			std::this_thread::sleep_for(idle_sleep);
+			idle_sleep = std::min<std::chrono::microseconds>(
+				idle_sleep * 2, cuda_watcher_max_sleep);
 		}
 		SPDLOG_INFO("Exiting CUDA watcher thread");
 	});

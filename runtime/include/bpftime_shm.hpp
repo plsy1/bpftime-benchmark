@@ -460,6 +460,8 @@ int bpftime_get_current_thread_cookie(uint64_t *out);
 
 int bpftime_add_custom_perf_event(int type, const char *attach_argument);
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
+// Passes every record the GPU published in the GPU ringbuf map to the
+// callback; returns the number of records, or -1 if mapfd is not one.
 int bpftime_poll_gpu_ringbuf_map(int mapfd, void *ctx,
 				 void (*)(const void *, uint64_t, void *));
 #endif
