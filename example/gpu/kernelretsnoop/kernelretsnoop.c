@@ -92,14 +92,16 @@ int main(int argc, char **argv)
 	}
 	int mapfd = bpf_map__fd(skel->maps.rb);
 	struct state state = {0};
+	// Each GPU thread has room for max_entries records; poll often enough
+	// that a busy thread does not fill them.
 	while (!exiting) {
-		sleep(1);
+		usleep(10 * 1000);
 		err = poll_fn(mapfd, &state, poll_callback);
 		if (err < 0) {
 			printf("Unable to poll: %d\n", err);
 			goto cleanup;
 		}
-		if (state.count > 0) {
+		if (err > 0) {
 			printf("Total events collected: %lu\n", state.count);
 		}
 	}

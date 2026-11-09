@@ -2145,6 +2145,56 @@ launching once a second, SIGUSR1 after 5 s): events stop at the detach (5 then
 6, the launch SIGUSR1 starts by cutting `sleep(1)` short); without the
 switch-off 5 then 11.
 
+## CUDA Attach: Host Calls And GPU Ringbuf
+
+The trampoline (`attach/nv_attach_impl/trampoline/default_trampoline.cu`,
+shipped as `trampoline_ptx.h`, regenerated with `make -C
+attach/nv_attach_impl/trampoline CLANG=clang++-16 ../trampoline_ptx.h`) and the
+host share the layouts in `trampoline/gpu_helper_protocol.h`
+(`CommSharedMem`, the request and response unions, `gpu_ringbuf_header`); the
+PTX has their offsets compiled in, so a change to that header needs the PTX
+regenerated.
+
+A host call (CPU maps, printk, pid) goes through the one request slot,
+`CommSharedMem` in the shared segment. A GPU thread queues on
+`__bpftime_module_comm_lock` (per module, GPU memory), then takes
+`occupy_flag` (per process: every fatbin is its own module), writes the
+request while holding both, `membar.sys`, sets `flag1`, spins on `flag2`,
+clears it, `membar.sys`, reads the response, `membar.sys`, releases. Lanes of a
+warp take turns (no intra-warp spin before sm_70). The watcher takes a request
+by changing `flag1` from 1 to 0 (acquire), serves it and stores `flag2`
+(release); after a request it keeps polling for 200 us (the next thread posts
+a few microseconds after reading the response), idle it sleeps 50 us doubling
+to 1 ms. The request used to be written by every lane before the lock (all
+threads' calls carried one thread's key or printk arguments), each call waited
+for the watcher's 1 ms sleep, and the lock was per module. Spinning directly
+on `occupy_flag` (host memory, the flags' cache line) made a call cost 300 us
+with 32 warps waiting; with the module lock in front it is about 10 us at any
+contention (the test below: 2048 calls in about 20 ms).
+
+GPU ringbuf (1527): every GPU thread has its own records (`gpu_ringbuf_header`,
+then `max_entries` records of a size word and `value_size` bytes). A writer
+takes `busy` (another kernel can run a thread with the same index), reads
+head and tail, writes the record at `tail % max_entries`, `membar.sys`, stores
+`tail + 1`. Full, busy or larger than `value_size`: the record is dropped and
+counted in `dropped`. `drain_data` reads tail (acquire), passes every record
+up to it and stores each new head (release) after reading the record; it
+returns the number of records (`bpftime_poll_gpu_ringbuf_map` too) and warns
+with the drop count. One poller per map. It used to take one record per thread
+per poll, return 0, and stop at the first thread being written; the GPU
+published tail before the record and wrote oversize records over the next.
+
+Per-thread array maps (1502, 1512) and single-copy GPU arrays (1503, 1504,
+1513): a thread at or beyond `max_thread_count`, or a key at or beyond
+`max_entries`, gets NULL from lookup and -E2BIG from update; the first such
+thread of a module prints one warning in the application (it used to print
+per thread and write past the map: threadhist corrupted the segment).
+
+Not covered: several CUDA processes on one segment (each agent zeroes
+`CommSharedMem` at start, and any process's watcher may serve a request).
+Tests: `[cuda-host-call]`, `[cuda-ringbuf]` (bpftime_runtime_tests; the GPU
+cases load the trampoline with small PTX kernels and skip without a GPU).
+
 ## Map Usage Counters
 
 `BPFTIME_ENABLE_MAP_USAGE_STATS` (CMake, off by default) counts map
