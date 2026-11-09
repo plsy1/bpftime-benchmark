@@ -246,8 +246,8 @@ cuda_launch_kernel_common(nv_attach_impl *impl, void *original_fn_ptr,
 	return original(func, grid_dim, block_dim, args, shared_mem, stream);
 }
 
-static void example_listener_on_enter(GumInvocationListener *listener,
-				      GumInvocationContext *ic)
+static void listener_on_enter_unguarded(GumInvocationListener *listener,
+					GumInvocationContext *ic)
 {
 	auto gum_ctx = gum_interceptor_get_current_invocation();
 	auto context =
@@ -295,6 +295,8 @@ static void example_listener_on_enter(GumInvocationListener *listener,
 		SPDLOG_DEBUG("Entering __cudaRegisterFunction..");
 		auto &impl = *context->impl;
 		auto current_fatbin = context->impl->current_fatbin;
+		if (current_fatbin == nullptr)
+			return;
 		current_fatbin->try_loading_ptxs(*context->impl);
 
 		auto func_addr =
@@ -327,6 +329,8 @@ static void example_listener_on_enter(GumInvocationListener *listener,
 		   AttachedToFunction::RegisterVariable) {
 		SPDLOG_DEBUG("Entering __cudaRegisterVar");
 		auto current_fatbin = context->impl->current_fatbin;
+		if (current_fatbin == nullptr)
+			return;
 		current_fatbin->try_loading_ptxs(*context->impl);
 		auto fatbin_handle =
 			gum_invocation_context_get_nth_argument(gum_ctx, 0);
@@ -386,6 +390,23 @@ static void example_listener_on_enter(GumInvocationListener *listener,
 		}
 		context->impl->mirror_cuda_memcpy_to_symbol(
 			symbol, src, count, offset, kind, stream, async);
+	}
+}
+
+// An exception must not unwind through Gum's frames (std::terminate): a fatbin
+// that cannot be patched keeps its original module.
+static void example_listener_on_enter(GumInvocationListener *listener,
+				      GumInvocationContext *ic)
+{
+	try {
+		listener_on_enter_unguarded(listener, ic);
+	} catch (const std::exception &e) {
+		SPDLOG_ERROR(
+			"nv_attach_impl: CUDA registration hook failed ({}); the kernels run unpatched",
+			e.what());
+	} catch (...) {
+		SPDLOG_ERROR(
+			"nv_attach_impl: CUDA registration hook failed; the kernels run unpatched");
 	}
 }
 
