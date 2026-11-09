@@ -526,7 +526,22 @@ void syscall_context::initialize_cuda()
 		throw std::runtime_error(
 			"Unable to initialize CUDA from syscall server side");
 	}
-	SPDLOG_INFO("CUDA initialized at syscall server side");
+	{
+		int ordinal = 0;
+		if (const char *p = getenv("BPFTIME_CUDA_DEVICE");
+		    p && p[0] != '\0')
+			ordinal = std::max(0, atoi(p));
+		CUdevice device = 0;
+		int integrated = 0;
+		if (cuDeviceGet(&device, ordinal) == CUDA_SUCCESS &&
+		    cuDeviceGetAttribute(&integrated,
+					 CU_DEVICE_ATTRIBUTE_INTEGRATED,
+					 device) == CUDA_SUCCESS)
+			cuda_gpu_integrated = integrated != 0;
+	}
+	SPDLOG_INFO("CUDA initialized at syscall server side{}",
+		    cuda_gpu_integrated ? " (integrated GPU: no CUDA IPC)" :
+					  "");
 }
 #endif
 
@@ -853,59 +868,39 @@ long syscall_context::handle_sysbpf(int cmd, union bpf_attr *attr, size_t size)
 			"Creating map type={}, name={}, key_size={}, value_size={}",
 			attr->map_type, attr->map_name, attr->key_size,
 			attr->value_size);
-		std::vector<int> occupied_fds;
-		auto close_occupied_fds = [&]() {
-			for (int fd : occupied_fds)
-				orig_close_fn(fd);
-		};
-		for (;;) {
-			int reserved_fd = create_unlinked_mock_fd(true);
-			if (reserved_fd < 0) {
-				int saved_errno = errno;
-				close_occupied_fds();
-				errno = saved_errno;
-				return -1;
+		int map_type = (int)attr->map_type;
+#ifdef BPFTIME_ENABLE_CUDA_ATTACH
+		if (cuda_gpu_integrated) {
+			int host_type =
+				bpftime::gpu_map_type_without_cuda_ipc(map_type);
+			if (host_type != map_type) {
+				SPDLOG_INFO(
+					"Map {}: type {} exports device memory through CUDA IPC, which this integrated GPU lacks; creating type {} in host memory",
+					attr->map_name, map_type, host_type);
+				map_type = host_type;
 			}
-			int id = bpftime_maps_create(
-				reserved_fd, attr->map_name,
-				bpftime::bpf_map_attr{
-					(int)attr->map_type,
-					attr->key_size,
-					attr->value_size,
-					attr->max_entries,
-					attr->map_flags,
-					attr->map_ifindex,
-					attr->btf_vmlinux_value_type_id,
-					attr->btf_id,
-					attr->btf_key_type_id,
-					attr->btf_value_type_id,
-					attr->map_extra,
-				});
-			SPDLOG_DEBUG(
-				"Created map {}, type={}, name={}, key_size={}, value_size={}",
-				id, attr->map_type, attr->map_name,
-				attr->key_size, attr->value_size);
-			if (id >= 0) {
-				// The map keeps the reserved real fd, so the
-				// program sees a kernel fd number.
-				close_occupied_fds();
-				return id;
-			}
-			// Internal failures return a negative errno as the
-			// value, not through errno (e.g. -EEXIST when the shm
-			// slot is still occupied, -ENOSPC when the fd is out
-			// of the shared table's range). Only -EEXIST is worth
-			// another reservation; everything else goes back to
-			// the caller as the syscall ABI convention.
-			if (id == -EEXIST) {
-				occupied_fds.push_back(reserved_fd);
-				continue;
-			}
-			orig_close_fn(reserved_fd);
-			close_occupied_fds();
-			errno = -id;
-			return -1;
 		}
+#endif
+		int id = bpftime_maps_create(
+			-1 /* let the shm alloc fd for us */, attr->map_name,
+			bpftime::bpf_map_attr{
+				map_type,
+				attr->key_size,
+				attr->value_size,
+				attr->max_entries,
+				attr->map_flags,
+				attr->map_ifindex,
+				attr->btf_vmlinux_value_type_id,
+				attr->btf_id,
+				attr->btf_key_type_id,
+				attr->btf_value_type_id,
+				attr->map_extra,
+			});
+		SPDLOG_DEBUG(
+			"Created map {}, type={}, name={}, key_size={}, value_size={}",
+			id, attr->map_type, attr->map_name, attr->key_size,
+			attr->value_size);
+		return id;
 	}
 	case BPF_MAP_LOOKUP_ELEM: {
 		SPDLOG_DEBUG("Looking up map {}, key={:x}", attr->map_fd,
