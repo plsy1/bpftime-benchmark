@@ -925,6 +925,14 @@ callers use at most 24 bytes; DeepFlow has no bpf-to-bpf calls). Test "A
 bpf-to-bpf callee's stack frame does not overlap its caller's" (2 and 8
 levels, JIT and AOT; fails with either site back at 64).
 
+On the GPU every thread holds the whole stack array in local memory, and when
+a stack address escapes (a pointer to the stack passed to a helper) the 32
+frames stay: 16,464 bytes a thread, backed by the driver for every resident
+thread. The same patch gives a GPU program without bpf-to-bpf calls one frame
+(`stack_frames`; 592 bytes); with a call, or on the CPU, it keeps 32. Test
+"A GPU program without bpf-to-bpf calls gets one stack frame"
+(bpftime_nv_attach_tests, `[ptxpass_core]`; compares the PTX local depots).
+
 ## Failed JIT Compiles
 
 The LLVM VM has no interpreter, and its `exec` retried the compile on every
@@ -2107,12 +2115,22 @@ initialized earlier (CUDA in a static constructor, an injected agent) the late
 path runs: patched copies loaded beside the originals, launches redirected by
 kernel name, `__constant__` copies mirrored, with its known problems (CUDA 13
 handles and static cudart not instrumented, separate globals, kprobe plus
-kretprobe on one kernel, upstream #708). A probe attached after a fatbin went
+kretprobe on one kernel, upstream #708). It names host addresses (stubs,
+`__constant__` shadows) with `elf_introspect::host_symbol_resolver`: the
+symbol tables of the one module containing the address, read when first
+asked, without AArch64 mapping symbols (`$d` at a variable's address made
+`-fdata-sections` victims lose their `__constant__` copies), a sized symbol
+preferred on a tie, nothing for an address outside every module. It used to
+read every loaded module's tables at bootstrap, one read per symbol (1.4 s,
+97% in bpftime's own libraries). The bootstrap reads each fatbin once
+(`fatbins_to_read`: the `.nv_fatbin` section and the wrappers point at the
+same run of fatbins) and skips fatbins without a PTX entry
+(`fatbin_has_ptx`) before cuobjdump. Tests `[late-path]`. A probe attached after a fatbin went
 through the hook (auto-refresh) also falls back to the late path
 (`late_path_allowed`, a warning). `BPFTIME_CUDA_LOAD_SUBSTITUTION=0` forces the
 late path. In substitution mode the registration listeners, the variable
 mirrors and the late bootstrap do nothing: the mirrors used to start the
-bootstrap, whose host symbol cache costs 1.4 s. Lock order:
+bootstrap. Lock order:
 `late_bootstrap_mutex` before `load_substitution_mutex` (hook entries, maps,
 caches), never the reverse.
 

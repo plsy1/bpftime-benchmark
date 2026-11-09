@@ -24,6 +24,7 @@
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include "nv_attach_fatbin_record.hpp"
+#include "nv_elf_introspect.hpp"
 #include <tuple>
 #include <variant>
 #include <vector>
@@ -195,6 +196,16 @@ class nv_attach_impl final : public base_attach_impl {
 		const std::map<std::string, std::tuple<std::string, bool>>
 			&patched,
 		int device_sm);
+	// Late path: of the fatbin addresses a module offers (its .nv_fatbin
+	// section, its wrappers' data), the ones to read. A read takes every
+	// fatbin from its address to the end of the run of fatbins after it,
+	// so an address inside an earlier read is skipped (.nv_fatbin holds a
+	// device-link fatbin and the program's, and wrappers point at both).
+	static std::vector<const void *>
+	fatbins_to_read(std::vector<const void *> candidates);
+	// Whether the fatbins in bytes (one or more, back to back) have a PTX
+	// entry; true when their layout is not understood.
+	static bool fatbin_has_ptx(const std::vector<uint8_t> &bytes);
 	std::optional<std::map<std::string, std::tuple<std::string, bool>>>
 		hack_fatbin(std::map<std::string, std::string>);
 	std::map<std::string, std::string>
@@ -284,7 +295,6 @@ class nv_attach_impl final : public base_attach_impl {
 		// unpatched) and return false.
 		bool try_loading_or_log(fatbin_record &rec, const char *where);
 		void reset_late_bootstrap_state_for_next_attach();
-		void build_host_symbol_cache_once();
 		void prefill_patched_kernel_functions_from_loaded_fatbins();
 		std::vector<std::string> collect_all_kernels_to_patch() const;
 
@@ -331,16 +341,9 @@ class nv_attach_impl final : public base_attach_impl {
 			std::atomic<bool> late_bootstrap_started{ false };
 			std::atomic<bool> late_bootstrap_done{ false };
 			std::mutex late_bootstrap_mutex;
-			std::once_flag host_symbol_cache_once;
-			mutable std::mutex host_symbol_cache_mutex;
-	// Absolute address sorted list of host function symbols across loaded
-	// modules (best-effort).
-	struct host_symbol_range {
-		std::uintptr_t start = 0;
-		std::uintptr_t end = 0;
-		std::string name;
-	};
-	std::vector<host_symbol_range> host_symbol_ranges;
+	// Late path: names of host stubs and __constant__ shadows, read from
+	// the module that contains the address when first asked.
+	elf_introspect::host_symbol_resolver host_symbols;
 
 		mutable std::mutex patched_global_cache_mutex;
 		std::unordered_map<std::string, std::pair<CUdeviceptr, size_t>>
