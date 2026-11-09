@@ -77,6 +77,10 @@ nv_gpu_per_thread_array_map_impl::nv_gpu_per_thread_array_map_impl(
 		SPDLOG_ERROR(
 			"Unable to open CUDA IPC handle for nv_gpu_array_map_impl: {}",
 			(int)err);
+		// No IPC (integrated GPUs: CUDA_ERROR_NOT_SUPPORTED); the
+		// constructor throws, so nothing else frees it.
+		cuMemFree(server_gpu_shared_mem);
+		server_gpu_shared_mem = 0;
 		throw std::runtime_error(
 			"Unable to open CUDA IPC handle for nv_gpu_array_map_impl");
 	}
