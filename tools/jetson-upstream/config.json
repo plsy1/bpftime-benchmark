@@ -241,7 +241,21 @@
       {"sha": "a90d8d0b0c5202193b2613b951a5ad5f79b37ed7", "kind": "optimization", "subject": "AOT cache: the server compiles a program once, agents link the object"},
       {"sha": "9898ed19bf0c056d5171d71047daf04ad9e5466e", "kind": "optimization", "subject": "AOT cache: bound programs' addresses become per-process symbols"},
       {"sha": "c9d4d974bcf954bd7b309b46a7592c1b369b31d1", "kind": "docs", "subject": "CLAUDE.md: the AOT cache's invariants, measurements and limits"},
-      {"sha": "a2acb4f8067bc74ee115190ac27efb853bee6754", "kind": "test-fix", "subject": "frida detach tests: hook before the callers start (attach-time window)"}
+      {"sha": "a2acb4f8067bc74ee115190ac27efb853bee6754", "kind": "test-fix", "subject": "frida detach tests: hook before the callers start (attach-time window)"},
+      {"sha": "e94e2c0468f77a34704def63f1fd322131c3a393", "kind": "runtime-fix", "subject": "llvmbpf: a bpf-to-bpf call moves r10 by a whole frame"},
+      {"sha": "3695e13cc21733b94aa8f0535f22f11246f294f1", "kind": "build-fix", "subject": "cmake: find CUDA 13's sbsa-linux layout; check cuda.h at configure"},
+      {"sha": "174276858338dee624ca6d5a77ac034a33e1db80", "kind": "runtime-fix", "subject": "syscall server: calls made after the segment is released go to libc"},
+      {"sha": "f28c42a7f8402c536949dd9f5727c1529b21b272", "kind": "runtime-fix", "subject": "nv_attach: a fatbin that cannot be patched keeps its original module"},
+      {"sha": "811b841f8095e784a1db41c56188566a647b0623", "kind": "feature", "subject": "nv_attach: patch fatbins as cudart loads them (load-time substitution)"},
+      {"sha": "718fefb1748a6e2d445e8ca97be8ee6bcf901f23", "kind": "runtime-fix", "subject": "nv_attach: switch the probes of patched images off at the last detach"},
+      {"sha": "b9e83c42c8d30d4aa9db920ecd7f9e8f59e8491d", "kind": "runtime-fix", "subject": "GPU maps: integrated GPUs create the IPC map types in host memory"},
+      {"sha": "788fdb88f80b68f620275f3e7f428ba40fe821b6", "kind": "diagnostic-runtime", "subject": "nv_attach: say at the default level what was patched and what was not"},
+      {"sha": "648fef28ea784e90d6338d3d4ca1c79bc358b382", "kind": "build-fix", "subject": "trampoline: build the shipped PTX from source, device code only"},
+      {"sha": "d670246b5733f603a844701492bb119a7d786140", "kind": "runtime-fix", "subject": "nv_attach: host calls carry each thread's arguments; GPU ringbuf keeps its records"},
+      {"sha": "c6f0a6b60c74f67d6f62856895df479be475e1fb", "kind": "test-fix", "subject": "test: the CUDA watcher test opens the segment the way the agent does"},
+      {"sha": "45743763463c474eae1563a458c97db863276741", "kind": "optimization", "subject": "nv_attach: one GPU stack frame without local calls; late path reads less"},
+      {"sha": "af4a1a8d094500043df8876e84d48e646c2638e9", "kind": "runtime-fix", "subject": "nv_attach: leave the application's environment and locale alone"},
+      {"sha": "0decdfabfa96b84efbf6355879e00a8aa9074103", "kind": "runtime-fix", "subject": "attach ctx: without a usable GPU only CUDA attach is off"}
     ],
     "cmake_args": ["-DBUILD_BPFTIME_DAEMON=ON"],
     "test_suites": [
@@ -275,7 +289,7 @@
       "simple-benchmark-with-embed-ebpf-calling",
       "bpftime_runtime_tests"
     ],
-    "test_filter": "[array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent,[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps][map_in_map],Test bpftime runtime_config,Allow external maps from the environment,Select Frida*,Test basic operations of external hash map ops,[perf_event],[epoll],[uid_gid],[shm_release],[jit_load],[helpers],[stack_trace],Test stack trace map*,[cgroup_array],[trace_printk],[ratelimit],get_stackid returns errors as negative 64-bit values,[cpu-bounds],[percpu-layout],[map-create],[ringbuf],[pid_tgid],[fork-handlers]"
+    "test_filter": "[array-lookup-cold],[percpu-array],[percpu-hash],[hash-fast4],[maps][hash],[bpftime_hash_map],test_arraymap_percpu*,Test basic operations of array map,Test basic operations of hash map,Test shm hash maps with sub process,Hash maps with colliding public names remain independent,[array-jit-lifetime],[array-jit-poc],[array-offset-branch],[allocation],[maps][map_in_map],Test bpftime runtime_config,Allow external maps from the environment,Select Frida*,Test basic operations of external hash map ops,[perf_event],[epoll],[uid_gid],[shm_release],[jit_load],[helpers],[stack_trace],Test stack trace map*,[cgroup_array],[trace_printk],[ratelimit],get_stackid returns errors as negative 64-bit values,[cpu-bounds],[percpu-layout],[map-create],[ringbuf],[pid_tgid],[fork-handlers],[syscall-server-exit]"
   },
   "benchmark": {
     "cpu": 5,

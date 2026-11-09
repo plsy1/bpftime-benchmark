@@ -522,6 +522,36 @@ programs and started in 39 ms, 312 ms with `BPFTIME_AOT_CACHE=0`). On x86 (NUC) 
 shows no new failure. Results: `uprobe/startup-20261108`,
 `uprobe/frida-detach-crash-20261108`.
 
+Fourteen commits accepted 2026-11-10 follow, the CUDA attach round on the
+Orin (results `gpu/fixes-20261109`), dev `e94e2c04` to `0decdfab`: a
+bpf-to-bpf call moves r10 by a whole frame (the callee's frame overlapped its
+caller's, the CPU JIT too); cmake finds CUDA 13's sbsa-linux layout; the
+syscall server passes calls made after its segment is gone to libc; and CUDA
+attach: patched fatbins loaded where cudart loads them (`cuLibraryLoadData`),
+their probes switched off at the last detach, the IPC map types in host
+memory on integrated GPUs, default-level messages, the trampoline PTX built
+from source, the host-call and GPU ringbuf protocol, one GPU stack frame
+without local calls, the late path's symbol and fatbin reads, no
+`setenv`/`setlocale` in the application, and an agent without a usable GPU
+keeping its CPU probes. Official 4708f409 has upstream #709 (the late path's
+rerun clears the previous module set), which conflicts with `acdd7a77`: the
+list names `811b841f`, that commit adapted onto 4708f409 (#709's call in the
+block acdd7a77 moves after `load_guard`); the other thirteen are the dev
+commits, which apply cleanly. The whole list replays onto 4708f409 from
+scratch with rerere off and gives candidate `c115b33d`'s tree.
+`[syscall-server-exit]` joins the focused filter (the frame test is in
+`[jit_load]`). The daily builds without CUDA, so it checks these commits' CPU
+side and that the CUDA code applies; the CUDA side was checked by hand on a
+CUDA build of c115b33d (nv attach tests, the CUDA runtime cases, the example
+matrix: 19/19 on the default path, 10/19 on the late path, where #709 fixes
+the two-probe cases). `test-candidate` on c115b33d: green on the second run
+(runtime 196 passed + 1 skipped, daemon, Frida 26, transformer 54 + 1
+expected failure, syscall trace 7, smoke funclatency 4,251,000/4,251,000,
+memleak 9, detach rc 0); on the first the smoke's funclatency counted 0
+because the tool took 4 s to set its probes up and the workload starts 3 s
+after the tool (not seen again in two more smoke runs, not explained).
+Results: `gpu/fixes-20261109/daily-list`.
+
 `get_stackid returns errors as negative 64-bit values` is in the focused
 filter; it does not exist on the official tree and matches nothing there. The
 clang lookup fix is checked by a configure script kept with the results
