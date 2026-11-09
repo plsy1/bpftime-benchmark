@@ -16,9 +16,14 @@ std::string get_default_trampoline_ptx()
 {
 	return TRAMPOLINE_PTX;
 }
+// Read at the start of every probe function (ptxpass_core
+// gate_probe_function); 0 turns the probes off.
+static const char PROBE_SWITCH_PTX[] =
+	"\n.visible .global .align 4 .u32 __bpftime_probes_enabled = 1;\n";
+
 std::string wrap_ptx_with_trampoline(std::string input)
 {
-	return get_default_trampoline_ptx() + input;
+	return get_default_trampoline_ptx() + PROBE_SWITCH_PTX + input;
 }
 
 std::string rewrite_ptx_target(std::string ptx,
@@ -62,7 +67,8 @@ std::string rewrite_ptx_target(std::string ptx,
 std::string wrap_ptx_with_trampoline_for_sm(std::string input,
 					    const std::string &sm_arch)
 {
-	return rewrite_ptx_target(get_default_trampoline_ptx(), sm_arch) + input;
+	return rewrite_ptx_target(get_default_trampoline_ptx(), sm_arch) +
+	       PROBE_SWITCH_PTX + input;
 }
 
 std::string patch_main_from_func_to_entry(std::string result)
