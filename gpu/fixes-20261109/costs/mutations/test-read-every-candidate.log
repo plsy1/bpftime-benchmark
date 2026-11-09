@@ -1,0 +1,31 @@
+Filters: [late-path]
+Randomness seeded to: 610195846
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_nv_attach_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+The late bootstrap reads each fatbin once
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/attach/nv_attach_impl/test/test_late_path.cpp:93
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/attach/nv_attach_impl/test/test_late_path.cpp:113: FAILED:
+  CHECK( nv_attach_impl::fatbins_to_read({ first, second, first }) == v{ first } )
+with expansion:
+  { 0x0000aaab1aad2ba0, 0x0000aaab1aad2bd0 }
+  ==
+  { 0x0000aaab1aad2ba0 }
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/attach/nv_attach_impl/test/test_late_path.cpp:115: FAILED:
+  CHECK( nv_attach_impl::fatbins_to_read({ second, first }) == v{ first } )
+with expansion:
+  { 0x0000aaab1aad2ba0, 0x0000aaab1aad2bd0 }
+  ==
+  { 0x0000aaab1aad2ba0 }
+
+===============================================================================
+test cases:  2 |  1 passed | 1 failed
+assertions: 16 | 14 passed | 2 failed
+

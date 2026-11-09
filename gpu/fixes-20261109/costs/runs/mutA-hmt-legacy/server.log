@@ -1,0 +1,441 @@
+libbpf: loading object 'host_map_test_bpf' from buffer
+libbpf: elf: section(2) .symtab, size 360, link 1, flags 0, type=2
+libbpf: elf: section(3) kprobe/_Z9vectorAddPKfS0_Pf, size 528, link 0, flags 6, type=1
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe' at insn offset 0 (0 bytes), code size 66 insns (528 bytes)
+libbpf: elf: section(4) kretprobe/_Z9vectorAddPKfS0_Pf, size 728, link 0, flags 6, type=1
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe' at insn offset 0 (0 bytes), code size 91 insns (728 bytes)
+libbpf: elf: section(5) .maps, size 96, link 0, flags 3, type=1
+libbpf: elf: section(6) .rodata.str1.1, size 90, link 0, flags 32, type=1
+libbpf: elf: section(7) license, size 4, link 0, flags 3, type=1
+libbpf: license of host_map_test_bpf is GPL
+libbpf: elf: section(8) .relkprobe/_Z9vectorAddPKfS0_Pf, size 48, link 2, flags 40, type=9
+libbpf: elf: section(9) .relkretprobe/_Z9vectorAddPKfS0_Pf, size 80, link 2, flags 40, type=9
+libbpf: elf: section(10) .BTF, size 2073, link 0, flags 0, type=1
+libbpf: elf: section(11) .BTF.ext, size 888, link 0, flags 0, type=1
+libbpf: looking for externs among 15 symbols...
+libbpf: collected 0 externs total
+[2026-11-09 09:32:37][info][397561] Setting BPFTIME_SHM_MEMORY_MB to: 64
+[2026-11-09 09:32:37][info][397561] Init bpftime syscall mocking..
+[2026-11-09 09:32:37][info][397561] The log will be written to: console
+[2026-11-09 09:32:37][info][397561] Starting syscall server..
+[2026-11-09 09:32:37][info][397561] Setting BPFTIME_SHM_MEMORY_MB to: 64
+[2026-11-09 09:32:37][info][397561] Initialize syscall server
+[2026-11-09 09:32:37][info][397561] Setting BPFTIME_SHM_MEMORY_MB to: 64
+[2026-11-09 09:32:37][info][397561] Global shm constructed. shm_open_type 4 for bpftime_gpu_mutA-hmt-legacy
+[2026-11-09 09:32:37][info][397561] Global shm initialized
+[2026-11-09 09:32:37][info][397561] Initializing CUDA at syscall-server side
+[2026-11-09 09:32:37][info][397561] CUDA initialized at syscall server side
+[2026-11-09 09:32:37][info][397561] bpftime-syscall-server started
+libbpf: map 'thread_timestamp': at sec_idx 5, offset 0.
+libbpf: map 'thread_timestamp': found type = 1512.
+libbpf: map 'thread_timestamp': found key [8], sz = 4.
+libbpf: map 'thread_timestamp': found value [12], sz = 8.
+libbpf: map 'thread_timestamp': found max_entries = 1.
+libbpf: map 'shared_counter': at sec_idx 5, offset 32.
+libbpf: map 'shared_counter': found type = 1513.
+libbpf: map 'shared_counter': found key [8], sz = 4.
+libbpf: map 'shared_counter': found value [12], sz = 8.
+libbpf: map 'shared_counter': found max_entries = 10.
+libbpf: map 'perthread_counter': at sec_idx 5, offset 64.
+libbpf: map 'perthread_counter': found type = 1512.
+libbpf: map 'perthread_counter': found key [8], sz = 4.
+libbpf: map 'perthread_counter': found value [12], sz = 8.
+libbpf: map 'perthread_counter': found max_entries = 10.
+libbpf: map '.rodata.str1.1' (global data): at sec_idx 6, offset 0, flags 80.
+libbpf: map 3 is ".rodata.str1.1"
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(3) 'kprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #15 against 'thread_timestamp'
+libbpf: prog 'cuda__probe': found map 0 (thread_timestamp, sec 5, off 0) for insn #15
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #24 against 'shared_counter'
+libbpf: prog 'cuda__probe': found map 1 (shared_counter, sec 5, off 32) for insn #24
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #37 against 'shared_counter'
+libbpf: prog 'cuda__probe': found map 1 (shared_counter, sec 5, off 32) for insn #37
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(4) 'kretprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #11 against 'thread_timestamp'
+libbpf: prog 'cuda__retprobe': found map 0 (thread_timestamp, sec 5, off 0) for insn #11
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #26 against 'perthread_counter'
+libbpf: prog 'cuda__retprobe': found map 2 (perthread_counter, sec 5, off 64) for insn #26
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #39 against 'perthread_counter'
+libbpf: prog 'cuda__retprobe': found map 2 (perthread_counter, sec 5, off 64) for insn #39
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #3: insn #50 against 'perthread_counter'
+libbpf: prog 'cuda__retprobe': found map 2 (perthread_counter, sec 5, off 64) for insn #50
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #4: insn #60 against 'perthread_counter'
+libbpf: prog 'cuda__retprobe': found map 2 (perthread_counter, sec 5, off 64) for insn #60
+libbpf: object 'host_map_test_b': failed (-EACCES) to open BPF FS mount at '/sys/fs/bpf', skipping optional step...
+libbpf: Kernel doesn't support BTF, skipping uploading it.
+[2026-11-09 09:32:37][info][397561] Map thread_timestam (nv_gpu_array_host_map_impl) has space for thread count 1024
+[2026-11-09 09:32:37][info][397561] Initializing map type of BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=1, thread_count=1024, total_buffer_size=8192
+[2026-11-09 09:32:37][info][397561] Allocated shared memory buffer at ffff70a9cb30
+libbpf: map 'thread_timestamp': created successfully, fd=3
+[2026-11-09 09:32:37][info][397561] Map shared_counter (nv_gpu_shared_array_host_map_impl) shared array
+[2026-11-09 09:32:37][info][397561] Initializing map type of BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=10, total_buffer_size=80
+[2026-11-09 09:32:37][info][397561] Allocated shared memory buffer at ffff70a9ec10
+libbpf: map 'shared_counter': created successfully, fd=13
+[2026-11-09 09:32:37][info][397561] Map perthread_count (nv_gpu_array_host_map_impl) has space for thread count 1024
+[2026-11-09 09:32:37][info][397561] Initializing map type of BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=10, thread_count=1024, total_buffer_size=81920
+[2026-11-09 09:32:37][info][397561] Allocated shared memory buffer at ffff70a9ed50
+libbpf: map 'perthread_counter': created successfully, fd=14
+libbpf: map '.rodata.str1.1': created successfully, fd=15
+[2026-11-09 09:32:37][info][397561] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+[2026-11-09 09:32:37][info][397561] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+Host Map Test - Testing GPU Host-backed Maps
+============================================
+
+Map types being tested:
+  - BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP (1513)
+      Shared storage in Host memory, all threads share same values
+  - BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP (1512)
+      Per-thread storage in Host memory, each thread has its own slot
+
+BPF program loaded and attached. Waiting for CUDA kernel events...
+Run vec_add with bpftime agent in another terminal.
+Press Ctrl-C to exit.
+
+09:32:38 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    (no data yet)
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    (no data yet)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 0 threads have timestamps
+09:32:39 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    (no data yet)
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    (no data yet)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 0 threads have timestamps
+09:32:40 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    (no data yet)
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    (no data yet)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 0 threads have timestamps
+09:32:41 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    (no data yet)
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    (no data yet)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 0 threads have timestamps
+09:32:42 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    (no data yet)
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    (no data yet)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 0 threads have timestamps
+09:32:43 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    (no data yet)
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    (no data yet)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 0 threads have timestamps
+09:32:44 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:45 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:46 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:47 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:48 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:49 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:50 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:51 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:52 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:53 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:54 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:55 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:56 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:57 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:58 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:59 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps
+09:32:59 
+  [shared_counter map (GPU_ARRAY_HOST_MAP)]
+    key=0  value: 6
+    key=1  value: 6
+    key=2  value: 6
+    key=3  value: 6
+    key=4  value: 6
+    key=5  value: 6
+    key=6  value: 6
+    key=7  value: 6
+    key=8  value: 6
+    key=9  value: 6
+  [perthread_counter map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0  (call_count): total=60 (from 10 threads)
+    key=1  (exec_time_ns): total=105143040 (from 10 threads)
+    key=2  (thread_id): total=45 (from 9 threads)
+  [thread_timestamp map (PERGPUTD_ARRAY_HOST_MAP)]
+    key=0: 10 threads have timestamps

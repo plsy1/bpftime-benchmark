@@ -1,0 +1,118 @@
+libbpf: loading object 'cuda_probe_bpf' from buffer
+libbpf: elf: section(2) .symtab, size 336, link 1, flags 0, type=2
+libbpf: elf: section(3) kprobe/_Z9vectorAddPKfS0_Pf, size 472, link 0, flags 6, type=1
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe' at insn offset 0 (0 bytes), code size 59 insns (472 bytes)
+libbpf: elf: section(4) kretprobe/_Z9vectorAddPKfS0_Pf, size 520, link 0, flags 6, type=1
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe' at insn offset 0 (0 bytes), code size 65 insns (520 bytes)
+libbpf: elf: section(5) .maps, size 96, link 0, flags 3, type=1
+libbpf: elf: section(6) license, size 4, link 0, flags 3, type=1
+libbpf: license of cuda_probe_bpf is GPL
+libbpf: elf: section(7) .relkprobe/_Z9vectorAddPKfS0_Pf, size 48, link 2, flags 40, type=9
+libbpf: elf: section(8) .relkretprobe/_Z9vectorAddPKfS0_Pf, size 64, link 2, flags 40, type=9
+libbpf: elf: section(9) .BTF, size 1611, link 0, flags 0, type=1
+libbpf: elf: section(10) .BTF.ext, size 856, link 0, flags 0, type=1
+libbpf: looking for externs among 14 symbols...
+libbpf: collected 0 externs total
+[2026-11-09 22:22:10][info][487209] Setting BPFTIME_SHM_MEMORY_MB to: 64
+[2026-11-09 22:22:10][info][487209] Init bpftime syscall mocking..
+[2026-11-09 22:22:10][info][487209] The log will be written to: console
+[2026-11-09 22:22:10][info][487209] Starting syscall server..
+[2026-11-09 22:22:10][info][487209] Setting BPFTIME_SHM_MEMORY_MB to: 64
+[2026-11-09 22:22:10][info][487209] Initialize syscall server
+[2026-11-09 22:22:10][info][487209] Setting BPFTIME_SHM_MEMORY_MB to: 64
+[2026-11-09 22:22:10][info][487209] Global shm constructed. shm_open_type 4 for bpftime_gpu_wu-late-cg-legacy
+[2026-11-09 22:22:10][info][487209] Global shm initialized
+[2026-11-09 22:22:10][info][487209] Initializing CUDA at syscall-server side
+[2026-11-09 22:22:10][info][487209] CUDA initialized at syscall server side (integrated GPU: no CUDA IPC)
+[2026-11-09 22:22:10][info][487209] bpftime-syscall-server started
+libbpf: map 'start_ts': at sec_idx 5, offset 0.
+libbpf: map 'start_ts': found type = 1.
+libbpf: map 'start_ts': found key [8], sz = 4.
+libbpf: map 'start_ts': found value [12], sz = 8.
+libbpf: map 'start_ts': found max_entries = 1024.
+libbpf: map 'call_count': at sec_idx 5, offset 32.
+libbpf: map 'call_count': found type = 1.
+libbpf: map 'call_count': found key [8], sz = 4.
+libbpf: map 'call_count': found value [12], sz = 8.
+libbpf: map 'call_count': found max_entries = 1024.
+libbpf: map 'total_time_ns': at sec_idx 5, offset 64.
+libbpf: map 'total_time_ns': found type = 1.
+libbpf: map 'total_time_ns': found key [8], sz = 4.
+libbpf: map 'total_time_ns': found value [12], sz = 8.
+libbpf: map 'total_time_ns': found max_entries = 1024.
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(3) 'kprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #35 against 'start_ts'
+libbpf: prog 'cuda__probe': found map 0 (start_ts, sec 5, off 0) for insn #35
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #40 against 'call_count'
+libbpf: prog 'cuda__probe': found map 1 (call_count, sec 5, off 32) for insn #40
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #53 against 'call_count'
+libbpf: prog 'cuda__probe': found map 1 (call_count, sec 5, off 32) for insn #53
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(4) 'kretprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #31 against 'start_ts'
+libbpf: prog 'cuda__retprobe': found map 0 (start_ts, sec 5, off 0) for insn #31
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #41 against 'start_ts'
+libbpf: prog 'cuda__retprobe': found map 0 (start_ts, sec 5, off 0) for insn #41
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #46 against 'total_time_ns'
+libbpf: prog 'cuda__retprobe': found map 2 (total_time_ns, sec 5, off 64) for insn #46
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #3: insn #59 against 'total_time_ns'
+libbpf: prog 'cuda__retprobe': found map 2 (total_time_ns, sec 5, off 64) for insn #59
+libbpf: object 'cuda_probe_bpf': failed (-EACCES) to open BPF FS mount at '/sys/fs/bpf', skipping optional step...
+libbpf: Kernel doesn't support BTF, skipping uploading it.
+libbpf: map 'start_ts': created successfully, fd=3
+libbpf: map 'call_count': created successfully, fd=13
+libbpf: map 'total_time_ns': created successfully, fd=14
+[2026-11-09 22:22:10][info][487209] Using specialized hash lookup helper for program cuda__probe
+[2026-11-09 22:22:10][info][487209] Using specialized hash update helper for program cuda__probe
+[2026-11-09 22:22:10][info][487209] Using specialized hash lookup helper for program cuda__retprobe
+[2026-11-09 22:22:10][info][487209] Using specialized hash update helper for program cuda__retprobe
+[2026-11-09 22:22:10][info][487209] Using specialized hash delete helper for program cuda__retprobe
+[2026-11-09 22:22:10][info][487209] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+[2026-11-09 22:22:10][info][487209] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+22:22:11 
+22:22:12 
+22:22:13 
+22:22:14 
+22:22:15 
+	pid=487240 	calls: 2
+22:22:16 
+	pid=487240 	calls: 3
+22:22:17 
+	pid=487240 	calls: 4
+22:22:18 
+	pid=487240 	calls: 5
+22:22:19 
+	pid=487240 	calls: 6
+22:22:20 
+	pid=487240 	calls: 6
+22:22:21 
+	pid=487240 	calls: 6
+22:22:22 
+	pid=487240 	calls: 6
+22:22:23 
+	pid=487240 	calls: 6
+22:22:24 
+	pid=487240 	calls: 6
+22:22:25 
+	pid=487240 	calls: 6
+22:22:26 
+	pid=487240 	calls: 6
+22:22:27 
+	pid=487240 	calls: 6
+22:22:28 
+	pid=487240 	calls: 6
+22:22:29 
+	pid=487240 	calls: 6
+22:22:30 
+	pid=487240 	calls: 6
+22:22:31 
+	pid=487240 	calls: 6
+22:22:32 
+	pid=487240 	calls: 6
+22:22:33 
+	pid=487240 	calls: 6
+22:22:34 
+	pid=487240 	calls: 6
+22:22:35 
+	pid=487240 	calls: 6
+22:22:36 
+	pid=487240 	calls: 6
