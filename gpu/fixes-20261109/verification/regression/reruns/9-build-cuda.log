@@ -1,0 +1,38 @@
+[2026-11-10 06:19:29.527] [info] [bpf_attach_ctx.cpp:301] bpf_attach_ctx constructed
+[2026-11-10 06:19:29.528] [info] [bpf_attach_ctx_cuda.cpp:387] Initializing CUDA shared memory
+[2026-11-10 06:19:29.528] [error] [bpf_attach_ctx_cuda.cpp:391] CUDA shared communication memory not initialized in shared segment
+[2026-11-10 06:19:29.528] [warning] [bpf_attach_ctx.cpp:307] CUDA shared communication memory not available; CUDA attach will be disabled for this process
+Filters: "Bound programs' AOT objects use the maps of the process running them"
+Randomness seeded to: 1451509981
+[2026-11-10 06:19:29.560] [info] [bpftime_shm_internal.cpp:1201] Global shm constructed. shm_open_type 0 for bpftime-aot-cache-574738
+[2026-11-10 06:19:29.560] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+[2026-11-10 06:19:29.561] [info] [bpf_attach_ctx.cpp:509] Using specialized array lookup helper for program bound
+[2026-11-10 06:19:29.561] [info] [bpftime_prog.cpp:380] [array-jit-inline] program=bound retained 1 maps and 1 global data maps
+[2026-11-10 06:19:29.566] [info] [llvm_jit_context_array_inline.cpp:661] [array-jit-inline] inlined 1 lookup sites; invalid keys retain helper fallback
+[2026-11-10 06:19:29.804] [info] [bpf_attach_ctx.cpp:301] bpf_attach_ctx constructed
+[2026-11-10 06:19:29.804] [info] [bpf_attach_ctx_cuda.cpp:387] Initializing CUDA shared memory
+[2026-11-10 06:19:29.804] [error] [bpf_attach_ctx_cuda.cpp:419] cuMemHostGetDevicePointer failed for CommSharedMem: 3
+[2026-11-10 06:19:29.824] [warning] [bpftime_shm_internal.cpp:1042] NOT creating global shm. This is only for testing purpose.
+[2026-11-10 06:19:29.824] [info] [bpftime_shm_internal.cpp:1201] Global shm constructed. shm_open_type 2 for bpftime-aot-cache-574738
+[2026-11-10 06:19:29.824] [info] [bpftime_shm_internal.cpp:62] Global shm initialized
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_runtime_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+Bound programs' AOT objects use the maps of the process running them
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/test_aot_cache.cpp:292
+...............................................................................
+
+/home/jetson/src/bpftime-daily-state/worktrees/177a1dc465ff/candidate/runtime/unit-test/test_aot_cache.cpp:292: FAILED:
+  {Unknown expression after the reported line}
+due to unexpected exception with message:
+  Unable to get device pointer for CommSharedMem
+
+===============================================================================
+test cases:  1 |  0 passed | 1 failed
+assertions: 20 | 19 passed | 1 failed
+
+[2026-11-10 06:19:29.824] [info] [bpf_attach_ctx.cpp:289] Destructor: bpf_attach_ctx

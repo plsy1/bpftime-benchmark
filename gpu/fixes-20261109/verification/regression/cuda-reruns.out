@@ -1,0 +1,31 @@
+build-cuda        rc=5   Typed hash helpers serve hash maps next to arrays and global data | test cases:  1 |  0 passed | 1 failed
+build-probecheck  rc=0   Typed hash helpers serve hash maps next to arrays and global data | All tests passed (59 assertions in 1 test case)
+build-cuda        rc=2   Typed hash delete helper serves hash maps in plain and bound programs | test cases:  1 |  0 passed | 1 failed
+build-probecheck  rc=0   Typed hash delete helper serves hash maps in plain and bound programs | All tests passed (42 assertions in 1 test case)
+build-cuda        rc=0   Test shm progs attach | All tests passed (8 assertions in 1 test case)
+build-probecheck  rc=0   Test shm progs attach | All tests passed (8 assertions in 1 test case)
+build-cuda        rc=0   Test shm hash maps with sub process | All tests passed (304 assertions in 1 test case)
+build-probecheck  rc=0   Test shm hash maps with sub process | All tests passed (304 assertions in 1 test case)
+build-cuda        rc=0   Test bpftime shm json import/export | All tests passed (7 assertions in 1 test case)
+build-probecheck  rc=0   Test bpftime shm json import/export | All tests passed (7 assertions in 1 test case)
+build-cuda        rc=0   Test basic operations of external hash map ops | All tests passed (102 assertions in 1 test case)
+build-probecheck  rc=0   Test basic operations of external hash map ops | All tests passed (102 assertions in 1 test case)
+build-cuda        rc=1   Syscall server keeps shared memory while a peer server pid is alive | test cases: 1 | 1 failed
+build-probecheck  rc=1   Syscall server keeps shared memory while a peer server pid is alive | test cases: 1 | 1 failed
+build-cuda        rc=1   Syscall server keeps shared memory while an agent pid is alive | test cases: 1 | 1 failed
+build-probecheck  rc=1   Syscall server keeps shared memory while an agent pid is alive | test cases: 1 | 1 failed
+build-cuda        rc=1   Bound programs' AOT objects use the maps of the process running them | test cases:  1 |  0 passed | 1 failed
+build-probecheck  rc=0   Bound programs' AOT objects use the maps of the process running them | All tests passed (30 assertions in 1 test case)
+build-cuda        rc=0   A helper error on every call logs at 1, 10, 100, 1000 | All tests passed (1003 assertions in 1 test case)
+build-probecheck  rc=0   A helper error on every call logs at 1, 10, 100, 1000 | All tests passed (1003 assertions in 1 test case)
+build-cuda        rc=1   Agents link the AOT object the server compiled for a program | test cases:  1 |  0 passed | 1 failed
+build-probecheck  rc=0   Agents link the AOT object the server compiled for a program | All tests passed (19 assertions in 1 test case)
+build-cuda        rc=1   Test tail calling from userspace to kernel | test cases: 1 | 1 failed
+build-probecheck  rc=1   Test tail calling from userspace to kernel | test cases: 1 | 1 failed
+# The two "Syscall server keeps shared memory ..." cases again without BPFTIME_LOG_OUTPUT=console
+# (the script exports it, and their helper's console log is the output they require empty; each.sh
+# runs them through sudo, which drops it): env -u BPFTIME_LOG_OUTPUT, each alone, 06:20
+build-cuda rc=0 Syscall server keeps shared memory while a peer server pid is alive | All tests passed (9 assertions in 1 test case)
+build-cuda rc=0 Syscall server keeps shared memory while an agent pid is alive | All tests passed (9 assertions in 1 test case)
+build-probecheck rc=0 Syscall server keeps shared memory while a peer server pid is alive | All tests passed (9 assertions in 1 test case)
+build-probecheck rc=0 Syscall server keeps shared memory while an agent pid is alive | All tests passed (9 assertions in 1 test case)
