@@ -54,7 +54,9 @@ struct CUDAContext {
 	// Mapped device pointer
 	uintptr_t cuda_shared_mem_device_pointer;
 
-	CUDAContext(cuda::CommSharedMem *mem);
+	// device_pointer: mem's address for the GPU (create_cuda_context
+	// obtains it first and makes no context without one).
+	CUDAContext(cuda::CommSharedMem *mem, uintptr_t device_pointer);
 
 	CUDAContext(CUDAContext &&) = default;
 	CUDAContext &operator=(CUDAContext &&) = default;
@@ -64,6 +66,9 @@ struct CUDAContext {
 	virtual ~CUDAContext();
 };
 
+// Empty when this process has no CUDA attach: CommSharedMem is missing from
+// the segment or has no device address (no usable GPU, or the segment was not
+// registered with CUDA). The attach context then runs without it.
 std::optional<std::unique_ptr<cuda::CUDAContext>> create_cuda_context();
 
 // The address a GPU thread uses for a map value the host found: device and

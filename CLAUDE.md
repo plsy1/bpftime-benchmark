@@ -2244,8 +2244,19 @@ The agent runs inside the application and shares its libc under
   patched function, which the hook passes through without recording again
   (each launch used to create and destroy two events, one recorded before
   the kernel was queued).
+- Without a usable GPU (cuInit fails, as with `CUDA_VISIBLE_DEVICES=`
+  empty, or the segment was not registered with CUDA) `create_cuda_context`
+  returns nothing and the attach context comes up without CUDA attach; it
+  leaves `CommSharedMem` alone (another process's GPU may have a request in
+  it). `CUDAContext` threw out of `bpf_attach_ctx`'s constructor there, and
+  the agent's catch-all disabled the whole agent: funclatency under a CUDA
+  build with no visible device counted 0 calls (results
+  `gpu/fixes-20261109/verification`). Any new CUDA set-up in the agent must
+  fail the same way, CUDA attach only.
 Tests: `[sm-arch]` (the failure case in a child without visible devices),
-`[ptx-compiler]`, `[ptx-work-dir]` (bpftime_nv_attach_tests).
+`[ptx-compiler]`, `[ptx-work-dir]` (bpftime_nv_attach_tests);
+`[cuda-no-device]` (bpftime_runtime_tests, a child without visible devices
+runs a CPU program).
 
 ## Map Usage Counters
 
