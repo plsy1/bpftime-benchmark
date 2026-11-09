@@ -100,7 +100,7 @@ TEST_CASE("CUDA watcher stops before shared-memory teardown")
 	REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) == 0);
 	// The syscall server creates the segment; the agent opens it and
 	// registers it with CUDA, which CUDAContext needs (opened only on the
-	// server side, the segment is not registered and the context throws).
+	// server side, the segment is not registered and no context is made).
 	bpftime_initialize_global_shm(shm_open_type::SHM_REMOVE_AND_CREATE);
 	bpftime_destroy_global_shm();
 	bpftime_initialize_global_shm(shm_open_type::SHM_OPEN_ONLY);

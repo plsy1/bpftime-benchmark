@@ -392,10 +392,30 @@ std::optional<std::unique_ptr<cuda::CUDAContext>> create_cuda_context()
 			"CUDA shared communication memory not initialized in shared segment");
 		return std::nullopt;
 	}
+	// The GPU reaches CommSharedMem through the segment's registration
+	// (register_cuda_host_memory, in agents). Without a device address (no
+	// usable GPU: cuInit failed; a process that did not register the
+	// segment) this process has no CUDA attach, and only that: the attach
+	// context must still come up for the other probes. It used to throw
+	// here, out of bpf_attach_ctx's constructor, and the agent disabled
+	// itself (CPU probes included). Driver API: a runtime call would
+	// initialize the application's shared cudart before the probes are
+	// known (see register_cuda_host_memory).
+	CUdeviceptr device_addr = 0;
+	if (auto err = cuMemHostGetDevicePointer(
+		    &device_addr, (void *)cuda_shared_mem, 0);
+	    err != CUDA_SUCCESS) {
+		SPDLOG_WARN(
+			"CommSharedMem has no device address (cuMemHostGetDevicePointer: {})",
+			(int)err);
+		return std::nullopt;
+	}
+	// Only now: the request slot is shared with the processes that can
+	// use it.
 	memset(cuda_shared_mem, 0, sizeof(*cuda_shared_mem));
 
-	auto cuda_ctx = std::make_optional(
-		std::make_unique<cuda::CUDAContext>(cuda_shared_mem));
+	auto cuda_ctx = std::make_optional(std::make_unique<cuda::CUDAContext>(
+		cuda_shared_mem, static_cast<uintptr_t>(device_addr)));
 
 	SPDLOG_INFO("CUDA context created");
 	return cuda_ctx;
@@ -404,30 +424,14 @@ CUDAContext::~CUDAContext()
 {
 	SPDLOG_INFO("Destructing CUDAContext");
 }
-CUDAContext::CUDAContext(cuda::CommSharedMem *mem)
-	: cuda_shared_mem(mem), cuda_shared_mem_device_pointer(0)
+CUDAContext::CUDAContext(cuda::CommSharedMem *mem, uintptr_t device_pointer)
+	: cuda_shared_mem(mem), cuda_shared_mem_device_pointer(device_pointer)
 
 {
-	// Move CommSharedMem from the agent’s local memory to shared memory to
-	// improve performance.
-	// Driver API: a runtime call would initialize the application's shared
-	// cudart before the probes are known (see register_cuda_host_memory).
-	CUdeviceptr device_addr = 0;
-	auto err = cuMemHostGetDevicePointer(&device_addr,
-					     (void *)cuda_shared_mem, 0);
-	if (err != CUDA_SUCCESS) {
-		SPDLOG_ERROR(
-			"cuMemHostGetDevicePointer failed for CommSharedMem: {}",
-			(int)err);
-		throw std::runtime_error(
-			"Unable to get device pointer for CommSharedMem");
-	}
-	void *device_ptr = reinterpret_cast<void *>(device_addr);
-	cuda_shared_mem_device_pointer =
-		reinterpret_cast<uintptr_t>(device_ptr);
 	set_cuda_shared_mem_device_pointer(cuda_shared_mem_device_pointer);
 	SPDLOG_INFO("CommSharedMem host {:p} mapped to device {:p}",
-		    (void *)cuda_shared_mem, device_ptr);
+		    (void *)cuda_shared_mem,
+		    reinterpret_cast<void *>(cuda_shared_mem_device_pointer));
 }
 
 } // namespace cuda
