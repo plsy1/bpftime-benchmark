@@ -1,5 +1,7 @@
 #include "catch2/catch_test_macros.hpp"
 #include "nv_attach_impl.hpp"
+#include "ptxpass/core.hpp"
+#include <vector>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -59,4 +61,31 @@ TEST_CASE("The patched PTX for the device's architecture is chosen",
 	};
 	REQUIRE_FALSE(
 		nv_attach_impl::pick_patched_ptx(unprobed, 87).has_value());
+}
+
+// A patched image cannot be unloaded, so the last detach switches its probes
+// off (__bpftime_probes_enabled = 0): every probe function starts with the
+// check, and the switch is declared beside the trampoline.
+TEST_CASE("Probe functions start with the probe switch", "[load-substitution]")
+{
+	// r0 = 0; exit
+	const std::vector<uint64_t> words = { 0x00000000000000b7ULL,
+					      0x0000000000000095ULL };
+	auto ptx = ptxpass::compile_ebpf_to_ptx_from_words(
+		words, "sm_61", "__probe_func__k", false, false);
+	auto header = ptx.find(".func __probe_func__k(");
+	REQUIRE(header != std::string::npos);
+	auto body = ptx.find('{', header);
+	REQUIRE(body != std::string::npos);
+	auto check = ptx.find("[__bpftime_probes_enabled]", body);
+	REQUIRE(check != std::string::npos);
+	// before any instruction of the program
+	REQUIRE(ptx.find("ret;", body) > check);
+	REQUIRE(ptx.find("@%bpftime_off ret;", body) != std::string::npos);
+	REQUIRE_THROWS(ptxpass::gate_probe_function(ptx, "__no_such_func"));
+
+	auto wrapped = wrap_ptx_with_trampoline(ptx);
+	REQUIRE(wrapped.find(".visible .global .align 4 .u32 "
+			     "__bpftime_probes_enabled = 1;") <
+		wrapped.find(".func __probe_func__k("));
 }
