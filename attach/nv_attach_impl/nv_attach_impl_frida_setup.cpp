@@ -16,6 +16,7 @@
 #include <optional>
 #include <vector>
 #include "nv_attach_impl.hpp"
+#include "bpftime_ratelimited_log.hpp"
 #include <stdexcept>
 using namespace bpftime;
 using namespace attach;
@@ -233,12 +234,12 @@ cuda_launch_kernel_common(nv_attach_impl *impl, void *original_fn_ptr,
 			impl->record_patched_launch(stream);
 			return cudaSuccess;
 		}
-		SPDLOG_DEBUG(
-			"Late attach launch: resolved {} but no patched CUfunction is registered",
+		BPFTIME_LOG_WARN_RATELIMITED(
+			"nv_attach_impl: late path: a launch of {} found no patched kernel; it runs unpatched",
 			name->c_str());
 	} else {
-		SPDLOG_DEBUG(
-			"Late attach launch: unable to resolve host function {:x}",
+		BPFTIME_LOG_WARN_RATELIMITED(
+			"nv_attach_impl: late path: a launch of {:x} could not be named (a CUDA 13 kernel handle or a stripped binary); it runs unpatched",
 			(uintptr_t)func);
 	}
 
@@ -548,6 +549,10 @@ static CUresult cu_launch_kernel_common(
 			impl->record_patched_launch(
 				reinterpret_cast<cudaStream_t>(stream));
 		}
+	} else {
+		BPFTIME_LOG_WARN_RATELIMITED(
+			"nv_attach_impl: late path: a cuLaunchKernel of {:x} could not be named (a CUDA 13 kernel handle); it runs unpatched",
+			(uintptr_t)func);
 	}
 	return original(func, grid_dim_x, grid_dim_y, grid_dim_z, block_dim_x,
 			block_dim_y, block_dim_z, shared_mem_bytes, stream,

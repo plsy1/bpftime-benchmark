@@ -1708,7 +1708,8 @@ void *bpf_map_handler::get_gpu_map_extra_buffer() const
 	}
 #endif
 
-	SPDLOG_WARN("Not a GPU map!");
+	// CPU maps (a printk format array) are asked too: not a warning.
+	SPDLOG_DEBUG("Not a GPU map!");
 	return nullptr;
 }
 int bpftime_register_map_ops(int map_type, bpftime_map_ops *ops)
