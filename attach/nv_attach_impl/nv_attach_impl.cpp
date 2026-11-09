@@ -1696,35 +1696,6 @@ collect_ptx_entry_functions(const std::map<std::string, std::string> &all_ptx)
 	return std::vector<std::string>(entries.begin(), entries.end());
 }
 
-void nv_attach_impl::build_host_symbol_cache_once()
-{
-	std::call_once(host_symbol_cache_once, [&]() {
-		std::lock_guard<std::mutex> guard(host_symbol_cache_mutex);
-		host_symbol_ranges.clear();
-
-		auto modules = elf_introspect::list_loaded_modules();
-		for (const auto &mod : modules) {
-			auto syms = elf_introspect::read_function_symbols(mod);
-			for (auto &sym : syms) {
-				if (sym.name.empty() || sym.start == 0)
-					continue;
-				host_symbol_ranges.push_back(host_symbol_range{
-					.start = sym.start,
-					.end = sym.end,
-					.name = std::move(sym.name) });
-			}
-		}
-		std::sort(host_symbol_ranges.begin(), host_symbol_ranges.end(),
-			  [](const auto &a, const auto &b) {
-				  return a.start < b.start;
-			  });
-		if (!host_symbol_ranges.empty()) {
-			SPDLOG_INFO("nv_attach_impl: cached {} host symbols",
-				    host_symbol_ranges.size());
-		}
-	});
-}
-
 std::optional<std::string>
 nv_attach_impl::resolve_host_function_symbol(void *addr)
 {
@@ -1749,23 +1720,9 @@ nv_attach_impl::resolve_host_function_symbol(void *addr)
 		return normalize_cuda_stub(std::string(info.dli_sname));
 	}
 
-	build_host_symbol_cache_once();
-	std::lock_guard<std::mutex> guard(host_symbol_cache_mutex);
-	if (host_symbol_ranges.empty())
-		return std::nullopt;
-
-	const std::uintptr_t needle = (std::uintptr_t)addr;
-	auto it = std::upper_bound(
-		host_symbol_ranges.begin(), host_symbol_ranges.end(), needle,
-		[](std::uintptr_t v, const auto &p) { return v < p.start; });
-	if (it == host_symbol_ranges.begin())
-		return std::nullopt;
-	--it;
-	if (it->end > it->start) {
-		if (needle >= it->end)
-			return std::nullopt;
-	}
-	return normalize_cuda_stub(it->name);
+	if (auto name = host_symbols.resolve((std::uintptr_t)addr); name)
+		return normalize_cuda_stub(*name);
+	return std::nullopt;
 }
 
 void nv_attach_impl::prefill_patched_kernel_functions_from_loaded_fatbins()
@@ -1862,13 +1819,14 @@ static bool is_mapped_address(const void *p)
 #endif
 }
 
-static std::optional<std::vector<uint8_t>>
-read_fatbin_bytes_from_ptr(const void *ptr)
+// Bytes from ptr to the end of the run of fatbins that starts there; 0 when
+// ptr holds no fatbin.
+static std::size_t fatbin_run_size(const void *ptr)
 {
 	if (ptr == nullptr)
-		return std::nullopt;
+		return 0;
 	if (!is_mapped_address(ptr))
-		return std::nullopt;
+		return 0;
 	const auto *data = reinterpret_cast<const char *>(ptr);
 	auto *curr_header = (fat_elf_header_t *)data;
 	const char *tail = reinterpret_cast<const char *>(curr_header);
@@ -1888,21 +1846,20 @@ read_fatbin_bytes_from_ptr(const void *ptr)
 			break;
 		}
 	}
-	if (tail <= data)
-		return std::nullopt;
-	const std::size_t size = (std::size_t)(tail - data);
-	constexpr std::size_t kMaxFatbinBytes = 512ull * 1024ull * 1024ull;
-	if (size == 0 || size > kMaxFatbinBytes)
-		return std::nullopt;
-	return std::vector<uint8_t>((const uint8_t *)data,
-				    (const uint8_t *)tail);
+	return tail > data ? (std::size_t)(tail - data) : 0;
 }
 
 static std::optional<std::vector<uint8_t>>
-read_fatbin_bytes_from_wrapper(const __fatBinC_Wrapper_t &wrapper)
+read_fatbin_bytes_from_ptr(const void *ptr)
 {
-	return read_fatbin_bytes_from_ptr(wrapper.data);
+	const std::size_t size = fatbin_run_size(ptr);
+	constexpr std::size_t kMaxFatbinBytes = 512ull * 1024ull * 1024ull;
+	if (size == 0 || size > kMaxFatbinBytes)
+		return std::nullopt;
+	const auto *data = reinterpret_cast<const uint8_t *>(ptr);
+	return std::vector<uint8_t>(data, data + size);
 }
+
 } // namespace
 
 bool nv_attach_impl::try_loading_or_log(fatbin_record &rec,
@@ -1919,6 +1876,69 @@ bool nv_attach_impl::try_loading_or_log(fatbin_record &rec,
 	return false;
 }
 
+std::vector<const void *>
+nv_attach_impl::fatbins_to_read(std::vector<const void *> candidates)
+{
+	std::sort(candidates.begin(), candidates.end(),
+		  std::less<const void *>());
+	candidates.erase(std::unique(candidates.begin(), candidates.end()),
+			 candidates.end());
+	std::vector<const void *> out;
+	// Starts ascend, so an address is inside an earlier read exactly
+	// when it is below the furthest end so far.
+	const char *read_end = nullptr;
+	for (const void *candidate : candidates) {
+		const auto *start = static_cast<const char *>(candidate);
+		if (start == nullptr || (read_end != nullptr && start < read_end))
+			continue;
+		const std::size_t size = fatbin_run_size(candidate);
+		if (size == 0)
+			continue;
+		out.push_back(candidate);
+		read_end = std::max(read_end, start + size);
+	}
+	return out;
+}
+
+bool nv_attach_impl::fatbin_has_ptx(const std::vector<uint8_t> &bytes)
+{
+	// fatbin: u32 magic, u16 version, u16 header size, u64 size of the
+	// entries; entry: u16 kind (1 PTX, 2 ELF), u16 version, u32 header
+	// size, u64 payload size
+	const auto read = [&](std::size_t off, auto &value) {
+		memcpy(&value, bytes.data() + off, sizeof(value));
+	};
+	std::size_t off = 0;
+	while (off + 16 <= bytes.size()) {
+		uint32_t magic;
+		uint16_t header_size;
+		uint64_t size;
+		read(off, magic);
+		read(off + 6, header_size);
+		read(off + 8, size);
+		if (magic != 0xBA55ED50 || header_size < 16 ||
+		    size > bytes.size() - off - header_size)
+			return true;
+		const std::size_t end = off + header_size + size;
+		for (std::size_t entry = off + header_size; entry + 16 <= end;) {
+			uint16_t kind;
+			uint32_t entry_header_size;
+			uint64_t entry_size;
+			read(entry, kind);
+			read(entry + 4, entry_header_size);
+			read(entry + 8, entry_size);
+			if (kind == 1)
+				return true;
+			if (entry_header_size == 0 ||
+			    entry_size > end - entry - entry_header_size)
+				return true;
+			entry += entry_header_size + entry_size;
+		}
+		off = end;
+	}
+	return false;
+}
+
 void nv_attach_impl::bootstrap_existing_fatbins()
 {
 	SPDLOG_INFO("nv_attach_impl: late attach bootstrap scanning fatbins..");
@@ -1928,36 +1948,15 @@ void nv_attach_impl::bootstrap_existing_fatbins()
 	for (const auto &mod : modules) {
 		// CUDA binaries may expose fatbin bytes either directly in
 		// `.nv_fatbin` (raw fatbin header 0xBA55ED50...) or as a list
-		// of wrappers inside `.nvFatBinSegment` (magic 'FbC1').
+		// of wrappers inside `.nvFatBinSegment` (magic 'FbC1'), whose
+		// data usually point into `.nv_fatbin`: each fatbin is read
+		// (and cuobjdump run on it) once.
+		std::vector<const void *> candidates;
 		if (auto sec = elf_introspect::find_section_in_memory(
 			    mod, ".nv_fatbin");
 		    sec) {
-			auto [sec_addr, sec_size] = *sec;
-			(void)sec_size;
-			if (auto bytes = read_fatbin_bytes_from_ptr(sec_addr);
-			    bytes) {
-				auto extracted_ptx =
-					extract_ptxs(std::move(*bytes));
-				if (!extracted_ptx.empty()) {
-					auto rec =
-						std::make_unique<fatbin_record>();
-					rec->original_ptx =
-						std::move(extracted_ptx);
-					rec->module_pool = module_pool;
-					rec->ptx_pool = ptx_pool;
-					if (try_loading_or_log(*rec,
-							       mod.path.c_str())) {
-						fatbin_records.emplace_back(
-							std::move(rec));
-						ingested++;
-						SPDLOG_INFO(
-							"nv_attach_impl: ingested fatbin from .nv_fatbin in {}",
-							mod.path.c_str());
-					}
-				}
-			}
+			candidates.push_back(sec->first);
 		}
-
 		if (auto sec = elf_introspect::find_section_in_memory(
 			    mod, ".nvFatBinSegment");
 		    sec) {
@@ -1970,25 +1969,34 @@ void nv_attach_impl::bootstrap_existing_fatbins()
 					wrappers.size(), mod.path.c_str());
 			}
 			for (const auto *w : wrappers) {
-				if (w == nullptr)
-					continue;
-				auto bytes = read_fatbin_bytes_from_wrapper(*w);
-				if (!bytes)
-					continue;
-				auto extracted_ptx =
-					extract_ptxs(std::move(*bytes));
-				if (extracted_ptx.empty())
-					continue;
-
-				auto rec = std::make_unique<fatbin_record>();
-				rec->original_ptx = std::move(extracted_ptx);
-				rec->module_pool = module_pool;
-				rec->ptx_pool = ptx_pool;
-				if (!try_loading_or_log(*rec, mod.path.c_str()))
-					continue;
-				fatbin_records.emplace_back(std::move(rec));
-				ingested++;
+				if (w != nullptr)
+					candidates.push_back(w->data);
 			}
+		}
+		for (const void *start : fatbins_to_read(std::move(candidates))) {
+			auto bytes = read_fatbin_bytes_from_ptr(start);
+			if (!bytes)
+				continue;
+			if (!fatbin_has_ptx(*bytes)) {
+				SPDLOG_DEBUG(
+					"nv_attach_impl: fatbin at {:p} in {} has no PTX",
+					start, mod.path.c_str());
+				continue;
+			}
+			auto extracted_ptx = extract_ptxs(std::move(*bytes));
+			if (extracted_ptx.empty())
+				continue;
+
+			auto rec = std::make_unique<fatbin_record>();
+			rec->original_ptx = std::move(extracted_ptx);
+			rec->module_pool = module_pool;
+			rec->ptx_pool = ptx_pool;
+			if (!try_loading_or_log(*rec, mod.path.c_str()))
+				continue;
+			fatbin_records.emplace_back(std::move(rec));
+			ingested++;
+			SPDLOG_INFO("nv_attach_impl: ingested fatbin at {:p} in {}",
+				    start, mod.path.c_str());
 		}
 	}
 
@@ -2044,7 +2052,6 @@ void nv_attach_impl::bootstrap_existing_fatbins_once()
 			std::lock_guard<std::mutex> load_guard(
 				load_substitution_mutex);
 			ensure_cuda_context_for_current_thread();
-			build_host_symbol_cache_once();
 			bootstrap_existing_fatbins();
 		});
 		ok = true;
