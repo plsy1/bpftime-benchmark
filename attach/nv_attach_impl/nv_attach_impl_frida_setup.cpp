@@ -251,6 +251,13 @@ static void listener_on_enter_unguarded(GumInvocationListener *listener,
 	auto gum_ctx = gum_interceptor_get_current_invocation();
 	auto context =
 		GUM_IC_GET_FUNC_DATA(ic, CUDARuntimeFunctionHookerContext *);
+	// Patched as cudart loads the fatbin: no copy of it is loaded here.
+	if (context->impl->substitutes_at_load() &&
+	    (context->to_function == AttachedToFunction::RegisterFatbin ||
+	     context->to_function == AttachedToFunction::RegisterFunction ||
+	     context->to_function == AttachedToFunction::RegisterVariable ||
+	     context->to_function == AttachedToFunction::RegisterFatbinEnd))
+		return;
 	if (context->to_function == AttachedToFunction::RegisterFatbin) {
 		SPDLOG_DEBUG("Entering __cudaRegisterFatBinary..");
 
@@ -963,6 +970,50 @@ static cudaError_t mirror_cuda_memcpy_from_symbol(
 	return cudaSuccess;
 }
 
+extern "C" CUresult cuda_driver_function__cuLibraryLoadData(
+	CUlibrary *library, const void *code, CUjit_option *jitOptions,
+	void **jitOptionsValues, unsigned int numJitOptions,
+	CUlibraryOption *libraryOptions, void **libraryOptionValues,
+	unsigned int numLibraryOptions)
+{
+	using load_fn_t = CUresult (*)(CUlibrary *, const void *,
+				       CUjit_option *, void **, unsigned int,
+				       CUlibraryOption *, void **, unsigned int);
+	auto gum_ctx = gum_interceptor_get_current_invocation();
+	auto *state = (nv_attach_hook_state *)
+		gum_invocation_context_get_replacement_data(gum_ctx);
+	if (state == nullptr) {
+		state = &nv_attach_get_hook_state();
+	}
+	void *original =
+		state->orig_cu_library_load_data.load(std::memory_order_acquire);
+	if (original == nullptr)
+		return CUDA_ERROR_NOT_INITIALIZED;
+	const auto load_original = [&]() {
+		return reinterpret_cast<load_fn_t>(original)(
+			library, code, jitOptions, jitOptionsValues,
+			numJitOptions, libraryOptions, libraryOptionValues,
+			numLibraryOptions);
+	};
+	auto *impl = state->active_impl.load(std::memory_order_acquire);
+	static thread_local bool inside = false;
+	if (impl == nullptr || inside)
+		return load_original();
+	inside = true;
+	CUresult result;
+	try {
+		result = impl->load_library_with_probes(
+			original, library, code, jitOptions, jitOptionsValues,
+			numJitOptions, libraryOptions, libraryOptionValues,
+			numLibraryOptions);
+	} catch (...) {
+		// Nothing may unwind into cudart.
+		result = load_original();
+	}
+	inside = false;
+	return result;
+}
+
 extern "C" cudaError_t cuda_runtime_function__cudaMemcpyFromSymbol(
 	void *dst, const void *symbol, size_t count, size_t offset = 0,
 	cudaMemcpyKind kind = cudaMemcpyDeviceToHost)
@@ -981,7 +1032,8 @@ extern "C" cudaError_t cuda_runtime_function__cudaMemcpyFromSymbol(
 		reinterpret_cast<cuda_memcpy_from_symbol_async_fn_t>(
 			state->orig_cuda_memcpy_from_symbol_async.load(
 				std::memory_order_acquire));
-	if (impl == nullptr || !impl->is_enabled()) {
+	if (impl == nullptr || !impl->is_enabled() ||
+	    !impl->late_path_active()) {
 		if (!original_sync)
 			return cudaErrorUnknown;
 		return original_sync(dst, symbol, count, offset, kind);
@@ -1012,7 +1064,8 @@ extern "C" cudaError_t cuda_runtime_function__cudaMemcpyFromSymbolAsync(
 		reinterpret_cast<cuda_memcpy_from_symbol_async_fn_t>(
 			state->orig_cuda_memcpy_from_symbol_async.load(
 				std::memory_order_acquire));
-	if (impl == nullptr || !impl->is_enabled()) {
+	if (impl == nullptr || !impl->is_enabled() ||
+	    !impl->late_path_active()) {
 		if (!original_async)
 			return cudaErrorUnknown;
 		return original_async(dst, symbol, count, offset, kind, stream);

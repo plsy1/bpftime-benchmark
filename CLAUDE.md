@@ -2077,6 +2077,62 @@ rounded up to 8 bytes. The daemon proxies a kernel `LRU_HASH` as a hash map
 (the kernel evicts). The array proxy still keeps its fd and mmap in shared
 memory. `[kernel_user]` tests need root.
 
+## CUDA Attach: Load-Time Substitution
+
+cudart (shared or static) loads each fatbin it registered with the driver's
+`cuLibraryLoadData` (the image is the fatbin wrapper, with
+`CU_LIBRARY_BINARY_IS_PRESERVED`), lazily at first use, or at its
+initialization for a fatbin with `__managed__` variables, and then asks for
+kernels, variables and managed variables by name. The agent hooks that call
+(`replace_hook_once`; static cudart reaches it too, since it finds driver
+functions with `cuGetProcAddress`) and loads, for a fatbin with probed kernels,
+the patched image in its place (`nv_attach_impl::load_library_with_probes`):
+PTX extracted with cuobjdump, every probe's pass applied (`hack_fatbin`), the
+patched PTX for the highest virtual architecture the device runs compiled with
+nvPTXCompiler, then `constData` and `map_info` written with
+`cuLibraryGetGlobal` in the current context (cudart loads before it has one:
+then in the device's primary context, retained for the process, which cudart
+uses too). The process has one module per fatbin: launches by stub address, by
+CUDA 13 kernel handle, through graphs and from static cudart all run the patched
+kernels, and `cudaMemcpy{To,From}Symbol`, `cudaGetSymbolAddress` and managed
+variables see the kernels' own storage. The images are never freed (the driver
+keeps pointing into them). Any failure (no PTX, a pass or compile error, the
+driver refusing the image, the globals) loads the original image and logs it.
+
+Substitution needs every probe attached before cudart loads the fatbin. The
+agent decides at start: `cuda_driver_initialized_before_agent`, recorded
+before the agent's own `cuInit` (`cuDeviceGetCount` returns
+`CUDA_ERROR_NOT_INITIALIZED` until somebody called `cuInit`). With the driver
+initialized earlier (CUDA in a static constructor, an injected agent) the late
+path runs: patched copies loaded beside the originals, launches redirected by
+kernel name, `__constant__` copies mirrored, with its known problems (CUDA 13
+handles and static cudart not instrumented, separate globals, kprobe plus
+kretprobe on one kernel, upstream #708). A probe attached after a fatbin went
+through the hook (auto-refresh) also falls back to the late path
+(`late_path_allowed`, a warning). `BPFTIME_CUDA_LOAD_SUBSTITUTION=0` forces the
+late path. In substitution mode the registration listeners, the variable
+mirrors and the late bootstrap do nothing: the mirrors used to start the
+bootstrap, whose host symbol cache costs 1.4 s. Lock order:
+`late_bootstrap_mutex` before `load_substitution_mutex` (hook entries, maps,
+caches), never the reverse.
+
+The agent's own CUDA setup must not initialize cudart. The agent links
+`libcudart.so`, the same instance a shared-cudart application uses, and
+cudart's initialization loads every fatbin with managed variables before the
+probes are known. `register_cuda_host_memory` and `CUDAContext` use the driver
+API (`cuDevicePrimaryCtxRetain` and `cuCtxSetCurrent`, as cudart left it,
+`cuMemHostRegister`, `cuMemHostGetDevicePointer`); keep any new agent-side CUDA
+call before the hook on the driver API (mutation: a `cudaFree(0)` there leaves
+the managed-variable victim untraced).
+
+Not covered: fatbins without PTX (SASS only), `-rdc` (cudart links those at
+run time), cubin or PTX images and driver-API applications' `cuModuleLoad*`,
+several GPUs (the globals are written in one device's primary context),
+applications launching in other contexts. After the last probe detaches,
+substituted kernels keep running their probes (the watcher still answers
+their host calls). Tests: `[load-substitution]` (bpftime_nv_attach_tests);
+end to end, the example matrix (results `gpu/fixes-20261109`, `fix-matrix.sh`).
+
 ## Map Usage Counters
 
 `BPFTIME_ENABLE_MAP_USAGE_STATS` (CMake, off by default) counts map

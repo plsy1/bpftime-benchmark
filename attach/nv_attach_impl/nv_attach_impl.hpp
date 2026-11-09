@@ -28,6 +28,7 @@
 #include <variant>
 #include <vector>
 #include <atomic>
+#include <deque>
 
 namespace bpftime
 {
@@ -130,6 +131,7 @@ struct nv_attach_hook_state {
 	std::atomic<void *> orig_cu_graph_kernel_node_set_params_v2{ nullptr };
 	std::atomic<void *> orig_cuda_memcpy_from_symbol{ nullptr };
 	std::atomic<void *> orig_cuda_memcpy_from_symbol_async{ nullptr };
+	std::atomic<void *> orig_cu_library_load_data{ nullptr };
 
 	// Whether Frida replace hooks have been installed in this process.
 	std::atomic<bool> replacements_installed{ false };
@@ -154,8 +156,44 @@ class nv_attach_impl final : public base_attach_impl {
 		ebpf_helper_register_callback register_callback) override;
 	nv_attach_impl(const nv_attach_impl &) = delete;
 	nv_attach_impl &operator=(const nv_attach_impl &) = delete;
-	nv_attach_impl();
+	// substitute_at_load: no fatbin of the process has been loaded yet
+	// (the agent saw the CUDA driver uninitialized), so every fatbin is
+	// patched when cudart loads it (cuLibraryLoadData) instead of being
+	// loaded a second time and redirected to (the late path).
+	// BPFTIME_CUDA_LOAD_SUBSTITUTION=0 turns it off.
+	explicit nv_attach_impl(bool substitute_at_load = false);
 	virtual ~nv_attach_impl();
+	bool substitutes_at_load() const noexcept
+	{
+		return load_substitution.load(std::memory_order_acquire);
+	}
+	// The late path (patched copies, redirected launches, mirrored
+	// variables) runs without substitution, or once a probe attached
+	// after a fatbin was loaded.
+	bool late_path_active() const noexcept
+	{
+		return !substitutes_at_load() ||
+		       late_path_allowed.load(std::memory_order_acquire);
+	}
+	// The cuLibraryLoadData hook: load the patched image of a fatbin with
+	// probed kernels in its place; anything else, or any failure, loads
+	// the original image.
+	CUresult load_library_with_probes(
+		void *original_fn, CUlibrary *library, const void *code,
+		CUjit_option *jit_options, void **jit_option_values,
+		unsigned int num_jit_options, CUlibraryOption *library_options,
+		void **library_option_values, unsigned int num_library_options);
+	// The fatbin an image passed to cuLibraryLoadData holds: a
+	// __fatBinC_Wrapper_t (cudart) or a fatbin itself; nullptr for
+	// anything else (cubin, PTX).
+	static const void *fatbin_data_of_image(const void *image);
+	// Of the patched PTX files, the modified one for the highest virtual
+	// architecture not above device_sm (cuobjdump names them
+	// <file>.<n>.sm_<arch>.ptx).
+	static std::optional<std::string> pick_patched_ptx(
+		const std::map<std::string, std::tuple<std::string, bool>>
+			&patched,
+		int device_sm);
 	std::optional<std::map<std::string, std::tuple<std::string, bool>>>
 		hack_fatbin(std::map<std::string, std::string>);
 	std::map<std::string, std::string>
@@ -234,6 +272,9 @@ class nv_attach_impl final : public base_attach_impl {
 		void clear_patched_state_for_next_session();
 
 		void bootstrap_existing_fatbins();
+		const std::vector<uint8_t> *patched_image_for_fatbin(
+			const void *fatbin);
+		bool write_trampoline_globals(CUlibrary library);
 		// try_loading_ptxs; on failure log it (the fatbin stays
 		// unpatched) and return false.
 		bool try_loading_or_log(fatbin_record &rec, const char *where);
@@ -257,6 +298,20 @@ class nv_attach_impl final : public base_attach_impl {
 	std::unordered_map<CUfunction, std::string> kernel_name_by_cufunction;
 
 			std::atomic<bool> enabled{ true };
+			std::atomic<bool> load_substitution{ false };
+			std::atomic<bool> late_path_allowed{ false };
+			// A fatbin went through the cuLibraryLoadData hook: a probe
+			// attached after it cannot be patched in at load time.
+			std::atomic<bool> library_loaded_through_hook{ false };
+			std::mutex load_substitution_mutex;
+			// Patched images handed to cuLibraryLoadData. cudart passes
+			// CU_LIBRARY_BINARY_IS_PRESERVED, so the driver keeps
+			// pointing into them: never freed.
+			std::deque<std::vector<uint8_t>> preserved_images;
+			// Fatbin data -> its patched image (nullptr: nothing to patch).
+			std::map<const void *, const std::vector<uint8_t> *>
+				image_by_fatbin;
+			CUcontext retained_primary_context = nullptr;
 			// Late bootstrap needs to be repeatable across trace sessions.
 			// Using a heap-allocated once_flag allows resetting it after detach.
 			std::unique_ptr<std::once_flag> late_bootstrap_once =
