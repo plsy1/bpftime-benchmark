@@ -1,6 +1,10 @@
 # 在 x86 NUC 上跑 bpftime：给新会话的交接（2026-10-26）
 
 > 10/27：开发分支已由 Jetson 会话改名为 `dev/uprobe-official-177a1dc465ff`（原 `codex/` 前缀），其余 `codex/` 分支改为 `archive/`；本文中的分支名已同步。
+>
+> 11/10：两个 `summry/*` 分支并入对应结果分支的 `reports/` 目录，下面指向 Jetson 文档的路径已改成新位置。开发分支改为
+> `dev/uprobe-official-4708f4092d1e`（每日补丁栈重放到官方 4708f409）；本文说的 `dev/uprobe-official-177a1dc465ff`
+> 已改名为 `archive/uprobe-official-177a1dc465ff`。其余内容保留 10/26 时的写法。
 
 写给在 NUC 上新开的 Claude 会话。Jetson 上的会话看不到你，你也发不了消息给它；两边只通过本仓库
 （`plsy1/bpftime-benchmark`）交接。**回复用户用中文。**
@@ -13,7 +17,7 @@ array lookup 的 JIT 内联、hash map 优化、真实工具兼容性审计与 1
 开发分支 `dev/uprobe-official-177a1dc465ff`（基于官方 177a1dc，HEAD `a7d54d7e`）在 ARM64 上 uprobe 微基准、
 ssl-nginx、真实工具都快于 kernel。现在用户想在这台 x86 NUC 上也跑 bpftime。具体目标由用户定（见第 4 节的候选）。
 
-## 1. 先读这些（`summry/jetson` 分支）
+## 1. 先读这些（`benchmark-results/jetson` 分支的 `reports/` 下）
 
 1. `bpftime-research-overview.md`：全过程与结论，按时间排。
 2. `uprobe/bpftime-uprobe-handoff-20261021.md` 第 0 节（现状一页、提交表、结论、工作方式、上游 PR 计划）和第 2–3 节（JIT 设计边界、易踩坑）。
@@ -47,7 +51,7 @@ Jetson 的 `~/.ssh/id_ed25519` 已加入 `y` 的 `authorized_keys`，Jetson 上 
   - `dev/uprobe-official-177a1dc465ff`：开发分支（需 `git submodule update --init --recursive`）。
   - `automation/jetson-daily`：每日补丁栈，`tools/jetson-upstream/config.json` 的 `candidate.commits` 是 73 个提交，
     `build.test_filter` 是单测过滤器（Jetson 上按它跑出 110 个用例），`build.cmake_args` 是构建选项；用来在官方新版本上重放。
-  - `benchmark-results/jetson`：原始数据；`summry/jetson`：文档；`docs/source-reading-guide`：按官方 177a1dc 写的源码阅读指南（9 章）。
+  - `benchmark-results/jetson`：原始数据；`summry/jetson`：文档（11/10 并入 `benchmark-results/jetson` 的 `reports/`）；`docs/source-reading-guide`：按官方 177a1dc 写的源码阅读指南（9 章）。
 - 官方基线：`eunomia-bpf/bpftime` 提交 `177a1dc4`（"fix(ringbuf): keep a record's header and payload contiguous..."）。
 - Jetson 的 CMake 选项（`benchmark-results/jetson` 的 `uprobe/baseline-177a1dc-jit-llvm16-20261021/cmake-options.txt`）：
   `CMAKE_BUILD_TYPE=RelWithDebInfo`、`BPFTIME_LLVM_JIT=ON`、`BPFTIME_UBPF_JIT=ON`、`BPFTIME_ENABLE_LTO=ON`、`BPFTIME_BUILD_WITH_LIBBPF=ON`、
@@ -82,8 +86,8 @@ Jetson 的 `~/.ssh/id_ed25519` 已加入 `y` 的 `authorized_keys`，Jetson 上 
 ## 6. 结果放哪
 
 > **10/26 更新（用户决定）**：x86 的结果不放 jetson 分支，改放两个 x86 专用分支：原始数据 `benchmark-results/x86-nuc`
-> （目录名仍为 `uprobe/x86-nuc-<主题>-<日期>`），结论 `summry/x86-nuc`（本文件也搬到这里）。交给 Jetson 会话的问题仍写在
-> `summry/jetson`（`uprobe/bpftime-x86-nuc-findings-20261026.md`）。下面是原来的约定，保留作记录。
+> （目录名仍为 `uprobe/x86-nuc-<主题>-<日期>`），结论 `summry/x86-nuc`（本文件也搬到这里）（11/10 并入 `benchmark-results/x86-nuc` 的 `reports/`）。交给 Jetson 会话的问题仍写在
+> `benchmark-results/jetson` 的 `reports/uprobe/bpftime-x86-nuc-findings-20261026.md`。下面是原来的约定，保留作记录。
 
 - 原始数据放 `benchmark-results/jetson` 分支，新目录用 `x86-nuc-<主题>-<日期>`（例如 `uprobe/x86-nuc-baseline-20261027`），README 写明机器、
   频率设置、构建选项和提交号。

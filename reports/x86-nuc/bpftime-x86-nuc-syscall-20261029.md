@@ -1,6 +1,6 @@
 # x86 上的系统调用追踪对照（2026-10-29，NUC）
 
-按 `summry/jetson` 的 `syscall/x86-nuc-syscall-handoff-20261029.md` 第 1 节做。原始数据在 `benchmark-results/x86-nuc` 的
+按 `benchmark-results/jetson` 的 `reports/syscall/x86-nuc-syscall-handoff-20261029.md` 第 1 节做。原始数据在 `benchmark-results/x86-nuc` 的
 `syscall/` 下：
 
 - 构建与回归：`x86-nuc-build-20261029`

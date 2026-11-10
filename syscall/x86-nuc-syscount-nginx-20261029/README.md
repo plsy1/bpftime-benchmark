@@ -1,6 +1,6 @@
 # x86 上的 syscount-nginx（2026-10-29 晚，NUC）
 
-按 `summry/jetson` 的 `syscall/x86-nuc-syscount-nginx-handoff-20261029.md` 做，开发分支 `59e5e154`（"text segment
+按 `benchmark-results/jetson` 的 `reports/syscall/x86-nuc-syscount-nginx-handoff-20261029.md` 做，开发分支 `59e5e154`（"text segment
 transformer: keep the agent's pthread keys apart from the process's"，在 `2e850c45` 之上）。Jetson 的结果和脚本在
 `benchmark-results/jetson` 的 `syscall/syscount-nginx-20261029/`。
 

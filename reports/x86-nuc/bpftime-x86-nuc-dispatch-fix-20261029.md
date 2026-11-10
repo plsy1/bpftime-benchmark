@@ -1,6 +1,6 @@
 # x86 上重测系统调用分发修复（2026-10-29 下午，NUC）
 
-按 `summry/jetson` 的 `syscall/x86-nuc-dispatch-fix-handoff-20261029.md` 做：开发分支 `2e850c45`（"syscall trace: pass system calls
+按 `benchmark-results/jetson` 的 `reports/syscall/x86-nuc-dispatch-fix-handoff-20261029.md` 做：开发分支 `2e850c45`（"syscall trace: pass system calls
 without programs straight through"）。对照组是同一台机器上 10/29 上午的 `7a7d29b8`（[上午的报告](bpftime-x86-nuc-syscall-20261029.md)）。
 方法、脚本和频率设置都没变，只换了构建目录。原始数据在 `benchmark-results/x86-nuc` 的 `syscall/x86-nuc-dispatch-fix-20261029/`。
 交给 Jetson 的事项见[发现文件](bpftime-x86-nuc-dispatch-fix-findings-20261029.md)。

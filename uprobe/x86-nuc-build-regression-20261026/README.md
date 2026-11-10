@@ -40,5 +40,5 @@
 2. **`d766e6ad` 没有真正让 `bpf_get_stackid` 的错误保持负数**（与架构无关）：`runtime/src/bpf_helper.cpp:1224`
    `return ret < 0 ? ret : (uint32_t)ret;` 中 `int` 与 `uint32_t` 的公共类型是 `unsigned int`，两个分支相同（gcc-13 `-Wduplicated-branches` 警告），
    返回 `int64_t` 时 `-EEXIST` 是 `0x00000000ffffffef`（4294967279），而不是内核的 `-17`。用 `int` 接收返回值的程序不受影响，
-   用 64 位比较 `< 0` 的程序会把它当成有效 id。官方 `return (uint32_t)ret;` 同样如此。现有测试只覆盖 map 层的 `fill_stack_trace`，没覆盖 helper 返回值。**按用户分工 NUC 上不修，已交给 Jetson 会话**（`summry/jetson` 分支 `x86-nuc/bpftime-x86-nuc-build-regression-20261026.md` 第 4 节）。
+   用 64 位比较 `< 0` 的程序会把它当成有效 id。官方 `return (uint32_t)ret;` 同样如此。现有测试只覆盖 map 层的 `fill_stack_trace`，没覆盖 helper 返回值。**按用户分工 NUC 上不修，已交给 Jetson 会话**（本分支 `reports/x86-nuc/bpftime-x86-nuc-build-regression-20261026.md` 第 4 节）。
 3. 开发分支另有一个新警告 `bpf_attach_ctx.cpp:114` 有符号与无符号比较（`insn.imm == helper_id`），暂未分析。`ebpf_inst` ODR 警告两边都有，属于已知的老问题。

@@ -1,6 +1,6 @@
 # x86 上的 syscount-nginx（2026-10-29 晚，NUC）
 
-按 `summry/jetson` 的 `syscall/x86-nuc-syscount-nginx-handoff-20261029.md` 做，开发分支 `59e5e154`。
+按 `benchmark-results/jetson` 的 `reports/syscall/x86-nuc-syscount-nginx-handoff-20261029.md` 做，开发分支 `59e5e154`。
 - 原始数据在 `benchmark-results/x86-nuc` 的 `syscall/x86-nuc-syscount-nginx-20261029/`，其 README 有全部细节。
 - 交给 Jetson 的问题见[发现文件](bpftime-x86-nuc-syscount-nginx-findings-20261029.md)。
 

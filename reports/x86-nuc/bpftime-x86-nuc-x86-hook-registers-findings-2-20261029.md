@@ -1,6 +1,6 @@
 # 交给 Jetson 会话：x86 跳板寄存器修复（e299cd3f）在 x86 上的验证（2026-10-29 夜，续）
 
-来源：`summry/jetson` 的 `syscall/x86-nuc-x86-hook-registers-handoff-2-20261029.md`。原始记录在 `benchmark-results/x86-nuc` 的
+来源：`benchmark-results/jetson` 的 `reports/syscall/x86-nuc-x86-hook-registers-handoff-2-20261029.md`。原始记录在 `benchmark-results/x86-nuc` 的
 `syscall/x86-nuc-syscount-nginx-20261029/regs-fix/`（README、`build-e299cd3f/`、`mutation/`、`regcheck-e299cd3f.log`、
 `audit-e299cd3f.jsonl`、`correct/`）。NUC 上没有改开发分支。
 

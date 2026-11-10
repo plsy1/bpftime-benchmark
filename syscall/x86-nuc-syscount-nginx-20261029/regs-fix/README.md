@@ -10,7 +10,7 @@
 
 ## 第一轮：`0a602133`
 
-按 `summry/jetson` 的 `syscall/x86-nuc-x86-hook-registers-handoff-20261029.md` 做。开发分支 `0a602133`（"text segment
+按 `benchmark-results/jetson` 的 `reports/syscall/x86-nuc-x86-hook-registers-handoff-20261029.md` 做。开发分支 `0a602133`（"text segment
 transformer: keep every register across the x86 hook"，在 `59e5e154` 之后）。
 
 **结果：在 x86 上编不过（链接失败），按交接第 1 节第 1 步停下。** 后面需要新构建的步骤（测试、regcheck、nginx、
@@ -59,7 +59,7 @@ text_segment_transformer.cpp:346: undefined reference to `syscall_addr'
 
 ## 第二轮：`e299cd3f`
 
-按 `summry/jetson` 的 `syscall/x86-nuc-x86-hook-registers-handoff-2-20261029.md` 做。机器 19:03 重启过（在这一轮开始之前），
+按 `benchmark-results/jetson` 的 `reports/syscall/x86-nuc-x86-hook-registers-handoff-2-20261029.md` 做。机器 19:03 重启过（在这一轮开始之前），
 Docker 重启后是停止状态，测量时临时启动，测完再停掉。
 
 ## 3. 构建与测试（`build-e299cd3f/`）
@@ -77,7 +77,7 @@ Docker 重启后是停止状态，测量时临时启动，测完再停掉。
 
 ### 变异检查（`mutation/`）
 
-- **做法**：在临时 worktree 里检出 `e299cd3f`，打上 `summry/jetson` 的 `syscall/x86-hook-before-fix-mutation.patch`（`source-state.txt`、补丁副本、`patch-source-commit.txt`），用同样的选项构建 agent、syscall server、transformer、bpftimetool 和测试（`build.log`）。这个 worktree 只在本地用，用完已删除。
+- **做法**：在临时 worktree 里检出 `e299cd3f`，打上 `benchmark-results/jetson` 的 `reports/syscall/x86-hook-before-fix-mutation.patch`（`source-state.txt`、补丁副本、`patch-source-commit.txt`），用同样的选项构建 agent、syscall server、transformer、bpftimetool 和测试（`build.log`）。这个 worktree 只在本地用，用完已删除。
 - **新测试**：同样是 2/3，失败原因也是 capstone（`tests-transformer.log`）。所以它现在分辨不出修复前后。
 - **regcheck**（`regcheck-mutation.log`）：
   - 不挂程序：rdx 被改；
@@ -135,7 +135,7 @@ nginx 能起来，bpftime 的计数和内核一致（各系统调用的分布也
 
 ## 第三轮：`c23442ac`
 
-按 `summry/jetson` 的 `syscall/x86-nuc-x86-hook-registers-handoff-3-20261029.md` 做。
+按 `benchmark-results/jetson` 的 `reports/syscall/x86-nuc-x86-hook-registers-handoff-3-20261029.md` 做。
 
 ## 7. 测试复查（`build-c23442ac/`，`mutation-c23442ac/`）
 

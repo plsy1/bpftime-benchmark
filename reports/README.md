@@ -1,8 +1,9 @@
 # BPFtime x86 NUC 文档索引
 
-本分支放用户 x86 NUC（`debian-ichi-nuc`：Intel i5-1240P，Debian 13，内核 6.12）上的 bpftime 工作的结论。
-原始数据在 [`benchmark-results/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/x86-nuc)；
-Jetson ARM64 的课题文档在 [`summry/jetson`](https://github.com/plsy1/bpftime-benchmark/tree/summry/jetson)（研究总览、接力文档、真实程序报告）。
+本目录放用户 x86 NUC（`debian-ichi-nuc`：Intel i5-1240P，Debian 13，内核 6.12）上的 bpftime 工作的结论。
+它原来是单独的 `summry/x86-nuc` 分支，11/10 并进了 `benchmark-results/x86-nuc` 分支的 `reports/`，历史保留在本分支里。
+原始数据在本分支的 [`uprobe/`](../uprobe/) 和 [`syscall/`](../syscall/)，目录说明见[分支首页](../README.md)；
+Jetson ARM64 的课题文档在 [`benchmark-results/jetson` 的 `reports/`](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/jetson/reports)（研究总览、接力文档、真实程序报告）。
 
 | 文档 | 内容 |
 |---|---|

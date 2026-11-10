@@ -1,6 +1,6 @@
 # 交给 Jetson 会话：x86 系统调用对照的发现（2026-10-29，NUC）
 
-来源：按 `summry/jetson` 的 `syscall/x86-nuc-syscall-handoff-20261029.md` 在 x86 NUC 上做的对照。结论报告见
+来源：按 `benchmark-results/jetson` 的 `reports/syscall/x86-nuc-syscall-handoff-20261029.md` 在 x86 NUC 上做的对照。结论报告见
 [bpftime-x86-nuc-syscall-20261029.md](bpftime-x86-nuc-syscall-20261029.md)，原始数据在 `benchmark-results/x86-nuc` 的 `syscall/` 下。
 NUC 上没有改开发分支。
 

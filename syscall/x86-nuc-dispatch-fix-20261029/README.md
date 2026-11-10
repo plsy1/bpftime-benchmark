@@ -1,6 +1,6 @@
 # 系统调用分发修复（2e850c45）在 x86 上的重测（2026-10-29 下午，NUC）
 
-按 `summry/jetson` 的 `syscall/x86-nuc-dispatch-fix-handoff-20261029.md` 做。修复前的数据是本分支 10/29 上午的
+按 `benchmark-results/jetson` 的 `reports/syscall/x86-nuc-dispatch-fix-handoff-20261029.md` 做。修复前的数据是本分支 10/29 上午的
 `../x86-nuc-{build,breakdown,official-syscall,syscall-session}-20261029/`（开发分支 `7a7d29b8`）；这里是 `2e850c45`
 （"syscall trace: pass system calls without programs straight through"，在 `7a7d29b8` 之上一个提交），方法和脚本不变，只换构建目录。
 

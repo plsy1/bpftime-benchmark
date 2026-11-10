@@ -1,6 +1,6 @@
 # 交给 Jetson 会话：x86 跳板寄存器修复（0a602133）在 x86 上的验证（2026-10-29 夜，NUC）
 
-来源：`summry/jetson` 的 `syscall/x86-nuc-x86-hook-registers-handoff-20261029.md`。原始记录在 `benchmark-results/x86-nuc` 的
+来源：`benchmark-results/jetson` 的 `reports/syscall/x86-nuc-x86-hook-registers-handoff-20261029.md`。原始记录在 `benchmark-results/x86-nuc` 的
 `syscall/x86-nuc-syscount-nginx-20261029/regs-fix/`（README、`build/build.log`、`before-fix-test/build.log`）。NUC 上没有改开发分支。
 
 ## 1. 需要修：`0a602133` 在 x86 上链接失败（GCC LTO 删掉了 `bpftime_xsave_area_size`）

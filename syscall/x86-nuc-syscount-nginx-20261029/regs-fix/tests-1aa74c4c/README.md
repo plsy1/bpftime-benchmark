@@ -1,6 +1,6 @@
 # 加强后的 x86 跳板测试（1aa74c4c）在 x86 上的确认（2026-10-29 夜，NUC）
 
-按 `summry/jetson` 的 `syscall/x86-nuc-x86-hook-test-handoff-4-20261029.md` 做，只做测试确认，不做性能测量。
+按 `benchmark-results/jetson` 的 `reports/syscall/x86-nuc-x86-hook-test-handoff-4-20261029.md` 做，只做测试确认，不做性能测量。
 
 开发分支 `1aa74c4c`（"text segment transformer tests: clobber the argument registers after the x86 system call"）只改了
 `test/test_syscall_rewrite_x86.cpp`：`clobbering_hook` 在 `next_hook` 返回之后改写 rdi…r9（`0x0bad0001`…`0x0bad0006`）和 xmm0、7、15。
@@ -13,7 +13,7 @@
 
 ## 2. 变异检查（`mutation/`）
 
-- **做法**：在临时 worktree 里检出 `1aa74c4c`，打上 `summry/jetson` 的 `syscall/x86-hook-before-fix-mutation.patch`（副本和来源提交在本目录），只把跳板换回修复前的写法。用同样的选项构建测试，连跑 3 次。worktree 只在本地用，用完已删除。
+- **做法**：在临时 worktree 里检出 `1aa74c4c`，打上 `benchmark-results/jetson` 的 `reports/syscall/x86-hook-before-fix-mutation.patch`（副本和来源提交在本目录），只把跳板换回修复前的写法。用同样的选项构建测试，连跑 3 次。worktree 只在本地用，用完已删除。
 - **结果**：3 次都是 2/3，失败的是新用例的两个 SECTION，3 次报告的内容相同（`tests-transformer-{1,2,3}.log`）：
 
 | SECTION | 子进程退出码 | 报告 |

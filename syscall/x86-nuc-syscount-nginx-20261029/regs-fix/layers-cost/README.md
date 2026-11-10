@@ -1,6 +1,6 @@
 # x86 跳板寄存器修复本身的成本（写循环，2026-10-29 夜，NUC）
 
-按 `summry/jetson` 的 `syscall/x86-nuc-x86-hook-registers-handoff-3-20261029.md` 第 1 节第 2 步：在写循环上对比修复前后的跳板层。
+按 `benchmark-results/jetson` 的 `reports/syscall/x86-nuc-x86-hook-registers-handoff-3-20261029.md` 第 1 节第 2 步：在写循环上对比修复前后的跳板层。
 
 - 修复前：`build-59e5e154`，跳板不保存寄存器。
 - 修复后：`build-c23442ac`，恢复 6 个参数寄存器，XSAVE/XRSTOR 掩码 0xe7，跳过 red zone。

@@ -1,6 +1,6 @@
 # 交给 Jetson 会话：c23442ac 的测试复查和寄存器修复的成本（2026-10-29 夜，续二）
 
-来源：`summry/jetson` 的 `syscall/x86-nuc-x86-hook-registers-handoff-3-20261029.md`。原始记录在 `benchmark-results/x86-nuc` 的
+来源：`benchmark-results/jetson` 的 `reports/syscall/x86-nuc-x86-hook-registers-handoff-3-20261029.md`。原始记录在 `benchmark-results/x86-nuc` 的
 `syscall/x86-nuc-syscount-nginx-20261029/regs-fix/`（README 第 7–8 节，`build-c23442ac/`、`mutation-c23442ac/`、`layers-cost/`）。
 NUC 上只做了测量，没有改代码。
 

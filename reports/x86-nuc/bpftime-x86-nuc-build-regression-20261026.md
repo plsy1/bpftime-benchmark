@@ -6,8 +6,8 @@ NUC 会话按交接说明第 4 节候选目标 1 做的第一件事：在 x86 �
 `uprobe/x86-nuc-build-regression-20261026/`（README 有全表）。
 
 **用户定的分工（10/26）**：NUC 上不改开发分支，发现的问题记录下来交给 Jetson 会话处理（第 4 节；同样内容放在
-`summry/jetson` 分支 `uprobe/bpftime-x86-nuc-findings-20261026.md`，供 Jetson 会话读）。
-**存放位置（10/26 用户定）**：x86 的结论在本分支 `summry/x86-nuc`，原始数据在 `benchmark-results/x86-nuc`；
+`benchmark-results/jetson` 分支 `reports/uprobe/bpftime-x86-nuc-findings-20261026.md`，供 Jetson 会话读）。
+**存放位置（10/26 用户定）**：x86 的结论在 `summry/x86-nuc`（11/10 并入 `benchmark-results/x86-nuc` 的 `reports/`），原始数据在 `benchmark-results/x86-nuc`；
 最初提交在两个 jetson 分支上，当天搬了过来。
 
 ## 1. 条件（与 Jetson 的差异）
@@ -144,7 +144,7 @@ nginx 在 P 核 CPU 2、sslsniff 在 P 核 CPU 4（3.5 GHz），wrk 在 E 核 8�
 
 ## 7. 后续（10/27）
 
-Jetson 会话处理了第 4 节的问题和分支改名，记录在 `summry/jetson` 的 `uprobe/bpftime-x86-nuc-findings-20261026.md`
+Jetson 会话处理了第 4 节的问题和分支改名，记录在 `benchmark-results/jetson` 的 `reports/uprobe/bpftime-x86-nuc-findings-20261026.md`
 （数据在 `benchmark-results/jetson` 的 `uprobe/nuc-fixes-20261026/`）：
 
 | # | 提交（`dev/uprobe-official-177a1dc465ff`） | 内容 |
