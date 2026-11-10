@@ -45,7 +45,7 @@
 取代方案，只有 A.4.2 保留完整的辩护清单——它是唯一还需要说服审稿人的提案。
 
 > 之后的 dev 分支工作（2026-10）又用 7 个真实 uprobe 工具审计 bpftime，找到并修了 18 个问题，
-> 记录在 `summry/jetson` 分支的 `realprog/bpftime-realprog-compatibility-20261026.md`。
+> 记录在 `benchmark-results/jetson` 分支的 `reports/realprog/bpftime-realprog-compatibility-20261026.md`。
 > 那些是我们 dev 分支的修改，不是官方代码，本附录不展开。
 
 ---

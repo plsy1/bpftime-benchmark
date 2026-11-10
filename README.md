@@ -92,7 +92,7 @@ graph LR
 
 ## 相关文档
 
-- 我们的优化分支相对官方的改动和实测：分支 [`summry/jetson`](../../tree/summry/jetson)
-  的 [`realprog/`](../../tree/summry/jetson/realprog)。本指南不重复这些内容。
-- 性能调查的结论和方法论：同在 [`summry/jetson`](../../tree/summry/jetson)。
+- 我们的优化分支相对官方的改动和实测：分支 `benchmark-results/jetson` 的 [`reports/`](../../tree/benchmark-results/jetson/reports)
+  里的 [`realprog/`](../../tree/benchmark-results/jetson/reports/realprog)。本指南不重复这些内容。
+- 性能调查的结论和方法论：同在 [`reports/`](../../tree/benchmark-results/jetson/reports)（原 `summry/jetson` 分支，2026-11-10 并入）。
 - benchmark 怎么跑：分支 [`main`](../../tree/main) 的 README。
