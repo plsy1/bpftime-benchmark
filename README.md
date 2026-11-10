@@ -43,6 +43,7 @@ The reviews: [reviews-20261031](reviews-20261031/README.md),
 | [feasibility-20261109](gpu/feasibility-20261109/) | bpftime CUDA attach on the Orin Nano (first look) |
 | [examples-20261109](gpu/examples-20261109/) | bpftime CUDA attach on the Orin Nano: example runs, measurements, problems |
 | [fixes-20261109](gpu/fixes-20261109/) | CUDA attach on the Orin Nano, the fix round |
+| [compare-20261110](gpu/compare-20261110/) | Upstream GPU benchmark on the Orin Nano: official 4708f409 vs dev c115b33d, with upstream 5090 / P40 |
 
 ### System call tracing (aarch64 rewriting)
 

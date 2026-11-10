@@ -1,0 +1,1003 @@
+{
+  "device": "Orin (nvgpu)",
+  "timestamp": "2026-11-10T12:07:42.287090",
+  "config_file": "/home/jetson/src/bpftime-gpu-work/compare/configs/C-micro.json",
+  "config": {
+    "output_prefix": "/home/jetson/src/results/gpu/compare-20261110/runs/C/micro_vec_add",
+    "global_env": {
+      "SPDLOG_LEVEL": "info",
+      "BPFTIME_GLOBAL_SHM_NAME": "bpftime_cmp_C"
+    },
+    "probe_env": {
+      "BPFTIME_LOG_OUTPUT": "console",
+      "LD_PRELOAD": "build/runtime/syscall-server/libbpftime-syscall-server.so"
+    },
+    "agent_env": {
+      "BPFTIME_LOG_OUTPUT": "console",
+      "LD_PRELOAD": "build/runtime/agent/libbpftime-agent.so"
+    },
+    "workload_presets": {
+      "tiny": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add 32 10000 32 1",
+      "small": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add 1000 10000 256 4",
+      "medium": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add 10000 10000 256 40",
+      "large": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add 100000 1000 512 196",
+      "xlarge": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add 1000000 1000 512 1954",
+      "small_64x16": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add 1000 10000 64 16",
+      "minimal": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add 32 3 32 1"
+    },
+    "test_cases": [
+      {
+        "name": "Baseline (tiny)",
+        "probe_binary_cmd": "",
+        "workload": "tiny",
+        "vec_add_args": "32 10000 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Baseline (small)",
+        "probe_binary_cmd": "",
+        "workload": "small",
+        "vec_add_args": "1000 10000 256 4",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Baseline (medium)",
+        "probe_binary_cmd": "",
+        "workload": "medium",
+        "vec_add_args": "10000 10000 256 40",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Baseline (large)",
+        "probe_binary_cmd": "",
+        "workload": "large",
+        "vec_add_args": "100000 1000 512 196",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Baseline (xlarge)",
+        "probe_binary_cmd": "",
+        "workload": "xlarge",
+        "vec_add_args": "1000000 1000 512 1954",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Baseline (minimal)",
+        "probe_binary_cmd": "",
+        "workload": "minimal",
+        "vec_add_args": "32 3 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Empty probe (tiny)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe empty",
+        "workload": "tiny",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 10000 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Empty probe (small)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe empty",
+        "workload": "small",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 256 4",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Empty probe (medium)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe empty",
+        "workload": "medium",
+        "baseline": "Baseline (medium)",
+        "vec_add_args": "10000 10000 256 40",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Empty probe (large)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe empty",
+        "workload": "large",
+        "baseline": "Baseline (large)",
+        "vec_add_args": "100000 1000 512 196",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Empty probe (xlarge)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe empty",
+        "workload": "xlarge",
+        "baseline": "Baseline (xlarge)",
+        "vec_add_args": "1000000 1000 512 1954",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Entry probe (tiny)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe entry",
+        "workload": "tiny",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 10000 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Entry probe (small)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe entry",
+        "workload": "small",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 256 4",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Entry probe (medium)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe entry",
+        "workload": "medium",
+        "baseline": "Baseline (medium)",
+        "vec_add_args": "10000 10000 256 40",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Entry probe (xlarge)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe entry",
+        "workload": "xlarge",
+        "baseline": "Baseline (xlarge)",
+        "vec_add_args": "1000000 1000 512 1954",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Exit probe (tiny)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe exit",
+        "workload": "tiny",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 10000 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Exit probe (small)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe exit",
+        "workload": "small",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 256 4",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Exit probe (large)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe exit",
+        "workload": "large",
+        "baseline": "Baseline (large)",
+        "vec_add_args": "100000 1000 512 196",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Entry+Exit (tiny)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe both",
+        "workload": "tiny",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 10000 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Entry+Exit (small_64x16)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe both",
+        "workload": "small_64x16",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 64 16",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Entry+Exit (small)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe both",
+        "workload": "small",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 256 4",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Entry+Exit (medium)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe both",
+        "workload": "medium",
+        "baseline": "Baseline (medium)",
+        "vec_add_args": "10000 10000 256 40",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Entry+Exit (large)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe both",
+        "workload": "large",
+        "baseline": "Baseline (large)",
+        "vec_add_args": "100000 1000 512 196",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Entry+Exit (xlarge)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe both",
+        "workload": "xlarge",
+        "baseline": "Baseline (xlarge)",
+        "vec_add_args": "1000000 1000 512 1954",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Ringbuf (tiny)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe ringbuf",
+        "workload": "tiny",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 10000 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Ringbuf (small_64x16)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe ringbuf",
+        "workload": "small_64x16",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 64 16",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Ringbuf (small)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe ringbuf",
+        "workload": "small",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 256 4",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Ringbuf (medium)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe ringbuf",
+        "workload": "medium",
+        "baseline": "Baseline (medium)",
+        "vec_add_args": "10000 10000 256 40",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Ringbuf (large)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe ringbuf",
+        "workload": "large",
+        "baseline": "Baseline (large)",
+        "vec_add_args": "100000 1000 512 196",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Ringbuf (xlarge)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe ringbuf",
+        "workload": "xlarge",
+        "baseline": "Baseline (xlarge)",
+        "vec_add_args": "1000000 1000 512 1954",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Global timer (tiny)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe globaltimer",
+        "workload": "tiny",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 10000 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Global timer (small)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe globaltimer",
+        "workload": "small",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 256 4",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Global timer (medium)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe globaltimer",
+        "workload": "medium",
+        "baseline": "Baseline (medium)",
+        "vec_add_args": "10000 10000 256 40",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Global timer (xlarge)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe globaltimer",
+        "workload": "xlarge",
+        "baseline": "Baseline (xlarge)",
+        "vec_add_args": "1000000 1000 512 1954",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Per-GPU-thread array (tiny)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe pergputd-array-lookup",
+        "workload": "tiny",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 10000 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Per-GPU-thread array (small_64x16)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe pergputd-array-lookup",
+        "workload": "small_64x16",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 64 16",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Per-GPU-thread array (small)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe pergputd-array-lookup",
+        "workload": "small",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 256 4",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Per-GPU-thread array (medium)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe pergputd-array-lookup",
+        "workload": "medium",
+        "baseline": "Baseline (medium)",
+        "vec_add_args": "10000 10000 256 40",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Per-GPU-thread array (large)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe pergputd-array-lookup",
+        "workload": "large",
+        "baseline": "Baseline (large)",
+        "vec_add_args": "100000 1000 512 196",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Per-GPU-thread array (xlarge)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe pergputd-array-lookup",
+        "workload": "xlarge",
+        "baseline": "Baseline (xlarge)",
+        "vec_add_args": "1000000 1000 512 1954",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Memtrace (tiny)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe memtrace",
+        "workload": "tiny",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 10000 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Memtrace (small)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe memtrace",
+        "workload": "small",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 256 4",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Memtrace (medium)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe memtrace",
+        "workload": "medium",
+        "baseline": "Baseline (medium)",
+        "vec_add_args": "10000 10000 256 40",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "Memtrace (large)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe memtrace",
+        "workload": "large",
+        "baseline": "Baseline (large)",
+        "vec_add_args": "100000 1000 512 196",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Array map update (tiny)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-update",
+        "workload": "tiny",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 10000 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Array map update (small_64x16)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-update",
+        "workload": "small_64x16",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 64 16",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Array map update (small)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-update",
+        "workload": "small",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 256 4",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Array map update (medium)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-update",
+        "workload": "medium",
+        "baseline": "Baseline (medium)",
+        "vec_add_args": "10000 10000 256 40",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Array map update (large)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-update",
+        "workload": "large",
+        "baseline": "Baseline (large)",
+        "vec_add_args": "100000 1000 512 196",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Array map update (xlarge)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-update",
+        "workload": "xlarge",
+        "baseline": "Baseline (xlarge)",
+        "vec_add_args": "1000000 1000 512 1954",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Array map lookup (tiny)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-lookup",
+        "workload": "tiny",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 10000 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Array map lookup (small_64x16)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-lookup",
+        "workload": "small_64x16",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 64 16",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Array map lookup (small)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-lookup",
+        "workload": "small",
+        "baseline": "Baseline (small)",
+        "vec_add_args": "1000 10000 256 4",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Array map lookup (medium)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-lookup",
+        "workload": "medium",
+        "baseline": "Baseline (medium)",
+        "vec_add_args": "10000 10000 256 40",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Array map lookup (large)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-lookup",
+        "workload": "large",
+        "baseline": "Baseline (large)",
+        "vec_add_args": "100000 1000 512 196",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "GPU Array map lookup (xlarge)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-lookup",
+        "workload": "xlarge",
+        "baseline": "Baseline (xlarge)",
+        "vec_add_args": "1000000 1000 512 1954",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "CPU Array map update (minimal)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe array-update",
+        "workload": "minimal",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 3 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "CPU Array map lookup (minimal)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe array-lookup",
+        "workload": "minimal",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 3 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "CPU Hash map update (minimal)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe hash-update",
+        "workload": "minimal",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 3 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "CPU Hash map lookup (minimal)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe hash-lookup",
+        "workload": "minimal",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 3 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      },
+      {
+        "name": "CPU Hash map delete (minimal)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe hash-delete",
+        "workload": "minimal",
+        "baseline": "Baseline (tiny)",
+        "vec_add_args": "32 3 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add"
+      }
+    ]
+  },
+  "tests": [
+    {
+      "name": "Baseline (tiny)",
+      "probe_binary_cmd": "",
+      "vec_add_args": "32 10000 32 1",
+      "workload": "tiny",
+      "baseline": null,
+      "avg_time_us": 27.99
+    },
+    {
+      "name": "Baseline (small)",
+      "probe_binary_cmd": "",
+      "vec_add_args": "1000 10000 256 4",
+      "workload": "small",
+      "baseline": null,
+      "avg_time_us": 27.46
+    },
+    {
+      "name": "Baseline (medium)",
+      "probe_binary_cmd": "",
+      "vec_add_args": "10000 10000 256 40",
+      "workload": "medium",
+      "baseline": null,
+      "avg_time_us": 26.72
+    },
+    {
+      "name": "Baseline (large)",
+      "probe_binary_cmd": "",
+      "vec_add_args": "100000 1000 512 196",
+      "workload": "large",
+      "baseline": null,
+      "avg_time_us": 31.4
+    },
+    {
+      "name": "Baseline (xlarge)",
+      "probe_binary_cmd": "",
+      "vec_add_args": "1000000 1000 512 1954",
+      "workload": "xlarge",
+      "baseline": null,
+      "avg_time_us": 158.87
+    },
+    {
+      "name": "Baseline (minimal)",
+      "probe_binary_cmd": "",
+      "vec_add_args": "32 3 32 1",
+      "workload": "minimal",
+      "baseline": null,
+      "avg_time_us": 39.14
+    },
+    {
+      "name": "Empty probe (tiny)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe empty",
+      "vec_add_args": "32 10000 32 1",
+      "workload": "tiny",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 32.61
+    },
+    {
+      "name": "Empty probe (small)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe empty",
+      "vec_add_args": "1000 10000 256 4",
+      "workload": "small",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 36.01
+    },
+    {
+      "name": "Empty probe (medium)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe empty",
+      "vec_add_args": "10000 10000 256 40",
+      "workload": "medium",
+      "baseline": "Baseline (medium)",
+      "avg_time_us": 38.83
+    },
+    {
+      "name": "Empty probe (large)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe empty",
+      "vec_add_args": "100000 1000 512 196",
+      "workload": "large",
+      "baseline": "Baseline (large)",
+      "avg_time_us": 41.3
+    },
+    {
+      "name": "Empty probe (xlarge)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe empty",
+      "vec_add_args": "1000000 1000 512 1954",
+      "workload": "xlarge",
+      "baseline": "Baseline (xlarge)",
+      "avg_time_us": 172.43
+    },
+    {
+      "name": "Entry probe (tiny)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe entry",
+      "vec_add_args": "32 10000 32 1",
+      "workload": "tiny",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 34.95
+    },
+    {
+      "name": "Entry probe (small)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe entry",
+      "vec_add_args": "1000 10000 256 4",
+      "workload": "small",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 33.22
+    },
+    {
+      "name": "Entry probe (medium)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe entry",
+      "vec_add_args": "10000 10000 256 40",
+      "workload": "medium",
+      "baseline": "Baseline (medium)",
+      "avg_time_us": 36.76
+    },
+    {
+      "name": "Entry probe (xlarge)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe entry",
+      "vec_add_args": "1000000 1000 512 1954",
+      "workload": "xlarge",
+      "baseline": "Baseline (xlarge)",
+      "avg_time_us": 167.42
+    },
+    {
+      "name": "Exit probe (tiny)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe exit",
+      "vec_add_args": "32 10000 32 1",
+      "workload": "tiny",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 35.75
+    },
+    {
+      "name": "Exit probe (small)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe exit",
+      "vec_add_args": "1000 10000 256 4",
+      "workload": "small",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 34.66
+    },
+    {
+      "name": "Exit probe (large)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe exit",
+      "vec_add_args": "100000 1000 512 196",
+      "workload": "large",
+      "baseline": "Baseline (large)",
+      "avg_time_us": 38.01
+    },
+    {
+      "name": "Entry+Exit (tiny)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe both",
+      "vec_add_args": "32 10000 32 1",
+      "workload": "tiny",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 35.06
+    },
+    {
+      "name": "Entry+Exit (small_64x16)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe both",
+      "vec_add_args": "1000 10000 64 16",
+      "workload": "small_64x16",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 33.37
+    },
+    {
+      "name": "Entry+Exit (small)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe both",
+      "vec_add_args": "1000 10000 256 4",
+      "workload": "small",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 31.52
+    },
+    {
+      "name": "Entry+Exit (medium)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe both",
+      "vec_add_args": "10000 10000 256 40",
+      "workload": "medium",
+      "baseline": "Baseline (medium)",
+      "avg_time_us": 34.27
+    },
+    {
+      "name": "Entry+Exit (large)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe both",
+      "vec_add_args": "100000 1000 512 196",
+      "workload": "large",
+      "baseline": "Baseline (large)",
+      "avg_time_us": 40.65
+    },
+    {
+      "name": "Entry+Exit (xlarge)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe both",
+      "vec_add_args": "1000000 1000 512 1954",
+      "workload": "xlarge",
+      "baseline": "Baseline (xlarge)",
+      "avg_time_us": 173.81
+    },
+    {
+      "name": "GPU Ringbuf (tiny)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe ringbuf",
+      "vec_add_args": "32 10000 32 1",
+      "workload": "tiny",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 36.98
+    },
+    {
+      "name": "GPU Ringbuf (small_64x16)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe ringbuf",
+      "vec_add_args": "1000 10000 64 16",
+      "workload": "small_64x16",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 47.67
+    },
+    {
+      "name": "GPU Ringbuf (small)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe ringbuf",
+      "vec_add_args": "1000 10000 256 4",
+      "workload": "small",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 42.96
+    },
+    {
+      "name": "GPU Ringbuf (medium)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe ringbuf",
+      "vec_add_args": "10000 10000 256 40",
+      "workload": "medium",
+      "baseline": "Baseline (medium)",
+      "avg_time_us": 45.38
+    },
+    {
+      "name": "GPU Ringbuf (large)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe ringbuf",
+      "vec_add_args": "100000 1000 512 196",
+      "workload": "large",
+      "baseline": "Baseline (large)",
+      "avg_time_us": 50.41
+    },
+    {
+      "name": "GPU Ringbuf (xlarge)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe ringbuf",
+      "vec_add_args": "1000000 1000 512 1954",
+      "workload": "xlarge",
+      "baseline": "Baseline (xlarge)",
+      "avg_time_us": 215.2
+    },
+    {
+      "name": "Global timer (tiny)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe globaltimer",
+      "vec_add_args": "32 10000 32 1",
+      "workload": "tiny",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 31.21
+    },
+    {
+      "name": "Global timer (small)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe globaltimer",
+      "vec_add_args": "1000 10000 256 4",
+      "workload": "small",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 37.4
+    },
+    {
+      "name": "Global timer (medium)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe globaltimer",
+      "vec_add_args": "10000 10000 256 40",
+      "workload": "medium",
+      "baseline": "Baseline (medium)",
+      "avg_time_us": 30.55
+    },
+    {
+      "name": "Global timer (xlarge)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe globaltimer",
+      "vec_add_args": "1000000 1000 512 1954",
+      "workload": "xlarge",
+      "baseline": "Baseline (xlarge)",
+      "avg_time_us": 179.63
+    },
+    {
+      "name": "Per-GPU-thread array (tiny)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe pergputd-array-lookup",
+      "vec_add_args": "32 10000 32 1",
+      "workload": "tiny",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 35.13
+    },
+    {
+      "name": "Per-GPU-thread array (small_64x16)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe pergputd-array-lookup",
+      "vec_add_args": "1000 10000 64 16",
+      "workload": "small_64x16",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 39.22
+    },
+    {
+      "name": "Per-GPU-thread array (small)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe pergputd-array-lookup",
+      "vec_add_args": "1000 10000 256 4",
+      "workload": "small",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 37.15
+    },
+    {
+      "name": "Per-GPU-thread array (medium)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe pergputd-array-lookup",
+      "vec_add_args": "10000 10000 256 40",
+      "workload": "medium",
+      "baseline": "Baseline (medium)",
+      "avg_time_us": 45.67
+    },
+    {
+      "name": "Per-GPU-thread array (large)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe pergputd-array-lookup",
+      "vec_add_args": "100000 1000 512 196",
+      "workload": "large",
+      "baseline": "Baseline (large)",
+      "avg_time_us": 146.6
+    },
+    {
+      "name": "Per-GPU-thread array (xlarge)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe pergputd-array-lookup",
+      "vec_add_args": "1000000 1000 512 1954",
+      "workload": "xlarge",
+      "baseline": "Baseline (xlarge)",
+      "avg_time_us": 1171.42
+    },
+    {
+      "name": "Memtrace (tiny)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe memtrace",
+      "vec_add_args": "32 10000 32 1",
+      "workload": "tiny",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 38.36
+    },
+    {
+      "name": "Memtrace (small)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe memtrace",
+      "vec_add_args": "1000 10000 256 4",
+      "workload": "small",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 38.47
+    },
+    {
+      "name": "Memtrace (medium)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe memtrace",
+      "vec_add_args": "10000 10000 256 40",
+      "workload": "medium",
+      "baseline": "Baseline (medium)",
+      "avg_time_us": 47.75
+    },
+    {
+      "name": "Memtrace (large)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe memtrace",
+      "vec_add_args": "100000 1000 512 196",
+      "workload": "large",
+      "baseline": "Baseline (large)",
+      "avg_time_us": 173.05
+    },
+    {
+      "name": "GPU Array map update (tiny)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-update",
+      "vec_add_args": "32 10000 32 1",
+      "workload": "tiny",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 36.33
+    },
+    {
+      "name": "GPU Array map update (small_64x16)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-update",
+      "vec_add_args": "1000 10000 64 16",
+      "workload": "small_64x16",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 34.8
+    },
+    {
+      "name": "GPU Array map update (small)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-update",
+      "vec_add_args": "1000 10000 256 4",
+      "workload": "small",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 39.02
+    },
+    {
+      "name": "GPU Array map update (medium)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-update",
+      "vec_add_args": "10000 10000 256 40",
+      "workload": "medium",
+      "baseline": "Baseline (medium)",
+      "avg_time_us": 46.72
+    },
+    {
+      "name": "GPU Array map update (large)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-update",
+      "vec_add_args": "100000 1000 512 196",
+      "workload": "large",
+      "baseline": "Baseline (large)",
+      "avg_time_us": 251.44
+    },
+    {
+      "name": "GPU Array map update (xlarge)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-update",
+      "vec_add_args": "1000000 1000 512 1954",
+      "workload": "xlarge",
+      "baseline": "Baseline (xlarge)",
+      "avg_time_us": 1455.75
+    },
+    {
+      "name": "GPU Array map lookup (tiny)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-lookup",
+      "vec_add_args": "32 10000 32 1",
+      "workload": "tiny",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 37.89
+    },
+    {
+      "name": "GPU Array map lookup (small_64x16)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-lookup",
+      "vec_add_args": "1000 10000 64 16",
+      "workload": "small_64x16",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 37.63
+    },
+    {
+      "name": "GPU Array map lookup (small)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-lookup",
+      "vec_add_args": "1000 10000 256 4",
+      "workload": "small",
+      "baseline": "Baseline (small)",
+      "avg_time_us": 37.57
+    },
+    {
+      "name": "GPU Array map lookup (medium)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-lookup",
+      "vec_add_args": "10000 10000 256 40",
+      "workload": "medium",
+      "baseline": "Baseline (medium)",
+      "avg_time_us": 34.36
+    },
+    {
+      "name": "GPU Array map lookup (large)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-lookup",
+      "vec_add_args": "100000 1000 512 196",
+      "workload": "large",
+      "baseline": "Baseline (large)",
+      "avg_time_us": 63.32
+    },
+    {
+      "name": "GPU Array map lookup (xlarge)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe gpu-array-lookup",
+      "vec_add_args": "1000000 1000 512 1954",
+      "workload": "xlarge",
+      "baseline": "Baseline (xlarge)",
+      "avg_time_us": 445.05
+    },
+    {
+      "name": "CPU Array map update (minimal)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe array-update",
+      "vec_add_args": "32 3 32 1",
+      "workload": "minimal",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 316.25
+    },
+    {
+      "name": "CPU Array map lookup (minimal)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe array-lookup",
+      "vec_add_args": "32 3 32 1",
+      "workload": "minimal",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 375.84
+    },
+    {
+      "name": "CPU Hash map update (minimal)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe hash-update",
+      "vec_add_args": "32 3 32 1",
+      "workload": "minimal",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 315.84
+    },
+    {
+      "name": "CPU Hash map lookup (minimal)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe hash-lookup",
+      "vec_add_args": "32 3 32 1",
+      "workload": "minimal",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 337.62
+    },
+    {
+      "name": "CPU Hash map delete (minimal)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/stock/benchmark/gpu/micro/cuda_probe hash-delete",
+      "vec_add_args": "32 3 32 1",
+      "workload": "minimal",
+      "baseline": "Baseline (tiny)",
+      "avg_time_us": 327.21
+    }
+  ]
+}

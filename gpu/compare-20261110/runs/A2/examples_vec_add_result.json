@@ -1,0 +1,111 @@
+{
+  "device": "Orin (nvgpu)",
+  "timestamp": "2026-11-10T11:32:37.984764",
+  "config_file": "/home/jetson/src/bpftime-gpu-work/compare/configs/A2-examples.json",
+  "config": {
+    "output_prefix": "/home/jetson/src/results/gpu/compare-20261110/runs/A2/examples_vec_add",
+    "global_env": {
+      "SPDLOG_LEVEL": "info",
+      "BPFTIME_GLOBAL_SHM_NAME": "bpftime_cmp_A2"
+    },
+    "probe_env": {
+      "BPFTIME_LOG_OUTPUT": "console",
+      "LD_PRELOAD": "build/runtime/syscall-server/libbpftime-syscall-server.so"
+    },
+    "agent_env": {
+      "BPFTIME_LOG_OUTPUT": "console",
+      "LD_PRELOAD": "build/runtime/agent/libbpftime-agent.so"
+    },
+    "workload_presets": {
+      "tiny": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy 32 10000 32 1",
+      "small": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy 1000 10000 256 4",
+      "medium": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy 10000 10000 256 40",
+      "large": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy 100000 1000 512 196",
+      "xlarge": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy 1000000 1000 512 1954",
+      "minimal": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy 32 3 32 1"
+    },
+    "test_cases": [
+      {
+        "name": "Baseline (minimal)",
+        "probe_binary_cmd": "",
+        "workload": "minimal",
+        "vec_add_args": "32 3 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy"
+      },
+      {
+        "name": "CUDA Counter (minimal)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/official/example/gpu/cuda-counter/cuda_probe",
+        "workload": "minimal",
+        "baseline": "Baseline (minimal)",
+        "vec_add_args": "32 3 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy"
+      },
+      {
+        "name": "Memory Trace (minimal)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/offex/example/gpu/mem_trace/mem_trace",
+        "workload": "minimal",
+        "baseline": "Baseline (minimal)",
+        "vec_add_args": "32 3 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy"
+      },
+      {
+        "name": "Thread Histogram (minimal)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/offex/example/gpu/threadhist/threadhist",
+        "workload": "minimal",
+        "baseline": "Baseline (minimal)",
+        "vec_add_args": "32 3 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy"
+      },
+      {
+        "name": "Kernel Retsnoop (minimal)",
+        "probe_binary_cmd": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/official/example/gpu/kernelretsnoop/kernelretsnoop",
+        "workload": "minimal",
+        "baseline": "Baseline (minimal)",
+        "vec_add_args": "32 3 32 1",
+        "vec_add_binary": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy"
+      }
+    ]
+  },
+  "tests": [
+    {
+      "name": "Baseline (minimal)",
+      "probe_binary_cmd": "",
+      "vec_add_args": "32 3 32 1",
+      "workload": "minimal",
+      "baseline": null,
+      "avg_time_us": 40.14
+    },
+    {
+      "name": "CUDA Counter (minimal)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/official/example/gpu/cuda-counter/cuda_probe",
+      "vec_add_args": "32 3 32 1",
+      "workload": "minimal",
+      "baseline": "Baseline (minimal)",
+      "avg_time_us": 337608.03
+    },
+    {
+      "name": "Memory Trace (minimal)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/offex/example/gpu/mem_trace/mem_trace",
+      "vec_add_args": "32 3 32 1",
+      "workload": "minimal",
+      "baseline": "Baseline (minimal)",
+      "avg_time_us": 38.13
+    },
+    {
+      "name": "Thread Histogram (minimal)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/offex/example/gpu/threadhist/threadhist",
+      "vec_add_args": "32 3 32 1",
+      "workload": "minimal",
+      "baseline": "Baseline (minimal)",
+      "avg_time_us": 38.15
+    },
+    {
+      "name": "Kernel Retsnoop (minimal)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/official/example/gpu/kernelretsnoop/kernelretsnoop",
+      "vec_add_args": "32 3 32 1",
+      "workload": "minimal",
+      "baseline": "Baseline (minimal)",
+      "avg_time_us": 55.94
+    }
+  ]
+}
