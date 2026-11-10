@@ -218,6 +218,23 @@ documents up to 2026-10-30. Commits are on the dev branch
   baseline); dev slower on GPU ring buffer small/medium (+12–19%), not explained yet.
 - `results/gpu/compare-20261110`
 
+## 11-10: which dev change causes each GPU difference
+
+- Every official-vs-dev difference traced to a dev commit (`attribution.md`), then the open ones
+  measured: each candidate change undone on dev, 10 rounds interleaved with official and dev.
+- Host calls 100× faster: the watcher's 1 ms sleep removed. Ring buffer small cases slower: dev's
+  drop path on a full ring (undone, dev goes below official). Light probes and small map cases
+  1–15% faster: patched images loaded at load time instead of redirecting each launch (forcing
+  the old path makes dev slower than official everywhere). The 3-round entry+exit and memtrace
+  gaps were noise. Open: dev's fallback launch path 5–9 µs per launch slower than official's.
+- GPU array update at 1M threads (dev 10% faster) is not a speed-up: 1M threads read and write
+  one uncached host value, and how fast that drains depends on when warps arrive. Dev's device-code
+  changes together set that timing (undoing all three closes 55% of the gap); with the adds
+  removed on the same grid dev is 13% slower instead. Segment size, the value's position, CUDA
+  registration and the launch path ruled out; about 90 µs left unattributed.
+- `results/gpu/compare-20261110/attribution.md`, `results/gpu/ablate-20261110`,
+  `results/gpu/xlarge-20261110`
+
 ## Where it stands (11-10)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
@@ -226,5 +243,5 @@ documents up to 2026-10-30. Commits are on the dev branch
 - Real tools: 18 checked against bpf, counts exact; ssl-nginx ahead of bpf at every payload.
 - System call tracing and CUDA attach work on ARM64 with the dev branch.
 - Open: Gum's per-function usage counter under many threads; the agent's own load time (about
-  9 ms); the CUDA late path (`bpftime attach` to a running GPU process); fixes not yet offered
-  upstream.
+  9 ms); the CUDA late path (`bpftime attach` to a running GPU process; 5–9 µs per launch slower
+  than official's); fixes not yet offered upstream.
