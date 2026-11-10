@@ -73,4 +73,4 @@ Validation is complete; no need to rerun merely because older notes said
 pending. Implementation is committed and pushed as c0939bd, but is not yet
 included in daily automation's patch stack. Only selected result text is
 published; full source archives and binaries remain local. Model handoff:
-[research and engineering handoff](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/bpftime-uprobe-handoff-20261021.md).
+[research and engineering handoff](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/reports/uprobe/bpftime-uprobe-handoff-20261021.md).

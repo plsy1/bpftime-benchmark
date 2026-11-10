@@ -52,7 +52,7 @@ default activation audit passed. Ordinary hash delete recovered from 43.69
 to 36.64 ns (0.34x same-run kernel), with no evident non-target regression.
 See full10/ten-operation-comparison.md. Optimization code is published as
 c0939bd (see source-commit.txt) but is not yet in the daily replay stack. Current handoff:
-[handoff document](https://github.com/plsy1/bpftime-benchmark/blob/summry/jetson/uprobe/bpftime-uprobe-handoff-20261021.md).
+[handoff document](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/reports/uprobe/bpftime-uprobe-handoff-20261021.md).
 
 Publication scope: selected result descriptions, complete ten-round JSON/table,
 consuming raw/summary/environment data, validation logs and hashes. The full

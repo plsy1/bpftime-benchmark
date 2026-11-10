@@ -1,0 +1,86 @@
+--- a/attach/text_segment_transformer/text_segment_transformer.cpp	2026-10-29 19:18:30.959948993 +0900
++++ b/attach/text_segment_transformer/text_segment_transformer.cpp	2026-10-29 19:18:30.983949925 +0900
+@@ -97,64 +97,29 @@
+ 		"je handle_clone\n\t"
+ 		"cmp $435, %rax\n\t" // SYS_clone3
+ 		"je handle_clone3\n\t"
+-		// The kernel changes only rax, rcx and r11 across `syscall`;
+-		// code after an inline system call keeps using the argument
+-		// registers and vector registers (glibc's __libc_sigaction
+-		// reads its oact pointer from r8 afterwards). Save and restore
+-		// all of them around the C hook, below the caller's 128-byte
+-		// red zone: the rewritten `call *%rax` already stored its
+-		// return address at its top, nothing else of it may change.
+-		"lea -120(%rsp), %rsp\n\t"
++		// MUTATION for the NUC: the hook body before 0a602133 (argument
++		// registers and vector state not restored, frame in the red
++		// zone), kept at file scope so that LTO links it.
++		"movq (%rsp), %rcx\n\t"
+ 		"pushq %rbp\n\t"
+ 		"movq %rsp, %rbp\n\t"
+-		"subq $64, %rsp\n\t"
+-		"movq %rax, -8(%rbp)\n\t" // syscall number
+-		"movq %rdi, -16(%rbp)\n\t"
+-		"movq %rsi, -24(%rbp)\n\t"
+-		"movq %rdx, -32(%rbp)\n\t"
+-		"movq %r10, -40(%rbp)\n\t"
+-		"movq %r8, -48(%rbp)\n\t"
+-		"movq %r9, -56(%rbp)\n\t"
+-		// Vector, opmask and x87 state: XSAVE into a 64-byte aligned
+-		// area sized at setup. The header must be zero for XRSTOR.
+-		"subq bpftime_xsave_area_size(%rip), %rsp\n\t"
+-		"andq $-64, %rsp\n\t"
+-		"xorl %eax, %eax\n\t"
+-		"movq %rax, 512(%rsp)\n\t"
+-		"movq %rax, 520(%rsp)\n\t"
+-		"movq %rax, 528(%rsp)\n\t"
+-		"movq %rax, 536(%rsp)\n\t"
+-		"movq %rax, 544(%rsp)\n\t"
+-		"movq %rax, 552(%rsp)\n\t"
+-		"movq %rax, 560(%rsp)\n\t"
+-		"movq %rax, 568(%rsp)\n\t"
+-		"movl $" BPFTIME_XSAVE_MASK_STR ", %eax\n\t"
+-		"xorl %edx, %edx\n\t"
+-		"xsave (%rsp)\n\t"
+-		// syscall_hooker_cxx(nr, arg1, ..., arg6), arg6 on the stack
+-		"movq -8(%rbp), %rdi\n\t"
+-		"movq -16(%rbp), %rsi\n\t"
+-		"movq -24(%rbp), %rdx\n\t"
+-		"movq -32(%rbp), %rcx\n\t"
+-		"movq -40(%rbp), %r8\n\t"
+-		"movq -48(%rbp), %r9\n\t"
+-		"subq $8, %rsp\n\t" // 16-byte alignment at the call
+-		"pushq -56(%rbp)\n\t"
++		"andq $-16, %rsp \n\t"
++		"pushq %rax\n\t"
++		"pushq %rdi\n\t"
++		"pushq %rsi\n\t"
++		"pushq %rdx\n\t"
++		"pushq %r10\n\t"
++		"pushq %r8\n\t"
++		"pushq %r9\n\t"
++		"movq 48(%rsp), %rdi\n\t"
++		"movq 40(%rsp), %rsi\n\t"
++		"movq 32(%rsp), %rdx\n\t"
++		"movq 24(%rsp), %rcx\n\t"
++		"movq 16(%rsp), %r8\n\t"
++		"movq 8(%rsp), %r9\n\t"
++		"pushq (%rsp)\n\t"
+ 		"call syscall_hooker_cxx\n\t"
+-		"addq $16, %rsp\n\t"
+-		"movq %rax, %r11\n\t" // the result; `syscall` clobbers r11
+-		"movl $" BPFTIME_XSAVE_MASK_STR ", %eax\n\t"
+-		"xorl %edx, %edx\n\t"
+-		"xrstor (%rsp)\n\t"
+-		"movq %r11, %rax\n\t"
+-		"movq -16(%rbp), %rdi\n\t"
+-		"movq -24(%rbp), %rsi\n\t"
+-		"movq -32(%rbp), %rdx\n\t"
+-		"movq -40(%rbp), %r10\n\t"
+-		"movq -48(%rbp), %r8\n\t"
+-		"movq -56(%rbp), %r9\n\t"
+ 		"leave\n\t"
+-		"lea 120(%rsp), %rsp\n\t"
+ 		"ret\n\t"
+ 	".globl call_orig_syscall\n\t"
+ 		"call_orig_syscall:\n\t"

@@ -4,9 +4,9 @@ Results of bpftime on the Jetson Orin Nano 8 GB (aarch64, L4T R39.2.1, BTF kerne
 6.8.12-1021-tegra-btf since 2026-10-26): raw data, summaries, the scripts that produced them and the
 board state. Results from the x86 NUC are on
 [`benchmark-results/x86-nuc`](https://github.com/plsy1/bpftime-benchmark/tree/benchmark-results/x86-nuc);
-the earlier analysis reports are on
-[`summry/jetson`](https://github.com/plsy1/bpftime-benchmark/tree/summry/jetson). Since late
-October each round's conclusions are in its own README here.
+the analysis reports up to 2026-10-30, formerly the `summry/jetson` branch, are in
+[`reports/`](reports/README.md) (merged here on 2026-11-10). Since late October each round's
+conclusions are in its own README here.
 
 ## Branches
 
