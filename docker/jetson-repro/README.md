@@ -83,8 +83,8 @@ If the same image gives different `ssl-nginx` results on another ARM64 host, the
 
 ## Official Master No-BTF Image
 
-(Not maintained since 2026-11-10: `archive/official-no-btf` was deleted and the
-workflow's default ref is now the dev branch, which lacks this build.) The
+(Historical: the `Build Jetson No-BTF Image` workflow and the
+`archive/official-no-btf` branch it built were deleted on 2026-11-10.) The
 `Build Jetson No-BTF Image` workflow built `archive/official-no-btf` by
 default (the earlier `codex/jetson-no-btf-docker` branch, official master plus
 only this compatibility build, no longer exists): the Jetson compatibility
