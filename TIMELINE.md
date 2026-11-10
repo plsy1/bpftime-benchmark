@@ -207,6 +207,17 @@ documents up to 2026-10-30. Commits are on the dev branch
 - Results from before 10-19 moved to the tag; `summry/*` merged into the results branches'
   `reports/`; CI and stale branches deleted. `results/uprobe/base-4708f409-20261110`
 
+## 11-10: the upstream GPU benchmark, official against dev
+
+- Upstream's `benchmark/gpu` run on the Orin with official 4708f409 and dev c115b33d, 3 rounds
+  each, next to upstream's RTX 5090 and P40 tables. Official only instruments a victim built with
+  the legacy launch call and probes on the host-memory map types; as shipped, every micro case
+  fails to load on the Orin and the CUDA Counter runs uninstrumented.
+- Host-call cases: official 33.7 ms per launch (the same on the 5090 and the P40), dev 0.32–0.37
+  ms; CUDA Counter 337 → 3.5 ms. Device-only probes in the same band on both builds (1.1–1.5× of
+  baseline); dev slower on GPU ring buffer small/medium (+12–19%), not explained yet.
+- `results/gpu/compare-20261110`
+
 ## Where it stands (11-10)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
