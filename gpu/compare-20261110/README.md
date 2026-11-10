@@ -63,8 +63,10 @@ from the per-case log sections:
   also logs each launch redirected to the patched kernel (4 per case = 1 warm-up + 3 timed).
   Example loaders' own numbers are in the status column (calls, events, counter[0], threads).
 - Failure strings (load, map, launch, fallback) are listed in the status column.
-- Dev does not log the patched-image line for the memtrace pass (it is patched when cudart loads
-  its module); the gate's mem_trace counter shows it runs. Logging gap only, not fixed here.
+- For the memtrace pass dev logs the patched-image line with an empty list (`probes on )`):
+  `__memcapture` is a pass target, not a kernel, and fa499bcf lists only kernels found in the
+  image. The check's pattern needs the kernel name, so these rows count 0; the gate's mem_trace
+  counter shows the pass runs.
 
 ## Results (A official vs B dev, medians of 3 rounds)
 
@@ -99,9 +101,10 @@ differences are a few us inside overlapping ranges. Where the 3-round ranges do 
 - within 5%: Empty / Entry xlarge, GPU Ringbuf xlarge, GPU Array map lookup xlarge.
 
 Three rounds of one run each is a small sample; the dev slowdowns (ringbuf, entry+exit small,
-array update large) are not explained yet. One lead for ringbuf, not checked: official drops
-events (Kernel Retsnoop below delivers 32 of 128 on official, all 128 on dev), so dev may be
-paying for delivering every event.
+array update large) are not explained yet. The micro ringbuf case never polls, so after 16
+launches every thread's ring is full on both builds and the case mostly times the drop path,
+which dev made heavier (518f05b5: busy word, fences, drop counter). Which change causes each
+difference, and how sure that is: [attribution.md](attribution.md).
 
 **Examples.**
 
