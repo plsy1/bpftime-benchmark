@@ -7,7 +7,7 @@ bpftime 的 benchmark 工具仓库：workflow、脚本与说明在 `main`，被�
 | 分支 | 内容 |
 |---|---|
 | `main` | benchmark harness：GitHub Actions workflow、runner 脚本、说明文档 |
-| `archive/official-no-btf` | 被测的 bpftime 代码（含全部修复；bug 清单见 summry 分支的 change-log） |
+| `dev/uprobe-official-4708f4092d1e` | 开发分支：official 4708f409 + 每日列表的提交；workflow 的默认 ref。原 `archive/official-no-btf` 已于 2026-11-10 删除（其提交仍在 `automation/jetson-daily` 的历史里） |
 | `benchmark-results/jetson` | Jetson 本地实验的结果数据（checkout 即数据目录） |
 | `summry/jetson` | 分析文档（消融报告、runbook、修复记录、阅读指南单文件版） |
 | `docs/source-reading-guide` | bpftime 源码阅读指南（多文件版） |
@@ -68,6 +68,8 @@ checkout 或取预编译产物 → 装依赖 → 使用仓库根目录的 `make 
 | `official-no-btf-nginx-path-perf-x64` | perf 计数诊断（nginx 路径 CPU 归因），独立于吞吐 benchmark |
 
 ## 注意事项
+
+- 2026-11-10 起这些 workflow 不再维护：默认 ref 已改为开发分支，它不含原 `archive/official-no-btf` 上的 Jetson no-BTF 镜像、ssl-nginx 环境变量参数、x64 nginx 路径 perf 等改动，直接运行可能失败。
 
 - 托管 runner 存在**硬件抽签**（不同 run 分到的 CPU 不同，baseline 可差 30%+）：
   跨 run 的数值对比只看大方向，几个 pp 的差异不作数；同一 run 内
