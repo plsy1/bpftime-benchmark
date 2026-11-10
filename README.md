@@ -1,7 +1,7 @@
 # bpftime-benchmark
 
 bpftime 在 Jetson Orin Nano（aarch64）和 x86 NUC 上的开发、测量与分析记录。`main` 只放这份说明：
-被测代码、每日任务、结果和分析各在下面的分支里。
+被测代码、每日任务、结果和分析各在下面的分支里（分析文档已于 2026-11-10 并入两个结果分支的 `reports/`）。
 
 ## 分支
 
@@ -11,9 +11,8 @@ bpftime 在 Jetson Orin Nano（aarch64）和 x86 NUC 上的开发、测量与分
 | `archive/uprobe-official-177a1dc465ff`、`archive/uprobe-official-8da867d541f8` | 之前的两条开发分支；每日列表里的提交只在它们上面，不能删 |
 | `automation/jetson-daily` | Jetson 每日任务：跟踪 official、重放每日列表、跑 official uprobe benchmark（`tools/jetson-upstream`） |
 | `official-latest` | official bpftime 的镜像，只做快进 |
-| `benchmark-results/jetson` | Jetson 上的结果数据，按主题索引见其 README；2026-10-19 以前的旧结果在 tag `jetson-results-before-cleanup-20261110` |
-| `benchmark-results/x86-nuc` | x86 NUC 上的结果数据 |
-| `summry/jetson`、`summry/x86-nuc` | 分析文档（消融报告、runbook、修复记录、阅读指南单文件版） |
+| `benchmark-results/jetson` | Jetson 上的结果数据，按主题索引见其 README；`reports/` 是截至 10-30 的分析文档（原 `summry/jetson` 分支）；2026-10-19 以前的旧结果在 tag `jetson-results-before-cleanup-20261110` |
+| `benchmark-results/x86-nuc` | x86 NUC 上的结果数据；`reports/` 是其分析文档（原 `summry/x86-nuc` 分支） |
 | `docs/source-reading-guide` | bpftime 源码阅读指南（多文件版） |
 
 ## 历史
