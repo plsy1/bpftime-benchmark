@@ -3,6 +3,8 @@
 bpftime 在 Jetson Orin Nano（aarch64）和 x86 NUC 上的开发、测量与分析记录。`main` 只放这份说明：
 被测代码、每日任务、结果和分析各在下面的分支里（分析文档已于 2026-11-10 并入两个结果分支的 `reports/`）。
 
+工作时间线（6 月至今，每轮结束后补写）：[TIMELINE.md](TIMELINE.md)。
+
 ## 分支
 
 | 分支 | 内容 |
