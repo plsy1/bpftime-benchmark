@@ -1,0 +1,54 @@
+--- /home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/official/runtime/src/bpftime_shm_internal.cpp	2026-11-10 03:32:54.348988831 +0900
++++ runtime/src/bpftime_shm_internal.cpp	2026-11-10 23:25:53.652557469 +0900
+@@ -1222,17 +1222,25 @@
+ 		}
+ 	};
+ 
+-	// Ensure we can map host memory into device address space
+-	cudaError_t flag_err = cudaSetDeviceFlags(cudaDeviceMapHost);
+-	if (flag_err != cudaSuccess &&
+-	    flag_err != cudaErrorSetOnActiveProcess) {
+-		SPDLOG_WARN("cudaSetDeviceFlags(cudaDeviceMapHost) failed: {}",
+-			    cudaGetErrorString(flag_err));
++	// XLARGE EXPERIMENT: dev c115b33d's driver-API sequence instead of
++	// cudaSetDeviceFlags(cudaDeviceMapHost) + cudaHostRegister(Mapped)
++	CUresult cu_err = cuInit(0);
++	if (cu_err != CUDA_SUCCESS) {
++		SPDLOG_ERROR("cuInit() failed: {}", (int)cu_err);
++		return false;
++	}
++	CUdevice cu_device = 0;
++	if (cu_err = cuDeviceGet(&cu_device, 0); cu_err != CUDA_SUCCESS) {
++		SPDLOG_ERROR("cuDeviceGet() failed: {}", (int)cu_err);
++		return false;
+ 	}
+-	if (flag_err == cudaErrorSetOnActiveProcess) {
+-		// Clear the sticky error
+-		cudaGetLastError();
++	CUcontext cu_primary = nullptr;
++	if (cu_err = cuDevicePrimaryCtxRetain(&cu_primary, cu_device);
++	    cu_err != CUDA_SUCCESS) {
++		SPDLOG_ERROR("cuDevicePrimaryCtxRetain() failed: {}", (int)cu_err);
++		return false;
+ 	}
++	cuCtxSetCurrent(cu_primary);
+ 
+ 	// 1. Get the base address and size of the Boost.Interprocess segment
+ 	void *base_addr = segment.get_address(); // Starting address
+@@ -1240,11 +1248,11 @@
+ 	prefault_range(base_addr, seg_size);
+ 
+ 	// 2. Register with CUDA
+-	cudaError_t err =
+-		cudaHostRegister(base_addr, seg_size, cudaHostRegisterMapped);
+-	if (err != cudaSuccess) {
+-		SPDLOG_ERROR("cudaHostRegister() failed: {}",
+-			     cudaGetErrorString(err));
++	cu_err = cuMemHostRegister(base_addr, seg_size,
++				   CU_MEMHOSTREGISTER_DEVICEMAP |
++					   CU_MEMHOSTREGISTER_PORTABLE);
++	if (cu_err != CUDA_SUCCESS) {
++		SPDLOG_ERROR("cuMemHostRegister() failed: {}", (int)cu_err);
+ 		return false;
+ 	}
+ 

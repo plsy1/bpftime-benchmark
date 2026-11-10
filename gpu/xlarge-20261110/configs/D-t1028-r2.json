@@ -1,0 +1,39 @@
+{
+  "output_prefix": "/home/jetson/src/results/gpu/xlarge-20261110/runs/D-t1028-r2/micro_vec_add",
+  "global_env": {
+    "SPDLOG_LEVEL": "info",
+    "BPFTIME_GLOBAL_SHM_NAME": "bpftime_cmp_xD-t1028-r2",
+    "BPFTIME_MAP_GPU_THREAD_COUNT": "1028"
+  },
+  "probe_env": {
+    "BPFTIME_LOG_OUTPUT": "console",
+    "LD_PRELOAD": "build/runtime/syscall-server/libbpftime-syscall-server.so"
+  },
+  "agent_env": {
+    "BPFTIME_LOG_OUTPUT": "console",
+    "LD_PRELOAD": "build/runtime/agent/libbpftime-agent.so"
+  },
+  "workload_presets": {
+    "tiny": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy 32 10000 32 1",
+    "small": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy 1000 10000 256 4",
+    "medium": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy 10000 10000 256 40",
+    "large": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy 100000 1000 512 196",
+    "xlarge": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy 1000000 1000 512 1954",
+    "small_64x16": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy 1000 10000 64 16",
+    "minimal": "/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy 32 3 32 1"
+  },
+  "test_cases": [
+    {
+      "name": "GPU Array map update (large)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/fix/benchmark/gpu/micro/cuda_probe gpu-array-update",
+      "workload": "large",
+      "baseline": "Baseline (large)"
+    },
+    {
+      "name": "GPU Array map update (xlarge)",
+      "probe_binary_cmd": "/home/jetson/src/bpftime-gpu-work/compare/fix/benchmark/gpu/micro/cuda_probe gpu-array-update",
+      "workload": "xlarge",
+      "baseline": "Baseline (xlarge)"
+    }
+  ]
+}

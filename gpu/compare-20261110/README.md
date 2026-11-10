@@ -105,7 +105,10 @@ Three rounds of one run each is a small sample. The ablation round
 small and memtrace tiny gaps are noise; the ringbuf slowdown is 518f05b5's drop path (the micro
 ringbuf case never polls, so after 16 launches every thread's ring is full on both builds and
 the case mostly times that path); dev's lead on light probes and small map cases is 811b841f's
-launch path; array update large is 518f05b5's 1513 device code plus the probe gate. Which change
+launch path; array update large is 518f05b5's 1513 device code plus the probe gate. Array update xlarge ([`../xlarge-20261110`](../xlarge-20261110/)) is contention on one
+uncached host line: dev's device-code changes together change how fast it drains (with N=32 on the
+same grid dev is 13% slower instead); segment size, the counter's position, CUDA registration and
+the launch path are ruled out. Which change
 causes each difference, and how sure that is: [attribution.md](attribution.md).
 
 **Examples.**

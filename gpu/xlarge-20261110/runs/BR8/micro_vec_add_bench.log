@@ -1,0 +1,1289 @@
+================================================================================
+CUDA Benchmark Suite
+================================================================================
+Timestamp: 2026-11-11 00:02:40
+Config file: /home/jetson/src/bpftime-gpu-work/xlarge/configs/BR8.json
+================================================================================
+
+GPU: Orin (nvgpu)
+
+Running test: Baseline (large)
+Running test with custom env: vec_add_binary=/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy, args=100000 1000 512 196
+Environment variables: {'SPDLOG_LEVEL': 'info', 'BPFTIME_GLOBAL_SHM_NAME': 'bpftime_cmp_xBR8'}
+STDOUT:
+Running benchmark with 1000 iterations...
+Kernel: vectorAdd
+Data size: 0 MB
+Grid config: 196 blocks × 512 threads/block = 100352 total threads
+
+========================================
+Benchmark results:
+========================================
+Setup phase:
+  Host allocation:   718 us
+  Device allocation: 236 us
+  Host to device:    434 us (878.96 GB/s)
+  Device to host:    231 us (1651.38 GB/s)
+
+Kernel execution:
+  Total time:        31187.44 us
+  Average kernel time: 31.19 us
+  Throughput:        32064.19 kernels/sec
+
+Detailed statistics (μs):
+  Mean:              31.12 us
+  Median:            30.56 us
+  Min:               21.38 us
+  Max:               63.84 us
+  P95:               33.92 us
+  P99:               36.70 us
+  Std dev:           1.97 us
+
+Validation check: C[0] = 0.00, C[1] = 3.00
+========================================
+
+STDERR:
+
+✓ Baseline: 31.19 μs
+
+Running test: Baseline (xlarge)
+Running test with custom env: vec_add_binary=/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy, args=1000000 1000 512 1954
+Environment variables: {'SPDLOG_LEVEL': 'info', 'BPFTIME_GLOBAL_SHM_NAME': 'bpftime_cmp_xBR8'}
+STDOUT:
+Running benchmark with 1000 iterations...
+Kernel: vectorAdd
+Data size: 3 MB
+Grid config: 1954 blocks × 512 threads/block = 1000448 total threads
+
+========================================
+Benchmark results:
+========================================
+Setup phase:
+  Host allocation:   5779 us
+  Device allocation: 953 us
+  Host to device:    1780 us (2143.09 GB/s)
+  Device to host:    1469 us (2596.80 GB/s)
+
+Kernel execution:
+  Total time:        159624.61 us
+  Average kernel time: 159.62 us
+  Throughput:        6264.70 kernels/sec
+
+Detailed statistics (μs):
+  Mean:              159.56 us
+  Median:            158.82 us
+  Min:               155.91 us
+  Max:               188.52 us
+  P95:               162.98 us
+  P99:               166.79 us
+  Std dev:           2.30 us
+
+Validation check: C[0] = 0.00, C[1] = 3.00
+========================================
+
+STDERR:
+
+✓ Baseline: 159.62 μs
+
+Running test: Baseline (xlarge_n32)
+Running test with custom env: vec_add_binary=/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy, args=32 1000 512 1954
+Environment variables: {'SPDLOG_LEVEL': 'info', 'BPFTIME_GLOBAL_SHM_NAME': 'bpftime_cmp_xBR8'}
+STDOUT:
+Running benchmark with 1000 iterations...
+Kernel: vectorAdd
+Data size: 0 MB
+Grid config: 1954 blocks × 512 threads/block = 1000448 total threads
+
+========================================
+Benchmark results:
+========================================
+Setup phase:
+  Host allocation:   2 us
+  Device allocation: 214 us
+  Host to device:    30 us (4.07 GB/s)
+  Device to host:    75 us (1.63 GB/s)
+
+Kernel execution:
+  Total time:        49975.17 us
+  Average kernel time: 49.98 us
+  Throughput:        20009.94 kernels/sec
+
+Detailed statistics (μs):
+  Mean:              49.91 us
+  Median:            49.25 us
+  Min:               47.04 us
+  Max:               82.59 us
+  P95:               53.15 us
+  P99:               59.75 us
+  Std dev:           2.34 us
+
+Validation check: C[0] = 0.00, C[1] = 3.00
+========================================
+
+STDERR:
+
+✓ Baseline: 49.98 μs
+
+Running test: GPU Array map update (large)
+Running BPF test: probe_cmd=/home/jetson/src/bpftime-gpu-work/compare/fix/benchmark/gpu/micro/cuda_probe gpu-array-update, vec_add_args=100000 1000 512 196
+Probe environment: {'BPFTIME_LOG_OUTPUT': 'console', 'LD_PRELOAD': 'build/runtime/syscall-server/libbpftime-syscall-server.so'}
+Probe startup log:
+libbpf: loading object 'cuda_probe_bpf' from buffer
+libbpf: elf: section(2) .symtab, size 768, link 1, flags 0, type=2
+libbpf: elf: section(3) kprobe/_Z9vectorAddPKfS0_Pf, size 792, link 0, flags 6, type=1
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_entry' at insn offset 2 (16 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_both_entry' at insn offset 4 (32 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_ringbuf' at insn offset 6 (48 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_globaltimer' at insn offset 20 (160 bytes), code size 3 insns (24 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_array_update' at insn offset 23 (184 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_array_lookup' at insn offset 37 (296 bytes), code size 13 insns (104 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_update' at insn offset 50 (400 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_lookup' at insn offset 64 (512 bytes), code size 13 insns (104 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_delete' at insn offset 77 (616 bytes), code size 9 insns (72 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_pergputd_array_lookup' at insn offset 86 (688 bytes), code size 13 insns (104 bytes)
+libbpf: elf: section(4) kretprobe/_Z9vectorAddPKfS0_Pf, size 304, link 0, flags 6, type=1
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_exit' at insn offset 2 (16 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_both_exit' at insn offset 4 (32 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_gpu_array_update' at insn offset 6 (48 bytes), code size 23 insns (184 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_gpu_array_lookup' at insn offset 29 (232 bytes), code size 9 insns (72 bytes)
+libbpf: elf: section(5) kprobe/__memcapture, size 16, link 0, flags 6, type=1
+libbpf: sec 'kprobe/__memcapture': found program 'cuda__probe_memtrace' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: elf: section(6) .maps, size 160, link 0, flags 3, type=1
+libbpf: elf: section(7) license, size 4, link 0, flags 3, type=1
+libbpf: license of cuda_probe_bpf is GPL
+libbpf: elf: section(8) .relkprobe/_Z9vectorAddPKfS0_Pf, size 112, link 2, flags 40, type=9
+libbpf: elf: section(9) .relkretprobe/_Z9vectorAddPKfS0_Pf, size 48, link 2, flags 40, type=9
+libbpf: elf: section(10) .BTF, size 3050, link 0, flags 0, type=1
+libbpf: elf: section(11) .BTF.ext, size 1344, link 0, flags 0, type=1
+libbpf: looking for externs among 32 symbols...
+libbpf: collected 0 externs total
+[2026-11-11 00:02:40][info][846581] Init bpftime syscall mocking..
+[2026-11-11 00:02:40][info][846581] The log will be written to: console
+[2026-11-11 00:02:40][info][846581] Starting syscall server..
+[2026-11-11 00:02:40][info][846581] Initialize syscall server
+[2026-11-11 00:02:40][info][846581] Global shm constructed. shm_open_type 4 for bpftime_cmp_xBR8
+[2026-11-11 00:02:40][info][846581] Global shm initialized
+[2026-11-11 00:02:40][info][846581] Initializing CUDA at syscall-server side
+[2026-11-11 00:02:40][info][846581] CUDA initialized at syscall server side
+[2026-11-11 00:02:40][info][846581] bpftime-syscall-server started
+libbpf: map 'events': at sec_idx 6, offset 0.
+libbpf: map 'events': found type = 1527.
+libbpf: map 'events': found key [8], sz = 4.
+libbpf: map 'events': found value [12], sz = 16.
+libbpf: map 'events': found max_entries = 16.
+libbpf: map 'array_map': at sec_idx 6, offset 32.
+libbpf: map 'array_map': found type = 2.
+libbpf: map 'array_map': found key [8], sz = 4.
+libbpf: map 'array_map': found value [13], sz = 8.
+libbpf: map 'array_map': found max_entries = 1024.
+libbpf: map 'hash_map': at sec_idx 6, offset 64.
+libbpf: map 'hash_map': found type = 1.
+libbpf: map 'hash_map': found key [8], sz = 4.
+libbpf: map 'hash_map': found value [13], sz = 8.
+libbpf: map 'hash_map': found max_entries = 1024.
+libbpf: map 'call_count': at sec_idx 6, offset 96.
+libbpf: map 'call_count': found type = 1512.
+libbpf: map 'call_count': found key [8], sz = 4.
+libbpf: map 'call_count': found value [13], sz = 8.
+libbpf: map 'call_count': found max_entries = 1.
+libbpf: map 'gpu_counter': at sec_idx 6, offset 128.
+libbpf: map 'gpu_counter': found type = 1513.
+libbpf: map 'gpu_counter': found key [8], sz = 4.
+libbpf: map 'gpu_counter': found value [13], sz = 8.
+libbpf: map 'gpu_counter': found max_entries = 4.
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(3) 'kprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #13 against 'events'
+libbpf: prog 'cuda__probe_ringbuf': found map 0 (events, sec 6, off 0) for insn #7
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #31 against 'array_map'
+libbpf: prog 'cuda__probe_array_update': found map 1 (array_map, sec 6, off 32) for insn #8
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #41 against 'array_map'
+libbpf: prog 'cuda__probe_array_lookup': found map 1 (array_map, sec 6, off 32) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #3: insn #58 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_update': found map 2 (hash_map, sec 6, off 64) for insn #8
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #4: insn #68 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_lookup': found map 2 (hash_map, sec 6, off 64) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #5: insn #81 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_delete': found map 2 (hash_map, sec 6, off 64) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #6: insn #90 against 'call_count'
+libbpf: prog 'cuda__probe_pergputd_array_lookup': found map 3 (call_count, sec 6, off 96) for insn #4
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(4) 'kretprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #10 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_update': found map 4 (gpu_counter, sec 6, off 128) for insn #4
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #23 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_update': found map 4 (gpu_counter, sec 6, off 128) for insn #17
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #33 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_lookup': found map 4 (gpu_counter, sec 6, off 128) for insn #4
+Mode: GPU array map update
+libbpf: object 'cuda_probe_bpf': failed (-EACCES) to open BPF FS mount at '/sys/fs/bpf', skipping optional step...
+libbpf: Kernel doesn't support BTF, skipping uploading it.
+[2026-11-11 00:02:40][info][846581] syscall server: Set enable_mock_after_initialized to false
+[2026-11-11 00:02:40][info][846581] CUDA context for thread 846581 has been set to aaaaf76a89b0
+[2026-11-11 00:02:40][info][846581] Map events (nv_gpu_ringbuf_map_impl) has space for thread count 1024
+[2026-11-11 00:02:40][info][846581] syscall server: Set enable_mock_after_initialized to true
+libbpf: map 'events': created successfully, fd=3
+libbpf: map 'array_map': created successfully, fd=13
+libbpf: map 'hash_map': created successfully, fd=14
+[2026-11-11 00:02:40][info][846581] Map call_count (nv_gpu_array_host_map_impl) has space for thread count 1024
+[2026-11-11 00:02:40][info][846581] Initializing map type of BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=1, thread_count=1024, total_buffer_size=8192
+[2026-11-11 00:02:40][info][846581] Allocated shared memory buffer at ffff99e28ea0
+libbpf: map 'call_count': created successfully, fd=15
+[2026-11-11 00:02:40][info][846581] Map gpu_counter (nv_gpu_shared_array_host_map_impl) shared array
+[2026-11-11 00:02:40][info][846581] Initializing map type of BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=4, total_buffer_size=32
+[2026-11-11 00:02:40][info][846581] Allocated shared memory buffer at ffff99e2af80
+libbpf: map 'gpu_counter': created successfully, fd=16
+libbpf: prog 'cuda__probe': skipped loading
+libbpf: prog 'cuda__probe_entry': skipped loading
+libbpf: prog 'cuda__probe_both_entry': skipped loading
+libbpf: prog 'cuda__probe_ringbuf': skipped loading
+libbpf: prog 'cuda__probe_globaltimer': skipped loading
+libbpf: prog 'cuda__probe_array_update': skipped loading
+libbpf: prog 'cuda__probe_array_lookup': skipped loading
+libbpf: prog 'cuda__probe_hash_update': skipped loading
+libbpf: prog 'cuda__probe_hash_lookup': skipped loading
+libbpf: prog 'cuda__probe_hash_delete': skipped loading
+libbpf: prog 'cuda__probe_pergputd_array_lookup': skipped loading
+libbpf: prog 'cuda__retprobe': skipped loading
+libbpf: prog 'cuda__retprobe_exit': skipped loading
+libbpf: prog 'cuda__retprobe_both_exit': skipped loading
+libbpf: prog 'cuda__retprobe_gpu_array_lookup': skipped loading
+libbpf: prog 'cuda__probe_memtrace': skipped loading
+[2026-11-11 00:02:40][info][846581] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+BPF probes attached. Waiting for target program...
+
+Agent environment: {'BPFTIME_LOG_OUTPUT': 'console', 'LD_PRELOAD': 'build/runtime/agent/libbpftime-agent.so'}
+STDOUT:
+[2026-11-11 00:02:50.667] [warning] [bpftime_vm_compat.hpp:251] VM factory for name: llvm already registered, overwriting
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-11 00:02:52.194] [info] [core.cpp:321] [ptxpass] kretprobe: matched=1, in=969, out=2837
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+Running benchmark with 1000 iterations...
+Kernel: vectorAdd
+Data size: 0 MB
+Grid config: 196 blocks × 512 threads/block = 100352 total threads
+
+========================================
+Benchmark results:
+========================================
+Setup phase:
+  Host allocation:   124 us
+  Device allocation: 281 us
+  Host to device:    443 us (861.11 GB/s)
+  Device to host:    296 us (1288.75 GB/s)
+
+Kernel execution:
+  Total time:        216141.57 us
+  Average kernel time: 216.14 us
+  Throughput:        4626.60 kernels/sec
+
+Detailed statistics (μs):
+  Mean:              216.06 us
+  Median:            215.75 us
+  Min:               157.00 us
+  Max:               279.82 us
+  P95:               252.30 us
+  P99:               266.22 us
+  Std dev:           21.55 us
+
+Validation check: C[0] = 0.00, C[1] = 3.00
+========================================
+
+STDERR:
+[2026-11-11 00:02:50][info][846596] Registered shared memory with CUDA: addr=0xffff8e610000 size=52428800
+[2026-11-11 00:02:50][info][846596] Global shm constructed. shm_open_type 1 for bpftime_cmp_xBR8
+[2026-11-11 00:02:50][info][846596] Global shm initialized
+[2026-11-11 00:02:50][info][846596] bpf_attach_ctx constructed
+[2026-11-11 00:02:50][info][846596] Initializing CUDA shared memory
+[2026-11-11 00:02:50][info][846596] CommSharedMem host 0xffff8e70c8e8 mapped to device 0x1022c08e8
+[2026-11-11 00:02:50][info][846596] CUDA context created
+[2026-11-11 00:02:50][info][846596] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2026-11-11 00:02:50][info][846596] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2026-11-11 00:02:50][info][846596] Register attach-impl defined helper bpf_get_retval, index 186
+[2026-11-11 00:02:50][info][846596] Starting nv_attach_impl
+[2026-11-11 00:02:50][info][846596] Parsing bundled libraries: /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so:/home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so:/home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-11 00:02:50][info][846596] Found path: /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so, executing..
+[2026-11-11 00:02:50][info][846596] Retrived config of /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so
+[2026-11-11 00:02:50][info][846596] Found path: /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so, executing..
+[2026-11-11 00:02:50][info][846596] Retrived config of /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so
+[2026-11-11 00:02:50][info][846596] Found path: /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so, executing..
+[2026-11-11 00:02:50][info][846596] Retrived config of /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-11 00:02:50][info][846596] Initializing agent..
+[2026-11-11 00:02:50][info][846596] bpftime: shm epoch_seq = 2
+[2026-11-11 00:02:50][info][846596] Instantiating bpf link 52 and the corresponding program cuda__retprobe_ is cuda program
+[2026-11-11 00:02:50][info][846596] Skipping nv attach handler 52 since we are not handling nv handles
+[2026-11-11 00:02:50][info][846596] Instantiating bpf link 52 and the corresponding program cuda__retprobe_ is cuda program
+[2026-11-11 00:02:50][info][846596] Handling link to CUDA program: 52, recording it..
+[2026-11-11 00:02:50][info][846596] Loaded 23 instructions (original) for cuda ebpf program
+[2026-11-11 00:02:50][info][846596] Initializing nv_gpu_ringbuf_map_impl at pid 846596
+[2026-11-11 00:02:50][info][846596] Mapped GPU memory for gpu ringbuf map: 4333505552
+[2026-11-11 00:02:50][info][846596] Copying map fd 3 to device, key size=4, value size=16, max ent=16, map_type = 1527, gpu_buffer = 1024c0c10
+[2026-11-11 00:02:50][warning][846596] Not a GPU map!
+[2026-11-11 00:02:50][info][846596] Copying map fd 13 to device, key size=4, value size=8, max ent=1024, map_type = 2, gpu_buffer = 0
+[2026-11-11 00:02:50][warning][846596] Not a GPU map!
+[2026-11-11 00:02:50][info][846596] Copying map fd 14 to device, key size=4, value size=8, max ent=1024, map_type = 1, gpu_buffer = 0
+[2026-11-11 00:02:50][info][846596] Initializing nv_gpu_array_host_map_impl at pid 846596, shared mem addr=ffff8e978ea0
+[2026-11-11 00:02:50][info][846596] Mapped shared memory for GPU access: cpu=ffff8e978ea0, gpu=10252cea0
+[2026-11-11 00:02:50][info][846596] Copying map fd 15 to device, key size=4, value size=8, max ent=1, map_type = 1512, gpu_buffer = 10252cea0
+[2026-11-11 00:02:50][info][846596] Initializing nv_gpu_shared_array_host_map_impl at pid 846596, shared mem addr=ffff8e97af80
+[2026-11-11 00:02:50][info][846596] Mapped shared memory for GPU access: cpu=ffff8e97af80, gpu=10252ef80
+[2026-11-11 00:02:50][info][846596] Copying map fd 16 to device, key size=4, value size=8, max ent=4, map_type = 1513, gpu_buffer = 10252ef80
+[2026-11-11 00:02:50][info][846596] Cached shared_mem_ptr at 1022c08e8
+[2026-11-11 00:02:50][info][846596] Recorded pass /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so for func _Z9vectorAddPKfS0_Pf
+[2026-11-11 00:02:52][info][846596] nv_attach_impl: cached 555962 host symbols
+[2026-11-11 00:02:52][info][846596] nv_attach_impl: late attach bootstrap scanning fatbins..
+[2026-11-11 00:02:52][info][846596] Temporary fatbin written to /tmp/bpftime-fatbin-work.44E8B8/temp.fatbin
+[2026-11-11 00:02:52][info][846596] Extracting PTX in the fatbin...
+[2026-11-11 00:02:52][info][846596] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.44E8B8/temp.fatbin
+[2026-11-11 00:02:52][info][846596] Remove extracted files..
+[2026-11-11 00:02:52][info][846596] Got 1 PTX files
+[2026-11-11 00:02:52][info][846596] Loading & patching current fatbin..
+[2026-11-11 00:02:52][info][846608] Patching PTX: temp.1.sm_75.ptx
+[2026-11-11 00:02:52][info][846608] Patching request e5ae692d66c728cf14e288c250cf8c11e4be7ff13cfa177a4d296736941a0220 not found in cache, patching..
+[2026-11-11 00:02:52][info][846596] Auto-detected GPU SM arch: sm_87 (compute capability 8.7)
+[2026-11-11 00:02:52][info][846596] Compiling PTXs with sm_arch sm_87
+[2026-11-11 00:02:52][info][846596] Compiler version: 13.2
+[2026-11-11 00:02:52][info][846609] Start compiling patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-11 00:02:52][info][846609] Compile of patched.temp.1.sm_75.ptx done
+[2026-11-11 00:02:52][info][846596] Loading module: patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-11 00:02:52][info][846596] Copying trampoline data to device
+[2026-11-11 00:02:52][info][846596] constData symbol device_ptr=19f032000 size=8 shared_mem_ptr=1022c08e8
+[2026-11-11 00:02:52][info][846596] map_info symbol device_ptr=19f032008 size=40960
+[2026-11-11 00:02:52][info][846596] Trampoline data copied
+[2026-11-11 00:02:52][info][846596] Loaded module: patched.temp.1.sm_75.ptx
+[2026-11-11 00:02:52][info][846596] nv_attach_impl: ingested fatbin from .nv_fatbin in /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy
+[2026-11-11 00:02:52][info][846596] nv_attach_impl: found 1 fatbin wrapper(s) in /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy
+[2026-11-11 00:02:52][info][846596] Temporary fatbin written to /tmp/bpftime-fatbin-work.0X82IV/temp.fatbin
+[2026-11-11 00:02:52][info][846596] Extracting PTX in the fatbin...
+[2026-11-11 00:02:52][info][846596] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.0X82IV/temp.fatbin
+[2026-11-11 00:02:52][info][846596] Remove extracted files..
+[2026-11-11 00:02:52][info][846596] Got 1 PTX files
+[2026-11-11 00:02:52][info][846596] Loading & patching current fatbin..
+[2026-11-11 00:02:52][info][846622] Patching PTX: temp.1.sm_75.ptx
+[2026-11-11 00:02:52][info][846622] Patching request e5ae692d66c728cf14e288c250cf8c11e4be7ff13cfa177a4d296736941a0220 found in cache
+[2026-11-11 00:02:52][info][846596] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-11 00:02:52][info][846596] Compiling PTXs with sm_arch sm_87
+[2026-11-11 00:02:52][info][846596] Compiler version: 13.2
+[2026-11-11 00:02:52][info][846623] PTX patched.temp.1.sm_75.ptx (6a7377aea2ff2dae20aa8f6d1d4c3d9c0e23f7a7165becb4ad813f24bc8d7bc1) found in cache
+[2026-11-11 00:02:52][info][846596] Module patched.temp.1.sm_75.ptx found in cache
+[2026-11-11 00:02:52][info][846596] nv_attach_impl: late attach bootstrap ingested 2 fatbin(s)
+[2026-11-11 00:02:52][info][846596] agent ipc: listening (abstract) for pid 846596
+[2026-11-11 00:02:52][info][846596] Attach successfully
+[2026-11-11 00:02:52][info][846600] Exiting CUDA watcher thread
+
+✓ BPF test: 216.14 μs
+
+=== Complete Probe Output ===
+libbpf: loading object 'cuda_probe_bpf' from buffer
+libbpf: elf: section(2) .symtab, size 768, link 1, flags 0, type=2
+libbpf: elf: section(3) kprobe/_Z9vectorAddPKfS0_Pf, size 792, link 0, flags 6, type=1
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_entry' at insn offset 2 (16 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_both_entry' at insn offset 4 (32 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_ringbuf' at insn offset 6 (48 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_globaltimer' at insn offset 20 (160 bytes), code size 3 insns (24 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_array_update' at insn offset 23 (184 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_array_lookup' at insn offset 37 (296 bytes), code size 13 insns (104 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_update' at insn offset 50 (400 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_lookup' at insn offset 64 (512 bytes), code size 13 insns (104 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_delete' at insn offset 77 (616 bytes), code size 9 insns (72 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_pergputd_array_lookup' at insn offset 86 (688 bytes), code size 13 insns (104 bytes)
+libbpf: elf: section(4) kretprobe/_Z9vectorAddPKfS0_Pf, size 304, link 0, flags 6, type=1
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_exit' at insn offset 2 (16 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_both_exit' at insn offset 4 (32 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_gpu_array_update' at insn offset 6 (48 bytes), code size 23 insns (184 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_gpu_array_lookup' at insn offset 29 (232 bytes), code size 9 insns (72 bytes)
+libbpf: elf: section(5) kprobe/__memcapture, size 16, link 0, flags 6, type=1
+libbpf: sec 'kprobe/__memcapture': found program 'cuda__probe_memtrace' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: elf: section(6) .maps, size 160, link 0, flags 3, type=1
+libbpf: elf: section(7) license, size 4, link 0, flags 3, type=1
+libbpf: license of cuda_probe_bpf is GPL
+libbpf: elf: section(8) .relkprobe/_Z9vectorAddPKfS0_Pf, size 112, link 2, flags 40, type=9
+libbpf: elf: section(9) .relkretprobe/_Z9vectorAddPKfS0_Pf, size 48, link 2, flags 40, type=9
+libbpf: elf: section(10) .BTF, size 3050, link 0, flags 0, type=1
+libbpf: elf: section(11) .BTF.ext, size 1344, link 0, flags 0, type=1
+libbpf: looking for externs among 32 symbols...
+libbpf: collected 0 externs total
+[2026-11-11 00:02:40][info][846581] Init bpftime syscall mocking..
+[2026-11-11 00:02:40][info][846581] The log will be written to: console
+[2026-11-11 00:02:40][info][846581] Starting syscall server..
+[2026-11-11 00:02:40][info][846581] Initialize syscall server
+[2026-11-11 00:02:40][info][846581] Global shm constructed. shm_open_type 4 for bpftime_cmp_xBR8
+[2026-11-11 00:02:40][info][846581] Global shm initialized
+[2026-11-11 00:02:40][info][846581] Initializing CUDA at syscall-server side
+[2026-11-11 00:02:40][info][846581] CUDA initialized at syscall server side
+[2026-11-11 00:02:40][info][846581] bpftime-syscall-server started
+libbpf: map 'events': at sec_idx 6, offset 0.
+libbpf: map 'events': found type = 1527.
+libbpf: map 'events': found key [8], sz = 4.
+libbpf: map 'events': found value [12], sz = 16.
+libbpf: map 'events': found max_entries = 16.
+libbpf: map 'array_map': at sec_idx 6, offset 32.
+libbpf: map 'array_map': found type = 2.
+libbpf: map 'array_map': found key [8], sz = 4.
+libbpf: map 'array_map': found value [13], sz = 8.
+libbpf: map 'array_map': found max_entries = 1024.
+libbpf: map 'hash_map': at sec_idx 6, offset 64.
+libbpf: map 'hash_map': found type = 1.
+libbpf: map 'hash_map': found key [8], sz = 4.
+libbpf: map 'hash_map': found value [13], sz = 8.
+libbpf: map 'hash_map': found max_entries = 1024.
+libbpf: map 'call_count': at sec_idx 6, offset 96.
+libbpf: map 'call_count': found type = 1512.
+libbpf: map 'call_count': found key [8], sz = 4.
+libbpf: map 'call_count': found value [13], sz = 8.
+libbpf: map 'call_count': found max_entries = 1.
+libbpf: map 'gpu_counter': at sec_idx 6, offset 128.
+libbpf: map 'gpu_counter': found type = 1513.
+libbpf: map 'gpu_counter': found key [8], sz = 4.
+libbpf: map 'gpu_counter': found value [13], sz = 8.
+libbpf: map 'gpu_counter': found max_entries = 4.
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(3) 'kprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #13 against 'events'
+libbpf: prog 'cuda__probe_ringbuf': found map 0 (events, sec 6, off 0) for insn #7
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #31 against 'array_map'
+libbpf: prog 'cuda__probe_array_update': found map 1 (array_map, sec 6, off 32) for insn #8
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #41 against 'array_map'
+libbpf: prog 'cuda__probe_array_lookup': found map 1 (array_map, sec 6, off 32) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #3: insn #58 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_update': found map 2 (hash_map, sec 6, off 64) for insn #8
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #4: insn #68 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_lookup': found map 2 (hash_map, sec 6, off 64) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #5: insn #81 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_delete': found map 2 (hash_map, sec 6, off 64) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #6: insn #90 against 'call_count'
+libbpf: prog 'cuda__probe_pergputd_array_lookup': found map 3 (call_count, sec 6, off 96) for insn #4
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(4) 'kretprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #10 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_update': found map 4 (gpu_counter, sec 6, off 128) for insn #4
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #23 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_update': found map 4 (gpu_counter, sec 6, off 128) for insn #17
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #33 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_lookup': found map 4 (gpu_counter, sec 6, off 128) for insn #4
+Mode: GPU array map update
+libbpf: object 'cuda_probe_bpf': failed (-EACCES) to open BPF FS mount at '/sys/fs/bpf', skipping optional step...
+libbpf: Kernel doesn't support BTF, skipping uploading it.
+[2026-11-11 00:02:40][info][846581] syscall server: Set enable_mock_after_initialized to false
+[2026-11-11 00:02:40][info][846581] CUDA context for thread 846581 has been set to aaaaf76a89b0
+[2026-11-11 00:02:40][info][846581] Map events (nv_gpu_ringbuf_map_impl) has space for thread count 1024
+[2026-11-11 00:02:40][info][846581] syscall server: Set enable_mock_after_initialized to true
+libbpf: map 'events': created successfully, fd=3
+libbpf: map 'array_map': created successfully, fd=13
+libbpf: map 'hash_map': created successfully, fd=14
+[2026-11-11 00:02:40][info][846581] Map call_count (nv_gpu_array_host_map_impl) has space for thread count 1024
+[2026-11-11 00:02:40][info][846581] Initializing map type of BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=1, thread_count=1024, total_buffer_size=8192
+[2026-11-11 00:02:40][info][846581] Allocated shared memory buffer at ffff99e28ea0
+libbpf: map 'call_count': created successfully, fd=15
+[2026-11-11 00:02:40][info][846581] Map gpu_counter (nv_gpu_shared_array_host_map_impl) shared array
+[2026-11-11 00:02:40][info][846581] Initializing map type of BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=4, total_buffer_size=32
+[2026-11-11 00:02:40][info][846581] Allocated shared memory buffer at ffff99e2af80
+libbpf: map 'gpu_counter': created successfully, fd=16
+libbpf: prog 'cuda__probe': skipped loading
+libbpf: prog 'cuda__probe_entry': skipped loading
+libbpf: prog 'cuda__probe_both_entry': skipped loading
+libbpf: prog 'cuda__probe_ringbuf': skipped loading
+libbpf: prog 'cuda__probe_globaltimer': skipped loading
+libbpf: prog 'cuda__probe_array_update': skipped loading
+libbpf: prog 'cuda__probe_array_lookup': skipped loading
+libbpf: prog 'cuda__probe_hash_update': skipped loading
+libbpf: prog 'cuda__probe_hash_lookup': skipped loading
+libbpf: prog 'cuda__probe_hash_delete': skipped loading
+libbpf: prog 'cuda__probe_pergputd_array_lookup': skipped loading
+libbpf: prog 'cuda__retprobe': skipped loading
+libbpf: prog 'cuda__retprobe_exit': skipped loading
+libbpf: prog 'cuda__retprobe_both_exit': skipped loading
+libbpf: prog 'cuda__retprobe_gpu_array_lookup': skipped loading
+libbpf: prog 'cuda__probe_memtrace': skipped loading
+[2026-11-11 00:02:40][info][846581] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+BPF probes attached. Waiting for target program...
+
+=== End Probe Output ===
+
+
+Running test: GPU Array map update (xlarge)
+Running BPF test: probe_cmd=/home/jetson/src/bpftime-gpu-work/compare/fix/benchmark/gpu/micro/cuda_probe gpu-array-update, vec_add_args=1000000 1000 512 1954
+Probe environment: {'BPFTIME_LOG_OUTPUT': 'console', 'LD_PRELOAD': 'build/runtime/syscall-server/libbpftime-syscall-server.so'}
+Probe startup log:
+libbpf: loading object 'cuda_probe_bpf' from buffer
+libbpf: elf: section(2) .symtab, size 768, link 1, flags 0, type=2
+libbpf: elf: section(3) kprobe/_Z9vectorAddPKfS0_Pf, size 792, link 0, flags 6, type=1
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_entry' at insn offset 2 (16 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_both_entry' at insn offset 4 (32 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_ringbuf' at insn offset 6 (48 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_globaltimer' at insn offset 20 (160 bytes), code size 3 insns (24 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_array_update' at insn offset 23 (184 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_array_lookup' at insn offset 37 (296 bytes), code size 13 insns (104 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_update' at insn offset 50 (400 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_lookup' at insn offset 64 (512 bytes), code size 13 insns (104 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_delete' at insn offset 77 (616 bytes), code size 9 insns (72 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_pergputd_array_lookup' at insn offset 86 (688 bytes), code size 13 insns (104 bytes)
+libbpf: elf: section(4) kretprobe/_Z9vectorAddPKfS0_Pf, size 304, link 0, flags 6, type=1
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_exit' at insn offset 2 (16 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_both_exit' at insn offset 4 (32 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_gpu_array_update' at insn offset 6 (48 bytes), code size 23 insns (184 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_gpu_array_lookup' at insn offset 29 (232 bytes), code size 9 insns (72 bytes)
+libbpf: elf: section(5) kprobe/__memcapture, size 16, link 0, flags 6, type=1
+libbpf: sec 'kprobe/__memcapture': found program 'cuda__probe_memtrace' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: elf: section(6) .maps, size 160, link 0, flags 3, type=1
+libbpf: elf: section(7) license, size 4, link 0, flags 3, type=1
+libbpf: license of cuda_probe_bpf is GPL
+libbpf: elf: section(8) .relkprobe/_Z9vectorAddPKfS0_Pf, size 112, link 2, flags 40, type=9
+libbpf: elf: section(9) .relkretprobe/_Z9vectorAddPKfS0_Pf, size 48, link 2, flags 40, type=9
+libbpf: elf: section(10) .BTF, size 3050, link 0, flags 0, type=1
+libbpf: elf: section(11) .BTF.ext, size 1344, link 0, flags 0, type=1
+libbpf: looking for externs among 32 symbols...
+libbpf: collected 0 externs total
+[2026-11-11 00:02:53][info][846636] Init bpftime syscall mocking..
+[2026-11-11 00:02:53][info][846636] The log will be written to: console
+[2026-11-11 00:02:53][info][846636] Starting syscall server..
+[2026-11-11 00:02:53][info][846636] Initialize syscall server
+[2026-11-11 00:02:53][info][846636] Global shm constructed. shm_open_type 4 for bpftime_cmp_xBR8
+[2026-11-11 00:02:53][info][846636] Global shm initialized
+[2026-11-11 00:02:53][info][846636] Initializing CUDA at syscall-server side
+[2026-11-11 00:02:53][info][846636] CUDA initialized at syscall server side
+[2026-11-11 00:02:53][info][846636] bpftime-syscall-server started
+libbpf: map 'events': at sec_idx 6, offset 0.
+libbpf: map 'events': found type = 1527.
+libbpf: map 'events': found key [8], sz = 4.
+libbpf: map 'events': found value [12], sz = 16.
+libbpf: map 'events': found max_entries = 16.
+libbpf: map 'array_map': at sec_idx 6, offset 32.
+libbpf: map 'array_map': found type = 2.
+libbpf: map 'array_map': found key [8], sz = 4.
+libbpf: map 'array_map': found value [13], sz = 8.
+libbpf: map 'array_map': found max_entries = 1024.
+libbpf: map 'hash_map': at sec_idx 6, offset 64.
+libbpf: map 'hash_map': found type = 1.
+libbpf: map 'hash_map': found key [8], sz = 4.
+libbpf: map 'hash_map': found value [13], sz = 8.
+libbpf: map 'hash_map': found max_entries = 1024.
+libbpf: map 'call_count': at sec_idx 6, offset 96.
+libbpf: map 'call_count': found type = 1512.
+libbpf: map 'call_count': found key [8], sz = 4.
+libbpf: map 'call_count': found value [13], sz = 8.
+libbpf: map 'call_count': found max_entries = 1.
+libbpf: map 'gpu_counter': at sec_idx 6, offset 128.
+libbpf: map 'gpu_counter': found type = 1513.
+libbpf: map 'gpu_counter': found key [8], sz = 4.
+libbpf: map 'gpu_counter': found value [13], sz = 8.
+libbpf: map 'gpu_counter': found max_entries = 4.
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(3) 'kprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #13 against 'events'
+libbpf: prog 'cuda__probe_ringbuf': found map 0 (events, sec 6, off 0) for insn #7
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #31 against 'array_map'
+libbpf: prog 'cuda__probe_array_update': found map 1 (array_map, sec 6, off 32) for insn #8
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #41 against 'array_map'
+libbpf: prog 'cuda__probe_array_lookup': found map 1 (array_map, sec 6, off 32) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #3: insn #58 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_update': found map 2 (hash_map, sec 6, off 64) for insn #8
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #4: insn #68 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_lookup': found map 2 (hash_map, sec 6, off 64) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #5: insn #81 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_delete': found map 2 (hash_map, sec 6, off 64) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #6: insn #90 against 'call_count'
+libbpf: prog 'cuda__probe_pergputd_array_lookup': found map 3 (call_count, sec 6, off 96) for insn #4
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(4) 'kretprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #10 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_update': found map 4 (gpu_counter, sec 6, off 128) for insn #4
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #23 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_update': found map 4 (gpu_counter, sec 6, off 128) for insn #17
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #33 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_lookup': found map 4 (gpu_counter, sec 6, off 128) for insn #4
+Mode: GPU array map update
+libbpf: object 'cuda_probe_bpf': failed (-EACCES) to open BPF FS mount at '/sys/fs/bpf', skipping optional step...
+libbpf: Kernel doesn't support BTF, skipping uploading it.
+[2026-11-11 00:02:53][info][846636] syscall server: Set enable_mock_after_initialized to false
+[2026-11-11 00:02:54][info][846636] CUDA context for thread 846636 has been set to aaaaec0ba930
+[2026-11-11 00:02:54][info][846636] Map events (nv_gpu_ringbuf_map_impl) has space for thread count 1024
+[2026-11-11 00:02:54][info][846636] syscall server: Set enable_mock_after_initialized to true
+libbpf: map 'events': created successfully, fd=3
+libbpf: map 'array_map': created successfully, fd=13
+libbpf: map 'hash_map': created successfully, fd=14
+[2026-11-11 00:02:54][info][846636] Map call_count (nv_gpu_array_host_map_impl) has space for thread count 1024
+[2026-11-11 00:02:54][info][846636] Initializing map type of BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=1, thread_count=1024, total_buffer_size=8192
+[2026-11-11 00:02:54][info][846636] Allocated shared memory buffer at ffff8eee8ea0
+libbpf: map 'call_count': created successfully, fd=15
+[2026-11-11 00:02:54][info][846636] Map gpu_counter (nv_gpu_shared_array_host_map_impl) shared array
+[2026-11-11 00:02:54][info][846636] Initializing map type of BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=4, total_buffer_size=32
+[2026-11-11 00:02:54][info][846636] Allocated shared memory buffer at ffff8eeeaf80
+libbpf: map 'gpu_counter': created successfully, fd=16
+libbpf: prog 'cuda__probe': skipped loading
+libbpf: prog 'cuda__probe_entry': skipped loading
+libbpf: prog 'cuda__probe_both_entry': skipped loading
+libbpf: prog 'cuda__probe_ringbuf': skipped loading
+libbpf: prog 'cuda__probe_globaltimer': skipped loading
+libbpf: prog 'cuda__probe_array_update': skipped loading
+libbpf: prog 'cuda__probe_array_lookup': skipped loading
+libbpf: prog 'cuda__probe_hash_update': skipped loading
+libbpf: prog 'cuda__probe_hash_lookup': skipped loading
+libbpf: prog 'cuda__probe_hash_delete': skipped loading
+libbpf: prog 'cuda__probe_pergputd_array_lookup': skipped loading
+libbpf: prog 'cuda__retprobe': skipped loading
+libbpf: prog 'cuda__retprobe_exit': skipped loading
+libbpf: prog 'cuda__retprobe_both_exit': skipped loading
+libbpf: prog 'cuda__retprobe_gpu_array_lookup': skipped loading
+libbpf: prog 'cuda__probe_memtrace': skipped loading
+[2026-11-11 00:02:54][info][846636] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+BPF probes attached. Waiting for target program...
+
+Agent environment: {'BPFTIME_LOG_OUTPUT': 'console', 'LD_PRELOAD': 'build/runtime/agent/libbpftime-agent.so'}
+STDOUT:
+[2026-11-11 00:03:03.960] [warning] [bpftime_vm_compat.hpp:251] VM factory for name: llvm already registered, overwriting
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-11 00:03:05.486] [info] [core.cpp:321] [ptxpass] kretprobe: matched=1, in=969, out=2837
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+Running benchmark with 1000 iterations...
+Kernel: vectorAdd
+Data size: 3 MB
+Grid config: 1954 blocks × 512 threads/block = 1000448 total threads
+
+========================================
+Benchmark results:
+========================================
+Setup phase:
+  Host allocation:   1166 us
+  Device allocation: 1032 us
+  Host to device:    1770 us (2155.20 GB/s)
+  Device to host:    1377 us (2770.30 GB/s)
+
+Kernel execution:
+  Total time:        1658466.43 us
+  Average kernel time: 1658.47 us
+  Throughput:        602.97 kernels/sec
+
+Detailed statistics (μs):
+  Mean:              1658.38 us
+  Median:            1655.73 us
+  Min:               1337.04 us
+  Max:               2082.85 us
+  P95:               1846.40 us
+  P99:               1933.86 us
+  Std dev:           110.73 us
+
+Validation check: C[0] = 0.00, C[1] = 3.00
+========================================
+
+STDERR:
+[2026-11-11 00:03:04][info][846658] Registered shared memory with CUDA: addr=0xffffa4c40000 size=52428800
+[2026-11-11 00:03:04][info][846658] Global shm constructed. shm_open_type 1 for bpftime_cmp_xBR8
+[2026-11-11 00:03:04][info][846658] Global shm initialized
+[2026-11-11 00:03:04][info][846658] bpf_attach_ctx constructed
+[2026-11-11 00:03:04][info][846658] Initializing CUDA shared memory
+[2026-11-11 00:03:04][info][846658] CommSharedMem host 0xffffa4d3c8e8 mapped to device 0x1022c08e8
+[2026-11-11 00:03:04][info][846658] CUDA context created
+[2026-11-11 00:03:04][info][846658] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2026-11-11 00:03:04][info][846658] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2026-11-11 00:03:04][info][846658] Register attach-impl defined helper bpf_get_retval, index 186
+[2026-11-11 00:03:04][info][846658] Starting nv_attach_impl
+[2026-11-11 00:03:04][info][846658] Parsing bundled libraries: /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so:/home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so:/home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-11 00:03:04][info][846658] Found path: /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so, executing..
+[2026-11-11 00:03:04][info][846658] Retrived config of /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so
+[2026-11-11 00:03:04][info][846658] Found path: /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so, executing..
+[2026-11-11 00:03:04][info][846658] Retrived config of /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so
+[2026-11-11 00:03:04][info][846658] Found path: /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so, executing..
+[2026-11-11 00:03:04][info][846658] Retrived config of /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-11 00:03:04][info][846658] Initializing agent..
+[2026-11-11 00:03:04][info][846658] bpftime: shm epoch_seq = 2
+[2026-11-11 00:03:04][info][846658] Instantiating bpf link 52 and the corresponding program cuda__retprobe_ is cuda program
+[2026-11-11 00:03:04][info][846658] Skipping nv attach handler 52 since we are not handling nv handles
+[2026-11-11 00:03:04][info][846658] Instantiating bpf link 52 and the corresponding program cuda__retprobe_ is cuda program
+[2026-11-11 00:03:04][info][846658] Handling link to CUDA program: 52, recording it..
+[2026-11-11 00:03:04][info][846658] Loaded 23 instructions (original) for cuda ebpf program
+[2026-11-11 00:03:04][info][846658] Initializing nv_gpu_ringbuf_map_impl at pid 846658
+[2026-11-11 00:03:04][info][846658] Mapped GPU memory for gpu ringbuf map: 4333505552
+[2026-11-11 00:03:04][info][846658] Copying map fd 3 to device, key size=4, value size=16, max ent=16, map_type = 1527, gpu_buffer = 1024c0c10
+[2026-11-11 00:03:04][warning][846658] Not a GPU map!
+[2026-11-11 00:03:04][info][846658] Copying map fd 13 to device, key size=4, value size=8, max ent=1024, map_type = 2, gpu_buffer = 0
+[2026-11-11 00:03:04][warning][846658] Not a GPU map!
+[2026-11-11 00:03:04][info][846658] Copying map fd 14 to device, key size=4, value size=8, max ent=1024, map_type = 1, gpu_buffer = 0
+[2026-11-11 00:03:04][info][846658] Initializing nv_gpu_array_host_map_impl at pid 846658, shared mem addr=ffffa4fa8ea0
+[2026-11-11 00:03:04][info][846658] Mapped shared memory for GPU access: cpu=ffffa4fa8ea0, gpu=10252cea0
+[2026-11-11 00:03:04][info][846658] Copying map fd 15 to device, key size=4, value size=8, max ent=1, map_type = 1512, gpu_buffer = 10252cea0
+[2026-11-11 00:03:04][info][846658] Initializing nv_gpu_shared_array_host_map_impl at pid 846658, shared mem addr=ffffa4faaf80
+[2026-11-11 00:03:04][info][846658] Mapped shared memory for GPU access: cpu=ffffa4faaf80, gpu=10252ef80
+[2026-11-11 00:03:04][info][846658] Copying map fd 16 to device, key size=4, value size=8, max ent=4, map_type = 1513, gpu_buffer = 10252ef80
+[2026-11-11 00:03:04][info][846658] Cached shared_mem_ptr at 1022c08e8
+[2026-11-11 00:03:04][info][846658] Recorded pass /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so for func _Z9vectorAddPKfS0_Pf
+[2026-11-11 00:03:05][info][846658] nv_attach_impl: cached 555962 host symbols
+[2026-11-11 00:03:05][info][846658] nv_attach_impl: late attach bootstrap scanning fatbins..
+[2026-11-11 00:03:05][info][846658] Temporary fatbin written to /tmp/bpftime-fatbin-work.2Q3E34/temp.fatbin
+[2026-11-11 00:03:05][info][846658] Extracting PTX in the fatbin...
+[2026-11-11 00:03:05][info][846658] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.2Q3E34/temp.fatbin
+[2026-11-11 00:03:05][info][846658] Remove extracted files..
+[2026-11-11 00:03:05][info][846658] Got 1 PTX files
+[2026-11-11 00:03:05][info][846658] Loading & patching current fatbin..
+[2026-11-11 00:03:05][info][846670] Patching PTX: temp.1.sm_75.ptx
+[2026-11-11 00:03:05][info][846670] Patching request e5ae692d66c728cf14e288c250cf8c11e4be7ff13cfa177a4d296736941a0220 not found in cache, patching..
+[2026-11-11 00:03:05][info][846658] Auto-detected GPU SM arch: sm_87 (compute capability 8.7)
+[2026-11-11 00:03:05][info][846658] Compiling PTXs with sm_arch sm_87
+[2026-11-11 00:03:05][info][846658] Compiler version: 13.2
+[2026-11-11 00:03:05][info][846671] Start compiling patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-11 00:03:05][info][846671] Compile of patched.temp.1.sm_75.ptx done
+[2026-11-11 00:03:05][info][846658] Loading module: patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-11 00:03:05][info][846658] Copying trampoline data to device
+[2026-11-11 00:03:05][info][846658] constData symbol device_ptr=19f032000 size=8 shared_mem_ptr=1022c08e8
+[2026-11-11 00:03:05][info][846658] map_info symbol device_ptr=19f032008 size=40960
+[2026-11-11 00:03:05][info][846658] Trampoline data copied
+[2026-11-11 00:03:05][info][846658] Loaded module: patched.temp.1.sm_75.ptx
+[2026-11-11 00:03:05][info][846658] nv_attach_impl: ingested fatbin from .nv_fatbin in /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy
+[2026-11-11 00:03:05][info][846658] nv_attach_impl: found 1 fatbin wrapper(s) in /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy
+[2026-11-11 00:03:05][info][846658] Temporary fatbin written to /tmp/bpftime-fatbin-work.EBiJa0/temp.fatbin
+[2026-11-11 00:03:05][info][846658] Extracting PTX in the fatbin...
+[2026-11-11 00:03:05][info][846658] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.EBiJa0/temp.fatbin
+[2026-11-11 00:03:05][info][846658] Remove extracted files..
+[2026-11-11 00:03:05][info][846658] Got 1 PTX files
+[2026-11-11 00:03:05][info][846658] Loading & patching current fatbin..
+[2026-11-11 00:03:05][info][846684] Patching PTX: temp.1.sm_75.ptx
+[2026-11-11 00:03:05][info][846684] Patching request e5ae692d66c728cf14e288c250cf8c11e4be7ff13cfa177a4d296736941a0220 found in cache
+[2026-11-11 00:03:05][info][846658] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-11 00:03:05][info][846658] Compiling PTXs with sm_arch sm_87
+[2026-11-11 00:03:05][info][846658] Compiler version: 13.2
+[2026-11-11 00:03:05][info][846685] PTX patched.temp.1.sm_75.ptx (6a7377aea2ff2dae20aa8f6d1d4c3d9c0e23f7a7165becb4ad813f24bc8d7bc1) found in cache
+[2026-11-11 00:03:05][info][846658] Module patched.temp.1.sm_75.ptx found in cache
+[2026-11-11 00:03:05][info][846658] nv_attach_impl: late attach bootstrap ingested 2 fatbin(s)
+[2026-11-11 00:03:05][info][846658] agent ipc: listening (abstract) for pid 846658
+[2026-11-11 00:03:05][info][846658] Attach successfully
+[2026-11-11 00:03:07][info][846662] Exiting CUDA watcher thread
+
+✓ BPF test: 1658.47 μs
+
+=== Complete Probe Output ===
+libbpf: loading object 'cuda_probe_bpf' from buffer
+libbpf: elf: section(2) .symtab, size 768, link 1, flags 0, type=2
+libbpf: elf: section(3) kprobe/_Z9vectorAddPKfS0_Pf, size 792, link 0, flags 6, type=1
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_entry' at insn offset 2 (16 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_both_entry' at insn offset 4 (32 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_ringbuf' at insn offset 6 (48 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_globaltimer' at insn offset 20 (160 bytes), code size 3 insns (24 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_array_update' at insn offset 23 (184 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_array_lookup' at insn offset 37 (296 bytes), code size 13 insns (104 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_update' at insn offset 50 (400 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_lookup' at insn offset 64 (512 bytes), code size 13 insns (104 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_delete' at insn offset 77 (616 bytes), code size 9 insns (72 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_pergputd_array_lookup' at insn offset 86 (688 bytes), code size 13 insns (104 bytes)
+libbpf: elf: section(4) kretprobe/_Z9vectorAddPKfS0_Pf, size 304, link 0, flags 6, type=1
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_exit' at insn offset 2 (16 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_both_exit' at insn offset 4 (32 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_gpu_array_update' at insn offset 6 (48 bytes), code size 23 insns (184 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_gpu_array_lookup' at insn offset 29 (232 bytes), code size 9 insns (72 bytes)
+libbpf: elf: section(5) kprobe/__memcapture, size 16, link 0, flags 6, type=1
+libbpf: sec 'kprobe/__memcapture': found program 'cuda__probe_memtrace' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: elf: section(6) .maps, size 160, link 0, flags 3, type=1
+libbpf: elf: section(7) license, size 4, link 0, flags 3, type=1
+libbpf: license of cuda_probe_bpf is GPL
+libbpf: elf: section(8) .relkprobe/_Z9vectorAddPKfS0_Pf, size 112, link 2, flags 40, type=9
+libbpf: elf: section(9) .relkretprobe/_Z9vectorAddPKfS0_Pf, size 48, link 2, flags 40, type=9
+libbpf: elf: section(10) .BTF, size 3050, link 0, flags 0, type=1
+libbpf: elf: section(11) .BTF.ext, size 1344, link 0, flags 0, type=1
+libbpf: looking for externs among 32 symbols...
+libbpf: collected 0 externs total
+[2026-11-11 00:02:53][info][846636] Init bpftime syscall mocking..
+[2026-11-11 00:02:53][info][846636] The log will be written to: console
+[2026-11-11 00:02:53][info][846636] Starting syscall server..
+[2026-11-11 00:02:53][info][846636] Initialize syscall server
+[2026-11-11 00:02:53][info][846636] Global shm constructed. shm_open_type 4 for bpftime_cmp_xBR8
+[2026-11-11 00:02:53][info][846636] Global shm initialized
+[2026-11-11 00:02:53][info][846636] Initializing CUDA at syscall-server side
+[2026-11-11 00:02:53][info][846636] CUDA initialized at syscall server side
+[2026-11-11 00:02:53][info][846636] bpftime-syscall-server started
+libbpf: map 'events': at sec_idx 6, offset 0.
+libbpf: map 'events': found type = 1527.
+libbpf: map 'events': found key [8], sz = 4.
+libbpf: map 'events': found value [12], sz = 16.
+libbpf: map 'events': found max_entries = 16.
+libbpf: map 'array_map': at sec_idx 6, offset 32.
+libbpf: map 'array_map': found type = 2.
+libbpf: map 'array_map': found key [8], sz = 4.
+libbpf: map 'array_map': found value [13], sz = 8.
+libbpf: map 'array_map': found max_entries = 1024.
+libbpf: map 'hash_map': at sec_idx 6, offset 64.
+libbpf: map 'hash_map': found type = 1.
+libbpf: map 'hash_map': found key [8], sz = 4.
+libbpf: map 'hash_map': found value [13], sz = 8.
+libbpf: map 'hash_map': found max_entries = 1024.
+libbpf: map 'call_count': at sec_idx 6, offset 96.
+libbpf: map 'call_count': found type = 1512.
+libbpf: map 'call_count': found key [8], sz = 4.
+libbpf: map 'call_count': found value [13], sz = 8.
+libbpf: map 'call_count': found max_entries = 1.
+libbpf: map 'gpu_counter': at sec_idx 6, offset 128.
+libbpf: map 'gpu_counter': found type = 1513.
+libbpf: map 'gpu_counter': found key [8], sz = 4.
+libbpf: map 'gpu_counter': found value [13], sz = 8.
+libbpf: map 'gpu_counter': found max_entries = 4.
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(3) 'kprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #13 against 'events'
+libbpf: prog 'cuda__probe_ringbuf': found map 0 (events, sec 6, off 0) for insn #7
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #31 against 'array_map'
+libbpf: prog 'cuda__probe_array_update': found map 1 (array_map, sec 6, off 32) for insn #8
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #41 against 'array_map'
+libbpf: prog 'cuda__probe_array_lookup': found map 1 (array_map, sec 6, off 32) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #3: insn #58 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_update': found map 2 (hash_map, sec 6, off 64) for insn #8
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #4: insn #68 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_lookup': found map 2 (hash_map, sec 6, off 64) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #5: insn #81 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_delete': found map 2 (hash_map, sec 6, off 64) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #6: insn #90 against 'call_count'
+libbpf: prog 'cuda__probe_pergputd_array_lookup': found map 3 (call_count, sec 6, off 96) for insn #4
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(4) 'kretprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #10 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_update': found map 4 (gpu_counter, sec 6, off 128) for insn #4
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #23 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_update': found map 4 (gpu_counter, sec 6, off 128) for insn #17
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #33 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_lookup': found map 4 (gpu_counter, sec 6, off 128) for insn #4
+Mode: GPU array map update
+libbpf: object 'cuda_probe_bpf': failed (-EACCES) to open BPF FS mount at '/sys/fs/bpf', skipping optional step...
+libbpf: Kernel doesn't support BTF, skipping uploading it.
+[2026-11-11 00:02:53][info][846636] syscall server: Set enable_mock_after_initialized to false
+[2026-11-11 00:02:54][info][846636] CUDA context for thread 846636 has been set to aaaaec0ba930
+[2026-11-11 00:02:54][info][846636] Map events (nv_gpu_ringbuf_map_impl) has space for thread count 1024
+[2026-11-11 00:02:54][info][846636] syscall server: Set enable_mock_after_initialized to true
+libbpf: map 'events': created successfully, fd=3
+libbpf: map 'array_map': created successfully, fd=13
+libbpf: map 'hash_map': created successfully, fd=14
+[2026-11-11 00:02:54][info][846636] Map call_count (nv_gpu_array_host_map_impl) has space for thread count 1024
+[2026-11-11 00:02:54][info][846636] Initializing map type of BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=1, thread_count=1024, total_buffer_size=8192
+[2026-11-11 00:02:54][info][846636] Allocated shared memory buffer at ffff8eee8ea0
+libbpf: map 'call_count': created successfully, fd=15
+[2026-11-11 00:02:54][info][846636] Map gpu_counter (nv_gpu_shared_array_host_map_impl) shared array
+[2026-11-11 00:02:54][info][846636] Initializing map type of BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=4, total_buffer_size=32
+[2026-11-11 00:02:54][info][846636] Allocated shared memory buffer at ffff8eeeaf80
+libbpf: map 'gpu_counter': created successfully, fd=16
+libbpf: prog 'cuda__probe': skipped loading
+libbpf: prog 'cuda__probe_entry': skipped loading
+libbpf: prog 'cuda__probe_both_entry': skipped loading
+libbpf: prog 'cuda__probe_ringbuf': skipped loading
+libbpf: prog 'cuda__probe_globaltimer': skipped loading
+libbpf: prog 'cuda__probe_array_update': skipped loading
+libbpf: prog 'cuda__probe_array_lookup': skipped loading
+libbpf: prog 'cuda__probe_hash_update': skipped loading
+libbpf: prog 'cuda__probe_hash_lookup': skipped loading
+libbpf: prog 'cuda__probe_hash_delete': skipped loading
+libbpf: prog 'cuda__probe_pergputd_array_lookup': skipped loading
+libbpf: prog 'cuda__retprobe': skipped loading
+libbpf: prog 'cuda__retprobe_exit': skipped loading
+libbpf: prog 'cuda__retprobe_both_exit': skipped loading
+libbpf: prog 'cuda__retprobe_gpu_array_lookup': skipped loading
+libbpf: prog 'cuda__probe_memtrace': skipped loading
+[2026-11-11 00:02:54][info][846636] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+BPF probes attached. Waiting for target program...
+
+=== End Probe Output ===
+
+
+Running test: GPU Array map update (xlarge_n32)
+Running BPF test: probe_cmd=/home/jetson/src/bpftime-gpu-work/compare/fix/benchmark/gpu/micro/cuda_probe gpu-array-update, vec_add_args=32 1000 512 1954
+Probe environment: {'BPFTIME_LOG_OUTPUT': 'console', 'LD_PRELOAD': 'build/runtime/syscall-server/libbpftime-syscall-server.so'}
+Probe startup log:
+libbpf: loading object 'cuda_probe_bpf' from buffer
+libbpf: elf: section(2) .symtab, size 768, link 1, flags 0, type=2
+libbpf: elf: section(3) kprobe/_Z9vectorAddPKfS0_Pf, size 792, link 0, flags 6, type=1
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_entry' at insn offset 2 (16 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_both_entry' at insn offset 4 (32 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_ringbuf' at insn offset 6 (48 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_globaltimer' at insn offset 20 (160 bytes), code size 3 insns (24 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_array_update' at insn offset 23 (184 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_array_lookup' at insn offset 37 (296 bytes), code size 13 insns (104 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_update' at insn offset 50 (400 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_lookup' at insn offset 64 (512 bytes), code size 13 insns (104 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_delete' at insn offset 77 (616 bytes), code size 9 insns (72 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_pergputd_array_lookup' at insn offset 86 (688 bytes), code size 13 insns (104 bytes)
+libbpf: elf: section(4) kretprobe/_Z9vectorAddPKfS0_Pf, size 304, link 0, flags 6, type=1
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_exit' at insn offset 2 (16 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_both_exit' at insn offset 4 (32 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_gpu_array_update' at insn offset 6 (48 bytes), code size 23 insns (184 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_gpu_array_lookup' at insn offset 29 (232 bytes), code size 9 insns (72 bytes)
+libbpf: elf: section(5) kprobe/__memcapture, size 16, link 0, flags 6, type=1
+libbpf: sec 'kprobe/__memcapture': found program 'cuda__probe_memtrace' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: elf: section(6) .maps, size 160, link 0, flags 3, type=1
+libbpf: elf: section(7) license, size 4, link 0, flags 3, type=1
+libbpf: license of cuda_probe_bpf is GPL
+libbpf: elf: section(8) .relkprobe/_Z9vectorAddPKfS0_Pf, size 112, link 2, flags 40, type=9
+libbpf: elf: section(9) .relkretprobe/_Z9vectorAddPKfS0_Pf, size 48, link 2, flags 40, type=9
+libbpf: elf: section(10) .BTF, size 3050, link 0, flags 0, type=1
+libbpf: elf: section(11) .BTF.ext, size 1344, link 0, flags 0, type=1
+libbpf: looking for externs among 32 symbols...
+libbpf: collected 0 externs total
+[2026-11-11 00:03:08][info][846698] Init bpftime syscall mocking..
+[2026-11-11 00:03:08][info][846698] The log will be written to: console
+[2026-11-11 00:03:08][info][846698] Starting syscall server..
+[2026-11-11 00:03:08][info][846698] Initialize syscall server
+[2026-11-11 00:03:08][info][846698] Global shm constructed. shm_open_type 4 for bpftime_cmp_xBR8
+[2026-11-11 00:03:08][info][846698] Global shm initialized
+[2026-11-11 00:03:08][info][846698] Initializing CUDA at syscall-server side
+[2026-11-11 00:03:08][info][846698] CUDA initialized at syscall server side
+[2026-11-11 00:03:08][info][846698] bpftime-syscall-server started
+libbpf: map 'events': at sec_idx 6, offset 0.
+libbpf: map 'events': found type = 1527.
+libbpf: map 'events': found key [8], sz = 4.
+libbpf: map 'events': found value [12], sz = 16.
+libbpf: map 'events': found max_entries = 16.
+libbpf: map 'array_map': at sec_idx 6, offset 32.
+libbpf: map 'array_map': found type = 2.
+libbpf: map 'array_map': found key [8], sz = 4.
+libbpf: map 'array_map': found value [13], sz = 8.
+libbpf: map 'array_map': found max_entries = 1024.
+libbpf: map 'hash_map': at sec_idx 6, offset 64.
+libbpf: map 'hash_map': found type = 1.
+libbpf: map 'hash_map': found key [8], sz = 4.
+libbpf: map 'hash_map': found value [13], sz = 8.
+libbpf: map 'hash_map': found max_entries = 1024.
+libbpf: map 'call_count': at sec_idx 6, offset 96.
+libbpf: map 'call_count': found type = 1512.
+libbpf: map 'call_count': found key [8], sz = 4.
+libbpf: map 'call_count': found value [13], sz = 8.
+libbpf: map 'call_count': found max_entries = 1.
+libbpf: map 'gpu_counter': at sec_idx 6, offset 128.
+libbpf: map 'gpu_counter': found type = 1513.
+libbpf: map 'gpu_counter': found key [8], sz = 4.
+libbpf: map 'gpu_counter': found value [13], sz = 8.
+libbpf: map 'gpu_counter': found max_entries = 4.
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(3) 'kprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #13 against 'events'
+libbpf: prog 'cuda__probe_ringbuf': found map 0 (events, sec 6, off 0) for insn #7
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #31 against 'array_map'
+libbpf: prog 'cuda__probe_array_update': found map 1 (array_map, sec 6, off 32) for insn #8
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #41 against 'array_map'
+libbpf: prog 'cuda__probe_array_lookup': found map 1 (array_map, sec 6, off 32) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #3: insn #58 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_update': found map 2 (hash_map, sec 6, off 64) for insn #8
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #4: insn #68 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_lookup': found map 2 (hash_map, sec 6, off 64) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #5: insn #81 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_delete': found map 2 (hash_map, sec 6, off 64) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #6: insn #90 against 'call_count'
+libbpf: prog 'cuda__probe_pergputd_array_lookup': found map 3 (call_count, sec 6, off 96) for insn #4
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(4) 'kretprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #10 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_update': found map 4 (gpu_counter, sec 6, off 128) for insn #4
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #23 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_update': found map 4 (gpu_counter, sec 6, off 128) for insn #17
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #33 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_lookup': found map 4 (gpu_counter, sec 6, off 128) for insn #4
+Mode: GPU array map update
+libbpf: object 'cuda_probe_bpf': failed (-EACCES) to open BPF FS mount at '/sys/fs/bpf', skipping optional step...
+libbpf: Kernel doesn't support BTF, skipping uploading it.
+[2026-11-11 00:03:08][info][846698] syscall server: Set enable_mock_after_initialized to false
+[2026-11-11 00:03:08][info][846698] CUDA context for thread 846698 has been set to aaaaefc9a9b0
+[2026-11-11 00:03:08][info][846698] Map events (nv_gpu_ringbuf_map_impl) has space for thread count 1024
+[2026-11-11 00:03:08][info][846698] syscall server: Set enable_mock_after_initialized to true
+libbpf: map 'events': created successfully, fd=3
+libbpf: map 'array_map': created successfully, fd=13
+libbpf: map 'hash_map': created successfully, fd=14
+[2026-11-11 00:03:08][info][846698] Map call_count (nv_gpu_array_host_map_impl) has space for thread count 1024
+[2026-11-11 00:03:08][info][846698] Initializing map type of BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=1, thread_count=1024, total_buffer_size=8192
+[2026-11-11 00:03:08][info][846698] Allocated shared memory buffer at ffffa4918ea0
+libbpf: map 'call_count': created successfully, fd=15
+[2026-11-11 00:03:08][info][846698] Map gpu_counter (nv_gpu_shared_array_host_map_impl) shared array
+[2026-11-11 00:03:08][info][846698] Initializing map type of BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=4, total_buffer_size=32
+[2026-11-11 00:03:08][info][846698] Allocated shared memory buffer at ffffa491af80
+libbpf: map 'gpu_counter': created successfully, fd=16
+libbpf: prog 'cuda__probe': skipped loading
+libbpf: prog 'cuda__probe_entry': skipped loading
+libbpf: prog 'cuda__probe_both_entry': skipped loading
+libbpf: prog 'cuda__probe_ringbuf': skipped loading
+libbpf: prog 'cuda__probe_globaltimer': skipped loading
+libbpf: prog 'cuda__probe_array_update': skipped loading
+libbpf: prog 'cuda__probe_array_lookup': skipped loading
+libbpf: prog 'cuda__probe_hash_update': skipped loading
+libbpf: prog 'cuda__probe_hash_lookup': skipped loading
+libbpf: prog 'cuda__probe_hash_delete': skipped loading
+libbpf: prog 'cuda__probe_pergputd_array_lookup': skipped loading
+libbpf: prog 'cuda__retprobe': skipped loading
+libbpf: prog 'cuda__retprobe_exit': skipped loading
+libbpf: prog 'cuda__retprobe_both_exit': skipped loading
+libbpf: prog 'cuda__retprobe_gpu_array_lookup': skipped loading
+libbpf: prog 'cuda__probe_memtrace': skipped loading
+[2026-11-11 00:03:08][info][846698] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+BPF probes attached. Waiting for target program...
+
+Agent environment: {'BPFTIME_LOG_OUTPUT': 'console', 'LD_PRELOAD': 'build/runtime/agent/libbpftime-agent.so'}
+STDOUT:
+[2026-11-11 00:03:18.699] [warning] [bpftime_vm_compat.hpp:251] VM factory for name: llvm already registered, overwriting
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-11 00:03:20.235] [info] [core.cpp:321] [ptxpass] kretprobe: matched=1, in=969, out=2837
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+Running benchmark with 1000 iterations...
+Kernel: vectorAdd
+Data size: 0 MB
+Grid config: 1954 blocks × 512 threads/block = 1000448 total threads
+
+========================================
+Benchmark results:
+========================================
+Setup phase:
+  Host allocation:   1 us
+  Device allocation: 284 us
+  Host to device:    618 us (0.20 GB/s)
+  Device to host:    101 us (1.21 GB/s)
+
+Kernel execution:
+  Total time:        1902941.51 us
+  Average kernel time: 1902.94 us
+  Throughput:        525.50 kernels/sec
+
+Detailed statistics (μs):
+  Mean:              1902.85 us
+  Median:            1898.34 us
+  Min:               1644.34 us
+  Max:               2156.71 us
+  P95:               2056.71 us
+  P99:               2115.56 us
+  Std dev:           86.73 us
+
+Validation check: C[0] = 0.00, C[1] = 3.00
+========================================
+
+STDERR:
+[2026-11-11 00:03:18][info][846720] Registered shared memory with CUDA: addr=0xffff72cf0000 size=52428800
+[2026-11-11 00:03:18][info][846720] Global shm constructed. shm_open_type 1 for bpftime_cmp_xBR8
+[2026-11-11 00:03:18][info][846720] Global shm initialized
+[2026-11-11 00:03:18][info][846720] bpf_attach_ctx constructed
+[2026-11-11 00:03:18][info][846720] Initializing CUDA shared memory
+[2026-11-11 00:03:18][info][846720] CommSharedMem host 0xffff72dec8e8 mapped to device 0x1022c08e8
+[2026-11-11 00:03:18][info][846720] CUDA context created
+[2026-11-11 00:03:18][info][846720] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2026-11-11 00:03:18][info][846720] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2026-11-11 00:03:18][info][846720] Register attach-impl defined helper bpf_get_retval, index 186
+[2026-11-11 00:03:18][info][846720] Starting nv_attach_impl
+[2026-11-11 00:03:18][info][846720] Parsing bundled libraries: /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so:/home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so:/home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-11 00:03:18][info][846720] Found path: /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so, executing..
+[2026-11-11 00:03:18][info][846720] Retrived config of /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so
+[2026-11-11 00:03:18][info][846720] Found path: /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so, executing..
+[2026-11-11 00:03:18][info][846720] Retrived config of /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so
+[2026-11-11 00:03:18][info][846720] Found path: /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so, executing..
+[2026-11-11 00:03:18][info][846720] Retrived config of /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-11 00:03:18][info][846720] Initializing agent..
+[2026-11-11 00:03:18][info][846720] bpftime: shm epoch_seq = 2
+[2026-11-11 00:03:18][info][846720] Instantiating bpf link 52 and the corresponding program cuda__retprobe_ is cuda program
+[2026-11-11 00:03:18][info][846720] Skipping nv attach handler 52 since we are not handling nv handles
+[2026-11-11 00:03:18][info][846720] Instantiating bpf link 52 and the corresponding program cuda__retprobe_ is cuda program
+[2026-11-11 00:03:18][info][846720] Handling link to CUDA program: 52, recording it..
+[2026-11-11 00:03:18][info][846720] Loaded 23 instructions (original) for cuda ebpf program
+[2026-11-11 00:03:18][info][846720] Initializing nv_gpu_ringbuf_map_impl at pid 846720
+[2026-11-11 00:03:18][info][846720] Mapped GPU memory for gpu ringbuf map: 4333505552
+[2026-11-11 00:03:18][info][846720] Copying map fd 3 to device, key size=4, value size=16, max ent=16, map_type = 1527, gpu_buffer = 1024c0c10
+[2026-11-11 00:03:18][warning][846720] Not a GPU map!
+[2026-11-11 00:03:18][info][846720] Copying map fd 13 to device, key size=4, value size=8, max ent=1024, map_type = 2, gpu_buffer = 0
+[2026-11-11 00:03:18][warning][846720] Not a GPU map!
+[2026-11-11 00:03:18][info][846720] Copying map fd 14 to device, key size=4, value size=8, max ent=1024, map_type = 1, gpu_buffer = 0
+[2026-11-11 00:03:18][info][846720] Initializing nv_gpu_array_host_map_impl at pid 846720, shared mem addr=ffff73058ea0
+[2026-11-11 00:03:18][info][846720] Mapped shared memory for GPU access: cpu=ffff73058ea0, gpu=10252cea0
+[2026-11-11 00:03:18][info][846720] Copying map fd 15 to device, key size=4, value size=8, max ent=1, map_type = 1512, gpu_buffer = 10252cea0
+[2026-11-11 00:03:18][info][846720] Initializing nv_gpu_shared_array_host_map_impl at pid 846720, shared mem addr=ffff7305af80
+[2026-11-11 00:03:18][info][846720] Mapped shared memory for GPU access: cpu=ffff7305af80, gpu=10252ef80
+[2026-11-11 00:03:18][info][846720] Copying map fd 16 to device, key size=4, value size=8, max ent=4, map_type = 1513, gpu_buffer = 10252ef80
+[2026-11-11 00:03:18][info][846720] Cached shared_mem_ptr at 1022c08e8
+[2026-11-11 00:03:18][info][846720] Recorded pass /home/jetson/src/bpftime-gpu-work/xlarge/oreg/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so for func _Z9vectorAddPKfS0_Pf
+[2026-11-11 00:03:20][info][846720] nv_attach_impl: cached 555962 host symbols
+[2026-11-11 00:03:20][info][846720] nv_attach_impl: late attach bootstrap scanning fatbins..
+[2026-11-11 00:03:20][info][846720] Temporary fatbin written to /tmp/bpftime-fatbin-work.mxQ9rA/temp.fatbin
+[2026-11-11 00:03:20][info][846720] Extracting PTX in the fatbin...
+[2026-11-11 00:03:20][info][846720] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.mxQ9rA/temp.fatbin
+[2026-11-11 00:03:20][info][846720] Remove extracted files..
+[2026-11-11 00:03:20][info][846720] Got 1 PTX files
+[2026-11-11 00:03:20][info][846720] Loading & patching current fatbin..
+[2026-11-11 00:03:20][info][846732] Patching PTX: temp.1.sm_75.ptx
+[2026-11-11 00:03:20][info][846732] Patching request e5ae692d66c728cf14e288c250cf8c11e4be7ff13cfa177a4d296736941a0220 not found in cache, patching..
+[2026-11-11 00:03:20][info][846720] Auto-detected GPU SM arch: sm_87 (compute capability 8.7)
+[2026-11-11 00:03:20][info][846720] Compiling PTXs with sm_arch sm_87
+[2026-11-11 00:03:20][info][846720] Compiler version: 13.2
+[2026-11-11 00:03:20][info][846733] Start compiling patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-11 00:03:20][info][846733] Compile of patched.temp.1.sm_75.ptx done
+[2026-11-11 00:03:20][info][846720] Loading module: patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-11 00:03:20][info][846720] Copying trampoline data to device
+[2026-11-11 00:03:20][info][846720] constData symbol device_ptr=19f032000 size=8 shared_mem_ptr=1022c08e8
+[2026-11-11 00:03:20][info][846720] map_info symbol device_ptr=19f032008 size=40960
+[2026-11-11 00:03:20][info][846720] Trampoline data copied
+[2026-11-11 00:03:20][info][846720] Loaded module: patched.temp.1.sm_75.ptx
+[2026-11-11 00:03:20][info][846720] nv_attach_impl: ingested fatbin from .nv_fatbin in /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy
+[2026-11-11 00:03:20][info][846720] nv_attach_impl: found 1 fatbin wrapper(s) in /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy
+[2026-11-11 00:03:20][info][846720] Temporary fatbin written to /tmp/bpftime-fatbin-work.v9xVIG/temp.fatbin
+[2026-11-11 00:03:20][info][846720] Extracting PTX in the fatbin...
+[2026-11-11 00:03:20][info][846720] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.v9xVIG/temp.fatbin
+[2026-11-11 00:03:20][info][846720] Remove extracted files..
+[2026-11-11 00:03:20][info][846720] Got 1 PTX files
+[2026-11-11 00:03:20][info][846720] Loading & patching current fatbin..
+[2026-11-11 00:03:20][info][846746] Patching PTX: temp.1.sm_75.ptx
+[2026-11-11 00:03:20][info][846746] Patching request e5ae692d66c728cf14e288c250cf8c11e4be7ff13cfa177a4d296736941a0220 found in cache
+[2026-11-11 00:03:20][info][846720] Using SM arch from BPFTIME_SM_ARCH: sm_87
+[2026-11-11 00:03:20][info][846720] Compiling PTXs with sm_arch sm_87
+[2026-11-11 00:03:20][info][846720] Compiler version: 13.2
+[2026-11-11 00:03:20][info][846747] PTX patched.temp.1.sm_75.ptx (6a7377aea2ff2dae20aa8f6d1d4c3d9c0e23f7a7165becb4ad813f24bc8d7bc1) found in cache
+[2026-11-11 00:03:20][info][846720] Module patched.temp.1.sm_75.ptx found in cache
+[2026-11-11 00:03:20][info][846720] nv_attach_impl: late attach bootstrap ingested 2 fatbin(s)
+[2026-11-11 00:03:20][info][846720] agent ipc: listening (abstract) for pid 846720
+[2026-11-11 00:03:20][info][846720] Attach successfully
+[2026-11-11 00:03:22][info][846724] Exiting CUDA watcher thread
+
+✓ BPF test: 1902.94 μs
+
+=== Complete Probe Output ===
+libbpf: loading object 'cuda_probe_bpf' from buffer
+libbpf: elf: section(2) .symtab, size 768, link 1, flags 0, type=2
+libbpf: elf: section(3) kprobe/_Z9vectorAddPKfS0_Pf, size 792, link 0, flags 6, type=1
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_entry' at insn offset 2 (16 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_both_entry' at insn offset 4 (32 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_ringbuf' at insn offset 6 (48 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_globaltimer' at insn offset 20 (160 bytes), code size 3 insns (24 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_array_update' at insn offset 23 (184 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_array_lookup' at insn offset 37 (296 bytes), code size 13 insns (104 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_update' at insn offset 50 (400 bytes), code size 14 insns (112 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_lookup' at insn offset 64 (512 bytes), code size 13 insns (104 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_hash_delete' at insn offset 77 (616 bytes), code size 9 insns (72 bytes)
+libbpf: sec 'kprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__probe_pergputd_array_lookup' at insn offset 86 (688 bytes), code size 13 insns (104 bytes)
+libbpf: elf: section(4) kretprobe/_Z9vectorAddPKfS0_Pf, size 304, link 0, flags 6, type=1
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_exit' at insn offset 2 (16 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_both_exit' at insn offset 4 (32 bytes), code size 2 insns (16 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_gpu_array_update' at insn offset 6 (48 bytes), code size 23 insns (184 bytes)
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe_gpu_array_lookup' at insn offset 29 (232 bytes), code size 9 insns (72 bytes)
+libbpf: elf: section(5) kprobe/__memcapture, size 16, link 0, flags 6, type=1
+libbpf: sec 'kprobe/__memcapture': found program 'cuda__probe_memtrace' at insn offset 0 (0 bytes), code size 2 insns (16 bytes)
+libbpf: elf: section(6) .maps, size 160, link 0, flags 3, type=1
+libbpf: elf: section(7) license, size 4, link 0, flags 3, type=1
+libbpf: license of cuda_probe_bpf is GPL
+libbpf: elf: section(8) .relkprobe/_Z9vectorAddPKfS0_Pf, size 112, link 2, flags 40, type=9
+libbpf: elf: section(9) .relkretprobe/_Z9vectorAddPKfS0_Pf, size 48, link 2, flags 40, type=9
+libbpf: elf: section(10) .BTF, size 3050, link 0, flags 0, type=1
+libbpf: elf: section(11) .BTF.ext, size 1344, link 0, flags 0, type=1
+libbpf: looking for externs among 32 symbols...
+libbpf: collected 0 externs total
+[2026-11-11 00:03:08][info][846698] Init bpftime syscall mocking..
+[2026-11-11 00:03:08][info][846698] The log will be written to: console
+[2026-11-11 00:03:08][info][846698] Starting syscall server..
+[2026-11-11 00:03:08][info][846698] Initialize syscall server
+[2026-11-11 00:03:08][info][846698] Global shm constructed. shm_open_type 4 for bpftime_cmp_xBR8
+[2026-11-11 00:03:08][info][846698] Global shm initialized
+[2026-11-11 00:03:08][info][846698] Initializing CUDA at syscall-server side
+[2026-11-11 00:03:08][info][846698] CUDA initialized at syscall server side
+[2026-11-11 00:03:08][info][846698] bpftime-syscall-server started
+libbpf: map 'events': at sec_idx 6, offset 0.
+libbpf: map 'events': found type = 1527.
+libbpf: map 'events': found key [8], sz = 4.
+libbpf: map 'events': found value [12], sz = 16.
+libbpf: map 'events': found max_entries = 16.
+libbpf: map 'array_map': at sec_idx 6, offset 32.
+libbpf: map 'array_map': found type = 2.
+libbpf: map 'array_map': found key [8], sz = 4.
+libbpf: map 'array_map': found value [13], sz = 8.
+libbpf: map 'array_map': found max_entries = 1024.
+libbpf: map 'hash_map': at sec_idx 6, offset 64.
+libbpf: map 'hash_map': found type = 1.
+libbpf: map 'hash_map': found key [8], sz = 4.
+libbpf: map 'hash_map': found value [13], sz = 8.
+libbpf: map 'hash_map': found max_entries = 1024.
+libbpf: map 'call_count': at sec_idx 6, offset 96.
+libbpf: map 'call_count': found type = 1512.
+libbpf: map 'call_count': found key [8], sz = 4.
+libbpf: map 'call_count': found value [13], sz = 8.
+libbpf: map 'call_count': found max_entries = 1.
+libbpf: map 'gpu_counter': at sec_idx 6, offset 128.
+libbpf: map 'gpu_counter': found type = 1513.
+libbpf: map 'gpu_counter': found key [8], sz = 4.
+libbpf: map 'gpu_counter': found value [13], sz = 8.
+libbpf: map 'gpu_counter': found max_entries = 4.
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(3) 'kprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #13 against 'events'
+libbpf: prog 'cuda__probe_ringbuf': found map 0 (events, sec 6, off 0) for insn #7
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #31 against 'array_map'
+libbpf: prog 'cuda__probe_array_update': found map 1 (array_map, sec 6, off 32) for insn #8
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #41 against 'array_map'
+libbpf: prog 'cuda__probe_array_lookup': found map 1 (array_map, sec 6, off 32) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #3: insn #58 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_update': found map 2 (hash_map, sec 6, off 64) for insn #8
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #4: insn #68 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_lookup': found map 2 (hash_map, sec 6, off 64) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #5: insn #81 against 'hash_map'
+libbpf: prog 'cuda__probe_hash_delete': found map 2 (hash_map, sec 6, off 64) for insn #4
+libbpf: sec '.relkprobe/_Z9vectorAddPKfS0_Pf': relo #6: insn #90 against 'call_count'
+libbpf: prog 'cuda__probe_pergputd_array_lookup': found map 3 (call_count, sec 6, off 96) for insn #4
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(4) 'kretprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #10 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_update': found map 4 (gpu_counter, sec 6, off 128) for insn #4
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #1: insn #23 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_update': found map 4 (gpu_counter, sec 6, off 128) for insn #17
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #2: insn #33 against 'gpu_counter'
+libbpf: prog 'cuda__retprobe_gpu_array_lookup': found map 4 (gpu_counter, sec 6, off 128) for insn #4
+Mode: GPU array map update
+libbpf: object 'cuda_probe_bpf': failed (-EACCES) to open BPF FS mount at '/sys/fs/bpf', skipping optional step...
+libbpf: Kernel doesn't support BTF, skipping uploading it.
+[2026-11-11 00:03:08][info][846698] syscall server: Set enable_mock_after_initialized to false
+[2026-11-11 00:03:08][info][846698] CUDA context for thread 846698 has been set to aaaaefc9a9b0
+[2026-11-11 00:03:08][info][846698] Map events (nv_gpu_ringbuf_map_impl) has space for thread count 1024
+[2026-11-11 00:03:08][info][846698] syscall server: Set enable_mock_after_initialized to true
+libbpf: map 'events': created successfully, fd=3
+libbpf: map 'array_map': created successfully, fd=13
+libbpf: map 'hash_map': created successfully, fd=14
+[2026-11-11 00:03:08][info][846698] Map call_count (nv_gpu_array_host_map_impl) has space for thread count 1024
+[2026-11-11 00:03:08][info][846698] Initializing map type of BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=1, thread_count=1024, total_buffer_size=8192
+[2026-11-11 00:03:08][info][846698] Allocated shared memory buffer at ffffa4918ea0
+libbpf: map 'call_count': created successfully, fd=15
+[2026-11-11 00:03:08][info][846698] Map gpu_counter (nv_gpu_shared_array_host_map_impl) shared array
+[2026-11-11 00:03:08][info][846698] Initializing map type of BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP (shared mem), value_size=8, max_entries=4, total_buffer_size=32
+[2026-11-11 00:03:08][info][846698] Allocated shared memory buffer at ffffa491af80
+libbpf: map 'gpu_counter': created successfully, fd=16
+libbpf: prog 'cuda__probe': skipped loading
+libbpf: prog 'cuda__probe_entry': skipped loading
+libbpf: prog 'cuda__probe_both_entry': skipped loading
+libbpf: prog 'cuda__probe_ringbuf': skipped loading
+libbpf: prog 'cuda__probe_globaltimer': skipped loading
+libbpf: prog 'cuda__probe_array_update': skipped loading
+libbpf: prog 'cuda__probe_array_lookup': skipped loading
+libbpf: prog 'cuda__probe_hash_update': skipped loading
+libbpf: prog 'cuda__probe_hash_lookup': skipped loading
+libbpf: prog 'cuda__probe_hash_delete': skipped loading
+libbpf: prog 'cuda__probe_pergputd_array_lookup': skipped loading
+libbpf: prog 'cuda__retprobe': skipped loading
+libbpf: prog 'cuda__retprobe_exit': skipped loading
+libbpf: prog 'cuda__retprobe_both_exit': skipped loading
+libbpf: prog 'cuda__retprobe_gpu_array_lookup': skipped loading
+libbpf: prog 'cuda__probe_memtrace': skipped loading
+[2026-11-11 00:03:08][info][846698] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+BPF probes attached. Waiting for target program...
+
+=== End Probe Output ===
+
+
+Results saved to: micro_vec_add_result.json
+
+# CUDA Benchmark Results
+
+**Device:** Orin (nvgpu)  
+**Timestamp:** 2026-11-11T00:02:40.046004  
+
+## Workload Configuration
+
+| Workload | Binary | Elements | Iterations | Threads | Blocks |
+|----------|--------|----------|------------|---------|--------|
+| large | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 100000 | 1000 | 512 | 196 |
+| medium | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 10000 | 10000 | 256 | 40 |
+| minimal | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 32 | 3 | 32 | 1 |
+| small | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 1000 | 10000 | 256 | 4 |
+| small_64x16 | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 1000 | 10000 | 64 | 16 |
+| tiny | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 32 | 10000 | 32 | 1 |
+| xlarge | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 1000000 | 1000 | 512 | 1954 |
+| xlarge_n32 | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 32 | 1000 | 512 | 1954 |
+
+## Benchmark Results
+
+| Test Name | Workload | Avg Time (μs) | vs Baseline | Overhead |
+|-----------|----------|---------------|-------------|----------|
+| Baseline (large) | large | 31.19 | - | - |
+| Baseline (xlarge) | xlarge | 159.62 | - | - |
+| Baseline (xlarge_n32) | xlarge_n32 | 49.98 | - | - |
+| GPU Array map update (large) | large | 216.14 | 31.19 | 6.93x (+593.0%) |
+| GPU Array map update (xlarge) | xlarge | 1658.47 | 159.62 | 10.39x (+939.0%) |
+| GPU Array map update (xlarge_n32) | xlarge_n32 | 1902.94 | 49.98 | 38.07x (+3707.4%) |
+
+Log saved to: micro_vec_add_bench.log

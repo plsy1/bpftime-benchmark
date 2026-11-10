@@ -6,7 +6,8 @@ reader per difference group (source of both trees, `git log -S/-G/-L` over 4708f
 these runs' logs, the fix round's measurements and mutation tests), each checked by a code-lens
 and a data-lens skeptic, then a completeness pass. The open rows were then measured with
 ablations (section "Ablations": each candidate change undone on dev, 10 interleaved rounds
-against official and dev; [`../ablate-20261110`](../ablate-20261110/)).
+against official and dev; [`../ablate-20261110`](../ablate-20261110/)); array update xlarge,
+which none of them explained, was followed up in [`../xlarge-20261110`](../xlarge-20261110/).
 
 Strength:
 
@@ -60,7 +61,7 @@ proven rest on p < 0.001 and a shift that moves dev to official or past it.
 | Kernel Retsnoop time, dev faster: 60.3 vs 49.1 us | **811b841f**, the launch path; **636501ff** (one stack frame) adds a cost in one launch per run, not per launch. | proven (L), likely (F) | L: +10.7 us (p < 0.001), on the fastest and the slowest of the 3 timed launches alike. F: +6.7 us on the means (p < 0.001), +2.3 on the round medians (p 0.026); per round, F's slowest launch is 71.1 us against D's 59.0 (medians over rounds), its fastest 45.9 against 43.5: one launch per run pays about 12 us more with 16 KB frames (official, also 16 KB: slowest 66-82 us), likely local memory set up for the larger frame. The compare round's "contradicted" rested on the micro cases, which time thousands of launches. T, G: no increase. |
 | GPU Array map lookup xlarge, dev faster: 457.7 vs 444.9 us (-3%) | **811b841f**, the launch path; the gate's removal moves it as much. | inferred | L: +10.5 us (p 0.010); G: +11.6 us (p 0.007), although G only removes a load; mechanism not known (code layout, scheduling). |
 | GPU Array map update large, dev slower: 221.1 vs 246.9 us (+12%) | **518f05b5**'s 1513 update device code (bounds check, E2BIG path, fence form), and **5c5312d7**'s gate. 100k threads update one value in host memory: a contention-bound case. | proven (T), likely (G) | T: -15.3 us (p < 0.001, 59% of the gap); G: -11.1 us (p 0.005, 43%). Not tested together. L, F: -2 to -3 us. |
-| GPU Array map update xlarge, dev faster: 1,682 vs 1,509 us (-10%) | Not one of the four. | unknown | No ablation brings dev near official: G +50 us (p 0.011), T -63 us (p 0.006, away from official), L -13, F -33 (p >= 0.10). Untested candidates: 813c3ecb (helper PTX regenerated, more registers), host-memory registration of the map (2349d977). |
+| GPU Array map update xlarge, dev faster: 1,682 vs 1,509 us (-10%) | Contention on one uncached host line, not a dev improvement. About 1M threads read-modify-write the same 8 bytes; how fast that drains depends on when warps reach it. **518f05b5**'s 1513 device code, **5c5312d7**'s gate and **636501ff**'s frame together set that timing: alone, G and T move dev in opposite directions and F is noise; together they close about half of the gap. The rest is not isolated. With the victim's adds removed (N=32, same grid) dev is 13% slower than official instead. | likely (device code, together); rest unknown | [`../xlarge-20261110`](../xlarge-20261110/): dev with all three undone (C) 1,591 vs dev 1,474 and official 1,687 us (8 rounds, p < 0.001 against both), fastest launch 1,324 vs 983 and 1,366 us; at N=32 dev 2,131, C 1,927, official 1,880. Ruled out by experiment: segment size (50 vs 128 MB swapped), the counter's position (12 positions per build), the CUDA registration path (official with dev's registration = official), the launch path (L = D, C with the late path = C). |
 | Entry+Exit small_64x16 / small, Memtrace tiny (the compare round's +15% / +9% / +6%) | No difference: the 3-round gaps were noise. | settled | 10 rounds: 34.9 vs 33.5, 31.3 vs 32.8, 32.2 vs 33.2 us, p 0.97 / 0.45 / 1.0. |
 
 What the ablations also show:
@@ -88,7 +89,7 @@ no bpftime code, already spread 35.1-40.4 us across sets.
 
 | difference | candidates | strength | what would settle it |
 |---|---|---|---|
-| GPU Array map update xlarge (above) | 813c3ecb, 2349d977, or an interaction of 518f05b5's device code with the gate | unknown | Those reverted on dev; T and G together; the final counter value (lost updates). |
+| GPU Array map update xlarge: the 90 us between C (dev with official's device code) and official | **813c3ecb** (the whole trampoline PTX regenerated with clang 15/16; upstream's shipped PTX came from clang 17) and **518f05b5**'s device parts that were not undone (IPC map branches, `__bpftime_map_bounds_warned`, the renamed comm lock), through the layout ptxas makes of the module. C's retprobe is identical to official's; its 1513 paths have official's source but dev's codegen. | unknown | Load official's patched PTX into dev's runtime; or per-launch GPU timing (globaltimer per block) to see how warps reach the line. |
 | Dev's late path 5-9 us per launch slower than official's (above) | Per-launch name resolution (`dladdr`, the resolver, strings) | unknown | Time the redirect's parts; cache the stub-to-function lookup and rerun L. |
 | On dev, lookups cost more than updates (array lookup 367 vs update 324 us) | Dev-internal, not an official-vs-dev difference. 2349d977's extra `cuMemHostGetDevicePointer` per returned pointer is one candidate; the hash-lookup gap has none. | unknown | Time that driver call; a hash lookup with key 0 present. |
 | Global timer, Empty/Entry/Exit small and medium, GPU Array map lookup medium, other overlapping rows of the compare round | Inside the 3-round spread; not in the ablation set. | none claimed | — |
