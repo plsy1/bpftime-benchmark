@@ -1,0 +1,373 @@
+================================================================================
+CUDA Benchmark Suite
+================================================================================
+Timestamp: 2026-11-10 18:00:52
+Config file: /home/jetson/src/bpftime-gpu-work/ablate/configs/F8-examples.json
+================================================================================
+
+GPU: Orin (nvgpu)
+
+Running test: Baseline (minimal)
+Running test with custom env: vec_add_binary=/home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy, args=32 3 32 1
+Environment variables: {'SPDLOG_LEVEL': 'info', 'BPFTIME_GLOBAL_SHM_NAME': 'bpftime_cmp_F8'}
+STDOUT:
+Running benchmark with 3 iterations...
+Kernel: vectorAdd
+Data size: 0 MB
+Grid config: 1 blocks × 32 threads/block = 32 total threads
+
+========================================
+Benchmark results:
+========================================
+Setup phase:
+  Host allocation:   2 us
+  Device allocation: 205 us
+  Host to device:    190 us (0.64 GB/s)
+  Device to host:    69 us (1.77 GB/s)
+
+Kernel execution:
+  Total time:        115.46 us
+  Average kernel time: 38.49 us
+  Throughput:        25983.02 kernels/sec
+
+Detailed statistics (μs):
+  Mean:              38.41 us
+  Median:            37.86 us
+  Min:               33.35 us
+  Max:               44.03 us
+  P95:               44.03 us
+  P99:               44.03 us
+  Std dev:           4.38 us
+
+Validation check: C[0] = 0.00, C[1] = 3.00
+========================================
+
+STDERR:
+
+✓ Baseline: 38.49 μs
+
+Running test: Kernel Retsnoop (minimal)
+Running BPF test: probe_cmd=/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/kernelretsnoop/kernelretsnoop, vec_add_args=32 3 32 1
+Probe environment: {'BPFTIME_LOG_OUTPUT': 'console', 'LD_PRELOAD': 'build/runtime/syscall-server/libbpftime-syscall-server.so'}
+Probe startup log:
+libbpf: loading object 'kernelretsnoop_bpf' from buffer
+libbpf: elf: section(2) .symtab, size 144, link 1, flags 0, type=2
+libbpf: elf: section(3) kretprobe/_Z9vectorAddPKfS0_Pf, size 152, link 0, flags 6, type=1
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe' at insn offset 0 (0 bytes), code size 19 insns (152 bytes)
+libbpf: elf: section(4) .maps, size 32, link 0, flags 3, type=1
+libbpf: elf: section(5) license, size 4, link 0, flags 3, type=1
+libbpf: license of kernelretsnoop_bpf is GPL
+libbpf: elf: section(6) .relkretprobe/_Z9vectorAddPKfS0_Pf, size 16, link 2, flags 40, type=9
+libbpf: elf: section(7) .BTF, size 913, link 0, flags 0, type=1
+libbpf: elf: section(8) .BTF.ext, size 192, link 0, flags 0, type=1
+libbpf: looking for externs among 6 symbols...
+libbpf: collected 0 externs total
+[2026-11-10 18:00:52][info][785305] Init bpftime syscall mocking..
+[2026-11-10 18:00:52][info][785305] The log will be written to: console
+[2026-11-10 18:00:52][info][785305] Starting syscall server..
+[2026-11-10 18:00:52][info][785305] Initialize syscall server
+[2026-11-10 18:00:52][info][785305] Global shm constructed. shm_open_type 4 for bpftime_cmp_F8
+[2026-11-10 18:00:52][info][785305] Global shm initialized
+[2026-11-10 18:00:52][info][785305] Initializing CUDA at syscall-server side
+[2026-11-10 18:00:52][info][785305] CUDA initialized at syscall server side (integrated GPU: no CUDA IPC)
+[2026-11-10 18:00:52][info][785305] bpftime-syscall-server started
+libbpf: map 'rb': at sec_idx 4, offset 0.
+libbpf: map 'rb': found type = 1527.
+libbpf: map 'rb': found key [8], sz = 4.
+libbpf: map 'rb': found value [12], sz = 1024.
+libbpf: map 'rb': found max_entries = 16.
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(3) 'kretprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #11 against 'rb'
+libbpf: prog 'cuda__retprobe': found map 0 (rb, sec 4, off 0) for insn #11
+libbpf: object 'kernelretsnoop_': failed (-EACCES) to open BPF FS mount at '/sys/fs/bpf', skipping optional step...
+libbpf: Kernel doesn't support BTF, skipping uploading it.
+[2026-11-10 18:00:52][info][785305] syscall server: Set enable_mock_after_initialized to false
+[2026-11-10 18:00:52][info][785305] CUDA context for thread 785305 has been set to aaab1b9191c0
+[2026-11-10 18:00:52][info][785305] Map rb (nv_gpu_ringbuf_map_impl) has space for thread count 1024
+[2026-11-10 18:00:52][info][785305] syscall server: Set enable_mock_after_initialized to true
+libbpf: map 'rb': created successfully, fd=3
+[2026-11-10 18:00:52][info][785305] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+
+Agent environment: {'BPFTIME_LOG_OUTPUT': 'console', 'LD_PRELOAD': 'build/runtime/agent/libbpftime-agent.so'}
+STDOUT:
+Extracting PTX file and ptxas options    1: temp.1.sm_75.ptx -arch=sm_75 
+[2026-11-10 18:01:02.803] [info] [core.cpp:351] [ptxpass] kretprobe: matched=1, in=969, out=3183
+Running benchmark with 3 iterations...
+Kernel: vectorAdd
+Data size: 0 MB
+Grid config: 1 blocks × 32 threads/block = 32 total threads
+
+========================================
+Benchmark results:
+========================================
+Setup phase:
+  Host allocation:   1 us
+  Device allocation: 204 us
+  Host to device:    185 us (0.66 GB/s)
+  Device to host:    75 us (1.63 GB/s)
+
+Kernel execution:
+  Total time:        166.44 us
+  Average kernel time: 55.48 us
+  Throughput:        18024.73 kernels/sec
+
+Detailed statistics (μs):
+  Mean:              55.35 us
+  Median:            47.59 us
+  Min:               44.29 us
+  Max:               74.18 us
+  P95:               74.18 us
+  P99:               74.18 us
+  Std dev:           13.38 us
+
+Validation check: C[0] = 0.00, C[1] = 3.00
+========================================
+
+STDERR:
+[2026-11-10 18:01:02][info][785328] Registered shared memory with CUDA: addr=0xffff8c840000 size=134217728
+[2026-11-10 18:01:02][info][785328] Global shm constructed. shm_open_type 1 for bpftime_cmp_F8
+[2026-11-10 18:01:02][info][785328] Global shm initialized
+[2026-11-10 18:01:02][info][785328] bpf_attach_ctx constructed
+[2026-11-10 18:01:02][info][785328] Initializing CUDA shared memory
+[2026-11-10 18:01:02][info][785328] CommSharedMem host 0xffff8c93c9c8 mapped to device 0x1022c09c8
+[2026-11-10 18:01:02][info][785328] CUDA context created
+[2026-11-10 18:01:02][info][785328] Register attach-impl defined helper bpf_get_func_arg, index 183
+[2026-11-10 18:01:02][info][785328] Register attach-impl defined helper bpf_get_func_ret_id, index 184
+[2026-11-10 18:01:02][info][785328] Register attach-impl defined helper bpf_get_retval, index 186
+[2026-11-10 18:01:02][info][785328] Starting nv_attach_impl
+[2026-11-10 18:01:02][info][785328] nv_attach_impl: patching fatbins as cudart loads them
+[2026-11-10 18:01:02][info][785328] Parsing bundled libraries: /home/jetson/src/bpftime-gpu-work/ablate/frame/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so:/home/jetson/src/bpftime-gpu-work/ablate/frame/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so:/home/jetson/src/bpftime-gpu-work/ablate/frame/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-10 18:01:02][info][785328] Found path: /home/jetson/src/bpftime-gpu-work/ablate/frame/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so, executing..
+[2026-11-10 18:01:02][info][785328] Retrived config of /home/jetson/src/bpftime-gpu-work/ablate/frame/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so
+[2026-11-10 18:01:02][info][785328] Found path: /home/jetson/src/bpftime-gpu-work/ablate/frame/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so, executing..
+[2026-11-10 18:01:02][info][785328] Retrived config of /home/jetson/src/bpftime-gpu-work/ablate/frame/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so
+[2026-11-10 18:01:02][info][785328] Found path: /home/jetson/src/bpftime-gpu-work/ablate/frame/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so, executing..
+[2026-11-10 18:01:02][info][785328] Retrived config of /home/jetson/src/bpftime-gpu-work/ablate/frame/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-10 18:01:02][info][785328] Initializing agent..
+[2026-11-10 18:01:02][info][785328] bpftime: shm epoch_seq = 2
+[2026-11-10 18:01:02][info][785328] Instantiating bpf link 48 and the corresponding program cuda__retprobe is cuda program
+[2026-11-10 18:01:02][info][785328] Skipping nv attach handler 48 since we are not handling nv handles
+[2026-11-10 18:01:02][info][785328] Instantiating bpf link 48 and the corresponding program cuda__retprobe is cuda program
+[2026-11-10 18:01:02][info][785328] Handling link to CUDA program: 48, recording it..
+[2026-11-10 18:01:02][info][785328] Loaded 19 instructions (original) for cuda ebpf program
+[2026-11-10 18:01:02][info][785328] Initializing nv_gpu_ringbuf_map_impl at pid 785328
+[2026-11-10 18:01:02][info][785328] Mapped GPU memory for gpu ringbuf map: 4333521904
+[2026-11-10 18:01:02][info][785328] Copying map fd 3 to device, key size=4, value size=1024, max ent=16, map_type = 1527, gpu_buffer = 1024c4bf0
+[2026-11-10 18:01:02][info][785328] Cached shared_mem_ptr at 1022c09c8
+[2026-11-10 18:01:02][info][785328] Recorded pass /home/jetson/src/bpftime-gpu-work/ablate/frame/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so for func _Z9vectorAddPKfS0_Pf
+[2026-11-10 18:01:02][info][785328] nv_attach_impl: _Z9vectorAddPKfS0_Pf will be patched when cudart loads its module
+[2026-11-10 18:01:02][info][785328] agent ipc: listening (abstract) for pid 785328
+[2026-11-10 18:01:02][info][785328] Attach successfully
+[2026-11-10 18:01:02][info][785328] Temporary fatbin written to /tmp/bpftime-fatbin-work.LUk7i2/temp.fatbin
+[2026-11-10 18:01:02][info][785328] Extracting PTX in the fatbin...
+[2026-11-10 18:01:02][info][785328] Calling cuobjdump: /usr/local/cuda-13.2/bin/cuobjdump --extract-ptx all /tmp/bpftime-fatbin-work.LUk7i2/temp.fatbin
+[2026-11-10 18:01:02][info][785328] Got 1 PTX files
+[2026-11-10 18:01:02][info][785342] Patching PTX: temp.1.sm_75.ptx
+[2026-11-10 18:01:02][info][785342] Patching request 1a06e7ebdb31fbc94a35245c79a1bcfe94b394d59a95a3fb3710870a78641840 not found in cache, patching..
+[2026-11-10 18:01:02][info][785328] Auto-detected GPU SM arch: sm_87 (compute capability 8.7)
+[2026-11-10 18:01:02][info][785328] Compiling PTXs with sm_arch sm_87
+[2026-11-10 18:01:02][info][785328] Compiler version: 13.2
+[2026-11-10 18:01:02][info][785343] Start compiling patched.temp.1.sm_75.ptx, not found in cache
+[2026-11-10 18:01:02][info][785343] Compile of patched.temp.1.sm_75.ptx done
+[2026-11-10 18:01:02][info][785328] nv_attach_impl: loaded the patched image of the fatbin at 0xaaaabae33d00 (52952 bytes; probes on _Z9vectorAddPKfS0_Pf)
+[2026-11-10 18:01:02][info][785332] Exiting CUDA watcher thread
+
+✓ BPF test: 55.48 μs
+
+=== Complete Probe Output ===
+libbpf: loading object 'kernelretsnoop_bpf' from buffer
+libbpf: elf: section(2) .symtab, size 144, link 1, flags 0, type=2
+libbpf: elf: section(3) kretprobe/_Z9vectorAddPKfS0_Pf, size 152, link 0, flags 6, type=1
+libbpf: sec 'kretprobe/_Z9vectorAddPKfS0_Pf': found program 'cuda__retprobe' at insn offset 0 (0 bytes), code size 19 insns (152 bytes)
+libbpf: elf: section(4) .maps, size 32, link 0, flags 3, type=1
+libbpf: elf: section(5) license, size 4, link 0, flags 3, type=1
+libbpf: license of kernelretsnoop_bpf is GPL
+libbpf: elf: section(6) .relkretprobe/_Z9vectorAddPKfS0_Pf, size 16, link 2, flags 40, type=9
+libbpf: elf: section(7) .BTF, size 913, link 0, flags 0, type=1
+libbpf: elf: section(8) .BTF.ext, size 192, link 0, flags 0, type=1
+libbpf: looking for externs among 6 symbols...
+libbpf: collected 0 externs total
+[2026-11-10 18:00:52][info][785305] Init bpftime syscall mocking..
+[2026-11-10 18:00:52][info][785305] The log will be written to: console
+[2026-11-10 18:00:52][info][785305] Starting syscall server..
+[2026-11-10 18:00:52][info][785305] Initialize syscall server
+[2026-11-10 18:00:52][info][785305] Global shm constructed. shm_open_type 4 for bpftime_cmp_F8
+[2026-11-10 18:00:52][info][785305] Global shm initialized
+[2026-11-10 18:00:52][info][785305] Initializing CUDA at syscall-server side
+[2026-11-10 18:00:52][info][785305] CUDA initialized at syscall server side (integrated GPU: no CUDA IPC)
+[2026-11-10 18:00:52][info][785305] bpftime-syscall-server started
+libbpf: map 'rb': at sec_idx 4, offset 0.
+libbpf: map 'rb': found type = 1527.
+libbpf: map 'rb': found key [8], sz = 4.
+libbpf: map 'rb': found value [12], sz = 1024.
+libbpf: map 'rb': found max_entries = 16.
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': collecting relocation for section(3) 'kretprobe/_Z9vectorAddPKfS0_Pf'
+libbpf: sec '.relkretprobe/_Z9vectorAddPKfS0_Pf': relo #0: insn #11 against 'rb'
+libbpf: prog 'cuda__retprobe': found map 0 (rb, sec 4, off 0) for insn #11
+libbpf: object 'kernelretsnoop_': failed (-EACCES) to open BPF FS mount at '/sys/fs/bpf', skipping optional step...
+libbpf: Kernel doesn't support BTF, skipping uploading it.
+[2026-11-10 18:00:52][info][785305] syscall server: Set enable_mock_after_initialized to false
+[2026-11-10 18:00:52][info][785305] CUDA context for thread 785305 has been set to aaab1b9191c0
+[2026-11-10 18:00:52][info][785305] Map rb (nv_gpu_ringbuf_map_impl) has space for thread count 1024
+[2026-11-10 18:00:52][info][785305] syscall server: Set enable_mock_after_initialized to true
+libbpf: map 'rb': created successfully, fd=3
+[2026-11-10 18:00:52][info][785305] Created kprobe/kretprobe perf event handler, func_name _Z9vectorAddPKfS0_Pf, addr 0
+Thread (0, 0, 0) timestamp: 1321040669829824
+Thread (0, 0, 0) timestamp: 1321040669964480
+Thread (0, 0, 0) timestamp: 1321040670014592
+Thread (0, 0, 0) timestamp: 1321040670063680
+Thread (1, 0, 0) timestamp: 1321040669829824
+Thread (1, 0, 0) timestamp: 1321040669964480
+Thread (1, 0, 0) timestamp: 1321040670014592
+Thread (1, 0, 0) timestamp: 1321040670063680
+Thread (2, 0, 0) timestamp: 1321040669829824
+Thread (2, 0, 0) timestamp: 1321040669964480
+Thread (2, 0, 0) timestamp: 1321040670014592
+Thread (2, 0, 0) timestamp: 1321040670063680
+Thread (3, 0, 0) timestamp: 1321040669829824
+Thread (3, 0, 0) timestamp: 1321040669964480
+Thread (3, 0, 0) timestamp: 1321040670014592
+Thread (3, 0, 0) timestamp: 1321040670063680
+Thread (4, 0, 0) timestamp: 1321040669829824
+Thread (4, 0, 0) timestamp: 1321040669964480
+Thread (4, 0, 0) timestamp: 1321040670014592
+Thread (4, 0, 0) timestamp: 1321040670063680
+Thread (5, 0, 0) timestamp: 1321040669829824
+Thread (5, 0, 0) timestamp: 1321040669964480
+Thread (5, 0, 0) timestamp: 1321040670014592
+Thread (5, 0, 0) timestamp: 1321040670063680
+Thread (6, 0, 0) timestamp: 1321040669829824
+Thread (6, 0, 0) timestamp: 1321040669964480
+Thread (6, 0, 0) timestamp: 1321040670014592
+Thread (6, 0, 0) timestamp: 1321040670063680
+Thread (7, 0, 0) timestamp: 1321040669829824
+Thread (7, 0, 0) timestamp: 1321040669964480
+Thread (7, 0, 0) timestamp: 1321040670014592
+Thread (7, 0, 0) timestamp: 1321040670063680
+Thread (8, 0, 0) timestamp: 1321040669829824
+Thread (8, 0, 0) timestamp: 1321040669964480
+Thread (8, 0, 0) timestamp: 1321040670014592
+Thread (8, 0, 0) timestamp: 1321040670063680
+Thread (9, 0, 0) timestamp: 1321040669829824
+Thread (9, 0, 0) timestamp: 1321040669964480
+Thread (9, 0, 0) timestamp: 1321040670014592
+Thread (9, 0, 0) timestamp: 1321040670063680
+Thread (10, 0, 0) timestamp: 1321040669829824
+Thread (10, 0, 0) timestamp: 1321040669964480
+Thread (10, 0, 0) timestamp: 1321040670014592
+Thread (10, 0, 0) timestamp: 1321040670063680
+Thread (11, 0, 0) timestamp: 1321040669829824
+Thread (11, 0, 0) timestamp: 1321040669964480
+Thread (11, 0, 0) timestamp: 1321040670014592
+Thread (11, 0, 0) timestamp: 1321040670063680
+Thread (12, 0, 0) timestamp: 1321040669829824
+Thread (12, 0, 0) timestamp: 1321040669964480
+Thread (12, 0, 0) timestamp: 1321040670014592
+Thread (12, 0, 0) timestamp: 1321040670063680
+Thread (13, 0, 0) timestamp: 1321040669829824
+Thread (13, 0, 0) timestamp: 1321040669964480
+Thread (13, 0, 0) timestamp: 1321040670014592
+Thread (13, 0, 0) timestamp: 1321040670063680
+Thread (14, 0, 0) timestamp: 1321040669829824
+Thread (14, 0, 0) timestamp: 1321040669964480
+Thread (14, 0, 0) timestamp: 1321040670014592
+Thread (14, 0, 0) timestamp: 1321040670063680
+Thread (15, 0, 0) timestamp: 1321040669829824
+Thread (15, 0, 0) timestamp: 1321040669964480
+Thread (15, 0, 0) timestamp: 1321040670014592
+Thread (15, 0, 0) timestamp: 1321040670063680
+Thread (16, 0, 0) timestamp: 1321040669829824
+Thread (16, 0, 0) timestamp: 1321040669964480
+Thread (16, 0, 0) timestamp: 1321040670014592
+Thread (16, 0, 0) timestamp: 1321040670063680
+Thread (17, 0, 0) timestamp: 1321040669829824
+Thread (17, 0, 0) timestamp: 1321040669964480
+Thread (17, 0, 0) timestamp: 1321040670014592
+Thread (17, 0, 0) timestamp: 1321040670063680
+Thread (18, 0, 0) timestamp: 1321040669829824
+Thread (18, 0, 0) timestamp: 1321040669964480
+Thread (18, 0, 0) timestamp: 1321040670014592
+Thread (18, 0, 0) timestamp: 1321040670063680
+Thread (19, 0, 0) timestamp: 1321040669829824
+Thread (19, 0, 0) timestamp: 1321040669964480
+Thread (19, 0, 0) timestamp: 1321040670014592
+Thread (19, 0, 0) timestamp: 1321040670063680
+Thread (20, 0, 0) timestamp: 1321040669829824
+Thread (20, 0, 0) timestamp: 1321040669964480
+Thread (20, 0, 0) timestamp: 1321040670014592
+Thread (20, 0, 0) timestamp: 1321040670063680
+Thread (21, 0, 0) timestamp: 1321040669829824
+Thread (21, 0, 0) timestamp: 1321040669964480
+Thread (21, 0, 0) timestamp: 1321040670014592
+Thread (21, 0, 0) timestamp: 1321040670063680
+Thread (22, 0, 0) timestamp: 1321040669829824
+Thread (22, 0, 0) timestamp: 1321040669964480
+Thread (22, 0, 0) timestamp: 1321040670014592
+Thread (22, 0, 0) timestamp: 1321040670063680
+Thread (23, 0, 0) timestamp: 1321040669829824
+Thread (23, 0, 0) timestamp: 1321040669964480
+Thread (23, 0, 0) timestamp: 1321040670014592
+Thread (23, 0, 0) timestamp: 1321040670063680
+Thread (24, 0, 0) timestamp: 1321040669829824
+Thread (24, 0, 0) timestamp: 1321040669964480
+Thread (24, 0, 0) timestamp: 1321040670014592
+Thread (24, 0, 0) timestamp: 1321040670063680
+Thread (25, 0, 0) timestamp: 1321040669829824
+Thread (25, 0, 0) timestamp: 1321040669964480
+Thread (25, 0, 0) timestamp: 1321040670014592
+Thread (25, 0, 0) timestamp: 1321040670063680
+Thread (26, 0, 0) timestamp: 1321040669829824
+Thread (26, 0, 0) timestamp: 1321040669964480
+Thread (26, 0, 0) timestamp: 1321040670014592
+Thread (26, 0, 0) timestamp: 1321040670063680
+Thread (27, 0, 0) timestamp: 1321040669829824
+Thread (27, 0, 0) timestamp: 1321040669964480
+Thread (27, 0, 0) timestamp: 1321040670014592
+Thread (27, 0, 0) timestamp: 1321040670063680
+Thread (28, 0, 0) timestamp: 1321040669829824
+Thread (28, 0, 0) timestamp: 1321040669964480
+Thread (28, 0, 0) timestamp: 1321040670014592
+Thread (28, 0, 0) timestamp: 1321040670063680
+Thread (29, 0, 0) timestamp: 1321040669829824
+Thread (29, 0, 0) timestamp: 1321040669964480
+Thread (29, 0, 0) timestamp: 1321040670014592
+Thread (29, 0, 0) timestamp: 1321040670063680
+Thread (30, 0, 0) timestamp: 1321040669829824
+Thread (30, 0, 0) timestamp: 1321040669964480
+Thread (30, 0, 0) timestamp: 1321040670014592
+Thread (30, 0, 0) timestamp: 1321040670063680
+Thread (31, 0, 0) timestamp: 1321040669829824
+Thread (31, 0, 0) timestamp: 1321040669964480
+Thread (31, 0, 0) timestamp: 1321040670014592
+Thread (31, 0, 0) timestamp: 1321040670063680
+Total events collected: 128
+
+=== End Probe Output ===
+
+
+Results saved to: examples_vec_add_result.json
+
+# CUDA Benchmark Results
+
+**Device:** Orin (nvgpu)  
+**Timestamp:** 2026-11-10T18:00:52.401841  
+
+## Workload Configuration
+
+| Workload | Binary | Elements | Iterations | Threads | Blocks |
+|----------|--------|----------|------------|---------|--------|
+| large | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 100000 | 1000 | 512 | 196 |
+| medium | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 10000 | 10000 | 256 | 40 |
+| minimal | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 32 | 3 | 32 | 1 |
+| small | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 1000 | 10000 | 256 | 4 |
+| tiny | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 32 | 10000 | 32 | 1 |
+| xlarge | /home/jetson/src/bpftime-gpu-work/compare/victims/vec_add_legacy | 1000000 | 1000 | 512 | 1954 |
+
+## Benchmark Results
+
+| Test Name | Workload | Avg Time (μs) | vs Baseline | Overhead |
+|-----------|----------|---------------|-------------|----------|
+| Baseline (minimal) | minimal | 38.49 | - | - |
+| Kernel Retsnoop (minimal) | minimal | 55.48 | 38.49 | 1.44x (+44.1%) |
+
+Log saved to: examples_vec_add_bench.log

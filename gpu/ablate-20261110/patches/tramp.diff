@@ -1,0 +1,84 @@
+--- /home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/attach/nv_attach_impl/trampoline/default_trampoline.cu	2026-11-10 07:18:28.128881967 +0900
++++ /home/jetson/src/bpftime-gpu-work/ablate/tramp/attach/nv_attach_impl/trampoline/default_trampoline.cu	2026-11-10 14:42:22.620242641 +0900
+@@ -218,6 +218,20 @@
+ 	return (char *)info.extra_buffer + idx * info.value_size;
+ }
+ 
++// ABLATION: official 4708f409's address computations for the host-memory map
++// types 1512/1513 (no NULL return, per-thread warning only)
++__device__ void *official_array_map_offset(uint64_t idx, const MapBasicInfo &info,
++					   uint64_t map)
++{
++	if (info.max_thread_count <= getGlobalThreadId()) {
++		printf("WARNING: getGlobalThreadId(%lu) exceeds max_thread_count (%lu) of map %lu, please set BPFTIME_MAP_GPU_THREAD_COUNT at syscall-server side\n",
++		       getGlobalThreadId(), info.max_thread_count, map);
++	}
++	return (void *)((uintptr_t)info.extra_buffer +
++			idx * info.max_thread_count * info.value_size +
++			getGlobalThreadId() * info.value_size);
++}
++
+ static constexpr uint64_t E2BIG_RESULT = (uint64_t)-7;
+ 
+ extern "C" __noinline__ __device__ uint64_t _bpf_helper_ext_0001(
+@@ -241,15 +255,16 @@
+ 	// HOST-based per-thread array map (for Tegra)
+ 	if (map_info.map_type == BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP) {
+ 		auto real_key = *(uint32_t *)(uintptr_t)key;
+-		auto offset = array_map_offset(real_key, map_info, map);
+-		fence_system(); // Ensure CPU writes are visible to GPU
++		auto offset = official_array_map_offset(real_key, map_info, map);
++		asm("membar.sys;"); // ABLATION: official fence
+ 		return (uint64_t)(uintptr_t)offset;
+ 	}
+ 	// HOST-based non-per-thread GPU array map (for Tegra)
+ 	if (map_info.map_type == BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP) {
+ 		auto real_key = *(uint32_t *)(uintptr_t)key;
+-		auto offset = shared_array_offset(real_key, map_info, map);
+-		fence_system(); // Ensure CPU writes are visible to GPU
++		auto offset = (char *)map_info.extra_buffer +
++			      real_key * map_info.value_size; // ABLATION: official
++		asm("membar.sys;"); // ABLATION: official fence
+ 		return (uint64_t)(uintptr_t)offset;
+ 	}
+ 	HelperCallResponse resp = host_call(
+@@ -293,23 +308,20 @@
+ 	// HOST-based per-thread array map (for Tegra)
+ 	if (map_info.map_type == BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP) {
+ 		auto real_key = *(uint32_t *)(uintptr_t)key;
+-		auto offset = array_map_offset(real_key, map_info, map);
+-		if (!offset)
+-			return E2BIG_RESULT;
++		auto offset = official_array_map_offset(real_key, map_info, map);
+ 		simple_memcpy(offset, (void *)(uintptr_t)value,
+ 			      map_info.value_size);
+-		fence_system(); // Ensure GPU writes are visible to CPU
++		asm("membar.sys;"); // ABLATION: official fence
+ 		return 0;
+ 	}
+ 	// HOST-based non-per-thread GPU array map (for Tegra)
+ 	if (map_info.map_type == BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP) {
+ 		auto real_key = *(uint32_t *)(uintptr_t)key;
+-		auto dst = shared_array_offset(real_key, map_info, map);
+-		if (!dst)
+-			return E2BIG_RESULT;
++		auto dst = (char *)map_info.extra_buffer +
++			   real_key * map_info.value_size; // ABLATION: official
+ 		simple_memcpy(dst, (void *)(uintptr_t)value,
+ 			      map_info.value_size);
+-		fence_system(); // Ensure GPU writes are visible to CPU
++		asm("membar.sys;"); // ABLATION: official fence
+ 		return 0;
+ 	}
+ 	HelperCallResponse resp = host_call(
+@@ -403,6 +415,10 @@
+ 		atomicAdd(&header->dropped, 1u);
+ 		return 3;
+ 	}
++	// ABLATION: official 4708f409's full check: two plain loads and return,
++	// no busy word, fence or drop count on the full path
++	if (header->tail - header->head >= entries)
++		return 2;
+ 	// One writer at a time: another kernel running at the same time can
+ 	// have a thread with the same index.
+ 	if (atomicCAS(&header->busy, 0, 1) != 0) {

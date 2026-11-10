@@ -1,0 +1,11 @@
+--- /home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/vm/compat/llvm-vm/local-call-return-block.patch	2026-11-10 07:18:28.136882248 +0900
++++ /home/jetson/src/bpftime-gpu-work/ablate/frame/vm/compat/llvm-vm/local-call-return-block.patch	2026-11-10 14:35:07.421423200 +0900
+@@ -18,7 +18,7 @@
+ +			return inst.opcode == EBPF_OP_CALL && inst.src == 0x01;
+ +		});
+ +	const size_t stack_frames =
+-+		is_gpu && !has_local_calls ? 1 : MAX_LOCAL_FUNC_DEPTH;
+++		is_gpu && !has_local_calls && false ? 1 : MAX_LOCAL_FUNC_DEPTH;
+  	if (kernel_compatible_mode && kernel_stack_bytes > EBPF_STACK_SIZE) {
+  		return llvm::make_error<llvm::StringError>(
+  			"Kernel-compatible lift requires " +

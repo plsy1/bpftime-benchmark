@@ -1,0 +1,11 @@
+--- /home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/attach/nv_attach_impl/pass/ptxpass_core/src/core.cpp	2026-11-10 07:18:28.128881967 +0900
++++ /home/jetson/src/bpftime-gpu-work/ablate/gate/attach/nv_attach_impl/pass/ptxpass_core/src/core.cpp	2026-11-10 14:35:07.421423200 +0900
+@@ -270,7 +270,7 @@
+ 			bpftime::attach::add_register_guard_for_ebpf_ptx_func(
+ 				filtered_ptx);
+ 	}
+-	return gate_probe_function(std::move(filtered_ptx), func_name);
++	return filtered_ptx; // ABLATION: no probe gate
+ }
+ std::string filter_compiled_ptx_for_ebpf_program(std::string input)
+ {

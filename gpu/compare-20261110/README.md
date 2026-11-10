@@ -100,11 +100,13 @@ differences are a few us inside overlapping ranges. Where the 3-round ranges do 
   1,724 vs 1,486 us), GPU Array map lookup medium (-8%), Memtrace large (-6%);
 - within 5%: Empty / Entry xlarge, GPU Ringbuf xlarge, GPU Array map lookup xlarge.
 
-Three rounds of one run each is a small sample; the dev slowdowns (ringbuf, entry+exit small,
-array update large) are not explained yet. The micro ringbuf case never polls, so after 16
-launches every thread's ring is full on both builds and the case mostly times the drop path,
-which dev made heavier (518f05b5: busy word, fences, drop counter). Which change causes each
-difference, and how sure that is: [attribution.md](attribution.md).
+Three rounds of one run each is a small sample. The ablation round
+([`../ablate-20261110`](../ablate-20261110/), 10 rounds) settled most of these: the entry+exit
+small and memtrace tiny gaps are noise; the ringbuf slowdown is 518f05b5's drop path (the micro
+ringbuf case never polls, so after 16 launches every thread's ring is full on both builds and
+the case mostly times that path); dev's lead on light probes and small map cases is 811b841f's
+launch path; array update large is 518f05b5's 1513 device code plus the probe gate. Which change
+causes each difference, and how sure that is: [attribution.md](attribution.md).
 
 **Examples.**
 
