@@ -99,7 +99,9 @@ differences are a few us inside overlapping ranges. Where the 3-round ranges do 
 - within 5%: Empty / Entry xlarge, GPU Ringbuf xlarge, GPU Array map lookup xlarge.
 
 Three rounds of one run each is a small sample; the dev slowdowns (ringbuf, entry+exit small,
-array update large) are not explained yet.
+array update large) are not explained yet. One lead for ringbuf, not checked: official drops
+events (Kernel Retsnoop below delivers 32 of 128 on official, all 128 on dev), so dev may be
+paying for delivering every event.
 
 **Examples.**
 
@@ -110,7 +112,11 @@ array update large) are not explained yet.
 | Memory Trace | fails (1503) | 56.2 us, counter[0]=28 | official runs it only with a 1513 copy (gate) |
 
 Dev only (official skipped): Per-GPU-thread array medium / large / xlarge 43.9 / 147.4 /
-1,165 us (1.6 / 4.7 / 7.3x).
+1,165 us (1.6 / 4.7 / 7.3x). These launch more than the map's 1024 thread slots: dev does not
+write past the map but returns NULL for the threads outside it and prints one warning per run
+(`GPU thread 1536, key 0 is outside map 15 (1024 threads, 1 entries)`), so those threads skip the
+map update. The numbers are the probe on part of the threads, not full per-thread map cost; a
+full run needs `BPFTIME_MAP_GPU_THREAD_COUNT` set for the syscall server.
 
 **C (dev, shipped probe, default victim)** matches B within run-to-run spread on every case.
 
