@@ -60,7 +60,8 @@ measures them against P, W and M100.
 
 Numbers are medians over 4 rounds; "CPU" = victim CPU s per wall s minus P's of the same round;
 host-call latency GPU-timed, pooled over runs (p99 / max can come from one run; the > 1 ms share is
-the stable tail statistic). Corrections from the review (`review/`) are folded in.
+the stable tail statistic). Burst cells log one record per launch, so their "cost per call" is
+derived: (per-launch mean - P's) / 32. Corrections from the review (`review/`) are folded in.
 
 **One lane, 2 ms kernels** (c02 no load, c07 3 load threads, c01 6 load threads):
 
@@ -90,15 +91,15 @@ the stable tail statistic). Corrections from the review (`review/`) are folded i
 
 **Power** (VDD_CPU_GPU_CV, c02 no load, mW): P 1,699, W 1,713, AB 1,706, ABC 1,727, AC 1,747,
 A 1,760, M100 1,766. Per-round spread 15-40 mW; the WFE sets stay below the sleeping sets in
-every round. In c11 (idle agent) only M100 (+40-50 mW) stands out of the noise. Only cpu idle
+all rounds but one (ABC r3 1,745 vs AC r2 1,742). In c11 (idle agent) only M100 (+40-50 mW) stands out of the noise. Only cpu idle
 state c7 was off (WFI still used, the review checked the usage counters); no run without
 jetson_clocks, so how this changes with c7 on is not measured.
 
 ### What holds
 
-1. **AC is the cheapest sleeping set and the most robust under full load**: CPU 0.02-0.04 vs
-   M100's 0.09 in every single-lane cell with host calls (c04 without host calls: AC 0.021 vs
-   M100 0.018); c01 > 1 ms 1.04% vs 3.50% (every round), c15 0.45% vs 6.61% (p99 120 vs 3,937 us).
+1. **AC is the cheapest sleeping set and the most robust under full load**: lowest CPU of
+   M100 / A / AC in every cell with host calls (AC 0.006-0.065, M100 0.021-0.514; 2 ms kernels
+   0.02 vs 0.09); the exception is c04 without host calls (AC 0.021 vs M100 0.018); c01 > 1 ms 1.04% vs 3.50% (every round), c15 0.45% vs 6.61% (p99 120 vs 3,937 us).
    Load vs P in c01 is ahead in 3 of 4 rounds (round 1 a tie).
 2. **But C's adaptive window is almost never used** in these cells: with one host call per
    2.5 ms every request resets the window to 0 (win0 = 100% of requests in single-lane cells,
