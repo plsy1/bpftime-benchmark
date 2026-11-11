@@ -5,6 +5,8 @@ bpftime 在 Jetson Orin Nano（aarch64）和 x86 NUC 上的开发、测量与分
 
 工作时间线（6 月至今，每轮结束后补写）：[TIMELINE.md](TIMELINE.md)。
 
+后续研究方向（2026-11-11 起，定一个记一个）：[RESEARCH_DIRECTIONS.md](RESEARCH_DIRECTIONS.md)。
+
 ## 分支
 
 | 分支 | 内容 |
