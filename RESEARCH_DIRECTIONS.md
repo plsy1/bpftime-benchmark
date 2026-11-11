@@ -89,6 +89,80 @@ shared array, 1504 array shared with a bpf map) are sized by entries only.
 PTX documents `%warpid` and `%smid` as able to change after preemption; Neutrino computes a virtual
 warp index from `%ctaid`/`%tid` instead.
 
+### What other systems measured (survey 2026-11-11)
+
+A read-only survey of published numbers on these designs, each number checked against its source
+by a second reader (raw notes: results branch `gpu/buffer-survey-20261111/`). Event buffers (the
+ringbuf side) have some measurements; per-thread state maps (the 1502/1512 side) almost none.
+
+**Event buffers**
+
+- **The only head-to-head with the instrumentation held fixed:** hip-analyzer (Darche,
+  Dagenais; Darche's 2025 PhD thesis ch. 5, submitted to ACM TOPC 2024, unpublished), AMD MI210,
+  313 HeCBench kernels, every basic block traced. Kernel slowdown mean / median:
+  | design | slowdown |
+  |---|---|
+  | one global buffer, an atomic per event | 3.73x / 1.96x |
+  | one buffer per CU, an atomic per event | 2.47x / 1.60x |
+  | global chunk allocator (a wavefront takes 4 KiB chunks) | 1.79x / 1.33x |
+  | chunk allocator per CU | 1.77x / 1.32x |
+  | exact per-wavefront preallocation from a counting pass (like sizing per launch) | 2.07x / 1.50x (4x padding: 2.18x / 1.58x) |
+
+  Per event (microbenchmark, clock ticks): up to 256 concurrent waves chunk 90-115, exact
+  preallocation 80, atomics 290; at high concurrency the global atomic stays at 495-750, the
+  others settle at 310-385. Chunks stop helping beyond 4 KiB (32 B chunks: up to 5000 ticks under
+  contention). Cost: the chunk schemes reserved 4 GiB of device memory per stream; some exact
+  preallocation runs could not complete because of trace size.
+- **Closest to bpftime:** gpu_ext revision notes (authors' repo `workloads/llama.cpp/
+  observability_overhead/revision-rq4`, unpublished; RTX 5090, llama.cpp prefill,
+  kernelretsnoop; campaigns not interleaved with each other):
+  - bpftime's per-thread ring in host-mapped memory (524,288 thread slots): 892 MiB for 22 MiB
+    of events (40x), 90.7% throughput loss. One GPU-memory array with a slot per warp: 22.1 MiB,
+    5.4-5.6%. NVBit with the same per-warp device array: 9.6% (gpu_ext 5.3%).
+  - Draining the ring continuously or only at the end: 90.7% vs 90.8%. The cost is the producer
+    side, not the drain.
+  - Placement alone (operation-matched microbenchmark): an update to a device-memory array
+    (1503) 3.85 us per launch, to a host-mapped one (1513) 36.2 us (9.4x). On the Orin every map
+    is host-mapped and uncached by the GPU.
+  - Full per-thread records (23M x 80 B): ring 99.1% loss, GPU-memory arena 39.1%; layout alone
+    takes the arena to 27.6% (SoA) and 12.9% (warp-contiguous SoA).
+- **Neutrino** (OSDI '25, per-launch sizing): for per-thread maps on large grids the copy-back and
+  write after each launch dominates (Conv2D: 5.3-5.45x of the kernel in all, about 4x of it
+  collection; per-warp 1.36x, about 0.3x). Its memory figures are computed from the formula
+  (`--memusage`), not measured; a memory trace needs up to 7 GB (12.6x the model's own memory on
+  ResNet). The two-pass counting cost is not measured, works only for kernels that do not modify
+  their inputs, and writes are not bounds-checked.
+- **Xtrace** (arXiv, per-launch per-thread slots): 0.9-2.8% overhead vs Neutrino 11.8-75.6%,
+  flat over a 64x larger launch; attributed to less compiler interference, not to the buffer; no
+  memory numbers.
+- **Blocking when full is expensive:** GVProf (SC '20, 72 MB queue per stream, kernel paused when
+  full) median 31x / mean 236x without sampling; BARRACUDA 58.9x vs iGUARD's in-GPU 3.9x (SOSP
+  '21), BARRACUDA reserving half the GPU memory and failing beyond 8 GB of application data.
+- **NVBit** (1 MiB shared channel, blocks when full): the channel itself was never measured.
+- **CPU analogue:** the bpf ringbuf (one ring for all CPUs) drops from 10.9 M records/s with one
+  producer to about 2 M/s with 20 or more (kernel commit c97099b0).
+
+**Per-thread state maps**
+
+- gpu_ext revision: threadhist's per-thread array has 1,048,576 slots (8 MiB) and 22,528 of them
+  used (2.1%; correctness run, not timed). Whole-tool overhead 3% vs NVBit 87% (P40, paper Table
+  2), 2.97% vs 10.35% (5090 re-run): end to end, the map not isolated.
+- Upstream bpftime micro: a per-thread array update adds 3.3-3.7 us per launch over the entry
+  probe on the 5090 (32 to 10,240 threads), 13.8-15.1 us on the P40; larger grids skip the write
+  past 1024 threads, so their rows are not usable. Host-side access costs the same as a plain GPU
+  array (0.99-1.01x).
+- Neutrino's thread-level counter maps: 16x the memory of its warp-level maps by construction;
+  but they are allocated and copied back per launch, not kept across launches like bpftime's.
+- GT-Pin's buckets per hardware thread are documented as reducing contention; no measurement of
+  the bucket count was published. SASSI aggregates on the device: the handler body (atomics
+  included) is under 20% of its overhead, an upper bound.
+
+**Not measured by anyone:** buffer designs on an integrated GPU (WarpGuard ran NVBit on an Orin
+Nano but gave no buffer numbers); slots by hardware position; per-launch sizing vs chunk
+allocation vs per-warp aggregation under the same instrumentation on NVIDIA; per-thread state
+kept across launches at large grids; real memory footprints (mostly computed). A search aimed at
+per-thread state (privatization plus reduction, per-thread counters on GPUs) has not been done.
+
 ### Approaches to evaluate
 
 1. **Size at launch.** The agent already hooks every launch and sees grid x block; allocate (or
