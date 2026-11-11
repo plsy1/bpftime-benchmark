@@ -1,0 +1,32 @@
+M2 no device address for arrays | The GPU reads and writes ordinary array maps without host calls | FAIL
+M2 no device address for arrays | GPU threads read bpf_get_current_pid_tgid from their module | PASS
+M2 no device address for arrays | The host answers bpf_get_current_pid_tgid with the tgid in both halves | PASS
+M2 no device address for arrays | An array map the GPU addresses stays allocated after its fd is closed | FAIL
+M3 BPF_NOEXIST accepted | The GPU reads and writes ordinary array maps without host calls | FAIL
+M3 BPF_NOEXIST accepted | GPU threads read bpf_get_current_pid_tgid from their module | PASS
+M3 BPF_NOEXIST accepted | The host answers bpf_get_current_pid_tgid with the tgid in both halves | PASS
+M3 BPF_NOEXIST accepted | An array map the GPU addresses stays allocated after its fd is closed | PASS
+M4 helper ignores the module's pid_tgid | The GPU reads and writes ordinary array maps without host calls | PASS
+M4 helper ignores the module's pid_tgid | GPU threads read bpf_get_current_pid_tgid from their module | FAIL
+M4 helper ignores the module's pid_tgid | The host answers bpf_get_current_pid_tgid with the tgid in both halves | PASS
+M4 helper ignores the module's pid_tgid | An array map the GPU addresses stays allocated after its fd is closed | PASS
+M5 writer writes nothing | The GPU reads and writes ordinary array maps without host calls | PASS
+M5 writer writes nothing | GPU threads read bpf_get_current_pid_tgid from their module | FAIL
+M5 writer writes nothing | The host answers bpf_get_current_pid_tgid with the tgid in both halves | PASS
+M5 writer writes nothing | An array map the GPU addresses stays allocated after its fd is closed | PASS
+M7 array map not pinned | The GPU reads and writes ordinary array maps without host calls | PASS
+M7 array map not pinned | GPU threads read bpf_get_current_pid_tgid from their module | PASS
+M7 array map not pinned | The host answers bpf_get_current_pid_tgid with the tgid in both halves | PASS
+M7 array map not pinned | An array map the GPU addresses stays allocated after its fd is closed | FAIL
+M6 host answers the watcher's tid | The GPU reads and writes ordinary array maps without host calls | PASS
+M6 host answers the watcher's tid | GPU threads read bpf_get_current_pid_tgid from their module | PASS
+M6 host answers the watcher's tid | The host answers bpf_get_current_pid_tgid with the tgid in both halves | FAIL
+M6 host answers the watcher's tid | An array map the GPU addresses stays allocated after its fd is closed | PASS
+restored build: ok
+ 9 files changed, 1736 insertions(+), 1078 deletions(-)
+
+rc=0
+attach/nv_attach_impl/trampoline/default_trampoline.cu: OK
+runtime/src/attach/bpf_attach_ctx_cuda.cpp: OK
+attach/nv_attach_impl/nv_attach_utils.cpp: OK
+attach/nv_attach_impl/trampoline_ptx.h: OK

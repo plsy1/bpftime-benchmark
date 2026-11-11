@@ -1,0 +1,14 @@
+M1 no device ARRAY lookup/update | The GPU reads and writes ordinary array maps without host calls | FAIL
+M1 no device ARRAY lookup/update | GPU threads read bpf_get_current_pid_tgid from their module | PASS
+M1 no device ARRAY lookup/update | The host answers bpf_get_current_pid_tgid with the tgid in both halves | PASS
+M1 no device ARRAY lookup/update | An array map the GPU addresses stays allocated after its fd is closed | FAIL
+Traceback (most recent call last):
+  File "/home/jetson/src/bpftime-gpu-work/l1/mut/mut.py", line 43, in <module>
+    assert new.count(a) == 1, (name, a[:60])
+           ^^^^^^^^^^^^^^^^^
+AssertionError: ('M2 no device address for arrays', 'if (auto array = map.try_get_array_map_impl(); array)')
+rc=1
+attach/nv_attach_impl/trampoline/default_trampoline.cu: OK
+runtime/src/attach/bpf_attach_ctx_cuda.cpp: OK
+attach/nv_attach_impl/nv_attach_utils.cpp: OK
+attach/nv_attach_impl/trampoline_ptx.h: OK
