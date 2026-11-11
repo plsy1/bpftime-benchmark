@@ -1,0 +1,24 @@
+== none
+after init     cudaGetDeviceFlags=0x8 cuCtxGetFlags=0x8 other-thread PrimaryCtxGetState=0x0 active=1
+none           sync thread CPU 0.002 s over 1.002 s wall (0.2%)
+== auto
+cudaSetDeviceFlags(0x0) before init: no error
+after init     cudaGetDeviceFlags=0x8 cuCtxGetFlags=0x8 other-thread PrimaryCtxGetState=0x0 active=1
+auto           sync thread CPU 0.002 s over 1.002 s wall (0.2%)
+== spin
+cudaSetDeviceFlags(0x1) before init: no error
+after init     cudaGetDeviceFlags=0x9 cuCtxGetFlags=0x9 other-thread PrimaryCtxGetState=0x1 active=1
+spin           sync thread CPU 0.996 s over 1.001 s wall (99.5%)
+== yield
+cudaSetDeviceFlags(0x2) before init: no error
+after init     cudaGetDeviceFlags=0xa cuCtxGetFlags=0xa other-thread PrimaryCtxGetState=0x2 active=1
+yield          sync thread CPU 1.000 s over 1.001 s wall (99.9%)
+== blocking
+cudaSetDeviceFlags(0x4) before init: no error
+after init     cudaGetDeviceFlags=0xc cuCtxGetFlags=0xc other-thread PrimaryCtxGetState=0x4 active=1
+blocking       sync thread CPU 0.002 s over 1.002 s wall (0.2%)
+== late-spin
+after init     cudaGetDeviceFlags=0x8 cuCtxGetFlags=0x8 other-thread PrimaryCtxGetState=0x0 active=1
+cudaSetDeviceFlags(spin) after init: no error
+after late set cudaGetDeviceFlags=0x9 cuCtxGetFlags=0x9 other-thread PrimaryCtxGetState=0x1 active=1
+late-spin      sync thread CPU 0.998 s over 1.001 s wall (99.8%)

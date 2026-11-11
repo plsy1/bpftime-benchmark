@@ -1,0 +1,222 @@
+{
+  "summary": "Independently recompute and try to refute the WFE-under-load claims",
+  "agentCount": 4,
+  "logs": [],
+  "result": {
+    "results": [
+      {
+        "verdicts": [
+          {
+            "claim": "C1. W holds about one core whatever the probe does: victim CPU s per wall s 0.78-1.02 in every W cell; under load the load workers run at 0.863-0.870 of P's throughput in all four W cells, the no-host-call probe included.",
+            "verdict": "confirmed",
+            "evidence": "Own parse of r1..r5 .victim (cpu_s/wall_s). W per-run CPU/wall: load on 2000 host 0.779-0.796 (med 0.784), on 2000 none 0.781-0.851 (0.806), on 20000 host 0.780-0.844 (0.804), on 20000 none 0.783-0.840 (0.818); load off 2000 host 1.014-1.018, 2000 none 1.012-1.021, 20000 host/none 0.998-1.002. Overall per-run range 0.779-1.021. Load ratio W/P (same round, rate from .load samples inside window): cell medians 0.8704 (2000 host), 0.8667 (2000 none), 0.8633 (20000 host), 0.8652 (20000 none) = 0.863-0.870. Per-run W ratios span 0.857-0.872. Loss ~13-14% matches ~0.8 core / 6 cores = 13.3%. Mode knob confirmed in code: bpf_attach_ctx_cuda.cpp:210-221 (BPFTIME_CUDA_WATCHER_WFE=0 returns false; default needs HWCAP_EVTSTRM); string present in wake/build-cuda libbpftime-agent.so, absent in l1/build-cuda.",
+            "correction": "'About one core' is ~1.0 core without load but only 0.78-0.85 core under load (the WFE thread is preempted by the load). 0.863-0.870 is the range of cell medians; individual runs go 0.857-0.872."
+          },
+          {
+            "claim": "C2. W0 costs the load 3.0% (2 ms, host call), 2.1% (2 ms, no host call), 0.5% / 0.3% (20 ms).",
+            "verdict": "partly",
+            "evidence": "W0/P same-round ratios: 2000 host [0.9649,0.9698,0.9704,0.9690,0.9705] med 0.9698 -> 3.02% (worst 3.51%); 2000 none med 0.9790 -> 2.10% (worst 2.18%); 20000 host med 0.9950 -> 0.50% (0.9917-0.9972); 20000 none [0.9985,1.0067,0.9961,0.9964,0.9974] med 0.9974 -> 0.26%. Noise floor: P_host/P_none (identical config, same round) = 2000 [0.9963,0.9997,0.9997,1.0005,1.0004], 20000 [1.0010,1.0060,0.9993,1.0011,1.0010], i.e. up to 0.4-0.6%; W0 20000 none r2 is 1.0067 (>1); N 20000 none med 1.0006.",
+            "correction": "3.0% and 2.1% (2 ms) are reproduced and well above noise. The 20 ms numbers 0.5% / 0.3% reproduce as medians but lie within the P-vs-P noise (~0.4-0.6%, one W0 run at +0.7%); they should be stated as 'not distinguishable from 0 (< ~0.5-1%)'."
+          },
+          {
+            "claim": "C3. N costs the load at most 1.2%.",
+            "verdict": "confirmed",
+            "evidence": "N/P same-round ratios: 2000 host [0.9883,0.9888,0.9882,0.9879,0.9883] med 0.9883 -> 1.17%, worst run 1.21%; 2000 none med 0.9979 (worst 0.70%); 20000 host med 0.9964 (worst 0.47%); 20000 none med 1.0006 (worst 0.17%). Caveat: against a different baseline (median of the 4 P cells of the same round) N 2000 host becomes 0.9864 (1.36%), worst run 0.9818 (1.8%), because r1's 2000-host P rate (0.828 M/s) was lower than the others (~0.834).",
+            "correction": "Holds under the stated pairing (worst run 1.21%, rounds to 1.2%). Baseline choice can move it to ~1.4% median / 1.8% worst run, so '~1-1.5%' is the safer wording."
+          },
+          {
+            "claim": "C4. Under load W's tail is worse than N's: share of calls > 3 ms 11.0% (2 ms) and 23.3% (20 ms) for W vs 0.9% / 0.3% for N; W p90 3.5-3.9 ms vs N about 1.0 ms. At 20 ms under load W's per-launch mean (21,142 us) is above N's (20,995) and W0's (20,342).",
+            "verdict": "confirmed",
+            "evidence": "Pooled host-call latencies (5 runs, 4001 or 401 records each): load on 2000 W >3 ms 11.04% (per run 10.4-11.8%), p90 3510.3 us; N >3 ms 0.87%, p90 1032.4. Load on 20000 W >3 ms 23.34% (per run 18.7-30.9%), p90 3940.8; N 0.30%, p90 958.3. Per-launch mean, median of per-run means at 20 ms on host: W 21,142.4 (runs 21,027.7-21,439.9), N 20,995.3 (20,968.4-21,001.3), W0 20,342.2; every W run is above every N run. Scope: W is better than N on the median at both spins (per-launch median 2,062 vs 3,073 us; 20,077 vs 20,991; host-call median 14.8 vs 1,024 and 15.2 vs 933 us) and on the mean at 2 ms (2,576 vs 3,146 us). W's tail values cluster at ~3.5-4.0 ms (p99 3,897 / 3,988).",
+            "correction": "True as written, but 'worse' applies only to the tail and the 20 ms mean; W is far better than N on median and on the 2 ms mean."
+          },
+          {
+            "claim": "C5. Without load W answers in 13.8-14.2 us median, p99 at most 16.4 us, at both spin lengths.",
+            "verdict": "confirmed",
+            "evidence": "Pooled load off W: 2000 median 13.8, p90 14.8, p99 15.0, max 159.9 us; 20000 median 14.2, p90 15.0, p99 16.4, max 145.5 us. Per-run medians 13.7-14.6 us; per-run p99 15.0-17.3 us (r1 20000 17.1, r4 20000 17.3). Without the warm-up record (index 0, outside the timed window) the 20000 pooled p99 is 16.2.",
+            "correction": "Pooled numbers hold. Per run, medians range 13.7-14.6 us and p99 reaches 17.3 us, so 'p99 at most 16.4' is pooled-only."
+          }
+        ],
+        "other_problems": [
+          "Run validity (own parse, all 160 runs r1..r5): victim rc 0 in all; loader rc 0 in all 120 bpftime runs; count = launches+1 and number of ns values = launches+1 (4001 / 401) in all; cpu5=1728000 and gpu=1020000000 at both before/after in every .env; load rc 0 in all 80 load-on runs; no .load file in load-off runs; no extra env lines (no 'not attached'); victim launches/spin_us match the filename; wall_s matches window_ns; no error/warn lines in any .err; host-probe latencies have no zero values. W0 env line carries BPFTIME_CUDA_WATCHER_WFE=0 in all 40 W0 runs.",
+          "Load window logic is sound: in every load-on run the .load file starts before window start and ends after window end, timestamps and counters are monotonic, 798-1254 samples fall inside [start,end], first/last inside sample is at most 10.3 ms from the window edges, maximum gap between samples 32 ms (sampler delayed under load, harmless since rate = delta count / delta CLOCK_MONOTONIC). Minor: the timestamp is taken after summing the counters, a sub-microsecond skew.",
+          "Warm-up launch's host call (lat[1], recorded before the timed window) is pooled into the latency stats; it changes little (e.g. 20 ms W off p99 16.4 -> 16.2) but r1 on_2000_host_W warm-up was 5,095 us. Stats should drop index 0.",
+          "Watcher mode is not logged at run time; W vs W0 is confirmed only by the env line, the code (bpf_attach_ctx_cuda.cpp:210-221) and behaviour (CPU 0.8-1.0 vs 0.12-0.2 s/s). Note the WFE path also depends on HWCAP_EVTSTRM, which is not recorded.",
+          "Build labels unverifiable from the build dirs: l1/build-cuda and wake/build-cuda are not git trees and both build.sh point at the same worktree (now at 46f5a7cb). The agent .so timestamps (l1 13:08, wake 16:10) and the WATCHER_WFE string (present only in wake) agree with the labels, but 'N = aa6eb973' is not provable from the artifacts.",
+          "Per-launch raw times are not logged; the victim's own mean/median/p90/max (median = sorted[n/2], p90 = sorted[int(0.9n)]) cannot be independently recomputed.",
+          "Noise floor: P_host/P_none (identical configs, same round) differ by up to 0.4% (2 ms) and 0.6% (20 ms); P rates drift up to ~1.2% across rounds/cells (20000 none r2 0.8258 vs ~0.837). Sub-1% load costs (C2 at 20 ms, N at 20 ms) are inside this floor; with only 5 rounds, the result for N at 2 ms host depends on the baseline (1.17% vs 1.36% median).",
+          "Only cpu5's frequency and the GPU frequency are checked, at just two points (before/after); the other CPU cluster(s) (cpu0-3) are not checked. The load workers are unpinned, there is no per-core occupancy record, and the sampler is a 7th runnable thread; that matters for the W-under-load result, where the watcher competes with 6 workers on 6 cores.",
+          "W's under-load tail clusters at ~3.5-4.0 ms (p90 3,510-3,941, p99 ~3,900-3,990 us), which looks like a scheduler time slice/tick (7+ runnable threads on 6 cores). The C4 tail numbers therefore depend on kernel config (HZ, CFS/EEVDF slice) and are not intrinsic to the watcher.",
+          "P runs have no loader process; N/W/W0 runs have an idle loader (usleep 100 ms loop). Negligible, but the comparison is not symmetric.",
+          "Load-on windows have different lengths per set (e.g. W 2 ms host 10.26 s vs P 8.29 s) and are compared with P runs taken at a different time in the same round. The rotation of set order across rounds mitigates this; 5 rounds is still a small sample."
+        ]
+      },
+      {
+        "verdicts": [
+          {
+            "claim": "C6. N's and W0's host-call wait is a sawtooth in the spin length (period 1 ms, 0 to ~1 ms); the backoff schedule restarts at a fixed point (N: previous request; W0: the launch note); W0's low medians at 2,000 / 20,000 us (180 / 83 us) are where the sawtooth is low; over the sweep W0 is not better than N on average.",
+            "verdict": "partly",
+            "evidence": "Recomputed from logs/phase1/*.loader (hostspin ns list, warm-up sample dropped; keeping it changes nothing). Medians in us, N / W0: 2000 1028.1/180.4, 2100 928.0/75.1, 2200 827.7/1030.4, 2300 728.5/928.0, 2400 632.5/829.4, 2500 529.1/730.0, 2600 433.7/633.2, 2700 330.4/529.7, 2800 232.0/430.9, 2900 128.3/326.6, 3000 32.2/229.4. For 20000-21000: 930.0/82.8, 828.4/1028.7, 729.7/939.2, 627.1/837.2, 529.7/742.7, 424.8/632.0, 340.8/531.3, 223.5/442.4, 129.6/334.3, 36.1/229.9, 979.6/127.8. Mean of medians: 2 ms range N 530.0, W0 538.5; 20 ms range N 525.4, W0 538.9. W0 at 2000 and 20000 (180.4, 82.8) matches the claim, and W0 is not better than N on average. Least-squares slopes on the monotone parts are -0.996 (N 2000-3000), -1.001 (W0 2200-3000), -0.996 (N 20000-20900) and -1.005 (W0 20100-21000), so the wait falls 1 us for each extra us of spin. That matches the code: a request arriving at time a waits until the next wake point of a grid that repeats every max sleep (bpf_attach_ctx_cuda.cpp:189-192 busy 200 / min 50 / max 1000 us; :349-352 busy-window poll; :366-368 wait_for_note then doubling; in N, aa6eb973 sleep_for at the same place). The victim's per-launch medians lock to that grid whatever the spin length: N 3069 us at every d from 2000 to 3000, and 20978 then 22033 at d=21000. W0 2217 then 3272, and 20130 then 21183-21202. The five rounds r1-r5 reproduce the same phase (off_2000_host N 3069.5, W0 2217.9). Two corrections. (1) The period is about 1.055 ms, not 1 ms: the grid steps are 22032.8-20978.2=1054.6 (N), 3272-2217=1055 and 21185-20130=1055 (W0). Each '1000 us' sleep overshoots by about 55 us (timerslack_ns is 50000 here, plus wake-up), so the wait ranges from 0 to about 1.05 ms (observed 32-1030 us). (2) W0's fixed point is not the launch note. Launch, sync and kernel end take only about 40 us (N: 3069-2000-1028), so the next launch is noted while the watcher is still in the 200 us busy window after the previous request. The loop checks the generation (:360) only after the busy-window check (:349-352), so the note is taken at previous request + 200 us. That sets last_request again (:362) and starts a second 200 us busy window before the backoff. So W0's schedule is N's shifted by one busy window. The data show this: W0's grid is 203 us later than N's (3272 vs 3069). With the host call, W0 spends 449 us of CPU per launch against N's 243 us (two polling windows against one; off_2000_host, r1-r5). The fixed point is still fixed relative to the previous request, so the sawtooth explanation holds, but the stated anchor is wrong.",
+            "correction": "Period about 1.055 ms (the 1000 us sleep plus about 55 us overshoot), amplitude 0 to about 1.05 ms. W0's backoff restarts at previous request + 200 us: the note is seen only when the busy window after the previous request expires, then another 200 us busy window runs. It does not restart at the launch note itself. Everything else holds."
+          },
+          {
+            "claim": "C7. W0's extra CPU over N with no host call (0.123 vs 0.021 s/s at 2 ms) comes from the launch note ending the sleep and the watcher then polling for the 200 us busy window, once per launch.",
+            "verdict": "confirmed",
+            "evidence": "From logs/r1-r5/*.victim (cpu_s/wall_s, 5 rounds). on_2000_none: N 0.021 (0.021-0.022), W0 0.123 (0.122-0.123). Off load: N 0.019, W0 0.125. Per launch (cpu_s/launches): 2 ms on N 44.0 us, W0 259.9 us (+216); 2 ms off N 38.0, W0 254.2 (+216); 20 ms off N 77.0, W0 312.5 (+235); 20 ms on N 83.0, W0 329.5 (+246). The extra is about the same absolute amount per launch at both spin lengths, so the s/s difference shrinks about 9x from 2 ms (0.102) to 20 ms (0.012). That fits a fixed cost per launch of about 200 us of polling plus a few extra wake-ups. Code path: with nohost there are no requests, so the watcher is in wait_for_note with a sleep of up to 1 ms (:366). The note's generation bump plus notify_all (probed_launch_activity.cpp note(), the waiters check and wait_cv.notify_all) ends the wait. :360-364 then set last_request=now and idle_sleep=50, so :349-352 spin cpu_relax (yield) for 200 us, followed by 50/100/200/400/800 us sleeps (5 extra wake-ups). N (aa6eb973) has no note and just sleeps 1 ms at a time. The 16-46 us beyond 200 us per launch is the extra wake-ups, the futex wake, and the note itself (cuStreamIsCapturing plus cuEventRecord), which the claim does not mention but which is small.",
+            "correction": "Minor: the 200 us poll is most of the extra (about 200 of 216-246 us per launch); the rest is the post-note backoff wake-ups and the note's own cost (capture check, event record, condvar notify)."
+          }
+        ],
+        "other_problems": [
+          "The phase sweep is a single round (logs/phase1 only) with one run per spin length; no repeat shows the sawtooth is stable within the sweep. Rounds r1-r5 do reproduce the 2000 us phase (N 3069.5, W0 2217.9 per-launch medians), which suggests it is.",
+          "The 20 ms range has only 100 launches per point (101 samples). Near a wrap the distribution is bimodal (N at 20900: median 36 us, p90 1053 us), so medians there are fragile.",
+          "The loader's ns list includes the warm-up launch's call (count=1001 for 1000 timed launches). It is negligible for medians but is a sample outside the timed window.",
+          "'Mean of medians' over 11 points 100 us apart covers about 0.95 of a 1.055 ms period, not a whole period. Both N and W0 average about half a period (525-539 us). The 8-13 us gap in W0's disfavour is an artefact of where the samples land, not a real difference.",
+          "The fixed phase comes from the victim's deterministic launch-sync loop (about 40 us between response and next request). Real workloads with variable host or kernel time would see a random phase and an expected wait of about half the period (~0.53 ms) for both N and W0. The single-d results at 2000/20000 in r1-r5 (W0 180/83 us, N about 1028/930 us) are phase accidents and should not be read as a W0 advantage or an N penalty.",
+          "The sweep period is 1.055 ms, not 1 ms, because of the 50 us default timer slack plus wake-up on each 1000 us sleep. Any model that assumes a 1 ms grid mispredicts the wrap points by about 5% per period, which adds up over 20 ms of spin.",
+          "W0 with the host call spends a second 200 us busy window per launch (449 vs 243 us CPU per launch at 2 ms off). This is extra CPU for W0 with host calls that the claims do not attribute (C7 covers only the no-host-call case)."
+        ]
+      },
+      {
+        "verdicts": [
+          {
+            "claim": "C8. CUDA flags on this Orin (CUDA 13.2, MAXN_SUPER): never set / auto reads back as auto (sched bits 0) from cudaGetDeviceFlags, cuCtxGetFlags and other-thread cuDevicePrimaryCtxGetState; auto behaves as blocking sync (0.2%); spin and yield ~100%; blocking 0.2%; a change after init is visible to another thread. So bpftime's watcher can read the app's choice but cannot read what auto resolves to.",
+            "verdict": "partly",
+            "evidence": "Recomputed from flags/flags.log with my own parser (scratchpad c8.py). Read-backs: sched bits (flags & 7) rt/ctx/primary = 0/0/0 for none (log:2) and auto (log:6), 1/1/1 spin (log:10), 2/2/2 yield (log:14), 4/4/4 blocking (log:18), 0 -> 1 for late-spin (log:21 -> log:23); no ERR, active=1 everywhere. CPU on the calling thread: none 0.20%, auto 0.20%, blocking 0.20% (0.002 s / 50 syncs = 40 us per 20 ms sync), spin 99.50%, yield 99.90%, late-spin 99.70% (log prints 99.8 because flags.cu:85-86 calls thread_cpu() twice, so seconds and percent come from different samples, plus rounding). Environment matches: /usr/local/cuda/include/cuda.h:270 CUDA_VERSION 13020, version.json 13.2.2; /var/lib/nvpmodel/status pmode 2 = MAXN_SUPER (/etc/nvpmodel.conf:188); uptime 16 days, so no mode change since the run; 6 CPUs online. The binary matches the source (format strings at strings offsets 528/538/539 equal flags.cu:47/72/85). Whole-process check that RUSAGE_THREAD cannot give: the P set (no bpftime, default flags, victim/spin.cu:35 uses RUSAGE_SELF, all 160 victims report device_flags=0x8). Over r1..r5 its cpu_s/wall_s is 0.0016-0.0027 at 20 ms (about 40 us per launch) and 0.012-0.017 at 2 ms (0.097-0.140 s over 4000 launches, about 26-35 us per launch). So no thread in the process spins under auto for cudaDeviceSynchronize at 2 ms and 20 ms waits, which backs 'auto behaves as blocking' for that API and those wait lengths. Kernel accounting is CONFIG_TICK_CPU_ACCOUNTING with HZ=250, but getrusage scales utime+stime to sum_exec_runtime, so 0.002 s is a real figure and not stuck at the tick resolution. 'Cannot read what auto resolves to': no API returns a resolved mode; every read-back gives sched bits 0 under auto, and cuda_runtime_api.h:1737-1745 / cuda.h (cuCtxCreate doc, 'Additionally, on Tegra devices ... power profile ... may choose BLOCKING_SYNC') say the resolution is internal. This part stands. What makes it partly: (a) 'the watcher can read the app's choice' holds only for apps using the primary context. Contexts from cuCtxCreate (cuda.h:6461, which carry their own SCHED flags) and later cuCtxSetFlags on such a context (cuda.h:6745, current context only) do not show up in cuDevicePrimaryCtxGetState. Per-event CU_EVENT_BLOCKING_SYNC / cudaEventBlockingSync (cuda.h:16654-16657, driver_types.h:124) sets the wait mode per event, not per context, so no context flag shows it; cuEventSynchronize on an event without it 'will busy-wait' per the doc. cuGreenCtxCreate takes no sched flags (only CU_GREEN_CTX_DEFAULT_STREAM, cuda.h:25850-25853), and the docs do not say whether a green context inherits the primary's sched mode. None of these was tested. (b) The watcher does not read any of these flags today. grep of the candidate tree finds no cuDevicePrimaryCtxGetState / cuCtxGetFlags / cudaGetDeviceFlags in runtime or attach, so 'can read' means possible, not implemented. (c) The test's reader thread differs from the real watcher. flags.cu:41-46 reads with no current context, 'as bpftime's watcher would', but the real watcher retains the primary context and makes it current (bpf_attach_ctx_cuda.cpp:264-269). The read is still valid: cuDevicePrimaryCtxGetState does not need a current context (cuda.h:6215-6241), and the read is joined, not concurrent. (d) 'auto behaves as blocking' is tested only with cudaDeviceSynchronize and 2 ms / 20 ms waits, on an idle system, with one context, at MAXN_SUPER.",
+            "correction": "The flag read-backs, the spin/yield/blocking CPU shares and the late-change visibility are confirmed as logged. Narrow the conclusion: through cuDevicePrimaryCtxGetState (masked with CU_CTX_SCHED_MASK) the watcher could read the primary context's sched flags, which bpftime does not do today. That read misses cuCtxCreate/cuCtxSetFlags contexts, per-event blocking-sync flags and possibly green contexts. 'Auto = blocking sync' was observed for cudaDeviceSynchronize with 2-20 ms waits, 1 context, 6 CPUs, MAXN_SUPER only."
+          }
+        ],
+        "other_problems": [
+          "Masking gotcha: cudaGetDeviceFlags and cuCtxGetFlags return 0x8 (MAP_HOST added by cudart), while the other-thread cuDevicePrimaryCtxGetState returns 0x0 under the same state (flags.log:2,6,10,14,18,21,23 all show this split). A reader must mask with CU_CTX_SCHED_MASK=0x07 (cuda.h:389); comparing the whole value with cudaDeviceScheduleAuto would misclassify.",
+          "RUSAGE_THREAD (flags.cu:29) measures only the thread that syncs. It cannot see CPU spent in driver helper threads or in the test's own reader thread. It is enough to tell spin/yield from blocking, but not to claim no extra cost for the process. The P-set victims (RUSAGE_SELF) cover this for cudaDeviceSynchronize at 2 and 20 ms; flags.cu itself does not.",
+          "Only 20 ms kernels in flags.cu (2 ms and 20 ms in the P cross-check). A spin-then-block hybrid under auto (up to about 26-40 us of CPU per sync is seen) would show as different wake-up latency for short waits. Wake-up latency was never measured, only CPU.",
+          "Only cudaDeviceSynchronize is tested. cudaStreamSynchronize, cudaEventSynchronize (busy-waits without the BlockingSync event flag, per cuda.h:16654-16657), implicit waits in cudaMemcpy, and app-side cudaStreamQuery polling are untested, and an app may spin regardless of context flags.",
+          "The test kept fixed several inputs that the auto resolution could depend on. Power profile: only MAXN_SUPER was run (documented Tegra heuristic, cuda_runtime_api.h:1742-1745). Contexts vs logical CPUs: 1 context and P=6; a cpuset/container or a second context could change C > P. Driver (libcuda/L4T) version: not recorded, and the heuristic lives in libcuda, not in the toolkit. Whether auto is re-resolved after nvpmodel changes or new contexts: not tested.",
+          "yield at 99.9% only reflects an idle system: sched_yield returns at once when nothing else is runnable. Under the load generator yield would give up the CPU, so 'yield ~ spin' should not carry over to the loaded cells.",
+          "One run per mode, about 1 s each, no repeats. The log does not record nvpmodel mode, jetson_clocks state, driver version or date. Those were confirmed only afterwards from the live system (pmode 2, uptime 16 days).",
+          "flags.cu:85-86 evaluates thread_cpu() separately for the printed seconds and the printed percent. The two numbers are different samples (late-spin: 0.998/1.001 = 99.70% recomputed vs 99.8% printed).",
+          "flags.cu:44 hard-codes device 0, while bpftime uses cuda_device_ordinal(). This does not matter on a single-GPU Orin, but the test does not match the watcher on multi-device hosts.",
+          "The late-change test covers only auto -> spin, set between syncs. It does not test spin -> blocking, a change during an in-flight wait, or a read that races with the change."
+        ]
+      }
+    ],
+    "critic": {
+      "verdicts": [
+        {
+          "claim": "C4. Under load W's tail is worse than N's: share of calls > 3 ms 11.0% (2 ms) and 23.3% (20 ms) for W against 0.9% / 0.3% for N; W p90 3.5-3.9 ms against N about 1.0 ms. At 20 ms under load W's per-launch mean (21,142 us) is above N's (20,995) and W0's (20,342).",
+          "verdict": "partly",
+          "evidence": "The literal numbers reproduce (own parse of r1-r5 on_*_host_{N,W,W0}.loader, index 0 dropped). >3 ms: W 11.0% / 23.4%, N 0.9% / 0.3%. p90: W 3510 / 3941, N 1032 / 958 us. Victim per-launch mean medians at 20 ms: W 21142, N 20995, W0 20342. I disagree with reviewer 1's correction that 'W is far better than N on median and on the 2 ms mean'. That comparison uses N at a phase extreme: N's r1-r5 cells sit near the top of its 1.055 ms sawtooth (2000: 1028 of at most ~1055 us). Averaged over the phase1 sweep (mean of the per-point mean latency, 10 points per range), N is 577 us (2-3 ms) and 508 us (20-21 ms), and W0 is 567 / 575 us. Under load W's pooled mean host-call latency is 475 us at 2 ms (per-run 461-491) and 985 us at 20 ms (per-run 785-1270). So at 2 ms W is only about 18% better than phase-averaged N on the mean, and at 20 ms it is about 2x worse. W is also worse than W0 on the mean in both cells as measured (475 vs 360, 985 vs 212; W0's numbers are phase-lucky too). The victim pays for it: per-launch mean under load is W 2576 vs W0 2469 vs P 2076 at 2 ms, so the claim's '20 ms only' framing leaves out that W's mean is also above W0's at 2 ms. The tail structure differs by spin. At 2 ms, slow W calls never follow each other (P(slow|prev slow) = 0.00 vs P(slow|prev fast) = 0.124), which looks like alternation. At 20 ms they come in bursts (P(slow|prev slow) = 0.70 vs 0.093), so the 20 ms mean (and the 21,142 us figure) is unstable from run to run (per-run host-call mean 785-1270 us).",
+          "correction": "The tail numbers hold. Two things change the picture. First, N's baseline is a phase accident, so W's under-load median advantage is real but its mean advantage is not: under full load W's mean host-call latency (475 / 985 us) is about the same as, or worse than, what a sleeping watcher gives a random-phase workload (~510-580 us). Second, W's mean is above W0's at 2 ms as well as at 20 ms (both the victim's per-launch mean and the host-call mean). The 20 ms W figures vary 785-1270 us across runs."
+        }
+      ],
+      "other_problems": [
+        "The decision list leaves out 'revert to N'. In the regime tested (kernels of 2 ms and 20 ms, longer than the 200 us busy window), N dominates W0. W0 uses more CPU: 0.185 vs 0.080 s/s at 2 ms with the host call, 0.123 vs 0.021 without it. W0 costs the load more: 3.0% vs 1.2%, and 2.1% vs 0.2%. The phase-averaged latency is the same (phase1 sweep: W0 567 / 575 us vs N 577 / 508 us). W0's lower medians in r1-r5 (172 / 89 us) are phase luck. The one case where W0 could beat N is kernels shorter than the 200 us busy window, which was never measured.",
+        "Option 'WFE only when probes can call the host' does not work as stated. If a no-host probe only skips WFE, it falls back to W0's path, which still costs 2.1% at 2 ms because the launch note wakes the watcher and starts a 200 us poll. To get N's ~0.2% it must also skip the note and the wake. Today it cannot even be decided per kernel. note_launch_if_probed (nv_attach_impl.cpp:1558-1590) notes every launch of any kernel in a substituted library (runs_probed_code compares modules), with no per-probe check of host-call helpers. So this option needs new code: per-kernel probed-ness plus a load-time check of the program's helper calls against those served by HelperOperation. Its cost and feasibility were not measured.",
+        "'Follow CUDA's flag' is in practice the same as turning WFE off by default. Default and auto both read back with sched bits 0 (C8), and all 160 victims report device_flags=0x8, i.e. bits 0. Only apps that explicitly ask for spin or yield would get WFE. Those apps already spend a core on their own sync thread, so W would hold a second core. And yield gives up the CPU under load (reviewer 3), so 'yield ~ spin' does not carry over to loaded systems.",
+        "C1's 0.863-0.870 reflects the load setup, not a fixed cost of the watcher. 6 unpinned workers on 6 cores plus one WFE thread gives a fair share of 6/7 = 0.857 each, and the load loses about the 0.78-0.85 core the watcher holds. Only this one load level was tested. With fewer runnable threads than cores, W would cost the load close to nothing. With heavier oversubscription the relative loss would shrink, but the watcher would be preempted more and its tail would grow. The 'cost of W under load' cannot be generalized from one point.",
+        "The cost of W scales with how long probed kernels run, and the victim keeps the GPU almost 100% busy with probed kernels back to back. 'Holds about one core whatever the probe does' really means 'for the whole time probed kernels run'. No lower duty cycle, no short kernels, and no mix with unprobed kernels of the same library (which also trigger WFE, see above) were measured.",
+        "W's under-load tail of 3.5-4.0 ms is about one scheduler tick (HZ=250, 4 ms) of preemption of the WFE thread. A watcher with raised priority (nice or SCHED_FIFO/RR, possibly only while on_flag) was not tried. It would likely remove the tail and take more from the load. That is a design option between W and W0 that the data cannot judge.",
+        "Only one host call per kernel, at kernel exit, from one GPU thread. Many host calls per kernel (where W's ~14 us vs a sleeper's busy-window/1 ms behaviour adds up per call) and calls early in long kernels were not measured. These are the cases where W's benefit is largest, and they matter for the default choice.",
+        "Power was not measured. The case for WFE in the code comment ('at the power of a sleeping core', gpu/wfe-20261111) is not re-checked here, under load or not (e.g. tegrastats VDD_CPU). On a Jetson that is a factor in the default choice.",
+        "With a deterministic launch-sync loop, N and W0 lock onto a fixed phase, so every r1-r5 latency and per-launch number for N/W0 is one draw at one phase. Only the phase1 sweep (one round, no load) gives phase-averaged values, and it has no under-load counterpart. So for the decision's main question, the under-load comparison W vs a sleeping watcher has no random-phase reference."
+      ]
+    }
+  },
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "Verify"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 2,
+      "title": "Critic"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "verify:numbers",
+      "phaseIndex": 1,
+      "phaseTitle": "Verify",
+      "agentId": "ab34ea3b5d4ff9ab1",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794399160141,
+      "queuedAt": 1794399160077,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "Read /home/jetson/src/bpftime-gpu-work/load/CLAIMS.md first. You are a skeptical reviewer: try to REFUTE the claims assigned to you. Recompute numbers yourself from the raw log files with your own short python3 (run with python3 -I, scripts in /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad), do NOT import or reuse summarize.py. STRICT: read-only. Do not run any C…",
+      "promptFramed": true,
+      "lastProgressAt": 1794399445714,
+      "tokens": 84974,
+      "toolCalls": 12,
+      "durationMs": 285571,
+      "resultPreview": "{\"verdicts\":[{\"claim\":\"C1. W holds about one core whatever the probe does: victim CPU s per wall s 0.78-1.02 in every W cell; under load the load workers run at 0.863-0.870 of P's throughput in all four W cells, the no-host-call probe included.\",\"verdict\":\"confirmed\",\"evidence\":\"Own parse of r1..r5 .victim (cpu_s/wall_s). W per-run CPU/wall: load on 2000 host 0.779-0.796 (med 0.784), on 2000 none …"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "verify:mechanism",
+      "phaseIndex": 1,
+      "phaseTitle": "Verify",
+      "agentId": "a0735790ec3ecd7d6",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794399160141,
+      "queuedAt": 1794399160078,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "Read /home/jetson/src/bpftime-gpu-work/load/CLAIMS.md first. You are a skeptical reviewer: try to REFUTE the claims assigned to you. Recompute numbers yourself from the raw log files with your own short python3 (run with python3 -I, scripts in /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad), do NOT import or reuse summarize.py. STRICT: read-only. Do not run any C…",
+      "promptFramed": true,
+      "lastProgressAt": 1794399328506,
+      "tokens": 132728,
+      "toolCalls": 13,
+      "durationMs": 166829,
+      "resultPreview": "{\"verdicts\":[{\"claim\":\"C6. N's and W0's host-call wait is a sawtooth in the spin length (period 1 ms, 0 to ~1 ms); the backoff schedule restarts at a fixed point (N: previous request; W0: the launch note); W0's low medians at 2,000 / 20,000 us (180 / 83 us) are where the sawtooth is low; over the sweep W0 is not better than N on average.\",\"verdict\":\"partly\",\"evidence\":\"Recomputed from logs/phase1/…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 3,
+      "label": "verify:cuda",
+      "phaseIndex": 1,
+      "phaseTitle": "Verify",
+      "agentId": "ac4328ccb940234e9",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794399160142,
+      "queuedAt": 1794399160078,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "Read /home/jetson/src/bpftime-gpu-work/load/CLAIMS.md first. You are a skeptical reviewer: try to REFUTE the claims assigned to you. Recompute numbers yourself from the raw log files with your own short python3 (run with python3 -I, scripts in /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad), do NOT import or reuse summarize.py. STRICT: read-only. Do not run any C…",
+      "promptFramed": true,
+      "lastProgressAt": 1794399419060,
+      "tokens": 72756,
+      "toolCalls": 20,
+      "durationMs": 257380,
+      "resultPreview": "{\"verdicts\":[{\"claim\":\"C8. CUDA flags on this Orin (CUDA 13.2, MAXN_SUPER): never set / auto reads back as auto (sched bits 0) from cudaGetDeviceFlags, cuCtxGetFlags and other-thread cuDevicePrimaryCtxGetState; auto behaves as blocking sync (0.2%); spin and yield ~100%; blocking 0.2%; a change after init is visible to another thread. So bpftime's watcher can read the app's choice but cannot read w…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 4,
+      "label": "critic",
+      "phaseIndex": 2,
+      "phaseTitle": "Critic",
+      "agentId": "af111e07b60554390",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794399447034,
+      "queuedAt": 1794399447026,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "Read /home/jetson/src/bpftime-gpu-work/load/CLAIMS.md first. You are a skeptical reviewer: try to REFUTE the claims assigned to you. Recompute numbers yourself from the raw log files with your own short python3 (run with python3 -I, scripts in /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad), do NOT import or reuse summarize.py. STRICT: read-only. Do not run any C…",
+      "promptFramed": true,
+      "lastProgressAt": 1794399676005,
+      "tokens": 136442,
+      "toolCalls": 13,
+      "durationMs": 228969,
+      "resultPreview": "{\"verdicts\":[{\"claim\":\"C4. Under load W's tail is worse than N's: share of calls > 3 ms 11.0% (2 ms) and 23.3% (20 ms) for W against 0.9% / 0.3% for N; W p90 3.5-3.9 ms against N about 1.0 ms. At 20 ms under load W's per-launch mean (21,142 us) is above N's (20,995) and W0's (20,342).\",\"verdict\":\"partly\",\"evidence\":\"The literal numbers reproduce (own parse of r1-r5 on_*_host_{N,W,W0}.loader, index…"
+    }
+  ],
+  "totalTokens": 426900,
+  "totalToolCalls": 58
+}
