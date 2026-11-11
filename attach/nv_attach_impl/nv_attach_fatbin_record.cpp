@@ -290,6 +290,9 @@ void fatbin_record::try_loading_ptxs(class nv_attach_impl &impl)
 						     impl.map_basic_info->data(),
 						     map_basic_info_size),
 					"Unable to copy constData pointer to device");
+				if (!write_trampoline_pid_tgid(module))
+					SPDLOG_DEBUG(
+						"__bpftime_pid_tgid not written: the host answers bpf_get_current_pid_tgid");
 				SPDLOG_INFO("Trampoline data copied");
 			}
 			auto ptr = std::make_shared<ptx_in_module>(module);

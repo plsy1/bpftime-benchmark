@@ -2,6 +2,7 @@
 #define _NV_ATTACH_UTILS_HPP
 
 #include <cstddef>
+#include <cstdint>
 #include <dlfcn.h>
 #include <string>
 namespace bpftime
@@ -56,6 +57,22 @@ std::string rewrite_ptx_target(std::string ptx, const std::string &sm_arch);
  * application's kernels unpatched).
  */
 std::string get_gpu_sm_arch();
+
+/**
+ * @brief bpf_get_current_pid_tgid for this process's GPU threads: the tgid in
+ * both halves (a GPU thread is no Linux thread; upstream's GPU programs read
+ * the high half). The agent writes it into every module's
+ * `__bpftime_pid_tgid` (TRAMPOLINE_PID_TGID_SYMBOL), so the helper needs no
+ * host call; the host answers the same for a module it was not written into.
+ */
+uint64_t trampoline_pid_tgid();
+inline constexpr const char *TRAMPOLINE_PID_TGID_SYMBOL = "__bpftime_pid_tgid";
+/**
+ * @brief Writes trampoline_pid_tgid() into a loaded module (current context).
+ * Returns false when the module has no such global or the copy fails; the
+ * helper then asks the host.
+ */
+bool write_trampoline_pid_tgid(void *cu_module);
 
 } // namespace attach
 } // namespace bpftime

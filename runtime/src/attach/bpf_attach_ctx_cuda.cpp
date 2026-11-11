@@ -2,6 +2,7 @@
 #include "cuda_runtime_api.h"
 #include "driver_types.h"
 #include "nv_attach_impl.hpp"
+#include "nv_attach_utils.hpp"
 #include "bpf_map/array_map_binding.hpp"
 #include <bpf_attach_ctx.hpp>
 #include "bpftime_ratelimited_log.hpp"
@@ -163,15 +164,12 @@ void serve_cuda_request(cuda::CUDAContext *ctx)
 			req.fmt, req.arg1, req.arg2, req.arg3);
 	} else if (req_id ==
 		   (int)cuda::HelperOperation::GET_CURRENT_PID_TGID) {
+		// The value modules get written (attach::trampoline_pid_tgid):
+		// the tgid in both halves. The low half used to be this watcher
+		// thread's tid, nothing the calling GPU thread has to do with.
 		auto &resp = comm->resp.get_tid_pgid;
-		static int tgid = getpid();
-		static thread_local int tid = -1;
-		if (tid == -1) {
-			tid = gettid();
-		}
-		SPDLOG_DEBUG("Called get_current_pid_tgid: pid={}, tgid={}",
-			     tid, tgid);
-		resp.result = (((uint64_t)tgid) << 32) | tid;
+		resp.result = attach::trampoline_pid_tgid();
+		SPDLOG_DEBUG("Called get_current_pid_tgid: {:x}", resp.result);
 	} else if (req_id == (int)cuda::HelperOperation::PUTS) {
 		const auto &req = comm->req.puts;
 		auto &resp = comm->resp.puts;

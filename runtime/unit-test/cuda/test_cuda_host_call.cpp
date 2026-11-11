@@ -325,6 +325,41 @@ $L_me_store:
 	ret;
 }
 
+// out[i] = bpf_get_current_pid_tgid() of thread i
+.visible .entry bpftime_test_pid_tgid(
+	.param .u64 bpftime_test_pid_tgid_param_0
+)
+{
+	.reg .b32 	%r<5>;
+	.reg .b64 	%rd<8>;
+
+	ld.param.u64 	%rd1, [bpftime_test_pid_tgid_param_0];
+	mov.u64 	%rd2, 0;
+	{
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd2;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %rd2;
+	.param .b64 param2;
+	st.param.b64 	[param2+0], %rd2;
+	.param .b64 param3;
+	st.param.b64 	[param3+0], %rd2;
+	.param .b64 param4;
+	st.param.b64 	[param4+0], %rd2;
+	.param .b64 retval0;
+	call.uni (retval0), _bpf_helper_ext_0014, (param0, param1, param2, param3, param4);
+	ld.param.b64 	%rd3, [retval0+0];
+	}
+	mov.u32 	%r1, %ctaid.x;
+	mov.u32 	%r2, %ntid.x;
+	mov.u32 	%r3, %tid.x;
+	mad.lo.s32 	%r4, %r1, %r2, %r3;
+	cvt.u64.u32 	%rd4, %r4;
+	shl.b64 	%rd5, %rd4, 3;
+	add.s64 	%rd6, %rd1, %rd5;
+	st.u64 	[%rd6], %rd3;
+	ret;
+}
 )PTX";
 
 constexpr uint64_t E2BIG_RESULT = (uint64_t)-7;
@@ -990,6 +1025,65 @@ TEST_CASE("The GPU reads and writes ordinary array maps without host calls",
 		CHECK((int64_t)r[2] == -1);
 
 		CHECK(host.served.load() == 0);
+	}
+}
+
+// bpf_get_current_pid_tgid was a host call for every GPU thread, and its low
+// half was the watcher thread's tid. The agent now writes the process's tgid
+// (in both halves) into every module it loads; GPU programs read the high
+// half (upstream's cuda-counter, cudagraph, launchlate).
+TEST_CASE("GPU threads read bpf_get_current_pid_tgid from their module",
+	  "[cuda-host-call]")
+{
+	if (!use_primary_context())
+		SKIP("no CUDA device");
+	const uint64_t tgid = (uint32_t)getpid();
+	const uint64_t expected = (tgid << 32) | tgid;
+	CHECK(attach::trampoline_pid_tgid() == expected);
+	counting_host host;
+	{
+		test_module module;
+		module.set_comm(host.comm_on_device);
+		REQUIRE(attach::write_trampoline_pid_tgid(module.module));
+		constexpr unsigned blocks = 2, threads = 64;
+		constexpr uint64_t n = blocks * threads;
+		device_buffer out(n * sizeof(uint64_t));
+		module.launch("bpftime_test_pid_tgid", blocks, threads,
+			      { out.ptr });
+		const auto results = out.read();
+		uint64_t right = 0;
+		for (uint64_t i = 0; i < n; i++)
+			right += results[i] == expected;
+		CHECK(right == n);
+		CHECK(host.served.load() == 0);
+	}
+	{
+		// not written: the helper asks the host
+		test_module module;
+		module.set_comm(host.comm_on_device);
+		device_buffer out(sizeof(uint64_t));
+		module.launch("bpftime_test_pid_tgid", 1, 1, { out.ptr });
+		CHECK(host.served.load() == 1);
+	}
+}
+
+TEST_CASE("The host answers bpf_get_current_pid_tgid with the tgid in both halves",
+	  "[cuda-host-call]")
+{
+	if (!use_primary_context())
+		SKIP("no CUDA device");
+	agent_segment segment("cuda-pid-tgid", []() {});
+	{
+		bpf_attach_ctx ctx;
+		const uintptr_t comm =
+			cuda::cuda_shared_mem_device_pointer_storage().load();
+		REQUIRE(comm != 0);
+		test_module module; // __bpftime_pid_tgid not written
+		module.set_comm(comm);
+		device_buffer out(sizeof(uint64_t));
+		module.launch("bpftime_test_pid_tgid", 1, 1, { out.ptr });
+		const uint64_t tgid = (uint32_t)getpid();
+		CHECK(out.read()[0] == ((tgid << 32) | tgid));
 	}
 }
 

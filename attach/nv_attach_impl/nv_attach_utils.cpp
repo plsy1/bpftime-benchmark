@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cuda.h>
 #include <mutex>
+#include <unistd.h>
 namespace fmt_lib = spdlog::fmt_lib;
 namespace bpftime
 {
@@ -149,6 +150,24 @@ std::string get_gpu_sm_arch()
 	SPDLOG_INFO("Auto-detected GPU SM arch: {} (compute capability {}.{})",
 		    detected, major, minor);
 	return detected;
+}
+
+uint64_t trampoline_pid_tgid()
+{
+	const uint64_t tgid = (uint32_t)getpid();
+	return (tgid << 32) | tgid;
+}
+
+bool write_trampoline_pid_tgid(void *cu_module)
+{
+	CUdeviceptr ptr;
+	size_t size;
+	if (cuModuleGetGlobal(&ptr, &size, (CUmodule)cu_module,
+			      TRAMPOLINE_PID_TGID_SYMBOL) != CUDA_SUCCESS ||
+	    size != sizeof(uint64_t))
+		return false;
+	const uint64_t value = trampoline_pid_tgid();
+	return cuMemcpyHtoD(ptr, &value, sizeof(value)) == CUDA_SUCCESS;
 }
 
 } // namespace attach

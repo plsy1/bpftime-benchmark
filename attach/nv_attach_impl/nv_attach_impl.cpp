@@ -1349,6 +1349,9 @@ int nv_attach_impl::run_attach_entry_on_gpu(int attach_id, int run_count,
 				"map_info copied: device ptr {:x}, device size {}",
 				(uintptr_t)ptr, bytes);
 		}
+		if (!write_trampoline_pid_tgid(module))
+			SPDLOG_DEBUG(
+				"__bpftime_pid_tgid not written: the host answers bpf_get_current_pid_tgid");
 		CUDA_SAFE_CALL(
 			cuModuleGetFunction(&kernel, module, "bpf_main"));
 		for (int i = 1; i <= run_count; i++) {
@@ -2303,6 +2306,11 @@ bool nv_attach_impl::write_trampoline_globals(CUlibrary library)
 			     library, "map_info", map_basic_info->data(),
 			     map_basic_info->size() * sizeof(MapBasicInfo)) &&
 		     ok;
+		// Not needed for the probes to work: unwritten, the helper asks
+		// the host.
+		const uint64_t pid_tgid = trampoline_pid_tgid();
+		write_library_global(library, TRAMPOLINE_PID_TGID_SYMBOL,
+				     &pid_tgid, sizeof(pid_tgid));
 		return ok;
 	});
 }
