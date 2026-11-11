@@ -1,0 +1,22 @@
+W1 no WFE waiting | The host-call watcher answers at once while a probed kernel runs | FAIL
+W1 no WFE waiting | A noted launch into a stream being captured leaves the capture valid | PASS
+W1 no WFE waiting | Every GPU thread's host call carries its own arguments | PASS
+W2 never back to sleeping | The host-call watcher answers at once while a probed kernel runs | FAIL
+W2 never back to sleeping | A noted launch into a stream being captured leaves the capture valid | PASS
+W2 never back to sleeping | Every GPU thread's host call carries its own arguments | PASS
+W3 a noted launch does not end the sleep | The host-call watcher answers at once while a probed kernel runs | FAIL
+W3 a noted launch does not end the sleep | A noted launch into a stream being captured leaves the capture valid | PASS
+W3 a noted launch does not end the sleep | Every GPU thread's host call carries its own arguments | PASS
+C1 notes a stream being captured | The host-call watcher answers at once while a probed kernel runs | PASS
+C1 notes a stream being captured | A noted launch into a stream being captured leaves the capture valid | FAIL
+C1 notes a stream being captured | Every GPU thread's host call carries its own arguments | PASS
+W4 note() does not count | The host-call watcher answers at once while a probed kernel runs | FAIL
+W4 note() does not count | A noted launch into a stream being captured leaves the capture valid | PASS
+W4 note() does not count | Every GPU thread's host call carries its own arguments | PASS
+restored build: ok
+ 7 files changed, 449 insertions(+), 8 deletions(-)
+
+rc=0
+runtime/src/attach/bpf_attach_ctx_cuda.cpp: OK
+attach/nv_attach_impl/probed_launch_activity.cpp: OK
+attach/nv_attach_impl/trampoline_ptx.h: OK
