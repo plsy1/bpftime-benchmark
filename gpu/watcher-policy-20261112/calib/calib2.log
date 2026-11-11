@@ -1,0 +1,14 @@
+== load off
+pread /proc/loadavg                          n=20000 median=1.06 p99=1.09 max=29.50 us
+pread /proc/thread-self/schedstat            n=20000 median=0.70 p99=0.74 max=2.59 us
+cudaEventQuery, completed event, idle        n=20000 median=0.32 p99=0.35 max=12.19 us
+cudaEventQuery while another thread launches n=1999 median=1.09 p99=3.84 max=6.24 us
+  (1855 of 1999 queries saw the kernel running)
+launch + event record (launcher thread)      n=4974 median=7.07 p99=16.83 max=939.68 us
+== load on (6 threads)
+pread /proc/loadavg                          n=20000 median=1.02 p99=1.12 max=3895.68 us
+pread /proc/thread-self/schedstat            n=20000 median=0.70 p99=0.77 max=4268.59 us
+cudaEventQuery, completed event, idle        n=20000 median=0.32 p99=0.35 max=23.62 us
+cudaEventQuery while another thread launches n=1999 median=1.82 p99=3.84 max=7.26 us
+  (1659 of 1999 queries saw the kernel running)
+launch + event record (launcher thread)      n=4595 median=12.96 p99=18.66 max=773.88 us

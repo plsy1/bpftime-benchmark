@@ -1,0 +1,361 @@
+================================================================================
+--name: A: PARK-M100 (park on the launch note when no probed kernel is in flight; M100 otherwise)
+--modeled_on: NCCL proxy progress thread (src/proxy.cc ncclProxyProgress / ncclProxyGetPostedOps: cond.wait while no op is active, notify_one only on the empty-to-non-empty transition) and LLVM offload RPC ServerThread (RPC.h/RPC.cpp: CV.wait until NumUsers > 0, sleep 250 us per empty scan while users > 0). Park race closed the NAPI way (napi_complete_done NAPIF_STATE_MISSED: re-check flag1 once before parking) and with the io_uring SQPOLL generation handshake (sqpoll.c: set NEED_WAKEUP, barrier, re-check, then sleep). The single-thread constraint rules out LLVM's cuLaunchHostFunc completion callback, so completion comes from the existing activity.any_running() event query, rate-limited.
+--algorithm_pseudocode: // ---- shared helpers (used by A, B, C, D) ----
+// thread start: prctl(PR_SET_TIMERSLACK, 1000);  pthread_setname_np(self, "bpftime-watch");
+struct st { u64 t_last_req, t_last_evq, seen_gen; bool inflight; double late_ewma; counters c; } s;
+static bool serve_if_pending(void) {
+    if (!load_acquire(&shm->flag1)) return false;
+    handle_request(shm);                 // ~10 us, unchanged
+    store_release(&shm->flag2, 1);
+    s.c.req++; return true;
+}
+static void sleep_us(u64 n) {            // slack 1 us: lasts n+4 us when uncontended
+    u64 t0 = now_ns();
+    clock_nanosleep(CLOCK_MONOTONIC, 0, ts(n), NULL);
+    i64 late = (now_ns() - t0)/1000 - n - 4;      // free run-queue-delay signal
+    s.late_ewma += (late - s.late_ewma) / 8;
+    s.c.wakes++;
+}
+static bool kernels_inflight(u64 t) {    // launch hook bumps activity.generation()
+    u64 g = activity.generation();
+    if (g != s.seen_gen) { s.seen_gen = g; s.inflight = true; s.t_last_evq = t; return true; }
+    if (t - s.t_last_evq >= EVQ_EVERY_US) {          // cudaEventQuery at most once per 1 ms
+        s.inflight = activity.any_running(); s.t_last_evq = t; s.c.evq++;
+    }
+    return s.inflight;
+}
+static void park(void) {
+    if (serve_if_pending()) return;                  // MISSED-bit re-check
+    s.c.parks++;
+    activity.wait_for_note(s.seen_gen, BACKSTOP_US); // condvar/futex; launch hook notifies
+}
+
+// ---- policy A loop ----
+for (;;) {
+    if (serve_if_pending()) {
+        s.t_last_req = now();
+        while (now() - s.t_last_req < HOT_US)        // M100's 200 us post-request poll, unchanged
+            if (serve_if_pending()) s.t_last_req = now(); else cpu_relax();
+        continue;
+    }
+    u64 t = now();
+    if (kernels_inflight(t)) sleep_us(P_SLOW_US);   // = M100 while a probed kernel may run
+    else park();                                     // 0 wake-ups/s except the backstop
+}
+--parameters: P_SLOW_US = 100 (M100 period). HOT_US = 200 (unchanged post-request poll, kept so A isolates the park effect). EVQ_EVERY_US = 1000: at most one any_running() event check per ms, 10x less often than the S sets' 100 us, whose extra cost over M100 was 0.073 vs 0.030 s/s. BACKSTOP_US = 1000: parked timeout. It equals upstream's fixed 1 ms sleep, so a kernel the launch hook misses is never served later than official bpftime. Timer slack 1 us. Env: BPFTIME_CUDA_WATCHER_POLICY=A, BPFTIME_CUDA_WATCHER_BACKSTOP_US.
+--signals_needed: activity.generation(): the launch-note counter the cuLaunchKernel hook already bumps. activity.any_running(): cudaEventQuery on the events already recorded per noted launch, rate-limited to 1 per ms. flag1. CLOCK_MONOTONIC via vDSO. Nothing new on the GPU side.
+--expected_behaviour: Idle agent (attached, no kernels): about 1k wake-ups/s from the backstop instead of M100's about 10k/s, i.e. about 0.1% of a core instead of 1.2% (calibration: 1.1-1.4 us CPU per wake). Power should come out near P under jetson_clocks; with default cpuidle the gap should be larger, but that is not measured. Low GPU duty (~10%): M100's cost only while kernels run, so roughly duty x M100 + 0.1%. Back-to-back probed kernels (the existing cells): the same latency and cost as M100 (no load ~66 us mean; full load 144/90 us, 1-3.5% of calls > 1 ms, load -1..-2%). The 2 ms victim CPU stays ~0.10 s/s because the 200 us hot poll is kept. The 1 ms event check adds at most a few us per ms (cost to be measured in step 0). Latency for the first call after a park is at most the launch-note wake-up, a futex wake on the launch path.
+--risks: (1) Launches the hook does not see (CUDA graphs, launch paths without a note) find the watcher parked and wait up to BACKSTOP (1 ms = official behaviour, but worse than M100's 100 us). (2) any_running() calls cudaEventQuery from the watcher while the app may be capturing a graph. The existing code already handles the capture mode; check that the rate-limited path uses the same guard. (3) Up to 1 ms passes between kernel completion and parking, which is harmless. (4) The launch-path notify must stay cheap. It already exists in W, but its cost on launch-heavy apps (short kernels) is not separately measured; cell 14/15 covers it.
+--implementation_size: About 30-40 lines in start_cuda_watcher_thread on top of the watcher-sleep.patch structure: a policy switch, the rate-limited inflight check, park() with the re-check, and exit counters. The wait_for_note and any_running machinery already exists in dev 46f5a7cb.
+================================================================================
+--name: B: GATED-W (WFE only while a probed kernel is in flight AND a core is spare; contention latch falls back to A's sleeping)
+--modeled_on: Linux mutex optimistic spinning: kernel/locking/mutex.c mutex_spin_on_owner spins only while owner_on_cpu && !need_resched, and on arm64 the wait is smp_cond_load_relaxed = LDXR+WFE. Go sync.Mutex runtime_canSpin admits spinning only if gomaxprocs > npidle + nmspinning + 1 and the local runqueue is empty. Linux rwsem NONSPINNABLE latch: rwsem_set_nonspinnable after a failed timed spin, cleared by a new owner. KVM halt-poll's kvm_vcpu_can_poll (single_task_running && !need_resched). The need_resched substitute is user-space: the sleep/evtstrm lateness and the schedstat run_delay delta, both listed in the storage and networking survey entries.
+--algorithm_pseudocode: // opened ONCE inside the watcher thread (thread-self resolves to the opener's tid)
+int fd_la = open("/proc/loadavg", O_RDONLY);
+int fd_sd = open("/proc/thread-self/schedstat", O_RDONLY);
+int ncpu  = CPU_COUNT(sched_getaffinity(0));          // 6 here; respects cpusets
+bool gate = false, nonspin = false; int open_streak = 0; u64 t_chk = 0, rd_prev = 0, nonspin_gen = 0;
+
+static bool gate_check(u64 t) {                   // at most once per CHECK_US
+    if (t - t_chk < CHECK_US) return gate; t_chk = t;
+    int others = loadavg_running(pread(fd_la)) - 1;   // field 4 numerator minus the watcher itself
+    u64 rd = schedstat_field2(pread(fd_sd));          // own run_delay, ns
+    if (rd - rd_prev > RD_TRIP_NS) { nonspin = true; nonspin_gen = activity.generation(); s.c.latch++; }
+    rd_prev = rd;
+    if (FOLLOW_CTX_SPIN && ctx_sched_flags == CU_CTX_SCHED_SPIN) others = 0;  // app opted into a hot core
+    if (others >= ncpu - 1) { gate = false; open_streak = 0; }           // close at once
+    else if (others <= ncpu - 1 - SPARE && ++open_streak >= OPEN_STREAK) gate = true;  // open slowly
+    if (nonspin) {                                  // rwsem-style latch
+        if (activity.generation() != nonspin_gen && gate) nonspin = false;  // new launch + spare cores
+        else gate = false;
+    }
+    return gate;
+}
+
+for (;;) {
+    if (serve_if_pending()) { s.t_last_req = now(); post_request_hot(); continue; }
+    u64 t = now();
+    if (!kernels_inflight(t)) { gate = false; park(); continue; }        // A's park
+    if (gate_check(t)) {
+        u64 t0 = now();
+        wfe_wait_while_equal(&shm->flag1, 0);   // sevl; wfe; ldxr; cmp; wfe  (returns on GPU write or <=100 us evtstrm)
+        if (now() - t0 > LATE_WFE_US) { nonspin = true; nonspin_gen = activity.generation(); gate = false; s.c.latch++; }
+        s.c.wfe++;
+    } else sleep_us(P_SLOW_US);                       // A's M100 tier
+}
+// post_request_hot(): for HOT_US: gate ? wfe_wait_while_equal(...) : cpu_relax();  (B alone keeps A's 200 us window)
+--parameters: CHECK_US = 1000 (a gate check every ~10 evtstrm wakes, or every 10th sleep). SPARE = 1: open only if at least one core besides the watcher's is idle, so others <= 4 on 6 CPUs. OPEN_STREAK = 3 consecutive checks to open; a single check closes it. RD_TRIP_NS = 200,000: own run_delay grew more than 200 us within one check interval, i.e. we sat on a runqueue. LATE_WFE_US = 500: a WFE return gap more than 5x the 100 us evtstrm means we were descheduled. FOLLOW_CTX_SPIN = 0 by default; 1 trusts an app that set CU_CTX_SCHED_SPIN, read once via cuDevicePrimaryCtxGetState. P_SLOW_US = 100 and BACKSTOP_US = 1000 come from A. Env: BPFTIME_CUDA_WATCHER_POLICY=B.
+--signals_needed: Four signals. (1) /proc/loadavg field 4 numerator: system-wide count of runnable tasks right now, including the watcher. The victim's sync thread under AUTO (= blocking sync on this Orin) is asleep and not counted. Under SCHED_SPIN it is counted, which is correct. Read by pread on a held fd; cost to be measured in step 0. (2) /proc/thread-self/schedstat field 2 (run_delay ns). CONFIG_SCHED_INFO=y and SCHEDSTATS=y on this kernel; the fd must be opened in the watcher thread. (3) The WFE return gap, from free vDSO clock reads, together with the ARCH_TIMER_EVT_STREAM_PERIOD_US=100 bound. (4) Optional: cuDevicePrimaryCtxGetState flags & 0x7. Plus A's launch-note and any_running() signals. PSI is not available (CONFIG_PSI unset).
+--expected_behaviour: Partial load (3 threads on 6 cores): others ~3 <= 4, so the gate opens and W-like latency follows, ~14 us mean at no-load p99 ~16 us, with ~0 load loss because a spare core exists. That is the cell where B should beat both M100 (~66 us) and W, unless W also shows ~0 loss there; to be seen. Full load (6 threads): others >= 6 from the first check, so the gate never opens and B should match A/M100 (load -1..-2%, 1-3.5% of calls > 1 ms) instead of W's -14% and 13-31% > 1 ms. Load-off cells: gate open, so W numbers (14 us), with A's park when idle, so the idle cost of W is kept at ~0. Two probed processes at no load: two watchers each WFE (2 cores); at full load both gated off. The gate check costs one or two preads per ms, probably a few us/ms (<0.5% core), to be confirmed in step 0.
+--risks: (1) Loadavg's running count is an instantaneous sample. Sub-ms bursty load can fool a 1 ms sampler, so the gate can open into a busy period. The first preemption (~1 tick = 4 ms, HZ=250) then cannot be prevented; the latch only stops repeats. (2) Containers and cgroups: loadavg is host-wide while the allowed CPU count comes from affinity, so the count can be pessimistic, which errs safe. (3) The procfs read cost is unmeasured; if a pread of /proc/loadavg costs more than ~20 us, raise CHECK_US. (4) The latch clears only on a new launch note. Apps with one very long kernel stay on sleeps after one preemption, which is acceptable. (5) Hot-tier WFE after a request while the gate is open still owns a core; that is intended only when a core is spare. (6) Gating on the number of runnable tasks ignores SMT and frequency effects (none on this A78AE).
+--implementation_size: About 70-90 lines on top of A: two held fds with tiny parsers (loadavg field 4 is 'R/T'; schedstat is three integers), gate_check, the latch, and WFE reuse of 46f5a7cb's wait_while_equal. Optional ctx-flag read: about 10 lines.
+================================================================================
+--name: C: BURST-3TIER (request-driven hot window sized by KVM grow/shrink; NAPI-style K short sleeps; then A's slow tier)
+--modeled_on: Several mechanisms combined. NAPI IRQ suspension (irq_suspend_timeout, 6.13; ep_try_send_events re-arms the deadline on every non-empty return, ep_busy_loop falls back on the first empty check) gives tier A. napi_defer_hard_irqs + gro_flush_timeout (napi_complete_done: K consecutive empty timer polls at a fixed period, refilled on any work, then re-arm the IRQ) gives tier B. KVM halt-polling (virt/kvm/kvm_main.c grow_halt_poll_ns x2 from 10 us, shrink to 0 when the halt exceeds the max) sizes the hot window from the observed gap. Also cinterrupts' burst-extended deadline (OSDI'21 Alg. 1) and ROCr InterruptSignal::WaitRelaxed (MWAITX for a bounded time, then block) for using WFE in the hot tier. The Cai & Karsten SIGMETRICS'24 lesson (suspend0 ≈ base: a hot tier without the short-timer middle tier gains nothing) is why tier B exists.
+--algorithm_pseudocode: u64 win = 0;              // adaptive hot window (us), KVM-style
+int  k = 0;               // remaining tier-B wakes
+u64  episode_start = 0;
+
+static void on_request(u64 t) {
+    u64 gap = t - s.t_last_req;  s.t_last_req = t;   // serve-to-serve gap (includes detection delay)
+    if (gap <= win)            ;                       // window caught it: keep
+    else if (gap < WIN_MAX_US) win = min(max(2*win, WIN_GROW_START_US), WIN_MAX_US);  // just missed: grow
+    else                        win = 0;               // long gap (next kernel): shrink to 0 (KVM default)
+    if (t - episode_start > EPISODE_CAP_US || k == 0) episode_start = t;
+    k = K_DEFER;                                       // refill tier B (napi_defer_hard_irqs)
+}
+
+for (;;) {
+    if (serve_if_pending()) { on_request(now()); continue; }
+    u64 t = now();
+    // tier A: hot while the window since the last request is open (deadline re-armed per request)
+    if (win && t - s.t_last_req < win && t - episode_start < EPISODE_CAP_US) {
+        if (B_compiled && gate_check(t))      wfe_wait_while_equal(&shm->flag1, 0);  // ROCr-style bounded WFE
+        else if (B_compiled)                  sleep_us(P_MIN_US);                 // contended: never spin
+        else                                  cpu_relax();                        // C-alone ablation: spin <= win
+        continue;
+    }
+    // tier B: K short timer polls at P_DEFER, any hit refills K (gro_flush_timeout analog)
+    if (k > 0) { sleep_us(P_DEFER_US); k--; continue; }
+    // tier C: A's slow tier (M100 while in flight, park otherwise)
+    if (kernels_inflight(t)) sleep_us(P_SLOW_US); else park();
+}
+// Replaces A's unconditional 200 us cpu_relax window after each request.
+--parameters: WIN_GROW_START_US = 10 (about one lane gap of ~9 us). WIN_MAX_US = 300 (about one warp burst, 32 x 9 us; also KVM's 'max' that triggers a shrink to 0). EPISODE_CAP_US = 1000: one hot episode never exceeds 1 ms, a quarter tick, the netdev_budget_usecs / cinterrupts thr analog. K_DEFER = 8 and P_DEFER_US = 20: a ~190 us tier-B tail costing ~8 x 1.2 = 10 us CPU, instead of 200 us of spinning. P_MIN_US = 10 for the contended hot tier. P_SLOW_US = 100 and BACKSTOP_US = 1000 come from A. Env: BPFTIME_CUDA_WATCHER_POLICY=C (alone, hot tier = bounded spin) or ALL (with B's gate).
+--signals_needed: Only the serve timestamps of requests: the serve-to-serve gap from vDSO CLOCK_MONOTONIC, free. Plus A's launch-note and any_running() signals, and B's gate when combined. No GPU-side change.
+--expected_behaviour: The main measured gain is in the 1-call-per-kernel cells. The gap equals the kernel length (2.0-21 ms) > WIN_MAX, so win stays 0. The 200 us post-request spin, which is most of M100's 2 ms cost (0.101 s/s with host calls vs 0.030 without), becomes 8 x 20 us sleeps. Expected 2 ms victim CPU: ~0.03-0.04 s/s instead of ~0.10, and full-load loss from -2% to about -1% (close to M100's no-host-call -1%). Isolated-call latency is unchanged at tier C (~66 us at no load; under load like M100). 32-lane burst: the first call is at tier-B/C latency, win reaches 10 then 20 us within 2 requests, the rest are served at ~9-10 us each as now, and there is no 200 us tail after the last lane. Per-launch cost /32 should be ≤ M100's 10.8 (no load) / 17.3 (load) us. With B's gate in ALL the hot tier is WFE on a spare core (W-like in-burst) and 10 us sleeps when contended. Short-kernel cell (200-399 us kernels): gaps of ~300-450 us mostly exceed WIN_MAX, so C ≈ tier C (M100 latency) at lower CPU than M100.
+--risks: (1) win restarts at 0 for every new burst, because shrink happens on the long gap. The first 1-2 requests of each burst pay tier-B latency (~24 us + service). (2) Bursts with gaps just above WIN_MAX (e.g. 300-500 us kernels with entry+exit probes) never get a hot window; D covers them. (3) Serve-to-serve gaps include detection delay, so a gap measured in tier C is inflated by up to ~104 us and may wrongly read as 'just missed'. Growth is capped at 300 us and bounded by EPISODE_CAP. (4) In C-alone the hot tier spins (bounded by win ≤ 300 us per request), which still gets preempted under load; ALL avoids that via B. (5) The K/P constants come from networking defaults, not from this board's data; the burst and partial-load cells test them.
+--implementation_size: About 50-60 lines: on_request bookkeeping, a three-way tier branch, exit counters for time per tier and the win histogram. It replaces the busy-window block in the existing loop.
+================================================================================
+--name: D: SQRT-PERIOD (per-epoch period from the measured request rate, clamped to [10, 100] us, with an overload guard)
+--modeled_on: Four sources. The square-root model T* = sqrt(2c/(αλ)), i.e. the Lim-Agarwal (MIT TR-498) two-phase framing with the polling cost made explicit. The net DIM epoch controller (lib/dim/net_dim.c: decide once per 64 events, change only on a >10% difference, park when nothing changes) for the epoch and hysteresis. ixgbe adaptive ITR (ixgbe_update_itr: fast reset when the history is stale) for re-initialising P at launch. The overload guard comes from the busy-poll need_resched exit (napi_busy_loop), Caladan's queueing-delay escalation inverted into backpressure, and IISWC'18 (QoS backpressure on GPU service requests when the CPU is contended).
+--algorithm_pseudocode: u64 P = P_MAX_US;                        // tier-C period while a probed kernel is in flight
+u64 ep_start, ep_req, ep_inflight_us, ep_wakes; u64 rd_ep_prev;
+
+static void epoch_update(u64 t) {        // when t - ep_start >= EPOCH_US AND ep_wakes >= 64 (DIM's DIM_NEVENTS)
+    double lam = ep_inflight_us ? (double)ep_req / ep_inflight_us : 0;   // requests per us of in-flight time
+    u64 Pn = lam > 0 ? clamp(sqrt(2.0 * C_WAKE_US / (ALPHA * lam)), P_MIN_US, P_MAX_US) : P_MAX_US;
+    // overload guard (need_resched / backpressure analog): runqueue time > GUARD_FRAC of the epoch, or late wakes
+    u64 rd = schedstat_field2(pread(fd_sd));
+    if ((rd - rd_ep_prev) > GUARD_FRAC * (t - ep_start) * 1000 || s.late_ewma > LATE_GUARD_US) Pn = P_MAX_US;
+    rd_ep_prev = rd;
+    if (abs((i64)Pn - (i64)P) * 100 > 10 * P) P = Pn;      // DIM 10% significance band
+    ep_start = t; ep_req = ep_inflight_us = ep_wakes = 0;
+}
+
+for (;;) {
+    if (serve_if_pending()) { s.t_last_req = now(); ep_req++; post_request_tail(); continue; } // A's hot poll, or C's tiers in ALL
+    u64 t = now();
+    if (!kernels_inflight(t)) { park(); P = P_MAX_US; ep_start = now(); continue; }            // ixgbe-style reset
+    u64 t0 = t; sleep_us(P); ep_wakes++; ep_inflight_us += (now() - t0)/1000;
+    if (now() - ep_start >= EPOCH_US && ep_wakes >= 64) epoch_update(now());
+}
+--parameters: ALPHA = 1.0: how many us of watcher CPU one us less host-call wait is worth, per call. It is the policy's single value judgement; env BPFTIME_CUDA_WATCHER_ALPHA. C_WAKE_US = 1.2 (calibrated CPU per wake-up). P_MIN_US = 10 and P_MAX_US = 100: never worse latency than M100, never more wakes than S10. EPOCH_US = 20,000 with at least 64 wakes per epoch. GUARD_FRAC = 0.05 (more than 5% of the epoch spent runnable-but-waiting) or LATE_GUARD_US = 30 (EWMA of sleep overshoot beyond the expected 4 us). The DIM 10% band gives hysteresis. Worked values at α=1: λ=400/s (2 ms kernels) gives P≈77 us; λ≈3,000/s (200-400 us kernels) gives P≈28 us; λ=50/s (20 ms) gives 219, clamped to 100.
+--signals_needed: Request count and in-flight time per epoch (watcher-local counters, free). Sleep overshoot from vDSO clock, free. Own run_delay from /proc/thread-self/schedstat once per 20 ms epoch (held fd, opened in the watcher thread). Plus A's launch-note and any_running() signals.
+--expected_behaviour: 2 ms cells: P≈80 us, so mean latency ~55 us vs M100's ~65, with slightly fewer wakes than M100. 20 ms cells: P = 100, identical to M100. Short-kernel cell (200-399 us kernels, λ≈3k/s): P≈28 us, so mean ~26-30 us vs M100 ~60, at ~31k wakes/s ≈ 3.7% of a core while kernels run (S20-like power, about +150 mW at no load). Under full load the guard trips (M100's own under-load calls show 4-6 ms stalls), so P = 100 = M100 and none of the S-set penalty (shorter period = more scheduler delay) is paid. Idle: inherits A's park.
+--risks: (1) The gain over M100 is small except at λ ≥ ~1k/s, which only the new short-kernel cell exercises; in the existing cells D ≈ M100. (2) α is a value judgement with no measured anchor. A high α reproduces S10's +200 mW. (3) A 20 ms epoch lags phase changes (a burst shorter than the epoch is decided by the previous epoch's rate); C's hot tier covers intra-burst gaps, which is why ALL combines them. (4) The guard uses the watcher's own run_delay, which only rises after it waited; acceptable because D never spins. (5) A run_delay-based guard may also trip on GPU-unrelated CPU spikes, which is safe (falls back to M100).
+--implementation_size: About 40-50 lines: epoch counters, the sqrt/clamp/hysteresis update, the guard, the reset on park. Shares sleep_us and the schedstat fd with B.
+
+### TEST PLAN
+Reuse gpu/watcher-sleep-20261111/scripts (run_one.sh, rounds.sh, summarize.py, the spin2 victim, the hostspin/nohost probes from gpu/wfe-load-20261111, load.c, tegrastats sampling) with the deltas below. The same checks apply before every run: the 03:25-04:15 JST abort window (daily timer), cpu5 at 1728000 and GPU at 1020000000 before and after, no leftovers, no build, no bpftime shm segment, root-owned /dev/shm cleaned, `timeout -k` outside LD_PRELOAD, docker containers removed. Run `ps` before the rounds.
+
+STEP 0: signal-cost calibration (no bpftime, ~3 min). Extend calib.c and run each item 100k times with load off and with 6 load threads: pread of a held /proc/loadavg fd, pread of /proc/thread-self/schedstat, getrusage(RUSAGE_THREAD), cudaEventQuery on a completed event and on a running event, and a futex wake+wait round trip (A's park/unpark). Output: us per call (median/p99). Decision: if a loadavg pread costs more than ~20 us, B's CHECK_US goes from 1 ms to 5 ms; if a cudaEventQuery costs more than ~20 us, A's EVQ_EVERY goes to 2 ms.
+
+STEP 1: experimental build (~11-15 min, nothing measured meanwhile). Make a worktree exp/watcher-policy from dev 46f5a7cb with watcher-sleep.patch applied (not a dev commit, outside bpftime-daily-state/worktrees), with its own build dir bpftime-gpu-work/policy/build-cuda and wake/build.sh's flags. One build serves every set: BPFTIME_CUDA_WATCHER_POLICY=A|B|C|D|ALL (ALL = A+B gate+C tiers+D period), plus the existing MAX_SLEEP_US=100 for M100. Instrumentation in the same build: pthread_setname_np("bpftime-watch") on the watcher, and at exit one SPDLOG_INFO line with wakes, WFE returns, us per tier (hot/defer/slow/parked), parks, any_running calls, gate opens/closes, latch trips, the final P and the win histogram. run_one.sh also diffs voluntary_ctxt_switches/nonvoluntary_ctxt_switches of the bpftime-watch thread (/proc/PID/task/*/status) around the victim window, which gives wakes/s for M100 and W too.
+
+STEP 2: harness deltas.
+(a) spin2 gets an optional 5th arg GAP_US. The host thread nanosleeps GAP_US after each sync; per-launch time excludes the gap, and the window and CPU include it. This gives low GPU duty.
+(b) spin2 gets an IDLE mode: one warm-up plus one probed launch (so the agent and watcher start), sync, then 8 s with no launches; it reports CPU s/s over the 8 s.
+(c) run_one.sh LOAD accepts off|on3|on6 (`load N` already takes the thread count; tegrastats only for off). Load-vs-P compares the same thread count in the same round.
+(d) Two processes: two loader+victim pairs, each with its own BPFTIME_GLOBAL_SHM_NAME, so the probes' lat arrays (SLOTS 4096) and counters stay per process. P is also two plain victims, because the two spin kernels time-slice the GPU and per-launch times change.
+(e) The short-kernel cell uses 4,000 launches, within the probe's 4,096 slots.
+
+STEP 3: smoke (~8 min). One run of each new cell for A, B and ALL, plus a two-process run, checking that both watchers start, records = launches+1 per process, and the counters print. Look at B's gate in partial and full load in the counters before the rounds.
+
+STEP 4: rounds. 8 sets: P, M100 (baseline to beat), W (dev 46f5a7cb), A, B, C, D, ALL; N is dropped (M100 is better everywhere). 15 cells; 1 lane unless stated, spin + 0-999 us jitter (fixed sequence):
+1 host on6 2,000 us 3,200 launches
+2 host off 2,000 us 3,200 (power)
+3 host on6 20,000 us 400 (W's worst)
+4 none on6 2,000 us 3,200 (pure cost)
+5 host on6 2,000 us 32 lanes 2,400 (burst)
+6 host off 2,000 us 32 lanes 2,400
+NEW:
+7 host on3 2,000 us 3,200 (partial load: where B should win)
+8 host on3 2,000 us 32 lanes 2,400
+9 host off 2,000 us + GAP 18,000 us (~12% GPU duty) 400 launches ~8.2 s (low duty, power)
+10 host on6, same low duty
+11 IDLE agent, off, 8 s window (CPU s/s, wakes/s, power vs P)
+12 two processes, host, on6, 2,000 us, 3,200 each
+13 two processes, host, off, 2,000 us (power; W holds two cores)
+14 host off, short kernels 200 us + 0-199 jitter, 4,000 launches (~1.5 s; where D and C's tier B differ from M100; W0's untested case)
+15 host on6, same short kernels.
+Per round: 15 cells x 8 sets = 120 runs, set order rotating with the round (rounds.sh as before). 4 rounds = 480 runs. Earlier rounds averaged ~10.1 s per run (256 runs in 43 min); the short-kernel runs are shorter and the two-process runs a little longer, so ~10 s average gives ~80 min of rounds, ~20 min per round. Total including calibration, build, smoke and rounds: about 1 h 50 min of machine time, scheduled clear of 03:25-04:15 JST.
+
+METRICS per cell and set:
+- GPU-timed host-call mean / median / p90 / p99 / max and share > 1 ms (warm-up dropped).
+- Victim CPU s per wall s, watcher wakes/s and nivcsw/s.
+- Load throughput vs P (same thread count and round, median and min-max).
+- Per-launch mean, and burst cost per call ((per-launch - P) / 32).
+- VDD_CPU_GPU_CV and VDD_IN for load-off cells.
+- Exit counters (time share per tier, gate open fraction, latch trips, final P).
+- One plot: mean latency vs victim CPU, one point per set, for no load, partial load and full load.
+
+DECISION RULE (against M100, per cell). A candidate passes if:
+- idle cell: CPU ≤ 0.2% of a core and wakes ≤ 1.5k/s (M100 ~10k/s);
+- low-duty cells: CPU below M100's;
+- full-load cells: load loss and the > 1 ms share no worse than M100's (beyond the P-vs-P noise of ~0.6%);
+- partial load: mean latency ≤ ~2x W's no-load 14 us for B/ALL, with load loss within noise;
+- no-load latency: no worse than M100's;
+- burst: cost per call ≤ M100's.
+The winner then goes through the 24-case GPU subset rounds (dev vs new, gpu/baseline-sub-20261111 as reference) before any dev commit.
+
+OPTIONAL (needs the user's OK because it leaves the jetson_clocks regime): a mini-round with default cpuidle/DVFS (jetson_clocks --store, run, --restore, then verify cpu5 1728000). Cells 2, 9 and 11; sets P, M100, A, ALL; 4 rounds = 48 runs, ~9 min. This is where wake frequency should cost real power, and is untested so far.
+
+OFFLINE (no GPU time): replay the serve timestamps logged by the counters through C's win logic and D's epoch logic to check convergence (win → 10-20 us in bursts, → 0 between kernels).
+
+### RECOMMENDATION
+Implement A and C first, as one experimental build with separate env sets so their effects can be attributed, and B next. Then measure the combination (ALL) in the same rounds.
+
+1. A (PARK-M100) is the simplest fix for M100's idle cost. When no probed kernel is in flight, it replaces about 10k wake-ups/s with a 1 ms backstop, and while kernels run it changes nothing. It reuses wait_for_note and any_running(), which are already in dev 46f5a7cb. Its only regression is for launches the hook does not see (graphs), and those are capped at 1 ms, the same as official bpftime. Low risk; about 30-40 lines.
+
+2. C (BURST-3TIER) targets M100's largest measured cost. The unconditional 200 us cpu_relax after each request is about 0.07 of the 0.10 s/s victim CPU at 2 ms kernels, and most of its -2% full-load loss. C replaces it with a gap-sized hot window (KVM grow/shrink) and 8 x 20 us sleeps. The window collapses to 0 for one-call-per-kernel probes and grows to ~10-20 us inside warp bursts. Latency should stay the same in every existing cell, at about a third of the CPU.
+
+3. B (GATED-W) is the only candidate that recovers W's 14 us latency on a partly idle CPU (the new 3-thread cell) without W's -14% and 13-31% > 1 ms at full load. Do it third, because it depends on the step-0 procfs read costs and cannot prevent the first preemption if the 1 ms loadavg sample is wrong. A and C are where it falls back, so they come first anyway.
+
+Defer D (SQRT-PERIOD). With P clamped to [10, 100] it equals M100 in the existing cells and only pays off at more than ~1k requests/s (the new short-kernel cell). Keep it in the rounds as an ablation, so that cell can show whether it is worth an α knob.
+
+Outside the watcher-only scope, but larger and independent of any watcher policy (every production GPU RPC protocol surveyed does this): aggregate host calls per warp on the GPU side (one request for 32 lanes instead of 32 at ~9 us apart), and move one-way helpers (printk, ringbuf) to a batched buffer. Both cut the request rate the watcher has to serve.
+
+### CRITIC
+Critique of candidates A–D and the test plan for the host-call watcher on Orin Nano
+
+What I checked on this board and in the sources:
+- **The dev 46f5a7cb watcher loop and `probed_launch_activity.cpp`.**
+- **Scheduler signals.** `/proc/loadavg` shows `1/764`, so its running count includes the process reading it. I ran 8 spinners on 6 cores: one thread's own run_delay in `/proc/<tid>/schedstat` grew to 667 ms even with `kernel.sched_schedstats=0`, so B and D can rely on run_delay.
+- **CPU layout.** There are two clusters: sched domain0 masks `0f` and `30`, and two L3 instances. So the 6 cores are 4+2.
+- **Scheduler config.** `CONFIG_SCHED_HRTICK=y` is compiled in, but the HRTICK feature is off by default. RT throttling is at 950000/1000000. debugfs is not mounted, so I could not read `sched/features` or `base_slice_ns`.
+- **Privileges.** `run_one.sh` starts the victim as the jetson user, whose `ulimit -r` is 0.
+- **Upstream sources.** NCCL `proxy.cc`, and LLVM `RPC.h`/`RPC.cpp`.
+
+== A: PARK-M100 ==
+Faithful to its sources?
+- **Partly.** LLVM matches: the server thread waits on `CV.wait` while NumUsers == 0, and `SleepFunction` defaults to `sleep_for(250us)` per empty scan.
+- **NCCL does not match the active phase.** NCCL only blocks when `state->active == NULL`. While ops are active it never sleeps: it calls `std::this_thread::yield()` (W-like CPU occupancy). So A = LLVM, not NCCL.
+- **The reason given for rejecting `cuLaunchHostFunc` is wrong.** It is not a single-thread constraint. The real reasons:
+  - a host node serializes the app's stream, adding latency to every launch;
+  - the callback may not call CUDA APIs;
+  - it gets captured into graphs.
+
+Most of A already exists in dev 46f5a7cb:
+- On the `!on_flag` path, `wait_for_note(seen, idle_sleep)` doubles up to the 1 ms max. That is already A's park plus a 1 ms backstop.
+- So W's idle behaviour (cell 11) already predicts A's idle number. The only new element in A is the 100 us sleep tier replacing WFE while kernels are in flight.
+- The description "M100 = no launch tracking" is wrong for this build:
+  - its `!wfe` path ends sleeps on a `generation()` change;
+  - `note()` (cuEventRecord under `event_mutex`, per launch) runs on the launch path for every bpftime set.
+  - So A vs M100 isolates only the park and the 1 ms `any_running` check.
+
+The park race:
+- Lost wake-ups are already closed by the generation predicate plus the seq_cst `waiters` handshake in `wait_for_note`.
+- The NAPI-style re-check of flag1 only matters for launches the hook never sees.
+- The flag1 handshake is a CAS 1->0 (the watcher takes the request), not a plain `load_acquire`. The pseudocode should keep the CAS.
+
+What can go wrong on this board:
+- **Launch-heavy apps never park.** `any_running()` only try-locks `event_mutex` and treats busy as running.
+- **No contention cost is measured.** Step 0 times `cudaEventQuery` with nothing else running. It should also time it while another thread is launching, since both may take the context/stream locks.
+- **Power gain may not show.** With jetson_clocks and cpuidle off, the idle power gain will be near noise.
+
+Missing:
+- **A latch for unseen launches.** If the backstop ever finds flag1 set with no new launch note, latch "unseen launches" and stop parking (stay at M100). This removes risk (1), graph launches waiting up to 1 ms, at almost no cost.
+- **No cell tests risk (1).** Add a graph-launch variant of spin2, or at least a check of which launch paths call `note()`.
+
+== B: GATED-W ==
+Faithful to its sources?
+- **The gate itself is reasonable.** The loadavg gate is close to Go's `canSpin`, and the latch matches rwsem NONSPINNABLE (cleared by a new owner, here a new launch).
+- **The key ingredient of `mutex_spin_on_owner` is missing.** That is `need_resched()`, which user space cannot see. run_delay and lateness only show a preemption after it happened, so the first preemption under load still costs ~1 tick, as the proposal admits.
+
+Signals verified on this board:
+- loadavg field 4 includes the reader.
+- Per-thread run_delay works with schedstats=0 (it comes from CONFIG_SCHED_INFO).
+
+What can go wrong on this board:
+- **The two clusters (4+2 cores, separate L3) are ignored.** A "spare core" is not interchangeable: the WFE watcher, load threads and the victim's sync thread can land on the 2-core cluster. Also, a blocking-sync thread woken next to a busy-waiting watcher pays wake-affinity delays.
+- **Two watchers can oscillate.** With two processes under partial load, each open WFE watcher counts in the other's `others`. With OPEN_STREAK = 3 and close-at-once, they can flip open/closed every ~3 ms. Cells 12/13 are on6/off only, so this is untested.
+- **The partial-load cell does not show what B costs on a normal system.** W's "no extra power" and B's "~0 loss on a spare core" only hold because idle cores are not entering deep idle states under jetson_clocks. With default cpuidle, a WFE core stops a core from going idle, and the 100 us event stream (evtstrm) keeps waking it anyway.
+- **The optional cpuidle mini-round leaves out W and B,** the two sets whose cost depends on it most. Add them.
+
+Missing tests:
+- **No cell tests risk (1),** loadavg fooled by sub-ms bursts. Add a duty-cycled on6 load (for example 5 ms on / 5 ms off) and an on5 boundary cell.
+
+== C: BURST-3TIER ==
+Faithful to its sources?
+- **The NAPI part is faithful.** In `napi_complete_done`, a call with work refills `defer_hard_irqs_count`, each call decrements it, and the timer fires at `gro_flush_timeout`; C's tier B matches. NAPI irq suspension (6.13) re-arms per non-empty return; C's tier A matches.
+- **The KVM part differs in what it measures.** KVM grows and shrinks on the block time. C uses the serve-to-serve gap, which includes the service time and the time to detect the request.
+
+Bugs in the pseudocode:
+- **The window is about 10 us too big.** The gap is stamped after `handle_request` (~10 us service): lanes ~9 us apart give gap ≈ 19 us, so win grows to 20. Stamp at detection, before serving.
+- **EPISODE_CAP bounds nothing.**
+  - Inside a stream `k` is refilled to 8 on every request, so `k == 0` is never true.
+  - Once the cap expires, the next request resets `episode_start`.
+  - So a stream with gaps ≤ win spins indefinitely, and in C-alone it spins under load.
+  - Fix: after a cap expiry, force at least one tier-B period, like netdev_budget_usecs.
+
+What can go wrong on this board:
+- **Tier B under load.** Its 8 x 20 us sleeps after every request are the short-period pattern the S sets showed losing under load (more wake-ups, more scheduler delay).
+- **The fix:** gate tier B with the same late_ewma / run_delay guard D uses, falling back to the slow tier when the guard trips.
+
+Tests:
+- C's claim (2 ms victim CPU 0.10 -> ~0.03 s/s) is testable in cells 1 and 2.
+- Cell 4 (no host calls) cannot tell C from A.
+
+== D: SQRT-PERIOD ==
+The formula is correct:
+- Minimizing c/T + αλT/2 gives T* = sqrt(2c/(αλ)).
+- The worked values check out: 77 us at 400/s and 28 us at 3k/s.
+
+Bug in what λ counts:
+- **λ counts every served request,** including burst lanes and requests caught in the hot poll, whose latency does not depend on P.
+- **Effect in burst cells 5/6:** λ ≈ 12.8k/s, so P ≈ 14 us, which the clamp turns into 10 us. That is S10's cost (+200 mW, worse under load) for a cold arrival rate of 400/s.
+- **Fix:** count only requests detected right after a slow-tier sleep.
+- **Smaller issue:** `ep_inflight_us` sums only sleep time, not hot-poll time, which slightly inflates λ.
+
+What can go wrong:
+- **The guard oscillates.** It resets P for one 20 ms epoch only; the next quiet epoch drops P again, so P swings with a ~40 ms period under steady load. The DIM 10% band does not stop that.
+- **α has no anchor,** as the proposal says.
+
+== Missing across all candidates: the scheduling class ==
+Why polling policies cannot fix the full-load tail:
+- 6.8 uses the EEVDF scheduler. I could not read debugfs, so this assumes default features: RUN_TO_PARITY on, HRTICK off.
+- A woken sleeper then cannot preempt the running task before that task's slice deadline, and expiry is only noticed at a tick (4 ms at HZ=250).
+- That matches M100's 4-6 ms stalls and its 1-3.5% of calls > 1 ms.
+- No sleep period in A–D changes this. They only change how often the watcher wakes up.
+
+The standard engineering answer is an RT watcher:
+- Make the watcher SCHED_FIFO at low priority, as threaded IRQs and rtkit/PipeWire do.
+- Only with sleeping tiers, never with WFE or the hot spin.
+- RT throttling (950 ms per 1 s) is the safety net.
+
+The catch, and the candidate to add:
+- The victim runs as the jetson user with `ulimit -r` = 0. It needs an rtprio rlimit (limits.d already grants rtprio 95 to `@pipewire`) or CAP_SYS_NICE.
+- Without that, `sched_setscheduler` fails and the watcher should fall back to normal scheduling.
+- Proposed candidate E: A+C with SCHED_FIFO while kernels are in flight. It is the only candidate that targets the full-load > 1 ms share.
+
+== Test plan: does it separate the candidates? ==
+- **The measured mix is not the recommended one.** ALL includes D, which the recommendation defers. Add an A+B+C set so a dev candidate is measured as-is; D's effect in the mix is then ALL vs A+B+C. Dropping D-alone keeps the run count the same, since D vs A differs only in cells 14/15.
+- **Which cells separate which candidates:**
+  - A vs M100: only cells 9, 10 and 11, and W already shows A's idle behaviour.
+  - B vs A: cells 2, 6, 7, 8 and 13.
+  - C vs A: cells 1, 2, 5, 6, 14 and 15.
+- **Missing cells:**
+  - graph launch (A's risk 1);
+  - duty-cycled load and on5 (B's risk 1);
+  - two processes at on3 (B's watchers oscillating);
+  - SCHED_FIFO (E).
+- **Too few samples in 400-launch cells.** Cells 3, 9 and 10 give single-digit counts of > 1 ms calls per run. Pool the 4 rounds and use bootstrap intervals for "no worse than M100". As written, the rule cannot be decided on those cells.
+- **Step 0 measures signal costs only with nothing else running.** Add: `cudaEventQuery` and `/proc` preads while a second thread launches at the cell-14 rate, and the extra launch-path cost of `note()` (cell 14, P vs M100).
+- **The optional cpuidle round should include W and B.** The current list is P, M100, A and ALL only.
+
+Files checked:
+- /home/jetson/src/results/gpu/watcher-sleep-20261111/scripts/run_one.sh
+- dev 46f5a7cb: runtime/src/attach/bpf_attach_ctx_cuda.cpp (watcher loop around lines 220-375)
+- dev 46f5a7cb: attach/nv_attach_impl/probed_launch_activity.cpp

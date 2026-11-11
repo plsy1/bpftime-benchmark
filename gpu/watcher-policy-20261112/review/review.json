@@ -1,0 +1,178 @@
+{
+ "recompute": {
+  "claims": [
+   {
+    "n": 1,
+    "verdict": "confirmed",
+    "note": "I parsed all 504 runs (4 rounds x 18 cells x 7 sets) independently. Every run has victim rc=0, loader rc=0 and load rc=0 where they apply, clocks are 1728000/1728000/1020000000 before and after, and no env notes. Loader counts are launches+1, c18 is launches+2 (3202), and the burst cells have 2401. The max temperature in the env files is 54.437 C; tegrastats peaks at 54.06 C."
+   },
+   {
+    "n": 2,
+    "verdict": "partly",
+    "note": "Here 'sleeping sets' means M100/A/AC. The claim fails in c04, a single-lane cell with no probe: M100 +0.0180, A +0.0208, AC +0.0210, AB/ABC +0.0258. In all other single-lane cells AC is lowest: c03 0.0169, c09 0.0057, c10 0.0069, c11 0.0023 (A 0.0024), c12 0.0433, c13 0.0375, c15 0.0439, c16 0.0648, c17 0.0137. The cited range is off: AC in c01/c02/c07/c18 is 0.0239/0.0215/0.0235/0.0189, so 0.019-0.024, not 0.017 (0.017 is c03). M100 in those cells is 0.0877/0.0920/0.0921/0.0899, which matches. c14 is 0.0600 vs 0.5142, which matches. In c15 ABC (0.0438) ties AC (0.0439), and AC's per-round values there are noisy (0.027-0.066)."
+   },
+   {
+    "n": 3,
+    "verdict": "partly",
+    "note": "Pooled medians for AC vs M100: c02 69.2 vs 63.4, c07 67.4 vs 64.3, c09 67.5 vs 70.0, c14 66.8 vs 67.6, c18 69.7 vs 63.9. So M100 is not 67-70 everywhere. In c02/c07/c18 AC's median is consistently about 3-6 us higher, and the per-round medians agree (c02 M100 63.0-64.0 vs AC 68.4-70.0). p90 does match: AC 107.9-109.8, M100 106.3-109.7. c07 is not a no-load cell; it runs the on3 load."
+   },
+   {
+    "n": 4,
+    "verdict": "confirmed",
+    "note": "c01 load vs P: AC 0.989 (0.979-0.992), M100 0.980 (0.978-0.982), W 0.865. Share > 1 ms: AC 1.04%, M100 3.50%, W 11.29% (W's per-round values range 8.19-15.53%). c15: AC load 0.980 (0.963-0.982) vs M100 0.942; > 1 ms 0.45% vs 6.61%; p99 119.9 vs 3937.4 us. The load ranges for AC and M100 in c01 almost overlap."
+   },
+   {
+    "n": 5,
+    "verdict": "confirmed",
+    "note": "c10 > 1 ms: AC 1.69% vs M100 0.50% (27 vs 8 of 1600 samples, per round AC 0.75-3.0%). c17: 30.66% vs 25.14%. c06 cost per call: 12.41 vs 11.20 us. The list is incomplete. AC is also worse in c08 (cost per call 12.42 vs 11.28) and in c04 CPU (+0.0210 vs +0.0180). Its median host-call latency is also about 3-6 us higher in c02/c07/c18 (see claim 3). c03 > 1 ms (0.88 vs 0.75%) is within noise."
+   },
+   {
+    "n": 6,
+    "verdict": "confirmed",
+    "note": "c11 CPU: A 0.0024, AC 0.0023, AB 0.0024, ABC 0.0024, M100 0.0109, W 0.0025. VDD_CPU_GPU_CV medians: AC 1470, M100 1509, P 1458, W 1476 mW (A 1477, AB 1469, ABC 1463). The per-round spread is 30-40 mW (AC 1458-1497, M100 1487-1513, P 1451-1463, W 1468-1486), so AC above P and AC equal to W are within noise. Only M100 being higher holds in most rounds."
+   },
+   {
+    "n": 7,
+    "verdict": "confirmed",
+    "note": "c01 CPU: A +0.0893 vs M100 +0.0877, with A hot_iters about 6.24M per run. The park helps only in the gap cells: c09 A 0.0147 vs M100 0.0208, c10 0.0152 vs 0.0228, c11 0.0024 vs 0.0109. Elsewhere A is equal or slightly higher, e.g. c04 0.0208 vs 0.0180 and c05 0.169 vs 0.163."
+   },
+   {
+    "n": 8,
+    "verdict": "partly",
+    "note": "Latency matches. With the gate open, AB/ABC medians are c02 14.8/14.7, c07 14.8/14.7, c09 16.1/16.2, c14 14.8/14.9 (14.7-16.2), and W is 13.8-15.4. CPU 'about 1.0 like W' is wrong in two cells. In c09 W is 0.156, AB 0.170 and ABC 0.160. In c14 ABC is 0.513 against AB 1.025 and W 1.014. ABC is also below W in c02 (0.933) and c07 (0.905). The closed-gate counters are confirmed: AB and ABC have gate_opens=0 and latch_trips=1 in every round of c01/c03/c05/c10/c15 (also c04; c12 has 2, one per process). 'Like A/AC' fails for ABC in c05: CPU 0.045 vs AC 0.114 and cost per call 21.6 vs 17.1 us (win80 1938 vs 2). c17 matches: > 1 ms AB 11.70% / ABC 13.01% vs W 0.15% vs M100 25.14%, load 0.907/0.927 vs W 0.879 vs M100 0.944."
+   },
+   {
+    "n": 9,
+    "verdict": "partly",
+    "note": "c16: AB 1.52% > 1 ms at CPU +1.700, ABC 1.50% at +1.692, W 0.92% at +1.988, M100 3.84% at +0.113. The gate_opens count is summed over both processes. Median per run is AB 1248 (range 1041-1476) and ABC 966 (range 818-1039). Per run the spread is 818-1476, so '1,000-1,250' does not describe it. latch_trips vary widely: AB 5-152, ABC 48-134."
+   },
+   {
+    "n": 10,
+    "verdict": "partly",
+    "note": "A, AC, AB and ABC all have unseen_latch=1 and unseen_hits=2 in every round. Medians: A 69.8, AC 69.7, W 533.3, AB 14.9 (ABC 14.8). But M100's own c18 median is 63.9, so 'serves like M100 (median 69-70)' hides the same 6 us gap as claim 3. W in c18: > 1 ms 3.85%, p99 1027 us, CPU only +0.070."
+   },
+   {
+    "n": 11,
+    "verdict": "confirmed",
+    "note": "Numbers match; the hypothesis is untested. c13 p99 / > 1 ms: M100 2500.6 / 3.88%, A 2487.1 / 3.48%, AC 2489.5 / 3.69%. W/AB/ABC p99 372.7/373.4/374.0 with 0.93-0.96% > 1 ms, but ABC round 3 alone has p99 2397. The sleeping-set p99 of about 2.49-2.52 ms is about one mean kernel (asked 2497.6 us), in c12 and c16 as well. That fits the time-slicing hypothesis but does not test it."
+   },
+   {
+    "n": 12,
+    "verdict": "confirmed",
+    "note": "Numbers match; the hypothesis is untested. c17 max host-call latency: M100 5071, A 5078, AC 5067 us (W 4962, AB 4975, ABC 4972, so every set is about 5 ms). P's per-launch mean is 3645.1 us (rounds 3602-3661) vs c02 P 2526.2 (the claim says 2,527; c18 P is 2526.6)."
+   },
+   {
+    "n": 13,
+    "verdict": "partly",
+    "note": "The c02 VDD_CPU_GPU_CV medians match: P 1699, W 1713, AB 1706, ABC 1727, M100 1766, A 1760, AC 1747 mW. The conditional 'holds only under jetson_clocks (cpuidle WFI/c7 off)' cannot be checked: every run was at the same clocks and cpuidle state is not logged. The per-round spread is 15-40 mW (ABC 1705-1745, W 1691-1720), so ABC sits between the groups rather than with P. Sleeping sets above WFE sets holds in every round of c02/c06/c13/c18."
+   },
+   {
+    "n": 14,
+    "verdict": "partly",
+    "note": "It is thinner than stated. P's c14 window is 1.297 s with no whole second, so P has no value in any round. Rounds with one whole second per set: W 2/4, M100 1/4, A 2/4, AC 4/4, AB 3/4, ABC 1/4. So the M100 (1959) and ABC (1874) values each rest on one second from one run, and W/A on two."
+   }
+  ],
+  "other_findings": [
+   "c18: W slows the victim. Per-launch mean is 3073 us vs P 2527 (+546, about W's 533 us median latency); W's victim window is 9.83 s vs P 8.09 s. Claim 10 gives W's latency but not this cost to the victim.",
+   "c17: W's victim is faster than P's (per-launch mean 3105 vs P 3645; M100 3880, A 3940, AC 3917). P is not the fastest set under the duty-cycled load, which bears on the claim-12 hypothesis.",
+   "c12 (two processes, full load) is the worst cell and is not mentioned. W: > 1 ms 37.23%, p99 6.4 ms, load vs P 0.776, CPU +1.32, per-launch mean 6595 vs P 4970. Sleeping sets there: > 1 ms 4.6-5.4%, p99 about 2.5 ms.",
+   "c03 W: 21.38% > 1 ms (per round 12.75-30.25%), load 0.857. This is W's worst single-process cell and is not mentioned.",
+   "Single-round outliers: c18 ABC r2 dCPU 0.552 vs about 0.928 in the other rounds, with p99 117 vs 15 us. c13 ABC r3 p99 2397 vs about 373. c16 W r4 p99 2369 vs about 375. c15 W dCPU per round 0.545-0.776. c15 AC dCPU per round 0.027-0.066.",
+   "c05 (32 lanes, full load): ABC CPU +0.045 vs AC +0.114, but cost per call 21.6 vs 17.1 us (win80 1938 vs 2). The C part costs per-call latency there.",
+   "Burst cells (c05/c06/c08) have only 2401 loader records (one per launch, not per lane). 'Cost per call' is derived as (per-launch mean - P) / 32, not measured from host calls.",
+   "c04 (probe none): the nohost loader still logs 3201 records of 0-128 ns, many of them 0. This is harmless but means record counts there say nothing.",
+   "c18: dropping only the first ns value keeps the graph warm-up (index 1) and the first timed graph launch (index 2, about 600-740 us for A-family/W before the latch). This is negligible against 12,804 samples but is where A/AC's c18 max (620/728 us) comes from.",
+   "Two-process cells write one .stats line per watcher into the same file. The counters cited for c12/c13/c16 are sums of 2 processes (req=6402).",
+   "Power: only 5-8 whole seconds (about 50-80 tegrastats lines) per no-load run. Per-round spreads of 15-40 mW are comparable to most of the set differences claimed (claims 6 and 13).",
+   "The per-round set order rotates (c02: r1 W first, P last; r4 AC first), so P's position changes between rounds and P is not biased by position. Load coverage was complete: samples span every victim window, with no sampler gap over 30 ms.",
+   "c02/c07: AB's latch tripped in some rounds (c02 r2 5 trips, c07 up to 5; ABC c07 4-26 trips), so the gate is not always open in the idle cells.",
+   "Recomputation script: /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/v.py (parse) and t.py (tables). Full output: /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/all.txt"
+  ]
+ },
+ "critic": {
+  "claims": [
+   {
+    "n": 1,
+    "verdict": "confirmed",
+    "note": "verify.csv: all 504 rows ok=True, tmax 54.4 C. Small caveat: summarize.py drops only the first latency record ([1:]), so in c18 the graph warm-up record (1 of 3201 per run) stays in the latency stats. Negligible."
+   },
+   {
+    "n": 2,
+    "verdict": "partly",
+    "note": "The direction holds and is solid in every round (c01 raw CPU AC 0.037-0.038 vs M100 0.100-0.102). Three problems: (a) the range for c01/c02/c07/c18 is 0.019-0.024; the 0.017 is c03's value. (b) 'Every single-lane cell' is wrong. In c04 (no host calls) M100 is +0.018 and AC +0.021. c11 is a four-way tie at 0.002, and c15 is AC = ABC = 0.044. (c) The mechanism is not adaptivity. C's window never opens in single-lane cells: win0 = 3201 of 3201 requests in c01/c02/c07/c18 (c14 82%, c15 99%), hot_iters = 0. So AC's gain there is just 'drop the 200 us busy poll, add 8 x 20 us deferral sleeps'. The claim should say this."
+   },
+   {
+    "n": 3,
+    "verdict": "partly",
+    "note": "p90/p99 do match (about 106-110 / 118). Medians are not equal: M100 is lower by about 5-6 us in every round of c02 (63.0-64.0 vs AC 68.4-70.0), c07 (63.7-65.0 vs 65.9-69.2) and c18 (63.3-64.6 vs 69.2-70.0). They are equal in c09 and c14. Also, c07 is on3 (partial load), not 'no load'. Better: 'within ~6 us, M100 slightly lower'."
+   },
+   {
+    "n": 4,
+    "verdict": "confirmed",
+    "note": "Latency part is robust in every round. c01 > 1 ms: AC 0.97-1.12% vs M100 3.31-3.94% vs W 8.2-15.5%. c15: AC p99 119-128 vs M100 3,919-4,029 us. c15 load ratio is AC > M100 in all rounds. c01 load is weaker: round 1 is a tie (AC 0.979 vs M100 0.978), AC is ahead by 0.008-0.012 in rounds 2-4, and the min-max ranges overlap. Say '3 of 4 rounds'. No mechanism is stated or tested. A plausible one: under EEVDF, the 200 us busy poll costs the watcher scheduling credit (lag), so later wake-ups are not preempted. Test it with A and HOT_US=0."
+   },
+   {
+    "n": 5,
+    "verdict": "partly",
+    "note": "Direction holds per round, but c10 has only 400 calls per run. The 1.69% vs 0.50% is about 27 vs 8 events in 1,600 calls, round 1 is a tie (0.75 vs 0.75), and A alone (0.19%) beats both, so C, not A, makes c10 worse (ABC 2.25% too). c17 is consistent (AC 28.6-32.7% vs M100 24.3-26.3% per round). c06: AC per-launch is 2,921-2,931 vs M100 2,877-2,904 in every round, so 12.4 vs 11.2 holds."
+   },
+   {
+    "n": 6,
+    "verdict": "partly",
+    "note": "CPU part confirmed (0.002 vs 0.011 in every round). Power is within noise except M100. Per-run CV: AC 1,458-1,497, A 1,456-1,494, W 1,468-1,486, P 1,451-1,463, M100 1,487-1,513. AC r4 (1,497) is above M100 r3 (1,487). A and AC behave identically in c11 (no requests) yet differ by 7 mW, which gives the noise floor (about +/-20 mW). Only a weak M100 increase of ~40 mW is supported. AC vs W vs P cannot be told apart. The c11 latency (1 call per run, 19-113 us) means nothing."
+   },
+   {
+    "n": 7,
+    "verdict": "confirmed",
+    "note": "hot_iters / req is about 1,950 in c01/c02/c14/c18, i.e. about 200 us at roughly 100 ns per iteration. Raw CPU A 0.102-0.104 vs M100 0.100-0.102. Caveat 1: parks ~296 / park_timeouts ~293 appear in every no-gap no-load cell. They come from agent start-up (~300 ms of 1 ms backstops before the first launch), not from the loop. Real in-loop parking shows only in c09/c10/c11 and partly under on6 (c01: 634). Caveat 2: the us_* counters add integer-us deltas per ~100 ns iteration and undercount. Example: c18 A us_hot = 328 ms for 6.27M iterations (about 627 ms expected). Do not use them."
+   },
+   {
+    "n": 8,
+    "verdict": "partly",
+    "note": "Medians match (AB/ABC 14.7-16.2, W 13.8-15.4) and the c17 numbers match. Four corrections. (a) c09 CPU is about 0.16-0.17 for both W and AB, not ~1.0. (b) Under on6 the gate is closed by loadavg (others >= 5 every check); latch_trips=1 is incidental. (c) 'Like A/AC' is false for ABC in bursts. With B on and the gate closed, C's hot window calls sleep_us(10) instead of cpu_relax. In c05, ABC has hot_iters 77k vs AC 4.0M, CPU 0.045 vs 0.114, and cost per call 21.6 vs 17.1 us. (d) AB is not free with the gate closed: > 1 ms AB vs A is 1.25-1.75% vs 0-0.5% in c10 and 4.0-4.4% vs 3.6-3.8% in c01, in every round. Likely cause: the 1 ms /proc preads (syscalls, i.e. preemption points)."
+   },
+   {
+    "n": 9,
+    "verdict": "confirmed",
+    "note": "Per round, AB is 1.34-1.88% and ABC 1.31-1.64% > 1 ms. The 1.70 is the minus-P value (raw 1.72). gate_opens medians are 1,248 (AB) and 966 (ABC), summed over 2 processes, so '1,000-1,250' is slightly high for ABC. latch_trips of 89/83 per run show the gate flapping. The > 1 ms values sit in the same 2.25-2.75 ms band as c13 (GPU time slice, see 11)."
+   },
+   {
+    "n": 10,
+    "verdict": "confirmed",
+    "note": "All 16 A-family c18 runs have unseen_latch=1 and unseen_hits=2. The two hits are the first timed graph launches (r1 A records 609 and 589 us); after that the runs are M100-like (median 69-70, p99 118). W is 531-537 us median in every round. W runs at the default 50 us timer slack (it never sets PR_SET_TIMERSLACK), which adds a little to its sleeps. The latch is fragile, though (see other findings #1)."
+   },
+   {
+    "n": 11,
+    "verdict": "unverifiable",
+    "note": "The numbers are right, and the hypothesis is well supported by data already in hand. Every > 1 ms host call in c13 falls in one 2.25-2.75 ms band for every set (W/AB: 239 of 239 in 2.25-2.5 ms). The same band with the same share appears in c16 (on3) and as the main mode in c12 (on6), so it does not depend on CPU load. The share scales with the mean wait (W ~15 us gives 0.93%, sleeping sets ~70 us give 3.5-3.9%, ratio about 4). Better wording: a time-slice expiry that falls inside the wait gets charged to the host call (probability proportional to wait / slice). That is different from 'a late answer lets the other kernel run'. Also, p99 is fragile here because the tail share is near 1% (W 0.93% gives p99 373 us, sleeping 3.7% gives 2.5 ms); report the share instead. Cheap tests: (i) give the two processes different spins (2 vs 6 ms); the long-call band should follow the other context's slice or kernel. (ii) M100 with MAX_SLEEP_US 50/100/200; the > 1 ms share should scale linearly with the mean wait. (iii) P mode with the spin kernel recording its largest %globaltimer gap; ~2.4 ms gaps without bpftime would confirm the slicing. (iv) As root, change the nvgpu TSG timeslice and see whether the band moves."
+   },
+   {
+    "n": 12,
+    "verdict": "unverifiable",
+    "note": "Numbers confirmed: max 5,067-5,078 us, and P per-launch is 3,602-3,661 in every round vs 2,527 no-load and 2,577 under constant on6. The hypothesis is plausible. The > 1 ms values spread over 1-5 ms, get denser toward the end of the on-phase, and none go above ~5.1 ms. CONFIG_HZ=250 (4 ms tick) plus the EEVDF slice (~2-3 ms) means a wake-up that does not preempt waits for a tick-detected slice end, roughly until the phase ends. In-run signs of late wake-ups: AC guard_skips=1,192 and AB latch_trips=156 in c17. One gap: W's per-launch (3,072-3,298) is below P's in every round, so P is not a clean floor in c17. The hypothesis also has to explain why a WFE-spinning sibling thread helps the victim's main thread, which blocks in sync (P CPU 0.011). Cheap tests: a GPU-free thread doing 100 us clock_nanosleep and logging lateness under 'load2 6 x 5 5' vs 'load2 6'; vary the on-phase (2/5/10 ms) and see if the max follows it; 5 load threads or taskset to 5 cores; chrt -f or nice the watcher; perf sched timehist with /usr/lib/linux-tools/6.8.0-1020-nvidia-tegra/perf; as root, NO_RUN_TO_PARITY / NO_PLACE_LAG in sched features."
+   },
+   {
+    "n": 13,
+    "verdict": "partly",
+    "note": "The c02 separation holds per round: sleeping sets 1,742-1,773 mW, WFE sets 1,691-1,745, P 1,685-1,703 (one overlap, ABC r3 1,745 vs AC r2 1,742). Two problems. (a) 'cpuidle WFI/c7 off' is inaccurate: state0 WFI shows disable=1, but its usage counter still rises (127 per second on idle cpu3 when checked today), because the menu governor falls back to state 0 when every state is disabled. Cores idle in WFI; only c7 is off. (b) 'Holds only under jetson_clocks' was never measured (no run without it). It is a scoping caveat, not a result."
+   },
+   {
+    "n": 14,
+    "verdict": "confirmed",
+    "note": "P's window is 4000 x 324.6 us = 1.30 s, so P has no power value. It is worse than stated: only some runs have any power value. W 2/4, M100 1/4, A 2/4, AC 4/4, AB 3/4, ABC 1/4, each from about 9-10 samples (one second). So M100's 1,959 and ABC's 1,874 are single 1-second readings, and the medians in the table mix different numbers of runs."
+   }
+  ],
+  "other_findings": [
+   "PATCH BUG (most important): the 'unseen' latch fires falsely on launches the hooks do note. 13 of 256 non-graph A-family runs have unseen_hits=1: r1 c02_AB, r1 c11_AB, r2 c11_AC, r2 c03_AB, r2 c06_AB, r2 c08_A, r2 c08_ABC, r2 c12_ABC, r2 c16_A, r2 c17_ABC, r4 c05_A, r4 c07_AB, r4 c10_A. unseen_hits is never reset, the threshold is 2 and the latch is permanent. In a longer-lived process, a second false hit would silently turn A/AC into M100-like behaviour with no parking (c11 CPU would go from 0.002 to ~0.011). Likely cause: note() runs after original() returns (a post-launch hook; the first note also calls cuEventCreate), and wait_for_note wakes only on notes, not on flag1. So a short probed kernel (the warm-up spins 1 us) can post its host call before its own note, and a backstop that expires in that gap counts as a hit. In c11/c02 the hit left no visible long latency, consistent with it being the warm-up record, which summarize drops. Fix: decay the counter or require consecutive hits. Test: a 10x longer c02, or many short probed kernels, while watching unseen_latch.",
+   "Attribution gap for C: the adaptive window is barely exercised. win0 is 100% of requests in every single-lane cell except c14 (82%) and c15 (99%); cap_forced = 0 everywhere; win300 is about 0 (2 events in c14 ABC). Every AC win in single-lane cells is 'no 200 us busy poll + 8 x 20 us deferral sleeps'. A control is missing: A with HOT_US=0 (and/or AC with K_DEFER=0). Without it the gain cannot be credited to C's grow/shrink logic.",
+   "Set definitions do not match the code for ABC. In the C hot path with B on, a closed gate gives sleep_us(P_MIN=10), not cpu_relax. So ABC vs AC is not 'AC plus WFE' in burst cells (c05: hot_iters 77k vs 4.0M, CPU 0.045 vs 0.114, cost per call 21.6 vs 17.1 us). Also ABC keeps C's deferral sleeps when the gate is open, which is why ABC CPU is about 0.93 vs AB about 1.0.",
+   "B has a cost under load even with the gate closed. AB vs A > 1 ms is 1.25-1.75% vs 0-0.5% in c10 and 4.0-4.4% vs 3.6-3.8% in c01, in every round (ABC vs AC in c10: 2.25 vs 1.69%). The only difference is gate_check's two preads every 1 ms. The latch counter mixes run_delay trips and late-WFE trips, which cannot be separated. WFE returns about every 100 us (wfe_waits about 27 per request in c02/c18, ~10.7k/s, i.e. the arm64 event stream), so LATE_WFE_US=500 fires only on preemption longer than 500 us. Also, loadavg's 4th field is an instantaneous count, and the open/close thresholds (>=5 closed, <=4 open) leave no hysteresis band; only OPEN_STREAK=3 damps it, so it flaps (c16: ~1,000 opens, 89 latch trips per run).",
+   "The rotation is only partly balanced. rounds.sh uses offsets r=1..4 out of 7, so each set gets only 4 of the 7 positions. P sits only in positions 3-6, always right after ABC (and right before W in r2-r4). AC sits only in 0-3; M100 in 0, 1, 5, 6; P/AB/ABC never run first. Each cell's first run follows the previous cell's last set (a different workload). With locked clocks and temps at or below 54 C the effect is probably small, but there are signs. c06 M100 per-launch is about 2,900 in r1/r2 (early positions) and about 2,877 in r3/r4 (late), the same order as some of the small claimed deltas. Use all 7 rotations, or randomise, before relying on deltas under ~1%.",
+   "Build fairness. diff -rq of the W worktree (46f5a7cb, clean) against policy/src over runtime/ and attach/ shows only bpf_attach_ctx_cuda.cpp differs, so the comparison is fair. Caveats: W's libbpftime-agent.so was built at 16:10, 12 minutes before commit 46f5a7cb (16:22), so the binary-to-commit match is assumed, not shown. And W never sets PR_SET_TIMERSLACK (default 50 us) while M100 and the A-family use 1 us. That matters where W sleeps (c18's 533 us, the c09/c10 gaps).",
+   "Statistics. Latency percentiles pool all runs and processes, so p99/max can come from a single run: c18 ABC r2 CPU 0.562 vs ~0.94 in other rounds; c13 ABC r3 p99 2,397 vs ~373 in other rounds; c16 W r4 p99 2,369. For bimodal tails (c13/c16) the > 1 ms share is the stable statistic and p99 is not. Report per-round ranges, or medians of per-run percentiles. Small-count cells (c10: 400 calls per run; c11: 1 call per run) need event counts, not percentages.",
+   "c17 baseline problem. P's per-launch (3,602-3,661) is above W's (3,072-3,298) in every round, so P is not a no-overhead floor there. The victim's main thread (device_flags 0x8, P CPU 0.011, so it blocks in sync) suffers the same wake-up delay, and per-launch or 'load vs P' comparisons in c17 are confounded by it.",
+   "The CLAIMS table never notes that idle parking happens mostly at start-up. parks ~296 / park_timeouts ~293 appear in every no-gap no-load cell, and the matching CPU and power are partly start-up (~300 ms before the first launch, outside the timed window for CPU but inside the process). The us_* counters are integer-microsecond sums per ~100 ns iteration, so they undercount by up to ~2x; flag this before anyone uses them.",
+   "Minor harness asymmetries: (a) non-P sets have the loader (syscall-server) process resident during the run, and P has none, which slightly affects load rate and power; (b) for loaded cells the load starts 1 s before the loader attach wait, so non-P victims start later into the load; (c) in c18 summarize keeps the graph warm-up latency record; (d) c14 power medians mix 1-4 runs per set."
+  ]
+ }
+}
