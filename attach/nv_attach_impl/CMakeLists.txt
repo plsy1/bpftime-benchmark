@@ -29,6 +29,7 @@ add_library(
     nv_attach_utils.cpp
     nv_attach_fatbin_record.cpp
     nv_elf_introspect.cpp
+    probed_launch_activity.cpp
 )
 
 add_dependencies(

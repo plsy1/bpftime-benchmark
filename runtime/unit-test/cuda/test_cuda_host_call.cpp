@@ -11,6 +11,8 @@
 #include "cuda.h"
 #include "nv_attach_impl.hpp"
 #include "nv_attach_utils.hpp"
+#include "probed_launch_activity.hpp"
+#include <sys/auxv.h>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <algorithm>
 #include <atomic>
@@ -358,6 +360,66 @@ $L_me_store:
 	shl.b64 	%rd5, %rd4, 3;
 	add.s64 	%rd6, %rd1, %rd5;
 	st.u64 	[%rd6], %rd3;
+	ret;
+}
+
+// One thread, `count` times: wait `delay_ns` (globaltimer), then a map update
+// (key i, value i) timed with globaltimer: out[i] = ns of the call
+.visible .entry bpftime_test_spaced_calls(
+	.param .u64 bpftime_test_spaced_calls_param_0,
+	.param .u64 bpftime_test_spaced_calls_param_1,
+	.param .u64 bpftime_test_spaced_calls_param_2,
+	.param .u64 bpftime_test_spaced_calls_param_3
+)
+{
+	.local .align 8 .b8 	__local_depot_sc[16];
+	.reg .b64 	%SP;
+	.reg .b64 	%SPL;
+	.reg .pred 	%p<3>;
+	.reg .b64 	%rd<24>;
+
+	mov.u64 	%SPL, __local_depot_sc;
+	cvta.local.u64 	%SP, %SPL;
+	ld.param.u64 	%rd1, [bpftime_test_spaced_calls_param_0];
+	ld.param.u64 	%rd2, [bpftime_test_spaced_calls_param_1];
+	ld.param.u64 	%rd3, [bpftime_test_spaced_calls_param_2];
+	ld.param.u64 	%rd4, [bpftime_test_spaced_calls_param_3];
+	mov.u64 	%rd5, 0;
+$L_sc_next:
+	mov.u64 	%rd6, %globaltimer;
+$L_sc_wait:
+	mov.u64 	%rd7, %globaltimer;
+	sub.s64 	%rd8, %rd7, %rd6;
+	setp.lt.u64 	%p1, %rd8, %rd4;
+	@%p1 bra 	$L_sc_wait;
+	st.local.u64 	[%SPL], %rd5;
+	st.local.u64 	[%SPL+8], %rd5;
+	add.s64 	%rd9, %SP, 8;
+	mov.u64 	%rd10, 0;
+	mov.u64 	%rd11, %globaltimer;
+	{
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd1;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %SP;
+	.param .b64 param2;
+	st.param.b64 	[param2+0], %rd9;
+	.param .b64 param3;
+	st.param.b64 	[param3+0], %rd10;
+	.param .b64 param4;
+	st.param.b64 	[param4+0], %rd10;
+	.param .b64 retval0;
+	call.uni (retval0), _bpf_helper_ext_0002, (param0, param1, param2, param3, param4);
+	ld.param.b64 	%rd12, [retval0+0];
+	}
+	mov.u64 	%rd13, %globaltimer;
+	sub.s64 	%rd14, %rd13, %rd11;
+	shl.b64 	%rd15, %rd5, 3;
+	add.s64 	%rd16, %rd2, %rd15;
+	st.u64 	[%rd16], %rd14;
+	add.s64 	%rd5, %rd5, 1;
+	setp.lt.u64 	%p2, %rd5, %rd3;
+	@%p2 bra 	$L_sc_next;
 	ret;
 }
 )PTX";
@@ -1135,5 +1197,156 @@ TEST_CASE("An array map the GPU addresses stays allocated after its fd is closed
 		}
 		CHECK(touched == 0);
 		CHECK(host.served.load() == 0);
+	}
+}
+
+// A sleeping watcher (50 us doubling to 1 ms between requests) answered a
+// host call that came after a pause 0-1 ms late (results
+// gpu/hostwake-20261111). While a probed kernel may run it now waits on the
+// request flag with WFE, and a noted launch ends its sleep.
+TEST_CASE("The host-call watcher answers at once while a probed kernel runs",
+	  "[cuda-host-call]")
+{
+	if (!use_primary_context())
+		SKIP("no CUDA device");
+#if defined(__aarch64__)
+	if (!(getauxval(AT_HWCAP) & HWCAP_EVTSTRM))
+		SKIP("no arch timer event stream");
+#else
+	SKIP("WFE waiting is aarch64 only");
+#endif
+	constexpr int map_fd = 7;
+	agent_segment segment("cuda-host-wake", [&]() {
+		REQUIRE(bpftime_maps_create(
+				map_fd, "host_wake_map",
+				{ .type = (int)bpf_map_type::BPF_MAP_TYPE_HASH,
+				  .key_size = 8,
+				  .value_size = 8,
+				  .max_ents = 1024 }) == map_fd);
+	});
+	{
+		bpf_attach_ctx ctx;
+		const uintptr_t comm =
+			cuda::cuda_shared_mem_device_pointer_storage().load();
+		REQUIRE(comm != 0);
+		test_module module;
+		module.set_comm(comm);
+		module.set_map_info(map_fd, { .enabled = true,
+					      .key_size = 8,
+					      .value_size = 8,
+					      .max_entries = 1024,
+					      .map_type = (int)bpf_map_type::
+						      BPF_MAP_TYPE_HASH,
+					      .extra_buffer = nullptr,
+					      .max_thread_count = 0 });
+		constexpr uint64_t calls = 20, gap_ns = 2'000'000;
+		device_buffer out(calls * sizeof(uint64_t));
+		CUfunction function;
+		REQUIRE(cuModuleGetFunction(&function, module.module,
+					    "bpftime_test_spaced_calls") ==
+			CUDA_SUCCESS);
+		CUstream stream;
+		REQUIRE(cuStreamCreate(&stream, CU_STREAM_NON_BLOCKING) ==
+			CUDA_SUCCESS);
+		uint64_t map = map_fd, outp = out.ptr, n = calls, gap = gap_ns;
+		void *params[] = { &map, &outp, &n, &gap };
+		// the launch hook's part: launch, then note it
+		REQUIRE(cuLaunchKernel(function, 1, 1, 1, 1, 1, 1, 0, stream,
+				       params, nullptr) == CUDA_SUCCESS);
+		attach::launch_activity().note(stream);
+		REQUIRE(cuStreamSynchronize(stream) == CUDA_SUCCESS);
+		auto ns = out.read();
+		std::sort(ns.begin(), ns.end());
+		const double median_us = ns[calls / 2] / 1000.0;
+		INFO("host calls 2 ms apart: median " << median_us << " us, max "
+						      << ns.back() / 1000.0
+						      << " us");
+		// sleeping between them: about 300-950 us (gpu/hostwake-20261111)
+		CHECK(median_us < 100);
+		// after the kernel the watcher sleeps between requests again
+		bool idle = false;
+		for (int i = 0; i < 100 && !idle; i++) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			idle = !ctx.cuda_watcher_waits_on_flag();
+		}
+		CHECK(idle);
+
+		// A launch noted while the watcher sleeps (5 ms idle: 1 ms
+		// sleeps) ends the sleep: the watcher waits on the flag at once,
+		// not when its sleep is over.
+		std::vector<double> to_flag_us;
+		uint64_t one = 1, long_gap = 5'000'000;
+		void *long_params[] = { &map, &outp, &one, &long_gap };
+		for (int i = 0; i < 10; i++) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			REQUIRE(!ctx.cuda_watcher_waits_on_flag());
+			REQUIRE(cuLaunchKernel(function, 1, 1, 1, 1, 1, 1, 0,
+					       stream, long_params,
+					       nullptr) == CUDA_SUCCESS);
+			const auto t0 = std::chrono::steady_clock::now();
+			attach::launch_activity().note(stream);
+			while (!ctx.cuda_watcher_waits_on_flag() &&
+			       std::chrono::steady_clock::now() - t0 <
+				       std::chrono::milliseconds(20))
+				;
+			to_flag_us.push_back(
+				std::chrono::duration<double, std::micro>(
+					std::chrono::steady_clock::now() - t0)
+					.count());
+			REQUIRE(cuStreamSynchronize(stream) == CUDA_SUCCESS);
+			for (int j = 0; j < 100 && ctx.cuda_watcher_waits_on_flag();
+			     j++)
+				std::this_thread::sleep_for(
+					std::chrono::milliseconds(1));
+		}
+		std::sort(to_flag_us.begin(), to_flag_us.end());
+		INFO("noted launch to waiting on the flag: median "
+		     << to_flag_us[5] << " us, max " << to_flag_us.back()
+		     << " us");
+		// about 10 us; a sleep ending on its own: up to 1 ms (median
+		// 160 us in the mutation check)
+		CHECK(to_flag_us[5] < 50);
+		cuStreamDestroy(stream);
+	}
+}
+
+// A launch into a stream being captured only goes into a graph. Noting it
+// recorded an event into the capture, the watcher then queried that event,
+// and the application's capture was invalidated (found by review).
+TEST_CASE("A noted launch into a stream being captured leaves the capture valid",
+	  "[cuda-host-call]")
+{
+	if (!use_primary_context())
+		SKIP("no CUDA device");
+	agent_segment segment("cuda-capture-note", []() {});
+	{
+		bpf_attach_ctx ctx;
+		test_module module;
+		CUfunction function;
+		REQUIRE(cuModuleGetFunction(&function, module.module,
+					    "bpftime_test_pid_tgid") ==
+			CUDA_SUCCESS);
+		device_buffer out(sizeof(uint64_t));
+		CUstream stream;
+		REQUIRE(cuStreamCreate(&stream, CU_STREAM_NON_BLOCKING) ==
+			CUDA_SUCCESS);
+		const uint64_t before = attach::launch_activity().generation();
+		REQUIRE(cuStreamBeginCapture(stream,
+					     CU_STREAM_CAPTURE_MODE_GLOBAL) ==
+			CUDA_SUCCESS);
+		uint64_t outp = out.ptr;
+		void *params[] = { &outp };
+		REQUIRE(cuLaunchKernel(function, 1, 1, 1, 1, 1, 1, 0, stream,
+				       params, nullptr) == CUDA_SUCCESS);
+		attach::launch_activity().note(stream);
+		// several of the watcher's 100 us checks
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		CUgraph graph = nullptr;
+		CHECK(cuStreamEndCapture(stream, &graph) == CUDA_SUCCESS);
+		CHECK(attach::launch_activity().generation() == before);
+		CHECK(!ctx.cuda_watcher_waits_on_flag());
+		if (graph)
+			cuGraphDestroy(graph);
+		cuStreamDestroy(stream);
 	}
 }

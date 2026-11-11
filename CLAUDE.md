@@ -2190,6 +2190,41 @@ on `occupy_flag` (host memory, the flags' cache line) made a call cost 300 us
 with 32 warps waiting; with the module lock in front it is about 10 us at any
 contention (the test below: 2048 calls in about 20 ms).
 
+That sleep cost a sparse caller 0-1 ms per call (a call after the 200 us
+window waited for the watcher's current sleep; results
+`gpu/hostwake-20261111`). A GPU thread makes host calls only from a probed
+kernel, so the launch hooks note every launch of probed code
+(`note_launch_if_probed`: a kernel of a library the agent substituted,
+`cuFuncGetModule` against `cuLibraryGetModule`, cached per function; host
+stubs through `cudaGetFuncBySymbol`, leaving cudart's last error as it was; the
+late path's patched launches) in `attach::launch_activity()`
+(`probed_launch_activity.cpp`, one object per process, in the attach library
+because the watcher starts before nv_attach_impl is registered): an event
+recorded after the launch on its stream, a generation bump, and a condvar wake
+of a sleeping watcher. While a noted launch may run, the watcher waits on
+`flag1` with WFE (Linux's `__cmpwait`: an exclusive load, then WFE until the
+GPU writes the line; `gpu/wfe-20261111`: about 2 us at any gap, at the power
+of a sleeping core), checking the events every 100 us; otherwise it sleeps as
+before, but a noted launch ends the sleep. A host call is 14-16 us at any gap
+(`gpu/hostwake-fix-20261111`). Needs aarch64 with `HWCAP_EVTSTRM` (the event
+stream ends every WFE within about 100 us, so the stop flag and the events are
+still seen); elsewhere, or with `BPFTIME_CUDA_WATCHER_WFE=0`, a noted launch
+only ends the current sleep. Costs: the watcher counts as running and holds
+its core while any probed kernel runs, probes with host calls or not (every
+kernel of a patched library counts); about 1-4 us per probed launch for the
+note (capture check, event record; inferred from the 24-case rounds, not
+timed alone). Rules: no note for a stream being
+captured (the event would join the capture, and querying it invalidated the
+application's capture); `any_running` only try-locks (a `note()` blocked in
+`cuEventRecord` on a full queue holds the lock until a queued kernel ends,
+and that kernel may be waiting for the watcher); the watcher thread runs in
+relaxed capture mode (its event queries must not invalidate another thread's
+global-mode capture); a `_ptsz` launch on stream 0 is noted on the per-thread
+stream. Not covered: graph launches and CUDA 13 kernel handles the hooks
+cannot resolve (served after the sleep, as before). Tests: "The host-call
+watcher answers at once while a probed kernel runs", "A noted launch into a
+stream being captured leaves the capture valid".
+
 GPU ringbuf (1527): every GPU thread has its own records (`gpu_ringbuf_header`,
 then `max_entries` records of a size word and `value_size` bytes). A writer
 takes `busy` (another kernel can run a thread with the same index), reads

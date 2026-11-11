@@ -8,6 +8,7 @@
 #include "nvPTXCompiler.h"
 #include "nv_attach_private_data.hpp"
 #include "nv_attach_utils.hpp"
+#include "probed_launch_activity.hpp"
 #include "ptx_compiler/ptx_compiler.hpp"
 #include "nv_elf_introspect.hpp"
 // #include "spdlog/common.h"
@@ -1520,6 +1521,74 @@ void nv_attach_impl::mirror_cuda_memcpy_to_symbol(
 void nv_attach_impl::record_patched_launch(cudaStream_t stream)
 {
 	record_patched_launch_event(reinterpret_cast<CUstream>(stream));
+	launch_activity().note(reinterpret_cast<CUstream>(stream));
+}
+
+bool nv_attach_impl::runs_probed_code(CUfunction f)
+{
+	if (f == nullptr)
+		return false;
+	{
+		std::lock_guard<std::mutex> guard(probed_function_mutex);
+		if (auto it = probed_function_cache.find(f);
+		    it != probed_function_cache.end())
+			return it->second;
+	}
+	bool probed = false;
+	CUmodule module = nullptr;
+	if (cuFuncGetModule(&module, f) == CUDA_SUCCESS && module != nullptr) {
+		std::lock_guard<std::mutex> guard(load_substitution_mutex);
+		for (auto library : substituted_libraries) {
+			CUmodule patched = nullptr;
+			if (cuLibraryGetModule(&patched, library) ==
+				    CUDA_SUCCESS &&
+			    patched == module) {
+				probed = true;
+				break;
+			}
+		}
+	}
+	SPDLOG_DEBUG("nv_attach_impl: CUfunction {:x} {} probed code",
+		     (uintptr_t)f, probed ? "runs" : "does not run");
+	std::lock_guard<std::mutex> guard(probed_function_mutex);
+	probed_function_cache.emplace(f, probed);
+	return probed;
+}
+
+void nv_attach_impl::note_launch_if_probed(CUfunction function, CUstream stream)
+{
+	if (runs_probed_code(function))
+		launch_activity().note(stream);
+}
+
+void nv_attach_impl::note_launch_if_probed(const void *host_function,
+					   cudaStream_t stream)
+{
+	std::optional<bool> cached;
+	{
+		std::lock_guard<std::mutex> guard(probed_function_mutex);
+		if (auto it = probed_host_function_cache.find(host_function);
+		    it != probed_host_function_cache.end())
+			cached = it->second;
+	}
+	if (!cached) {
+		// cudaGetFuncBySymbol sets cudart's last error when it fails
+		// (a CUDA 13 kernel handle): look up only without a pending
+		// error of the application's, and clear ours.
+		if (cudaPeekAtLastError() != cudaSuccess)
+			return;
+		cudaFunction_t f = nullptr;
+		bool probed = false;
+		if (cudaGetFuncBySymbol(&f, host_function) == cudaSuccess)
+			probed = runs_probed_code(reinterpret_cast<CUfunction>(f));
+		else
+			(void)cudaGetLastError();
+		std::lock_guard<std::mutex> guard(probed_function_mutex);
+		probed_host_function_cache.emplace(host_function, probed);
+		cached = probed;
+	}
+	if (*cached)
+		launch_activity().note(reinterpret_cast<CUstream>(stream));
 }
 
 void nv_attach_impl::record_patched_launch_event(CUstream stream)

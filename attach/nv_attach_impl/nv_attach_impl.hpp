@@ -236,6 +236,16 @@ class nv_attach_impl final : public base_attach_impl {
 	// stream. Used to coordinate detach with in-flight patched kernels so we
 	// don't tear down loader-owned CUDA IPC buffers prematurely.
 	void record_patched_launch(cudaStream_t stream);
+	// Whether f is a kernel of a patched image this agent loaded in place
+	// of cudart's (load-time substitution). Cached per function.
+	bool runs_probed_code(CUfunction f);
+	// After a launch the substitution path passed through: if the kernel
+	// (a host stub of cudaLaunchKernel, or a CUfunction) runs probed code,
+	// note it in launch_activity() so the host-call watcher stays awake
+	// while it may run.
+	void note_launch_if_probed(const void *host_function,
+				   cudaStream_t stream);
+	void note_launch_if_probed(CUfunction function, CUstream stream);
 	void record_original_cufunction_name(CUfunction function,
 					     const std::string &kernel_name);
 	std::optional<std::string>
@@ -355,6 +365,12 @@ class nv_attach_impl final : public base_attach_impl {
 
 		mutable std::mutex launch_event_mutex;
 		std::unordered_map<CUstream, CUevent> pending_launch_events_by_stream;
+
+		// runs_probed_code and note_launch_if_probed caches; taken
+		// alone, or before load_substitution_mutex
+		std::mutex probed_function_mutex;
+		std::unordered_map<CUfunction, bool> probed_function_cache;
+		std::unordered_map<const void *, bool> probed_host_function_cache;
 	};
 
 std::string add_semicolon_for_variable_lines(std::string input);

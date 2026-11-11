@@ -196,9 +196,16 @@ cuda_launch_kernel_common(nv_attach_impl *impl, void *original_fn_ptr,
 
 	// Late attach: if bootstrap hasn't completed yet, fall back to the
 	// original launch path (bootstrap is kicked off during attach/refresh).
-	if (!impl->is_late_bootstrap_done())
-		return original(func, grid_dim, block_dim, args, shared_mem,
-				stream);
+	// With load-time substitution every launch takes this path: a kernel
+	// of a patched image runs its probes, and the host-call watcher keeps
+	// awake while it may run.
+	if (!impl->is_late_bootstrap_done()) {
+		auto err = original(func, grid_dim, block_dim, args, shared_mem,
+				    stream);
+		if (err == cudaSuccess)
+			impl->note_launch_if_probed(func, stream);
+		return err;
+	}
 
 	// Fallback path for late attach: resolve host stub symbol name to
 	// locate the patched CUfunction mapping.
@@ -536,10 +543,16 @@ static CUresult cu_launch_kernel_common(
 		return original(func, grid_dim_x, grid_dim_y, grid_dim_z,
 				block_dim_x, block_dim_y, block_dim_z,
 				shared_mem_bytes, stream, kernel_params, extra);
-	if (!impl->is_late_bootstrap_done())
-		return original(func, grid_dim_x, grid_dim_y, grid_dim_z,
-				block_dim_x, block_dim_y, block_dim_z,
-				shared_mem_bytes, stream, kernel_params, extra);
+	if (!impl->is_late_bootstrap_done()) {
+		// as in cuda_launch_kernel_common
+		auto err = original(func, grid_dim_x, grid_dim_y, grid_dim_z,
+				    block_dim_x, block_dim_y, block_dim_z,
+				    shared_mem_bytes, stream, kernel_params,
+				    extra);
+		if (err == CUDA_SUCCESS)
+			impl->note_launch_if_probed(func, stream);
+		return err;
+	}
 
 	auto kernel_name = cuda_graph_maybe_get_kernel_name_from_cufunction(
 		*impl, func);
@@ -612,6 +625,11 @@ extern "C" cudaError_t cuda_runtime_function__cudaLaunchKernel_ptsz(
 	}
 	void *original = state->orig_cuda_launch_kernel_ptsz.load(
 		std::memory_order_acquire);
+	// _ptsz: stream 0 is this thread's default stream, not the legacy one
+	// (an event recorded on the legacy stream would serialize the
+	// application's blocking streams)
+	if (stream == nullptr)
+		stream = cudaStreamPerThread;
 	return cuda_launch_kernel_common(impl, original, func, grid_dim,
 					 block_dim, args, shared_mem, stream);
 }

@@ -49,6 +49,11 @@ struct CUDAContext {
 	std::shared_ptr<std::atomic<bool>> cuda_watcher_should_stop =
 		std::make_shared<std::atomic<bool>>(false);
 
+	// Whether the watcher waits on the request flag (WFE) because a probed
+	// kernel may run, rather than sleeping between requests
+	std::shared_ptr<std::atomic<bool>> cuda_watcher_waiting_on_flag =
+		std::make_shared<std::atomic<bool>>(false);
+
 	// Shared memory region for CUDA
 	cuda::CommSharedMem *cuda_shared_mem;
 	// Mapped device pointer
@@ -154,6 +159,13 @@ public:
 	// address of their values.
 	std::vector<attach::MapBasicInfo>
 	create_map_basic_info(int filled_size);
+	// Whether the host-call watcher now waits on the request flag (a
+	// probed kernel may run) rather than sleeping between requests.
+	bool cuda_watcher_waits_on_flag() const
+	{
+		return cuda_ctx && cuda_ctx->cuda_watcher_waiting_on_flag->load(
+					   std::memory_order_acquire);
+	}
 #endif
 
 private:
