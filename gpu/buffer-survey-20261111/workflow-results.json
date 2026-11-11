@@ -1,0 +1,954 @@
+[
+ {
+  "systems": [
+   {
+    "system": "Neutrino (OSDI 2025, Huang & Wu, HKU)",
+    "design": "(a) 按 launch 网格定大小的 ndarray 型 map：thread 级布局 [#Grid,#Block,cap]，warp 级布局 [#Grid,#Warp,cap]（只有 warp leader 写）。每个线程/warp 有自己独立的段，不用 atomic，元数据（threadIdx/blockIdx）靠下标推出、不存。每次 launch 时 hook 驱动 cuMemAlloc+memset，kernel 跑完同步、DtoH 拷回、fwrite、free（OSDI §3.3 p.335、§4.1；repo cuda.c L524-560、L617-660）。cap 有两种：固定整数，或 'dynamic'（两遍计数）。dynamic 时先完整跑一遍插了 count+=size 计数探针的 kernel，计数器为 grid×block×8B，拷回 CPU 后取所有线程的最大值，所有线程统一按这个最大值分配（cuda.c L495-520、L514-515；probe/cuda.py L258、L283-302）。SAVE 只做 st.global 加指针前移，不检查 cap 边界（probe/cuda.py L542-569）。论文 §3.3 说可以扩展出 ring 和 hash 类型，但 repo 里 Map.type 只有 Literal['array']（common.py L26，commit 4a82cd2）。repo 根地址：https://github.com/open-neutrino/neutrino/blob/4a82cd22f474c31ac2fecfa174d381a19bb3f469/",
+    "measurements": [
+     {
+      "what": "每次 launch 的探针 buffer 峰值 GMEM（最大额外显存），整模型 forward。block_sched = warp 级，每 warp 记 16B 的开始时间戳/耗时/SM id，cap=1；gmem_bytes/tensorop_count = thread 级，每线程 8B 计数，cap=1；memtrace(dmat) = thread 级，每次访存记 16B（clock+地址），cap=dynamic",
+      "result": "格式为 block_sched / gmem_bytes / memtrace，括号里是原程序显存。ResNet BS32：6.1MB / 98MB / 7.08GB（562MB，memtrace 是原程序的约 12.6 倍）。SD-v1-5 BS1：3.1MB / 50MB / 1.78GB（2.11GB）。Mamba-1.7B BS32：5.5MB / 88MB / 2.45GB（2.99GB）。Llama3-1B BS32：224KB / 3.5MB / 759MB（2.57GB）。Llama3-3B BS32：384KB / 6MB / 1.05GB（6.29GB）。Llama3-8B BS32：512KB / 8MB / 1.35GB（15.27GB）。Llama3-8B BS128：2MB / 32MB / 2.75GB（15.52GB）。Llama3-8B BS256：4MB / 64MB / 5.50GB（16.05GB）。数值是从柱状图标签读的。论文说 dmat 'mostly remains within the original memory usage'，但 ResNet 这一项超过原程序 12 倍。",
+      "source": "OSDI'25 §6.3 'GMEM Usage in Model Profiling'，Figure 12（p.342），https://www.usenix.org/system/files/osdi25-huang-songlin.pdf；预印本 Fig.12 内容相同，https://open-neutrino.github.io/Neutrino-Preprint.pdf",
+      "workload_gpu": "ResNet/SD/Mamba/Llama3 推理 forward。§6 只说平台是 A100 80GB 和 RTX4090 24GB，没有说这张图用的是哪块 GPU",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "per-warp 和 per-thread map 的显存比（由 Fig.12 推算）",
+      "result": "8 个工作负载里 gmem_bytes / block_sched 都正好约等于 16 倍（98/6.1、50/3.1、88/5.5、3.5MB/224KB、8MB/512KB、32/2、64/4）。理论值：thread 级 8B×32 线程 = 256B/warp，warp 级 16B/warp，256/16 = 16，与实测一致。显存随 batch（也就是 grid）线性增长：Llama3-8B 的 BS32→128→256 对应 gmem_bytes 8→32→64MB，memtrace 1.35→2.75→5.50GB。这两组探针记录的内容不同，所以这只是显存比较，不是同一个探针下的 A/B 实验。",
+      "source": "同上 Figure 12（p.342），比值是本次推算的",
+      "workload_gpu": "同上",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "动态 cap 下每线程实际记录数（由 Fig.12 推算，需要谨慎看）",
+      "result": "memtrace / gmem_bytes × 8B ÷ 16B 约等于计数遍得出的每线程最大记录数：ResNet BS32 约 36 条/线程，Llama3-8B BS32 约 84 条/线程。注意两个峰值可能来自不同的 kernel，只能当量级参考。这个量级远小于 bpftime 默认的 1024。",
+      "source": "由 Figure 12 推算，dynamic 的语义见 cuda.c L495-534",
+      "workload_gpu": "同上",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "kernel 减速（只看探针插桩后的 kernel 时间，不含 buffer 分配和拷回）。benchmark 模式：探针 kernel 和剥掉探针、用同样参数汇编的 pruned kernel 各计时一次（cuda.c L580-680）",
+      "result": "轻量探针（block_sched warp:array:16:1、gmem_bytes / tensorop_count thread:array:8:1）平均 1.04x，范围 0.9596x（Gather）到 1.3882x（Max/AvgPool, gmem_bytes）。重探针 mem_trace（thread:array:16:count）平均 7.12x，范围 2.7463x（Conv2D）到 13.1630x（SoftMax），例如 GEMM 8.8933x、Flash-Attn v2 2.9392x。额外寄存器：轻量探针平均 +3.78，dmat 平均 +5.09，Group-GEMM mem_trace +516（spill）。",
+      "source": "OSDI'25 §6.2 'Profiling Overhead'，Table 3（p.341）",
+      "workload_gpu": "CUTLASS GEMM/Stream-K/Conv2D、Triton Group-GEMM/FA2、PyTorch 算子。A100 或 RTX4090，表里没有标明",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "记录频率与减速的关系（dmat 按 1/8、1/4、1/3、1/2、全量采样）",
+      "result": "减速和采样率大致成线性。pool（3.69% 访存指令，约 5555 cycle/block）：约 2.5x（1/8）→ 约 13.5x（全量）。gemm（17.57% 访存，约 116531 cycle/block）：约 1.8x → 约 6.6x。attn（11.03% 访存，约 205101 cycle/block）：约 1.1x → 约 2.5x。数值从图上读，是近似值。作者结论是 'most DMAT cost comes from the I/O'。每次 save 包含读 clock、算地址、存 16B，所以这是每条记录的总成本，不是单纯写 buffer 的成本。",
+      "source": "Appendix I，Figure 16（OSDI p.354；预印本 p.24）",
+      "workload_gpu": "PyTorch pool、CUTLASS gemm、Triton attn；GPU 没有标明",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "对上层可见的总延迟分解：prologue（分配 map、调用 probe engine）+ kernel + epilogue（DtoH 拷回、写盘、free）",
+      "result": "prologue < 1%。Neutrino 总量是原 kernel 时间的倍数，括号里是 'Other'（prologue+epilogue）部分，从图上读，近似：FlashAttnv2-Triton（BS=4, CTX=4096, H=32, D=64）block_sched 1.39x（约 0.1）、tensorop_count 2.38x（约 1.1）、gmem_bytes 2.56x（约 1.15）。Persist GroupMM-Triton block_sched 1.36x、tensorop 1.38x、gmem 1.42x（Other 都约 0.1）。Conv2D-CUTLASS（BS=256, H/W=56, C/K=128）block_sched 1.36x（约 0.3）、tensorop 5.45x（约 4.0）、gmem 5.32x（约 4.0）。GEMM-CUTLASS（4096³）block_sched 1.56x（约 0.3）、tensorop 2.97x（约 1.75）、gmem 2.98x（约 1.75）。结论：对大网格上的 thread 级 map，拷回加写盘（collection）占了大头，最多约 4 倍原 kernel 时间，比探针本身导致的 kernel 减速还大；warp 级的 block_sched 这部分很小。",
+      "source": "OSDI'25 §6.3 'Profiler Exposed Latency'，Figure 13（p.342），stacked bar 是从图上读的；计时代码见 cuda.c L318-322、L585、L653-660",
+      "workload_gpu": "见左栏；GPU 没有标明",
+      "isolates_buffer_design": true
+     }
+    ],
+    "not_measured": "1) dynamic（两遍计数）的成本：多跑一次完整 kernel、grid×block×8B 计数器、DtoH 拷回、CPU 求 max。这些时间计入 prologue 计时窗口（cuda.c L322 到 L585），但 Fig.13 的三个探针都是固定 cap=1，Table 3 只比较探针 kernel 和 pruned kernel 的时间，所以计数遍的成本没有任何数字。代码注释 L486-493 写着：COUNT 对就地修改输入的 kernel 会出错（比如 topP/topK），这时要用足够大的常数；考虑过 ring buffer，没有实现。2) 统一按最大计数分配，线程之间负载不均时浪费多少显存。3) 超过 cap 的行为：SAVE 不做边界检查，越界会写进相邻线程的段甚至越出 buffer，属于静默损坏，不是丢弃。丢失或损坏率没有测过。4) 同一个探针在 per-thread 和 per-warp 两种 map 下的运行时开销，没有 A/B 对照。5) ring/hash map 没有实现，也没有测过。6) 线程数扩展只能间接从 batch 维度看到（Fig.12）；按事件率扩展只有 Fig.16。7) 和 atomic 共享 buffer 的直接对比：§3.3 只是定性地说 atomics 'can become inefficient'，没有数字。8) 和 NVBit channel、GT-Pin、CUPTI 的比较没有做；只和 Nsight Compute 比较了总延迟。"
+   },
+   {
+    "system": "Xtrace (arXiv 2609.28769v1, NUS + Meta, 2026-09)",
+    "design": "(a) 按 launch 规模定大小的 trace buffer，每个线程一个偏移 slot，slot 当作 ring buffer 用。INIT 探针在 kernel 入口把 buffer 地址和 ring 指针放进 3 个 32-bit 死寄存器；RECORD 探针写 (值, probe id) 后推进指针。kernel 结束后由驱动遍历各 slot 收集（§3、§4.5 p.8-9）。寄存器不够时会降级成 per-warp 寄存器和 per-warp 记录（§4.3）。评测中三个工具一律由一个选出的 lane 按 warp 记录（§5.1）。论文和文档都没有给出 slot 容量、写满时的语义（从 ring 推测是覆盖旧记录），也没有给出 buffer 大小的配置项。g-watch.github.io 的 Xtrace/CUDA 文档页也没有这些信息，源码没有找到公开仓库（以 pip 包形式发布）。",
+    "measurements": [
+     {
+      "what": "端到端 kernel 时间开销，取各 trace 类型里最差的情况。trace-sche 只在 warp 进出各记一次，最轻；trace-pp 在每个流水级边界记时间戳；trace-mem 每次访存都记，最重",
+      "result": "格式为 Neutrino / IKET / Xtrace。FA-3（H100）：11.8% / 3.8% / 2.7%。FlashMLA（H100）：36.9% / 20.0% / 0.9%。FA-4（B300）：75.6% / 28.4% / 2.8%。",
+      "source": "Figure 1b（p.1），数值从图上读并已核对；§1",
+      "workload_gpu": "FA-3、FlashMLA（H100），FA-4（B300）；CUDA 13.3",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "按 trace 类型分开的端到端时间（相对未插桩 kernel 的倍数）",
+      "result": "trace-sche：Xtrace ≤0.8%，Neutrino ≤3.4%，IKET ≤0.8%。trace-pp：Xtrace 0.9-2.7%，Neutrino 5.6-12.5%，IKET 1.3-3.8%。trace-mem：Xtrace 0.7-5.4%，Neutrino 2.0-75.6%，IKET 0.5-28.4%。trace-mem 的单项（Neutrino / IKET / Xtrace，从图标签读）：FA-3 1.02 / 1.00 / 1.01；FlashMLA 1.37 / 1.20 / 1.01；HSTU 1.08 / 1.02 / 1.05；FA-4 1.76 / 1.28 / 1.03；AMD FMHA 1.32 / – / 1.06；FusedMoE 1.34 / – / 1.07。",
+      "source": "§5.4.2，Figure 13a（p.12）",
+      "workload_gpu": "H100、B300、MI300X（ROCm 7.2）",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "随 launch 规模扩展：trace-pp，32 到 2048 个 CTA，记录数增加 249 倍（FA-3 最多约 1.8M 条，FA-4 约 0.9M 条）",
+      "result": "Xtrace ≤3.5%，Neutrino ≤13.9%，IKET（重新实现版）≤5.1%，曲线基本平。NVIDIA 原版 IKET 在记录最多的两个 FA-3 launch 上崩溃，论文没有说原因。",
+      "source": "§5.4.2 'Scaling with the launch size'，Figure 14（p.12）",
+      "workload_gpu": "FA-4（B300）、FA-3（H100）",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "探针自身造成的依赖等待占未插桩 kernel 等待的比例（PC sampling）",
+      "result": "trace-pp：Xtrace 2.3-11.3%，Neutrino 2.4-19.3%，IKET 0.8-16.5%。trace-sche：Xtrace 0.2-1.6%，Neutrino 1.1-13.6%，IKET 1.2-14.1%。",
+      "source": "§5.4.3，Figure 13b（p.12）",
+      "workload_gpu": "同 Figure 13",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "写 trace 那条 store 的代价（这是最接近 '写 buffer 成本' 的数字）",
+      "result": "Neutrino 的 FA-3 producer 探针里，PRMT 因为对 trace store 的 WAR 依赖，77% 的时间在等这条 store。consumer 端 SoftMax 首条指令有 13% 的等待来自 probe store 的 scoreboard。Hopper 上一次 global store 要 270-380ns，和被测区域的长度相当。另外 store 等待会让整个 warp 在汇合点停住，不只是写的那个线程。Xtrace 改用 per-SM clock：读取约 10ns，而 global timer 要数百 ns。",
+      "source": "§2.2，Figure 5（p.4）；Appendix A.2.1",
+      "workload_gpu": "FA-3（H100）",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "Xtrace 自己 trace buffer 的显存占用、slot 容量、ring 回绕导致的覆盖或丢失、和 per-thread 记录的比较（评测统一用 per-warp 记录，所以对 per-thread buffer 的成本什么都没说）、buffer 拷回和解析的时间。所有开销都归因到编译期干扰（binary similarity）和寄存器/scoreboard 依赖，buffer 设计没有被单独隔离出来。"
+   },
+   {
+    "system": "NVIDIA CuTeDSL IKET（数据来自 Xtrace 的测量，加上 NVIDIA 文档）",
+    "design": "在源码层预留 placeholder，到二进制层再替换成探针。文档写明 trace buffer 按 warp 存、两遍分配：先跑一遍估算大小，再加余量分配。可以用 --max-ts-cnt-per-warp N 预留每 warp 最多 N 个事件。如果两遍之间每 warp 的记录数不同，'trace may contain incorrect data'。写满时的行为文档没有说。（https://docs.nvidia.com/cutlass/latest/media/docs/pythonDSL/guides/iket_profiling.html）",
+    "measurements": [
+     {
+      "what": "端到端开销（Xtrace 用自己重新实现的 IKET 测，输出二进制与原版逐位一致）",
+      "result": "见 Xtrace 一栏：最差 3.8%（FA-3）、20.0%（FlashMLA）、28.4%（FA-4）；trace-pp 1.3-3.8%；trace-mem 0.5-28.4%。原版 IKET 的墙钟时间最多 +133%，但这个数包含运行时 patch 二进制的时间，不是 kernel 本身的开销。",
+      "source": "Xtrace §5.4.1-5.4.2，Figure 1b、13a、14",
+      "workload_gpu": "H100、B300",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "两遍 sizing 的时间成本、buffer 显存占用、超出预留量时的行为，都没有测。原版在最大的两个 FA-3 launch 上崩溃，原因没有说明，不能归因到 buffer 设计。"
+   }
+  ],
+  "comparisons": [
+   "Neutrino 内部 per-warp 和 per-thread 的显存对比：同一模型下 thread 级 8B/线程的 map 正好是 warp 级 16B/warp 的 16 倍（8 个工作负载都一致，例如 ResNet BS32 98MB 对 6.1MB），与 8×32/16 的理论值吻合。来源：OSDI'25 Figure 12 p.342。两组探针记录的内容不同，所以只能比较显存。",
+   "Neutrino 的收集成本（per-warp 对 per-thread，从 Figure 13 读，近似）：Conv2D-CUTLASS BS=256 上，thread 级 tensorop_count / gmem_bytes 总暴露延迟 5.45x / 5.32x，其中 prologue+epilogue（拷回加写盘）约 4.0x；warp 级 block_sched 总共 1.36x，Other 约 0.3x。这说明对大网格的 per-thread 数组，主要成本在收集，不在探针。来源：OSDI'25 Figure 13 p.342。",
+   "Neutrino 和 Nsight Compute 的对上层暴露延迟（倍数，Nsight 是 kernel replay，不是同类机制）：FlashAttnv2 2.31/5.69/4.76 对 1.39/2.38/2.56；Persist GroupMM 3.47/13.10/7.97 对 1.36/1.38/1.42；Conv2D 4.17/15.38/9.03 对 1.36/5.45/5.32；GEMM 7.34/15.47/18.22 对 1.56/2.97/2.98（顺序是 block_sched/tensorop_count/gmem_bytes）。来源：OSDI'25 Figure 13 p.342。",
+   "Xtrace、Neutrino、IKET 三者的端到端开销（最差 trace 类型）：FA-3 H100 2.7% / 11.8% / 3.8%，FlashMLA H100 0.9% / 36.9% / 20.0%，FA-4 B300 2.8% / 75.6% / 28.4%。三者都是按 launch 定大小、per-warp 记录，差别主要在插桩层次（二进制拼接、IR、placeholder），不是 buffer 设计。来源：arXiv 2609.28769 Figure 1b、§5.4.2。",
+   "随记录量扩展（Xtrace Figure 14）：CTA 从 32 增加到 2048、记录数增加 249 倍时，Xtrace ≤3.5%、Neutrino ≤13.9%、IKET ≤5.1%，曲线基本平。说明按 launch 预分配的 per-slot buffer 在记录量上升时没有额外退化；但没有测显存，也没有和共享 ring 或 atomic 方案比较。"
+  ],
+  "notes": "范围：这次只看了分配给我的 Neutrino、Xtrace，以及 Xtrace 测到的 IKET（加上 NVIDIA IKET 文档）。设计 (b) NVBit channel / BPF ringbuf、(c) GT-Pin、(d) SASSI / gpu_ext、(e) CUPTI、(f) bpftime 都不在这次来源里，没有调研。\n\n核心结论：\n1) 两篇论文都没有设计过 buffer 设计之间的对照实验。Neutrino 是唯一给出显存数字（Fig.12）和收集延迟拆分（Fig.13）的；Xtrace 的所有比较都把开销归到编译干扰和寄存器/scoreboard 依赖，没有测 buffer 显存。\n2) 对 bpftime 有参考价值的点：\n - per-warp 布局能把显存降 16 倍（在 thread 8B / warp 16B 的配置下）。\n - 对大网格的 per-thread 数组，拷回加写盘的时间可以达到原 kernel 的约 4 倍，比探针本身的开销还大。\n - 实际工作负载里动态计数得出的每线程记录数在几十条量级（推算 ResNet 约 36、Llama3-8B 约 84，需要谨慎看），远小于固定的 1024。\n - 两遍计数（Neutrino dynamic、IKET）都有正确性前提：kernel 不能就地修改输入，两遍之间的记录数要一致。两者的时间成本都没有人测过。\n3) Neutrino 实现上的细节：SAVE 不检查 cap 边界，超出时是静默写坏邻近线程的段，不是丢弃；dynamic 统一按所有线程的最大计数分配；ring 和 hash 只在论文里提到，repo 里只有 array。\n4) Neutrino 的 Table 3 / Fig.12 / Fig.13 没有标明用的是 A100 还是 RTX4090；Fig.13 的分段数值和 Fig.16 的曲线点是我从图上读的近似值。Xtrace Fig.1b 的数值已经放大核对过。\n5) OSDI 正式版和预印本的 Table 3、Fig.12/13 内容一致。\n\n来源文件：\n- 下载的 PDF 在 /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl1/（osdi.pdf、neutrino.pdf、xtrace.pdf）。\n- Neutrino repo clone 在 /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/repo-neutrino/neutrino（commit 4a82cd22f474c31ac2fecfa174d381a19bb3f469）。"
+ },
+ {
+  "systems": [
+   {
+    "system": "NVBit (NVIDIA, MICRO 2019; release v1.8.1, 2026-09-29)",
+    "design": "(b) One shared GPU->CPU channel per CUDA context. Producers reserve space with an atomic fetch_add on head_bytes, copy the packet, then advance tail_bytes. Buffer: 1 MiB (CHANNEL_SIZE 1<<20) of mapped pinned host memory by default. The mem_trace tool aggregates per warp: lanes exchange addresses with __shfl_sync and only the first active lane pushes one 288-byte mem_access_t (8 B launch id + 5 ints + 32x8 B addresses), so about 3,640 warp records fit per round. When full it BLOCKS and never drops: the producer that crosses the end waits for tail==curr, writes the byte count to a host-visible doorbell, and spins until the host thread drains and writes 0. Every other producer spins while head > buff_size. In effect the whole device stalls for each host drain. The paper's own example tools (Listing 1, Listing 8) are design (d): __managed__ counters updated with atomicAdd, plus warp-leader election.",
+    "measurements": [
+     {
+      "what": "Whole-run slowdown, full instrumentation, instruction-histogram (Top-5 opcode) tool",
+      "result": "36.4x slower than native on average, up to 112x; the longest run approached 24 h",
+      "workload_gpu": "OpenACC SpecAccel, large inputs; NVIDIA TITAN V",
+      "source": "Villa et al., MICRO'19, Sec. 6.2, Fig. 8. https://github.com/NVlabs/NVBit/releases/download/v1.0/MICRO_19_NVBit.pdf",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Same tool with kernel sampling (instrumented version runs once per unique grid dimension)",
+      "result": "2.3x slowdown on average; average error below 0.6% vs full instrumentation",
+      "workload_gpu": "OpenACC SpecAccel, large inputs; TITAN V",
+      "source": "MICRO'19 Sec. 6.2, Fig. 8 and Fig. 9 (same PDF)",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "JIT-compilation overhead only (code generation, not running the instrumentation)",
+      "result": "Below 5% on average, up to 20% (ilbdc: many short, unique kernels). Disassembly is the largest part.",
+      "workload_gpu": "OpenACC SpecAccel, medium inputs; TITAN V",
+      "source": "MICRO'19 Sec. 5.2, Fig. 5",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Paper's qualitative statement on per-call cost",
+      "result": "No number. Every active thread enters and leaves the instrumentation function, and saving registers before each call 'takes many cycles and can destroy cache locality'.",
+      "workload_gpu": "n/a",
+      "source": "MICRO'19 Sec. 7, 'More on execution overheads'",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Channel buffer size and record size (code facts, not measurements)",
+      "result": "1 MiB per context (mem_trace.cu:72). 288 B per warp-level record (common.h, mem_access_t), so about 3,640 records per flush round. The host recv buffer is another 1 MiB malloc (mem_trace.cu:475).",
+      "workload_gpu": "n/a (code analysis)",
+      "source": "nvbit-Linux-aarch64-1.8.1.tar.bz2: tools/mem_trace/mem_trace.cu:72,475; tools/mem_trace/common.h; https://github.com/NVlabs/NVBit/releases/tag/v1.8.1",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Behaviour when the channel is full (code facts)",
+      "result": "Blocks, never drops. Non-flushing producers spin while head>buff_size (core/utils/channel.hpp:124-128). The flusher waits for tail==nbytes, stores the doorbell, then spins until the host writes 0 (channel.hpp:196-205), resets (208-209). The buffer is cudaHostAlloc mapped by default, or device memory with USE_ASYNC_STREAM (channel.hpp:83-86, ~285-289). USE_ASYNC_STREAM is documented to deadlock when a CUDA API call holds the context lock while the kernel waits for its flush (mem_trace.cu:52-60). Warp aggregation: inject_funcs.cu:52-75.",
+      "workload_gpu": "n/a (code analysis)",
+      "source": "NVBit v1.8.1 release tarball, core/utils/channel.hpp:55-75 (design comment), 96-137 (push), 182-210 (flush_bytes); tools/mem_trace/inject_funcs.cu:52-75",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "Neither the paper nor the release gives a number for channel throughput (MB/s or records/s), how often or how long producers stall on a full channel, or mem_trace slowdown. The paper never measures the channel; its overhead figures are counter-style tools. It has no memory-footprint measurement and no scaling with thread count or event rate. The channel code has been rewritten since 2019 (head-sealed single buffer in v1.8.1), so older third-party numbers may not apply. I found no third-party paper that isolates channel cost. gpu_ext reports whole-tool NVBit overheads only (see comparisons)."
+   },
+   {
+    "system": "SASSI (NVIDIA, ISCA 2015)",
+    "design": "(d) Compiler-inserted (ptxas backend) calls to user CUDA handlers. Every case study aggregates on the device into fixed-size device structures with atomics, and nothing per-thread is shipped. Branch stats are counters in a device hash table keyed by instruction address, with a warp leader doing the atomicAdd. Memory divergence uses a 32x32 counter matrix updated by the warp leader. Value profiling uses atomicAnd/atomicAdd into a hash table. A CUPTI kernel-exit callback copies the tables off the device with cudaMemcpy.",
+    "measurements": [
+     {
+      "what": "Kernel-time slowdown K (nvprof), harmonic mean / max over 27 benchmarks",
+      "result": "Case I (cond. branches): 3.4x / 81.3x. Case II (memory divergence, 32x32 atomic matrix): 5.7x / 111.8x. Case III (value profiling, after every register-writing instruction): 31.8x / 722.1x. Case IV (error injection profiling): 29.0x / 678.3x.",
+      "workload_gpu": "Parboil + Rodinia, largest inputs, median of 5 runs; Tesla K40m, driver 346.41, Xeon E5-2690 v2",
+      "source": "Stephenson et al., ISCA'15, Sec. 9.1, Table 3 (K columns). https://www.cs.utexas.edu/users/skeckler/pubs/ISCA_2015_SASSI.pdf",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Whole-program wall-clock slowdown T, harmonic mean / max",
+      "result": "Case I 1.4x / 18.9x; II 1.6x / 30.0x; III 2.4x / 160.6x (tpacf); IV 2.4x / 148.9x",
+      "workload_gpu": "Same as above; K40m",
+      "source": "ISCA'15 Sec. 9.1, Table 3 (T columns)",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Ablation: handler body removed (stubbed), so only spill + ABI call setup remain",
+      "result": "The ABI call and register spilling are about 80% of total overhead in all case studies. So the handler body, including the atomics into on-device tables (the data-collection part), is about 20% or less.",
+      "workload_gpu": "Same benchmarks; K40m",
+      "source": "ISCA'15 Sec. 9.1, paragraph after Table 3 discussion ('We removed the body of the instrumentation handlers ... roughly 80% of the total overhead')",
+      "isolates_buffer_design": true
+     }
+    ],
+    "not_measured": "No breakdown per benchmark or per case study for the 80% figure (one aggregate sentence). No memory footprint of the hash tables or counter arrays. No contention or scaling study of the atomics vs thread count. No per-thread trace mode, so no buffer-full, drop or stall behaviour."
+   },
+   {
+    "system": "GT-Pin / GTPin (Intel)",
+    "design": "(c) A trace or profile buffer allocated by the tool, mapped to both CPU and GPU, and read by the CPU after the kernel or at sync points. API: GtProfileArray, where threads are hashed by thread ID into thread buckets. Each bucket writes its own non-interleaving chunk. Bucket count is a power of two in [1, max HW threads], 'to minimize contention of concurrent memory accesses'. GtProfileTrace is a chronological record trace: maxTraceSize in bytes, maxThreads default 0x1000. On overflow the trace is truncated (records dropped): IsTruncated() returns true and the generated code sets flag f0.0. Basic-block counting keeps the counter in a register and writes the final value to the buffer at program end (2015 paper).",
+    "measurements": [
+     {
+      "what": "Whole-run overhead while collecting the characterization profile (instruction counts, opcodes, BB counts, memory bytes)",
+      "result": "2-10x",
+      "workload_gpu": "25 OpenCL apps (CompuBench CL 1.2, SiSoftware Sandra 2014, Sony Vegas Pro); Intel HD 4000 (i7-3770)",
+      "source": "Kambadur et al., 'Fast Computational GPU Design with GT-Pin', IISWC'15, Sec. III-C 'Overheads and limitations'. http://www.cs.columbia.edu/~melanie/GTPinPoints.pdf",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Cost of the timer-read probe",
+      "result": "Fewer than 10 cycles per timer read (probe cost only, no buffering)",
+      "workload_gpu": "Intel HD 4000",
+      "source": "IISWC'15 Sec. III-C",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "HPCToolkit on Intel GPU: coarse-grained only vs plus fine-grained GT-Pin per-basic-block counts",
+      "result": "1.81x (coarse) vs 2.23x (coarse + GT-Pin BB counts). The +0.42x delta is roughly what the GT-Pin instrumentation and its buffer/collection add together.",
+      "workload_gpu": "PeleC TG example; Intel Iris Pro P580 (Xeon E3-1585Lv5), DPC++ oneAPI beta 10",
+      "source": "Zhou et al., 'Measurement and Analysis of GPU-accelerated Applications with HPCToolkit', Parallel Computing 2021, Sec. 8.1 (page 10) + Table of platforms. https://arxiv.org/pdf/2109.06931",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "XPU-Point GPU-Profiler (GTPin tool collecting per-thread basic-block vectors, copied to CPU at end of each kernel)",
+      "result": "4.7x average slowdown (text)",
+      "workload_gpu": "SPECaccel 2023 test inputs; Intel Data Center GPU Max 1100 (Sapphire Rapids host)",
+      "source": "Sabu et al., 'XPU-Point: Simulator-Agnostic Sample Selection Methodology for Heterogeneous CPU-GPU Applications' (2025), Sec. VI-A. https://www.comp.nus.edu.sg/~tcarlson/pdfs/sabu2025sssmfhca.pdf",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "PyTorch inference: GTPin 'Nothing' tool (empty) vs GPU-Profiler (per-thread BBV collection)",
+      "result": "Approximate, read off a log-scale chart: GTPin-Nothing about 3-13x, GPU-Profiler about 7-50x, Pin-Bare about 2-15x. Collecting BBVs adds roughly 2-5x over the empty tool on most models. These are not exact values.",
+      "workload_gpu": "BERT and ResNet50 inference (BF16/FP16/FP32/INT8, imperative and TorchScript); Intel Ponte Vecchio",
+      "source": "XPU-Point paper, Sec. VI-C, Fig. 16 (page 10)",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Thread-bucket and trace-overflow semantics (docs, not a measurement)",
+      "result": "Bucket count is a power of two in [1, max HW threads], threads hashed by thread ID. Trace maxThreads default 0x1000. Overflow causes truncation plus the f0.0 flag, so records are dropped.",
+      "workload_gpu": "n/a",
+      "source": "GTPin API docs: https://software.intel.com/sites/landingpage/gtpin/api_ref/classes/gt_profile_array.html, .../gt_profile_trace.html, .../api_ref/profile_buffer.html",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "I found no published effect of bucket count on contention or overhead, even though the docs give contention as the reason for buckets. No trace truncation or drop rates. No memory footprint of the profile buffer. No scaling with thread count. The ISPASS'26 GTPin paper (artifact github.com/intel/GTPin-ispass2026, compares GTPin, Luthier and NVBit opcode histograms on Meteor Lake, MI250 and A100) was not found as a PDF, so its numbers are unverified here."
+   },
+   {
+    "system": "CUPTI (NVIDIA): PC sampling + Activity buffers",
+    "design": "(e) Hardware PC sampling. Each SM samples one warp scheduler every 2^N cycles (N in 5..31; the default depends on SM count) into a hardware buffer in device memory (default 512 MB). CUPTI copies it into a software scratch buffer (default 1 MB, about 5,500 PCs with all stall reasons, about 16 B per PC per stall reason). Samples are dropped on backpressure or overflow and reported in droppedSamples. When the HW buffer is full, hardwareBufferFull is set, CUPTI_ERROR_OUT_OF_MEMORY is returned and PC data is 0. Activity tracing: device buffer 3,200,000 B (about 100,000 kernel/memcpy/memset records), pool limit 250 buffers per context. Records are dropped if the client gives no empty buffers, counted by cuptiActivityGetNumDroppedRecords. HES buffer 128 MB, drops when full.",
+    "measurements": [
+     {
+      "what": "Buffer defaults and drop semantics (header and docs, NOT measurements)",
+      "result": "HW buffer 512 MB; scratch 1 MB (about 5,500 PCs); activity device buffer about 3 MB (about 100k records), pool 250; HES 128 MB. Drops are counted, not prevented.",
+      "workload_gpu": "n/a",
+      "source": "CUDA 13.2 headers on this board: /usr/local/cuda-13.2/targets/sbsa-linux/include/cupti_pcsampling.h:196-240 (totalSamples/droppedSamples/hardwareBufferFull), :277-296 (scratch 1 MB, HW 512 MB); cupti_activity.h:9885-9944 (device buffer 3,200,000 B, pool 250), :10748-10772 (dropped records). Docs: https://docs.nvidia.com/cupti/main/main.html Sec. 2.3.1.2-2.3.1.3, 2.3.6, 2.10.1 Table 6",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "HPCToolkit vs nvprof whole-run profiling overhead on NVIDIA",
+      "result": "PeleC TG: 2.24x (HPCToolkit) vs 2.20x (nvprof). Nyx tracing on 128 ranks / 640 streams: 1.85x vs 1.42x. The paper does not say whether PC sampling was on for the PeleC number.",
+      "workload_gpu": "PeleC TG, Nyx; Summit (POWER9 + V100)",
+      "source": "Zhou et al., HPCToolkit, Parallel Computing 2021, Sec. 8.1. https://arxiv.org/pdf/2109.06931",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "NVIDIA publishes no drop rate vs sampling period, no overhead percentage (docs only say continuous mode 'incurs minimal runtime overhead' and that small scratch buffers add overhead), and no measured effect of HW buffer size. GPA (CGO'21, arXiv 2009.04061) describes the per-SM sample buffer but reports no overhead or drop numbers. I found no source measuring drops or slowdown as a function of sampling period."
+   },
+   {
+    "system": "compute-sanitizer MemoryTracker sample (NVIDIA compute-sanitizer-samples, commit 1e1fab8e, 2023-11-06)",
+    "design": "(b) with per-launch sizing, one record per thread-level access and no warp aggregation. At each launch (LaunchBegin) it does sanitizerAlloc of MEM_ACCESS_SIZE entries (default 1024) x 32-byte MemoryAccess = 32 KiB, plus a tracker {currentEntry, maxEntry}. The device callback reserves with a single atomicAdd(&currentEntry,1). If old >= maxEntry it returns SUCCESS and silently drops the record, but currentEntry keeps counting, so drops = currentEntry - maxEntry can be recovered. The host copies min(currentEntry,maxEntry) records at stream or context sync. There is no mid-kernel flush and no blocking.",
+    "measurements": [
+     {
+      "what": "Buffer size and full behaviour (code facts, not measurements)",
+      "result": "Default 1024 entries x 32 B = 32 KiB per launch. Drops when full, never blocks.",
+      "workload_gpu": "n/a",
+      "source": "https://github.com/NVIDIA/compute-sanitizer-samples MemoryTracker/MemoryTracker.h:42-57; MemoryTrackerPatches.cu:43-47; MemoryTracker.cpp:92-100 (MEM_ACCESS_SIZE default 1024), 112-126 (per-launch alloc), 189-194 (copy min(currentEntry,maxEntry))",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "The sample has no published measurements at all: no overhead, no drop counts, no footprint study."
+   },
+   {
+    "system": "GVProf (Rice, SC'20), built on the NVIDIA Sanitizer API (third-party, same mechanism as MemoryTracker)",
+    "design": "(b) One GPU queue per CUDA stream, default 72 MB ('a good tradeoff between runtime and memory overhead from our experiments'). Operations are atomic. The first active lane reserves a slot for the warp and broadcasts it with a shuffle, all lanes write, then the leader marks the slot filled. When full it BLOCKS: the kernel is paused while a priority stream copies all records to the CPU and clears the queue, then the kernel resumes. Block and kernel sampling reduce the event rate.",
+    "measurements": [
+     {
+      "what": "Whole-run overhead without sampling (every memory access recorded)",
+      "result": "5.2x to 1188.2x; median 31x, mean 236.4x on benchmarks (histogram 1188.2x, dxtc 781.6x, dct8x8 443.8x). HPC apps 'do not halt' without sampling.",
+      "workload_gpu": "Rodinia + CUDA SDK samples; Summit V100, CUDA 10.1",
+      "source": "Zhou et al., GVProf, SC'20, Sec. V-C and Table I. https://mxz297.github.io/files/SC20.pdf",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "With block sampling (period 50)",
+      "result": "Median 7.5x, mean 62.3x. Benchmarks 1.7x-14.7x. Apps: LAMMPS 44.7x, Darknet 29.4x, Laghos 28.1x, Quicksilver 769.2x. Sampling error 0.7% mean, 4.8% max.",
+      "workload_gpu": "Same; V100",
+      "source": "GVProf SC'20 Table I, Sec. V-B/V-C",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Queue design facts",
+      "result": "72 MB per stream; warp-leader slot reservation; kernel paused when full",
+      "workload_gpu": "n/a",
+      "source": "GVProf SC'20 Sec. IV-A (a)-(b)",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "No split between queue/transfer cost and callback/analysis cost. The paper only blames 'the large number of GPU access records'. No sweep of queue size, even though 72 MB is said to be a tradeoff 'from our experiments'. No count or duration of stalls."
+   }
+  ],
+  "comparisons": [
+   "gpu_ext (warp-uniform eBPF probes, design d) vs NVBit, whole-tool overhead as token/s degradation. kernelretsnoop 8% vs 85%, threadhist 3% vs 87%, launchlate 14% vs 93%. The text says '3-14% vs 85-87%', which does not match the table's 93%. Workload: llama.cpp prefill, Llama 1B; NVIDIA P40. Source: Zheng et al., 'gpu_ext: Extensible OS Policies for GPUs via eBPF', arXiv 2512.12615, Sec. 6.4 'Low-overhead GPU Observability', Table 2 (https://arxiv.org/pdf/2512.12615). Does NOT isolate the buffer: the paper credits warp-uniform execution and avoiding divergent control flow and memory accesses.",
+   "gpu_ext microbenchmarks: (1) the warp-level aggregated execution of gpu_ext vs the earlier per-thread eGPU-style injection cuts device-side overhead by 60-80% across map operations (Fig. 12(a)). (2) Map access from the GPU to a CPU-side map over PCIe is 6000x slower than a GPU-side map operation (Fig. 12(b)). Workload: vector-add, 32 elements, 10K iterations; RTX 5090. Source: arXiv 2512.12615 Sec. 6.4. This is the closest published measurement of where the buffer sits (host vs device) and of per-thread vs per-warp writes.",
+   "SASSI, handler stubbed vs full handler (same design d): spilling plus the ABI call is about 80% of overhead and the handler body, including atomics into on-device tables, about 20%. All 4 case studies; Tesla K40m; Parboil/Rodinia. Source: ISCA'15 Sec. 9.1. This is the only ablation found that splits probe cost from collection cost.",
+   "HPCToolkit on Intel, coarse-only vs plus GT-Pin per-basic-block counts: 1.81x vs 2.23x (PeleC TG; Iris Pro P580). Source: arXiv 2109.06931 Sec. 8.1. The delta mixes GT-Pin probe and buffer costs.",
+   "XPU-Point Fig. 16, GTPin empty tool ('Nothing') vs GTPin tool collecting per-thread BBVs: about 3-13x vs about 7-50x on PyTorch inference, Intel Ponte Vecchio. Values read off a log chart, approximate. Source: Sabu et al. 2025, Sec. VI-C, Fig. 16.",
+   "Event-rate reduction within one design. NVBit instruction histogram: full 36.4x vs kernel sampling 2.3x (TITAN V, SpecAccel; MICRO'19 Fig. 8). GVProf shared queue: median 31x without sampling vs 7.5x with block sampling (V100; SC'20 Table I). Both show overhead tracks the number of instrumented events and records, but neither separates buffer cost from probe cost.",
+   "HPCToolkit vs nvprof on NVIDIA: PeleC TG 2.24x vs 2.20x; Nyx 128 ranks / 640 streams 1.85x vs 1.42x (Summit V100; arXiv 2109.06931 Sec. 8.1). This is tool-level, not buffer-level.",
+   "Neutrino (OSDI'25 preprint, Table 1) compares itself with NVBit, GTPin, CUPTI and others only qualitatively (NVBit/GTPin listed as 'atomic' persistence, Neutrino 'eBPF-like Map'). The preprint has no measured head-to-head numbers against NVBit (grep of https://open-neutrino.github.io/Neutrino-Preprint.pdf)."
+  ],
+  "notes": "The short answer to 'which of these were actually measured, and how did they do': all five assigned systems were measured only end to end, and no paper isolates the buffering design except SASSI's one stubbed-handler sentence. The NVBit paper never measures its channel. Its 36.4x/112x and 2.3x numbers (Fig. 8) are for a counter-style tool. The channel's blocking behaviour (device-wide spin while the host drains 1 MiB of pinned memory) is visible only from code (channel.hpp v1.8.1), and nobody has published channel throughput, stall time or mem_trace slowdown. CUPTI numbers are configured defaults and drop-counting semantics, not measurements. NVIDIA gives no drop rate or overhead percentage. The compute-sanitizer MemoryTracker sample has no measurements; it is a per-launch 32 KiB buffer that drops silently but keeps a recoverable overflow count. GT-Pin has only end-to-end figures: 2-10x (IISWC'15, HD 4000), 4.7x (XPU-Point, Max 1100), 1.81x to 2.23x (HPCToolkit, Iris Pro). Its bucket and truncation behaviour comes from the docs only. GVProf is a useful third-party Sanitizer-API data point for a blocking shared queue (72 MB, kernel paused when full). Overall gaps: (1) nobody measured scaling with thread count or grid size; (2) no paper sweeps buffer size against overhead or drops; (3) memory footprints are configured sizes, never measured peaks; (4) the partial isolations are SASSI's about 80/20 probe vs collection split (K40m), gpu_ext's per-thread vs warp-level (60-80% less) and PCIe-map (6000x) microbenchmarks, and the HPCToolkit coarse-to-fine delta. Items to watch: the gpu_ext text vs Table 2 mismatch (85-87% vs 93%); the HPCToolkit NVIDIA 2.24x does not say whether PC sampling was on; XPU-Point Fig. 16 values are eyeballed. I could not get the ISPASS'26 GTPin paper PDF (only its artifact repo). Neutrino, Xtrace and the gpu_ext design were treated as out of scope except for head-to-head numbers. Downloaded copies used: /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl/ (nvbit.txt, sassi.txt, gtpin15.txt, sabu.txt, hpctk.txt, gvprof.txt, gpuext.txt, neutrino.txt, nvbit/nvbit_release_aarch64/, cs/compute-sanitizer-samples/)."
+ },
+ {
+  "systems": [
+   {
+    "system": "hip-analyzer, original 'hip-trace' mode (Darche & Dagenais, ACM TOPC 2024, DOI 10.1145/3649510; reprinted as Ch. 4 of Darche's PhD thesis, Polytechnique Montreal 2025, https://publications.polymtl.ca/67735/1/2025_SebastienDarche.pdf)",
+    "design": "Closest to design (a), but sized from a profiling pass instead of from the grid. The kernel runs twice. A counters pass counts basic-block executions per producer. The host then computes each producer's exact event count E[Pi]=Ci·E and takes an exclusive-scan offset O[i] (thesis eq. 4.1/4.2, Fig. 4.1). A second, tracing pass writes into a preallocated 'parallel array' slice per producer with no atomics. Inputs are duplicated and restored between the passes. Producer is a wavefront (64 threads on AMD) by default. A per-thread mode exists but its overhead is never reported. A WaveState event is 24 B. Non-deterministic kernels can overflow their slice and overwrite other producers' events, so a '4x padding' variant exists.",
+    "measurements": [
+     {
+      "what": "Tracing-pass kernel overhead, GCN-asm event constructor, every basic block instrumented",
+      "result": "mean 1.50x, median 1.29x (per-kernel range 0.54x-7.13x); HIP-C++ constructor mean 3.19x, median 2.18x; counters pass mean 2.00x, median 1.67x",
+      "source": "Darche thesis Table 4.2 (§4.4.3) = TOPC 2024 article; same numbers in Dorsal slides Dec 2024 slide 6 https://www.dorsal.polymtl.ca/files/december2024/dSebastien_december2024_gpu_compute_kernels.pdf",
+      "workload_gpu": "Rodinia 3.0 (HIP-Examples), AMD MI100, ROCm 5.6",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Whole-application overhead (both passes + input save/restore + transfer)",
+      "result": "mean 1.60x, median 1.26x; worst heartwall 11.13x, cfd 4.30x, hybridsort 3.03x (CUDA-Flux, quoted from its paper: cfd 83.98x, myocyte 151.82x)",
+      "source": "Darche thesis Table 4.3 (§4.4.3)",
+      "workload_gpu": "Rodinia, AMD MI100",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Trace size, trace throughput and device-memory overhead (memory footprint)",
+      "result": "Trace size per run ranges from 2.13 kB (gaussian run 0) to 31,367,941 kB, about 31 GB (hybridsort). Throughput reaches 42.5 GB/s (backprop). Device-memory overhead (traced/untraced allocation) ranges from 2.61x to 8279x (cfd 8278-8280x, myocyte 6704x, gaussian run 4 2687x). The ratio also counts duplicated inputs kept for replay, not only trace buffers. Authors say footprint follows launch geometry, not overhead. They never ran out of memory.",
+      "source": "Darche thesis Table 4.4 (§4.4.4)",
+      "workload_gpu": "Rodinia, AMD MI100",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Same hip-trace method re-run as baseline in the buffer-design study",
+      "result": "HeCBench: mean 2.07x, median 1.50x. With 4x padding (to survive non-deterministic kernels): mean 2.18x, median 1.58x. Authors say the padding also costs performance through cache faults. Computing the unique wavefront id is 'surprisingly costly'.",
+      "source": "Darche thesis Table 5.2, §5.4.5",
+      "workload_gpu": "HeCBench, AMD MI210 (CDNA2), ROCm 6.2",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Event cost in the microbenchmark (hip-trace baseline curve)",
+      "result": "About 80 clock ticks/event up to about 1024 concurrent waves, rising to about 290-320 ticks at 4096 to 262144 waves (read from the plot)",
+      "source": "Darche thesis Fig. 5.7 (p.70)",
+      "workload_gpu": "kernel1 s_nop loop microbenchmark (Listing 5), 1 to 2^18 wavefronts of 64 threads, AMD MI210",
+      "isolates_buffer_design": true
+     }
+    ],
+    "not_measured": "No rate of overwritten or corrupted events for non-deterministic kernels; padding is only a mitigation. Memory footprint of the trace buffer is never separated from input-duplication memory. Per-thread producer mode has no overhead or size numbers. No blocking: buffers are exact or padded, and a blocking mechanism is only suggested."
+   },
+   {
+    "system": "hip-analyzer online tracing schemes (Darche, Dagenais, Lamothe, 'Tracing Schemes for Performance Analysis of Compute Kernels on GPUs', submitted to ACM TOPC Nov 2024; thesis Ch. 5 and Ch. 6; code https://github.com/dorsal-lab/hip-analyzer)",
+    "design": "Four schemes run on the same instrumentation (WaveState event per basic block, one producer per 64-thread wavefront, constructors in hand-written GCN asm, tracing state in reserved SGPRs). (1) hip-global-mem (GlobalMemoryTrace) = design (b): one buffer per stream, one global atomic per event (n_a = n_e, eq. 5.1). (2) hip-cu-mem (CUMemoryTrace) = (b) sharded per CU: one buffer and atomic pointer per CU, chosen via the HW_ID register (like %smid on NVIDIA). (3) hip-chunk-allocator (ChunkAllocator) = (b) with chunk reservation: one atomic reserves a fixed-size sub-buffer, then the wavefront writes events with a register-held offset, so n_a = n_e·Ne/Nsb (eq. 5.2). (4) hip-cu-chunk-allocator = per-CU buffers plus chunks, with registries aligned to cache lines. Sizes are powers of two. The default is 2^20 sub-buffers of 4 KiB. Code: include/hip_instrumentation/managed_queue_info.hpp. Registry::alloc does atomicAdd(&current_id,1) then next=(next % buffer_count)*buffer_size, with no device-side full check (L111-121). TOTAL_CU_COUNT=112 and CACHE_LINE_SIZE=64 are hard-coded (L162-167). DEFAULT_SIZE=1048576 for GlobalMemoryQueueInfo/CUMemoryTrace (L148, L243; the code comment wrongly says '2 Mb'). When full, the buffer behaves as a flight recorder and overwrites old events. The host detects overwrites from the index delta at kernel end (§5.3.3). The host can only read buffers at kernel boundaries on CDNA2, so buffers must hold a whole kernel's events. A blocking mode is called impossible without deadlock or a costly host call (§5.5.2).",
+    "measurements": [
+     {
+      "what": "HEAD-TO-HEAD kernel overhead, all four schemes plus hip-trace, every basic block traced",
+      "result": "mean / median slowdown: hip-global-mem 3.73x / 1.96x; hip-cu-mem 2.47x / 1.60x; hip-chunk-allocator 1.79x / 1.33x; hip-cu-chunk-allocator 1.77x / 1.32x; (hip-trace 2.07x / 1.50x; padded 2.18x / 1.58x). Traces were discarded at runtime so only on-GPU cost is measured.",
+      "source": "Darche thesis Table 5.2, §5.4.5 (also Dorsal slides Dec 2024 slide 12 and May 2025 slide 8)",
+      "workload_gpu": "HeCBench (all kernels, per-kernel average over invocations; per-kernel values in Appendix B.1), AMD MI210, ROCm 6.2, LLVM 18",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Distribution of overhead (ECDF) across HeCBench kernels",
+      "result": "Text: 75% of kernels stay below 2x with the allocation (chunk) methods versus only 50% with hip-global-mem. Read from the ECDF at 2x: chunk and cu-chunk about 0.77, hip-trace about 0.74, cu-mem about 0.65, global-mem about 0.55. At 10x, global-mem is still only about 0.93, so roughly 7% of kernels are above 10x.",
+      "source": "Darche thesis §5.4.5 text and Fig. 5.12 (p.75); KDE in Fig. 5.11",
+      "workload_gpu": "HeCBench, AMD MI210",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Per-event cost vs number of concurrent wavefronts (scaling with thread count / contention)",
+      "result": "Values read from the plot, clock ticks per event. Up to 256 waves: global-mem about 290, cu-mem about 290, chunk about 115, cu-chunk about 90, hip-trace about 80. The text says allocation-based methods are 'almost three times' cheaper than atomics-based ones. Global-mem jumps to about 470 at 512 waves and peaks at about 750 at 1024 waves (attributed to cross-CU cache interactions), then falls to about 500 at 2^18 waves. Above about 1024 waves, hardware wave switching hides latency and every method converges to about 300-360 (at 2^18: cu-mem about 320, chunk about 360, cu-chunk about 350). Fits are linear with R^2 ≥ 0.99. Some large configurations could not finish because the traces got too big.",
+      "source": "Darche thesis Fig. 5.7 (p.70) and §5.4.3; Dorsal slides Dec 2024 slide 11",
+      "workload_gpu": "kernel1 microbenchmark: s_nop loop, block = 1 wavefront (64 threads), 1 to 2^18 wavefronts, WaveState event at each basic block; maximum buffer that fits in memory; AMD MI210",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Chunk (sub-buffer) size sweep at a fixed total buffer size",
+      "result": "Without contention (under 2^8 waves): about 490-525 ticks/event with 32 B chunks (one event per chunk), about 300 at 64 B, about 175-190 at 128 B, about 130-150 at 256 B. The curve flattens at 4 KiB (2^12; up to 170 WaveState events plus 16 B metadata): chunk about 113 ticks, cu-chunk about 88. It is flat out to 1 MiB. Under contention (about 2^12-2^13 waves), 32 B chunks peak at about 5000 ticks (chunk) and about 4600 (cu-chunk), 64 B at about 2600, 128 B at about 1100. Chunks of 4 KiB or more stay at about 450-500. The text calls returns beyond 4 KiB 'little to no improvement'.",
+      "source": "Darche thesis Figs. 5.8, 5.9 (p.72), 5.10 (p.73), §5.4.4",
+      "workload_gpu": "same kernel1 microbenchmark, AMD MI210",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Register and instruction cost per scheme",
+      "result": "SGPRs init/event/alloc/persistent; instructions init/event/alloc, with s_waitcnt in parentheses: hip-trace 3/6/-/2, 6/8(2)/-; global-mem 2/9/-/5, 2(1)/12(2)/-; cu-mem 3/9/-/3, 14(1)/12(2)/-; chunk 2/10/9/3, 2(1)/15(2)/28(2); cu-chunk 2/10/9/6, 2(1)/15(2)/39(2). The authors identify the extra memory syncs as the main runtime cost.",
+      "source": "Darche thesis Table 5.3, §5.4.6",
+      "workload_gpu": "static counts for the AMD CDNA2 implementation",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Interaction with fewer tracepoints (event-rate sensitivity)",
+      "result": "Median overhead with full vs. optimal (reduced) instrumentation: hip-trace 1.709 vs 1.592; global-mem 2.038 vs 1.822; cu-mem 1.871 vs 1.647; chunk 1.477 vs 1.405; cu-chunk 1.534 vs 1.413. Shared-atomic schemes gain the most from fewer events. Chunk schemes gain little because each wavefront must allocate a chunk anyway. Shared-buffer traces are larger because each event carries an extra 32-bit producer id. Optimal tracing cut complete events by a median 40% and trace size by 27% over 221 kernels. This run's full-instrumentation medians differ from Table 5.2.",
+      "source": "Darche thesis Table 6.4, Figs. 6.5-6.8, §6.4.4-6.4.5",
+      "workload_gpu": "HeCBench (221 kernels), AMD MI210",
+      "isolates_buffer_design": true
+     }
+    ],
+    "not_measured": "No head-to-head memory footprint or fragmentation. §5.4.4 says the cost of half-empty chunks for host transfer and disk was 'not explored', and the authors only argue qualitatively that global schemes use less memory. No count or rate of overwritten or dropped events in flight-recorder mode. No stall or blocking behaviour: device-to-host draining during a kernel is impossible on CDNA2, and Ch. 6 only says some benchmarks 'encounter blockings' when the host is slow to free device memory, with no numbers. No per-thread producers. No NVIDIA GPU. No cost of host-side collection or disk writing: traces are discarded at runtime in the HeCBench runs. A per-warp design with a fixed slot count per thread index (like bpftime's) is not covered."
+   },
+   {
+    "system": "PASTA (Lin, Jeon, Zhou; arXiv 2602.22103, Feb 2026, https://arxiv.org/pdf/2602.22103)",
+    "design": "The paper compares two designs. The baseline (its Fig. 2a) is the conventional design (b): GPU hooks write a device trace buffer, the GPU stalls when it is full, and the CPU fetches it, flushes it and analyzes it on one thread. This is how NVBit MemTrace and the Compute Sanitizer MemoryTracker work. PASTA (Fig. 2b) uses design (d): collection and analysis happen on the GPU (a per-object access-count map incremented on the device), with no per-event trace shipped to the host.",
+    "measurements": [
+     {
+      "what": "Overhead of the GPU-resident collect-and-analyze tool vs. CPU-side analysis variants (same analysis: memory-object working set)",
+      "result": "On A100, PASTA's GPU-side tool is on average 941x faster than the Compute Sanitizer CPU-analysis variant and 13006x faster than the NVBit CPU-analysis variant. On RTX 3060 the figures are 627x and 7353x. Some CPU variants did not finish within 7 days (shown as ∞). The abstract says 'up to 1.3x10^4 faster'.",
+      "source": "PASTA §V-B3, Fig. 9",
+      "workload_gpu": "PyTorch AlexNet, ResNet-18/34, BERT, GPT-2, Whisper; NVIDIA A100 80GB and RTX 3060",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Breakdown of profiling time into execution / collection / transfer / analysis",
+      "result": "Fractions are shown only as stacked bars. The CPU-based variants are dominated by trace analysis time ('hours to days' on a single CPU thread). In the GPU variant, collection and analysis are fused, so the 'collection' share includes analysis.",
+      "source": "PASTA §V-B3, Fig. 10",
+      "workload_gpu": "same DL models, A100 and RTX 3060",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "The speedup comes mainly from where the analysis runs (GPU vs. one CPU thread), not from the buffer design, and the paper does not separate the two. The 'GPU stalls when trace buffer is full' behaviour of the baseline is described (Fig. 2a), never timed. No buffer size, memory footprint, drop count or scaling-with-threads numbers. No AMD overhead numbers, although AMD support exists."
+   },
+   {
+    "system": "CUDAAdvisor (Shen, Song, Li, Liu, CGO 2018, DOI 10.1145/3168831; code https://github.com/sderek/CUDAAdvisor)",
+    "design": "Design (b) in its simplest form. A single global device buffer (BUFFERSIZE = 24*80*1024*1024 B ≈ 1.97 GB, common.h L1). Each traced thread does atomicAdd on one global counter per event (src/ansf.cu L632 for basic-block logs, L695 for memory-access entries). Events are per-thread records (Entry_t: block/thread ids, address, size, line, op). When the counter nears capacity, the hook silently returns, i.e. drops the event (ansf.cu L633-634, L690-691). Optional sampling of CTAs (CTALB/CTAUB, L626-627) limits volume.",
+    "measurements": [
+     {
+      "what": "End-to-end runtime overhead",
+      "result": "10x to 120x, averaging about 50x on Rodinia (SECONDHAND: quoted in Darche thesis §2, about line 1238 of the text, and in Dorsal slides; Darche could not run CUDAAdvisor on its hardware)",
+      "source": "Darche thesis Ch. 2 literature review and §4.4.2 note; the original CGO'18 PDF could not be opened (ACM 403) and was NOT verified",
+      "workload_gpu": "Rodinia; GPU per the original paper (Pascal / CUDA 8.0, not verified)",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "The primary paper was not read, so none of its own numbers are confirmed. As far as can be told, it does not split the cost of the global atomic buffer from analysis or probe cost. Darche notes 'the data collection scheme is not explained in the paper'. No drop counts, although code drops silently on overflow. No memory-footprint study beyond the fixed ~2 GB buffer."
+   },
+   {
+    "system": "GPA - GPU Performance Advisor (Zhou et al., CGO 2021; arXiv 2009.04061)",
+    "design": "Design (e): CUPTI PC sampling. Per the paper, each SM collects samples into a hardware/driver buffer. When it is full, CUPTI merges the samples from all SMs and transfers them to the CPU.",
+    "measurements": [],
+    "not_measured": "No overhead, buffer size, sample loss or scaling measurement for collection. The paper only claims PC sampling 'introduces considerably less cost' than instrumentation (related work). The 1.01x-3.53x (geomean 1.22x) numbers are application speedups after GPA's advice, not overhead (§2.1 and evaluation)."
+   },
+   {
+    "system": "GPUscout (Sen, Vanecek, Schulz, SC-W/ProTools 2023, DOI 10.1145/3624062.3624208)",
+    "design": "Design (e) plus static analysis: CUPTI PC Sampling for warp stalls, Nsight Compute CLI for kernel metrics, and SASS static analysis. It has no instrumentation buffer of its own.",
+    "measurements": [],
+    "not_measured": "No overhead, footprint or drop numbers were found in the ProTools'23 slides (https://ce.cit.tum.de/fileadmin/w00cgn/caps/vanecek/gpuscout_protools.pdf). The full paper PDF was not obtained."
+   },
+   {
+    "system": "KPerfIR / Proton intra-kernel profiler (Guan et al., arXiv 2505.21661, May 2025)",
+    "design": "Region timing for Triton kernels. Records go to a per-warp-group slice of a shared-memory buffer. Slot offsets are fixed at compile time, so writes need no atomics. A circular buffer keeps only the most recent records (overwrite oldest; the default). A 'flush' strategy that writes back to global memory when full is offered as an alternative. All data is copied to global scratch memory at kernel end. On AMD, all lanes write the same slot (a 'collaborative store') to avoid divergence that costs up to 600 cycles.",
+    "measurements": [
+     {
+      "what": "End-to-end kernel latency overhead with the profiler on",
+      "result": "About 8% on average, at most 15% (GEMM software-pipelined with 3 stages, many records)",
+      "source": "KPerfIR §6.3, Fig. 13",
+      "workload_gpu": "GEMM-SWP-2/3 and FA3 warp-specialized kernels; NVIDIA H100 and AMD MI300X",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Shared-memory footprint of the profiling buffer",
+      "result": "Production kernels typically leave 1-4 KB of shared memory for the profiling buffer, at most 1.75% of 228 KB on H100. GEMM-SWP-3 leaves 10.9 KB unused. With 4 regions, the circular buffer holds 16 loop iterations. A 512-iteration loop with 2 warp groups and 4 regions would need 4096 slots (16 KB).",
+      "source": "KPerfIR §5.2 and §6.3, Fig. 14",
+      "workload_gpu": "same kernels, H100 / MI300X",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "Circular and flush strategies are described but not compared numerically. No loss count: the circular buffer drops older iterations by design. No scaling with thread count."
+   },
+   {
+    "system": "WarpGuard (Lindenmeier et al., arXiv 2607.13640, 2026) - NVBit-based GPU control-flow tracing on Jetson Orin Nano",
+    "design": "Design (b) with warp aggregation and per-SM sharding. At each basic-block entry, only the lowest active lane writes (warp_key, addr_id) to its SM's ring buffer. The buffer is in pinned, mapped host memory, so no cudaMemcpy is needed. When a ring fills, the warp flushes it to the CPU-side prover and waits on a doorbell, which can stall it. A flush kernel drains the rest at exit. One CPU receiver thread polls all SM doorbells round-robin. Per-SM sharding 'turned out to be a key improvement to reduce synchronization overhead'. Warp granularity cuts trace volume 'by up to 32x'.",
+    "measurements": [
+     {
+      "what": "Overhead split: full tracing vs. empty NVBit hook (isolates tracing logic from framework/JIT)",
+      "result": "Microbenchmarks (about 281.5K GPU records): the gap between WarpGuard-full and WarpGuard-empty is small. NVBit-empty and DynamoRIO each cause up to about 5x slowdown on their own, and the frameworks account for most of the overhead. Exact values are only in the plot.",
+      "source": "WarpGuard §7.1, Fig. 4",
+      "workload_gpu": "custom microbenchmarks (FP64 ops per BB, loop iterations, launch count); NVIDIA Jetson Orin Nano",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "End-to-end overhead and the effect of record volume",
+      "result": "SPECaccel 2023 with BB-level tracing: 2.4x-128x (mean 39.3x); function-level: 1.2x-113x (mean 26.7x). On md (2.52 billion GPU records), switching to function-level tracing cuts overhead from 9.3x to 1.3x. The authors observe 'thrashing at extremely high GPU record volumes'. On TensorRT models with BB-level tracing: 15.5x-120x. YOLOv3-Tiny (1.2M records/launch) and Super-Res (3.2M records/launch) drop to 0.22 and 0.32 QPS because the CPU drain thread cannot forward ring-buffer records fast enough. This is a measured consumer-side stall symptom.",
+      "source": "WarpGuard §7.1 (SPECaccel and AI IoT paragraphs), Fig. 5",
+      "workload_gpu": "SPECaccel 2023 (test size), 8 TensorRT engines; Jetson Orin Nano",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "The benefit of per-SM sharding over a single ring is claimed but not quantified. No ring size sweep, stall time or drop count (flushes block instead of dropping). Warp vs. per-thread volume is stated as 'up to 32x', not measured as overhead."
+   },
+   {
+    "system": "BARRACUDA (Eizenberg et al., PLDI 2017, DOI 10.1145/3062341.3062342) - race detector streaming GPU events to the host",
+    "design": "Design (b) with warp aggregation and multiple queues. Lock-free ring queues of fixed-size records with a write head, commit index and read head. Each record covers one warp operation: warp id, op, 32-bit active mask and 32 addresses, 16 + 8×32 = 272 B. A leader lane reserves the slot, all lanes fill their addresses, and the leader commits with system-level fences. When the queue is full, the leader WAITS for the CPU to drain it, which blocks the warp. Each thread block maps to one queue. Multiple queues give 'orders of magnitude better throughput than a single queue', with about 1.1-1.5 queues per SM found optimal. Each queue has one host thread and one stream.",
+    "measurements": [
+     {
+      "what": "End-to-end race-detection overhead",
+      "result": "Up to 3700x (DWT2D, which runs natively in 90 ms); dxtc takes 20 minutes in absolute time; plotted per benchmark on a log axis",
+      "source": "BARRACUDA §6.2, Fig. 10 (https://mansky-cs.red.uic.edu/wp-content/uploads/sites/862/2021/08/4.-barracuda.pdf)",
+      "workload_gpu": "Rodinia 3.1, CUB, SHOC, CUDA SDK samples; GTX Titan X (Maxwell, 24 SMs)",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Overhead and memory reserved, as reported by iGUARD (third-party re-run)",
+      "result": "iGUARD reports Barracuda at 'over 50x on average' and says Barracuda reserves 50% of GPU memory for its buffers. iGUARD's own in-GPU detection (design d) runs at 5.1x on average, about 15x lower than Barracuda.",
+      "source": "iGUARD SOSP 2021 §1 and §4 metadata allocation (https://akkamath.github.io/files/SOSP21_iGUARD.pdf)",
+      "workload_gpu": "iGUARD's suite; Barracuda compiled for an older ISA because it cannot run on SM70",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "The single-queue vs. multi-queue comparison and the 1.1-1.5 queues/SM tuning are stated without a table or figure. No stall time when queues are full and no queue-size sweep. All overheads include CPU-side race-detection cost."
+   }
+  ],
+  "comparisons": [
+   "Darche thesis Ch.5 (MI210, HeCBench, Table 5.2) is the only head-to-head with the instrumentation held fixed. Mean / median kernel slowdown: one global atomic buffer (hip-global-mem) 3.73x / 1.96x; per-CU atomic buffers (hip-cu-mem) 2.47x / 1.60x; global chunk allocator, 4 KiB sub-buffers (hip-chunk-allocator) 1.79x / 1.33x; per-CU chunk allocator 1.77x / 1.32x; exact per-wavefront preallocation from a counting pre-pass (hip-trace) 2.07x / 1.50x, or 2.18x / 1.58x with 4x padding. Source: https://publications.polymtl.ca/67735/1/2025_SebastienDarche.pdf",
+   "Darche Fig. 5.7 (MI210 microbenchmark, clock ticks per event). With 256 waves or fewer, global and per-CU atomic buffers cost about 290, chunk about 115, per-CU chunk about 90, exact preallocation about 80 ('almost 3x' cheaper). The single global atomic degrades past 256 waves and peaks at about 750 ticks at 1024 waves. Above about 1024 waves, wave switching hides latency and everything converges to about 300-360 ticks. At 2^18 waves, per-CU atomic (about 320) is slightly ahead of the chunk allocators (about 350-360).",
+   "Darche Figs. 5.8-5.10, chunk size: 32 B chunks (one atomic per event) cost about 500 ticks uncontended and about 4600-5000 ticks at 2^12 waves. The benefit levels off at 4 KiB chunks (about 88-113 ticks) and does not improve up to 1 MiB.",
+   "Darche Table 6.4 (MI210, HeCBench) medians, full vs. reduced tracepoints: global 2.038 vs 1.822, per-CU 1.871 vs 1.647, chunk 1.477 vs 1.405, per-CU chunk 1.534 vs 1.413, hip-trace 1.709 vs 1.592. Atomic-per-event schemes gain most from lower event rates. Chunk schemes pay a fixed per-wavefront allocation even when few events are emitted. Shared-buffer events carry an extra 32-bit producer id, so their traces are larger.",
+   "Darche ECDF (Fig. 5.12): about 75% of kernels stay under 2x with chunk allocators versus about 50-55% with the single global atomic buffer.",
+   "PASTA Fig. 9: on-GPU aggregation (design d) vs. a device buffer drained to a single-thread CPU analyzer (design b, NVBit MemTrace or Compute Sanitizer). 941x / 13006x faster on A100, 627x / 7353x on RTX 3060. This mostly reflects where the analysis runs, not buffer allocation (Fig. 10 shows CPU variants are dominated by analysis time).",
+   "iGUARD vs. BARRACUDA: in-GPU race detection (design d) at 5.1x average vs. Barracuda's host-queue design (b, per-warp 272 B records, blocking when full) at over 50x, about 15x lower overhead. Barracuda also reserves 50% of GPU memory for its queues. Numbers come from iGUARD's paper, and the comparison mixes in different detection algorithms."
+  ],
+  "notes": "Scope covered: hip-analyzer / Darche (TOPC 2024 article plus the 2025 PhD thesis, which contains the follow-up buffer-design article, Ch. 5, submitted to TOPC on 2024-11-18 and not yet found published), PASTA, CUDAAdvisor, GPA, GPUscout, plus three other tracing systems found in the literature search with relevant buffer designs (KPerfIR/Proton, WarpGuard, BARRACUDA, with iGUARD as a third-party measurement). NVBit, SASSI, GT-Pin, Neutrino, Xtrace, gpu_ext and the CUPTI internals were deliberately left to other workflow steps.\n\nKey takeaways for bpftime direction 1:\n(1) The only study that measures buffer designs head-to-head is Darche Ch. 5, and it is AMD-only (MI210), with one producer per 64-thread wavefront and 24 B events. It ranks the designs: wave-level chunk reservation (one atomic per 4 KiB) beats per-CU atomics, which beat one global atomic per event. The gap is largest when contention is high but the hardware is not yet oversubscribed (256 to about 4096 waves). Mean slowdown drops from 3.73x to about 1.78x on HeCBench.\n(2) Nobody in this group measures drop/overwrite rates, the time spent blocked when a buffer is full, or a memory-footprint comparison between designs. Darche explicitly leaves fragmentation and memory cost unexplored. His Table 4.4 memory ratios (up to 8279x) include input duplication.\n(3) Per-thread producers (bpftime's current per-thread-index layout) are never measured in this group. Darche mentions the per-thread mode only qualitatively as 'large overhead both for memory usage and execution time'.\n(4) On NVIDIA, the host cannot read device memory consistently during a kernel on discrete AMD (CDNA2), which forces flight-recorder or overwrite semantics. WarpGuard and BARRACUDA instead use pinned or host-mapped queues with blocking flushes, and WarpGuard shows the CPU drain thread becomes the bottleneck at more than 1M records per launch, on a Jetson Orin Nano, the same platform family as this board.\n\nCaveats: values from Figs. 5.7-5.12 were read off rendered plots (pages 70-75 of the thesis PDF) and are approximate. Table 5.2 and Table 6.4 report different medians for the same methods because they are separate runs. The CUDAAdvisor PDF could not be opened (ACM 403), so its 10x-120x (~50x Rodinia) overhead is secondhand via Darche. Its repo facts (a ~1.97 GB global buffer, one atomicAdd per event, silent drop when full) were verified directly in the code: common.h L1, src/ansf.cu L623-634 and L690-695. GPA and GPUscout publish no collection-overhead numbers. Working files are in /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad (dl/thesis.txt, hipa/managed_queue_info.hpp, cadv/ansf.cu, figs/p88-088.png etc., draft_notes.txt)."
+ },
+ {
+  "systems": [
+   {
+    "system": "gpu_ext revision-rq4: kernelretsnoop, compact warp-leader records (bpftime GPU ringbuf, map type 1527, vs GPU-local single-value array, map type 1503)",
+    "design": "Ring arm (design f): bpftime per-thread ring in host-mapped memory. 524288 physical-thread slots, each with a 24-byte header and 44 aligned 40-byte records. The producer writes per event, and the collector drains either continuously or only at the end (final-only). GPU-local arm (design c/d hybrid, per-warp slots): one map value in cuMemAlloc device memory holds 16384 per-warp append counters plus 44 x 32-byte events per warp, written by direct GPU pointer stores. It is read with one bulk host lookup after the target finishes, with no global committed counter. Both arms keep the same warp-leader callback, the same 32-byte records and 720896 events per run.",
+    "measurements": [
+     {
+      "what": "Memory footprint, ring vs actual payload",
+      "result": "The ring allocates 935329824 B (about 892 MiB, including a 32-byte error-counter block) to carry 720896 x 32 B = 22 MiB of payload, about 40x over-allocation. Slot indexing (per physical thread) and the event coordinate (per warp) are different, so capacity cannot simply be reduced.",
+      "source": "https://github.com/eunomia-bpf/gpu_ext/blob/50a51ad4e8584d295df7c1942fe7e736cdd101ba/workloads/llama.cpp/observability_overhead/revision-rq4/device-array-runtime-notes.md, section 'Existing measurement geometry' (lines ~20-30)",
+      "workload_gpu": "llama.cpp pp512 TinyLlama-1.1B Q4_K_M, 44 launches, extent (16384,1,1); RTX 5090, driver 575.57.08",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Memory footprint, GPU-local array",
+      "result": "One 23199768-byte value (about 22.1 MiB: a 64-bit count plus 44 events per warp) holds all 720896 events, with 0 overflow and 0 out-of-range.",
+      "source": "revision-rq4/results-onevalue-array-bootstrap-575-20260907/README.md, sections 'Ten-pair extension' and 'What changed' (same gpu_ext commit 50a51ad4)",
+      "workload_gpu": "same; RTX 5090",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Prefill throughput overhead: GPU-local array with final bulk readback",
+      "result": "5.572554% mean paired overhead over 5 pairs (35861.535 vs 37979.256 token/s; median 5.486%, range 4.018-6.705%). Extended to 10 pairs: 5.400619% mean (median 5.392%, range 4.018-6.705%), 36095.211 vs 38156.367 token/s.",
+      "source": "revision-rq4/results-onevalue-array-bootstrap-575-20260907/README.md (both tables), gpu_ext@50a51ad4",
+      "workload_gpu": "llama.cpp pp512 TinyLlama 1.1B Q4_K_M, CUDA graphs off; RTX 5090 / 575.57.08",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Prefill throughput overhead: ring with continuous collector (Table 1 RTX 5090 re-run)",
+      "result": "90.7050859% (3493.665 vs 37586.323 token/s baseline, 10 blocks). NVBit on the same tool: 99.6210304% (142.436 token/s).",
+      "source": "revision-rq4/results-table1-warp-plt-575-06/README.md lines 9-13, gpu_ext@50a51ad4",
+      "workload_gpu": "llama.cpp pp512; RTX 5090 / 575.57.08",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Effect of collector timing alone (final-only drain vs continuous drain, same ring producer)",
+      "result": "Final-only: 3493.318 token/s, 90.811502% mean paired overhead (5 pairs, per-pair 90.51-91.03%). Continuous: 3493.665 token/s, 90.705%. Essentially no change: draining the ring was not the cost. 720896 events per run, all collected, 0 full-ring drops.",
+      "source": "revision-rq4/results-final-only-575-20260907/README.md table (lines ~10-15), gpu_ext@50a51ad4",
+      "workload_gpu": "same; RTX 5090",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Collection cost separated from the probe",
+      "result": "Final host lookup of the 23199768-byte array: mean 10.379 ms (5 runs, range 10.158-10.960 ms); 10.598 ms over 10 runs (range 10.158-11.137 ms). This is outside the prefill timing.",
+      "source": "revision-rq4/results-onevalue-array-bootstrap-575-20260907/README.md, gpu_ext@50a51ad4",
+      "workload_gpu": "RTX 5090",
+      "isolates_buffer_design": true
+     }
+    ],
+    "not_measured": "Ring and array rows were not interleaved in one campaign: the 5.57% array result is compared against ring numbers from earlier campaigns with their own baselines (stated in the README). The array change bundles placement (host-mapped to device memory), layout (per-thread to per-warp slots), publication protocol and collection timing; only collection timing was isolated, by the final-only run. Not measured: scaling with thread count or event rate, behaviour when the array fills (it is sized for this one pp512 geometry), concurrent kernels, any streaming or unbounded mode, and NVBit at matched granularity."
+   },
+   {
+    "system": "gpu_ext revision-rq4: kernelretsnoop, full per-thread records (original BPF object, 80-byte records, 23068672 events/run)",
+    "design": "Ring arms: bpftime per-thread ring in host-mapped memory with 524288 thread slots x 256 entries. 'Legacy' transport; transport 2 (aligned copy plus encoded tail publication); transport 3 (packed 24-byte headers plus a thread-major transposed payload, so adjacent tids write adjacent 8-byte words). GPU-local arms: a bounded GPU_ARRAY (1503) arena of 32 banks x 16384 slots x 256 records x 80 B (about 10 GiB) in AoS, SoA, AoSoA or warp-contiguous SoA layout, drained in bulk after the client exits.",
+    "measurements": [
+     {
+      "what": "Legacy vs transport 2 ring (same object)",
+      "result": "Median 35.352 vs 203.238 token/s (mean 34.514 vs 194.059). Losses vs baseline (38401 token/s median): 99.9099% and 99.4936%. Median paired ratio 5.7702x (95% CI 5.6511-5.8121x).",
+      "source": "revision-rq4/results-original-ring-encoded-20260908.md lines 10-20, gpu_ext@50a51ad4",
+      "workload_gpu": "llama.cpp pp512/tg0 TinyLlama Q4_K_M; RTX 5090 / 575.57.08 / CUDA 12.9",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Ring memory footprint and size ceiling",
+      "result": "The ring segment is 11823743008 B for 23068672 x 80 B = 1.85 GB of payload (about 6.4x). The first attempt failed all 20 loader starts because the requested 12301 MiB segment exceeded the runtime's old 10 GiB shared-memory ceiling (fixed in bpftime 241872b).",
+      "source": "revision-rq4/results-transport23-20260908.md line 26; results-original-ring-encoded-20260908.md lines 31-36",
+      "workload_gpu": "RTX 5090",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Transport 2 vs transport 3 (layout of host-mapped ring)",
+      "result": "Median 208.757 vs 346.808 token/s. Paired ratio 1.650416x (+65.04%, 95% CI 1.6327-1.6803x); prefill time -39.41%. Every run: 23068672 events, 0 OOB/full/bad-size drops, 0 pending.",
+      "source": "revision-rq4/results-transport23-20260908.md lines 7-15, 29-31",
+      "workload_gpu": "same; RTX 5090",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Host-mapped ring (transport 3) vs GPU-local bounded arena (AoS), 3-arm interleaved",
+      "result": "Baseline / ring / GPU-local medians: 38240.04 / 345.22 / 23267.23 token/s. Paired loss: ring 99.0986%, GPU-local 39.0992% (range 38.99-39.39%). GPU-local/ring ratio 67.47x (range 66.94-68.63x). Both arms keep all records: 0 drops, 0 overflow.",
+      "source": "revision-rq4/results-full-record-device-buffer-20260908.md table lines 8-14",
+      "workload_gpu": "same; RTX 5090",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Post-run drain of the GPU-local arena",
+      "result": "10741613056 B copied after the client exits: median 1490.922 ms (range 1457.5-1515.5 ms), excluded from token/s. SoA run: 1474.8 ms; warp-SoA: 1501.7 ms.",
+      "source": "results-full-record-device-buffer-20260908.md lines 37-43; results-full-record-soa-20260908.md table; results-full-record-soa-warp-20260909.md table",
+      "workload_gpu": "RTX 5090",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Arena layout: AoS vs SoA",
+      "result": "Medians 23273.04 vs 27713.34 token/s, baseline 38455.02. Paired loss 39.385% vs 27.621%. SoA gain +19.229% (range 18.54-19.54%).",
+      "source": "revision-rq4/results-full-record-soa-20260908.md lines 8-12",
+      "workload_gpu": "same; RTX 5090",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Arena layout: SoA vs warp-contiguous SoA",
+      "result": "Medians 27726.52 vs 33381.16 token/s, baseline 38336.73. Loss 27.641% vs 12.862%. Gain +20.565% (range 19.51-21.15%). AoSoA was recorded as a regression (no number in this file).",
+      "source": "revision-rq4/results-full-record-soa-warp-20260909.md lines 10-14, 159-161",
+      "workload_gpu": "same, rope geometry grid 2048x1x1, block 1x256x1; RTX 5090",
+      "isolates_buffer_design": true
+     }
+    ],
+    "not_measured": "The notes say these do not separate memory transactions from map-lookup, indexing or codegen effects, and that the ring-to-GPU-local change bundles placement, layout and publication. Not measured: scaling with grid size or event rate, overflow behaviour (capacity was always sufficient), online or streaming drain of the GPU arena, and an NVBit comparison at full-record granularity. One machine, one workload, five blocks."
+   },
+   {
+    "system": "gpu_ext paper (arXiv 2512.12615v2): device-side observability tools vs NVBit",
+    "design": "Tools built on bpftime GPU maps: kernelretsnoop uses GPU_RINGBUF (1527, per-thread ring, max_entries 256); threadhist uses PERGPUTD_ARRAY (1502, a per-thread slot array, design f); launchlate uses GPU_ARRAY (1503) histogram plus host-mapped 1513 arrays. The paper describes hierarchical map shards (host DRAM / GPU global / shared memory) updated per warp by leader threads without atomics and flushed asynchronously as snapshots (sec 4.4.3, 5.3). Map types come from the tool sources in revision-rq4/results-table1-warp-plt-575-03/gpubpf_tool_build/*/*.bpf.c.",
+    "measurements": [
+     {
+      "what": "Table 2: prefill throughput overhead, gpu_ext vs NVBit",
+      "result": "kernelretsnoop 8% vs 85%; threadhist 3% vs 87%; launchlate 14% vs 93%",
+      "source": "arXiv 2512.12615v2, sec 6.4.2 and Table 2 (p.12); also gpu_ext repo workloads/llama.cpp/observability_overhead/p40-submitted-table1.json",
+      "workload_gpu": "llama.cpp prefill, Llama 1B, IO3, sequence-mixed; NVIDIA P40",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "RTX 5090 re-run of the same three tools (revision Table 1)",
+      "result": "Overhead gpu_ext vs NVBit: kernelretsnoop 90.705% vs 99.621%; threadhist 2.965% vs 10.350%; launchlate 0.221% vs 8.796%. Baseline 37586.3 token/s; 10 blocks, 70 cells.",
+      "source": "revision-rq4/results-table1-warp-plt-575-06/README.md lines 9-13, gpu_ext@50a51ad4",
+      "workload_gpu": "llama.cpp pp512 TinyLlama Q4_K_M; RTX 5090 / 575.57.08",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "threadhist full readback size",
+      "result": "BPF reads all 1048576 entries / 8388608 B of the per-thread array. NVBit and BPF both count 720896 exit events in 22528 nonzero slots (correctness run, not timed).",
+      "source": "revision-rq4/targeted-diagnostic-results.md lines 5-10",
+      "workload_gpu": "llama.cpp; RTX 5090",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Fig. 12(a) device micro-ops including 'Ringbuf' and 'Per-GPU-thread array' (eGPU-style vs gBPF)",
+      "result": "The paper claims 60-80% lower overhead across operations, but the repo's own audit finds the plot subtracts the new 5.15 us baseline from both series (the old series' baseline is 5.23 us). With correct subtraction, entry+exit drops only 10.8% (1.02 to 0.91 us). The 'new' series has no pinned implementation, and the current runtime has no warp-leader dispatch. The audit's verdict: 'not sufficient to call either panel a reproduction'.",
+      "source": "arXiv 2512.12615v2 Fig. 12, sec 6.4.2; gpu_ext repo microbench/fig15-device/legacy-evidence-audit.md lines 9-26, 90-99",
+      "workload_gpu": "vec_add 32 elements, 10K iterations; RTX 5090",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Fig. 12(b) CPU map access via PCIe",
+      "result": "About 34 ms per CPU array/hash op from a device callback, reported as 6000x slower than GPU-side ops. The audit says the plotted bars time the serialized host-RPC path (make_helper_call), not the direct host-mapped array 1513.",
+      "source": "arXiv 2512.12615v2 Fig. 12(b); legacy-evidence-audit.md lines 101-113",
+      "workload_gpu": "vec_add minimal; RTX 5090",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "Table 2 is end-to-end only: it does not isolate the ring or per-thread array from probe and JIT cost. The P40 8% (kernelretsnoop) and the RTX 5090 90.7% differ in GPU, model, workload mix and record format, so the published 8% cannot be used as a buffer-design measurement. The paper itself says it does not compare against eGPU or Neutrino (sec 6.4.2), so there is no head-to-head with design (a). Not measured in the paper: memory footprint, drops, scaling with threads or event rate, the snapshot flush cost of the GPU-local shards, and staleness."
+   },
+   {
+    "system": "Upstream bpftime benchmark/gpu micro tables (eunomia-bpf/bpftime master 39cc1fce)",
+    "design": "'GPU Ringbuf' case: the per-thread ring 1527 with max_entries 16 per thread and 16-byte events. Each thread calls bpf_perf_event_output on vectorAdd entry. The device code checks tail-head==max_entries and returns 2 when full (no counter, no blocking), and returns 1 for tid >= max_thread_count. 'Per-GPU-thread array': PERGPUTD 1502, max_entries 1, u64 increment per thread. 'GPU Array map update': every thread does lookup+update on one shared key 0 of 1503. Thread count is fixed at map creation: default gpu_thread_count = 1024, overridable with BPFTIME_MAP_GPU_THREAD_COUNT. Geometries: tiny 32 threads (1x32), small 1024, small_64x16 1024, medium 10240, large 100352, xlarge 1000448; tiny/small/medium run 10000 launches, large/xlarge 1000.",
+    "measurements": [
+     {
+      "what": "Ringbuf vs Entry probe, per launch (derived difference; avg kernel time, single aggregate)",
+      "result": "RTX 5090: tiny 10.63 vs 6.21 us (+4.4 us, 2.03x baseline 5.23); small 15.91 vs 6.43 (+9.5 us, 3.01x); medium 33.32 vs 6.41 (+26.9 us, 6.27x). P40: tiny 34.64 vs 17.08 (+17.6 us, 2.46x); small 49.37 vs 17.36 (+32.0 us, 2.94x); medium 142.33 vs 24.46 (+117.9 us, 10.03x).",
+      "source": "https://github.com/eunomia-bpf/bpftime/blob/39cc1fce749c64df749c38ef8c3803bb15ee6600/benchmark/gpu/micro/micro_vec_add_result.md lines 33-49; micro_vec_add_result_p40.md lines 33-49",
+      "workload_gpu": "vec_add; RTX 5090 (2025-10-16), Tesla P40 (2025-10-18)",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Caveat on what the Ringbuf rows time",
+      "result": "The micro loader never polls, so after 16 launches every thread's 16-entry ring is full and the remaining ~9984 of 10000 launches time the full-check/return path, not successful writes (finding from the Orin re-run; the harness is the same upstream). With 1024 thread slots, medium and larger only write for the first 1024 threads.",
+      "source": "local results: https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/gpu/compare-20261110/README.md (lines ~103-107); upstream default_trampoline.cu lines ~364-405 (_bpf_helper_ext_0025), runtime/include/bpftime_shm.hpp:45",
+      "workload_gpu": "n/a",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Per-GPU-thread array vs Entry probe (derived)",
+      "result": "RTX 5090: tiny 9.51 us (+3.3 us), small 9.82 (+3.4), medium 10.15 (+3.7), large 17.94 (3.20x). P40: tiny 30.89 (+13.8), small 32.50 (+15.1), medium 38.92 (+14.5), large 151.39 (3.08x).",
+      "source": "micro_vec_add_result.md lines 56-61; micro_vec_add_result_p40.md lines 56-61 (bpftime@39cc1fce)",
+      "workload_gpu": "vec_add; RTX 5090 / P40",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Shared single-key GPU array update scaling with thread count (shared-slot contention proxy)",
+      "result": "RTX 5090: 11.12 us at 32 threads up to 141.25 us at 1000448 threads (2.13x to 20.12x baseline). P40: 30.59 to 2036.86 us (2.17x to 23.74x). P40 kernel-GPU shared array update: 15.58 us (2.02x) at 32 threads, 356.84 us (45x) at 10240, 3444.5 us (345x) at 100352, 34035.9 us (612.8x) at 1000448. Lookup-only grows much less (P40 kernel-GPU lookup 1.44x to 8.37x).",
+      "source": "micro_vec_add_result.md lines 66-77; micro_vec_add_result_p40.md lines 66-77; micro_vec_add_kernel_gpu_shared_result_p40.md (bpftime@39cc1fce)",
+      "workload_gpu": "vec_add; RTX 5090 / P40",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Host-side lookup/update cost, per-thread array (1502) vs plain GPU array (1503) at equal bytes/key",
+      "result": "Ratio 0.992-1.009x for thread_count 32 to 1024. Update 3833-4328 ns/op, lookup 4835-5897 ns/op (cuMemcpyDtoH fallback, no GDRCopy).",
+      "source": "benchmark/gpu/host/gpu_array_vs_per_thread_overhead_rtx5090.md lines 22-27 (bpftime@39cc1fce)",
+      "workload_gpu": "host microbenchmark, 50000 iterations; RTX 5090",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Invalid rows (faster than their own baseline)",
+      "result": "RTX 5090: GPU Ringbuf large 1.10 us and xlarge 1.11 us vs baseline 5.60/7.02; Per-GPU-thread array xlarge 1.13 us. P40: Ringbuf large 2.71 / xlarge 2.42 us, per-thread xlarge 34.47 us vs 49.12/85.80. The kernel most likely did not run; these should not be treated as measurements.",
+      "source": "micro_vec_add_result.md lines 50-51, 61; micro_vec_add_result_p40.md lines 50-51, 61",
+      "workload_gpu": "vec_add large/xlarge",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "Single aggregate per case (no repetitions or spread), and no drop, delivered-event or full-ring counts. Successful writes are never timed at steady state, because the ring fills after 16 launches and is never drained. Not measured: memory footprint, configurations beyond 1024 thread slots (out-of-range threads skip the write), host drain throughput, and any comparison with a shared or atomic ring (design b) or grid-sized buffers (design a)."
+   },
+   {
+    "system": "bpftime official 4708f409 vs dev c115b33d on Jetson Orin Nano (local re-run of the upstream benchmark)",
+    "design": "Same per-thread ring and per-thread array (1024 slots). The integrated GPU cannot use CUDA IPC, so the official build runs probe copies that use 1512/1513 host-memory maps. The dev build counts drops on a full ring (518f05b5) and drains every record up to the tail per poll.",
+    "measurements": [
+     {
+      "what": "GPU Ringbuf case, official",
+      "result": "tiny 37.5 us (1.4x baseline 27.8; Entry 30.9, so +6.6 us); small 39.3 (+5.4 vs Entry 33.9); medium 39.0 (+3.1 vs Entry 35.9); large 50.7 (1.6x); xlarge 209.7 (1.3x baseline 159.8; +36.5 vs Entry 173.2). Median of 3 rounds.",
+      "source": "https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/gpu/compare-20261110/summary.md lines 32-37 (commit c4e25af4)",
+      "workload_gpu": "upstream vec_add micro, legacy launch victim; Jetson Orin Nano, jetson_clocks",
+      "isolates_buffer_design": false
+     },
+     {
+      "what": "Cost of drop accounting on a full ring",
+      "result": "Dev is slower on small_64x16 / small / medium: 45.7 / 42.0 / 44.2 vs 38.4 / 38.2 / 37.7 us (+19% / +10% / +17%). Ablation that restores official's full-check-first path removes 11.9 / 6.2 / 7.8 us (p < 0.001). Cause: dev takes the busy word, fences and counts the drop.",
+      "source": "gpu/compare-20261110/attribution.md line 58; gpu/ablate-20261110 (results repo above)",
+      "workload_gpu": "Jetson Orin Nano",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Data loss with the official host drain (Kernel Retsnoop example)",
+      "result": "Official delivers 32 of 128 expected events (32 threads x 4 launches): all 32 carry one timestamp, 75% lost. Dev delivers 128/128. No device-side drop in either build (4 records per 16-entry ring). Cause: official drain_data takes one record per thread per poll, and the loader polls every 1 s (dev: 10 ms) and is killed after the victim exits.",
+      "source": "gpu/compare-20261110/attribution.md line 27; README.md 'Examples' table",
+      "workload_gpu": "examples_vec_add minimal; Jetson Orin Nano",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Fixed 1024 thread slots",
+      "result": "Official writes past the 1024-thread per-thread array at medium/large/xlarge, so those cases were skipped. Dev returns NULL beyond slot 1024 with one warning ('GPU thread 1536, key 0 is outside map 15 (1024 threads, 1 entries)'), so its 43.9 / 147.4 / 1165 us (1.6 / 4.7 / 7.3x) cover only the first 1024 threads.",
+      "source": "gpu/compare-20261110/README.md lines 122-127; summary.md lines 66-68",
+      "workload_gpu": "Jetson Orin Nano",
+      "isolates_buffer_design": false
+     }
+    ],
+    "not_measured": "Three rounds only. Not measured: ring throughput with an active consumer, memory footprint, thread counts above 1024 with a larger BPFTIME_MAP_GPU_THREAD_COUNT, and any comparison with other buffer designs."
+   },
+   {
+    "system": "eGPU (HCDS '25, Yang and Yu)",
+    "design": "eBPF maps in boost::managed_shared_memory, registered as pinned memory shared by CPU and GPU. CPU uses std::atomic; GPU uses CUDA atomics and device-wide fences, with only a subset of threads doing atomics for small events. JIT PTX snippets write directly into the shared maps. The per-thread buffering scheme is not described.",
+    "measurements": [],
+    "not_measured": "No numeric results at all. Fig. 2 (P40) compares memory-access latency qualitatively with NVBit gpumemtrace and mentions a 32 KB / 128 KB value-size threshold without numbers. No buffer sizes, drops, data volumes, scaling with threads or end-to-end overhead; sec 7.2 leaves real-workload evaluation to future work. Source: https://camps.aptaracorp.com/ACM_PMS/PMS/ACM/HCDS25/10/13a8f7c0-0a7e-11f0-ada9-16bb50361d1f/OUT/hcds25-10.html (sec 4-7)."
+   },
+   {
+    "system": "Linux BPF ringbuf vs perf buffer (CPU analogue)",
+    "design": "Ringbuf: one MPSC buffer shared by all CPUs, a short spinlock at reservation, reserve/commit or output, adaptive or manual wakeup. Perfbuf: per-CPU buffers with sampled wakeup. Both drop when full (reserve returns NULL); neither blocks. Benchmarks use 8-byte records from fentry/sys_getpgid in a tight loop.",
+    "measurements": [
+     {
+      "what": "Single producer, parallel consumer",
+      "result": "rb-libbpf 12.054 M/s, rb-custom 8.158 M/s, pb-libbpf 0.931 M/s, pb-custom 0.965 M/s. With sampled notification: rb-custom 15.895, rb-libbpf 11.563, pb 9.889 / 9.866 M/s. 0 drops.",
+      "source": "https://github.com/torvalds/linux/commit/c97099b0f22722be7d0f290278a26d297cc4b7ca (commit message; script tools/testing/selftests/bpf/benchs/run_bench_ringbufs.sh)",
+      "workload_gpu": "CPU only: 28-core/56-thread Xeon E5-2680 v4 @ 2.40 GHz",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Back-to-back best case and wakeup sampling",
+      "result": "rb-custom 21.449 M/s vs pb-custom 1.607 M/s (pb sampled 8.988). Rate sweep: rb 1.106 M/s at every-record wakeup up to 21.688 at 1:3000; pb 1.035 up to 9.575. Diminishing returns at 250-500. Reserve+commit 22.819 vs output 18.906 M/s.",
+      "source": "same commit c97099b0",
+      "workload_gpu": "same CPU",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Multi-producer contention on one shared ring",
+      "result": "10.916 M/s with 1 producer, 4.931 with 2, 3.926 with 4, 2.604 with 16, about 2.0-2.1 with 20-52 producers (about 5x drop). Drops about 0.",
+      "source": "same commit c97099b0, 'Ringbuf, multi-producer contention'",
+      "workload_gpu": "same CPU",
+      "isolates_buffer_design": true
+     },
+     {
+      "what": "Drops when the consumer cannot keep up (producer and consumer on the same CPU)",
+      "result": "Ringbuf 3.045-3.055 M/s delivered with 3.5-3.9 M/s dropped; perfbuf 1.39-1.41 M/s with 0 drops.",
+      "source": "same commit c97099b0",
+      "workload_gpu": "same CPU",
+      "isolates_buffer_design": true
+     }
+    ],
+    "not_measured": "No memory-footprint measurement: the blog (nakryiko.com/posts/bpf-ringbuf) only argues qualitatively that one shared buffer needs less RAM than per-CPU buffers, and its examples (256 KB ringbuf vs 8 pages per CPU) are illustrative. No numbers in the blog itself. No GPU-scale producer counts (max 52), and nothing on ordering cost."
+   }
+  ],
+  "comparisons": [
+   "Ring vs GPU-local per-warp array, compact kernelretsnoop (gpu_ext revision-rq4, RTX 5090, llama.cpp pp512 TinyLlama): host-mapped per-thread ring 90.705% overhead (continuous drain) and 90.812% (final-only drain), vs GPU-local single-value array 5.573% (5 pairs) / 5.401% (10 pairs). Same callback and 720896 records. Footprint 892 MiB vs 22.1 MiB. Bulk readback 10.4-10.6 ms outside timing. Caveat: not interleaved in one campaign. Sources: results-onevalue-array-bootstrap-575-20260907/README.md, results-final-only-575-20260907/README.md, gpu_ext@50a51ad4.",
+   "Ring vs GPU-local bounded arena, full per-thread records (same source set): ring transport 3, 345.2 token/s (99.10% loss), vs GPU-local AoS 23267 token/s (39.10% loss), a 67.47x paired ratio, with 1.49 s post-run drain of 10.74 GB. Both lossless. Source: results-full-record-device-buffer-20260908.md.",
+   "Layout-only comparisons with the same records: ring legacy to transport 2 is 5.77x; transport 2 to 3 is 1.65x; arena AoS to SoA cuts loss 39.4% to 27.6%; SoA to warp-contiguous SoA cuts loss 27.6% to 12.9%. Sources: results-original-ring-encoded-20260908.md, results-transport23-20260908.md, results-full-record-soa-20260908.md, results-full-record-soa-warp-20260909.md.",
+   "Collector timing alone (continuous vs final-only drain of the same ring): 90.705% vs 90.812%, no effect. Producer-side storage, not draining, dominates. Source: results-final-only-575-20260907/README.md.",
+   "gpu_ext vs NVBit, end-to-end, does not isolate buffers: P40 8/3/14% vs 85/87/93% (paper Table 2); RTX 5090 90.7/2.97/0.22% vs 99.6/10.4/8.8% (revision Table 1) for kernelretsnoop/threadhist/launchlate. The same kernelretsnoop scores 8% on P40 and 90.7% on RTX 5090, so the published 8% is not evidence about the ring design.",
+   "Upstream bpftime micro (vec_add): per-launch cost over the Entry probe. Per-thread ring +4.4 / +9.5 / +26.9 us vs per-thread array +3.3 / +3.4 / +3.7 us at 32 / 1024 / 10240 threads on RTX 5090. P40: ring +17.6 / +32.0 / +117.9 vs array +13.8 / +15.1 / +14.5 us. The ring rows mostly time a full-ring early return, and beyond 1024 threads the extra threads skip the write. Source: benchmark/gpu/micro/micro_vec_add_result*.md @39cc1fce.",
+   "Orin (local): official vs dev ring full path. Drop counting adds +10-19% (6-12 us). The official host drain loses 96 of 128 events (75%) in the kernelretsnoop example; dev loses none. Source: plsy1/bpftime-benchmark benchmark-results/jetson gpu/compare-20261110/attribution.md lines 27, 58.",
+   "Linux CPU analogue: shared ringbuf vs per-CPU perfbuf, single producer, 12.05 vs 0.93 M/s default and 21.4 vs 1.6 M/s back-to-back. Shared-ring contention falls from 10.9 M/s (1 producer) to about 2 M/s (20+ producers). Source: torvalds/linux c97099b0."
+  ],
+  "notes": "Scope: only the sources named in the task were covered. Not covered in this pass, and still needing primary-source reading: Neutrino (OSDI'25), Xtrace (arXiv 2609.28769), NVBit channel papers, GT-Pin, SASSI, CUPTI PC sampling. No source here compares design (a), grid-sized per-launch buffers, head to head with bpftime.\n\nKey findings:\n(1) The only measurements that isolate buffer design on a real GPU workload are in the gpu_ext revision-rq4 notes, all on one RTX 5090 llama.cpp pp512 workload. The paper does not contain them.\n(2) The bpftime per-thread host-mapped ring is the dominant cost of kernelretsnoop: about 91% loss compact, about 99% full-record. Moving storage into GPU memory with a bounded arena and a single bulk readback cuts this to 5.4-5.6% (compact) or 12.9-39% (full-record, depending on layout). Changing when the ring is drained changes nothing.\n(3) Footprint of fixed per-thread slots: 892 MiB ring for 22 MiB payload (about 40x), and an 11.8 GB ring that hit the 10 GiB shared-memory ceiling.\n(4) The 1024-thread default silently skips threads beyond slot 1024; official bpftime instead writes past the map for the per-thread array. Upstream micro rows at large/xlarge are invalid (faster than baseline).\n(5) No source measures drops under real overflow on the GPU. Every GPU campaign reports 0 drops because capacity was oversized. The only GPU data loss measured is the official host drain losing 75% of events on Orin.\n(6) The eGPU paper has no numbers.\n\nAll gpu_ext citations are at commit 50a51ad4e8584d295df7c1942fe7e736cdd101ba under workloads/llama.cpp/observability_overhead/revision-rq4/. Upstream bpftime is at 39cc1fce749c64df749c38ef8c3803bb15ee6600 (local copies identical). Local Orin results are on branch benchmark-results/jetson of plsy1/bpftime-benchmark, commit c4e25af4.\n\nDownloaded material: /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl (gpu_ext clone, gpu_ext.pdf/txt, ringbuf_bench_commit.txt, up/ upstream tables)."
+ },
+ {
+  "corrections": [
+   "Neutrino 的 GPU 不是“没有标明”：OSDI 论文 Artifact Appendix A.4.2（p.350-351）要求 Part 1、3-6 用 A100（Part 3 = Table 3，Part 4 = Fig.12 max_mem，Part 5 = Fig.13 exposed_latency，见 A.3 的对应表）；只有 DMAT 图（Fig.1、Fig.11）用 RTX3080。所以 Table 3、Fig.12、Fig.13 应写成“按 artifact 说明是 A100（正文没写）”。Fig.16 是 shepherding 阶段加的实验（A.5.5），GPU 仍然不明。",
+   "Neutrino Fig.12 不是在设备上测出来的显存。artifact 分支 artifact/dynamic.ipynb 第 31-32 个 cell 用 `neutrino -p <probe> --memusage` 跑；cuda.c L546-550 在 NEUTRINO_MEMUSAGE 下算完 probe_real_sizes（L524-544：thread 级 = grid×block×size，warp 级 = grid×ceil(block/32)×size）就 goto backup，既不分配也不执行。static.ipynb 第 21 个 cell 再从 event.log 取各 launch 的 '[exec] probe-mem' 最大值。所以 Fig.12 是按公式算出的“单次 launch 最大申请量”，不是 nvidia-smi 一类的实测。dmat（cap=dynamic）的计数遍会真跑（L497-520 在 memusage 判断之前），所以 memtrace 那一项反映的是真实计数。原程序显存取模型脚本打印的 'max memory:'；这些模型是 torch.compile 版本，因为 cuBLAS 无法被 Neutrino 追踪（dynamic.ipynb 第 31 个 cell）。",
+   "Neutrino 的“per-thread 和 per-warp 相差 16 倍”应改为 isolates_buffer_design = 定义推出的值，不是实测。由上一条可知：gmem_bytes = grid×block×8，block_sched = grid×(block/32)×16，block 是 32 的倍数时比值恒为 16。8 组数据全部约等于 16（包括原列表漏掉的 Llama3-3B：6MB/384KB = 16），这只是公式的复述，不能当作独立的实验证据。",
+   "Neutrino Fig.16 的读数：正文（Appendix I，p.354-355）给出的全量采样值是 pool 约 13x、gemm 6.55x、attn 2.75x。原文中 attn 全量“约 2.5x”应以正文 2.75x 为准。另外 attn 曲线 1/8→1/2 只从约 1.1 升到约 1.3，到全量才跳到约 2.5-2.75，并不线性。“大致线性”只适合描述 pool 和 gemm。",
+   "Neutrino 论文内部有不一致，引用时要注明：Appendix I 说 dmat 减速“from 2.75x on Flash-Attn-v2 to 13.163x on SoftMax”，但 Table 3 里 Flash-Attnv2 mem_trace 是 2.9392x，最小值是 Conv2D 的 2.7463x；Fig.16 的 pool 全量约 13x，而 Table 3 的 Max/AvgPool mem_trace 是 7.2559x。两处的 kernel 和配置显然不同。另外 A.5.3 写明原始 trace 被误删，后来只能复现“相似结果”。",
+   "Neutrino Fig.13 的 Other 分段可以从 repo 得到佐证，不必只靠读图：artifact 分支 static.ipynb 第 23 个 cell（注释 '# data for conv'）里硬编码了 Conv2D 的 (prologue, kernel, epilogue) 比例，block_sched 为 [0.0085, 0.772, 0.219]，tensorop_count 为 [0.016, 0.219, 0.765]，gmem_bytes 为 [0.0166, 0.220, 0.763]。乘以总量 1.36/5.45/5.32，epilogue 分别约 0.30x、4.17x、4.06x 原 kernel 时间，与原文“约 0.3 / 约 4.0”一致。该数组在绘图代码里没有被使用，所以只能算佐证。epilogue 计时窗口（cuda.c L611-660）包括 DtoH、fopen/fwrite/fclose、host free 和 cuMemFree；拷回和写盘没有分开计时，所以“拷回加写盘”只能作为一个整体来说。",
+   "Xtrace 正文给的范围看起来只覆盖 NVIDIA，和自己 Fig.13 的 AMD 标签对不上。正文 §5.4.2 说 trace-pp 下 Xtrace 0.9-2.7%、trace-mem 下 0.7-5.4%，但 Fig.13a 标签里 trace-pp 的 FMHA 是 1.03、FusedMoE 是 1.04，trace-mem 的 FMHA 是 1.06、FusedMoE 是 1.07（MI300X），都超出正文范围。Fig.13b trace-sche 下 FusedMoE 的 Xtrace 等待是 2.0%，也超出正文的 0.2-1.6%。原文把正文范围和图标签并列，没有指出这一矛盾。",
+   "Xtrace §2.2 里“Hopper 上一次 global store 要 270-380ns”不是 Xtrace 测的，是引用文献 [38, 39, 44] 的数字（p.4，正文 L727 和 L1531 都带引用）。“per-SM clock 读取约 10ns、global timer 要数百 ns”出自 Appendix A.2.1 的设计说明，没有给出测量方法或实验，不能当作测量结果。77%（PRMT 因 WAR 等待 trace store）和 13%（SoftMax 首条指令的 scoreboard 等待）是 Fig.5 用 PC sampling 在 FA-3/H100 上对 Neutrino 探针实测的，这两个成立。",
+   "IKET 文档不是对写满/越界完全没说：NVIDIA 文档写明两遍之间每 warp 记录数不一致时“the trace may contain incorrect data, and the workload may fail with an illegal memory access”，并列出“overflow buffers”是可能后果之一，但没有说明溢出的具体语义，也没有给任何内存或开销数字。",
+   "Xtrace 的 per-warp 记录仍然按每个线程分配 slot：§4.3（p.8）说 warp 分歧时“a thread that skips the recording only wastes its trace-buffer slot”，§4.5 说 driver 按 launch 规模“with an offset slot per thread”分配。所以评测中虽然统一按 warp 记录，buffer 仍是 per-thread 布局。这是设计描述，没有显存数字。"
+  ],
+  "struck": [
+   "“Fig.12 的 per-warp 和 per-thread 显存比正好是 16 倍，与实测一致”中的“实测一致”一说：这是 --memusage 模式按公式算出的申请量，比值由公式决定，不是对两种布局显存的实测验证（cuda.c L524-550；artifact/dynamic.ipynb 第 32 个 cell）。",
+   "Xtrace 一栏把“Hopper 上一次 global store 要 270-380ns”和“per-SM clock 约 10ns、global timer 数百 ns”算作 Xtrace 的测量结果：前者是引用文献的数字，后者是附录里的设计说明，都不是本文实验。",
+   "Neutrino 各项里“GPU 没有标明 / 表里没有标明 A100 还是 RTX4090”的说法（Table 3、Fig.12、Fig.13）：artifact appendix A.4.2 指定这些用 A100。"
+  ],
+  "added": [
+   "Xtrace §2.2（p.3-4，正文 L446-447）：用 trace-pp 类探针追踪 FA-3（H100）时，Neutrino 让 kernel 执行时间增加 13.0%，IKET 增加 5.3%。这是端到端数字，没有单独隔离 buffer。",
+   "Xtrace §5.3（p.11）的二进制相似度：即使是每个 warp 只触发两次的 trace-sche，Neutrino/IKET 也会改动 8-78% 的基本块；Neutrino 改写 54-92% 的指令，IKET 改写 5-87%。Xtrace 只改动 2-6%，都是分支目标。作者据此把开销主要归因到编译干扰，而不是 buffer。",
+   "Xtrace §5.4.3：Neutrino/IKET 在少数情况下等待比 Xtrace 少。trace-pp 下 IKET 在 FA-3 和 FlashMLA 上是 9.3% 和 0.8%，Xtrace 是 11.3% 和 2.3%；trace-mem 下 HSTU 上 Neutrino 1.4%、IKET 1.6%，Xtrace 2.9%。说明写 trace 的 store 等待能被编译器调度部分隐藏。",
+   "Xtrace §5.4.1（p.11）：IKET 禁止和 profiling 工具一起运行，原版 kernel 自身的时长无法测量。所以 Fig.13 和 Fig.14 中的 IKET 都是 Xtrace 的重实现，输出二进制与原版逐位一致。",
+   "Neutrino §3.3 脚注 3（p.335）：论文自己写明计数探针得到 cap 这一做法“only applies to pure kernel functions”，与 cuda.c L486-493 的 @bug 注释一致，即就地修改输入的 kernel 会出错。",
+   "Neutrino Fig.13 的工作负载配置（p.342 图标题）：Persist GroupMM-Triton 是 BS=512、M=N=K=512；Conv2D-CUTLASS 还有 R/S=3。与 artifact/dynamic.ipynb 第 30 个 cell 的命令行一致：gmm.py 512 512 512 512，conv --n=256 --h=56 --w=56 --c=128 --k=128 --r=3 --s=3。",
+   "Neutrino 的 Fig.12 和 Fig.13 是互补的：Fig.12（--memusage）只算显存不执行；Fig.13 在正常模式下计时，含 DtoH 和写盘；Table 3（--benchmark）只比较 probed 和 pruned 两个 kernel 的时间，并跳过保存（cuda.c L602-605）。三者都没有测 cap=dynamic 计数遍的耗时。"
+  ]
+ },
+ {
+  "corrections": [
+   "System 1 (compact kernelretsnoop), not_measured: the claim that 'NVBit at matched granularity' was not measured is wrong. revision-rq4/results-warp-array-matched-575-20260908/README.md lines 55-74 (gpu_ext@50a51ad4) is a 5-block, 3-arm interleaved campaign: baseline, gpubpf GPU-local array, and NVBit OBS_MODE=kernelretsnoop_warp_array. Both tool arms use the same per-warp, 23199768-byte device-local array with 720896 32-byte events and a final whole-buffer readback. Setup: RTX 5090, driver 575.57.08, TinyLlama-1.1B Q4_K_M llama.cpp pp512, CUDA graphs off. Mean paired loss: gpubpf 5.314333% (median 5.209797%, range 4.824-5.836%) vs NVBit 9.555870% (median 9.493290%, range 9.126-10.274%). Readback, measured outside prefill: gpubpf 10.956 ms (10.23-11.73) vs NVBit 7.881 ms (7.45-8.39). This is the only design-matched head-to-head in the whole source set. It shows that most of NVBit's historical 99.62% loss came from its per-thread channel collection, not from the NVBit probe mechanism.",
+   "System 3 item 2 and Comparison 5 (RTX 5090 Table 1, kernelretsnoop gpubpf 90.705% vs NVBit 99.621%): this row is not matched on observation granularity or on collection design. results-onevalue-array-bootstrap-575-20260907/README.md lines 163-170 states that the NVBit arm recorded 23068672 per-thread 32-byte events through a channel receiver with no warp-leader filter. The gpubpf ring arm recorded 720896 warp-leader events, 32x fewer. Present it as an end-to-end figure for two different configurations, not a same-tool comparison.",
+   "System 2 item 7 (SoA vs warp-contiguous SoA): the cited 'lines 159-161' do not exist. results-full-record-soa-warp-20260909.md has 76 lines, and the AoSoA mention is at lines 51-53. The AoSoA number exists in a separate raw file (see added). The SoA vs warp-SoA numbers themselves are confirmed: medians 27726.52 vs 33381.16 token/s, baseline 38336.73, loss 27.641% vs 12.862%, gain +20.565% (range 19.508-21.149%), drain 1485.5 vs 1501.7 ms (lines 10-22).",
+   "System 3 not_measured: the paper does not say it skips eGPU/Neutrino comparisons altogether. Sec 6.4.2 says 'We do not compare policy-level performance against eGPU or Neutrino because they are limited to read-only observability'. Fig. 12(a) does compare against an 'eGPU-style' series on device micro-ops. Also, the repo audit microbench/fig15-device/legacy-evidence-audit.md calls the figure 'Fig. 15' (the active paper draft), while arXiv 2512.12615v2 numbers it Fig. 12. They are the same panels. The audit numbers are confirmed: 5.15 vs 5.23 us baselines, entry+exit 1.02 to 0.91 us = 10.8% (lines 90-99); RPC path 'roughly 33.7-ms' (lines 101-113).",
+   "System 1 design vs System 3 design: '44 aligned 40-byte records per slot' (device-array-runtime-notes.md lines 20-30) and 'max_entries 256' (results-table1-warp-plt-575-03/gpubpf_tool_build/kernelretsnoop/kernelretsnoop.bpf.c:16) do not contradict each other. The source declares 256, and revision-rq4/kernelretsnoop-phase-capacity.patch resizes the ring at load time with bpf_map__set_max_entries (patch line ~253) to 44 for the 575-06 geometry. The full-record campaigns keep 256 per thread.",
+   "System 2 item 1 (legacy vs transport 2): the losses 99.9099% / 99.4936% are against an earlier set of 10 baselines, not freshly interleaved controls (results-original-ring-encoded-20260908.md lines 35-39). Every loader in that campaign ended with SIGKILL (-9), and the README states that complete final event delivery is NOT established (lines 41-49). Per-pair ratios range 2.81-8.12x. Transport 2 bundles aligned-word copies with encoded tail publication, and the two are not isolated (lines 51-54). The '0 drops / 23068672 events' delivery statement holds for the transport 2 vs 3 campaign (results-transport23-20260908.md lines 29-31), not for legacy vs transport 2.",
+   "System 3 Table 2 note: the paper's own text says '3-14% vs 85-87%', while Table 2 lists NVBit launchlate at 93%. The table values (8/3/14 vs 85/87/93; P40, Llama 1B, sequence-mixed, prefill token/s) are confirmed on p.12 and in workloads/llama.cpp/observability_overhead/p40-submitted-table1.json.",
+   "System 4 (upstream bpftime micro): add to the invalid/noisy rows P40 'Empty probe (large)' 27.80 us vs baseline 49.12 (0.56x). This suggests the P40 large baseline itself is unreliable, so P40 large ratios (e.g. per-thread array large 3.08x) are doubtful. Also, there is no 'Entry probe (large)' row in either table, so per-launch deltas over Entry cannot be computed at large. All other cited values are confirmed (micro_vec_add_result.md / _p40.md lines 23-80 at bpftime 39cc1fce; ring 16 entries x 16-byte events, cuda_probe.bpf.c:17-22, 114-123; full-check return 2 and tid>=max_thread_count return 1 at default_trampoline.cu:359-405; gpu_thread_count=1024 at bpftime_shm.hpp:42-45).",
+   "System 5 (Orin) 'cost of drop accounting': the +19%/+10%/+17% and -11.9/-6.2/-7.8 us figures come from the 10-round ablation (attribution.md line 58, Mann-Whitney 10 vs 10), not from the 3-round compare. The 3-round compare (README.md line 95) gives +16%/+19%/+12% (about +5-8 us). Both are confirmed; state which sample is used. The 75% loss (official 32/128 events; attribution.md line 27) is a host-drain-policy plus harness-kill effect, not overflow: the runner kills the loader right after the victim exits, and the official loader polls every 1 s and takes one record per thread per poll."
+  ],
+  "struck": [
+   "System 1 not_measured: the phrase 'and NVBit at matched granularity' (it was measured; see corrections).",
+   "System 2 item 7: '(no number in this file)' for AoSoA, and the citation 'lines 159-161'.",
+   "System 2 not_measured: 'and an NVBit comparison at full-record granularity' can stay, but only with the clarification that a matched NVBit comparison exists for the compact per-warp configuration.",
+   "System 3 not_measured: 'The paper itself says it does not compare against eGPU or Neutrino (sec 6.4.2), so there is no head-to-head with design (a)' as worded. Replace it with the policy-level wording (see corrections). The conclusion that there is no measured comparison with design (a) still stands.",
+   "Comparison 5: the sentence 'The same kernelretsnoop scores 8% on P40 and 90.7% on RTX 5090' should drop 'same'. The RTX 5090 run used the compact warp-leader phase-capacity patch, and the NVBit arm was per-thread."
+  ],
+  "added": [
+   "Matched head-to-head, GPU-local per-warp array in gpubpf vs NVBit (design c/d in both): gpubpf 5.314% vs NVBit 9.556% mean paired prefill loss. gpubpf is faster in all 5 blocks. Both keep 720896 events in a 23199768-byte device buffer, and readback outside timing is 10.956 vs 7.881 ms. Compare NVBit's historical per-thread channel (design b) at 99.621%. Setup: RTX 5090 / 575.57.08, llama.cpp pp512 TinyLlama-1.1B Q4_K_M, 5 interleaved 3-arm blocks. Source: gpu_ext@50a51ad4 workloads/llama.cpp/observability_overhead/revision-rq4/results-warp-array-matched-575-20260908/README.md lines 55-74. isolates_buffer_design: yes for NVBit across its two collection modes, but the NVBit channel vs array change also changes granularity (per-thread to per-warp), so channel cost and granularity are not separated.",
+   "Full-record arena layout AoSoA (32-slot grouped SoA) vs field-major SoA: medians 23249.14 vs 27763.56 token/s (baseline 38274.26). Paired loss 39.250% vs 27.449%; median change -16.275% (range -16.490 to -15.972%). Drain 1501.5 vs 1495.4 ms. 23068672 records, 0 overflow. Setup: RTX 5090 / 575.57.08 / CUDA 12.9, pp512/tg0, 5 blocks. Source: revision-rq4/raw/full-record-aosoa-20260909.8vVDkh/README.md (top table). This is a layout-only comparison.",
+   "Map placement isolated (relevant to host-mapped ring vs device storage): device-resident GPU array (1503, cuMemAlloc) vs direct host-mapped array (1513), operation-matched, one 32-thread block, 32-entry map. Update 3.846 vs 36.185 us/launch (paired 9.4307x, 97.5% CI 9.3789-9.4896; +32.347 us); lookup 3.823 vs 4.175 us/launch (1.0904x). The serialized standard-array host-RPC path takes 33.843 ms/update and 33.831 ms/lookup (about 8844x / 8991x). Setup: RTX 5090 / 575.57.08, 128 cells in 16 randomized blocks, 64 timed launches each. Source: gpu_ext@50a51ad4 microbench/fig15-device/results-map-tier-full-575-06-20260904.md lines 16-35. Not measured: grid scaling and warp aggregation; scalar per-thread runtime (lines 62-69). This replaces the paper's undifferentiated '6000x' Fig. 12(b) claim.",
+   "Design (f) slot utilization: in the threadhist correctness run, BPF reads all 1048576 per-thread entries (8388608 B) but only 22528 slots are nonzero, about 2.1% of the allocation used, for 720896 exit events. Setup: RTX 5090, llama.cpp; untimed. Source: revision-rq4/targeted-diagnostic-results.md lines 5-10.",
+   "Full-record footprint is not reduced by moving to GPU-local storage: the GPU-local arena drains 10741613056 B (about 10.0 GiB), while the host-mapped ring segment is 11823743008 B, both for 1.85 GB of payload (23068672 x 80 B). The 67.47x throughput gain therefore comes from placement, layout and publication, not footprint. Sources: results-full-record-device-buffer-20260908.md lines 37-40; results-transport23-20260908.md line 26. Also, the ring arm had automatic warp execution ON and the GPU-local arm OFF (lines 28-35), another bundled difference.",
+   "Footprint arithmetic check (compact ring): 524288 x (24 + 44 x 40) + 32 = 935329824 B, 40.5x the 23068672-byte payload. The GPU-local array (23199768 B) is 1.006x payload. Confirmed in device-array-runtime-notes.md lines 20-30 and the bootstrap README lines 28-31, 90-94.",
+   "Related, but NOT a buffer measurement: automatic warp execution on a shared_update map is +57.1% to +58.1% slower than off at 0 arithmetic work (2-8 CTAs x 128 threads), +15.4% at work=8, and about 0 at work>=32 (10 blocks, 128 timed launches). It is 32x fewer scalar calls, but slower. Setup: RTX 5090 / 575.57.08, bpftime e5e52e5. Source: microbench/fig15-device/strict-warp-map-scaling/results-geometry-work-20260908.md lines 13-25. It is relevant because the paper credits its Table 2 advantage to warp-uniform execution.",
+   "eGPU confirmed (WebFetch of the HCDS'25 HTML). There are no numeric results beyond the P40 / Xeon E5-2697 v2 hardware description. Sec 7.1 says latency stays 'relatively stable and low' below 128 KB and rises 'moderately' beyond it. Sec 6.2 cites a 32 KB hashmap value-size threshold for NVBit. Sec 7.2: 'we have not yet conducted extensive end-to-end performance evaluations on complex, real-world workloads'. Maps live in boost::managed_shared_memory registered as pinned memory, with CUDA atomics plus device-wide fences on the GPU side."
+  ]
+ },
+ {
+  "corrections": [
+   "Darche Fig. 5.7 (thesis p.70, checked on the rendered page): 'above ~1024 waves every method converges to about 300-360' is wrong for hip-global-mem, which stays at about 495-750 ticks all the way to 2^18 waves. The allocation methods and hip-trace climb gradually between 1024 and about 16k waves: about 175-190 ticks at 2048 waves and about 270-290 at 4096. They then level off at about 310-385 ticks (chunk peaks at about 385 near 65536 waves). hip-cu-mem stays at about 290 up to 512 waves, about 345 at 1024-2048, and about 320-330 after that. Also, the about 3x gap below 256 waves is already there with ONE wave (global/cu-mem about 290 vs chunk about 115, cu-chunk about 90, hip-trace about 80). So that gap is the latency of one atomic per event, not contention. Contention appears only for hip-global-mem past 256 waves, as the text says (§5.4.3).",
+   "Darche §5.4.3: the configurations that 'could not complete due to the size of the generated traces' were 'especially the baseline' (hip-trace, which allocates space for every event and has no wrap-around), not just 'some large configurations'.",
+   "Darche Figs. 5.8/5.9 vs Fig. 5.10 (p.72-73) give different uncontended costs for 32 B chunks. The flat left part of Figs. 5.8/5.9 shows about 590 (chunk) and about 630 (cu-chunk) ticks; Fig. 5.10 (n_waves < 2^8) shows about 490 (chunk) and about 525 (cu-chunk). Report both values and flag the inconsistency. The contended peaks are confirmed: 32 B chunk about 5000 at about 2^12 waves, cu-chunk about 4650 at about 2^13; 64 B about 2580 (chunk) and about 2390 (cu-chunk); 128 B about 1130 and about 1070. Buffers of 4 KiB or more stay at about 450-500.",
+   "hip-analyzer code (managed_queue_info.hpp L148/L243 + managed_queue_info.cpp L21-23, L367-368): GlobalMemoryQueueInfo and CUMemoryTrace call ChunkAllocatorBase(buffer_size, 1). The 1048576 default is therefore a count of 1-byte 'buffers', 1 MiB in total; the class comment calls the 'naive' version 'basically a ChunkAllocator with buffers of a single byte'. The CU variants allocate buffer_size*buffer_count*TOTAL_CU_COUNT(112) bytes (managed_queue_info.cpp L243). Registry::alloc is at L109-125 (atomicAdd at L111). It has no full check and wraps with a modulo, which is confirmed.",
+   "CUDAAdvisor buffer size: BUFFERSIZE = 24*80*1024*1024 = 2,013,265,920 B = 2.01 GB (1.875 GiB), not about 1.97 GB (common.h L1).",
+   "CUDAAdvisor code citations: ansf.cu L616-679, which contains the cited L623-634 basic-block logger, is inside a /* ... */ comment and is dead code. The live basic-block logger is passBasicBlock at ansf.cu L555-610. When all 32 lanes are active, ONE lane does atomicAdd(&bbccnntt,1) and writes the record (L566-588, warp-aggregated). Otherwise every thread does its own atomicAdd (L596). The live path has NO overflow check. The memory-access logger storeLines (L683-725) is per-thread (atomicAdd at L695; the write guard 'tid%32==0 || true' at L709 means every thread writes 24 B). It drops silently via a racy pre-check BEFORE the atomic, at L690-691 (threshold BUFFERSIZE/24 - 12800 entries), with an assert at L693. So 'design (b) in its simplest form, per-thread' holds only for memory-access records. Basic-block records are aggregated per warp when the warp is converged. Repo version vs. the CGO'18 paper version is unknown. GPU/CUDA versions are unverified (README says only cc>=3.5, CUDA>=7.0).",
+   "WarpGuard design: the paper says only that 'if the buffer fills, the warp flushes it to the CPU-side prover' and that the CPU receiver 'polls all SM doorbells in round-robin order' (§5.6 / §6.2). It does NOT say that the warp waits on a doorbell or stalls. Blocking-when-full is an inference. Also, the TensorRT outliers (YOLOv3-Tiny 0.22 QPS, Super-Res 0.32 QPS at BB level) are attributed to two causes together: the drain thread cannot forward records fast enough AND the verifier hits its CPU ceiling. The PoC prover also shares a CPU core with the workload (§7.1 AI IoT paragraph). This is not an isolated measurement of the cost of draining the ring buffer. Function-level tracing reduces the TensorRT overhead to 1.9x-6.9x (same paragraph), which the findings omit.",
+   "BARRACUDA queue placement: the queues are 'in GPU memory' and host threads consume them concurrently while the kernel runs (BARRACUDA §4, 'A kernel running under BARRACUDA logs all GPU memory accesses ... to queues in GPU memory. These queues are then consumed by host-side threads'). They are NOT pinned or host-mapped. Only WarpGuard uses CUDA pinned mapped host memory (WarpGuard §6.2). The single-queue vs. multi-queue claim ('orders of magnitude', 1.1-1.5 queues/SM) is confirmed in the paper text, with no table or figure.",
+   "Key takeaway (4) is garbled. The constraint that the host can read buffers only at kernel boundaries is Darche's assumption for discrete AMD CDNA2 (thesis §5.3.3, §5.5.2), not an NVIDIA fact. On NVIDIA, BARRACUDA (Maxwell) drains GPU-memory queues during the kernel, and WarpGuard (Orin Nano) drains pinned mapped host memory during the kernel.",
+   "iGUARD citations: the 'Barracuda reserves 50% of the memory capacity for buffers' sentence is in §6.1 (metadata allocation), not §4. It is iGUARD's statement, not a measurement. 'Over 50x on average' is the intro claim. The measured values in §7.2 are: Barracuda 61x average over the 18 workloads in Fig. 11(b) that did not time out, and 58.9x over the 20 workloads that did not time out, where iGUARD gets 3.9x on the same set. iGUARD's 5.1x is the average over all 42 workloads, so '5.1x vs >50x, about 15x lower' mixes workload sets. Setup: NVIDIA Titan RTX (72 SMs, 24 GB), CUDA 11.0; Barracuda is compiled for an older ISA because it cannot run on SM70. Barracuda's numbers also include host-side race detection, and shared-memory race detection was disabled.",
+   "KPerfIR footprint: '1-4 KB of shared memory typically left, at most 1.75% of 228 KB on H100' and the '4096 slots = 16 KB' example are general statements in §5.2 ('we usually get'), not measurements. The only measured footprint result is Fig. 14 / §6.3: for GEMM-SWP-3, 10.9 KB of shared memory stays unused, and the circular buffer covers up to 16 iterations with 4 regions. Its size was set either to the maximum usable shared memory or to hold all records. The overhead numbers (about 8% average, at most 15% for GEMM-SWP-3) are confirmed (§6.3, Fig. 13, H100 and MI300).",
+   "PASTA nuance: the GPU variant (CS-GPU) and one CPU variant (CS-CPU) are both built on Compute Sanitizer (Fig. 9 caption). The 941x (A100) / 627x (RTX 3060) ratios therefore keep the instrumentation framework fixed and change only collection plus analysis location: on-GPU per-object counting vs. a device buffer copied 'when it becomes full or the kernel terminates' to a single CPU thread (§V-B3). This is still not separated from the single-thread CPU analysis cost, but it is closer to (d) vs. (b) than the findings suggest. NVBit-CPU (13006x / 7353x) also changes the framework. A100 80GB and RTX 3060 are confirmed (Table III). An AMD MI300X is listed in Table III, but no overhead numbers are given for it.",
+   "Dorsal slide citations are confirmed by page: Dec 2024 deck slide 6 (Ch.4 numbers, 1.50x/1.29x), slide 11 (event cost vs. concurrent waves plot), slide 12 (Table 5.2 numbers); May 2025 deck slide 8 (Table 5.2 numbers)."
+  ],
+  "struck": [
+   "WarpGuard: 'When a ring fills, the warp flushes it to the CPU-side prover and waits on a doorbell, which can stall it'. The paper does not say the warp waits or stalls; it says only that the warp flushes and the receiver polls doorbells.",
+   "WarpGuard: 'This is a measured consumer-side stall symptom' (for the 0.22/0.32 QPS outliers). The paper attributes them jointly to the drain thread and the verifier CPU ceiling, with the prover on a shared core, and isolates neither.",
+   "CUDAAdvisor: 'src/ansf.cu L632 for basic-block logs' and 'L633-634' silent drop. This code is commented out (L616-679); the live paths are L555-610 and L683-725.",
+   "CUDAAdvisor: 'BUFFERSIZE ... ≈ 1.97 GB'. The correct value is 2.01 GB (1.875 GiB).",
+   "Takeaway (4): 'WarpGuard and BARRACUDA instead use pinned or host-mapped queues'. BARRACUDA's queues are in GPU memory.",
+   "Fig. 5.7 summary: 'Above about 1024 waves ... every method converges to about 300-360'. hip-global-mem never converges (about 495-750)."
+  ],
+  "added": [
+   "Darche thesis Appendix B.1 (HeCBench per-kernel overhead table, p.129 onward, MI210), my own computation from the table: 313 kernel rows. Recomputing from these rows reproduces Table 5.2 exactly: global 3.73/1.96, cu-mem 2.47/1.60, chunk 1.79/1.33, cu-chunk 1.77/1.32, hip-trace 2.07/1.50, padded 2.18/1.59. Missing results (NaN; the thesis does not give a cause): hip-cu-mem 22 kernels; hip-global-mem, hip-trace and padded hip-trace 10 each; both chunk allocators 0. So the Table 5.2 means are over different kernel subsets. Worst single kernel: global-mem 32.08x, cu-mem 17.05x, padded hip-trace 9.64x, hip-trace 8.14x, chunk 7.78x, cu-chunk 7.45x. Kernels above 10x: global-mem 20, cu-mem 4, every other method 0. Examples: multinomial/sampleMultinomialOnce, global-mem 26.35x vs chunk 3.70x; asmooth/outFilter 27.15x vs 3.52x; asmooth/smoothingFilter 25.18x vs 3.37x. This is the clearest per-workload evidence that the tail cost of one global atomic per event goes away with chunk reservation.",
+   "Darche §5.4.3 (thesis line ~3196): the allocation-based schemes ran with the default hip-analyzer configuration of 2^20 sub-buffers × 4 KiB, i.e. 4 GiB of device memory reserved per stream. The atomic schemes used the 'maximum possible buffer size' that fits in memory. This is a stated configuration, not a footprint measurement. §5.4.4 also notes that a 4 KiB buffer holds at most 170 WaveState events plus 16 B of metadata.",
+   "Darche §5.5.1-5.5.3 (qualitative, no numbers): global schemes (GlobalMemoryTrace, ChunkAllocator) are argued to need less memory and cause less fragmentation than per-CU ones. The hip-trace tracing footprint is called 'rather low' when inputs need no duplication. The allocation methods' 'memory usage can be a serious deterrent', which motivates a future hybrid that sizes buffers from a warm-up run (like bpftime's option of sizing from the grid). §5.5.2: the host runtime 'sometimes must block the program and wait for the disk' before the next kernel. This is the only host-side stall that is mentioned, and it is not measured.",
+   "iGUARD (SOSP'21) §7.5, Fig. 14: the only measured scaling of memory footprint in this set. CUB d_reduce was run with application footprints of 1, 2, 4, 8 and 16 GB on a Titan RTX (24 GB). Barracuda, which reserves GPU memory up front for its queues and metadata, fails with out-of-memory beyond 8 GB. iGUARD keeps working by allocating its metadata lazily through UVM, and Barracuda's overheads are 'significantly more' at every size. This is a direct consequence of reserving buffers at a fixed size, which also affects bpftime's fixed per-thread-index maps. Caveat: it mixes metadata and event-queue reservation, and the two race detectors use different algorithms.",
+   "iGUARD §7.2: Barracuda timed out on some workloads; only 20 of them finished. On those 20, Barracuda averaged 58.9x vs. iGUARD's 3.9x (61x vs. 4.2x on the Fig. 11(b) subsets). Examples: hashtable Barracuda 30x vs. iGUARD 2.1x; shocbfs 60x vs. 2.8x.",
+   "PASTA §VI-A: 'PASTA requires a small fraction of GPU memory (e.g., 4MB) to store profiling data'. This is the stated device footprint of the on-GPU aggregation design (d). It is not a measured sweep.",
+   "WarpGuard §7.1: the empty-hook variant (WarpGuard_empty) 'closely tracks' WarpGuard_full on all SPECaccel benchmarks, not just the microbenchmarks. This is evidence that the per-SM ring writes and flushes are a small share next to the NVBit/DynamoRIO framework cost. Values exist only as plots, and ring size is never given or swept. The text (around L1434) mentions only that smaller buffer sizes increase flush frequency, to limit the attack window.",
+   "BARRACUDA §4 (around L1123): each GPU queue gets its own host thread and its own GPU stream for draining, and the queue is 'full when the write head is queue-size entries ahead of the read head'. The leader lane waits for the CPU to drain, so blocking when full is stated in the design, but no stall time or queue size is reported. §6.2 Table 1: four benchmarks launch more than 1M threads at once, and the authors state that there is 'plenty of space in global memory' for the queues, with no queue size given."
+  ]
+ },
+ {
+  "corrections": [
+   "NVBit, paper's example tools: Listing 1 is NOT warp-aggregated. Every thread does atomicAdd on one __managed__ counter (nvbit.txt lines 139-146). Only Listing 8 elects a warp leader (lines 494-520). Split the two instead of saying 'counters ... plus warp-leader election'.",
+   "NVBit Fig. 8 (36.4x avg, up to 112x, ~24 h; sampling 2.3x, <0.6% error): numbers, TITAN V and SpecAccel large inputs are confirmed (MICRO'19 Sec. 6.2). But the paper does NOT say whether the Top-5 instruction-histogram tool uses counters or the channel. It only says the tool 'performs an analysis of all the instructions executed'. Drop the 'counter-style tool' label, or mark it as an assumption. The paper does say execution overhead is 'determined solely by how often the instrumented code is executed and by how complex each instrumented call is' (Sec. 6.2), which supports 'does not isolate the buffer'.",
+   "NVBit JIT overhead (Fig. 5): confirmed as 'below 5%' on average, 'in some cases can reach 20%', medium inputs, TITAN V, disassembly the largest part (Sec. 5.2). Add that the paper measured it with the Listing 1 tool and that it assumes each kernel is instrumented once (an upper-bound setup).",
+   "NVBit channel full behaviour: the code facts are confirmed (channel.hpp:55-75, 96-137, 182-210; cudaHostAlloc mapped vs cudaMalloc at ~283-289; mem_trace.cu:51-60, 72, 475; record 8 B + 5x4 B + 4 B pad + 256 B = 288 B, so 1,048,576/288 = 3,640 records). Soften 'the whole device stalls for each host drain' to: only the flushing producer and any producer that tries to push during the flush spin. Warps that do not push keep running. In mem_trace almost every warp pushes on every memory instruction, so in practice most warps stall. Also, 'one channel per CUDA context' is how the mem_trace tool is built (ctx_state_map, mem_trace.cu:113,233-238), not a property of NVBit core.",
+   "SASSI ablation: set isolates_buffer_design to false or 'partial'. Stubbing the handler separates spill + ABI call setup from the WHOLE handler body: hash-table lookup, ballots/shuffles and the atomics. SASSI has no buffer, so the ~20% left over is an upper bound on collection cost, not a measurement of it. The paper also gives only one qualitative sentence, 'roughly 80% of the total overhead', with no per-case or per-benchmark numbers (ISCA'15 Sec. 9.1). Add the paper's own caveat from the same section: nvprof counts host<->device marshalling as kernel time, so the K columns include the cudaMemcpy of the on-device tables. Table 3 values are all confirmed (K hmean/max 3.4/81.3 cutcp, 5.7/111.8 sgemm, 31.8/722.1 mri-q, 29.0/678.3 mri-q; T hmean/max 1.4/18.9 tpacf, 1.6/30.0 heartwall, 2.4/160.6 tpacf, 2.4/148.9 tpacf; 27 benchmarks; K40m; driver 346.41; median of 5 runs).",
+   "GT-Pin IISWC'15 2-10x: the paper ties this to 'collecting data for the benchmark characterization study in Section IV' (Sec. III-C). The metric list in the finding (instruction counts and opcodes, BB counts, memory bytes per instruction) belongs to the custom Section V subset-selection tool, so the attribution is wrong. Also, 'keeps the counter in a register' is not in the paper. It says only that GT-Pin initializes a BB counter at program start, updates it at each block, and writes the final value to the trace buffer at program end (Sec. III-A). The trace buffer is malloc'ed and accessible by both CPU and GPU (same section).",
+   "XPU-Point 4.7x: the paper says 'SPECaccel test cases', not 'test inputs' (Sec. VI-A, 'Comparison with GPU Sample Selection'; Sapphire Rapids + Data Center GPU Max 1100). Fig. 16 eyeball ranges checked against the rendered page and roughly right: Pin-Bare ~2-15x (INT8 ~2x), GTPin-Nothing ~3-13x, GPU-Profiler ~6-50x. Keep the 'approximate, log-scale' caveat. Also note that GPU-Profiler and Nothing are separate tool runs, so the gap mixes the BBV probe and the BBV buffer/copy cost.",
+   "gpu_ext Fig. 12(a): the '60-80% across operations' is the paper's text, but the per-bar labels in the figure are -65, -68, -17 (Entry+Exit), -81, -80, -70, -69, -79, -78, -78%. The real range is 17-81%, so the text overstates it. Fig. 12(b): the paper's '6000x' does not compare against a GPU-side map operation. The bars are labelled '34 ms' per CPU-map lookup/update on a us axis, and the matching upstream bpftime data (see 'added') gives 33,450 us vs a 5.23 us UNINSTRUMENTED kernel = 6,395.8x. So it is a whole-kernel-time ratio, on the 'minimal' workload (32 elements, 3 iterations), not the 10K-iteration one the text names. Table 2 is confirmed (8/85, 3/87, 14/93 %, llama.cpp prefill Llama-1B, P40), and so is the 85-87% vs 93% text mismatch (Sec. 6.4.2).",
+   "gpu_ext Table 2 design label '(d) warp-uniform eBPF probes' is not supported for these tools. kernelretsnoop records per-thread-block finish timestamps, which is per-event output, not on-device aggregation. The paper does not say which map or ringbuf each tool uses. Mark the design as unverified.",
+   "compute-sanitizer MemoryTracker is not 'per-launch sizing' in the design-(a) sense. The size is fixed by the MEM_ACCESS_SIZE env var (default 1024, MemoryTracker.cpp:92-103) and does not depend on the grid. What happens per launch is only the allocation (LaunchBegin, :112-126). Buffers are freed only at stream/context sync (:209-213), so the footprint is 32 KiB x (launches since the last sync), plus a small tracker per launch. Drops: currentEntry keeps counting past maxEntry (MemoryTrackerPatches.cu:43-47), so overflow can be recovered as currentEntry - maxEntry until the uint32 wraps. The sample itself prints only min(currentEntry,maxEntry) (:189-191) and never reports the drop count. Commit 1e1fab8e (2023-11-06) is confirmed.",
+   "CUPTI: the HES '128 MB default, new records dropped when full' is not in the cited header (grep found nothing). It comes from the CUPTI docs Sec. 2.3.6 (https://docs.nvidia.com/cupti/main/main.html), which also says the size becomes configurable from CUDA 13.5. Cite that instead. The PC-sampling header facts are confirmed: cupti_pcsampling.h:196-240 (totalSamples, droppedSamples 'dropped by hardware due to backpressure/overflow', hardwareBufferFull -> CUPTI_ERROR_OUT_OF_MEMORY and PC data 0), period 2^5..2^31 cycles with default by SM count (~:257-266), scratch 1 MB ~5,500 PCs (~:286-296), HW buffer 512 MB 'can overflow and drop PC data' (~:299-304). cupti_activity.h: device buffer 3,200,000 B ~100,000 records, pool 250, cuptiActivityGetNumDroppedRecords. 'One warp scheduler per sample' is the round-robin over schedulers described in GPA (arXiv 2009.04061 Sec. 2), not in the header.",
+   "GVProf: all Table I numbers are confirmed (V100 on Summit, CUDA 10.1.243, driver 418.116). The no-sampling mean/median (236.4x/31x) cover the 11 benchmarks only. The with-sampling mean/median (62.3x/7.5x) cover all 15 programs, including the 4 apps (Quicksilver 769.2x pulls the mean up), so the two pairs are not over the same set. The paper actually says HPC apps 'run forever' / 'do not halt' without sampling (Table I caption, Sec. V-C).",
+   "HPCToolkit: confirmed (arXiv 2109.06931 Sec. 8.1, page 10, Table 1: Iris Pro P580 with DPC++ oneAPI beta 10; Summit V100 with CUDA 11.0.3). Sec. 4.2 confirms that on Intel, 'fine-grained' means GT-Pin per-basic-block execution counts delivered in a completion callback, so the 1.81x -> 2.23x delta is GT-Pin probe + BB counters + callback/propagation, not the buffer alone. The paper also says 'we have not yet invested much effort in analyzing and tuning' measurement overhead."
+  ],
+  "struck": [
+   "SASSI 'isolates_buffer_design: true': strike the 'true'. The ablation splits call/spill cost from the handler body. It does not isolate a buffering design, because SASSI has none (see corrections).",
+   "CUPTI 'HES buffer 128 MB' as sourced to the CUDA 13.2 header lines: the number stands, but the header citation does not support it. Re-source it to the docs Sec. 2.3.6.",
+   "gpu_ext '60-80% less device-side overhead across map operations' as a blanket statement: the figure shows -17% for Entry+Exit (range 17-81%), and the bars are probe and map ops, not only map operations.",
+   "gpu_ext 'map access from GPU to CPU-side map over PCIe is 6000x slower than a GPU-side map operation': strike this wording. The ratio is CPU-map kernel time vs the uninstrumented baseline kernel (33,450 us / 5.23 us = 6,396x), not vs a GPU-side map op.",
+   "GT-Pin 'Basic-block counting keeps the counter in a register': not stated in IISWC'15.",
+   "NVBit 'Its 36.4x/112x and 2.3x numbers (Fig. 8) are for a counter-style tool' (notes): the paper does not say how that tool stores its data."
+  ],
+  "added": [
+   "gpu_ext Fig. 12(a) (arXiv 2512.12615 Sec. 6.4, RTX 5090, cuda-samples vector-add, 32 elements; values read off the chart, overhead in us per kernel launch, eGPU-style per-thread vs gpu_ext warp-level): Ringbuf ~5.5 -> ~1.7 us (-69%); Per-GPU-thread array ~4.4 -> ~1.0 us (-78%); Memtrace ~4.3 -> ~1.0 us (-78%); Array update ~6.0 -> ~1.8 us (-70%); Array lookup ~3.0 -> ~0.6 us (-80%); Empty probe ~1.0 -> ~0.35 us (-65%); Entry+Exit ~1.1 -> ~0.9 us (-17%). This is the only published side-by-side of a shared ring buffer (b) and a per-GPU-thread array (f) inside one system, but it uses one warp only (32 threads), so it says nothing about thread-count scaling or contention.",
+   "Source data behind gpu_ext Fig. 12, inferred from matching values: upstream bpftime benchmark/gpu/micro/micro_vec_add_result.md (https://github.com/eunomia-bpf/bpftime, last commit 495d42b9, 2025-10-17, RTX 5090). Avg kernel time vs uninstrumented baseline: Ringbuf tiny(32 thr) 10.63 vs 5.23 us (2.03x), small(1k) 3.01x, medium(10k) 33.32 vs 5.31 us (6.27x). Per-GPU-thread array tiny 1.82x, medium 1.91x, large(100k elements) 17.94 vs 5.60 us (3.20x). Memtrace large 4.19x. GPU array update xlarge(1M) 20.12x. CPU array map 33,450 us (6,395.8x). P40 file micro_vec_add_result_p40.md: Ringbuf tiny 2.46x -> medium 10.03x; Per-GPU-thread array tiny 2.19x -> large 3.08x; GPU array update xlarge 23.74x; CPU array map 2,539x. The rows Ringbuf large/xlarge (0.19x/0.15x on 5090, 0.5x/0.2x on P40) and Per-GPU-thread array xlarge (0.16x / 0.40x) run FASTER than the uninstrumented kernel, which almost certainly means failed or aborted runs. So there is no valid data point for either design at >=100k (ringbuf) or ~1M (per-thread array) threads. This is bpftime's own (design b/f) data, not one of the five assigned systems.",
+   "Upstream bpftime benchmark/gpu/host/gpu_array_vs_per_thread_overhead_rtx5090.md: the HOST-side update/lookup cost of the PERGPUTD per-thread array vs the plain GPU array at the same bytes per key is ~1.00x (0.992-1.009x) for thread_count 32-1024. 50,000 iterations, max_entries 1024, 8 B per thread, RTX 5090, cuMemcpyDtoH fallback (no GDRCopy). Update 3,833 -> 4,328 ns/op and lookup 4,835 -> 5,897 ns/op as thread_count grows from 32 to 1024. Host side only: the file says it does not cover in-kernel helper cost or GPU-side contention.",
+   "CUPTI PC sampling is blocking/serializing: 'NVIDIA's PC sampling measurement serializes execution of GPU kernels ... slows the execution of applications' (HPCToolkit arXiv 2109.06931 Sec. 9), and 'PC Sampling with NVIDIA's CUPTI serializes kernel executions', so concurrent-kernel effects cannot be measured (GPA arXiv 2009.04061, conclusion). This is a qualitative statement with no number. GPA Sec. 2: each SM collects samples individually; when an SM's buffer is full, CUPTI merges the samples from all SMs and transfers them to the CPU.",
+   "GVProf: 'GPU memory overhead of GVProf is bounded by the size of the GPU queue, [while] the runtime overhead is proportional to the number of instrumentation callbacks invoked' (SC'20 Sec. IV-A(c)). This is a stated footprint bound, not a measured peak. Default block sampling period 50 was chosen from sweeps over periods 2,3,4,8,10,16,32,50,64,100 (Sec. V-B(b)); only the 50 results are tabulated. Fig. 6: strong scaling of LAMMPS to 64 GPUs on 11 Summit nodes. Block-sampling overhead falls as GPUs are added; kernel-sampling overhead rises from 1 to several GPUs and converges with block sampling at 64 (Sec. V-D). Values are in the figure only. Mechanism detail: it intercepts the launch, locks the stream, and a priority stream repeatedly polls whether the queue is full, then copies, clears and resumes (Sec. IV-A(b)).",
+   "Neutrino (OSDI'25 preprint, design (a), maps sized from blockDim/gridDim, Sec. 3.3), Table 3 kernel slowdown (A100 80GB / RTX 4090 testbed; the table does not say which GPU each row used). Lightweight probes average 1.04x (block_sched warp:array:16:1, gmem_bytes thread:array:8:1, tensorop_count; range 0.96x-1.39x, max 1.3882x for gmem_bytes on Max/AvgPool). Per-thread mem_trace probe (thread:array:16:count) 2.75x (Conv2D) to 13.16x (SoftMax); the paper calls the dmat probe 7.12x on average and blames its frequent memory I/O (App. I). Extra registers: 3.78 (light) / 5.09 (dmat); Group-GEMM mem_trace spills +516 registers. Fig. 12 measures peak GMEM probe memory in whole-model forward passes (ResNet, Stable Diffusion, Mamba-1.7B, Llama3-1/3/8B). Light probes use at least 10x less than the model's own memory; dmat mostly stays within the original usage at batch 256; the probe share shrinks as the model grows (Sec. 6.3). This is the only measured footprint of a grid-sized design among these sources. End-to-end only, no buffer-vs-probe split.",
+   "Darche & Dagenais (ACM TOPC 2024, doi 10.1145/3649510; seen only through the authors' slides sdarche_may2024/dec2023/dSebastien_dec2024). Two-pass LLVM instrumentation: a counter run, then a trace run with buffers pre-allocated from the known control flow (a variant of design (a)). Rodinia averages/medians: counter kernels 2.00x/1.67x, tracing kernels 1.50x/1.29x, program time 1.60x/1.26x. The slides name no GPU (AMD GCN/CDNA figures shown) and cite prior tools at ~10-120x and ~1-151x (avg 13.2x). Three runtime-buffer variants are implemented but unmeasured in the slides: one shared global buffer ('heavy use of atomics'), a global circular buffer allocated in fixed-size chunks, and per-CU circular buffers. The paper PDF itself was not obtained (3649510.pdf is a 5 KB stub).",
+   "GT-Pin docs, confirmed by fetch: GtProfileArray groups threads into buckets 'to minimize contention of concurrent memory accesses'; bucket count in [1, max HW threads], rounded up to a power of two, thread ID hashed to a bucket; the page says nothing about overflow. GtProfileTrace: maxTraceSize in bytes, maxThreads default 0x1000 = 'maximum number of threads concurrently accessing the trace'; IsTruncated() true when the trace 'has been trimmed to avoid buffer overflow'; the generated code sets f0.0 when a record cannot be allocated.",
+   "gpu_ext repo dev logs (eunomia-bpf/gpu_ext 50a51ad4, workloads/llama.cpp/results/exp_observability_overhead/2026-07-06 runs) show kernelretsnoop overhead of 1.4%, 2.2%, 2.5%, 9.1% and 61.5% on different runs and baselines (~7,100 and ~39,000 tok/s). max_probe_samples is the tool's reported sample count (run_observability_overhead.py:522-531), not a buffer cap, so this is not a buffer-size sweep. These dev runs do not reproduce the paper's single 8% figure, so treat Table 2 as a single-point result."
+  ]
+ }
+]
