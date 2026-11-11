@@ -64,6 +64,11 @@ static __device__ __forceinline__ void __syncwarp(unsigned int mask)
 #include "gpu_helper_protocol.h"
 using namespace bpftime_gpu;
 
+// An ordinary (CPU) array map: its values lie in the shared segment, which the
+// agent registers with CUDA, so the GPU reads and writes them directly when
+// map_info gives their device address (extra_buffer); without one, through a
+// host call.
+const int BPF_MAP_TYPE_ARRAY = 2;
 const int BPF_MAP_TYPE_GPU_HASH_MAP = 1501; // non-per-thread, single-copy shared hashmap
 // IPC-based GPU maps (for x86 with CUDA IPC support)
 const int BPF_MAP_TYPE_PERGPUTD_ARRAY_MAP = 1502;
@@ -252,6 +257,17 @@ extern "C" __noinline__ __device__ uint64_t _bpf_helper_ext_0001(
 		fence_system(); // Ensure CPU writes are visible to GPU
 		return (uint64_t)(uintptr_t)offset;
 	}
+	// Ordinary array map with a device address: as the CPU programs' lookup
+	// (array_map_impl::elem_lookup), NULL past max_entries.
+	if (map_info.map_type == BPF_MAP_TYPE_ARRAY && map_info.extra_buffer) {
+		auto real_key = *(uint32_t *)(uintptr_t)key;
+		if (real_key >= (uint32_t)map_info.max_entries)
+			return 0;
+		fence_system(); // as the 1513 path: CPU writes before the read
+		return (uint64_t)(uintptr_t)((char *)map_info.extra_buffer +
+					     (uint64_t)real_key *
+						     map_info.value_size);
+	}
 	HelperCallResponse resp = host_call(
 		(long)map, HelperOperation::MAP_LOOKUP,
 		[&](HelperCallRequest &req) {
@@ -312,6 +328,24 @@ extern "C" __noinline__ __device__ uint64_t _bpf_helper_ext_0002(
 		fence_system(); // Ensure GPU writes are visible to CPU
 		return 0;
 	}
+	// Ordinary array map with a device address: the rules of the CPU
+	// programs' update (check_update_flags, array_map_impl::elem_update):
+	// the low 32 bits of flags BPF_ANY, BPF_NOEXIST or BPF_EXIST (bpftime's
+	// own operations may use the high ones), BPF_NOEXIST itself fails
+	// (every element exists), no key past max_entries. Failures return -1,
+	// as the host call and the CPU helper do.
+	if (map_info.map_type == BPF_MAP_TYPE_ARRAY && map_info.extra_buffer) {
+		auto real_key = *(uint32_t *)(uintptr_t)key;
+		const uint64_t base_flags = flags & 0xffffffffULL;
+		if (base_flags > 2 /*BPF_EXIST*/ || flags == 1 /*BPF_NOEXIST*/ ||
+		    real_key >= (uint32_t)map_info.max_entries)
+			return (uint64_t)-1;
+		simple_memcpy((char *)map_info.extra_buffer +
+				      (uint64_t)real_key * map_info.value_size,
+			      (void *)(uintptr_t)value, map_info.value_size);
+		fence_system(); // as the 1513 path: visible to the CPU
+		return 0;
+	}
 	HelperCallResponse resp = host_call(
 		(long)map, HelperOperation::MAP_UPDATE,
 		[&](HelperCallRequest &req) {
@@ -330,6 +364,10 @@ extern "C" __noinline__ __device__ uint64_t _bpf_helper_ext_0003(
 	uint64_t map, uint64_t key, uint64_t a, uint64_t b, uint64_t c)
 {
 	const auto &map_info = ::map_info[map];
+	// Elements of an array map cannot be deleted (array_map_impl::
+	// elem_delete): -1 without asking the host.
+	if (map_info.map_type == BPF_MAP_TYPE_ARRAY && map_info.extra_buffer)
+		return (uint64_t)-1;
 	HelperCallResponse resp = host_call(
 		(long)map, HelperOperation::MAP_DELETE,
 		[&](HelperCallRequest &req) {

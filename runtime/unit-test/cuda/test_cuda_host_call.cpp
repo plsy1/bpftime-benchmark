@@ -13,6 +13,7 @@
 #include "nv_attach_utils.hpp"
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -20,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -240,6 +242,89 @@ $L_rb_done:
 	st.u64 	[%rd12+8], %rd10;
 	ret;
 }
+
+// One thread: out[0] = update(map, &key, &42, flags), out[1] = delete(map,
+// &key), out[2] = the value lookup(map, &key) finds (-1 for NULL)
+.visible .entry bpftime_test_map_edges(
+	.param .u64 bpftime_test_map_edges_param_0,
+	.param .u64 bpftime_test_map_edges_param_1,
+	.param .u64 bpftime_test_map_edges_param_2,
+	.param .u64 bpftime_test_map_edges_param_3
+)
+{
+	.local .align 8 .b8 	__local_depot_me[16];
+	.reg .b64 	%SP;
+	.reg .b64 	%SPL;
+	.reg .pred 	%p<2>;
+	.reg .b64 	%rd<16>;
+
+	mov.u64 	%SPL, __local_depot_me;
+	cvta.local.u64 	%SP, %SPL;
+	ld.param.u64 	%rd1, [bpftime_test_map_edges_param_0];
+	ld.param.u64 	%rd2, [bpftime_test_map_edges_param_1];
+	ld.param.u64 	%rd3, [bpftime_test_map_edges_param_2];
+	ld.param.u64 	%rd4, [bpftime_test_map_edges_param_3];
+	mov.u64 	%rd5, 42;
+	st.local.u64 	[%SPL], %rd2;
+	st.local.u64 	[%SPL+8], %rd5;
+	add.s64 	%rd6, %SP, 8;
+	mov.u64 	%rd7, 0;
+	{
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd1;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %SP;
+	.param .b64 param2;
+	st.param.b64 	[param2+0], %rd6;
+	.param .b64 param3;
+	st.param.b64 	[param3+0], %rd3;
+	.param .b64 param4;
+	st.param.b64 	[param4+0], %rd7;
+	.param .b64 retval0;
+	call.uni (retval0), _bpf_helper_ext_0002, (param0, param1, param2, param3, param4);
+	ld.param.b64 	%rd8, [retval0+0];
+	}
+	{
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd1;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %SP;
+	.param .b64 param2;
+	st.param.b64 	[param2+0], %rd7;
+	.param .b64 param3;
+	st.param.b64 	[param3+0], %rd7;
+	.param .b64 param4;
+	st.param.b64 	[param4+0], %rd7;
+	.param .b64 retval0;
+	call.uni (retval0), _bpf_helper_ext_0003, (param0, param1, param2, param3, param4);
+	ld.param.b64 	%rd9, [retval0+0];
+	}
+	{
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd1;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %SP;
+	.param .b64 param2;
+	st.param.b64 	[param2+0], %rd7;
+	.param .b64 param3;
+	st.param.b64 	[param3+0], %rd7;
+	.param .b64 param4;
+	st.param.b64 	[param4+0], %rd7;
+	.param .b64 retval0;
+	call.uni (retval0), _bpf_helper_ext_0001, (param0, param1, param2, param3, param4);
+	ld.param.b64 	%rd10, [retval0+0];
+	}
+	mov.b64 	%rd11, -1;
+	setp.eq.s64 	%p1, %rd10, 0;
+	@%p1 bra 	$L_me_store;
+	ld.u64 	%rd11, [%rd10];
+$L_me_store:
+	st.u64 	[%rd4], %rd8;
+	st.u64 	[%rd4+8], %rd9;
+	st.u64 	[%rd4+16], %rd11;
+	ret;
+}
+
 )PTX";
 
 constexpr uint64_t E2BIG_RESULT = (uint64_t)-7;
@@ -403,6 +488,88 @@ int drain(nv_gpu_ringbuf_map_impl *rb, records_by_thread &records,
 			sizes->push_back(size);
 	});
 }
+// A request slot of its own (in a scratch segment registered with CUDA) that
+// a thread of the test serves like the watcher, answering zeros and counting
+// the requests: a module pointed at it shows which helpers still ask the host.
+struct counting_host {
+	scratch_segment scratch;
+	bpftime_gpu::CommSharedMem *comm;
+	CUdeviceptr comm_on_device = 0;
+	std::atomic<bool> stop{ false };
+	std::atomic<int> served{ 0 };
+	std::thread server;
+	counting_host()
+		: scratch("counting-host", 8 << 20),
+		  comm(scratch.segment.construct<bpftime_gpu::CommSharedMem>(
+			  anonymous_instance)())
+	{
+		memset((void *)comm, 0, sizeof(*comm));
+		REQUIRE(cuMemHostRegister(scratch.segment.get_address(),
+					  scratch.segment.get_size(),
+					  CU_MEMHOSTREGISTER_DEVICEMAP |
+						  CU_MEMHOSTREGISTER_PORTABLE) ==
+			CUDA_SUCCESS);
+		REQUIRE(cuMemHostGetDevicePointer(&comm_on_device, comm, 0) ==
+			CUDA_SUCCESS);
+		server = std::thread([this]() {
+			while (!stop.load(std::memory_order_acquire)) {
+				int posted = 1;
+				if (__atomic_load_n(&comm->flag1,
+						    __ATOMIC_RELAXED) == 1 &&
+				    __atomic_compare_exchange_n(
+					    &comm->flag1, &posted, 0, false,
+					    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+					memset((void *)&comm->resp, 0,
+					       sizeof(comm->resp));
+					served++;
+					__atomic_store_n(&comm->flag2, 1,
+							 __ATOMIC_RELEASE);
+				}
+			}
+		});
+	}
+	~counting_host()
+	{
+		stop.store(true, std::memory_order_release);
+		server.join();
+		cuMemHostUnregister(scratch.segment.get_address());
+	}
+};
+
+// The agent's side of a test: the global segment created as the syscall
+// server does (make_maps creates the maps in it), then opened as an agent.
+struct agent_segment {
+	std::string name;
+	std::string previous;
+	bool had = false;
+	template <class MakeMaps>
+	agent_segment(const char *what, MakeMaps make_maps)
+		: name(std::string("bpftime-") + what + "-" +
+		       std::to_string(getpid()))
+	{
+		const char *was = getenv("BPFTIME_GLOBAL_SHM_NAME");
+		had = was != nullptr;
+		previous = was ? was : "";
+		bpftime_destroy_global_shm();
+		REQUIRE(setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1) ==
+			0);
+		bpftime_initialize_global_shm(
+			shm_open_type::SHM_REMOVE_AND_CREATE);
+		make_maps();
+		bpftime_destroy_global_shm();
+		bpftime_initialize_global_shm(shm_open_type::SHM_OPEN_ONLY);
+	}
+	~agent_segment()
+	{
+		bpftime_destroy_global_shm();
+		shared_memory_object::remove(name.c_str());
+		bpftime_initialize_global_shm(shm_open_type::SHM_NO_CREATE);
+		if (had)
+			setenv("BPFTIME_GLOBAL_SHM_NAME", previous.c_str(), 1);
+		else
+			unsetenv("BPFTIME_GLOBAL_SHM_NAME");
+	}
+};
 } // namespace
 
 // The host used to take one record per GPU thread per poll, return 0, and
@@ -724,4 +891,155 @@ TEST_CASE("Map values reach the GPU only through memory it can address",
 	      (void *)(device + 8));
 	cuMemFree(device);
 	cuMemFreeHost(registered);
+}
+
+// An ordinary array map's values are in the segment, which the agent
+// registers with CUDA. Every lookup, update and delete of one used to be a
+// host call (about 10 us each, one at a time; results gpu/compare-20261110:
+// CPU Array map update 324 us for 32 calls). The agent now gives the
+// trampoline their device address and the GPU follows array_map_impl's rules.
+TEST_CASE("The GPU reads and writes ordinary array maps without host calls",
+	  "[cuda-host-call]")
+{
+	if (!use_primary_context())
+		SKIP("no CUDA device");
+	constexpr int map_fd = 7;
+	constexpr uint64_t entries = 1024;
+	agent_segment segment("cuda-array-map", [&]() {
+		REQUIRE(bpftime_maps_create(
+				map_fd, "array_map",
+				{ .type = (int)bpf_map_type::BPF_MAP_TYPE_ARRAY,
+				  .key_size = 4,
+				  .value_size = 8,
+				  .max_ents = entries }) == map_fd);
+	});
+	{
+		bpf_attach_ctx ctx;
+		const auto infos = ctx.create_map_basic_info(16);
+		REQUIRE(infos.size() == 16);
+		const auto &info = infos[map_fd];
+		REQUIRE(info.enabled);
+		REQUIRE(info.map_type ==
+			(int)bpf_map_type::BPF_MAP_TYPE_ARRAY);
+		// the device address of the values
+		REQUIRE(info.extra_buffer != nullptr);
+		// a request slot nobody but the test serves: any host call
+		// shows in `served`
+		counting_host host;
+		test_module module;
+		module.set_comm(host.comm_on_device);
+		module.set_map_info(map_fd, info);
+
+		// every thread updates its key, then looks it up
+		constexpr unsigned blocks = 8, threads = 128;
+		constexpr uint64_t n = blocks * threads;
+		device_buffer out(n * 2 * sizeof(uint64_t));
+		module.launch("bpftime_test_host_calls", blocks, threads,
+			      { map_fd, out.ptr, 1 });
+		const auto results = out.read();
+		uint64_t right = 0;
+		for (uint32_t i = 0; i < n; i++) {
+			const uint64_t expected = 7 * (uint64_t)i + 1;
+			auto stored = (const uint64_t *)bpftime_map_lookup_elem(
+				map_fd, &i);
+			if (results[2 * i] == 0 && results[2 * i + 1] == expected &&
+			    stored && *stored == expected)
+				right++;
+			else
+				UNSCOPED_INFO("thread "
+					      << i << ": update "
+					      << (int64_t)results[2 * i]
+					      << ", lookup " << results[2 * i + 1]
+					      << ", map "
+					      << (stored ? *stored : 0));
+		}
+		CHECK(right == n);
+
+		// update (42) with flags, delete, lookup of one key
+		device_buffer edge(3 * sizeof(uint64_t));
+		auto run = [&](uint64_t key, uint64_t flags) {
+			module.launch("bpftime_test_map_edges", 1, 1,
+				      { map_fd, key, flags, edge.ptr });
+			return edge.read();
+		};
+		// BPF_NOEXIST: every element exists; elements cannot be deleted
+		auto r = run(3, 1);
+		CHECK((int64_t)r[0] == -1);
+		CHECK((int64_t)r[1] == -1);
+		CHECK(r[2] == 7 * 3 + 1);
+		// BPF_EXIST
+		r = run(3, 2);
+		CHECK(r[0] == 0);
+		CHECK(r[2] == 42);
+		// no flag past BPF_EXIST in the low 32 bits
+		r = run(4, 3);
+		CHECK((int64_t)r[0] == -1);
+		CHECK(r[2] == 7 * 4 + 1);
+		// bpftime's own operations in the high 32 bits pass
+		r = run(5, 1ULL << 32);
+		CHECK(r[0] == 0);
+		CHECK(r[2] == 42);
+		// BPF_NOEXIST with bpftime's high bits: array_map_impl compares
+		// the whole flags with BPF_NOEXIST, so the update goes through
+		r = run(6, (1ULL << 32) | 1);
+		CHECK(r[0] == 0);
+		CHECK(r[2] == 42);
+		// a key past max_entries: no update, lookup NULL
+		r = run(entries, 0);
+		CHECK((int64_t)r[0] == -1);
+		CHECK((int64_t)r[2] == -1);
+
+		CHECK(host.served.load() == 0);
+	}
+}
+
+// Patched modules keep the array's device address for good (they cannot be
+// unloaded, and a loader that exits without a detach leaves their probes
+// running). Unpinned, the storage went back to the segment when the loader
+// closed the map, and GPU updates wrote into whatever was allocated there
+// next. The agent pins the map for its context's life.
+TEST_CASE("An array map the GPU addresses stays allocated after its fd is closed",
+	  "[cuda-host-call]")
+{
+	if (!use_primary_context())
+		SKIP("no CUDA device");
+	constexpr int map_fd = 7, next_fd = 8;
+	const bpftime::bpf_map_attr attr = {
+		.type = (int)bpf_map_type::BPF_MAP_TYPE_ARRAY,
+		.key_size = 4,
+		.value_size = 8,
+		.max_ents = 1024
+	};
+	agent_segment segment("cuda-array-pin", [&]() {
+		REQUIRE(bpftime_maps_create(map_fd, "array_map", attr) ==
+			map_fd);
+	});
+	{
+		bpf_attach_ctx ctx;
+		const auto info = ctx.create_map_basic_info(16)[map_fd];
+		REQUIRE(info.extra_buffer != nullptr);
+		// the loader closes the map and makes another of the same size
+		bpftime_close(map_fd);
+		REQUIRE(bpftime_maps_create(next_fd, "array_map_2", attr) ==
+			next_fd);
+		counting_host host;
+		test_module module;
+		module.set_comm(host.comm_on_device);
+		module.set_map_info(map_fd, info);
+		constexpr unsigned blocks = 8, threads = 128;
+		constexpr uint64_t n = blocks * threads;
+		device_buffer out(n * 2 * sizeof(uint64_t));
+		module.launch("bpftime_test_host_calls", blocks, threads,
+			      { map_fd, out.ptr, 1 });
+		// the GPU wrote into the pinned old storage, not the new map
+		uint64_t touched = 0;
+		for (uint32_t i = 0; i < n; i++) {
+			auto value = (const uint64_t *)bpftime_map_lookup_elem(
+				next_fd, &i);
+			if (!value || *value != 0)
+				touched++;
+		}
+		CHECK(touched == 0);
+		CHECK(host.served.load() == 0);
+	}
 }

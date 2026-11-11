@@ -100,6 +100,7 @@ inline uintptr_t get_cuda_shared_mem_device_pointer() noexcept
 class base_attach_manager;
 
 class handler_manager;
+class array_map_binding;
 class bpftime_prog;
 
 using syscall_hooker_func_t = int64_t (*)(int64_t sys_nr, int64_t arg1,
@@ -148,9 +149,20 @@ public:
 
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
 	std::optional<attach::nv_attach_impl *> find_nv_attach_impl() const;
+	// The map table the trampoline reads (map_info), one entry per fd below
+	// filled_size: GPU maps' device buffers, ordinary arrays' device
+	// address of their values.
+	std::vector<attach::MapBasicInfo>
+	create_map_basic_info(int filled_size);
 #endif
 
 private:
+#ifdef BPFTIME_ENABLE_CUDA_ATTACH
+	void *gpu_address_of_array_values(int fd);
+	// Array maps whose values patched modules address directly, pinned
+	// for this context's life (by value storage).
+	std::map<void *, std::shared_ptr<array_map_binding>> gpu_array_bindings;
+#endif
 	mutable std::mutex ctx_mutex;
 	// Stable shm epoch_seq last seen (even). Used to detect session switch and
 	// rebind GPU resources/maps accordingly.
@@ -207,10 +219,6 @@ private:
 	int instantiate_perf_event_handler_at(
 		int id, const bpf_perf_event_handler &perf_handler);
 
-#ifdef BPFTIME_ENABLE_CUDA_ATTACH
-	std::vector<attach::MapBasicInfo>
-	create_map_basic_info(int filled_size);
-#endif
 };
 
 int load_prog_and_helpers(

@@ -2,6 +2,7 @@
 #include "cuda_runtime_api.h"
 #include "driver_types.h"
 #include "nv_attach_impl.hpp"
+#include "bpf_map/array_map_binding.hpp"
 #include <bpf_attach_ctx.hpp>
 #include "bpftime_ratelimited_log.hpp"
 #include <algorithm>
@@ -304,6 +305,42 @@ void bpf_attach_ctx::stop_cuda_watcher_thread()
 		}
 	}
 }
+// An ordinary array map's values lie in the segment, which this process
+// registered with CUDA: their device address lets the trampoline use them
+// without host calls. The map is pinned (an array_map_binding, as the CPU
+// JIT's inlined lookups pin theirs) for as long as this context lives:
+// patched modules keep the address after the loader closes the map or a new
+// session starts (they cannot be unloaded, and a loader that exits without
+// a detach leaves their probes running), and without the pin the GPU would
+// write into storage the segment had given to something else. NULL when the
+// map cannot be pinned or the GPU cannot reach it: host calls, as before.
+// Counting builds keep the host calls, so every operation is counted (the
+// CPU JIT's array inlining is off there too).
+void *bpf_attach_ctx::gpu_address_of_array_values(int fd)
+{
+#if BPFTIME_ENABLE_MAP_USAGE_STATS
+	(void)fd;
+	return nullptr;
+#else
+	auto memory = shm_holder.global_shared_memory.retain_mapping();
+	const auto *manager = shm_holder.global_shared_memory.get_manager();
+	if (!memory || !manager ||
+	    !memory->find<boost::interprocess::interprocess_recursive_mutex>(
+			    "bpftime_map_binding_mutex_v1")
+		     .first)
+		return nullptr; // a segment without the binding protocol
+	auto binding = array_map_binding::acquire(memory, manager, fd, false);
+	if (!binding)
+		return nullptr;
+	void *device = cuda::gpu_address_of_map_value(binding->raw_data());
+	if (device == nullptr)
+		return nullptr;
+	// one pin per array storage, however many links ask
+	gpu_array_bindings.emplace(binding->raw_data(), std::move(binding));
+	return device;
+#endif
+}
+
 std::vector<attach::MapBasicInfo>
 bpf_attach_ctx::create_map_basic_info(int filled_size)
 {
@@ -326,6 +363,8 @@ bpf_attach_ctx::create_map_basic_info(int filled_size)
 			const auto &map =
 				std::get<bpf_map_handler>(current_handler);
 			auto gpu_buffer = map.get_gpu_map_extra_buffer();
+			if (map.type == bpf_map_type::BPF_MAP_TYPE_ARRAY)
+				gpu_buffer = gpu_address_of_array_values((int)i);
 			SPDLOG_INFO(
 				"Copying map fd {} to device, key size={}, value size={}, max ent={}, map_type = {}, gpu_buffer = {:x}",
 				i, map.get_key_size(), map.get_value_size(),
