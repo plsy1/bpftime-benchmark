@@ -116,3 +116,123 @@ warp index from `%ctaid`/`%tid` instead.
 - `BPF_MAP_TYPE_GPU_HASH_MAP` (1501) creates `next_prime(max_entries)` buckets but a value array of
   `max_entries` entries (`nv_gpu_shared_hash_map.cpp:17-22`), so keys hashing to the last buckets
   may fail to store or read (official and dev alike).
+
+## 2. GPU-to-CPU host calls
+
+Decided 2026-11-11. Larger than direction 1, so it is split into three layers: layer 1 is
+engineering and comes first, layer 2 is the research core, layer 3 waits for direction 1.
+
+### What goes through the host
+
+A GPU probe that calls one of these helpers asks the CPU to run it and waits for the answer:
+
+| helper | why the host |
+|---|---|
+| lookup / update / delete on an ordinary (CPU) map | the map is CPU code |
+| every operation on `BPF_MAP_TYPE_GPU_HASH_MAP` (1501) | the trampoline has no device path for it (official neither) |
+| `bpf_trace_printk` (6), `puts` (501) | printed by the host |
+| `bpf_get_current_pid_tgid` (14) | answered by the host |
+
+GPU maps (1502/1512, 1503/1513, 1504) and the GPU ringbuf (1527) are accessed directly.
+
+### How it works (dev c115b33d)
+
+- **One request slot per process:** `CommSharedMem` (`trampoline/gpu_helper_protocol.h:75-84`) in
+  the shared segment, which is registered with CUDA (host memory, not cached by the GPU): flags,
+  request id, map id, a request union (key and value buffers of 1 MiB each) and a response union.
+- **GPU side** (`host_call`, `trampoline/default_trampoline.cu:124-160`): the 32 lanes of a warp
+  take turns (no intra-warp spinning before sm_70); a lane queues on a per-module lock in GPU
+  memory, takes `occupy_flag` in the slot, writes the request byte by byte, `membar.sys`, sets
+  `flag1`, spins on `flag2`, reads the response; four `membar.sys` per call.
+- **Host side** (`runtime/src/attach/bpf_attach_ctx_cuda.cpp:184-257`): one watcher thread takes a
+  request by CAS on `flag1`, serves it (`serve_cuda_request`, `:116-178`), stores `flag2`
+  (release), keeps polling for 200 us after a request, then sleeps 50 us doubling to 1 ms. A hit
+  lookup also translates the value's address for the GPU with two driver calls
+  (`gpu_address_of_map_value`).
+- **Official** sleeps 1 ms after every request: 1.05 ms per call on the Orin, the 5090 and the P40
+  alike. Dev's watcher (518f05b5) brought it to about 10 us.
+
+### Numbers
+
+| what | value | source |
+|---|---|---|
+| dev, per call, CPU map cases (32 calls per launch, one warp) | 8.7-10.2 us (cases 319-367 us vs 39.7 us baseline) | `results/gpu/compare-20261110/summary.md` |
+| dev, CUDA Counter (10 calls per thread, 320 per launch) | 3,486 us, 87x the baseline | same |
+| official, per call | about 1,052 us | same, `attribution.md` |
+| GPU-CPU round-trip floor on the Orin | 4.78-4.90 us mean (max 23.1) | `results/gpu/feasibility-20261109/gpu-env/hostreg.hsloop-atomdev.txt` |
+| dev, 1 thread / 1 / 8 / 32 warps calling | 15.6 / 10.4 / 9.9 / 9.8 us per call | `results/gpu/fixes-20261109/protocol/README.md` |
+| host-memory lock only, 8 / 32 warps | 74 / 300 us per call | same |
+
+Calls are fully serialized: time grows with threads x calls, without bound (1M threads with one
+call each would be about 10 s per launch). The micro cases are artificial: one warp, one key, an
+empty hash map (lookups miss), a watcher that never goes idle. Array lookup costs more than update
+because that probe also increments through the returned pointer and a hit pays the two driver
+calls.
+
+### Layer 1: remove calls that need no host (first, engineering)
+
+- **Ordinary ARRAY maps accessed by the GPU directly.** Their values (`array_map_impl::data`) are
+  in the segment, and the whole segment is registered with CUDA (`bpftime_shm_internal.cpp:1463`),
+  so lookup/update can take the 1513 path. Estimate: CPU array cases about 42-48 us per launch
+  (7-8x). Semantics: no host lock any more, so values over 8 bytes can tear for concurrent CPU
+  readers (as bpf's ARRAY).
+- **`bpf_get_current_pid_tgid` as a per-module constant.** Today the low half is the watcher
+  thread's tid, meaningless for the caller; what a GPU thread should get there must be decided.
+  Estimate: about -20% on CUDA Counter.
+- **Bounded watcher wake-up.** After idle a call may wait up to 1 ms of backoff; unmeasured. First
+  add a sparse-caller case, then e.g. keep the watcher hot while a probed launch with host-call
+  helpers runs.
+- **Several CUDA processes on one segment.** Each agent zeroes `CommSharedMem` at start and any
+  process's watcher may serve any request (known, not fixed).
+- **Lookup address translation** by offset from the segment's device base instead of two driver
+  calls per hit (estimate about 1.3 us per lookup; time the calls first).
+
+Layer 1 also gives layer 2 a clean baseline: without it, protocol measurements include calls that
+should not exist.
+
+### Layer 2: the synchronous protocol on an integrated GPU (research core)
+
+Question: on an IO-coherent integrated GPU with a ~4.9 us round trip, what request protocol gets a
+host call close to the floor and stops the cost growing with every thread, while keeping per-lane
+arguments, ordering and BPF update flags correct?
+
+- **Warp batching:** one request per warp for lanes with the same (operation, map); uniform cases
+  need only ballot/shuffle (works on sm_61), different keys need `match.any.sync` (sm_70+).
+  Estimate: CPU map cases 324 -> 50-60 us, CUDA Counter 3,486 -> 150-250 us.
+- **Several slots** (e.g. one per SM) with the arbiter in GPU memory (a lock in host memory
+  collapses under contention: 300 us at 32 warps); throughput then bound by how fast the host
+  serves.
+- **Per-call cost:** fewer `membar.sys`, 8-byte copies; at most 10 -> 6-7 us (the floor).
+- **Toolchain:** the trampoline PTX is generated for sm_61 (`trampoline_ptx.h:7`; probe PTX is
+  retargeted to the device). sm_70+ instructions need a second variant, keeping sm_61 for the P40.
+
+Limit: no synchronous design removes the growth at large grids. Perfect warp batching still needs
+about 31k round trips for 1M threads, about 160 ms per launch. At that scale operations have to
+move to the GPU (layer 3).
+
+Evaluation needs cases the benchmark lacks: sparse callers, different keys per lane, populated hash
+maps, many warps and SMs, several processes.
+
+### Layer 3: synchronous exact vs asynchronous approximate (after direction 1)
+
+gpu_ext ([arXiv 2512.12615](https://arxiv.org/abs/2512.12615)) answers host-call cost with GPU-local
+map shards flushed asynchronously (approximate, eventually consistent) and warp-leader execution.
+Its Fig. 12(b) "CPU map access via PCIe is 6000x slower" matches upstream's 5090 table (33,450 us
+vs 5.2 us baseline), which is the 1 ms watcher sleep, not PCIe. On an integrated GPU the round trip
+is ~5 us, and some operations need exact, immediately visible results (`BPF_NOEXIST`/`BPF_EXIST`
+updates, deletes, hash inserts, values the CPU reads at once). Which operations belong on which
+side has not been measured anywhere. This layer meets direction 1: moving operations to the GPU
+means GPU maps, whose sizing is direction 1.
+
+### Where upstream stands (checked 2026-11-11)
+
+- master: nothing on the watcher, `CommSharedMem` or batching after 4708f409.
+- [#426](https://github.com/eunomia-bpf/bpftime/issues/426) (open, GPU helper performance) was
+  answered with "use the GPU maps"; [#503](https://github.com/eunomia-bpf/bpftime/pull/503) (open)
+  fixes `CommSharedMem` visibility on Orin/Thor (`cudaHostAlloc`, volatile loads). No issue or PR on batching or several slots.
+
+### Prior work to check before claiming novelty
+
+- GENESYS (ISCA '18): GPU-issued system calls coalesced on an AMD integrated GPU.
+- LLVM libc GPU RPC: warp-wide ports and several slots.
+- NVBit's device-to-host channel (one buffer, a host receiver thread).
