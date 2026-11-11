@@ -48,6 +48,15 @@ whose request arrives during a sleep waits for it to end.
   check) a plain launch takes 430-460 us instead of 30 (the GPU waking from idle; elpg/aelpg are
   enabled, railgating is off). It is in the launch time, not in the host-call time above.
 
+## Fine sweep 2.0-3.1 ms (one round, 100 launches per gap, `logs/fine/`)
+
+Once the sleeps have reached 1 ms, the wait depends only on where the call falls in the current
+1 ms sleep: each 100 us more of gap is about 100 us less of wait, until the call falls into the
+next sleep and the wait jumps back up (p50, us): 2000: 970, 2100: 872, 2200: 772, 2300: 672,
+2400: 570, 2500: 470, 2600: 376, 2700: 908, 2800: 485 (spread 46-850), 2900: 706, 3000: 610,
+3100: 525. The 2000 us value differs from the 3-round sweep (566): the exact phase moves between
+runs; the range does not (0 to about 1 ms).
+
 ## Files
 
 `summary.md`; `logs/r<round>/gap<GAP>.{loader,victim}.{out,err}`, `logs/plain<round>/`,
