@@ -17,6 +17,7 @@ static const char TRAMPOLINE_PTX[] = R"(
 .visible .const .align 8 .u64 constData;
 .visible .const .align 8 .b8 map_info[40960];
 .visible .global .align 4 .u32 __bpftime_module_comm_lock;
+.visible .global .align 8 .u64 __bpftime_pid_tgid;
 .visible .global .align 4 .u32 __bpftime_map_bounds_warned;
 .global .align 1 .b8 _$_str[50] = {67, 97, 108, 108, 105, 110, 103, 32, 98, 112, 102, 95, 112, 101, 114, 102, 95, 101, 118, 101, 110, 116, 95, 111, 117, 116, 112, 117, 116, 32, 111, 110, 32, 117, 110, 115, 117, 112, 112, 111, 114, 116, 101, 100, 32, 109, 97, 112, 33, 0};
 .global .align 1 .b8 _$_str1[193] = {98, 112, 102, 116, 105, 109, 101, 58, 32, 71, 80, 85, 32, 116, 104, 114, 101, 97, 100, 32, 37, 108, 117, 44, 32, 107, 101, 121, 32, 37, 108, 117, 32, 105, 115, 32, 111, 117, 116, 115, 105, 100, 101, 32, 109, 97, 112, 32, 37, 108, 117, 32, 40, 37, 108, 117, 32, 116, 104, 114, 101, 97, 100, 115, 44, 32, 37, 100, 32, 101, 110, 116, 114, 105, 101, 115, 41, 58, 32, 108, 111, 111, 107, 117, 112, 115, 32, 114, 101, 116, 117, 114, 110, 32, 78, 85, 76, 76, 44, 32, 117, 112, 100, 97, 116, 101, 115, 32, 102, 97, 105, 108, 46, 32, 83, 101, 116, 32, 66, 80, 70, 84, 73, 77, 69, 95, 77, 65, 80, 95, 71, 80, 85, 95, 84, 72, 82, 69, 65, 68, 95, 67, 79, 85, 78, 84, 32, 102, 111, 114, 32, 116, 104, 101, 32, 115, 121, 115, 99, 97, 108, 108, 32, 115, 101, 114, 118, 101, 114, 32, 116, 111, 32, 99, 111, 118, 101, 114, 32, 101, 118, 101, 114, 121, 32, 116, 104, 114, 101, 97, 100, 10, 0};
@@ -1664,70 +1665,75 @@ $L__BB5_17:
 	.param .b64 _bpf_helper_ext_0014_param_4
 )
 {
-	.reg .pred 	%p<6>;
+	.reg .pred 	%p<7>;
 	.reg .b32 	%r<17>;
-	.reg .b64 	%rd<13>;
+	.reg .b64 	%rd<17>;
 
-	ld.const.u64 	%rd1, [constData];
+	ld.volatile.global.u64 	%rd15, [__bpftime_pid_tgid];
+	setp.ne.s64 	%p1, %rd15, 0;
+	@%p1 bra 	$L__BB6_9;
+	bra.uni 	$L__BB6_1;
+$L__BB6_9:
+	st.param.b64 	[func_retval0+0], %rd15;
+	ret;
+$L__BB6_1:
+	ld.const.u64 	%rd2, [constData];
 	mov.u32 	%r6, 0;
-	mov.u64 	%rd5, 0;
+	mov.u64 	%rd15, 0;
 	// begin inline asm
 	mov.u32 %r5, %laneid;
 	// end inline asm
-	mov.u64 	%rd6, __bpftime_module_comm_lock;
-	add.s64 	%rd7, %rd1, 8;
+	mov.u64 	%rd9, __bpftime_module_comm_lock;
+	add.s64 	%rd10, %rd2, 8;
 	mov.u32 	%r10, 14;
 	mov.u32 	%r11, 1;
-	mov.u64 	%rd12, %rd5;
 	mov.u32 	%r16, %r6;
-	bra.uni 	$L__BB6_1;
-$L__BB6_7:
+	bra.uni 	$L__BB6_2;
+$L__BB6_8:
 	bar.warp.sync 	%r7;
 	add.s32 	%r16, %r16, 1;
-	setp.ne.s32 	%p5, %r16, 32;
-	@%p5 bra 	$L__BB6_1;
-	bra.uni 	$L__BB6_8;
-$L__BB6_1:
+	setp.ne.s32 	%p6, %r16, 32;
+	@%p6 bra 	$L__BB6_2;
+	bra.uni 	$L__BB6_9;
+$L__BB6_2:
 	// begin inline asm
 	activemask.b32 %r7;
 	// end inline asm
-	setp.ne.s32 	%p1, %r5, %r16;
-	@%p1 bra 	$L__BB6_7;
-$L__BB6_2:
-	atom.global.cas.b32 	%r8, [%rd6], 0, 1;
-	setp.ne.s32 	%p2, %r8, 0;
-	@%p2 bra 	$L__BB6_2;
+	setp.ne.s32 	%p2, %r5, %r16;
+	@%p2 bra 	$L__BB6_8;
 $L__BB6_3:
-	atom.cas.b32 	%r9, [%rd7], 0, 1;
-	setp.ne.s32 	%p3, %r9, 0;
+	atom.global.cas.b32 	%r8, [%rd9], 0, 1;
+	setp.ne.s32 	%p3, %r8, 0;
 	@%p3 bra 	$L__BB6_3;
+$L__BB6_4:
+	atom.cas.b32 	%r9, [%rd10], 0, 1;
+	setp.ne.s32 	%p4, %r9, 0;
+	@%p4 bra 	$L__BB6_4;
 	// begin inline asm
 	membar.sys;
 	// end inline asm
-	st.u32 	[%rd1+12], %r10;
-	st.u64 	[%rd1+16], %rd5;
+	st.u32 	[%rd2+12], %r10;
+	mov.u64 	%rd11, 0;
+	st.u64 	[%rd2+16], %rd11;
 	// begin inline asm
 	membar.sys;
 	// end inline asm
-	st.volatile.u32 	[%rd1], %r11;
-$L__BB6_5:
-	ld.volatile.u32 	%r12, [%rd1+4];
-	setp.eq.s32 	%p4, %r12, 0;
-	@%p4 bra 	$L__BB6_5;
-	st.volatile.u32 	[%rd1+4], %r6;
+	st.volatile.u32 	[%rd2], %r11;
+$L__BB6_6:
+	ld.volatile.u32 	%r12, [%rd2+4];
+	setp.eq.s32 	%p5, %r12, 0;
+	@%p5 bra 	$L__BB6_6;
+	st.volatile.u32 	[%rd2+4], %r6;
 	// begin inline asm
 	membar.sys;
 	// end inline asm
-	ld.u64 	%rd12, [%rd1+2097184];
+	ld.u64 	%rd15, [%rd2+2097184];
 	// begin inline asm
 	membar.sys;
 	// end inline asm
-	atom.exch.b32 	%r14, [%rd7], 0;
-	atom.global.exch.b32 	%r15, [%rd6], 0;
-	bra.uni 	$L__BB6_7;
-$L__BB6_8:
-	st.param.b64 	[func_retval0+0], %rd12;
-	ret;
+	atom.exch.b32 	%r14, [%rd10], 0;
+	atom.global.exch.b32 	%r15, [%rd9], 0;
+	bra.uni 	$L__BB6_8;
 
 }
 	// .globl	_bpf_helper_ext_0025

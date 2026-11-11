@@ -121,6 +121,11 @@ static __device__ __forceinline__ unsigned int current_lane()
 // warps waiting, a host call took 300 us instead of 10).
 __device__ int __bpftime_module_comm_lock = 0;
 
+// bpf_get_current_pid_tgid's answer for this module's GPU threads, written by
+// the agent when it loads the module (attach::trampoline_pid_tgid: the
+// process's tgid in both halves). 0 until written: then the host answers.
+__device__ uint64_t __bpftime_pid_tgid = 0;
+
 // One host call: take the lock of the one request slot (CommSharedMem, shared
 // by every module of the process), write the request with fill() while
 // holding it, post it and wait for the response. Lanes of a warp take turns:
@@ -405,6 +410,11 @@ _bpf_helper_ext_0006(uint64_t fmt, uint64_t fmt_size, uint64_t arg1,
 extern "C" __noinline__ __device__ uint64_t
 _bpf_helper_ext_0014(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
 {
+	// The module's copy (the process does not change); the host only for a
+	// module the agent did not write.
+	const uint64_t pid_tgid = *(volatile uint64_t *)&__bpftime_pid_tgid;
+	if (pid_tgid != 0)
+		return pid_tgid;
 	HelperCallResponse resp = host_call(0,
 					    HelperOperation::GET_CURRENT_PID_TGID,
 					    [](HelperCallRequest &) {});
