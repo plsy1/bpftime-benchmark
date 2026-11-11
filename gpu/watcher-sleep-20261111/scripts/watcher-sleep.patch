@@ -1,0 +1,88 @@
+--- /home/jetson/src/bpftime-gpu-work/sleep/bpf_attach_ctx_cuda.cpp.orig	2026-11-11 21:52:09.180378708 +0900
++++ runtime/src/attach/bpf_attach_ctx_cuda.cpp	2026-11-11 21:52:09.204379553 +0900
+@@ -5,6 +5,8 @@
+ #include "nv_attach_utils.hpp"
+ #include "probed_launch_activity.hpp"
+ #include <sys/auxv.h>
++#include <sys/prctl.h>
++#include <time.h>
+ #include "bpf_map/array_map_binding.hpp"
+ #include <bpf_attach_ctx.hpp>
+ #include "bpftime_ratelimited_log.hpp"
+@@ -276,7 +278,33 @@
+ 		auto idle_sleep = std::chrono::duration_cast<
+ 			std::chrono::microseconds>(cuda_watcher_min_sleep);
+ 		auto &activity = attach::launch_activity();
+-		const bool wfe = cuda_watcher_can_wait_on_flag();
++		// Experiment (exp/watcher-sleep, not for dev): POLL_US > 0 sleeps
++		// that long instead of WFE while a noted probed launch runs (hot
++		// for the busy window after a request); MAX_SLEEP_US > 0 is the
++		// old policy with that cap and launch notes ignored. Both set the
++		// thread's timer slack (SLACK_NS, default 1000).
++		auto env_long = [](const char *n) -> long {
++			const char *v = getenv(n);
++			return v ? atol(v) : 0;
++		};
++		const long poll_us = env_long("BPFTIME_CUDA_WATCHER_POLL_US");
++		const long max_sleep_us =
++			env_long("BPFTIME_CUDA_WATCHER_MAX_SLEEP_US");
++		const bool ignore_notes = max_sleep_us > 0;
++		const auto max_sleep =
++			max_sleep_us > 0 ? std::chrono::microseconds(max_sleep_us) :
++					   std::chrono::microseconds(
++						   cuda_watcher_max_sleep);
++		if (poll_us > 0 || max_sleep_us > 0) {
++			long slack = env_long("BPFTIME_CUDA_WATCHER_SLACK_NS");
++			prctl(PR_SET_TIMERSLACK, slack > 0 ? slack : 1000);
++		}
++		const bool wfe = !ignore_notes &&
++				 (poll_us > 0 || cuda_watcher_can_wait_on_flag());
++		SPDLOG_INFO(
++			"CUDA watcher (experiment): poll_us={} max_sleep_us={} wfe_or_poll={}",
++			poll_us, max_sleep.count(), wfe);
++		const struct timespec poll_ts = { 0, poll_us * 1000 };
+ 		// The watcher queries events (activity.any_running()) while
+ 		// the application may be capturing a graph in another thread:
+ 		// in the default (global) mode that makes such calls of other
+@@ -321,7 +349,15 @@
+ 					"CUDA watcher: a probed kernel was launched; waiting on the request flag");
+ 			}
+ 			if (on_flag) {
+-				if (ctx != nullptr)
++				if (poll_us > 0) {
++					if (clock::now() - last_request <
++					    cuda_watcher_busy_window)
++						cpu_relax();
++					else
++						clock_nanosleep(CLOCK_MONOTONIC,
++								0, &poll_ts,
++								nullptr);
++				} else if (ctx != nullptr)
+ 					wait_while_equal(&ctx->cuda_shared_mem
+ 								  ->flag1,
+ 							 0);
+@@ -357,15 +393,21 @@
+ 			// cannot resolve) are still served after the sleep. Without WFE a noted launch
+ 			// only ends the current sleep: the watcher then polls for
+ 			// the busy window and sleeps again.
+-			if (!wfe && activity.generation() != seen_launches) {
++			if (!wfe && !ignore_notes &&
++			    activity.generation() != seen_launches) {
+ 				seen_launches = activity.generation();
+ 				last_request = clock::now();
+ 				idle_sleep = cuda_watcher_min_sleep;
+ 				continue;
+ 			}
+-			activity.wait_for_note(seen_launches, idle_sleep);
++			if (ignore_notes)
++				std::this_thread::sleep_for(
++					std::min(idle_sleep, max_sleep));
++			else
++				activity.wait_for_note(seen_launches,
++						       idle_sleep);
+ 			idle_sleep = std::min<std::chrono::microseconds>(
+-				idle_sleep * 2, cuda_watcher_max_sleep);
++				idle_sleep * 2, max_sleep);
+ 		}
+ 		if (primary != nullptr) {
+ 			cuCtxSetCurrent(nullptr);

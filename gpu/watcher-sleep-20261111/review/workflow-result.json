@@ -1,0 +1,177 @@
+{
+  "summary": "Recompute and try to refute the short-sleep vs WFE claims",
+  "agentCount": 3,
+  "logs": [],
+  "result": {
+    "results": [
+      {
+        "verdicts": [
+          {
+            "claim": "D2. Under full load every sleeping set beats W on mean latency and on calls > 1 ms, and costs the load less: W mean 376 / 1,023 us, > 1 ms 12.6% / 30.9%, load 0.863 / 0.867 of P; M100 mean 144 / 90 us, > 1 ms 3.5% / 0.9%, load 0.980 / 0.990.",
+            "verdict": "partly",
+            "evidence": "All 64 load-on single-lane runs are valid by my own check (/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/chk.py): rc 0, 3201 records, clocks before and after cpu5=cpu0=1728000 and gpu=1020000000, and load samples covering the victim window. I recomputed the pooled values over 4 rounds. 2 ms cell: W mean 376.3, >1 ms 12.55%, load 0.863. M100 mean 144.3, 3.48%, 0.980. S10/S20/S50/S100 means 231.5/184.4/165.3/171.6, >1 ms 8.45/6.18/5.06/4.41%. 20 ms cell: W 1022.7, 30.88%, 0.867. M100 89.8, 0.88%, 0.990. S means 162.6/138.1/148.7/118.3. The S and M100 sets also beat W round by round: S10 per-round means at 2 ms are 222-242 against W's 275-474, and every S/M100 load ratio (min 0.936) is above every W ratio (max 0.870). The exception is N, which CLAIMS.md also describes as a sleeping set (sleep 50 us doubling to 1 ms). In the 2 ms cell N's mean is 589.3 us, above W's 376.3 us, in every round (577-622).",
+            "correction": "The claim holds for the S sets and M100. It is wrong for N, whose mean at 2 ms (589 us) is worse than W's (376 us). N does beat W on calls > 1 ms (6.55% vs 12.55%) and on load (0.988)."
+          },
+          {
+            "claim": "D3. Sleeping watchers are not immune to load: their p99 under load is 0.8-3.6 ms although the calibration's bare sleeps kept p99 within ~5 us of the period under the same load.",
+            "verdict": "partly",
+            "evidence": "The numbers are right. Pooled p99 under load is 2,510-3,635 us in the 2 ms cell and 801-3,133 us in the 20 ms cell for S/M100 (N: 2,830 and 1,062). In calib.log (load on, slack 1 us), p99 minus the period is 4.8/4.9/4.9/5.5 us for 10/20/50/100 us. The contrast drawn from them does not hold, for two reasons. (1) The two p99s measure different things. calib.c (lines 52-58) reports a p99 over individual wake-up intervals, weighted by count. A host call arrives at a random time, so it lands in an interval with probability proportional to the interval's length. The same calibration shows 4.9-5.8 ms stalls under load (max column) and a mean shift of about 6.2/3.3/1.5/1.1% of wall time for 10/20/50/100 us periods, computed as (mean_on - mean_off) * wakeups / 2 s. That is the same order as the measured share of calls > 1 ms (S10 8.45/5.75%, S100 4.41/2.00%). The slow calls are 1.2-3.8 ms (p10-p90 of calls > 1 ms), which matches the calibration's stalls. So the calibration predicts a ms-scale tail rather than contradicting it. (2) The watcher is not a bare sleeper. The patch (src/runtime/src/attach/bpf_attach_ctx_cuda.cpp:352-359 and 385-388) polls hot for 200 us after every request. Line 374 sets last_request=now when the probed kernels end, which starts another hot window. Every 100 us it also queries events (any_running, lines 365-371). Victim CPU under load is 0.10-0.17 s/s at 2 ms, against the calibration thread's cpu_share of 0.013-0.085, so the watcher is more likely to have to wait for a running load thread's time slice. The tail follows CPU use at the same sleep period: S100 vs M100 is 0.111 s/s with 4.41% > 1 ms vs 0.101 with 3.48% at 2 ms, and 0.038 with 2.00% vs 0.025 with 0.88% at 20 ms. Within each cell the > 1 ms share falls with CPU across S10 to M100. The low end of the range is fragile: M100's 20 ms p99 by round is 119, 1000, 120 and 1642 us, so two rounds show no ms tail at p99. The pooled 801 us sits on the knee, with only 16 calls past the p99 point.",
+            "correction": "The p99 range is right but its low end depends on M100 at 20 ms (rounds 119-1642 us). Saying \"although the calibration kept p99 within ~5 us\" is misleading. The calibration reports p99 by wake-up count, while host calls land in intervals in proportion to their length. Its own max (4.9-5.8 ms) and mean shift (about 1-6% of time) predict a ms tail of a similar size. The extra tail beyond that is plausibly explained by the watcher's hot polling and event checks."
+          },
+          {
+            "claim": "D4. With probes that make no host call, the load loses: W 14%, S10 5-6%, S20 3-4%, S50 2-2.5%, S100 1-2%, M100 0.8-1%, N 0.1-0.4%.",
+            "verdict": "confirmed",
+            "evidence": "All 64 none-cell runs are valid (rc 0, nohost count 3201/401, clocks OK, load covering the window). Load loss from the median of per-round rate/P(same round), 2 ms / 20 ms: W 14.07/14.23%, S10 5.82/5.24%, S20 3.94/3.27%, S50 2.54/2.06%, S100 1.97/1.23%, M100 1.05/0.76%, N 0.35/0.10%. The round-to-round spread inside each set is small, for example W 13.2-14.9% and S100 1.73-2.46% at 2 ms. P's own load rate varies only 0.17-0.22% across rounds, so the denominator is stable. S50 at 2.54% and M100 at 1.05%/0.76% are just outside the stated ranges, which is only rounding."
+          },
+          {
+            "claim": "D5. Burst (32 lanes calling at exit): cost per host call without load W 9.2, S10-S100 9.4-10.9, M100 10.8, N 25.5 us; under load W 20.9, S 17.9-19.2, M100 17.3, N 30.1 us.",
+            "verdict": "partly",
+            "evidence": "Arithmetic confirmed: (per-launch mean - P mean of the same round)/32, median over rounds. Without load: W 9.19, S10 9.40, S20 10.08, S50 10.29, S100 10.89, M100 10.81, N 25.53. Under load: W 20.91, S10 19.22, S20 17.87, S50 18.09, S100 18.07, M100 17.35, N 30.12. The differences between sets, though, come from the first call's wake-up, not from the per-call cost. Without load, (burst per-launch delta - 1-lane mean latency)/31 is 9.0-9.5 us for every set: N 9.22, W 9.03, S10 9.01, S100 9.06, M100 9.07. N's 25.5 is about 530 us of wake-up spread over 32 lanes, since (25.5-9.2)*32 = 522, close to 531 - 14 = 517. Under load the same decomposition gives W 9.4 and S/M100 12.4-13.3 per subsequent call. So after the first call W is not worse, and the S/M100 advantage again comes from first-call latency (W 1-lane mean 376 vs 144-232). Under load the ordering is also inside run-to-run noise: per-round W 19.1-22.5 against S10 18.9-20.6 and S50 17.0-18.3. Counts are 2401 in every burst run, but the slot counter is not atomic (lanes race), so the logs cannot show that 32 calls were served per launch.",
+            "correction": "Report the burst figure as per-launch extra time divided by 32. Most of the gap between sets is the first call's wake-up latency spread over 32 lanes. Without load, the cost per subsequent call is about 9-9.5 us for every set, N included. Under load, the S/M100 vs W ordering is within the round-to-round spread."
+          }
+        ],
+        "other_problems": [
+          "All 256 runs pass my own validity check (/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/chk.py). For every run the .env header matches the cell. There are exactly two state lines, with cpu5=cpu0=1728000 and gpu=1020000000 both before and after. victim/loader/load rc are 0, with no extra lines such as 'not attached' or 'segment in use'. Single-lane runs have count 3201/401 and the same number of values. Load-on runs have .load samples covering the victim window (726-1195 samples, max sampler gap 33 ms, inside-window span at least 99.8% of the window). Load-off runs have no .load file. The experiment victim.err reports the expected poll_us/max_sleep_us, 32 runs each. No [warn]/[error] lines appear in any .err file.",
+          "The clock check only reads cpu5, cpu0 and gpu at start and end. Mid-run throttling under 6 load threads would go unnoticed (max temperature 54.4 C makes it unlikely). The other four cores' frequencies are not recorded.",
+          "The calibration (calib.c) gives only count-weighted p99 and max, one 2 s sample per period, with mean and median rounded to 0.1 us. It cannot estimate the time share of stalls longer than 1 ms, which is what host-call latency samples. It also runs at different times from the rounds (calib-load.samples is from 21:51).",
+          "Single-lane p99 values rest on few calls: about 128 calls past the p99 point in the 2 ms cell and only about 16 in the 20 ms cell (pooled over 4 rounds x 400). The 20 ms per-round p99 swings widely (M100 119-1642 us, S50 2412-4483 us, S20 2211-3576 us), so p99 ranks inside the 20 ms load-on cell are noise.",
+          "Burst cells: the probe's record count does not show the number of calls served per launch (non-atomic counter; it is 2401 everywhere). summarize.py accepts any count > 0 for 32-lane cells, so a launch that served fewer than 32 calls would not be detected.",
+          "The burst 'cost per call' and the 1-lane per-launch deltas include fixed per-launch overhead that is not per call. In the nohost load-on cells the per-launch delta vs P is already 18-106 us (W 20 ms 106 us, S50 2 ms 38 us), which adds about 1-3 us to any '/32' figure under load.",
+          "In the load-on cells the load ratio is the victim's whole-process effect (the W watcher's runnable WFE loop, about 0.8 core) plus the loader process. P has neither. The ratios are against a P run at a different time in the same round, not concurrent with it, but P's rate spread across rounds is only about 0.2%, so this is minor.",
+          "W under load shows a strongly alternating latency pattern early in a run (for example ~15 us, ~2.5 ms, ~15 us, ~3.4 ms ... in r1 host_on_2000_t1_W.loader). Mean and > 1 ms share for W are therefore phase-dependent; per-round means are 275-474 us at 2 ms and 810-1150 us at 20 ms. The ranking still holds, but W's under-load numbers are less stable than the S sets'."
+        ]
+      },
+      {
+        "verdicts": [
+          {
+            "claim": "D1. Without load W answers in 14 us mean and adds no measurable power over P (CV 1,704/1,688 vs P 1,686/1,687), short sleeps cost power (S10 +220/+200, S20 +160/+125, S50 +86/+63, M100 +61/+33 mW at 2 ms/20 ms), latencies S10 21.5-22, S20 27, S50 42, S100 66-68, M100 65-67, N 531-540 us.",
+            "verdict": "partly",
+            "evidence": "Own script (scratchpad pw.py, python3 -I, no summarize.py): tegrastats samples kept only when their whole second [ts, ts+1) lies inside the victim realtime_ns window (ts >= ceil(rs), ts <= floor(re)-1, local-time parse; 22:01:34 stamp matches realtime 1794402094 s). Samples per run: host_off_2000_t1 and host_off_20000_t1 66-77 (7-8 whole seconds, ~9.5 samples/s), burst t32 47-58 (5-6 s); P 2 ms window 8.09 s, N 9.83 s. Medians reproduce the claim exactly: 2 ms P 1686, W 1704, S10 1907, S20 1847, S50 1772, S100 1765, M100 1747, N 1731; 20 ms P 1687, W 1688, S10 1888, S20 1812, S50 1750, S100 1731, M100 1720. Per-round diff vs same-round P (CV mW): 2 ms S10 215/230/227/208, S20 183/161/160/152, S50 83/82/89/89, M100 53/62/59/72; 20 ms S10 192/204/206/197, S20 118/126/120/126, S50 47/61/67/70, M100 27/32/34/37. Run-to-run sd per set 2-12 mW (P 2.9/3.3), so all S/M100 costs exceed spread by 3-20x and are 4/4 positive. W is the weak point: 2 ms W-P = +21/+37/+15/+1 (mean +19, all 4 positive; VDD_IN +41/+47/+26/+2), W sd 12.3 mW vs P 2.9; paired t about 2.5 (df 3) -> not significant but not 'none'; it is about a third of M100's 2 ms cost and comparable to M100's 20 ms '+33 cost'. 20 ms W-P = +10/+2/+1/-1 (genuinely ~0). Latencies recomputed from .loader (warm-up dropped, count-1 values verified): 2 ms N 531.2, W 14.1, S10 21.5, S20 27.6, S50 41.8, S100 67.6, M100 64.8; 20 ms N 539.8, W 14.1, S10 22.0, S20 26.9, S50 42.0, S100 66.1, M100 67.3 -- all match.",
+            "correction": "W adds about +20 mW (CV, range +1..+37) in the 2 ms cell and ~0 in the 20 ms cell; say 'small, within ~1.5x of its own run spread and partly confounded by run order', not 'no measurable power'. All S/M100 power and all latency numbers are confirmed."
+          },
+          {
+            "claim": "D6. S<n> uses more CPU than M100 at the same period (S100 0.111 vs M100 0.101 s/s with host calls at 2 ms; 0.073 vs 0.030 without) because of the launch tracking: the 200 us hot poll after a request and after the probed kernels end, the notes and the event checks.",
+            "verdict": "partly",
+            "evidence": "Numbers confirmed per round (victim cpu_s/wall_s, load-on cells): host_on_2000 S100 0.110/0.113/0.111/0.112 vs M100 0.101/0.101/0.101/0.100; none_on_2000 S100 0.075/0.074/0.072/0.070 vs M100 0.029/0.030/0.032/0.030 -- cleanly separated. Code (src/runtime/src/attach/bpf_attach_ctx_cuda.cpp): the 200 us busy window after a served request is NOT S-specific. In S the on_flag branch polls hot (lines ~352-355: clock::now()-last_request < cuda_watcher_busy_window -> cpu_relax); in M100 (ignore_notes, wfe=false, never on_flag) the shared block at lines ~385-389 does the same cpu_relax for 200 us after every request (last_request set at line ~342 for every set). So it cannot explain S>M100, and in the no-host cells (the 0.073 vs 0.030 gap) there are no requests at all. Launch notes are also paid by both: note() (attach/nv_attach_impl/probed_launch_activity.cpp: cuStreamIsCapturing + cuEventRecord) is called by the launch hooks (nv_attach_impl.cpp:1524/1561/1591) regardless of the watcher env; the only S-only part is the condvar notify when the watcher sits in wait_for_note (waiters != 0). What only S pays: (a) when any_running() returns false (check every 100 us, lines ~365-381) it sets last_request = now -> a further 200 us hot poll after kernel-end detection; (b) cuEventQuery via any_running() every ~100 us while on_flag; (c) after an end, wait_for_note with idle_sleep restarting at 50 us; (d) futex wakes from note(). Consistency: M100 host-minus-nohost = 0.101-0.030 = +0.071 s/s (~184 us per launch at ~385 launches/s, i.e. the post-request 200 us poll), but S100's = 0.111-0.073 = +0.038 (~99 us/launch) because S's post-request window overlaps its post-end window (host call at kernel exit) -- this supports the post-end hot poll as the S-only cost. Fitting extra = a + b*rate on the no-host cells (2 ms gap 0.043 at ~385/s, 20 ms gap 0.018 at ~48.5/s) gives b ~74 us per launch and a ~0.014 s/s continuous, i.e. a per-launch part (post-end poll, smaller than 200 us so the end is not caught or not fully paid every launch, since the victim relaunches right after cudaDeviceSynchronize, spin2.cu:79-80) plus a continuous part (event queries). Attribution is from code reading and this fit only; no ablation was run.",
+            "correction": "Drop 'the 200 us hot poll after a request' and 'the notes' as causes of the S-vs-M100 difference (M100 pays both). The S-only costs are the 200 us hot poll after kernel-end detection (any_running() false sets last_request), the cuEventQuery checks every ~100 us while a launch is noted, and condvar wake-ups; unproven without an ablation."
+          },
+          {
+            "claim": "D7. M100's cost is paid also when no probed kernel runs (it sleeps at most 100 us always): from the calibration about 1.2% of a core and, from D1, tens of mW; not measured with an idle agent.",
+            "verdict": "partly",
+            "evidence": "Mechanism confirmed in code: MAX_SLEEP_US>0 sets ignore_notes, wfe=false, and the loop does std::this_thread::sleep_for(min(idle_sleep, max_sleep)) with idle_sleep doubling from 50 to the 100 us cap (patch hunk at lines ~396-410), independent of any launch, so it wakes ~10k/s forever. Calibration (logs/calib.log, slack 1 us, period 100 us) cpu_share 0.012 load off / 0.013 load on -- matches '1.2%'. In-situ proxies are higher: host_off_20000 M100 0.023 - P 0.002 = ~0.021 s/s (per round 0.0229-0.0233), none_on_20000 0.016 - 0.002 = ~0.014. Part of the 0.021 is the 200 us post-request hot poll per ~20.6 ms launch (~1% of a core), so the pure sleep loop in situ is ~0.011-0.014, consistent with calibration. Power: M100-P in the 20 ms cell +27/+32/+34/+37 mW CV (VDD_IN +12/+37/+49/+49), all 4 positive, but this includes the hot polls and runs alongside an active GPU; the 2 ms cell's +61 is inflated by ~8% of a core of post-request hot polling (200 us per ~2.6 ms launch), which an idle agent would not pay. 'Not measured with an idle agent' is literally true: every cell has a victim launching probed kernels.",
+            "correction": "Cite the 20 ms cells as the closest proxy: ~0.014-0.021 s/s and about +30 mW (27-37), of which ~1% core is post-request polling; the D1 2 ms figure (+61 mW) overstates the idle cost. The idle cost is plausibly ~1.2% of a core and roughly 20-30 mW, but unmeasured."
+          }
+        ],
+        "other_problems": [
+          "Run order confound in the power cells: the set order rotates as SETS[(i+r)%8], so P sits at positions 7/6/5/4 in rounds 1-4, always in the cooler second half of each load-off cell, while the cell before each load-off cell is a load-on cell. Residual CV vs set mean by position (2 ms cell): pos0 +4.1, pos1 +3.0 ... pos6 -5.2, pos7 -3.6 mW; start temperature falls from 53.0 C at pos0 to 51.6 C at pos7; corr(temp, residual) 0.34 (2 ms) / 0.45 (20 ms). This biases every set-minus-P difference upward by a few mW, and W's two largest 2 ms excesses (+21, +37) are the rounds where W ran at position 1 and 0 (start temps 52.4 / 53.2 C), its smallest (+15, +1) at positions 7 and 6. Harmless for the S sets (80-230 mW), decisive for the W 'no measurable power' wording.",
+          "Only 4 runs per set and ~7 whole seconds (66-77 tegrastats samples, autocorrelated at 100 ms) per run; W's run-to-run sd (12.3 mW) is 4x P's (2.9 mW). Effects under ~25 mW (W at 2 ms, N at 20 ms +6, W at 20 ms +3) cannot be called present or absent from this data.",
+          "The P set runs no loader process (run_one.sh only starts the syscall-server for S != P), so every non-P set's power and the victim-window comparison include an extra process; the ~0 W/N 20 ms diffs suggest it is negligible, but it is not isolated.",
+          "tegrastats timestamps have 1 s resolution, and each line's instantaneous VDD value is attributed to the second it was printed in; the whole-second filter is correct for that resolution but cannot exclude the last ~100 ms of a second straddling the window edge semantics; with ~9.5 samples per second this is minor.",
+          "Power is only sampled in load-off cells, so D7's idle-cost and every power claim say nothing about load-on behaviour; victim CPU s/s is process CPU (includes the victim's own sync thread: P 0.011-0.013 at 2 ms), so watcher cost must be read as set minus P.",
+          "D6 attribution rests on code reading plus a two-point fit; no ablation (e.g. S100 without the post-kernel-end busy window, or with any_running() less often) was run, so the split between hot poll and event queries is unverified.",
+          "In D1's power comparison W, S and M100 differ in more than the sleep period: S/M100 poll hot for 200 us after every request while W waits with WFE (on_flag branch, poll_us == 0), so the 2 ms cell's S/M100 power includes ~8% of a core of hot polling that is not a cost of the short sleeps themselves."
+        ]
+      }
+    ],
+    "critic": {
+      "verdicts": [
+        {
+          "claim": "D1. Without load W adds no measurable power over P, and short sleeps cost power (S10 +220/+200, S20 +160/+125, S50 +86/+63, M100 +61/+33 mW). I disagree with reviewer 2 calling all S/M100 power figures 'confirmed' without stating the conditions they hold under.",
+          "verdict": "partly",
+          "evidence": "The arithmetic is right (reviewer 2 reproduced it). The mW figures, however, come from a power state a default Jetson does not run in. The two cpuidle states, WFI and c7, both have disable=1 (/sys/devices/system/cpu/cpu0/cpuidle/state{0,1}/disable). scaling_min_freq is 1728000 = max and the governor is schedutil. /usr/bin/jetson_clocks lines 420-430 store the idle-state disables and then write 1 to all of them, so this is jetson_clocks state. The board has been up since 2026-10-26 11:03 (uptime -s) and the runs ran 22:00-22:43 on 11-11 (.env mtimes), with no reboot in between. In every load-off .power file, all 45,654 per-core tegrastats readings are '@1728' on all 6 cores. So for the whole power data set, deep idle (c7) was unavailable and the clocks were pinned. run_one.sh records only cpu5/cpu0/gpu frequency and never the idle-state setting. In this configuration an idle core cannot power-gate, which shrinks the measured gap between an idle core and a core held busy. W's WFE loop takes 1.016 s/s of victim CPU at 2 ms and 1.000 at 20 ms (load off, median of 4 rounds; tegrastats shows one core at 100%), yet it shows about 0-20 mW. On a default-boot Jetson (cpuidle on, DVFS), W keeps one core out of c7 and, through schedutil, holds its cluster's frequency up whenever a probed kernel runs. M100/S keep a core waking about 10k-70k times/s. Both would cost more than measured, by amounts this data cannot estimate. Latency and load-loss cells do not depend on this, but the power axis of the default-policy decision is unmeasured for the configuration the default would ship into.",
+          "correction": "State that the D1 power figures (W about +0-20 mW, S/M100 +33-220 mW) were measured with jetson_clocks active: cpuidle WFI and c7 disabled, all cores pinned at 1728 MHz. They do not show W's or M100's power on a default-configured Jetson. A default-policy decision that uses power needs a load-off rerun with cpuidle and DVFS at their defaults."
+        },
+        {
+          "claim": "D7. M100's cost is paid also when no probed kernel runs: from the calibration about 1.2% of a core and, from D1, tens of mW; not measured with an idle agent. I disagree with reviewer 2's estimate of 'roughly 20-30 mW' for the idle cost.",
+          "verdict": "partly",
+          "evidence": "The 1.2% CPU figure stands (calib.log slack 1 us, period 100 us: cpu_share 0.012 load off, 0.013 load on; in situ M100 at 20 ms is 0.023 s/s vs P 0.002). The mW estimate is the weak part. Both D1 and calib.log were taken with cpuidle states disabled (see D1). In that state an idle core gains little by staying idle, so 9.6k wake-ups/s (calib per_s=9621) look cheap. With c7 enabled, an idle agent's M100 thread would repeatedly break the core's deep idle, and that cost was never measured. W's idle-agent cost is zero by design, since it only spins while a noted probed launch runs. So the idle-agent comparison, which is exactly where M100 is weakest, is the least measured part of the data.",
+          "correction": "Keep 'about 1.2% of a core (calibration, idle states disabled)'. Drop or heavily qualify 'tens of mW'. The idle-agent power of M100 against W (zero) is unmeasured, and with default cpuidle it may be larger than D1's 20 ms cell suggests."
+        }
+      ],
+      "other_problems": [
+        "Decision-relevant: the GPU duty cycle is about 100% in every cell. I took mean_spin_asked_us / per_launch_us mean as a proxy for probed-kernel duty, median over 4 rounds. Load off it is 0.96-0.99 at 2 ms and 0.99-1.00 at 20 ms for all sets except N, so a probed kernel is almost always running. That makes W's cost the ceiling case: victim CPU 1.016 s/s (2 ms) / 1.000 (20 ms) load off, and 14% load loss in D4. W's CPU/power/load cost scales with probed-kernel duty, while M100's is constant even when no kernel runs. The matrix has one duty point, so it cannot say whether W or M100 is cheaper for an agent whose probed kernels run a small fraction of the time. That is the main input to the W vs M100 choice outside full load. Numbers: /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/cpu_out.txt (script cpu.py alongside).",
+        "Decision-relevant: there are only two load points, 0 and 6 unpinned nice-0 CPU-bound threads on 6 cores (nproc=6). Together with the victim, watcher and loader that is more runnable threads than cores. The region an adaptive mix is built for (some idle cores, but the watcher sometimes delayed) is not measured. Neither is any signal for detecting 'kept waiting by the scheduler' (for example run-queue delay or the latency of the first call after a request). The adaptive candidate cannot be evaluated or ruled out from this data. A 3-5 load-thread sweep and a lower-priority or pinned load would decide whether W's under-load collapse (mean 376/1,023 us) starts only at full oversubscription.",
+        "Unused victim-side cost that supports D2's ordering: victim throughput under load (asked spin / per-launch) at 2 ms is P 0.971, W 0.835, S10 0.880, S20-S100 0.896-0.901, M100 0.912, N 0.787. At 20 ms it is P 0.995, W 0.942, S 0.986-0.988, M100 0.990. So W also slows the probed application itself by about 14% at 2 ms under load. Neither CLAIMS.md nor the reviewers report this. N slows the victim even load off (0.813 at 2 ms), from its 531 us host-call wait.",
+        "run_one.sh records cpu5/cpu0/gpu frequency and temperatures but not the cpuidle state disables or the nvpmodel mode, so the logs alone cannot show the power regime. I inferred it from current sysfs, uptime since 10-26 (no reboot) and the per-core '@1728' readings in every .power file. The calibration (calib.c) also ran with idle states disabled, so its wake-up latencies (p99 within about 5 us of the period) are likely optimistic for a default Jetson, where c7 exit latency would add to every sleeping set's wake-up and to N's/M100's latency.",
+        "There is a single probed process with one watcher. W spins one core per process that has a probed kernel running, so with k probed processes W would take up to k cores (the 14% load loss scales accordingly), while M100 costs about 1.2% of a core per process. Multi-process agents are not measured, and that may matter more to a default than the single-victim numbers."
+      ]
+    }
+  },
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "Verify"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 2,
+      "title": "Critic"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "verify:latency-load",
+      "phaseIndex": 1,
+      "phaseTitle": "Verify",
+      "agentId": "a2b7a7ae50f454b24",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794404657155,
+      "queuedAt": 1794404657089,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "Read /home/jetson/src/bpftime-gpu-work/sleep/CLAIMS.md first. You are a skeptical reviewer: try to REFUTE the claims assigned to you. Recompute numbers yourself from the raw log files with your own short python3 (python3 -I, scripts in /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad), do NOT import or reuse summarize.py. STRICT: read-only. Do not run any CUDA prog…",
+      "promptFramed": true,
+      "lastProgressAt": 1794404898929,
+      "tokens": 102763,
+      "toolCalls": 14,
+      "durationMs": 241772,
+      "resultPreview": "{\"verdicts\":[{\"claim\":\"D2. Under full load every sleeping set beats W on mean latency and on calls > 1 ms, and costs the load less: W mean 376 / 1,023 us, > 1 ms 12.6% / 30.9%, load 0.863 / 0.867 of P; M100 mean 144 / 90 us, > 1 ms 3.5% / 0.9%, load 0.980 / 0.990.\",\"verdict\":\"partly\",\"evidence\":\"All 64 load-on single-lane runs are valid by my own check (/tmp/claude-2002/-home-jetson-src/6ac0883f-4…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "verify:power-cpu",
+      "phaseIndex": 1,
+      "phaseTitle": "Verify",
+      "agentId": "a49152a8c70a808ee",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794404657155,
+      "queuedAt": 1794404657090,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "Read /home/jetson/src/bpftime-gpu-work/sleep/CLAIMS.md first. You are a skeptical reviewer: try to REFUTE the claims assigned to you. Recompute numbers yourself from the raw log files with your own short python3 (python3 -I, scripts in /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad), do NOT import or reuse summarize.py. STRICT: read-only. Do not run any CUDA prog…",
+      "promptFramed": true,
+      "lastProgressAt": 1794404997679,
+      "tokens": 95849,
+      "toolCalls": 16,
+      "durationMs": 339430,
+      "resultPreview": "{\"verdicts\":[{\"claim\":\"D1. Without load W answers in 14 us mean and adds no measurable power over P (CV 1,704/1,688 vs P 1,686/1,687), short sleeps cost power (S10 +220/+200, S20 +160/+125, S50 +86/+63, M100 +61/+33 mW at 2 ms/20 ms), latencies S10 21.5-22, S20 27, S50 42, S100 66-68, M100 65-67, N 531-540 us.\",\"verdict\":\"partly\",\"evidence\":\"Own script (scratchpad pw.py, python3 -I, no summarize.p…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 3,
+      "label": "critic",
+      "phaseIndex": 2,
+      "phaseTitle": "Critic",
+      "agentId": "a81259b5c56f1271f",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794404998665,
+      "queuedAt": 1794404998658,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "Read /home/jetson/src/bpftime-gpu-work/sleep/CLAIMS.md first. You are a skeptical reviewer: try to REFUTE the claims assigned to you. Recompute numbers yourself from the raw log files with your own short python3 (python3 -I, scripts in /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad), do NOT import or reuse summarize.py. STRICT: read-only. Do not run any CUDA prog…",
+      "promptFramed": true,
+      "lastProgressAt": 1794405185337,
+      "tokens": 70358,
+      "toolCalls": 7,
+      "durationMs": 186671,
+      "resultPreview": "{\"verdicts\":[{\"claim\":\"D1. Without load W adds no measurable power over P, and short sleeps cost power (S10 +220/+200, S20 +160/+125, S50 +86/+63, M100 +61/+33 mW). I disagree with reviewer 2 calling all S/M100 power figures 'confirmed' without stating the conditions they hold under.\",\"verdict\":\"partly\",\"evidence\":\"The arithmetic is right (reviewer 2 reproduced it). The mW figures, however, come f…"
+    }
+  ],
+  "totalTokens": 268970,
+  "totalToolCalls": 37
+}
