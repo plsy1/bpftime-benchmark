@@ -153,6 +153,16 @@ jetson_clocks, so how this changes with c7 on is not measured.
   so deltas under about 1% are not trustworthy; W runs at the default 50 us timer slack, the
   others at 1 us; the `us_*` counters undercount (integer microseconds per ~100 ns iteration).
 
+## Follow-up: attribution controls (`controls/`)
+
+A0 (A without the 200 us busy poll) and AC0 (AC without the deferral sleeps), 168 runs: with one
+call per launch AC's gain is entirely the dropped busy poll; C's window is what keeps bursts at
+M100's level without it (A0: 105-110 us per call); the deferral sleeps help only in bursts and
+cost a little with short kernels under load. The review also found that C's window never
+shrinks (a 20-300 us request spacing would busy-poll nearly all the time; untested) and that
+the consecutive-hit latch fix can miss graph launches mixed with noted ones. Details in
+`controls/README.md`.
+
 ## Files
 
 - `summary.md`: every cell, set and counter; `verify.csv`: per-run validity.

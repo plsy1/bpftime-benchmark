@@ -1,0 +1,116 @@
+{
+ "recompute": {
+  "claims": [
+   {
+    "n": 1,
+    "verdict": "confirmed",
+    "note": "I parsed every raw file myself. There are 168 .env files (7 cells x 6 sets x 4 rounds). Every run passes these checks: victim rc=0, loader rc=0 (non-P), load rc=0 (load cells), no 'not attached' or 'segment in use', before/after cpu5=1728000 and gpu=1020000000, a cpu_s/wall_s line present, no 'launch N:' error, loader count equal to the ns-list length, and stats req equal to the calls. In c05/c06 the loader count is 2401, not 76832: hostspin.bpf.c records into a per-lane GPU array, so it keeps only one lane's calls, 2401 per run. Stats req=76832 (2401x32) is correct, so this is not a validity failure. Max temperature from the thermal-zone temps= fields in .env is 53.562 C (r3 c01 AC0), which rounds to 53.6. The tegrastats .power max is lower, 53.156 C."
+   },
+   {
+    "n": 2,
+    "verdict": "partly",
+    "note": "The cited numbers all reproduce exactly. c01 >1ms pooled: A0 0.84, AC0 0.90, AC 1.00, A 3.48, M100 3.55%. c15: 0.21 / 0.22 / 0.46 vs A 6.91 / M100 6.91%. c02 CPU minus P: 0.019 / 0.019 / 0.021 vs A 0.093. The claim is right for c01 and c02. It fails in two cells. c15: AC is not 'the same within noise' as A0/AC0, and it is worse in every round on all three measures. >1ms: AC 0.38/0.53/0.57/0.35 vs A0 0.25/0.28/0.15/0.15 and AC0 0.20/0.28/0.23/0.17. CPU minus P: AC +0.031/+0.032/+0.040/+0.051 vs A0 +0.022/+0.015/+0.037/+0.024; medians AC +0.036, A0 +0.023, AC0 +0.021. Load vs P: AC 0.982/0.974/0.980/0.978 vs A0 0.995/0.986/0.990/0.989 (median 0.979 vs 0.989). So in c15 the deferral sleeps cost something; they do not 'add nothing'. c10: the tail goes the opposite way. A0/AC/AC0 >1ms are 1.81/1.88/1.75% vs A 0.56% and M100 1.31%. A0 is worse than A in all 4 rounds (2.00/2.25/1.75/1.25 vs 0.50/0.50/1.00/0.25), and so is AC. c10 load does not separate them either (A0 0.996 = A 0.996). c17: A0/AC/AC0 tails are 28.05/30.74/28.86% vs A 26.79%, and AC is worse than A0 in every round. Only CPU differs consistently in all five cells."
+   },
+   {
+    "n": 3,
+    "verdict": "confirmed",
+    "note": "c01 load vs P, median of per-round ratios: A 0.979 (per round 0.972/0.980/0.979/0.981) vs A0 0.9905, which prints as 0.991 or 0.990 depending on rounding (0.991/0.990/0.991/0.990). c15: A 0.948 (0.948/0.948/0.946/0.951) vs A0 0.989 (0.995/0.986/0.990/0.989). A is lower in every round in both cells. Interpolating the counter at the window edges and using only samples inside the window give the same medians."
+   },
+   {
+    "n": 4,
+    "verdict": "partly",
+    "note": "Most of the numbers hold in every round. A0 cost per call: c05 109.1 (109.5/110.0/108.2/108.7), c06 104.6 (104.4/104.8/104.5/105.0). M100: 17.0 (16.9/17.5/17.1/16.6) and 10.7 (10.7/10.7/10.8/10.7). Per-launch mean A0 6,073.0 / 5,875.6 vs P 2,579.6 / 2,528.7. AC win20 is about 74,400 of 76,832 in c05 (74410/74415/74396/74397) and 74,431 in c06. AC cost per call 17.1 (18.4/16.5/16.7/17.4) and 12.4 (12.3/12.3/12.5/12.5). 'At M100's level' holds for c05 only. In c06 AC is 12.4 vs 10.7 us, about 16% higher, in every round. A0's single logged lane shows a median latency of about 3.35 ms per launch (100% >1 ms), which fits serialized ~105 us waits. AC0 has the same win20 (c05 74420/74392/74394/74422; c06 74399-74431), so the window opens with or without the deferral sleeps."
+   },
+   {
+    "n": 5,
+    "verdict": "confirmed",
+    "note": "AC vs AC0 cost per call. c05: median 17.1 vs 19.3, per round 18.4/19.5, 16.5/19.2, 16.7/19.5, 17.4/18.5. c06: median 12.4 vs 14.9, per round 12.3/15.1, 12.3/14.8, 12.5/14.8, 12.5/15.0. AC is lower in all 8 round pairs. 'Only in bursts' is consistent with the other cells, where the deferral sleeps never help and in c15 measurably hurt (see claim 2)."
+   },
+   {
+    "n": 6,
+    "verdict": "confirmed",
+    "note": "Main round logs/r1..r4 c10, pooled after dropping the first value: M100 0.50% (per round 0.75/0.75/0.00/0.50), A 0.19% (0.00/0.00/0.25/0.50). Control round: M100 1.31% (1.50/1.75/0.75/1.25), A 0.56% (0.50/0.50/1.00/0.25). n=1600 per set, so 1% is 4 calls per run. This agrees with the 'not reliable' caveat, and it undercuts claim 2's use of c10. Caveat: A's build changed between the two rounds (the latch fix), so A's change is not purely noise."
+   },
+   {
+    "n": 7,
+    "verdict": "confirmed",
+    "note": "80 runs: A/A0/AC/AC0 x c01,c02,c10,c15,c17 x 4 rounds. unseen_latch total 0. Two runs have unseen_hits=1: r3 c01 A and r3 c02 AC0. The burst cells, not covered by the claim: 32 A-family runs with 0 latches and 3 runs with one hit (r1 c05 A, r2 c05 A0, r3 c05 A)."
+   },
+   {
+    "n": 8,
+    "verdict": "confirmed",
+    "note": "c17 >1ms pooled: M100 25.69, A 26.79, A0 28.05, AC0 28.86, AC 30.74%, so 25.7-30.7 holds. Per-round range is 23.91-32.25%. The sets without the busy poll (A0/AC/AC0) do have lower CPU (+0.013-0.014 vs +0.062) and better load (0.965-0.971 vs 0.948-0.952), but their tails are no better (slightly worse)."
+   }
+  ],
+  "other_findings": [
+   "Script: /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/verify_ctl.py (run with python3 -I). Full output: /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/out.txt. My values match logs/ctl/summary.md in every cell to the printed precision. The one exception is c01 A0 load: the median of 0.9907/0.9902/0.9912/0.9903 is 0.9905, which shows as 0.991 in summary.md and 0.990 in my print. That is a rounding artifact.",
+   "Latency logging in burst cells: the hostspin lat map is a per-lane GPU array, so each c05/c06 run logs only 2401 values, from one lane, not all 32 calls (stats req=76832). Burst latency percentiles in summary.md describe a single lane; cost per call from per-launch time is unaffected.",
+   "Per round, c01 >1ms. A0 0.66/0.88/0.91/0.91. AC0 1.16/0.75/0.88/0.81. AC 1.25/0.88/0.91/0.97. A 3.38/3.66/3.44/3.47. M100 3.81/3.38/3.72/3.28. The A0/AC0/AC vs A/M100 split holds in every round.",
+   "Per round, c01 load vs P. A0 0.991/0.990/0.991/0.990. AC0 0.990/0.991/0.986/0.991. AC 0.989/0.986/0.988/0.990. A 0.972/0.980/0.979/0.981. M100 0.976/0.981/0.979/0.982.",
+   "Per round, c15 >1ms. A0 0.25/0.28/0.15/0.15. AC0 0.20/0.28/0.23/0.17. AC 0.38/0.53/0.57/0.35. A 6.58/7.03/7.12/6.92. M100 6.90/6.85/6.80/7.08.",
+   "Per round, c15 load vs P. A0 0.995/0.986/0.990/0.989. AC0 0.990/0.983/0.981/0.977. AC 0.982/0.974/0.980/0.978. A 0.948/0.948/0.946/0.951. M100 0.950/0.944/0.948/0.941.",
+   "Per round, c10 >1ms. A0 2.00/2.25/1.75/1.25. AC0 0.75/1.25/3.50/1.50. AC 2.00/2.00/1.25/2.25. A 0.50/0.50/1.00/0.25. M100 1.50/1.75/0.75/1.25.",
+   "Per round, c05 cost per call (us). M100 16.9/17.5/17.1/16.6. A 18.3/18.3/18.5/18.3. A0 109.5/110.0/108.2/108.7. AC 18.4/16.5/16.7/17.4. AC0 19.5/19.2/19.5/18.5.",
+   "Per round, c06 cost per call (us). M100 10.7/10.7/10.8/10.7. A 11.7/11.8/11.7/11.9. A0 104.4/104.8/104.5/105.0. AC 12.3/12.3/12.5/12.5. AC0 15.1/14.8/14.8/15.0.",
+   "In c15, AC's extra cost has a visible cause in the counters. AC runs about 31k defer_sleeps, win20 54-91 per run, hot_iters 4.3k-7.2k and guard_skips 89-133. AC0 has hot_iters about 0 and win0=4001. This matches AC's higher CPU and worse tail and load there.",
+   "The parks counter differs a lot between AC and AC0 in burst cells. c05: AC0 1176/1209/1288/518 vs AC 544/624/661/571. c06: AC0 781/1056/953/744 vs AC about 300. park_timeouts are similar, so without deferral the watcher parks (and is woken) much more often. That is a likely mechanism for the 2-2.5 us per-call gap in claim 5.",
+   "c05 r1 AC load vs P is 0.936, an outlier against 0.974-0.977 in the other rounds. The median is unaffected.",
+   "A0's better c05 load (0.994) and lower CPU (+0.016) come with 2.35x longer launches (6,073 vs 2,580 us). Per unit of GPU work the load benefit is not a win."
+  ]
+ },
+ "critic": {
+  "claims": [
+   {
+    "n": 1,
+    "verdict": "confirmed",
+    "note": "verify.csv has 168 rows, all ok=True, and the max tmax_c is 53.562 C. Validity covers clocks, return codes, record counts and load rc only. It does not catch transients: r1 c05_AC (the first run of the rounds3 block, 03:03:14) has a load sample dip to 448k/s against about 833k/s normally. That single run is the 0.937 low end of AC's c05 range."
+   },
+   {
+    "n": 2,
+    "verdict": "partly",
+    "note": "The attribution holds: A0 (HOT_US=0 makes the unsigned 't - last_req < 0' test unreachable; hot_iters=0 in every A0 run) recovers all of AC's gain over A/M100 in c01, c02, c10 and c17. In single-lane cells win0 equals req, so AC0 runs the same path as A0 (slow_sleeps 79,542 vs 79,617 in c01). 'Same within noise' is wrong for c15 in the per-run data. AC >1 ms is 0.35-0.57% vs A0 0.15-0.27% and AC0 0.18-0.27%, non-overlapping. AC load vs P is 0.974-0.982 vs A0 0.986-0.995, non-overlapping. AC CPU is 0.031-0.051 vs AC0 0.014-0.027. So the deferral sleeps do not just 'add nothing': they cost something under load with short kernels. That is about 31k extra 20 us wakeups per run, and AC's load loss there is about 3.5x what its CPU time alone predicts. c17 leans the same way (AC 29.2-32.3% vs A0 26.4-29.3%). c02 CPU is AC 0.021-0.023 vs 0.017-0.021, small but consistent."
+   },
+   {
+    "n": 3,
+    "verdict": "partly",
+    "note": "The load part is supported, and the mechanism is plain CPU displacement. (A-A0) victim CPU of 0.070 cores in c01 divided over 6 load threads predicts a 0.012 load loss; observed 0.991-0.979 = 0.012. In c15, 0.264/6 = 0.044 predicted vs 0.041 observed. Busy-poll CPU is about 200 us x requests (0.070 x about 8.8 s = 0.62 s vs 3200 x 200 us = 0.64 s). So every polled microsecond is one a load thread loses, with no extra interference beyond that. The tail-latency half (c01 >1 ms 3.48% to 0.84%, c15 6.9% to 0.2%) has no mechanism in the write-up. It is probably EEVDF lag: after burning 200 us the watcher wakes with negative lag and waits behind the load. That is untested. c10 points the other way: A beats A0 on >1 ms in all 4 rounds (0.25-1.0% vs 1.25-2.25%). A HOT_US dose-response (0/50/100/200) plus watcher run_delay from schedstat would settle it."
+   },
+   {
+    "n": 4,
+    "verdict": "partly",
+    "note": "The numbers are right: A0 cost per call 108-110 / 104-105 us; win20 = 74,404 / 74,431 of 76,832. 'At M100's level' holds for c05 (AC 16.5-18.4 vs M100 16.6-17.5) but not c06: AC 12.3-12.5 vs M100 10.7-10.8, non-overlapping, +16% (about +55 us per launch). The conclusion is overstated beyond the two tested shapes (one call per launch, and 32 tight calls). (a) 2-8 calls per launch: call 1 always sees win=0, because the gap from the previous launch is at least 300 us. Call 2 is caught by a deferral sleep, which seeds win=10. The window only starts catching around calls 3-4. So for small bursts the deferral sleeps, not the window, carry the latency. With 2 calls per launch, AC0's second call behaves like A0 (about 100 us). (b) 20-300 us spacing: the window doubles (10, 20, 40, 80, 160, 300) until win >= gap and never shrinks. It resets only on a gap >= 300 us. So for any steady spacing in that band AC busy-polls about 100% of the inter-request time, more than M100 for 200-300 us gaps, and under load claim 3's cost comes back. EPISODE_CAP does not bound this (see other findings). No cell exercises the band: c15 sits just above it (win20 = 83 of 4001). (c) In bursts AC does not drop busy polling; it keeps a 20 us poll (hot_iters about 4.0M)."
+   },
+   {
+    "n": 5,
+    "verdict": "partly",
+    "note": "The per-run gaps are real and non-overlapping: c05 AC 16.5-18.4 vs AC0 18.5-19.5 (one touch at 18.4/18.5); c06 12.3-12.5 vs 14.8-15.1. But the per-call figure is a per-launch saving spread over 32 calls. (19.3-17.1) x 32 is about 70 us and (14.9-12.4) x 32 about 80 us per launch, roughly one missed 100 us slow sleep on call 2. For 2-8 calls per launch the deferral sleeps would matter far more per call (see claim 4). 'Help only in bursts' is also one-sided: in c15 they hurt load and tail (claim 2 note). AC0 only isolates K_DEFER cleanly when the window is closed; in bursts AC and AC0 also differ in parks (c06: 300 vs 867) and hot behaviour after the burst."
+   },
+   {
+    "n": 6,
+    "verdict": "confirmed",
+    "note": "Per run, M100 is 0.75-1.75% here; one call is 0.25% of a 400-call run, so the cell resolves only a few calls. AC0 r3 reaches 3.50%. 'Not reliable' is right. Note that A < A0 in all 4 rounds here, which also contradicts the claim 3 tail story, so c10 should not be used either way."
+   },
+   {
+    "n": 7,
+    "verdict": "partly",
+    "note": "Right for the 80 runs it names: 0 latches and 2 isolated hits (r3 c01_A and r3 c02_AC0). It leaves out the burst cells: c05 has 3 more isolated hits (r1 A, r2 A0, r3 A), so 5 hits in 112 A-family runs and 3 in the 16 c05 runs. The root cause is open. The c02_AC0 hit came with no load, 2-3 ms kernels and a max call latency of 137 us, so the request arrived in the last about 137 us of a no-note backstop while a kernel was running. That contradicts the patch comment's 'short kernel can post before its note'. The other half of the fix, still latching for real graphs, is untested on this build: c18 was not in the ctl rounds."
+   },
+   {
+    "n": 8,
+    "verdict": "confirmed",
+    "note": "Per run, the sleeping sets are 26.4-32.3% >1 ms vs M100 23.9-27.6% and A 25.2-28.2%. AC is the worst (29.2-32.3%), so dropping the busy poll does not help c17 and may make it slightly worse."
+   }
+  ],
+  "other_findings": [
+   "Latch can fail to trip for real graph launches mixed with noted launches. In a process that loops {graph launch (1 host call), sync, noted probed launch, sync}, each graph request is caught as a backstop hit (unseen_run=1). The next noted launch then ends a park and resets unseen_run to 0, so the count never reaches 2. Every graph host call pays up to the 1 ms backstop, forever. The old rule (2 hits total) would have latched. A pure-graph process still latches after 2 launches, and so does a graph whose kernel makes at least 2 calls (two parks in one launch). The graph cell c18 was not rerun on this build, though.",
+   "C's EPISODE_CAP is ineffective (from the code; never triggered, cap_forced=0 everywhere). When the cap fires it sets forced_cool=true and falls through. forced_cool is then cleared in the same pass: after one 20 us deferral sleep if k>0, or right away at 'forced_cool = false' if k==0. in_hot=false then starts a fresh episode with hot_since=now. So the cap only inserts one short sleep per 1 ms of continuous hot polling. Combined with a window that only grows (doubling, reset only by a gap >= 300 us), a steady request stream at 20-300 us spacing makes AC poll about 98% of a core. That is a cliff at WIN_MAX=300 that no tested cell crosses. A cell that would expose it: 1 lane, spin about 100 us plus small jitter, giving gaps of about 170-300 us; also 2/4/8 lanes for small bursts.",
+   "Latch can still trip falsely over time ('consecutive' is weaker than it sounds). unseen_run is reset only when a noted launch ends a park. Empty backstop timeouts do not reset it, and neither do noted launches that the watcher sees outside a park (kernels_inflight catching a generation change while it sleeps through in-flight work, which is the normal case for pipelined launches). A long-lived process can therefore pile up two isolated spurious hits hours apart and latch for good; there is no un-latch path, so the idle park benefit is lost. The spurious-hit rate is not zero (5 per 112 runs, cause unknown), so the risk is small but real for long runs.",
+   "Deferral sleeps have a measurable cost under load with short kernels. In c15, 8 x 20 us wakeups per request (about 31k per run) give AC lower load (0.974-0.982 vs AC0 0.977-0.991 and A0 0.986-0.995) and double the >1 ms share of A0/AC0. Load loss is about 3.5x what AC's CPU time predicts, which points to wakeup and context-switch overhead rather than CPU time.",
+   "Busy-poll tail harm has no tested mechanism and c10 contradicts it: A beats A0 on >1 ms in all 4 rounds (0.25-1.0% vs 1.25-2.25%). A suggested check is HOT_US at 0/50/100/200 under on6, with the watcher thread's schedstat run_delay, to test the EEVDF negative-lag hypothesis.",
+   "Isolated unseen hits are unexplained. One under no load (c02, 2-3 ms kernels, max latency 137 us) means the watcher parked, believing nothing was in flight, while a noted kernel was still running. That suggests any_running() or note timing is sometimes wrong (an event query error dropping the event, or a delayed note). The 2-hit/consecutive rule treats the symptom; the cause should be found before relying on the latch.",
+   "Shuffle: no systematic placement, but 28 seeded permutations are not counterbalanced. AC0 directly precedes AC in 10 of 28 cell-rounds (expected about 4.7), A precedes P 8 times, A0 is last 9 times, and seeds are fixed strings so a rerun repeats the same orders. The likely bias is small: P's absolute load rate varies by at most 0.4% across rounds within a cell, runs are separate processes with shm cleaned, and temperatures stay below 54 C. The burst cells ran as a separate later block (03:03-03:11), and its first run (r1 c05_AC) shows a load dip to 448k/s, giving the 0.937 outlier. Within-cell comparisons are fine; cross-cell comparisons mix time blocks.",
+   "Code-path check, confirmed. A0 = POLICY=A, HOT_US=0: the only behavioural change is that the post-request busy poll is gone (hot_iters=0); park, the 100 us sleeps and EVQ timing are unchanged. AC0 = POLICY=AC, K_DEFER=0: k is always 0, so there are no deferral sleeps and no guard_skips. The hot window, P_SLOW and park paths are unchanged, and AC0 still busy-polls in bursts (hot_iters about 4.1M, same as AC). In single-lane cells AC0 is effectively A0, because win stays 0.",
+   "us_hot (and probably us_defer/us_slow per iteration) is summed from integer-microsecond differences per loop iteration. us_hot undercounts the hot time by about 2x (c01 A r3: 0.34 s recorded vs about 0.64 s expected from 3200 x 200 us). Do not use it for attribution; victim CPU minus P is the reliable measure."
+  ]
+ }
+}
