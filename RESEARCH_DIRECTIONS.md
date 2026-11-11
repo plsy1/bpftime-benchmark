@@ -264,6 +264,22 @@ calls.
 Layer 1 also gives layer 2 a clean baseline: without it, protocol measurements include calls that
 should not exist.
 
+**Done (2026-11-11):**
+
+- Ordinary ARRAY maps on the GPU (dev 1b3d9c99) and `bpf_get_current_pid_tgid` as a per-module
+  constant, tgid in both halves (aa6eb973): CPU Array map update 320 -> 51 us, lookup 371 -> 49 us,
+  CUDA Counter 3,487 -> 2,929 us; the other 20 cases of the 24-case subset unchanged (results
+  `gpu/hostcall-l1-20261111`, `gpu/baseline-sub-20261111`).
+- Watcher wake-up (dev 46f5a7cb): measured first (`gpu/hostwake-20261111`: 60-950 us per call
+  once calls are sparser than the 200 us polling window), then the watcher waits with aarch64 WFE
+  on the request flag while a probed kernel may run (`gpu/wfe-20261111`: a GPU write wakes the
+  core in about 2 us, at the power of a sleeping core): 13.5-16.6 us at every gap
+  (`gpu/hostwake-fix-20261111`). The trade chosen: the watcher holds its core (it counts as
+  running) for as long as any probed kernel runs, whether or not the probes make host calls, and
+  every kernel of a patched library counts; `BPFTIME_CUDA_WATCHER_WFE=0` turns it off.
+
+Still open in layer 1: several CUDA processes on one segment, lookup address translation.
+
 ### Layer 2: the synchronous protocol on an integrated GPU (research core)
 
 Question: on an IO-coherent integrated GPU with a ~4.9 us round trip, what request protocol gets a
