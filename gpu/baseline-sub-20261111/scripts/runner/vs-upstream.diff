@@ -1,0 +1,68 @@
+--- /home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/official/benchmark/gpu/run_cuda_bench.py	2026-11-10 03:32:54.296987000 +0900
++++ /home/jetson/src/bpftime-gpu-work/compare/runner/run_cuda_bench_ready.py	2026-11-11 14:01:47.101252142 +0900
+@@ -48,6 +48,52 @@
+     return "Unknown GPU"
+ 
+ 
++
++# Upstream waits a fixed 10 s for the probe loader before starting the victim
++# (about 60 of 65 minutes of a 10-round, 24-case dev-vs-dev comparison). This
++# copy (bpftime-gpu-work/compare/runner) starts the victim once the loader is
++# ready instead, and never later than upstream:
++# - the micro loader prints "BPF probes attached" after its skeleton attach;
++# - the example loaders print no ready line: the syscall server logs
++#   "Created kprobe/kretprobe perf event handler" for each probe's perf event,
++#   and libbpf's attach follows at once; ready when the loader prints its own
++#   output after such a line (cuda-counter's per-second line), or when the log
++#   has been quiet for SETTLE seconds after it;
++# - the loader exiting ends the wait (the case then fails as upstream's would).
++READY_MARKERS = ("BPF probes attached",)
++PERF_EVENT_MARKER = "Created kprobe/kretprobe perf event handler"
++SETTLE = 1.0
++
++
++def wait_probe_ready(probe_log, probe_process, limit):
++    start = time.monotonic()
++    last_size, last_change = -1, start
++    while True:
++        now = time.monotonic()
++        if now - start >= limit:
++            return now - start, "limit"
++        if probe_process.poll() is not None:
++            return now - start, f"loader exited ({probe_process.returncode})"
++        try:
++            with open(probe_log, "r", errors="replace") as f:
++                text = f.read()
++        except OSError:
++            text = ""
++        if any(m in text for m in READY_MARKERS):
++            return now - start, "ready line"
++        if PERF_EVENT_MARKER in text:
++            after = text[text.rfind(PERF_EVENT_MARKER):].split("\n")[1:]
++            # the loader's own output after the last perf event (its main
++            # loop runs, e.g. cuda-counter's per-second line): attached
++            if any(l.strip() and not l.startswith(("libbpf:", "["))
++                   for l in after[:-1]):
++                return now - start, "loader output after attach"
++        if len(text) != last_size:
++            last_size, last_change = len(text), now
++        elif PERF_EVENT_MARKER in text and now - last_change >= SETTLE:
++            return now - start, "perf events created, log quiet"
++        time.sleep(0.05)
++
+ def run_baseline(bench_dir: str, vec_add_args: str, log_file=None) -> Optional[float]:
+     """Run baseline benchmark without instrumentation."""
+     log(f"Running baseline benchmark with args: {vec_add_args}", log_file)
+@@ -202,8 +248,10 @@
+             cwd=repo_root
+         )
+ 
+-        # Wait for probe to initialize
+-        time.sleep(10)
++        # Wait for probe to initialize: until it is ready (wait_probe_ready),
++        # at most 10 s as upstream's fixed sleep
++        waited, why = wait_probe_ready(probe_log, probe_process, 10.0)
++        log(f"Probe ready after {waited:.2f} s ({why})", log_file)
+ 
+         # Log probe startup (don't close the file yet, keep it open for continuous logging)
+         probe_stderr_file.flush()
