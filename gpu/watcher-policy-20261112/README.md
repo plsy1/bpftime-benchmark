@@ -183,6 +183,15 @@ load; it gives up dense-request throughput without load to AC2 and about 4 us of
 155-295 us gaps to AC. The lower-bound gap measurement (AC5) was implemented wrongly and polls
 under load. Details in `v3/README.md`.
 
+## Follow-up: AC3 on the dev branch (`dev/`)
+
+dev 52126f33 replaces 46f5a7cb's WFE wait with AC3 (WFE opt-in). 272 runs (P, 46f5a7cb, the dev
+build, the experimental AC3): the dev build matches AC3 in every cell; against 46f5a7cb it uses
+0.02-0.13 instead of 1.0 core while probed kernels run with a core free, keeps the load at
+0.988 instead of 0.863 under full load (host calls over 1 ms 1% vs 8-10%), and answers graph
+launches in 70 instead of 534 us, but a sparse call takes 69 instead of 14 us with a core free.
+13 mutations caught, regression unchanged. Details in `dev/README.md`.
+
 ## Files
 
 - `summary.md`: every cell, set and counter; `verify.csv`: per-run validity.
