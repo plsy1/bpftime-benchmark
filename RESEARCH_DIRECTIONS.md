@@ -370,9 +370,19 @@ aggregate, defer or synchronize without changing what the program observes. This
 and 3 and differs from gpu_ext, which applies warp-leader execution and asynchronous, approximate
 map shards to whole maps rather than choosing per call site while keeping results exact.
 
-- First check: survey the call sites of GPU eBPF tools (bpftime's GPU examples, gpu_ext's tools)
-  by these properties. The framing holds only if most call sites can avoid a synchronous round
-  trip.
+- First check, done 2026-11-13 (`results/gpu/callsite-survey-20261113`): every helper call site of
+  bpftime's 22 GPU example and benchmark programs and of gpu_ext's 15 device-side tools, classified
+  and then checked against the sources by a second agent. bpftime: 168 call sites run on the GPU,
+  109 already without a host call, 59 host calls today: 20 eliminate (maps only GPU probes touch,
+  such as entry/exit timestamps), 39 defer (21 printk; counters, histograms and per-thread records
+  the CPU reads but the probe does not need back), **0 sync**; 51 of the 59 share their target
+  across a warp. gpu_ext: 80 call sites, **no host call at all**: its authors rewrote the tools by
+  hand with GPU map types, warp-leader writes and banked buffers. Also found (from the code): the
+  counter idiom (lookup, atomic add, else `BPF_NOEXIST` insert) loses increments in its synchronous
+  form when the lanes of the first warps all miss; a deferred exact add would not. So the framing
+  holds on these programs, and the contribution becomes doing automatically, with exact results,
+  what gpu_ext did by hand. Limits: examples and research tools (authors avoid synchronous
+  patterns), static counts; GPU ports of CPU tools would be the next test.
 - Evaluation needs a discrete GPU (over PCIe each avoided round trip is worth more), real
   workloads (LLM inference and the like), and comparisons with official bpftime, gpu_ext, NVBit
   and Neutrino; check what upstream (gpu_ext) is doing first to avoid overlap.
