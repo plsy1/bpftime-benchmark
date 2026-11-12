@@ -274,9 +274,15 @@ should not exist.
   once calls are sparser than the 200 us polling window), then the watcher waits with aarch64 WFE
   on the request flag while a probed kernel may run (`gpu/wfe-20261111`: a GPU write wakes the
   core in about 2 us, at the power of a sleeping core): 13.5-16.6 us at every gap
-  (`gpu/hostwake-fix-20261111`). The trade chosen: the watcher holds its core (it counts as
-  running) for as long as any probed kernel runs, whether or not the probes make host calls, and
-  every kernel of a patched library counts; `BPFTIME_CUDA_WATCHER_WFE=0` turns it off.
+  (`gpu/hostwake-fix-20261111`). That held the watcher's core for as long as any probed kernel
+  ran; under full CPU load the load lost 13% of its throughput. Replaced 2026-11-12 (dev
+  52126f33) by measured rules (`gpu/watcher-policy-20261112`, set AC3): a poll window doubling
+  from 10 to 50 us after a request, closed only by two long gaps in a row, then short deferral
+  sleeps, 100 us sleeps while a noted launch may run, a park on the launch note otherwise, and a
+  latch for launches no hook notes (graphs). A sparse call takes about 70 us, CPU 0.02-0.13 of a
+  core instead of 1.0, under full load the load keeps 0.988 of its speed (0.863), graph launches
+  70 us (534). WFE stays opt-in (`BPFTIME_CUDA_WATCHER_WFE=1`). Weak case left: a duty-cycled
+  load (30% of calls over 1 ms).
 
 Still open in layer 1: several CUDA processes on one segment, lookup address translation.
 

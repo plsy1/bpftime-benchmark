@@ -235,13 +235,46 @@ documents up to 2026-10-30. Commits are on the dev branch
 - `results/gpu/compare-20261110/attribution.md`, `results/gpu/ablate-20261110`,
   `results/gpu/xlarge-20261110`
 
-## Where it stands (11-10)
+## 11-11: GPU host calls, layer 1
+
+- Calls that need no host removed: ordinary ARRAY maps read and written on the GPU (dev
+  1b3d9c99) and `bpf_get_current_pid_tgid` as a per-module constant (aa6eb973): CPU Array map
+  update 320 → 51 µs, lookup 371 → 49 µs, CUDA Counter 3,487 → 2,929 µs.
+- The watcher's wake-up measured first: a host call after a pause waited for the watcher's sleep,
+  60–950 µs. Dev 46f5a7cb made it wait with WFE while a probed kernel may run: 13.5–16.6 µs at any
+  gap, at the price of a core held while such kernels run.
+- `results/gpu/hostcall-l1-20261111`, `results/gpu/hostwake-20261111`,
+  `results/gpu/wfe-20261111`, `results/gpu/hostwake-fix-20261111`; `RESEARCH_DIRECTIONS.md`
+
+## 11-11 – 11-12: how the host-call watcher waits
+
+- WFE measured under full CPU load: the load lost 13% of its throughput and 11% of host calls
+  took over 1 ms. Plain short sleeps did better under full load and worse with a core free (WFE
+  14 µs). Policies from other systems (KVM's
+  halt-poll window, NAPI's deferred interrupts, load-gated spinning) tried as sets A (park on the
+  launch note), C (an adaptive poll window plus short deferral sleeps) and B (WFE only with a core
+  free), 504 runs; controls (168) showed the single-call gain is the dropped 200 µs busy poll and
+  the window is what keeps bursts cheap.
+- Two corrections: a window up to 300 µs polled a whole core at request gaps of 55–115 µs (a
+  50 µs limit: 0.07 core), and closing the window on one long gap made 32-call bursts under load
+  dearer (22.1 against 15.7 µs per call). The rule kept (AC3, 448 runs): the window doubles from 10
+  to 50 µs and closes only on two long gaps in a row.
+- AC3 in dev (52126f33, WFE now opt-in): against 46f5a7cb 0.02–0.13 instead of 1.0 core while
+  probed kernels run with a core free, the load under full load 0.988 instead of 0.863 of its
+  speed, graph launches answered in 70 instead of 534 µs; a sparse call takes 69 instead of 14 µs
+  with a core free, and a duty-cycled load still sends 30% of calls over 1 ms (WFE 0.1–0.3%).
+- `results/gpu/wfe-load-20261111`, `results/gpu/watcher-sleep-20261111`,
+  `results/gpu/watcher-policy-20261112` (with `controls/`, `v2/`, `v3/`, `dev/`)
+
+## Where it stands (11-12)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
   (10-26 figures in [reports/bpftime-research-overview.md](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/reports/bpftime-research-overview.md),
   section 9); hash maps no longer serialize threads.
 - Real tools: 18 checked against bpf, counts exact; ssl-nginx ahead of bpf at every payload.
-- System call tracing and CUDA attach work on ARM64 with the dev branch.
+- System call tracing and CUDA attach work on ARM64 with the dev branch; GPU host calls: layer 1
+  done but for several CUDA processes on one segment and lookup address translation, the watcher
+  sleeps and parks by measured rules.
 - Open: Gum's per-function usage counter under many threads; the agent's own load time (about
   9 ms); the CUDA late path (`bpftime attach` to a running GPU process; 5–9 µs per launch slower
   than official's); fixes not yet offered upstream.
