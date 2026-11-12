@@ -1,0 +1,48 @@
+--- run_one.sh.pre-dvfs	2026-11-12 21:10:35.761648193 +0900
++++ run_one.sh	2026-11-12 21:10:35.785648977 +0900
+@@ -44,12 +44,27 @@
+ }
+ hm=$(date +%H%M); if [ "$hm" -ge 0325 ] && [ "$hm" -le 0415 ]; then echo "ABORT: window"; exit 2; fi
+ cpu=$(cat /sys/devices/system/cpu/cpu5/cpufreq/scaling_cur_freq); gpu=$(cat /sys/class/devfreq/17000000.gpu/cur_freq)
+-[ "$cpu" = 1728000 ] && [ "$gpu" = 1020000000 ] || { echo "ABORT: clocks $cpu $gpu"; exit 2; }
++CLOCKS=${CLOCKS:-on}   # on: jetson_clocks (every earlier round); off: clocks.sh's off regime
++case $CLOCKS in
++  on) [ "$cpu" = 1728000 ] && [ "$gpu" = 1020000000 ] || { echo "ABORT: clocks $cpu $gpu"; exit 2; };;
++  off) $G/policy/clocks.sh check-off || { echo "ABORT: clocks not in the off regime"; exit 2; };;
++  *) echo "bad CLOCKS"; exit 2;;
++esac
++# residency counters around the victims: cpufreq time_in_state (10 ms units), cpuidle usage/time
++# (us), GPU and EMC devfreq trans_stat
++resid() {
++  { echo "== $1 $(date +%s%N)"
++    for p in /sys/devices/system/cpu/cpufreq/policy*; do echo "## cpufreq ${p##*/}"; cat $p/stats/time_in_state; done
++    for c in /sys/devices/system/cpu/cpu[0-9]*; do for s in $c/cpuidle/state[0-9]*; do echo "idle ${c##*/} $(cat $s/name) $(cat $s/usage) $(cat $s/time)"; done; done
++    echo "## gpu"; cat /sys/class/devfreq/17000000.gpu/trans_stat
++    echo "## emc"; cat /sys/class/devfreq/bwmgr/trans_stat 2>/dev/null
++  } >> $O.resid
++}
+ if pgrep -a -x 'spin|spin2|spin3|load|load2|hostspin|nohost|tegrastats|vec_add|vec_add_gap|vec_add_legacy|cuda_probe|hostwake|kernelretsnoop' >/dev/null; then echo "ABORT: leftovers"; exit 2; fi
+ if pgrep -a -x 'cc1plus|cc1|ld|make|cmake|ninja|nvcc' >/dev/null; then echo "ABORT: build running"; exit 2; fi
+ if ls /dev/shm | grep -q -E '^(bpftime_maps_shm|bpftime_cmp_|bpftime_wake_|bpftime_load_|bpftime_sleep_|bpftime_pol_)'; then echo "ABORT: bpftime segment present"; exit 2; fi
+ 
+-{ echo "set=$S probe=$PR load=$LD spin_us=$D launches=$L threads=$T jitter_us=$J gap_us=$GAP graph=$GR procs=$NP build=${B:-none} env=${EXP_ENV[*]:-default}"; state before; } > $O.env
++{ echo "clocks=$CLOCKS"; echo "set=$S probe=$PR load=$LD spin_us=$D launches=$L threads=$T jitter_us=$J gap_us=$GAP graph=$GR procs=$NP build=${B:-none} env=${EXP_ENV[*]:-default}"; state before; } > $O.env
+ lp=; tp=
+ case $LD in
+   on3) timeout -k 5 300 $G/policy/load2 3 $O.load & lp=$!;;
+@@ -72,6 +87,7 @@
+   done
+ fi
+ [ "$LD" = off ] && { timeout -k 5 300 tegrastats --interval 100 > $O.power 2>&1 & tp=$!; }
++resid before
+ vps=()
+ for i in $(seq $NP); do
+   if [ "$S" = P ]; then
+@@ -83,6 +99,7 @@
+   vps+=($!)
+ done
+ for i in $(seq $NP); do wait ${vps[$((i-1))]}; echo "victim $i rc=$?" >> $O.env; done
++resid after
+ for i in $(seq $NP); do
+   [ "$S" != P ] && { kill -INT ${pps[$((i-1))]}; wait ${pps[$((i-1))]}; echo "loader $i rc=$?" >> $O.env; }
+ done

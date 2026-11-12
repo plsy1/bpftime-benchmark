@@ -1,0 +1,12 @@
+--- summarize.py.pre-dvfs	2026-11-12 21:10:35.761648193 +0900
++++ summarize.py	2026-11-12 21:10:35.785648977 +0900
+@@ -85,7 +85,8 @@
+     temps = [int(x) for m in re.findall(r"temps=([\d,]+)", t) for x in m.split(",") if x]
+     return dict(victims_ok=len(rcs) == np_ and all(r == 0 for r in rcs), loader_rcs=lrc,
+                 load_rc=int(ldrc[1]) if ldrc else None,
+-                clocks_ok=len(clk) == 2 and all(c == ("1728000", "1728000", "1020000000") for c in clk),
++                clocks_ok=(len(clk) == 2 and all(c == ("1728000", "1728000", "1020000000") for c in clk))
++                if os.environ.get("CLOCKS", "on") == "on" else (len(clk) == 2 and "clocks=off" in t),
+                 tmax=max(temps) / 1000 if temps else None, note=("not attached" in t or "in use" in t))
+ 
+ 

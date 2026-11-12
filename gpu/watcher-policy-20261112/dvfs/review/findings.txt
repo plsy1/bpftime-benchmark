@@ -1,0 +1,325 @@
+=== V1 numbers wrong HOLDS
+CLAIM: Among AC3, AC2 and AC4 the c23 ranges overlap in both regimes (no ranking).
+PROBLEM: This is false under jetson_clocks (on). AC3's and AC2's c23 CPU ranges do not overlap, and AC2 is higher in every round.
+FIX: Among AC3, AC2 and AC4 in c23 there is no ranking: none of them opens the window in any run (0 hot iterations, win0=4001 in every run in both regimes). With `jetson_clocks`, AC3's range lies just below AC2's (0.050-0.070 vs 0.075-0.104 cores), and AC4's (0.042-0.113) spans both. But D, the same policy as AC3, also sits above AC3 in every round (0.067-0.099). `../v3/` measured the opposite order (AC2 0.066, AC3 0.104) and put the noise floor between identical behaviour at about 0.05 core. Without `jetson_clocks` all three ranges overlap (0.083-0.226, 0.138-0.241, 0.205-0.298).
+REASON: I could not refute the claim: the sentence in README.md is false for the jetson_clocks (on) regime. I recomputed c23 CPU from the raw victim files (cpu_s / wall_s, minus P's value in the same round) in /home/jetson/src/bpftime-gpu-work/policy/logs/dvfs/{on,off}/r1..r4/c23_*.1.victim, and the result matches perround.txt and the README table.
+
+With jetson_clocks:
+- AC3: +0.050, +0.052, +0.062, +0.070 (range 0.050-0.070)
+- AC2: +0.101, +0.104, +0.075, +0.093 (range 0.075-0.104)
+- AC4: 0.042-0.113
+
+AC3's highest value (0.070) is below AC2's lowest (0.075), so those two ranges do not overlap. They stay apart without subtracting P too (raw 0.305-0.335 vs 0.341-0.373). The input values are rounded 
+
+=== V2 numbers wrong HOLDS
+CLAIM: CPU with a free core: W and M100 hold about one core in both; the AC sets 0.02 (on) or about 0.05 (off) in c02.
+PROBLEM: M100 holds about one core only in c23. In c02, the cell this sentence goes on to quote, M100 uses about 0.1 core. The sentence attributes c23 behaviour to c02.
+FIX: - CPU with a free core: W holds about one core in c02 and c23 in both regimes. M100 holds about one core only in c23 (0.87-1.09) and about 0.1 in c02 (0.09-0.12). The AC sets use 0.02 (on) or about 0.05 (off) in c02. Among AC3, AC2 and AC4 the c23 ranges overlap in both regimes (no ranking).
+REASON: I could not refute the claim. I recomputed dCPU from the raw victim logs (cpu_s/wall_s of the set minus P's in the same round, under logs/dvfs/{on,off}/r1..r4/<cell>_<set>.1.victim). The numbers match the README table and perround.txt exactly. M100 in c02: on 0.091-0.095, off 0.110-0.117. For example, on r1 gives 0.843/8.328 - 0.081/8.082 = 0.091. M100 in c23: on 1.001-1.042, off 0.871-1.091. W holds about one core in both cells and both regimes: c02 1.001-1.005 / 0.988-1.000, c23 1.011-1.044 / 0.952-1.097. The AC sets (AC3, D, AC2, AC4) in c02 are 0.019-0.024 on and 0.043-0.060 off, which is where '0.02 / about 0.05' comes from. Line 88 of README.md says 'W and M100 hold about one core in b
+
+=== V3 numbers wrong HOLDS
+CLAIM: c17 (load 5 ms on, 5 ms off): load vs P is above 1 for every set without `jetson_clocks` (W 1.090-1.114, D 0.987-1.093, AC3 1.001-1.054, M100 1.023-1.043; ...)
+PROBLEM: D's round 4 is below 1, and the sentence's own range for D starts at 0.987.
+FIX: - c17 (load 5 ms on, 5 ms off): without `jetson_clocks`, load vs P is above 1 in every round of every set except one D round (0.987); per-set ranges W 1.090-1.114, D 0.987-1.093, AC3 1.001-1.054, M100 1.023-1.043 (medians 1.03-1.11); with: W 0.880-0.889, AC3 0.970-0.975.
+REASON: The claim holds, and I recomputed the numbers to check it. Running scripts/perround.py read-only (python3 -B, from /home/jetson/src/bpftime-gpu-work/policy) reproduces perround.txt exactly for off/c17 load vs P. The values are W 1.114,1.111,1.090,1.114; D 1.091,1.093,1.067,0.987; AC3 1.054,1.045,1.015,1.001; M100 1.031,1.023,1.032,1.043; AC2 1.051,1.087,1.020,1.090; AC4 1.090,1.087,1.040,1.061. D's round 4 is 0.987, which is below 1. Every other round of every set is at least 1.001 (AC3 r4). README.md line 133 says load vs P "is above 1 for every set without `jetson_clocks`", yet the D range it gives right after starts at 0.987. The sentence therefore contradicts its own range. It is only tr
+
+=== U4 numbers wrong
+CLAIM: No sleeping set's share of calls over 1 ms changed beyond the round spread (c23 AC3 had one call of 3.8 ms in one round)
+PROBLEM: D's c01 share of calls over 1 ms has disjoint ranges between regimes: it dropped without jetson_clocks. The README's own c01 table row shows this.
+EVIDENCE: perround.txt c01 D >1ms%: on 1.06,1.19,1.38,1.06 (1.06-1.38); off 0.91,1.00,0.97,1.00 (0.91-1.00). The README table rows show D 1.06-1.38% (on) and 0.91-1.00% (off). M100 c01 only touches: 3.53-4.00 vs 3.38-3.53.
+FIX: Add the exception: D's c01 share fell from 1.06-1.38% to 0.91-1.00%. Otherwise no sleeping set changed beyond the round spread.
+
+=== U5 numbers wrong
+CLAIM: 6 us at c23's gaps (AC3 26.2-26.7 -> 32.4-33.2; W 13.7-14.3 -> 15.9-16.1)
+PROBLEM: The 6 us rise applies to AC3 (and the other AC sets) but not to W, which the parenthesis quotes as an example. W's c23 median rose about 2 us.
+EVIDENCE: Medians over rounds of the per-round host-call medians, c23 on -> off: AC3 26.30 -> 32.55 (+6.25), D +7.05, AC2 +7.45, AC4 +6.95, W 13.95 -> 15.95 (+2.0), M100 14.75 -> 16.55 (+1.8).
+FIX: 6-7 us for the AC sets at c23's gaps (AC3 26.2-26.7 -> 32.4-33.2), 2 us for W and M100 (W 13.7-14.3 -> 15.9-16.1).
+
+=== U6 numbers overclaim
+CLAIM: EMC stayed at 204 MHz in every off run, full CPU load included (`perround.txt`) ... EMC pinned at its floor throughout.
+PROBLEM: The 204 MHz figure is the bwmgr devfreq trans_stat state, which never changes during a run in either regime. The clock snapshots read the actual current EMC rate as 2133 MHz in every off round. Nothing measured the in-run EMC rate, so 'stayed at 204 MHz' is not supported.
+EVIDENCE: resid.py takes emc_mhz from /sys/class/devfreq/bwmgr/trans_stat (run_one.sh). In all 448 .resid files the before and after trans_stat totals are equal (off 5/7/9, on 6/8), so they step only at regime switches. clocks-r1..r4-off.txt: 'EMC MinFreq=204000000 MaxFreq=3199000000 CurrentFreq=2133000000' and '/sys/class/devfreq/bwmgr ... min=204000000 ... cur=2133000000'.
+FIX: bwmgr's devfreq state stayed at its 204 MHz floor (trans_stat). The actual EMC rate was not measured, and every off snapshot read 2133 MHz. Change 'EMC pinned at its floor throughout' to 'EMC floor at 204 MHz, actual rate unmeasured'.
+
+=== U7 numbers overclaim
+CLAIM: D matches AC3 in every cell within the round spread in both regimes, as in `../dev/`.
+PROBLEM: Under jetson_clocks, three measures have disjoint D and AC3 ranges. The differences are small but lie outside the round spread.
+EVIDENCE: perround.txt on: c05 load vs P D 0.974,0.974,0.974,0.974 vs AC3 0.973,0.973,0.971,0.972; c11 VDD_IN D 6630-6651 vs AC3 6617-6627 mW; c23 host-call median D 25.0-25.7 vs AC3 26.2-26.7 us. Every D vs AC3 range overlaps under off.
+FIX: D matches AC3 within the round spread everywhere except three small on-regime differences: c05 load 0.974 vs 0.971-0.973, c11 power +3-34 mW, c23 median about 1 us lower.
+
+=== U8 numbers missing-caveat
+CLAIM: idle (c11) nothing outside the noise.
+PROBLEM: Under on, M100's c11 power range lies wholly above P's. M100 is above P in all 8 paired rounds across both regimes.
+EVIDENCE: c11 VDD_IN on: P 6603-6650, M100 6653-6674 (disjoint). Paired M100-P: on +59,+57,+3,+44; off +22,+60,+43,+1 mW. Summary medians: M100 +44 (on) / +37 (off) over P.
+FIX: Idle (c11): nothing outside the noise except M100 (+30-50 mW, above P in every round).
+
+=== U9 numbers minor
+CLAIM: Latency: medians 1-3 us higher with a kernel running and no load (c02 AC3 69.1-70.4 -> 71.5-73.7 us; W 13.5-13.9 -> 15.4-15.7)
+PROBLEM: The 1-3 us holds for AC3, W, D and AC2 but not for AC4 (about 4 us) or M100 (about 8.5 us), whose c02 lead over AC3 under jetson_clocks disappears.
+EVIDENCE: c02 medians over rounds, on -> off: AC3 69.60 -> 72.50 (+2.9), W 13.75 -> 15.60 (+1.85), D +1.70, AC2 +2.85, AC4 69.15 -> 73.10 (+3.95), M100 63.35 -> 71.90 (+8.55; ranges 63.1-64.6 -> 71.1-72.7).
+FIX: Name the sets: 'AC3, D, AC2 and W 2-3 us higher (...); AC4 4, M100 8.5 (63.1-64.6 -> 71.1-72.7)'.
+
+=== U10 numbers minor
+CLAIM: AC3 (and D) stay 5.5-7 us per call below AC2 and AC4 under full load in both regimes (medians), and the gap at 2 calls per launch widens without `jetson_clocks` (7-8 -> 11 us).
+PROBLEM: The figures fit AC3 roughly but not the D in parentheses: D's gaps reach 7.4 us at c05 and 8.6 -> 12.3 us at c25. AC3's c25 on gap starts at 6.7, not 7.
+EVIDENCE: summary.md cost per call medians. c05 on: AC3 15.6, D 15.4, AC2 22.0, AC4 21.1. c05 off: AC3 18.3, D 17.8, AC2 25.2, AC4 25.0. AC3 gaps 5.5-6.9; D gaps 5.7, 6.6, 7.2, 7.4. c25 on: AC3 45.1, D 44.8, AC2 51.8, AC4 53.4 (AC3 6.7/8.3, D 7.0/8.6). c25 off: AC3 49.4, D 48.2, AC2 60.0, AC4 60.5 (AC3 10.6/11.1, D 11.8/12.3).
+FIX: AC3 stays 5.5-7 us below (D 5.7-7.4), and at 2 calls per launch AC3's gap goes from 6.7-8.3 to 10.6-11.1 us (D 7.0-8.6 -> 11.8-12.3).
+
+=== U11 numbers minor
+CLAIM: P's run had its clusters at 1505 / 768 MHz, W's at 1703 / 1212, AC3's at 1449 / 1135. Why the sleeping sets raise the clusters' frequency too is not established
+PROBLEM: By the paragraph's own numbers, AC3 raises only policy4. AC3's policy0 is below P's in every round.
+EVIDENCE: Per-run resid, off/c17 policy0 MHz: P 1459,1499,1530,1511; AC3 1424,1474,1482,1286 (lower in all 4 rounds). policy4: P 867,741,785,751; AC3 1216,1053,1029,1231. Medians of other sleeping sets' policy0: D 1691, M100 1543, AC2 1586, AC4 1610 (above P).
+FIX: Why the sleeping sets raise policy4's frequency (and, except AC3, policy0's) is not established.
+
+=== U12 numbers minor
+CLAIM: W's latency without load improves where every other set's worsens: c25 cost per call 17.2-19.0 -> 8.3-13.5 us.
+PROBLEM: W's no-load latency improves only at c25. In the other no-load cells it worsens, as section 4 of the README itself states for c06.
+EVIDENCE: W on -> off: c06 cost per call 9.1-9.3 -> 10.2-11.6 us; c02 median 13.5-13.9 -> 15.4-15.7; c23 median 13.7-14.3 -> 15.9-16.1; c11 median 14.6-15.0 -> 40.2-43.3 us.
+FIX: At 2 calls per launch (c25), W's latency improves where every other set's worsens: 17.2-19.0 -> 8.3-13.5 us. In c02, c06 and c23 it worsens slightly.
+
+=== U13 numbers minor
+CLAIM: `jetson_clocks` itself costs ... 2.0 W idle (c11 6.62 vs 4.63 W).
+PROBLEM: c11 P's on-regime median is 6.61 W, not 6.62. The 2.0 W difference is right.
+EVIDENCE: Unrounded c11 P VDD_IN per round, on: 6614.88, 6602.52, 6650.25, 6614.33, median 6614.6 mW (summary.md shows 6,615). Off median 4625.6 -> 4.63 W. Difference 1989 mW.
+FIX: (c11 6.61 vs 4.63 W)
+
+=== V14 claims wrong HOLDS
+CLAIM: in particular the EMC floor is my choice, and EMC stayed at 204 MHz in every off run, full CPU load included (`perround.txt`). (also: 'What this does not cover': "EMC pinned at its floor throughout.")
+PROBLEM: The source behind 'emc 204' (bwmgr devfreq trans_stat, read by resid.py) does not track the EMC clock. It only books time to the last frequency written by clocks.sh. The direct readings disagree with it, so EMC frequency during the off runs was not measured.
+FIX: In README.md: (a) Line 17: replace 'in particular the EMC floor is my choice, and EMC stayed at 204 MHz in every off run, full CPU load included (`perround.txt`)' with 'in particular the EMC floor (bwmgr min_freq 204 MHz) is my choice. The EMC rate during the runs was not measured: bwmgr trans_stat only records the min_freq writes made by clocks.sh/jetson_clocks (no transitions during any run). At every off snapshot, taken between runs with the board idle, bwmgr cur_freq read 2133 MHz.' (b) Line 13 table: keep '204 MHz floor (lowest available)', but mark it as the min_freq request, not the rate (e.g. '204 MHz floor requested (min_freq); rate not measured, 2133 MHz at snapshots'). (c) Line 25: drop 'and EMC' from the residency sources ('GPU trans_stat'), or add a note that the EMC trans_stat only reflects the written floor. (d) Line 168: replace 'EMC pinned at its floor throughout' with 'EMC rate during runs not measured (floor requested at 204 MHz; bwmgr cur_freq read 2133 MHz at each off snapshot).' (e) Line 86: soften 'tests idle states and the GPU/EMC clocks' to say the EMC rate under load is unknown. Also note that the `emc` column in perround.txt and the EMC output of resid.py show the requested floor, not a measurement (docstring/caveat). For a later round, sample /sys/class/devfreq/bwmgr/cur_freq (or the BPMP emc clk rate, or tegrastats EMC_FREQ run as root) during the runs.
+REASON: The evidence reproduces from the raw logs, which are read-only. (1) In all 224 off runs, `bwmgr trans_stat` shows the same 'Total transition' before and after the run. The starred '* 204000000' row grows by the run's wall time, within 1 s. The totals change only at regime switches: off r1..r4 = 5/7/7/9, on = 6/6/8/8. (2) In all 448 runs, before and after, the 2133000000 and 665600000 rows and columns stay at 0 transitions and 0 ms. So trans_stat never booked 2133 MHz, even though `bwmgr cur_freq` read that rate at every off snapshot. (3) Every off snapshot reads 'bwmgr ... min=204000000 cur=2133000000': clocks-r1..r4-off.txt and dvfs-smoke/clocks-off.txt. The 'EMC ... CurrentFreq=2133000000'
+
+=== V15 claims wrong HOLDS
+CLAIM: W's latency without load improves where every other set's worsens: c25 cost per call 17.2-19.0 -> 8.3-13.5 us.
+PROBLEM: Only W's cost relative to P fell, and only in c25. W's own latency got worse without jetson_clocks in every no-load cell, c25 included.
+FIX: Replace the start of the first bullet under section 3 in /home/jetson/src/results/gpu/watcher-policy-20261112/dvfs/README.md (line 128, from "W's latency without load improves" through "(not tested).") with the text below, and keep the following sentence ("A single call's latency gap stays about the same (c02 median: ...)") as it is:
+
+- W's cost over P falls at 2 calls per launch where every other set's rises (c25 17.2-19.0 -> 8.3-13.5 us per call), but W itself does not get faster: P's per-launch mean rose 28 us without `jetson_clocks` (2,526 -> 2,554 us), W's only 15 (2,561 -> 2,576), possibly because the victim's own host work runs on the cluster W keeps fast (not tested). In every no-load cell W is slower without `jetson_clocks`, in every round. Per-launch mean (us): c02 2,548-2,553 -> 2,559-2,587, c06 2,820-2,824 -> 2,881-2,924, c23 107-111 -> 128-142, c25 2,561-2,563 -> 2,571-2,578, c11 2,063-2,070 -> 2,147-2,171. Host-call median (us): c02 13.5-13.9 -> 15.4-15.7, c23 13.7-14.3 -> 15.9-16.1, c11 14.6-15.0 -> 40.2-43.3 (one call per run). In c06 even W's cost over P rose (9.1-9.3 -> 10.2-11.6 us per call).
+REASON: I could not refute the claim. Every number the reviewer cites matches the raw logs (logs/dvfs/{on,off}/r1..r4) and perround.txt.
+
+c25 per-launch mean (.victim), rounds r1-r4:
+- W: 2561.2, 2560.8, 2560.6, 2563.4 with jetson_clocks; 2570.7, 2574.7, 2577.9, 2576.8 without. It rose in every round, and the two ranges do not overlap.
+- P: 2525.5-2526.5 with; 2550.9-2558.9 without.
+
+So W's cost per call fell from 17.2-19.0 to 8.3-13.5 us only because P slowed by 28 us and W by 15. The README's own next sentence already gives these numbers, which contradicts its "improves".
+
+The "without load" generalization also fails under the README's own measure. In c06 (no load, same cost-per-call measure), W's
+
+=== V16 claims wrong HOLDS
+CLAIM: Under full load every core runs at 1728 MHz in both regimes (residency), so this cell tests idle states and the GPU/EMC clocks, not CPU frequency.
+PROBLEM: Under full load no core idles, so this cell does not test CPU idle states. The EMC clock in off was not measured (see the EMC finding).
+FIX: Under full load every core runs at 1728 MHz in both regimes and no core idles (residency: c7 share 0, WFI under 0.1% of CPU time), so CPU frequency and CPU idle states do not come into play in this cell. What differs is the GPU clock and governor (nvhost_podgov, 950-999 MHz as medians of the run means, vs 1020 MHz fixed) and the EMC floor (204 vs 3199 MHz). The EMC rate during the off runs was not recorded: bwmgr's trans_stat logs only the requested floor, and the off snapshots read 2133 MHz.
+REASON: I recomputed every c01 run (4 rounds x 7 sets x 2 regimes = 56 runs) with resid.py from logs/dvfs/{on,off}/r*/c01_*.resid, and both halves of the problem hold.
+
+(1) Idle states do not come into play. Every c01 run spends 100% of its time at 1728 MHz on policy0 and policy4 (atmax 1.000) in both regimes. In off, c7 was entered in only 1 of 28 runs: r1 c01_AC3, 2 entries, 4.6 ms in total against 9.74 s x 6 CPUs, about 0.008%. The other 27 off runs have no c7 entries at all. WFI share is at most 0.0007 (off) and 0.0016 (on). c05 (also full load) looks the same: one c7 event (r2 AC2, 3 entries). With no core idling, the cell cannot test idle states, so 'this cell tests idle states' is wrong.
+
+(2)
+
+=== U17 claims wrong
+CLAIM: CPU with a free core: W and M100 hold about one core in both; the AC sets 0.02 (on) or about 0.05 (off) in c02.
+PROBLEM: M100 holds about one core only at c23's gaps. In c02, the cell this sentence quotes, M100 holds about 0.1 core.
+EVIDENCE: M100 c02 dCPU: on 0.091-0.095, off 0.110-0.117. M100 c23: on 1.001-1.042, off 0.871-1.091 (README table and perround.txt).
+FIX: Write: 'W holds about one core in every no-load cell. M100 holds about one core at c23's gaps (0.87-1.09) and 0.09-0.12 in c02. The AC sets hold 0.02 (on) or about 0.05 (off) in c02.'
+
+=== U18 claims wrong
+CLAIM: Among AC3, AC2 and AC4 the c23 ranges overlap in both regimes (no ranking).
+PROBLEM: Under jetson_clocks the AC3 and AC2 ranges do not overlap.
+EVIDENCE: c23 dCPU on: AC3 0.050-0.070, AC2 0.075-0.104. Paired by round, AC2 minus AC3 is +0.051, +0.052, +0.013, +0.023. AC4 (0.042-0.113) overlaps both. Off, all three overlap.
+FIX: Write: 'Under on, AC3's range lies just below AC2's (0.050-0.070 vs 0.075-0.104), within v3's noise floor of about 0.05 core between identical behaviour; AC4 overlaps both; no ranking.'
+
+=== U19 claims wrong
+CLAIM: c17 (load 5 ms on, 5 ms off): load vs P is above 1 for every set without `jetson_clocks` (W 1.090-1.114, D 0.987-1.093, AC3 1.001-1.054, M100 1.023-1.043; ...). ... Why the sleeping sets raise the clusters' frequency too is not established ... In this regime the cell measures frequency side effects, not the watcher's cost
+PROBLEM: The README's own range shows D below 1 in one round. AC3 does not raise policy0's frequency at all. 'Not the watcher's cost' claims the cost is absent, when the data only show it is confounded.
+EVIDENCE: D c17 off load per round: 1.091, 1.093, 1.067, 0.987. AC3 policy0 per round 1424/1474/1482/1286 MHz vs P 1459/1499/1530/1511: lower in every round. Only policy4 rises (1216/1053/1029/1231 vs 867/741/785/751). Per run, load vs P tracks the core-weighted frequency ratio (r = 0.87 pooled over sets, driven largely by W): consistent with a frequency effect, not a proof that it is the only one.
+FIX: Write: 'load vs P is above 1 for every set but D in one round (0.987) ... the sleeping sets' runs had policy4, and for most sets policy0, above P's ... In this regime the cell's load ratio is confounded with frequency changes (per run it tracks the cluster-frequency ratio), so it does not isolate the watcher's cost.'
+
+=== U20 claims wrong
+CLAIM: The late guard did not trip on frequency alone: without `jetson_clocks` AC3's sleeps came back 3.3-4.6 us late on average at the end of a run ... guard skips per run in those cells 0-25 without, 0-1 with. Under full load the load trips it in both, a little more often without (c05 371-438 with, 444-490 without; c01 54-59, 57-79).
+PROBLEM: This contradicts itself: guard skips are the guard tripping, and they happened in most off no-load runs. 'On frequency alone' cannot be isolated, because the off regime also changes idle states and the GPU/EMC settings. For c01, 'a little more often' rests on overlapping ranges.
+EVIDENCE: AC3 guard_skips per run (.stats), off: c02 2,5,4,7; c06 4,0,0,2; c23 25,0,0,4; c25 5,1,4,2 (14 of 16 runs > 0). On: c02 0,0,1,1, all other no-load cells 0 (2 of 16). c01: on 54,58,59,56 vs off 79,57,64,66 (ranges overlap).
+FIX: Write: 'Without jetson_clocks the guard tripped rarely in no-load cells (0-25 skips per run, 14 of 16 runs; 0-1 with), while the end-of-run late EWMA stayed at 3.3-4.6 us, far below 30 us.' Keep the c05 increase; call c01 'within the round spread'.
+
+=== U21 claims overclaim
+CLAIM: ### 3. Without jetson_clocks the watcher changes the CPU frequency, and "load vs P" stops measuring cost
+PROBLEM: The title generalizes from c17 to load cells in general. In the full-load cells, load vs P is the same in both regimes.
+EVIDENCE: c01 load vs P, on vs off: AC3 0.987-0.990 vs 0.985-0.990; W 0.854-0.865 vs 0.850-0.870. c05: AC3 0.971-0.973 vs 0.969-0.983. All cores sit at 1728 MHz in both regimes there (residency). Only c17 changes (above 1 off).
+FIX: Retitle: '... and in the duty-cycled cell (c17) "load vs P" stops measuring cost'.
+
+=== U22 claims overclaim
+CLAIM: ### 1. The comparisons that chose AC3 hold in both regimes
+PROBLEM: Only 8 of 17 cells were rerun. Several comparisons on which v3 and dev based the choice were not repeated. One dev comparison that was repeated, W's cost to duty-cycled load in c17, reverses in off.
+EVIDENCE: v3/README.md picks AC3 also on c24, c26-c28, c31/c32 (dense requests) and c21. dev/README.md also cites c18 graphs (70 vs 534 us), c28 (37.3 vs 113.1 us per call) and c29. None of these was rerun here. c17 load vs P: on W 0.880-0.889 < AC3 0.970-0.975; off W 1.090-1.114 > AC3 1.001-1.054.
+FIX: Write: 'In the eight cells rerun, AC3's advantages over AC2/AC4 in bursts and over W under load hold in both regimes (c17's load ratio excepted, section 3); graphs, dense requests, c21/c24 and c26-c29 were not rerun.'
+
+=== U23 claims overclaim
+CLAIM: ### 2. Power: the policies differ by tens of milliwatts, and only under jetson_clocks ... (and: "no power difference shows either way")
+PROBLEM: Under jetson_clocks W is reliably below the sleeping sets. Without it, the data resolve no difference, but in c06 and c25 they cannot rule out one of the on-regime size. 'Only under jetson_clocks' turns that lack of evidence into a negative result. Every value involved is below tegrastats' VDD_IN step.
+EVIDENCE: VDD_IN in the .power files comes in steps of about 40 mW (e.g. 6913/6953/6993; 5756/5796/5837). On on/r3/c25_P all 39 in-window samples read 6913. Paired W minus AC3: on c02 -35..-20, c06 -79..-18, c25 -37..-1. Off: c02 -10..+21 (this one does argue against a 20-35 mW gap), c06 -29..+21, c25 -25..+21 (spans of 46-50 mW, wider than the on effect). Same-sign in all 4 rounds among non-P pairs: on 24 of 60 (W below all five sleeping sets in c02, c06 and c25); off 9 of 60, against 7.5 expected by cha
+FIX: Retitle: 'Power: under jetson_clocks W draws 20-80 mW less than the sleeping sets with a kernel running; without it no difference is resolved (c02 argues against one that size, c06/c25 are too noisy). All differences are below tegrastats' ~40 mW VDD_IN step.'
+
+=== U24 claims overclaim
+CLAIM: With `jetson_clocks`, W draws less than AC3 in every round of c02 (by 20-35 mW, paired by round), c06 (18-80) and c25 (2-37), as the earlier rounds found for the WFE sets (`../README.md`): W's core waits in WFE, AC3 wakes every 100 us.
+PROBLEM: In c25, 'every round' rests on a 1-2 mW difference, a small fraction of one tegrastats step. The every-round test also flags pairs that do identical work. The WFE-vs-wakeup cause was not tested.
+EVIDENCE: c25 on, round 1: W 6957 vs AC3 6959 (unrounded about -1 mW). In-window samples: W r1 mostly 6913 (28) and 6953 (11); AC3 r1 mostly 6953 (30). Ranges overlap: W 6924-6957, AC3 6956-6984. The same criterion flags c11 on: AC2 above AC3 by +14 to +33 mW and D above AC3 by +4 to +28 in every round, while AC2 and AC3 run identically there (req=2, win0=2, parks 8258/8259). Per-sample sd/sqrt(n) would understate the error, because 100 ms samples are correlated and quantized.
+FIX: Write: 'c25 in 3 of 4 rounds (30-37 mW), round 1 equal within one ~40 mW sampling step'. Note that W is below all five sleeping sets in c02, c06 and c25 (the stronger evidence). Give the WFE explanation as a likely mechanism, not a measured one.
+
+=== U25 claims overclaim
+CLAIM: idle (c11) nothing outside the noise
+PROBLEM: M100 stands out at idle, which the earlier round also found.
+EVIDENCE: c11 on: M100 VDD_IN 6653-6674 vs P 6603-6650 (disjoint), paired +59, +57, +3, +44; VDD_CPU_GPU_CV 1470-1491 vs 1444-1461 (disjoint). Off paired +22, +60, +43, +1. M100 idle CPU 0.010 vs 0.002 (on), 0.03 vs 0.006 (off). ../README.md: 'In c11 (idle agent) only M100 (+40-50 mW) stands out of the noise.'
+FIX: Write: 'idle (c11): only M100 stands out (+3 to +59 mW over P in every round under on, as in ../README.md); the other sets are within the noise.'
+
+=== U26 claims overclaim
+CLAIM: So W's cost is the core it holds (CPU time; the load's 13-15% under full load), not power.
+PROBLEM: W does draw power over P, about as much as AC3 without jetson_clocks. Power was never measured in a load cell, so 'not power' cannot cover the full-load case this sentence names.
+EVIDENCE: W minus P per round: on c02 +6..+30, c06 +21..+56, c25 +17..+36 mW; off c02 +45..+115, c06 +68..+125, c25 +33..+112 (AC3 off: +44..+115). c01, c05 and c17 have no VDD values (power is recorded only in load-off cells).
+FIX: Write: 'In the no-load cells W draws no more power than AC3 (less under jetson_clocks); its extra cost over AC3 is the core it holds, and under full load 13-15% of the load's throughput (power under load not measured).'
+
+=== U27 claims overclaim
+CLAIM: and the gap at 2 calls per launch widens without `jetson_clocks` (7-8 -> 11 us)
+PROBLEM: 'Widens' rests on medians. The per-round gaps overlap between regimes, and the off maximum comes from one AC2 round.
+EVIDENCE: c25 paired gap to AC3, on: AC2 5.0-7.9 us, AC4 6.9-9.1. Off: AC2 7.4-24.6 (24.6 from AC2 r2 = 72.1 us), AC4 8.8-13.1.
+FIX: Write: 'and at 2 calls per launch the gap is at least as large without jetson_clocks (medians 7-8 to 11 us; per-round ranges overlap).'
+
+=== U28 claims missing-caveat
+CLAIM: `jetson_clocks` itself costs about 1.2 W with a kernel running (c02 P 6.91 vs 5.73 W) and 2.0 W idle (c11 6.62 vs 4.63 W).
+PROBLEM: This credits the whole cross-regime difference to jetson_clocks. 'On' also sets the GPU governor to performance, and 'off' is the author's own written state, not a verified boot state (EMC during runs unknown). The two were measured in different half-rounds.
+EVIDENCE: clocks.sh set_on = jetson_clocks + GPU governor performance. The README calls the off values 'not proven equal to a freshly booted board'. EMC finding above. The on and off halves of each round are about 8 minutes apart (rounds.log).
+FIX: Write: 'the on regime draws about 1.2 W (c02 P) and 2.0 W (c11 P) more than this off regime'.
+
+=== U29 claims missing-caveat
+CLAIM: Latency: medians 1-3 us higher with a kernel running and no load (c02 AC3 69.1-70.4 -> 71.5-73.7 us; W 13.5-13.9 -> 15.4-15.7), 6 us at c23's gaps (AC3 26.2-26.7 -> 32.4-33.2; W 13.7-14.3 -> 15.9-16.1).
+PROBLEM: It leaves out the idle-agent cell, where W's call (made during a launch, no load) became about 3x slower. The '6 us' figure is attached to W too, but W rose about 2 us.
+EVIDENCE: c11 W: on 14.6-15.0 us, off 40.2-43.3 (disjoint; one host call per run, so each value is a single call). c23 W: 13.7-14.3 to 15.9-16.1 (+2 us).
+FIX: Write: '... 6 us for AC3 at c23's gaps (W 2 us); a first call after idle (c11, one call per run) took W 40-43 us instead of 15.'
+
+=== U30 claims missing-caveat
+CLAIM: **CPU seconds are not comparable across regimes**: the same work at about 790 MHz takes about twice the CPU time it takes at 1728 MHz. Compare CPU within a regime only.
+PROBLEM: Without jetson_clocks, sets run at different frequencies within the same regime, so 'within a regime' does not equalize clocks. The 'about twice' factor is stated without a test, and the measured off/on ratios are not a constant two.
+EVIDENCE: Off c02 policy0: W 1648 MHz vs P 744 and AC3 788. Off c17: P 1505/768, W 1703/1212. Off/on ratios of minus-P CPU in no-load cells: M100 c02 0.113/0.092 = 1.2, AC3 c06 0.177/0.131 = 1.35, AC3 c02 0.053/0.021 = 2.5, AC4 c23 0.267/0.059 = 4.5 (on/off summary.md).
+FIX: Write: 'CPU seconds depend on the clocks each set ran at, which differ between regimes and, without jetson_clocks, between sets (residency table); measured off/on ratios here range 1.2-4.5. Compare CPU within a regime and read it with each set's residency.'
+
+=== U31 claims minor
+CLAIM: The window adapted to the slower gaps: in bursts without load (c06) the window at detection was 10-20 us for 45,056 and 40-50 us for 31,775 of 76,832 requests with `jetson_clocks`, 40-50 us for 76,828 without
+PROBLEM: This states a cause (slower gaps) that was not measured. Only the window at detection was recorded.
+EVIDENCE: The .stats counters have no gap measurement (h0..h3 are all 0). The window buckets win20/win80 are the only evidence.
+FIX: Write: 'The window was larger at detection without jetson_clocks (...), consistent with longer gaps within bursts at lower clocks (gaps not measured).'
+
+=== U32 claims minor
+CLAIM: M100's place changes: with `jetson_clocks` it is the fastest sleeping set at 2 calls per launch (42.1-43.8 us) and below AC3 in bursts without load (c06 10.9-11.3 vs 11.7-12.0 us); without, its range overlaps AC3's (c25 49.3-58.2, c06 14.1-14.6 vs 13.6-14.5) or lies above it (c05 20.2-20.7 vs 17.7-18.8).
+PROBLEM: c05 is not a change: M100 already lies above AC3 in c05 with jetson_clocks.
+EVIDENCE: c05 on: M100 16.7-17.4 vs AC3 15.3-16.1 us per call (README table).
+FIX: Drop c05 from the 'changes' clause and add: 'in c05 it stays above AC3 in both (16.7-17.4 vs 15.3-16.1; 20.2-20.7 vs 17.7-18.8)'.
+
+=== U33 claims minor
+CLAIM: D matches AC3 in every cell within the round spread in both regimes, as in `../dev/`.
+PROBLEM: In c23 under jetson_clocks, D's host-call median lies below AC3's in every round. The dev round shows the same direction, so this is likely a real small difference, not chance.
+EVIDENCE: c23 on median: D 25.0-25.7 us vs AC3 26.2-26.7 (disjoint; perround.txt). dev/README.md c23 median: D 25.4 vs AC3 26.1.
+FIX: Write: 'D matches AC3 within the round spread in every measure tabled above; in c23, D's median latency is 0.5-1.7 us lower under jetson_clocks, as in ../dev/ (25.4 vs 26.1).'
+
+=== U34 claims minor
+CLAIM: No sleeping set's share of calls over 1 ms changed beyond the round spread (c23 AC3 had one call of 3.8 ms in one round); W's in c17 rose (0.06-0.16% -> 0.16-0.53%).
+PROBLEM: D's share in c01 moved outside its round spread (downward). The ranges cited for W's 'rose' touch.
+EVIDENCE: c01 D >1 ms: on 1.06-1.38%, off 0.91-1.00% (disjoint). c17 W: 0.06-0.16 vs 0.16-0.53 (touch at 0.16; medians 0.105 vs 0.395).
+FIX: Write: '... beyond the round spread except D in c01 (1.06-1.38% to 0.91-1.00%, lower); W's in c17 rose by median (0.11% to 0.40%; ranges touch).'
+
+=== V35 method wrong HOLDS
+CLAIM: "in particular the EMC floor is my choice, and EMC stayed at 204 MHz in every off run, full CPU load included (`perround.txt`)" (repeated in What this does not cover: "EMC pinned at its floor throughout")
+PROBLEM: The 204 MHz figure comes from the bwmgr devfreq trans_stat. That counter records the floor clocks.sh writes, not the memory clock BPMP actually runs. The only direct readings of the EMC clock show 2133 MHz in off, and no run recorded its EMC clock. So both sentences are unsupported, and the perround 'emc' column is just the floor, 204 off and 3199 on.
+FIX: Delete 'and EMC stayed at 204 MHz in every off run, full CPU load included (`perround.txt`)' (line 17) and 'EMC pinned at its floor throughout' (line 168). Replace them with: 'the off regime sets a 204 MHz EMC floor (bwmgr min_freq); the BPMP picks the actual clock, which read 2133 MHz (bwmgr cur_freq = clk_get_rate) in the snapshot taken at the start of every off block, after clocks.sh off and before the first run; per-run EMC was not recorded.' At line 25 (residency sources), say that the EMC trans_stat follows the requested floor, not the clock: the bpmp-bwmgr governor always targets min_freq. In perround.txt/perround.py, relabel the 'emc' column as 'emc floor' (204 off, 3199 on). For future runs, sample /sys/class/devfreq/bwmgr/cur_freq (or the bpmp debugfs emc rate) in run_one.sh resid() before and after, or periodically, or run tegrastats as root so EMC_FREQ is logged.
+REASON: The claim stands. I tried to refute it and every part of the evidence reproduces.
+
+(a) The off snapshots contradict the counter. All four logs/dvfs/clocks-r{1..4}-off.txt and dvfs-smoke/clocks-off.txt read `bwmgr gov=bpmp-bwmgr min=204000000 max=3199000000 cur=2133000000`, and `jetson_clocks --show` prints EMC CurrentFreq=2133000000. jetson_clocks reads the same /sys/class/devfreq/bwmgr/cur_freq, so this is one reading, not two independent ones.
+
+(b) Why the counter shows 204. Disassembling tegra-bpmp-bwmgr.ko shows two things. tegra_bpmp_bwmgr_devfreq_cur_freq returns clk_get_rate(emc clk), so cur_freq is the actual EMC clock. devfreq_gov_bwmgr_target_freq always sets *freq = 0, so devfreq 
+
+=== V36 method wrong HOLDS
+CLAIM: "Under full load every core runs at 1728 MHz in both regimes (residency), so this cell tests idle states and the GPU/EMC clocks, not CPU frequency."
+PROBLEM: c01 never idles in off, so idle states are not tested. The only regime differences in c01 and c05 are the GPU governor and the EMC floor, and the EMC clock itself was not recorded. The full-load half of §1's "The comparisons that chose AC3 hold in both regimes" (c05 cost per call, c01 load vs P, c01 > 1 ms) therefore tests neither CPU DVFS nor idle states. The same holds for idle states in c17.
+FIX: 1. Replace line 86-87 with: "Under full load no core idles in either regime: over all 28 off runs of c01 and c05, the c7 share is at most 0.00015, the WFI share at most 0.001 and c7 entries at most 0.3/s. Every core runs at 1728 MHz 100% of the time. So c01 and c05 differ between regimes only in the GPU clock (nvhost_podgov, run means 938-1002 MHz, vs a fixed 1020) and the EMC floor (204 vs 3199 MHz). The EMC rate itself was not recorded during the runs."
+
+2. Limit §1's "hold in both regimes" for c05 cost per call, c01 load vs P and c01 > 1 ms to exactly that: these comparisons test neither CPU frequency scaling nor idle states.
+
+3. Add to the c17 discussion: "c17 also never enters c7 (share ≤ 0.0004, ≤ 3.7 entries/s); its idle time, about 41-50% of CPU time, is spent in WFI in both regimes."
+
+4. Correct lines 17-18 and 168. The bwmgr trans_stat stays in its 204 MHz state with no transitions in every off run. That state is the devfreq floor, not the clock: `jetson_clocks --show` and bwmgr cur_freq read EMC at 2133 MHz in every off snapshot (clocks-r1..r4-off.txt). The EMC rate under load in off is unknown, so "EMC stayed at 204 MHz" and "EMC pinned at its floor" should become "EMC floor 204 MHz; the actual rate was not logged (2133 MHz at each switch to off)". Remove the emc column from perround.txt or label it the bwmgr floor state.
+REASON: I recomputed everything with resid.py over all 28 off runs per cell (7 sets x 4 rounds), and every number in the evidence reproduces.
+
+c01 off:
+- max c7 share 7.9e-5, max WFI share 7.4e-4, max c7 entries 0.21/s.
+- Both policies at 1728 MHz 100% of the time (minimum at-max share 1.00 in every run).
+
+c05 off: 1.5e-4 / 9.4e-4 / 0.33/s, also 1728 MHz 100% of the time.
+
+c17 off: c7 share at most 4.0e-4 and c7 entries at most 3.7/s for every set.
+
+c01/c05 GPU off: per-run means of 938-1002 MHz. The reviewer calls these "medians"; they are not. The c01 set medians are 950-999, as in the README table. In on, the GPU's 1020 MHz rests on the regime check (governor performance, min = max = cur = 1020).
+
+=== V37 method wrong HOLDS
+CLAIM: "W's latency without load improves where every other set's worsens: c25 cost per call 17.2-19.0 -> 8.3-13.5 us."
+PROBLEM: W's latency got worse without jetson_clocks. Only the difference to P shrank, because P's baseline ran at about 750 MHz while W keeps its own cluster near 1728 MHz. In off, the P baseline is not a valid zero for W, and the §1 table's W 'off' cost-per-call cells carry the same bias without a caveat. The README's "possibly ... (not tested)" hedge undersells the evidence below.
+FIX: Rewrite the §3 bullet. Suggested text: "W's cost per call at 2 calls per launch falls without jetson_clocks (c25 17.2-19.0 -> 8.3-13.5 us), but its latency does not improve. W's GPU-timed host call slows by about 2 us (c02 median 13.5-13.9 -> 15.4-15.7, c23 13.7-14.3 -> 15.9-16.1; c25 per launch 22.4-23.6 -> 26.2-26.5), and its own per-launch mean rises 15 us (2,561 -> 2,576). The cost falls because P's baseline slows more (+28 us, 2,526 -> 2,554). Every set's launch takes 10-15 us longer than P's plus its own host-call time, in on for all sets and in off for the sleeping sets (c25 AC3 +15). In off, W's launch takes 7-10 us less than that (c25 -9.9 to +0.1 per round), so P's baseline is about 20 us per launch too slow to serve as W's zero. This is consistent with W's waiting thread keeping policy0 at 1648-1681 MHz, where the victim's wakeups mostly land (inferred from per-CPU idle counts; the victim is not pinned), while P runs at 744-757 MHz and enters c7 more often. Frequency is the likelier cause, since AC3 has a similar c7 share and shows no such drop, but the run did not separate the two."
+
+In §1, mark the c25 off cell for W (8.3-13.5) as biased low by about 10 us per call, for the reason above, and not comparable with W's on cell or with the other sets' off cells. Point to W's GPU-timed latency for the regime comparison. Say that W's c05 cells are unaffected, because every cluster runs at 1728 MHz under full load.
+
+In §4, add a short note to the c06 W off range (10.2-11.6): it is biased low by about 0.5-1 us per call for the same reason, and the ranking "W fastest" holds.
+
+Keep the firm statement (P is not a valid zero for W in off) separate from the mechanism (frequency versus c7, inferred placement), which stays hedged.
+REASON: The claim holds. Every number the reviewer cites reproduces from off/on summary.md, perround.txt and the raw victim and loader files.
+
+1. W's latency got worse without jetson_clocks.
+   - W's GPU-timed host-call median (hostspin times each call on the GPU with globaltimer around the map update) rose. c02: 13.5-13.9 -> 15.4-15.7 us. c23: 13.7-14.3 -> 15.9-16.1 us.
+   - In c25 one loader value per launch covers both lanes' calls. It rose from 22.4-23.6 to 26.2-26.5 us per launch.
+   - W's own per-launch means rose too: c02 2550.7 -> 2567.1, c25 2561.0 -> 2575.8, c06 2823.2 -> 2885.0 us.
+   - Only W's difference to P shrank. P's c25 per-launch mean rose 28.1 us; W's rose 14.8 us.
+
+2. P is not a
+
+=== U38 method missing-caveat
+CLAIM: Residency table rows "c02 no load, P | 744 | 735 | 0.33 | 1010" / "c02, AC3 | 788 | 732 | 0.22 | 977" / "c01 full load, every set | 1728 | 1728 | 0 | 950-999"; §2 "AC3 leaves it near 790"; §3 "c02 policy0 1648 MHz (P 744, AC3 788)"
+PROBLEM: The residency window and the measured interval differ. run_one.sh takes `resid before` before the victim is spawned and `resid after` after it exits, so the residency includes the victim's start-up: CUDA init, warm-up and, for every bpftime set, the agent's start-up. Power and CPU are measured only inside the timed loop: power over whole seconds inside realtime_ns, CPU from getrusage over the loop. The P-vs-bpftime gaps in CPU and GPU mean frequency (about +45-65 MHz CPU, about -30 to -50 MHz GPU) come from start-up length, not from the watcher. c23's residency is mostly start-up.
+EVIDENCE: - Median start-up inside the residency window: P 0.16 s vs 0.57-0.60 s for the bpftime sets in c02/c11/c25 (off); P 0.33 vs 0.82-0.96 s in c01/c05.
+- c11 (one launch then 8 s idle; W not spinning, dCPU +0.006): policy0 P 749 vs W 798, D 799, AC3 802, M100 804, AC2 797, AC4 795. Every bpftime set gets the same uplift, whatever its policy.
+- c02 arithmetic: removing 0.41 s at 1728 MHz from AC3's 9.15 s window gives (788 x 9.15 - 0.41 x 1728) / 8.74 ≈ 744 = P. For the GPU, removing 0.41 s at 306 gi
+FIX: Either take the resid snapshots at the start and end of the timed loop (the victim signals or blocks there), or say that P-vs-bpftime residency differences up to about 50 MHz CPU and about 35 MHz GPU are the agent's start-up. Give in-loop estimates (AC3 c02 ≈ P), state that the power and residency windows differ, and drop c23 residency.
+
+=== U39 method missing-caveat
+CLAIM: "`jetson_clocks` itself costs about 1.2 W with a kernel running (c02 P 6.91 vs 5.73 W) and 2.0 W idle (c11 6.62 vs 4.63 W)."
+PROBLEM: Most of the 1.2 W is on the SOC rail, i.e. the memory controller and EMC. It is set mainly by the EMC floor: 3199 on, unrecorded and BPMP-driven off. The README itself calls that off setting "my choice", not proven to be the boot state. Without a split by rail, the figure reads as the cost of CPU/GPU clocks and idle states.
+EVIDENCE: c02 P, power window medians:
+- VDD_SOC on 2407 vs off 1469 mW (-938).
+- VDD_CPU_GPU_CV 1685 vs 1551 (-134).
+- So about 80% of the 1.18 W VDD_IN gap is the SOC rail.
+c11 P:
+- SOC 2411 vs 1458 (-953).
+- CV about 1449 vs about 528 (-919): GPU 1020 vs 306 MHz, CPU idle states.
+FIX: Split the jetson_clocks cost by rail. Say most of it is the SOC/EMC rail, so it depends on the off regime's EMC setting (floor 204 MHz, actual clock unrecorded). Give the CPU/GPU part separately: about 0.13 W with a kernel running, about 0.9 W idle.
+
+=== U40 method missing-caveat
+CLAIM: "**CPU seconds are not comparable across regimes**: the same work at about 790 MHz takes about twice the CPU time it takes at 1728 MHz. Compare CPU within a regime only."
+PROBLEM: Within the off regime the sets also run at different CPU frequencies, so "within a regime" does not give the same units. W's watcher holds its cluster near 1728 MHz while P and the AC sets sit near 750-820. In c23 every set's frequency differs. minus-P also subtracts P's victim CPU, measured at P's own frequency.
+EVIDENCE: - Off policy0 medians: c02 / c06 / c25 W 1648 / 1660 / 1681 (91-92% at 1728) vs P 744 / 754 / 757 and the AC sets about 788-823 (the latter inflated by start-up).
+- c23 off: P 962, AC 1127-1143, W 1249, M100 1313 (but 53% of that window is start-up, so in-loop values are unknown).
+- P's own victim CPU in c23: 0.265 cores on vs 0.348 off.
+- c23 AC3 minus-P range: 0.083-0.226 off (2.7x) vs 0.050-0.070 on, with per-run policy0 between 948 and 1525 MHz.
+FIX: Add: "Within the off regime, compare CPU only between sets that ran at about the same frequency (the AC sets and M100 in c02/c06/c25). W's and all of c23's CPU figures mix frequency differences; c23's off spread is round-to-round frequency as much as policy."
+
+=== U41 method missing-caveat
+CLAIM: "Every run checked its regime before starting (`clocks=` in each `.env`, `verify.csv`)" and "448 runs, all valid (`on/verify.csv`, `off/verify.csv`)"
+PROBLEM: For off, verify.csv's clocks_ok only tests for the label run_one.sh writes, so it cannot fail for any off run that has a .env. There is no check after the run. clocks.sh check-off also skips the CPU governor, the podgov tunables (whose writes in set_off ignore errors) and the EMC clock. A regime change during a run, or a podgov write that failed silently, would pass. The real evidence that the regime held is the per-run residency and the snapshots, which the README does not cite for this.
+EVIDENCE: - summarize.py off branch: `len(clk) == 2 and "clocks=off" in t`. The 'clocks=off' line is `echo "clocks=$CLOCKS"`.
+- The on branch requires cpu5/cpu0/gpu = 1728000/1728000/1020000000 at both before and after.
+- set_off writes polling_interval, timer and the podgov params without `|| return 1`; check_off tests only min/max, idle disable, GPU governor/min/max, EMC min_freq and railgate.
+- Independent confirmation: off, every one of 224 runs. In no-load cells: c7 ≥ 29.9 entries/s and c7 share ≥ 0.
+FIX: Cite the per-run residency and the block snapshots as the evidence that the regime was in place, and say verify.csv's off clocks_ok is only a label check. In run_one.sh, rerun check-off after the victims and log the checked values. Have summarize.py test those values.
+
+=== U42 method minor
+CLAIM: "With `jetson_clocks`, W draws less than AC3 in every round of c02 (by 20-35 mW, paired by round), c06 (18-80) and c25 (2-37)"
+PROBLEM: The c25 round with a 2 mW gap is not a difference: it is smaller than the temperature drift inside a cell. Cell order is fixed in every block (c01 first, c25 last) and the regime order runs off,on,on,off,off,on,on,off. So each cell always sits at the same time after a switch and inherits the previous block's temperature. Set order is shuffled, so this is noise rather than bias, but it is the same size as the off-regime pairs (-25 to +21 mW).
+EVIDENCE: - c25 on r1: W 6957 vs AC3 6959 mW.
+- Junction temperature falls 0.6-1.4 °C across each power cell's 7 runs (e.g. c11 off r1: 48.7 -> 47.4 °C).
+- VDD_IN vs tj within cell x set: about 17 mW/°C (r 0.42 on, 0.27 off; 112 runs each).
+- Temperature-adjusted AC3 - W pairs, on: c02 +25..+40, c06 +23..+76, c25 r1 +1 -> -5 (others +28..+39).
+- First c01 run of the off blocks after on blocks starts at 49.9 / 49.7 °C vs 47.4 / 47.8 after off.
+FIX: Say "in every round of c02 and c06 and in 3 of 4 rounds of c25". Note that temperature drifts about 1 °C within a cell (about ±10-20 mW) and that cell order is fixed relative to the regime switch.
+
