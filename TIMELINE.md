@@ -266,6 +266,19 @@ documents up to 2026-10-30. Commits are on the dev branch
 - `results/gpu/wfe-load-20261111`, `results/gpu/watcher-sleep-20261111`,
   `results/gpu/watcher-policy-20261112` (with `controls/`, `v2/`, `v3/`, `dev/`)
 
+## 11-12: the watcher policies without jetson_clocks
+
+- Eight cells, seven sets, both clock regimes in every round (448 runs): `jetson_clocks` against the
+  boot scripts' frequency scaling with CPU idle states on. With a core free, where scaling and idle
+  states act, the sleeping sets run at the 730 MHz floor and AC3 stays below the KVM-style window
+  rules at 2 calls per launch in every round (5.0–9.1 µs per call with, 7.4–24.6 without); WFE's
+  waiting thread keeps its CPU cluster near 1,700 MHz. Under full load the CPU neither scales nor
+  idles in either regime, and the burst and load comparisons hold there too.
+- Power: WFE 1–90 mW below the sleeping sets under `jetson_clocks`, no difference resolved without
+  (tegrastats steps 40 mW). The EMC rate during the runs was not recorded. Reviewed twice
+  (refuters per finding), corrections worked in.
+- `results/gpu/watcher-policy-20261112/dvfs`
+
 ## Where it stands (11-12)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
@@ -274,7 +287,7 @@ documents up to 2026-10-30. Commits are on the dev branch
 - Real tools: 18 checked against bpf, counts exact; ssl-nginx ahead of bpf at every payload.
 - System call tracing and CUDA attach work on ARM64 with the dev branch; GPU host calls: layer 1
   done but for several CUDA processes on one segment and lookup address translation, the watcher
-  sleeps and parks by measured rules.
+  sleeps and parks by measured rules (checked with and without `jetson_clocks`).
 - Open: Gum's per-function usage counter under many threads; the agent's own load time (about
   9 ms); the CUDA late path (`bpftime attach` to a running GPU process; 5–9 µs per launch slower
   than official's); fixes not yet offered upstream.
