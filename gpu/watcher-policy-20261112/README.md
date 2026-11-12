@@ -173,6 +173,16 @@ per call 16.9 -> 22.1 us), most likely from the 50 us close threshold; the gap-b
 CPU without benefit. The latch held in every graph cell, the unlatch works, and isolated hits come
 from the first probed launch. Details in `v2/README.md`.
 
+## Follow-up: v3 (`v3/`)
+
+Window rules with the 50 us limit, 448 runs: closing the window on one long gap caused v2's burst
+regression; AC3 (doubling up to 50 us, closed by two gaps of 50 us or more in a row) costs less
+than AC in every burst cell and round (c05 15.7 vs 16.6, c25 45.2 vs 54.4 us per call), never
+opens at 55-115 us gaps, and adds no tail beyond the window-less set with 1 us kernels under full
+load; it gives up dense-request throughput without load to AC2 and about 4 us of latency at
+155-295 us gaps to AC. The lower-bound gap measurement (AC5) was implemented wrongly and polls
+under load. Details in `v3/README.md`.
+
 ## Files
 
 - `summary.md`: every cell, set and counter; `verify.csv`: per-run validity.

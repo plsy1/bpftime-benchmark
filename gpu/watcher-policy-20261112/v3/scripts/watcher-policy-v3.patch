@@ -1,0 +1,83 @@
+--- bpf_attach_ctx_cuda.cpp.v2	2026-11-12 14:29:04.580537313 +0900
++++ src/runtime/src/attach/bpf_attach_ctx_cuda.cpp	2026-11-12 14:32:58.213231623 +0900
+@@ -311,6 +311,20 @@
+ 	// noted kernel was in flight.
+ 	const bool V2 = env_u64("BPFTIME_CUDA_WATCHER_V2", 0) != 0;
+ 	const uint64_t WIN_MAX2 = env_u64("BPFTIME_CUDA_WATCHER_WIN_MAX", 50);
++	// window rule with V2 (BPFTIME_CUDA_WATCHER_WIN_MODE): 2 = as above;
++	// 3 = doubling from WIN_START up to WIN_MAX2, closed only by two gaps of
++	// WIN_MAX2 or more in a row (a gap the window caught, or a shorter one,
++	// resets the count); 4 = doubling up to WIN_MAX2, halved by each gap of
++	// WIN_MAX2 or more (KVM's shrink), closed below WIN_START
++	const int WMODE = V2 ? (int)env_u64("BPFTIME_CUDA_WATCHER_WIN_MODE", 2) :
++			       1;
++	int long_run = 0;
++	// BPFTIME_CUDA_WATCHER_GAP_LB=1: a request's gap is measured to the last
++	// check that found no request (a lower bound of when it was posted), not
++	// to its detection, so the watcher's own sleeps and preemption do not
++	// lengthen it
++	const bool GAP_LB = env_u64("BPFTIME_CUDA_WATCHER_GAP_LB", 0) != 0;
++	uint64_t t_empty = 0;
+ 	constexpr uint64_t HIT_WINDOW = 1000000, UNLATCH = 1000000;
+ 	uint64_t last_hit = 0, last_evidence = 0, t_gen_seen = 0, t_idle = 0;
+ 	constexpr uint64_t CHECK_US = 1000, RD_TRIP_NS = 200000,
+@@ -366,9 +380,32 @@
+ 			    activity.generation() == seen_gen)
+ 				last_evidence = t;
+ 			if (C) {
+-				uint64_t gap = last_req ? t - last_req :
+-							  UINT64_MAX;
++				uint64_t gap = !last_req ? UINT64_MAX :
++					       !GAP_LB	 ? t - last_req :
++					       t_empty > last_req ?
++								  t_empty - last_req :
++								  0;
+ 				if (gap <= win) {
++					long_run = 0;
++				} else if (WMODE == 3) {
++					if (gap < WIN_MAX2) {
++						win = std::min(std::max(2 * win,
++									WIN_START),
++							       WIN_MAX2);
++						long_run = 0;
++					} else if (++long_run >= 2) {
++						win = 0;
++					}
++				} else if (WMODE == 4) {
++					if (gap < WIN_MAX2) {
++						win = std::min(std::max(2 * win,
++									WIN_START),
++							       WIN_MAX2);
++					} else {
++						win /= 2;
++						if (win < WIN_START)
++							win = 0;
++					}
+ 				} else if (V2) {
+ 					win = gap < WIN_MAX2 ?
+ 						      std::min(std::max(2 * gap,
+@@ -493,6 +530,7 @@
+ 		if (try_serve())
+ 			continue;
+ 		uint64_t t = policy_now_us();
++		t_empty = t;
+ 		if (!C) {
+ 			if (last_req && t - last_req < HOT_US) {
+ 				if (B && gate_check(t))
+@@ -608,7 +646,7 @@
+ 		char line[2048];
+ 		int len = snprintf(
+ 			line, sizeof(line),
+-			"policy=%s pid=%d req=%llu hot_iters=%llu defer_sleeps=%llu slow_sleeps=%llu wfe_waits=%llu parks=%llu park_timeouts=%llu unseen_latch=%llu evq=%llu gate_checks=%llu gate_open_checks=%llu gate_opens=%llu latch_trips=%llu cap_forced=%llu guard_skips=%llu win0=%llu win20=%llu win80=%llu win300=%llu unseen_hits=%llu us_hot=%llu us_defer=%llu us_slow=%llu us_slow_wfe=%llu us_park=%llu late_ewma_us=%.1f v2=%d unseen_unlatch=%llu h0_note=%llu h0_idle=%llu h0_any=%d h1_note=%llu h1_idle=%llu h1_any=%d h2_note=%llu h2_idle=%llu h2_any=%d h3_note=%llu h3_idle=%llu h3_any=%d\n",
++			"policy=%s pid=%d req=%llu hot_iters=%llu defer_sleeps=%llu slow_sleeps=%llu wfe_waits=%llu parks=%llu park_timeouts=%llu unseen_latch=%llu evq=%llu gate_checks=%llu gate_open_checks=%llu gate_opens=%llu latch_trips=%llu cap_forced=%llu guard_skips=%llu win0=%llu win20=%llu win80=%llu win300=%llu unseen_hits=%llu us_hot=%llu us_defer=%llu us_slow=%llu us_slow_wfe=%llu us_park=%llu late_ewma_us=%.1f v2=%d wmode=%d win_max=%llu gap_lb=%d unseen_unlatch=%llu h0_note=%llu h0_idle=%llu h0_any=%d h1_note=%llu h1_idle=%llu h1_any=%d h2_note=%llu h2_idle=%llu h2_any=%d h3_note=%llu h3_idle=%llu h3_any=%d\n",
+ 			policy.c_str(), (int)getpid(),
+ 			(unsigned long long)st.req,
+ 			(unsigned long long)st.hot_iters,
+@@ -635,6 +673,7 @@
+ 			(unsigned long long)st.us_slow,
+ 			(unsigned long long)st.us_slow_wfe,
+ 			(unsigned long long)st.us_park, late_ewma, (int)V2,
++			WMODE, (unsigned long long)WIN_MAX2, (int)GAP_LB,
+ 			(unsigned long long)st.unseen_unlatch,
+ 			(unsigned long long)st.hit_since_note[0],
+ 			(unsigned long long)st.hit_since_idle[0], st.hit_any[0],

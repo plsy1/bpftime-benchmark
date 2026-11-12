@@ -1,0 +1,141 @@
+{
+ "recompute": {
+  "claims": [
+   {
+    "id": 1,
+    "verdict": "holds",
+    "evidence": "My own parser read all 448 runs (4 rounds x 14 cells x 8 sets). In every run: the env set and cell parameters match; both clock snapshots show cpu5=cpu0=1728000 and gpu=1020000000; victim rc=0; loader rc=0 (non-P runs); load rc=0 (load cells); there are no 'not attached' or 'in use' notes; the victim's launches/threads/spin/jitter match the cell. Single-lane cells have hostspin count = min(launches+1, 4096), equal to the number of ns values; multi-lane cells have count 2001 or 2401. Each set's .stats has one line, with req = (launches+1) x threads, win0+win20+win80+win300 = req, and wmode/v2/gap_lb/win_max as run_one.sh defines. There are 0 error or warning lines in the .err files, and all 392 non-P runs log 'Exiting CUDA watcher'. The highest .env temperature is 54.937 C (r2 c05 AC4), which rounds to 54.9 C."
+   },
+   {
+    "id": 2,
+    "verdict": "partly",
+    "evidence": "Cost per call = (mean - P mean)/threads, per round r1/r2/r3/r4, then the median.\n- c05: AC3 16.11/16.03/15.15/15.37 (median 15.70); AC 16.61; AC2 22.13; AC4 20.74; AC5 15.73/16.22/15.50/15.47 (median 15.62); M100 16.94; ACn 32.62.\n- c06: AC3 11.68/11.83/11.81/11.69 (median 11.75); AC 12.49; AC2 12.22; AC4 12.25; AC5 11.71; M100 11.26; ACn 26.99.\n- c25: AC3 45.55/46.30/44.75/44.05 (median 45.15); AC 54.35; AC2 51.80; AC4 52.47; AC5 44.80; M100 43.55/41.75/42.85/44.80 (median 43.20).\n- c26: AC3 26.85/28.33/27.80/27.02 (median 27.41); AC 31.30; AC2 31.17; AC4 31.36; AC5 27.54; M100 25.97.\n- c27: AC3 18.24/18.53/18.34/18.40 (median 18.37); AC 20.27; AC2 19.91; AC4 20.66; AC5 18.32; M100 17.43.\n- c28: AC3 42.40/39.85/41.35/39.50 (median 40.60); AC 49.14; AC2 49.17; AC4 46.65; AC5 41.30/41.55/44.08/37.35 (median 41.43); M100 52.01.\nAll quoted medians, the M100 values and the ACn values match. Excluding AC5, AC3 is the lowest in all 24 cell-rounds. AC5 is lower than AC3 in 13 of 24 cell-rounds.\n|AC3 - AC5| per round: c05 0.38/0.19/0.35/0.10; c06 0.04/0.07/0.16/0.01; c25 0.10/1.10/0.60/0.35; c26 1.25/0.77/0.27/0.67; c27 0.01/0.30/0.10/0.01; c28 1.10/1.70/2.73/2.15.\nIn c28 r3 the raw means are AC3 2737.6, AC5 2748.5 and P 2572.2, giving 41.35 vs 44.08. M100 is lower than AC3 by median in c06 and c25-c27, but not in c25 r4 (44.80 vs 44.05). In c05, M100 is higher than AC3 (16.9 vs 15.7), which the claim does not mention.",
+    "correction": "AC3 and AC5 are equal within 2.73 us per round, not 2.3: c28 r3 is AC3 41.35 vs AC5 44.08, and the next largest gap is 2.15 in c28 r4. 'AC3 lowest of the AC family in every round' holds only with AC5 excluded or treated as tied: AC5 is lower in 13 of 24 cell-rounds. All the medians quoted are correct. M100 being lower in c25 is true by median but not in r4."
+   },
+   {
+    "id": 3,
+    "verdict": "partly",
+    "evidence": "CPU = cpu_s/wall_s minus P's in the same round.\nMedians by cell:\n- c25: AC3 0.0299, AC 0.0264, AC2 0.0400\n- c26: AC3 0.0389, AC 0.0314, AC2 0.0469\n- c27: AC3 0.0522, AC 0.0456, AC2 0.0592\n- c28: AC3 0.0400, AC 0.0337, AC2 0.0464\n- c05: AC3 0.1222, AC 0.1146, AC2 0.1146\n- c06: AC3 0.1325, AC 0.1228, AC2 0.1340\nAC3 - AC as a difference of medians: c25 +0.0035, c26 +0.0075, c27 +0.0066, c28 +0.0063, c05 +0.0076, c06 +0.0097.\nAC3 - AC per round:\n- c25 +0.0050/+0.0050/+0.0057/+0.0016\n- c26 +0.0049/+0.0091/+0.0084/+0.0075\n- c27 +0.0047/+0.0058/+0.0087/+0.0070\n- c28 +0.0059/+0.0067/+0.0049/+0.0070\n- c05 +0.0116/+0.0095/+0.0043/+0.0080\n- c06 +0.0030/+0.0131/+0.0124/+0.0100\nAC2 - AC as a difference of medians: c25 +0.0136, c26 +0.0155, c27 +0.0136, c28 +0.0127, c05 +0.0000, c06 +0.0112. Per round in c25-c28 it ranges from +0.0116 to +0.0173. The examples 'c25 0.030 vs 0.026' and 'c28 0.040 vs 0.034' match. AC3 > AC in every round of every burst cell (sign only).",
+    "correction": "+0.004 to +0.008 holds only for differences of medians in c25-c28. Per round it is +0.0016 (c25 r4) to +0.0091 (c26 r2). In c05/c06, which claim 2 also counts as bursts, it is +0.008/+0.010 by medians and up to +0.013 per round. AC2 is +0.013 to +0.016 over AC by medians in c25-c28 (per round +0.012 to +0.017), but +0.000 in c05 and +0.011 in c06. Only the sign (AC3 above AC) holds in every round."
+   },
+   {
+    "id": 4,
+    "verdict": "holds",
+    "evidence": "c05 cost per call per round:\n- AC2 22.15/22.12/21.53/22.64\n- AC4 22.08/20.72/20.70/20.76\nTogether 20.70-22.64, which is 20.7-22.6.\n- AC3 16.11/16.03/15.15/15.37\n- AC5 15.73/16.22/15.50/15.47\nTogether 15.15-16.22, which is 15.1-16.2.\nwin0 per run: AC2 6745/6892/6305/6935 (about 6,300-6,900); AC3 25/3/2/1; AC4 6387/6224/6323/6255; AC5 2/5/1/1. req = 76832 in every run.\nThe causal reading (closing or halving on one long gap) fits these counters and the WIN_MODE code in watcher-policy-v3.patch. It is an interpretation, not a measurement."
+   },
+   {
+    "id": 5,
+    "verdict": "holds",
+    "evidence": "c25 AC3, r1-r4: req=4002, win0=1, win20=4001, win80=0. So 4001 of the 4002 requests (2000 launches + warm-up, x 2 lanes) had the window at 20 us or less, and only the first had it closed. AC2: win0 2001/2001/2001/2002 and win80 2001/2001/2001/2000. Its window closes once per launch (2002 in r4), and the open half is in the 21-80 bucket. AC (v1) and AC4 also have win0 of about 2001."
+   },
+   {
+    "id": 6,
+    "verdict": "partly",
+    "evidence": "Window closed for all requests in AC2/AC3: win0 = req = 4001 and hot_iters = 0 in all 8 runs of c23 and of c24 (the same holds for AC4 and ACn). AC5 in c24 has win0 3951-3984 and hot_iters 1272-3850.\nCPU minus P per round:\n- c23: AC2 +0.070/+0.089/+0.049/+0.062; AC3 +0.053/+0.127/+0.128/+0.081; AC4 +0.065/+0.119/+0.072/+0.034; AC5 +0.101/+0.118/+0.130/+0.102; ACn +0.139/+0.138/+0.069/+0.071. Overall +0.034 to +0.139.\n- c24: AC2 +0.030/+0.049/+0.020/+0.014; AC3 +0.014/+0.036/+0.071/-0.001; AC4 +0.025/+0.065/+0.014/+0.004; AC5 +0.038/+0.035/+0.020/+0.010; ACn +0.005/+0.027/+0.028/+0.006. Overall -0.001 to +0.071.\nc24 calls > 1 ms, pooled over 4 runs: AC2 0.28%, AC3 0.26%, AC4 0.26%, AC5 0.23%, ACn 0.27%. Per run 0.10-0.38%.\nAC: c23 CPU median +1.028 (per round +0.969 to +1.052). c24 > 1 ms pooled 2.80% (per run 3.00/2.88/2.67/2.65). AC's c24 CPU is only +0.258.\nPer-launch means of AC2-ACn: c23 120.5-123.3, c24 191.6-193.8 (medians).\n'As in v2' matches logs/v2/summary.md (AC c23 +1.026, c24 2.72%). That is the summary, not v2 raw logs.",
+    "correction": "'CPU +0.05 to +0.14 per round' describes c23 only, and even there the low end is +0.034 (AC4 r4). In c24 the five sets are -0.001 to +0.071 per round (medians +0.016 to +0.027). The 0.23-0.28% figures are pooled over rounds per set; per run they range from 0.10% to 0.38%. AC's +1.03 cores is the no-load cell c23; under load (c24) AC is +0.26."
+   },
+   {
+    "id": 7,
+    "verdict": "holds",
+    "evidence": "c31, per round r1-r4.\n- AC5: win80 (21-80 us, capped at 50) = 100.0% of 30001 requests (win0 3/4/2/4). hot_iters 12.99/12.93/13.35/12.87 M.\n- CPU per launch (cpu_s x 1e6 / 30000): AC5 81.2/81.0/85.7/79.5; AC3 41.6/36.4/38.7/36.8; ACn 40.2/38.3/38.7/34.2; AC2 70.5/73.5/71.5/67.7; P 21.1/21.3/20.3/20.6.\n- Per-launch mean: AC5 55.4/53.4/64.3/53.8; AC3 62.4/55.5/58.3/55.7; AC2 51.5/47.5/52.8/52.7; ACn 69.1/62.3/65.9/54.3.\n- AC3 window open (req - win0)/req: 39.8/63.5/54.6/62.9%.\nAll ranges match. For context, AC (v1) is 80.7-90.6 us CPU per launch and M100 72.8-88.7."
+   },
+   {
+    "id": 8,
+    "verdict": "partly",
+    "evidence": "c32, 4095 latencies per run after dropping the warm-up.\n- Calls > 1 ms per run: AC5 59/50/56/28; AC3 8/7/6/7; AC2 6/4/6/8; ACn 7/9/8/8; AC4 7/8/5/8.\n- Per-launch mean: AC5 173.4/156.0/153.6/181.7; AC3 121.1/128.1/123.0/125.7.\n- hot_iters: AC5 11,812,586 / 9,262,243 / 9,869,111 / 10,818,808 (9.26-11.81 M); AC3 4,475 / 9,147 / 19,500 / 4,886 (under 20,000).\n- Window open: AC5 93.7-99.0% of requests; AC2 0.0-1.5%; AC3 0.2-0.9%. In c31 (no load) AC2/AC3 were open 79-97% / 40-64%.\nThe last sentence (gap to the last empty check removes the lengthening by preemption) fits these counters and the GAP_LB code. It is an interpretation that the logs do not test directly.",
+    "correction": "AC5's hot iterations in c32 are 9.3-11.8 M per run, not '9-13 M'. 13 M is the c31 figure. All other numbers hold."
+   },
+   {
+    "id": 9,
+    "verdict": "holds",
+    "evidence": "c21 CPU minus P per round:\n- AC +0.082/+0.081/+0.078/+0.094 (median +0.082)\n- AC2 +0.053/+0.058/+0.067/+0.051\n- AC3 +0.056/+0.059/+0.076/+0.050\n- AC4 +0.064/+0.055/+0.062/+0.054\n- AC5 +0.038/+0.055/+0.057/+0.048\n- ACn +0.054/+0.073/+0.046/+0.054\nThe others span +0.038 to +0.076 (medians +0.052 to +0.058), which matches +0.04-0.08.\nc01 (medians): CPU +0.022-0.024 for all AC sets; per-launch 2694.6-2699.2; load vs P 0.989-0.990; host-call mean 91.0 (AC) vs 92.8-95.4; > 1 ms 0.84% vs 0.94-1.08%.\nc02: CPU +0.020-0.021; per-launch 2604.3-2606.4; host-call mean 67.6-67.8.\nc15: CPU +0.040-0.051 (AC +0.042); per-launch 476.5-483.2 (AC 476.8); load vs P 0.980-0.981; > 1 ms 0.44-0.46%.\nCaveat: in c21, AC's per-run host-call mean (63.8-66.1 us) does not overlap with AC2 (68.9-70.2), AC3 (67.3-71.4) or AC4 (68.1-69.4). AC5 (66.8-69.2) and ACn (66.7-70.8) are also higher. AC's CPU is the highest in every round. So 'within noise' is loose for c21: the v2/v3 sets take about 0.025 cores less and about 3-5 us more latency there."
+   },
+   {
+    "id": 10,
+    "verdict": "holds",
+    "evidence": "The checkable parts hold.\n- c23/c24: AC3 has hot_iters = 0 and win0 = req in all 8 runs, the same as AC2. c23 CPU is +0.05-0.13 vs AC's +0.97-1.05.\n- AC3's cost per call is below AC's in all 24 burst cell-rounds (c05, c06, c25-c28).\n- c32: AC3 has 6-8 calls > 1 ms per run (0.17% pooled), the same as ACn's 7-9 and AC2's 4-8, vs AC5 28-59 and AC 65-72. So 'no tail' means no extra tail over the no-window baseline, not zero.\n'Best' is a judgement. Against it:\n- AC3 uses more CPU than AC in all 24 burst cell-rounds (+0.002 to +0.013).\n- AC5 ties or beats AC3 on burst cost (lower in 13 of 24 cell-rounds).\n- In c31, AC3's per-launch mean (55.5-62.4) is slower than AC2 (47.5-52.8), AC (50.3-53.6) and M100 (46.0-51.9), though it uses about half their CPU.\n- In c21, AC3's host-call latency is about 4 us above AC's."
+   }
+  ],
+  "other_issues": [
+   "c21: 'all v2/v3 sets equal to AC within noise' is doubtful. AC's per-run host-call mean (63.8-66.1 us) does not overlap with AC2/AC3/AC4 (67.3-71.4 us). Per-launch means are mostly 4-9 us higher than AC's in the v2/v3 sets. AC's CPU (+0.078 to +0.094) is above every other set in every round.",
+   "c01: AC's pooled host-call p99 is 617 us vs 798-1155 us for the v2/v3 sets, and its > 1 ms share is 0.84% vs 0.94-1.08% (per run AC 24-32 vs others 21-40). The per-run counts overlap, so this is probably noise.",
+   "Claim 2 omits that M100 is higher than AC3 in c05 (16.94 vs 15.70 median). M100's burst CPU is also much higher (+0.09 to +0.18 vs AC3 +0.03 to +0.13).",
+   "Claim 5's wording 'all 4001 requests but one' is off by one: req is 4002 (2001 launches x 2 lanes), with win20=4001 and win0=1.",
+   "summarize.py's c24 > 1 ms percentages and the CPU medians in summary.md match my independent recomputation. The ranges and per-round statements in CLAIMS-v3.md were the parts that diverged.",
+   "My scripts are in /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/v3chk/ (parse.py, lib.py, c1.py, c2.py, c3.py, c45.py, c6.py, c78.py, c9.py, c9b.py)."
+  ]
+ },
+ "critic": {
+  "claims": [
+   {
+    "id": 1,
+    "verdict": "holds",
+    "evidence": "All 448 .env files have victim rc=0, and every non-P run has loader rc=0. Clocks read 1728000/1728000/1020000000 both before and after each run. Record counts equal min(launches+1, 4096). Each stats line carries the v2/wmode/win_max/gap_lb values its set should have, and the env strings match run_one.sh. Max temperature is 54.937 C. In no-load cells, tegrastats in-window samples show at most 2 cores above 60% (host thread plus watcher) and no foreign activity. Caveats: 'valid' means only the summarizer's checks. Temperature and clocks are sampled only before and after each run. The c23 windows (about 0.5 s) hold just 1-4 tegrastats samples, so the disturbance check is weak there. In c32, P's own load rate drifts 718k to 755k iterations/s across rounds and its per-launch mean 37.9 to 55.9 us, so c32 'load vs P' and 'minus P' depend on the round."
+   },
+   {
+    "id": 2,
+    "verdict": "partly",
+    "evidence": "Per-round cost per call: AC3 is below AC, AC2, AC4 and ACn in all 24 cell-rounds. Its margin over the best of those is 0.39-0.51 us in c06, 1.1-2.0 in c27, 0.55-1.5 in c05 and 2.3-7.9 in c25/c26/c28. All quoted medians match. Exceptions: (1) AC5 minus AC3 reaches +2.73 us in c28 r3 (44.08 vs 41.35) and -2.15 in c28 r4. AC5 is lower than AC3 in 12 of 24 cell-rounds, so AC3 is not the lowest if AC5 counts as part of the family. (2) M100 is lower only on medians: per round it is higher in c25 r4 (+0.75 us) and tied in c06 r4 (-0.03).",
+    "correction": "AC3 is equal to AC5 within 2.8 us per round, not 2.3 (c28 r3 differs by 2.73). M100 is lower than AC3 in c25-c27 and c06 on medians, but not in c25 r4."
+   },
+   {
+    "id": 3,
+    "verdict": "partly",
+    "evidence": "Per-round AC3 minus AC (cores): c25 +.0050/+.0050/+.0057/+.0016; c26 +.0049/+.0091/+.0084/+.0075; c27 +.0047/+.0058/+.0087/+.0070; c28 +.0059/+.0067/+.0049/+.0070; c05 +.0116/+.0095/+.0043/+.0080; c06 +.0030/+.0131/+.0124/+.0100. AC3 is above AC in every round. The stated +0.004..+0.008 holds only for the c25-c28 medians. Per round the range is +0.0016..+0.0131, and the burst cells c05/c06 (medians +0.0087/+0.0112) lie outside it. AC2 minus AC is +0.0116..+0.0173 in c25-c28 (c26 r2 is 0.0173), about 0 in c05 (-0.0001..+0.0012) and +0.009..+0.015 in c06. AC3's window can only shrink by closing outright, and where it settles varies by run (c05 win80 per round 71k/8.6k/0/26k), so the premium is not a fixed property.",
+    "correction": "Per round, AC3 minus AC is +0.002 to +0.013 cores (always positive): medians +0.005 to +0.008 in c25-c28 and +0.009/+0.011 in c05/c06. AC2 minus AC is +0.012 to +0.017 in c25-c28, about 0 in c05 and about +0.012 in c06."
+   },
+   {
+    "id": 4,
+    "verdict": "holds",
+    "evidence": "c05 per round: AC2 22.15/22.12/21.53/22.64 and AC4 22.08/20.72/20.70/20.76, against AC3 16.11/16.03/15.15/15.37 and AC5 15.73/16.22/15.50/15.47. win0 per run: AC2 6745/6892/6305/6935 (top end 6.9k), AC3 25/3/2/1. AC3 and AC4 share the doubling rule and differ only in how they respond to a single gap of 50 us or more, so this is a controlled contrast. Caveats: (a) v1 AC also closes on one long gap (300 us or more, win0 about 2408 = once per launch) and still scores 16.3-17.3. The harm is therefore reacting to single mid-burst gaps at the 50 us threshold, not closing as such. (b) The regression's size runs through the late-sleep guard. Under load, AC2/AC4 log 3962-4631 guard_skips per run against 351-442 for AC3/AC5 and 607-659 for AC: deferral sleeps are skipped and 100 us slow sleeps follow. In c06 (no load, 0 guard skips) the same rules cost only 0.4-0.5 us per call more. (c) What creates the mid-burst gaps of 50 us or more (presumably watcher preemption) was not measured."
+   },
+   {
+    "id": 5,
+    "verdict": "holds",
+    "evidence": "c25 AC3 has win0=1 and win20=4001 in all 4 rounds. AC2 has win0=2001/2001/2001/2002 with win80=2001. The single win0 is the first request after start: last_req=0 makes gap=UINT64_MAX, which sets long_run=1 and leaves win at 0, which is harmless. What carries over the ~2.5 ms inter-launch gap is the window's size, not polling. The watcher still stops at most 20 us after the last call: AC3 hot_iters are 353k-429k per run against AC2's 883k-908k. Tested only with 2 ms kernels."
+   },
+   {
+    "id": 6,
+    "verdict": "partly",
+    "evidence": "The window is closed for all 4001 requests in AC2/AC3 (also AC4 and ACn) in every round of both c23 and c24. AC5 opens it slightly in c24 (win0 3951-3984). c23 CPU per round: AC2 .049-.089, AC3 .053-.128, AC4 .034-.119, AC5 .100-.130, ACn .069-.139, so the overall range is 0.034-0.139. AC2 and AC5 do not overlap even though both have zero hot iterations, which puts the noise floor between behaviourally identical sets at about 0.05 core. c24 calls over 1 ms: 0.23-0.28% pooled, 4-15 per run, as stated. AC is +0.97..+1.05 cores in c23 (no load; in c24 only +0.23..+0.27) and 2.80% over 1 ms in c24. The v2 summary has c23 AC +1.026 and c24 2.72%, so 'as in v2' holds. Regime caveat: '55-115 us' is P's per-launch time. Under bpftime per-launch is about 121 vs 84 us and latency about 26 us, so the end-of-service-to-request gaps are about 10 us longer (about 65-125 us). The 50-65 us edge and interleaved short/long gaps are not exercised.",
+    "correction": "c23 CPU per round is +0.03 to +0.14; AC2 (.05-.09) and AC5 (.10-.13) do not overlap. AC's +1.03 cores is c23 (no load); in c24 AC is +0.26."
+   },
+   {
+    "id": 7,
+    "verdict": "holds",
+    "evidence": "CPU per launch per round: AC5 81.2/81.0/85.7/79.5, AC3 41.6/36.4/38.7/36.8, ACn 40.2/38.3/38.7/34.2, AC2 70.5/73.5/71.5/67.7, P 21.1/21.3/20.3/20.6. The per-launch means match. AC5 has a 21-50 us window on 29990+ of 30001 requests and 12.9-13.4 M hot iterations. AC3's window is open for 39.8/63.6/54.6/62.9% of requests. Is the metric meaningful? Between sets, yes. Calibrating from c23 AC vs AC2 gives 103-112 ns per hot iteration. Predicted AC5-AC3 is 40.9-43.3 us per launch against 39.6-47.0 measured, and AC2-AC3 30.2-37.8 against 28.9-37.1. Absolute values and the comparison with P's 20-21 us are not watcher cost. P's host thread does not spin continuously (0.77 core). AC3/AC4/ACn come out below P in CPU per wall, so the CLAIMS 'CPU minus P' is -0.09 to -0.18 here. Other caveats: (a) AC3's open windows are all 20 us or less (win80 0-2), and only 8-42% of its recorded calls are under 20 us, so its window does little in c31. (b) The per-launch ranges of AC3, AC5 and ACn overlap and support no ranking. AC2 beats AC3 in every round, by 3-11 us. (c) Latency covers only the first 4095 calls, and the fast-call share swings 0.00-0.99 between 512-call blocks within a run (e.g. AC2 r4 0.02 to 0.98), consistent with phase locking against the 20 us sleep quantum."
+   },
+   {
+    "id": 8,
+    "verdict": "partly",
+    "evidence": "Numbers per run: calls over 1 ms AC5 59/50/56/28, AC3 8/7/6/7, AC2 6/4/6/8, ACn 7/9/8/8. Per-launch mean AC5 173.4/156.0/153.6/181.7 against AC3 121.1/128.1/123.0/125.7. AC3 hot iterations 4.5k-19.5k. AC5 hot iterations are 11.8/9.3/9.9/10.8 M, i.e. 9-12 M, not 13. The mechanism sentence is untested and partly contradicted. (a) GAP_LB changes behaviour without load as well: in c31 AC5's window is open on about 100% of requests against 40-64% for AC3, so it is not only removing preemption. (b) In the patch, t_empty is set before every sleep. A request the window missed and the first 20 us deferral sleep then finds gets gap = (first check at or after the window end) - last_req, which equals win at 1 us resolution. 'gap <= win' then counts it as caught and resets long_run, so the window cannot adapt. In c31 AC5 keeps a 40-50 us window on about 100% of requests, yet 20-62% of requests still needed a deferral sleep (defer per request 0.20-0.62) and only 4-61% of recorded calls are under 20 us. It pays for polling without catching the requests. (c) Why AC2/AC3 stop polling under load was not isolated. Plausible alternatives: real host-thread delays (P per-launch mean 38-56 us against 27 without load), and the late guard sending AC3 straight to 100 us slow sleeps (1047-2087 guard_skips per run in c32).",
+    "correction": "AC5 has 9-12 M hot iterations in c32. GAP_LB under-measures every gap by up to one sleep, not only by preemption: a miss found in the first deferral sleep is counted as caught. That keeps AC5's window open even with no load (c31)."
+   },
+   {
+    "id": 9,
+    "verdict": "partly",
+    "evidence": "c01, c02 and c15 are equal within noise. In c01, calls over 1 ms per run are AC 24-32 against AC3 28-37. AC is lower in all 4 rounds, but both have every window closed and 0 hot iterations, so this is noise. In c15, AC3 r1 has one 11.8 ms call and a mean of 87 against about 80. The c21 CPU figures match (AC +.078..+.094; the others +.038..+.076). But c21 latency is not equal. AC's host-call mean is 63.8/64.6/65.6/66.1 us, lower in every round than each v2/v3 set: AC2 68.9-70.2, AC3 67.3-71.4, AC4 68.1-69.4, AC5 66.8-69.2, ACn 66.7-70.8. This is a real behavioural difference: AC's 300 us threshold opens windows at 155-295 us gaps (win20 1867, 319k hot iterations), while v2/v3 keep them closed (win0 4001). Per-launch mean is AC 299-305 against AC3 303-312.",
+    "correction": "In c21, v2/v3 sets trade about 4 us per call of latency (AC lower in every round) for 0.01-0.04 less core; they are not equal to AC."
+   },
+   {
+    "id": 10,
+    "verdict": "partly",
+    "evidence": "Supported: single-lane c23/c24 windows stay closed; AC3 costs less than AC in every burst cell and round; its c32 tail matches ACn/AC2/AC4 and is far below AC5/AC/M100. Not shown: that AC3 is dominant or that it has 'no tail'. (1) Against AC2, it loses c31: per-launch 55.5-62.4 vs 47.5-52.8 us, worse in every round, and latency 22-33 vs 17-26 us. AC2 pays 29-37 us more CPU per launch for that. (2) Against M100, it loses in no-load cells: latency 26.0 vs 14.7 us in c23 and 26.3 vs 14.5 in c31; cost per call is lower for M100 in c06/c25-c27. M100 pays 0.1-1.0 more cores and has bad tails under load (c01 3.5%, c15 6.6% over 1 ms). (3) Against AC, it loses c21 latency by about 4 us in every round and uses 0.002-0.013 more cores in every burst cell and round. (4) 'No tail' is overstated. AC3 has 6-8 calls over 1 ms per 4095 in c32 (max 5.4 ms). Over the whole run its per-launch mean is about 50 us above the median (121-128 vs 74.4-74.7), against 10-24 us for P, and that only equals ACn. The over-1-ms counts cover the first ~14% of the run; AC5 r4 has the fewest of them but the highest whole-run mean. Untested risks, read from the patch: the window closes only on two gaps of 50 us or more in a row, any caught or short gap resets the count, and otherwise the window never shrinks. With interleaved short and long gaps, the window never closes and polls up to 50 us after every request. Such patterns include two or more calls per launch on 50-300 us kernels, entry plus exit probes, or alternating 30/80 us gaps. At 55-115 us long gaps that approaches continuous polling, and c23 (every gap long) cannot reveal it. AC2 would reset to 0 after each long gap. In c31, AC3's state is set by the 20 us deferral quantum against the 50 us threshold (windows swing between 0 and 20 us and never reach a size that catches the ~30-45 us gaps). That depends on platform timing and could flip to AC5-like polling. The matrix also lacks multi-process, graph, partial or duty load, and any unseen-latch case.",
+    "correction": "AC3 is the best compromise tested, not a dominant rule. It gives up dense no-load throughput and latency to AC2/M100 and c21 latency to AC, and it adds no tail beyond ACn's. It has not been tested on interleaved short/long gap patterns, where its two-in-a-row close rule never fires."
+   }
+  ],
+  "other_issues": [
+   "How AC5's gap is measured (GAP_LB, patch v3): t_empty is taken before each sleep, so a request the window missed and the first deferral sleep found is recorded with gap == win and counted as caught. AC5's window therefore stays open while it still misses requests. AC5 should not be read as 'AC3 without preemption bias'.",
+   "Statistics: 4 rounds per cell, so 4/4 same sign gives at best p=0.125 two-sided per cell. The noise floor between behaviourally identical sets is about 0.05 core: in c23, AC2/AC3/AC4/AC5/ACn all keep every window closed with 0 hot iterations, yet their CPU spans +0.03 to +0.14. c31 runs switch regime within a run, so its per-set ranges overlap widely (ACn per-launch 54-69 us).",
+   "Latency in c31/c32 comes from the first 4095 of 30000 calls (~14%), while the window counters, CPU and per-launch figures cover the whole run. Within-run 512-call blocks swing in fast-call share from 0 to 0.99, so the recorded slice is not representative (c32 AC5 r4: fewest calls over 1 ms but the highest per-launch mean).",
+   "The c31/c32 'CPU minus P' metric is negative for the sleeping sets (-0.03 to -0.18) because P's host thread uses 0.48-0.77 core and its share depends on latency. Use between-set differences, which match hot iterations at about 105-112 ns each, not absolutes or comparisons with P.",
+   "The c32 P baseline drifts monotonically across rounds (per-launch mean 37.9, 44.6, 49.8, 55.9 us; load rate 718k to 755k/s), so c32 'load vs P' is above 1.03 for every set in r1 and below 1 in r4.",
+   "Matrix limits: procs=1 and graph=0 in every cell, and only on6 full load (no on3 or duty6). unseen_latch=0 everywhere, so v2's latch rule (shared by AC2-ACn) was never exercised. Single platform at fixed clocks, one build.",
+   "The set descriptions in CLAIMS-v3 omit the late-sleep guard: when late_ewma exceeds 30 us, the 8 deferral sleeps are skipped and the watcher goes to 100 us slow sleeps or parks. Under load its use differs strongly by set (c05: AC2/AC4 about 4-4.6k skips per run vs 350-660 for AC/AC3/AC5) and it sets the size of the c05 regression. The descriptions also omit v1 AC's 1 ms episode cap.",
+   "Run order is shuffled per round and cell, and rounds5.log matches the seeded shuffle. No order effect is visible: AC3 and AC5 agree in bursts despite different positions. Time span 14:35-15:22; one build (agent .so built at 14:33 from the 14:32:58 source).",
+   "The tegrastats disturbance check is weak in c23 (1-4 samples in a ~0.5 s window) and c21. Long no-load cells (c02/c06/c25-c27) show only 2-17% of a core outside the victim, with no foreign process.",
+   "summarize.py validity ignores disturbance and mid-run clocks. 'Cost per call' divides per-launch overhead, including per-launch hook cost, by the lane count. M100 has no counters. The c23 header '55-115 us' describes P's gaps; bpftime's are about 10 us longer.",
+   "Patch nit: long_run is a signed int that increments without bound while the window is closed. It overflows (undefined behaviour) only after 2^31 consecutive long gaps, so it is harmless in practice. Correct as claimed: the first request after start counts as one long gap and leaves win at 0, and a caught or short gap resets the count."
+  ]
+ }
+}
