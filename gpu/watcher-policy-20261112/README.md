@@ -163,6 +163,16 @@ shrinks (a 20-300 us request spacing would busy-poll nearly all the time; untest
 the consecutive-hit latch fix can miss graph launches mixed with noted ones. Details in
 `controls/README.md`.
 
+## Follow-up: v2 (`v2/`)
+
+AC2 (window at most 50 us, closed by any gap of 50 us or more, sized 2 x the gap; latch by two
+hits within 1 s, with an unlatch), 304 runs: the continuous busy poll was real at 55-115 us
+request gaps (AC a full core, AC2 0.07) and the 50 us limit removes it (under load calls over
+1 ms 2.72% -> 0.27%), at +11 us host-call median; under full load 32-call bursts get worse (cost
+per call 16.9 -> 22.1 us), most likely from the 50 us close threshold; the gap-based sizing adds
+CPU without benefit. The latch held in every graph cell, the unlatch works, and isolated hits come
+from the first probed launch. Details in `v2/README.md`.
+
 ## Files
 
 - `summary.md`: every cell, set and counter; `verify.csv`: per-run validity.

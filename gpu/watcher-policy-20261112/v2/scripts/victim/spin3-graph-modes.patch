@@ -1,0 +1,23 @@
+--- victim/spin3.cu.v1	2026-11-12 13:23:56.461679661 +0900
++++ victim/spin3.cu	2026-11-12 13:23:56.505681067 +0900
+@@ -2,7 +2,8 @@
+ // As spin2, plus GAP_US: the host sleeps that long after each sync (outside the per-launch time,
+ // inside the window and CPU), for a low GPU duty or, with LAUNCHES 1, an idle agent; GRAPH 1:
+ // every launch is a CUDA graph (one kernel node, its spin set per launch), which the launch
+-// hooks do not note.
++// hooks do not note; GRAPH 2: graph and plain launches alternate (graph first); GRAPH 3: the
++// first half of the launches are graphs, the rest plain.
+ // L launches back to back of a 1 x THREADS kernel spinning on %globaltimer for
+ // SPIN_US plus a per-launch extra of 0..JITTER_US-1 us (a fixed LCG sequence,
+ // the same in every run), so a probe's call at the kernel's exit lands at a
+@@ -109,7 +110,9 @@
+ 	for (int i = 0; i < launches; i++) {
+ 		long long a = clk(CLOCK_MONOTONIC);
+ 		cudaError_t e;
+-		if (graph) {
++		bool use_graph = graph == 1 || (graph == 2 && i % 2 == 0) ||
++				 (graph == 3 && i < launches / 2);
++		if (use_graph) {
+ 			g_ns = ns[i];
+ 			cudaGraphExecKernelNodeSetParams(gexec, gnode, &gp);
+ 			cudaGraphLaunch(gexec, gs);

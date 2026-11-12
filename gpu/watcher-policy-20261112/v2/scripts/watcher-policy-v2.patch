@@ -1,0 +1,159 @@
+--- bpf_attach_ctx_cuda.cpp.ctl	2026-11-12 13:22:52.635641564 +0900
++++ src/runtime/src/attach/bpf_attach_ctx_cuda.cpp	2026-11-12 13:23:26.952736977 +0900
+@@ -268,7 +268,12 @@
+ 		 wfe_waits = 0, parks = 0, park_timeouts = 0, unseen_latch = 0,
+ 		 evq = 0, gate_checks = 0, gate_open_checks = 0, gate_opens = 0,
+ 		 latch_trips = 0, cap_forced = 0, guard_skips = 0,
+-		 unseen_hits = 0;
++		 unseen_hits = 0, unseen_unlatch = 0;
++	// first hits: how long after the watcher last saw a note the park began,
++	// how long after the event query that found nothing running, and whether
++	// any_running() is true at the hit
++	uint64_t hit_since_note[4] = {}, hit_since_idle[4] = {};
++	int hit_any[4] = {};
+ 	uint64_t us_hot = 0, us_defer = 0, us_slow = 0, us_slow_wfe = 0,
+ 		 us_park = 0;
+ 	uint64_t win_hist[4] = {};
+@@ -299,6 +304,15 @@
+ 	constexpr uint64_t WIN_START = 10, WIN_MAX = 300, EPISODE_CAP = 1000,
+ 			   P_DEFER = 20, P_MIN = 10;
+ 	const int K_DEFER = (int)env_u64("BPFTIME_CUDA_WATCHER_K_DEFER", 8);
++	// v2 (BPFTIME_CUDA_WATCHER_V2=1): C's window is twice the last gap, at
++	// most WIN_MAX2, and closes on any gap of WIN_MAX2 or more (no episode
++	// cap); A's unseen latch needs two hits within HIT_WINDOW (notes do not
++	// reset it) and comes off after UNLATCH with no request served while no
++	// noted kernel was in flight.
++	const bool V2 = env_u64("BPFTIME_CUDA_WATCHER_V2", 0) != 0;
++	const uint64_t WIN_MAX2 = env_u64("BPFTIME_CUDA_WATCHER_WIN_MAX", 50);
++	constexpr uint64_t HIT_WINDOW = 1000000, UNLATCH = 1000000;
++	uint64_t last_hit = 0, last_evidence = 0, t_gen_seen = 0, t_idle = 0;
+ 	constexpr uint64_t CHECK_US = 1000, RD_TRIP_NS = 200000,
+ 			   LATE_WFE_US = 500;
+ 	constexpr int OPEN_STREAK = 3, SPARE = 1;
+@@ -348,10 +362,19 @@
+ 			serve_cuda_request(ctx);
+ 			__atomic_store_n(&comm->flag2, 1, __ATOMIC_RELEASE);
+ 			st.req++;
++			if (A && V2 && unseen && !inflight &&
++			    activity.generation() == seen_gen)
++				last_evidence = t;
+ 			if (C) {
+ 				uint64_t gap = last_req ? t - last_req :
+ 							  UINT64_MAX;
+ 				if (gap <= win) {
++				} else if (V2) {
++					win = gap < WIN_MAX2 ?
++						      std::min(std::max(2 * gap,
++									WIN_START),
++							       WIN_MAX2) :
++						      0;
+ 				} else if (gap < WIN_MAX)
+ 					win = std::min(std::max(2 * win,
+ 								WIN_START),
+@@ -371,19 +394,29 @@
+ 		return false;
+ 	};
+ 	auto kernels_inflight = [&](uint64_t t) -> bool {
+-		if (!A || unseen)
++		if (!A || (unseen && !V2))
+ 			return true;
+ 		uint64_t g = activity.generation();
+ 		if (g != seen_gen) {
+ 			seen_gen = g;
+ 			inflight = true;
+ 			t_evq = t;
++			t_gen_seen = t;
+ 			return true;
+ 		}
+ 		if (inflight && t - t_evq >= EVQ_EVERY) {
+ 			inflight = activity.any_running();
+ 			t_evq = t;
+ 			st.evq++;
++			if (!inflight)
++				t_idle = t;
++		}
++		if (unseen) { // v2: latched, tracking continues
++			if (t - last_evidence <= UNLATCH)
++				return true;
++			unseen = false;
++			last_hit = 0;
++			st.unseen_unlatch++;
+ 		}
+ 		return inflight;
+ 	};
+@@ -477,7 +510,7 @@
+ 					in_hot = true;
+ 					hot_since = t;
+ 				}
+-				if (t - hot_since > EPISODE_CAP) {
++				if (!V2 && t - hot_since > EPISODE_CAP) {
+ 					forced_cool = true;
+ 					st.cap_forced++;
+ 				} else {
+@@ -524,13 +557,33 @@
+ 				st.park_timeouts++;
+ 				if (__atomic_load_n(&comm->flag1,
+ 						    __ATOMIC_ACQUIRE) == 1) {
++					if (st.unseen_hits < 4) {
++						int h = (int)st.unseen_hits;
++						st.hit_since_note[h] =
++							t_gen_seen ? t - t_gen_seen :
++								     0;
++						st.hit_since_idle[h] =
++							t_idle ? t - t_idle : 0;
++						st.hit_any[h] =
++							activity.any_running();
++					}
+ 					st.unseen_hits++;
+-					if (++unseen_run >= 2 && !unseen) {
++					if (V2) {
++						uint64_t now = policy_now_us();
++						if (last_hit &&
++						    now - last_hit <= HIT_WINDOW &&
++						    !unseen) {
++							unseen = true;
++							st.unseen_latch++;
++							last_evidence = now;
++						}
++						last_hit = now;
++					} else if (++unseen_run >= 2 && !unseen) {
+ 						unseen = true;
+ 						st.unseen_latch++;
+ 					}
+ 				}
+-			} else if (activity.generation() != g0) {
++			} else if (!V2 && activity.generation() != g0) {
+ 				// a noted launch ended the park: hits must be
+ 				// consecutive (a short kernel can post before its note)
+ 				unseen_run = 0;
+@@ -552,10 +605,10 @@
+ 		close(fd_sd);
+ 	if (const char *path = getenv("BPFTIME_CUDA_WATCHER_STATS");
+ 	    path && *path) {
+-		char line[1024];
++		char line[2048];
+ 		int len = snprintf(
+ 			line, sizeof(line),
+-			"policy=%s pid=%d req=%llu hot_iters=%llu defer_sleeps=%llu slow_sleeps=%llu wfe_waits=%llu parks=%llu park_timeouts=%llu unseen_latch=%llu evq=%llu gate_checks=%llu gate_open_checks=%llu gate_opens=%llu latch_trips=%llu cap_forced=%llu guard_skips=%llu win0=%llu win20=%llu win80=%llu win300=%llu unseen_hits=%llu us_hot=%llu us_defer=%llu us_slow=%llu us_slow_wfe=%llu us_park=%llu late_ewma_us=%.1f\n",
++			"policy=%s pid=%d req=%llu hot_iters=%llu defer_sleeps=%llu slow_sleeps=%llu wfe_waits=%llu parks=%llu park_timeouts=%llu unseen_latch=%llu evq=%llu gate_checks=%llu gate_open_checks=%llu gate_opens=%llu latch_trips=%llu cap_forced=%llu guard_skips=%llu win0=%llu win20=%llu win80=%llu win300=%llu unseen_hits=%llu us_hot=%llu us_defer=%llu us_slow=%llu us_slow_wfe=%llu us_park=%llu late_ewma_us=%.1f v2=%d unseen_unlatch=%llu h0_note=%llu h0_idle=%llu h0_any=%d h1_note=%llu h1_idle=%llu h1_any=%d h2_note=%llu h2_idle=%llu h2_any=%d h3_note=%llu h3_idle=%llu h3_any=%d\n",
+ 			policy.c_str(), (int)getpid(),
+ 			(unsigned long long)st.req,
+ 			(unsigned long long)st.hot_iters,
+@@ -581,7 +634,16 @@
+ 			(unsigned long long)st.us_defer,
+ 			(unsigned long long)st.us_slow,
+ 			(unsigned long long)st.us_slow_wfe,
+-			(unsigned long long)st.us_park, late_ewma);
++			(unsigned long long)st.us_park, late_ewma, (int)V2,
++			(unsigned long long)st.unseen_unlatch,
++			(unsigned long long)st.hit_since_note[0],
++			(unsigned long long)st.hit_since_idle[0], st.hit_any[0],
++			(unsigned long long)st.hit_since_note[1],
++			(unsigned long long)st.hit_since_idle[1], st.hit_any[1],
++			(unsigned long long)st.hit_since_note[2],
++			(unsigned long long)st.hit_since_idle[2], st.hit_any[2],
++			(unsigned long long)st.hit_since_note[3],
++			(unsigned long long)st.hit_since_idle[3], st.hit_any[3]);
+ 		int fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC,
+ 			      0644);
+ 		if (fd >= 0) {

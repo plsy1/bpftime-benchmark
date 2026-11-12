@@ -1,0 +1,126 @@
+{
+ "recompute": {
+  "claims": [
+   {
+    "id": 1,
+    "verdict": "partly",
+    "evidence": "My own parser read all 304 runs (19 cells x 4 sets x 4 rounds). Every run is valid: victim rc=0, loader rc=0 where expected, load rc=0 with a load rate where expected, both clock samples at 1728000/1728000/1020000000, no 'not attached'/'in use' notes, hostspin count and number of ns values = launches+1(+1 for graph cells), one stats line per AC/AC2 run. No error/fail/abort text in any .err file. Set identity also checks out: every AC env/stats has policy=AC v2=0, every AC2 has BPFTIME_CUDA_WATCHER_V2=1 and v2=1, and no M100 run has a stats file. The maximum temperature from the .env before/after thermal-zone samples is 54.093 C, which gives the claimed 54.1. But the tegrastats .power files (in-run samples, no-load cells) peak at 54.656 C.",
+    "correction": "304/304 valid holds. Max temperature is 54.1 C only for the .env before/after samples. The in-run tegrastats samples reach 54.7 C."
+   },
+   {
+    "id": 2,
+    "verdict": "holds",
+    "evidence": "c23, medians over 4 rounds. CPU minus P: AC +1.026 (per round 1.064/1.039/1.014/0.993), M100 +1.032, AC2 +0.072 (0.060-0.079). AC counters are the same in every round: win0=1, win20=2, win80=2, win300=3996 of req=4001. AC cap_forced is 451/433/432/437, median 435. AC2: win0=4001 of 4001 in every round, cap_forced 0. Host-call median pooled over rounds: AC 14.69 us vs AC2 25.89 us (per-round AC2 25.3-26.2). Per-launch mean median: AC 111.7 vs AC2 121.5 us (P about 84.4 us)."
+   },
+   {
+    "id": 3,
+    "verdict": "holds",
+    "evidence": "c24. Calls > 1 ms, pooled: AC2 0.27% (per round 0.25-0.275), AC 2.72% (2.08-3.05), M100 2.63% (2.43-2.95). Load vs P, median: AC2 0.977 (0.966-0.996), AC 0.962 (0.940-0.975), M100 0.949 (0.943-0.956). CPU minus P: AC2 +0.028, AC +0.240, M100 +0.323."
+   },
+   {
+    "id": 4,
+    "verdict": "holds",
+    "evidence": "c21 AC counter medians: win0 2040.5, win20 1855.5, win80 68.5, win300 38.5 of 4001 (per round win0 1996-2101, win300 32-45). Rounding the .5 medians gives the claimed 2040/1856/68/38, which sum to 4002. CPU minus P: AC +0.091, AC2 +0.048. Host-call median pooled: AC 66.83 vs AC2 69.23 us. Per-round medians overlap (AC 64.5-69.6, AC2 68.5-70.7), so 'equal' is acceptable. c22: CPU AC +0.036 vs AC2 +0.041; > 1 ms 0.54% vs 0.40%, with overlapping per-round ranges (AC 0.475-0.6, AC2 0.3-0.475); load 0.983 vs 0.981. AC2 is win0 for every request in c21 and c22. A small inconsistency: the claim gives the c21/c22 gaps as 155-295 us in its first line but '170-300 us' in its last sentence. That sentence presumably refers to the earlier prediction."
+   },
+   {
+    "id": 5,
+    "verdict": "holds",
+    "evidence": "In every round AC2 has win20=0 and win80 for every request after the first in each burst (c25 ~2000, c26 ~6000, c27 ~14007, c28 ~5792), so its window is 21-50 us given WIN_MAX2=50. AC has win80=0 and win20 for those requests. AC2-AC CPU, as a difference of medians: c25 +0.0136, c26 +0.0137, c27 +0.0133, c28 +0.0121, which gives the claimed 0.012-0.014. Per-round differences range 0.012-0.016. Cost per call = (mean - P mean of the same round)/threads, median: c25 AC2 51.40 vs AC 52.65; c26 30.60 vs 31.26; c27 20.06 vs 20.53; c28 48.43 vs 46.67 (largest gap 1.76 us unrounded). Nuance: in c28 (loaded) AC2 is higher in all four rounds with no overlap (48.1-48.9 vs 46.3-47.4) and guard_skips 294.5 vs 113. 'Equal' is generous there, and the direction matches c05."
+   },
+   {
+    "id": 6,
+    "verdict": "holds",
+    "evidence": "c05 per-launch mean per round: AC2 3291.4/3281.5/3295.7/3282.2 (3,282-3,296), AC 3135.3/3116.8/3117.7/3114.9 (3,115-3,135). AC2 is worse in every round. Cost per call, median: AC2 22.06 vs AC 16.87 us. guard_skips median: AC2 4753.5 (4543-4920) vs AC 616 (579-638). CPU is about equal (+0.115 vs +0.114). c06 cost per call: AC 12.26 vs AC2 12.31 us."
+   },
+   {
+    "id": 7,
+    "verdict": "holds",
+    "evidence": "c18, c29, c30: all 24 AC/AC2 runs have unseen_hits=2 and unseen_latch=1. unseen_unlatch=1 in all 4 c30 AC2 runs. It is 0 in every AC run and in the c18/c29 AC2 runs. c29 AC latched in all 4 rounds. No non-graph run has unseen_latch>0. Exactly four non-graph runs have unseen_hits=1: r2 c05 AC2, r2 c10 AC2, r4 c11 AC2, r2 c17 AC. Each has h0_note=0, h0_idle=0, h0_any=0. Caveat: per the patch, h0_note=0 only means t_gen_seen was never set, i.e. no generation change had been seen before the hit. The 'first probed launch whose note arrives after its kernel posted' explanation fits the code but is not shown by the logs."
+   },
+   {
+    "id": 8,
+    "verdict": "partly",
+    "evidence": "c02 AC2 calls > 1 ms per round: [2, 14, 0, 0]. r1 has 2, with a max of 3,653 us. M100 is [0,1,0,0] and AC [0,2,0,0], which fits '0-2'. AC2 guard_skips per round: [6, 72, 0, 0]. AC guard_skips are [2,3,1,0]. Pooled AC2: 16/12800 = 0.125% (shown as 0.12%), max 5,299.3 us (r2). Without r2 it is 2/9600 = 0.02%, max 3.65 ms. Tegrastats in the r2 AC2 window (85 samples): 14 samples with 2 cores >= 88%, 19 with 1 core, and 4 samples at 13:42:15 with all six cores at 88-100%. No other c02 run has any sample with 2 or more busy cores. The victim's CPU per wall in that run was 0.042 (other rounds 0.029-0.032). The run is clearly disturbed.",
+    "correction": "AC2 rounds other than r2 had 2, 0, 0 calls > 1 ms (r1: 2 calls, max 3,653 us), not 0. The other AC2 rounds had guard_skips 6, 0, 0, and AC had 2/3/1/0, not '2-3'. The summary's 0.12% comes from 14 of 16 calls in r2, and r1 adds 2. Tegrastats briefly shows all six cores busy, not only two. The victim used about 4% of a core in that run."
+   },
+   {
+    "id": 9,
+    "verdict": "holds",
+    "evidence": "AC vs AC2, medians. c01: CPU +0.024/+0.024, load 0.990/0.989, > 1 ms 0.97%/1.04%, host-call median 70.8/70.1 us. c10: +0.007/+0.007, load 0.997/0.998, > 1 ms 1.69%/1.56% (400 calls per run, so 1 call = 0.25%), median 70.9/68.5. c11: +0.002/+0.002. Its latency is one host call per run: AC [16.1, 112.8, 52.8, 117.8] vs AC2 [17.4, 18.5, 118.2, 54.1] us. The pooled medians 82.8 vs 36.3 rest on 4 samples each with overlapping ranges, so they are noise. c15: +0.038/+0.038, load 0.982/0.980, > 1 ms 0.45%/0.42%, median 68.9/69.1. c17: +0.013/+0.014, load 0.969/0.970, > 1 ms 30.26%/30.47%, median 91.3/91.7."
+   }
+  ],
+  "other_issues": [
+   "c01 r2: the P run's load rate was 707,554/s vs about 837,000 in r1/r3/r4. So load vs P in r2 is 1.14-1.17 for all three sets (M100 1.161, AC 1.136, AC2 1.172). The P run was disturbed or slow, possibly the same disturbance as c02 r2 AC2, which ran shortly after. Medians are unaffected (c01 AC 0.990 vs AC2 0.989), but the min-max ranges in summary.md for c01 include this artifact.",
+   "The tegrastats .power files peak at 54.656 C, above the 54.1 C max that summarize.py reports from the .env before/after samples.",
+   "Rounding the .5 counter medians in claims 4 and 6 (e.g. 2040.5, 1855.5, 4753.5) gives win counts summing to 4002 for c21. The summary's rounding is round-half-even.",
+   "My parser and outputs are in /tmp/claude-2002/v2chk/parse.py and /tmp/claude-2002/v2chk/lib.py (independent of summarize.py)."
+  ]
+ },
+ "critic": {
+  "claims": [
+   {
+    "id": 1,
+    "verdict": "partly",
+    "evidence": "304 = 19 cells x 4 sets x 4 rounds, and verify.csv marks every run ok. But 54.1 C is the highest of the before/after sensor snapshots in the .env files only. tegrastats during r2/c02_AC2 reached cpu/tj 54.66 C, the highest of any .power file. The validity check covers exit codes, clocks before and after, record counts and attach. It cannot see outside CPU load, and load cells have no tegrastats at all. At least four runs counted as valid were disturbed, all in r2 between 13:40:47 and 13:42:15: c02_AC2 (see claim 8); c01_P, whose load rate was 707,554/s against 833-837k in the other rounds (-15%), with per-launch mean 2623.8 against 2571-2579; and c18_P and c18_M100, which show 10-40% background load on cores 0-3 for the whole window (summed load mean 56 and 49, against 3-7 for quiet runs).",
+    "correction": "All 304 runs pass the summarizer's checks. The highest temperature measured during runs is 54.7 C (tegrastats); 54.1 C is the highest before/after snapshot. Passing the checks does not mean undisturbed: r2 c01_P, c18_P, c18_M100 and c02_AC2 had outside CPU load."
+   },
+   {
+    "id": 2,
+    "verdict": "holds",
+    "evidence": "Every round agrees. AC CPU is +0.993 to +1.064 (M100 +0.996 to +1.056). AC win300 = 3996 in all 4 runs; cap_forced is 432-451, while CPU stays at about 1 core. AC2 CPU is +0.060 to +0.079, with win0 = 4001 and hot_iters = 0 in every run. AC2 host-call median is 25.3-26.2 us against AC 14.4-14.8; per-launch mean is 120.9-123.2 against 111.0-115.7.",
+    "correction": "The numbers are right, but this cell tests AC2's 50 us threshold, not window sizing from the gap. Every measured gap was 50 us or more, so the window never opened (hot_iters=0) and AC2 here amounts to 'no hot window'. That gap is measured on the watcher side (from the timestamp after the previous serve to the next detection), so it includes the watcher's own sleep delay. The removal of the cap was never exercised: no cell has a steady stream of gaps under 50 us, which is the case where V2 would now poll without any limit."
+   },
+   {
+    "id": 3,
+    "verdict": "partly",
+    "evidence": "The stated numbers hold in every round. Calls over 1 ms: AC2 10-11 per run, AC 83-122, M100 97-118. Load vs P: AC2 0.966-0.996, AC 0.940-0.975 (AC2 higher in 4 of 4 rounds), M100 0.943-0.956. CPU: AC2 -0.000 to +0.036, AC +0.218 to +0.287, M100 +0.308 to +0.359. The claim leaves out the metrics where AC2 is worse in every round: host-call median 26.3 against 14.9 us, and per-launch median 146.6-148.5 against 130.7-132.3 us. One AC2 CPU value (r2) is -0.000 against P, so 'minus P' carries about \u00b10.03 of noise under load, and +0.028 cannot be told apart from 0.",
+    "correction": "Add that AC2 raises the typical latency in c24 (host-call median +11 us, per-launch median +15 us) while cutting the tail, CPU and load impact."
+   },
+   {
+    "id": 4,
+    "verdict": "partly",
+    "evidence": "The c21 window counts are right (per run: win0 1996-2101, win20 1814-1886, win80 50-74, win300 32-45). CPU is right too: AC +0.084 to +0.097 against AC2 +0.043 to +0.053. c22 is equal (CPU AC +0.023 to +0.051 against AC2 +0.021 to +0.060; calls over 1 ms 19-24 against 12-19 per run). But 'latency equal' is not accurate for c21: AC2's host-call median is higher in 4 of 4 rounds (68.5/70.7/69.2/68.5 against 65.1/69.6/67.5/64.5 us, +1 to +4 us). AC2 also had the cell's only call over 1 ms (2,594 us in r1). Per-launch median, on the other hand, is about 6 us lower with AC2 in every round (296.6 against 301-304). '155-295 us' is the gap estimated from the victim's settings; the watcher measures its own gaps including its 20 or 100 us sleep delay. That is probably why AC's window kept resetting, but this was not tested.",
+    "correction": "c21: AC2 halves CPU at the cost of a small but consistent +1 to +4 us host-call median. 'Equal latency' holds only roughly. The reason AC never reached continuous polling in c21 (the measured gap inflated by detection delay) is inferred, not tested."
+   },
+   {
+    "id": 5,
+    "verdict": "partly",
+    "evidence": "The window buckets are right: AC2 has win80 at about 2000/6000/14007/5790 and no win20; AC is the reverse. The extra CPU is right (c25 +0.013 to +0.015, c26 +0.014, c27 +0.013, c28 +0.012 per round). Cost per call from the per-launch mean is equal within 1.7 us. But AC2's per-launch median is about 36-37 us higher than AC's in every round of c25, c26, c27 and c28 (for example c25: 2656-2658 against 2620-2622), and p90 is about 35 us higher. In c06 the median is +40 us. In c02, where both windows stay at 0, the medians are equal. So the window change moves the distribution even though the means agree. Multi-lane cells have no GPU-timed host-call latency, so latency inside a burst is never measured.",
+    "correction": "In small bursts, AC2's larger window costs about 0.013 more cores, gives the same mean per-launch time, and gives a worse per-launch median and p90 (+35 us, 4 of 4 rounds). 'Does not help' stands; it is, if anything, slightly worse."
+   },
+   {
+    "id": 6,
+    "verdict": "partly",
+    "evidence": "c05 per round: AC2 per-launch mean 3281.5-3295.7 against AC 3114.9-3135.3; cost per call 22.1 against 16.9; guard_skips 4543-4920 against 579-638; p90 4233-4320 against 3450-3457. However, AC2's per-launch median is lower in every round (2968.7-2977.2 against 3021.9-3031.8), so AC2 is worse on the mean and the tail, not on every metric. In c06 the mean cost per call is equal (12.3), but AC2's median is +40 us in all rounds. The counters suggest a mechanism: AC2 has about 4,600 more win0 than AC (about 7,050 against 2,416), about the same as its extra guard_skips (+4,100). That points to the 50 us close-threshold under preemption at full load rather than the window sizing, but this is inferred from counters, not tested. c05 r3 P has a 39 ms per-launch outlier, which pulls that round's P baseline up slightly.",
+    "correction": "c05: AC2 is worse on the mean and the tail (p90 +800 us) in every round, but better on the per-launch median (-55 us). c06 is equal on the mean only."
+   },
+   {
+    "id": 7,
+    "verdict": "partly",
+    "evidence": "The counts verify. All 24 graph-cell AC/AC2 runs have unseen_latch=1 and unseen_hits=2. AC2 c30 has unseen_unlatch=1 in all 4 runs, and AC2 c18/c29 have 0. No non-graph run latched. The four lone hits (r2 c05 AC2, r2 c10 AC2, r4 c11 AC2, r2 c17 AC) each show h0_note=0, h0_idle=0, h0_any=0. Caveats: (a) 'AC never unlatched' holds by construction, because v1 has no unlatch code. (b) unseen_hits=2 is built in: neither policy parks while latched, so the counter cannot go past 2. (c) In 3 of the 12 AC graph runs (r2 c18, r4 c18, r1 c29), one of the two hits that caused the latch was the start-up hit (h0_note=0; r4 c18 has h0_any=1). (d) c29 did exercise alternation: in 7 of 8 runs h1_note-h1_idle is about 3,105 us against about 1,030 for h0, so a noted plain kernel ran between the two hits. AC latched anyway, because its reset only fires when a note ends a park; with back-to-back launches the note likely arrives during the deferral sleeps. Alternation with idle time before each plain launch was not tested, so the hole is only shown absent for this timing. (e) The hits were 2-5 ms apart, so the 1 s HIT_WINDOW limit was never tested. No cell separates AC's latch rule from AC2's. (f) In c30, CPU and latency for AC2 and AC are equal (+0.020/+0.019). Back-to-back launches keep inflight true either way, so the benefit of unlatching is not shown, and nothing records when the unlatch happened. (g) The patch confirms h0_note=0 means t_gen_seen==0: the watcher had never seen a generation change. 'Its note arrives after its kernel posted' is consistent with the code (note() runs after the original launch returns; the first call does cudaGetFuncBySymbol, a module lookup and cuEventCreate; the warm-up kernel spins 1 us), but nothing measured it.",
+    "correction": "Keep the counts. Narrow the c29 conclusion to 'AC latched despite alternation, because the notes did not end parks with back-to-back launches'. Mark 'the note arrives late' as the likely cause, not something measured. State that AC2's 1 s window and the value of unlatching were not exercised."
+   },
+   {
+    "id": 8,
+    "verdict": "partly",
+    "evidence": "r2 c02_AC2 has 14 calls over 1 ms (max 5,299). But AC2's other rounds are not all 0: r1 had 2 (3,653 and 1,025 us, at call indices 31-32). AC2's guard_skips in the other rounds are 6/0/0; the '2-3' are AC's values (2/3/1/0). M100/AC have 0-2 calls over 1 ms (correct). tegrastats inside the victim window shows more than 'two cores at 90-100%'. From 13:42:12.0 to 15.5, core 3 is at 100% for about 1 s, then cores 3+4, then mixed load, then all six cores at 88-100% for about 0.4 s, and RAM grows from about 2,306 to 2,763 MB: an outside process. The victim used 0.358 CPU s over 8.453 s (about 4%). Placing the slow calls in time (window start 13:42:10.93, about 2.64 ms per launch), 12 of the 14 fall at about 13:42:13.4-15.3, inside the burst, which supports blaming the burst. The c02 AC2 summary line (16/12,800 = 0.125%, max 5,299) does rest mainly on r2; without r2, AC2 would be 2/9,600 = 0.02%, the same as AC. The disturbance belongs to a wider r2 cluster: c01_P (13:42:00-09) had its load rate cut by 15%, and c18_P and c18_M100 (13:40:47-13:41:05) had background load.",
+    "correction": "r2 c02_AC2 was disturbed by an outside burst (up to all 6 cores busy, RAM +450 MB) at 13:42:12-15.5, and 12 of its 14 calls over 1 ms fall inside it. r1 AC2 had 2 calls over 1 ms; AC2's guard_skips in the other rounds were 0-6. The same disturbance window also affected r2 c01_P and r2 c18 P/M100."
+   },
+   {
+    "id": 9,
+    "verdict": "partly",
+    "evidence": "c15 and c17 are equal per round. c10 is equal (calls over 1 ms: 5-10 against 6-7 per run of 400). c01 is equal on the medians, but r2 c01_P was disturbed (load 707k/s against about 835k), so 'load vs P' for r2 is 1.136-1.172 for every set; that pushes the summary's upper range, not the medians. c11 has exactly one host call and one launch per run, so 4 samples per set in total: AC 16/113/53/118 us against AC2 17/18/118/54 us. 'Latency equal within noise' is meaningless there; only CPU (+0.002 for both) and parks (8,252-8,256) are comparable.",
+    "correction": "c01, c10, c15 and c17: equal within noise. c11: CPU and park counts are equal, but latency and per-launch time cannot be compared with n=1 per run."
+   }
+  ],
+  "other_issues": [
+   "Patch review, window sizing: the window is resized only when a gap exceeds the current window (`if (gap <= win) {}`), so it never shrinks inside a burst. It is not 'twice the last gap': it is max(2*gap, 10) capped at 50, and it stays put until a gap of 50 us or more sets it to 0. The gap is measured by the watcher, from the timestamp after the previous serve to the next detection, so it includes the watcher's own sleep delay. That can keep a closed window closed. WIN_MAX2 can be overridden through the environment, but no .env file sets it (checked), and all AC2 .env files have V2=1 while no AC .env file does.",
+   "Patch review, cap removal: exactly as described (`!V2 && t - hot_since > EPISODE_CAP`). The risky case for uncapped polling (a steady stream of gaps of 10-50 us) is not in the matrix.",
+   "Patch review, latch: V2 latches when a hit comes within HIT_WINDOW=1 s of the previous hit (last_hit), and notes do not reset it, as claimed. A start-up hit plus any real unnoted launch within 1 s will latch. Unlatch: evidence is recorded when a request is served while unseen, the cached `inflight` is false and generation()==seen_gen; the latch comes off after 1 s without evidence. `inflight` is refreshed only every 1 ms or more, so the check is approximate. In V2 the unlatch check runs only on calls where no new generation was seen. For an app that uses graphs and goes idle for more than 1 s, this rule would unlatch and then need two hits to latch again (an extra 1 ms backstop wait); this was not tested.",
+   "Patch review, the AC path with V2 off: unchanged apart from the diagnostics (t_gen_seen and t_idle bookkeeping, plus an extra any_running() call on hits). The agent library was rebuilt at 13:24:20 (src matches .ctl plus the patch byte for byte) and spin3 at 13:27:33 with the graph modes. So 'AC = AC of earlier rounds' and 'victim built as before' hold for the code, not for the binaries; compare numbers with earlier rounds with care.",
+   "summarize.py reads the max temperature only from the before/after .env snapshots. It drops only the first latency value, but graph cells have two warm-up calls (a plain one and one through the graph), so one warm-up call stays in each graph cell's latency set. It pools calls over 1 ms across rounds, so a single disturbed run can set the pooled share and the max (as in c02 AC2).",
+   "The machine was not quiet during r2: RAM ranged from 2.0 to 3.7 GB between runs, and there was outside CPU load from 13:40:47 to 13:42:15. Load cells (c01, c05, c10, c15, c17, c22, c24, c28) have no tegrastats, so disturbances in them cannot be detected; the only sign is a P load rate that is off, as in r2 c01_P.",
+   "For each set, 'minus P' uses a single P run per round, run one after the other rather than at the same time. Under load this baseline varies by about \u00b10.03 cores (r2 c24 AC2 comes out at -0.000), so CPU differences under 0.03 in load cells are within noise."
+  ]
+ }
+}
