@@ -49,10 +49,20 @@ struct CUDAContext {
 	std::shared_ptr<std::atomic<bool>> cuda_watcher_should_stop =
 		std::make_shared<std::atomic<bool>>(false);
 
-	// Whether the watcher waits on the request flag (WFE) because a probed
-	// kernel may run, rather than sleeping between requests
-	std::shared_ptr<std::atomic<bool>> cuda_watcher_waiting_on_flag =
-		std::make_shared<std::atomic<bool>>(false);
+	// What the host-call watcher does, for tests and diagnostics
+	struct watcher_state {
+		// waits on the request flag (WFE, with BPFTIME_CUDA_WATCHER_WFE=1)
+		// because a noted probed launch may run
+		std::atomic<bool> waiting_on_flag{ false };
+		// requests from launches no hook noted keep it from parking
+		// (cuda_watcher::unseen_launch_latch)
+		std::atomic<bool> unseen_latched{ false };
+		// parks (no probed kernel may run), sleeps of slow_sleep_us (one
+		// may), requests caught by the poll window
+		std::atomic<uint64_t> parks{ 0 }, sleeps{ 0 }, window_catches{ 0 };
+	};
+	std::shared_ptr<watcher_state> cuda_watcher =
+		std::make_shared<watcher_state>();
 
 	// Shared memory region for CUDA
 	cuda::CommSharedMem *cuda_shared_mem;
@@ -159,12 +169,38 @@ public:
 	// address of their values.
 	std::vector<attach::MapBasicInfo>
 	create_map_basic_info(int filled_size);
-	// Whether the host-call watcher now waits on the request flag (a
-	// probed kernel may run) rather than sleeping between requests.
+	// Whether the host-call watcher now waits on the request flag (WFE
+	// mode, a probed kernel may run) rather than sleeping between requests.
 	bool cuda_watcher_waits_on_flag() const
 	{
-		return cuda_ctx && cuda_ctx->cuda_watcher_waiting_on_flag->load(
+		return cuda_ctx && cuda_ctx->cuda_watcher->waiting_on_flag.load(
 					   std::memory_order_acquire);
+	}
+	// Whether requests from unnoted launches keep the watcher from parking.
+	bool cuda_watcher_unseen_latched() const
+	{
+		return cuda_ctx && cuda_ctx->cuda_watcher->unseen_latched.load(
+					   std::memory_order_acquire);
+	}
+	// How often the watcher parked, slept while a probed kernel could run,
+	// and caught a request in its poll window, so far.
+	uint64_t cuda_watcher_parks() const
+	{
+		return cuda_ctx ? cuda_ctx->cuda_watcher->parks.load(
+					  std::memory_order_relaxed) :
+				  0;
+	}
+	uint64_t cuda_watcher_sleeps() const
+	{
+		return cuda_ctx ? cuda_ctx->cuda_watcher->sleeps.load(
+					  std::memory_order_relaxed) :
+				  0;
+	}
+	uint64_t cuda_watcher_window_catches() const
+	{
+		return cuda_ctx ? cuda_ctx->cuda_watcher->window_catches.load(
+					  std::memory_order_relaxed) :
+				  0;
 	}
 #endif
 

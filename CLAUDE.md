@@ -2181,49 +2181,112 @@ request while holding both, `membar.sys`, sets `flag1`, spins on `flag2`,
 clears it, `membar.sys`, reads the response, `membar.sys`, releases. Lanes of a
 warp take turns (no intra-warp spin before sm_70). The watcher takes a request
 by changing `flag1` from 1 to 0 (acquire), serves it and stores `flag2`
-(release); after a request it keeps polling for 200 us (the next thread posts
-a few microseconds after reading the response), idle it sleeps 50 us doubling
-to 1 ms. The request used to be written by every lane before the lock (all
+(release); how it waits between requests is below. The request used to be
+written by every lane before the lock (all
 threads' calls carried one thread's key or printk arguments), each call waited
 for the watcher's 1 ms sleep, and the lock was per module. Spinning directly
 on `occupy_flag` (host memory, the flags' cache line) made a call cost 300 us
 with 32 warps waiting; with the module lock in front it is about 10 us at any
 contention (the test below: 2048 calls in about 20 ms).
 
-That sleep cost a sparse caller 0-1 ms per call (a call after the 200 us
-window waited for the watcher's current sleep; results
-`gpu/hostwake-20261111`). A GPU thread makes host calls only from a probed
-kernel, so the launch hooks note every launch of probed code
-(`note_launch_if_probed`: a kernel of a library the agent substituted,
-`cuFuncGetModule` against `cuLibraryGetModule`, cached per function; host
-stubs through `cudaGetFuncBySymbol`, leaving cudart's last error as it was; the
-late path's patched launches) in `attach::launch_activity()`
-(`probed_launch_activity.cpp`, one object per process, in the attach library
-because the watcher starts before nv_attach_impl is registered): an event
-recorded after the launch on its stream, a generation bump, and a condvar wake
-of a sleeping watcher. While a noted launch may run, the watcher waits on
-`flag1` with WFE (Linux's `__cmpwait`: an exclusive load, then WFE until the
-GPU writes the line; `gpu/wfe-20261111`: about 2 us at any gap, at the power
-of a sleeping core), checking the events every 100 us; otherwise it sleeps as
-before, but a noted launch ends the sleep. A host call is 14-16 us at any gap
-(`gpu/hostwake-fix-20261111`). Needs aarch64 with `HWCAP_EVTSTRM` (the event
-stream ends every WFE within about 100 us, so the stop flag and the events are
-still seen); elsewhere, or with `BPFTIME_CUDA_WATCHER_WFE=0`, a noted launch
-only ends the current sleep. Costs: the watcher counts as running and holds
-its core while any probed kernel runs, probes with host calls or not (every
-kernel of a patched library counts); about 1-4 us per probed launch for the
-note (capture check, event record; inferred from the 24-case rounds, not
-timed alone). Rules: no note for a stream being
-captured (the event would join the capture, and querying it invalidated the
+The watcher waits between requests by the rules of `cuda_watcher_policy.hpp`
+(results `gpu/watcher-policy-20261112`, set AC3 of v3). A GPU thread makes
+host calls only from a probed kernel, so the launch hooks note every launch of
+probed code (`note_launch_if_probed`: a kernel of a library the agent
+substituted, `cuFuncGetModule` against `cuLibraryGetModule`, cached per
+function; host stubs through `cudaGetFuncBySymbol`, leaving cudart's last
+error as it was; the late path's patched launches) in
+`attach::launch_activity()` (`probed_launch_activity.cpp`, one object per
+process, in the attach library because the watcher starts before
+nv_attach_impl is registered): an event recorded after the launch on its
+stream, a generation bump, and a condvar wake of a parked watcher. After a
+request the watcher:
+- polls for a window sized from the gaps between requests (from the end of
+  one service to the detection of the next): doubled from 10 us by every gap
+  shorter than 50 us that it missed, at most 50 us, closed only by two gaps of
+  50 us or more in a row (a caught or shorter gap resets the count);
+- then sleeps 20 us up to 8 times (the deferral sleeps), skipped while its
+  sleeps return more than 30 us late on average (a loaded CPU);
+- then, while a noted launch may run (one noted since it last looked, or an
+  event not complete at the last query, made at most every 1 ms), sleeps
+  100 us at a time, and otherwise parks in `wait_for_note` until a launch is
+  noted (1 ms backstop).
+The thread's timer slack is 1 us (`PR_SET_TIMERSLACK`; the default 50 us made
+20 us sleeps end late). Measured in the v3 rounds (448 runs, 4 rounds, the
+rule as set AC3) against the earlier policies: a call 2 ms after the previous
+one about 70 us (median 69, p90 108); 32-call bursts under full CPU load
+15.7 us per call (a 200 us poll after every request with sleeps up to 100 us:
+16.9; windows up to 300 us: 16.6), 2 calls per launch 45 us (43.2 and 54.4);
+at request gaps of 55-115 us 0.1 of a core, where the 200 us poll and the
+300 us windows polled a whole one; under full load and 55-115 us gaps 0.26% of
+host calls over 1 ms (2.7-2.8% polling). From the first round (same park and
+sleeps): idle 0.002 of a core parked (0.011 sleeping 100 us at a time). Given
+up: dense requests without load (1 us kernels: 57 us per launch, where v2's
+window, twice the last gap and closed by one long gap, kept polling, 47.5-52.8
+us, for 30-37 us more CPU per launch), and about 4 us per call at 155-295 us
+gaps (300 us windows still caught some of those). Closing the window on one
+long gap (22.1 us per call) or halving it (20.7) made 32-call bursts under
+full load dearer: the window closed thousands of times per run, the late guard
+skipped the deferral sleeps and calls waited for 100 us sleeps (counters);
+what makes gaps of 50 us or more inside a burst (presumably the watcher's
+preemption) was not measured. A window up to 300 us polled a whole core at
+55-115 us gaps. Not tested: gaps alternating short and long (the window never
+closes; polling stays bounded by 50 us per request), several processes. Until
+46f5a7cb the watcher polled 200 us after every request and slept 50 us
+doubling to 1 ms (a sparse caller waited 0-1 ms, `gpu/hostwake-20261111`);
+46f5a7cb to the change to these rules it waited with WFE while a noted launch
+could run (now opt-in, below).
+
+Launches no hook notes (graph launches, CUDA 13 kernel handles the hooks
+cannot resolve, nvcc 13's default launches when they are not resolved,
+launches into a stream being captured) run probed kernels the watcher does not
+know about: parked, it answers their calls at the 1 ms backstop. A request
+found waiting when a park ends at its backstop with no launch noted is a hit;
+two hits within 1 s latch the watcher out of parking (it sleeps as while a
+noted launch runs: graph launches 69-70 us per call in the first round, where
+46f5a7cb's WFE watcher, not latching, took 533 us), and the latch comes off
+after 1 s in which no request was served while no noted launch was in flight
+(v2 rounds: every graph run latched, the unlatch came in every run of graphs
+then plain launches). Isolated hits: 29 of 31 in the v3 rounds came before the
+watcher had seen any note, a process's first probed launch whose note came
+after its kernel posted (probably the first-time lookup in
+`note_launch_if_probed`; one run caught `note()` holding its lock at the
+hit); 2 came under full load 4-5 ms after a note, cause unknown. No run of a
+non-graph application latched.
+
+`BPFTIME_CUDA_WATCHER_WFE=1` (aarch64 with `HWCAP_EVTSTRM`; elsewhere it does
+nothing) waits on `flag1` with WFE instead while a noted launch may run, its
+end queried every 100 us (Linux's `__cmpwait`: an exclusive load, then WFE
+until the GPU writes the line; the event stream ends every WFE within about
+100 us, so the stop flag and the events are still seen): a host call 14-16 us
+at any gap (`gpu/hostwake-fix-20261111`), but the watcher counts as running and
+holds its core while any noted probed kernel runs, host calls or not (every
+kernel of a patched library counts); under full CPU load the load lost 13% of
+its throughput and 11% of host calls took over 1 ms (46f5a7cb's build).
+Requests from unnoted launches (latched) take the 100 us sleeps, not WFE: WFE
+there would hold a core for as long as such an application lives, idle or
+not. Costs of the notes: about
+1-4 us per probed launch (capture check, event record; inferred from the
+24-case rounds, not timed alone). Rules: no note for a stream being captured
+(the event would join the capture, and querying it invalidated the
 application's capture); `any_running` only try-locks (a `note()` blocked in
-`cuEventRecord` on a full queue holds the lock until a queued kernel ends,
-and that kernel may be waiting for the watcher); the watcher thread runs in
+`cuEventRecord` on a full queue holds the lock until a queued kernel ends, and
+that kernel may be waiting for the watcher); the watcher thread runs in
 relaxed capture mode (its event queries must not invalidate another thread's
 global-mode capture); a `_ptsz` launch on stream 0 is noted on the per-thread
-stream. Not covered: graph launches and CUDA 13 kernel handles the hooks
-cannot resolve (served after the sleep, as before). Tests: "The host-call
-watcher answers at once while a probed kernel runs", "A noted launch into a
-stream being captured leaves the capture valid".
+stream. Tests: `[cuda-watcher-policy]` (the rules without a GPU: the window's
+sizes and closing, the deferral sleeps and their guard, latching and
+unlatching), "The host-call watcher answers spaced calls within a short sleep
+while a probed kernel runs" (it sleeps, neither polling nor parking: the
+watcher's counters), "The host-call watcher parks while idle and a noted
+launch ends the park", "The host-call watcher's poll window catches calls
+back to back", "Requests from unnoted launches keep the watcher from parking
+until they stop", "With WFE the host-call watcher answers at once while a
+probed kernel runs" (also: off the flag soon after a kernel's end, not on it
+while latched), "A noted launch into a stream being captured leaves the
+capture valid". The default-policy tests unset `BPFTIME_CUDA_WATCHER_WFE`.
+Thirteen mutations of the rules and the loop each fail one of them (list in
+the commit message).
 
 GPU ringbuf (1527): every GPU thread has its own records (`gpu_ringbuf_header`,
 then `max_entries` records of a size word and `value_size` bytes). A writer
