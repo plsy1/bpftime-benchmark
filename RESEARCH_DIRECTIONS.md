@@ -286,6 +286,20 @@ should not exist.
 
 Still open in layer 1: several CUDA processes on one segment, lookup address translation.
 
+**The waiting rules beyond this board (checked 2026-11-12, discussed 2026-11-13).** Without
+`jetson_clocks` (frequency scaling, idle states; `gpu/watcher-policy-20261112/dvfs`) the
+comparisons that chose AC3 held. Its behaviour depends on which step the gaps between requests
+fall into and on how busy the CPU is. The gaps are set by the GPU program (where probes sit, how
+often kernels launch, how many lanes call), by the round trip (within a burst about 10 us per
+call on the Orin, so the 50 us window cap leaves about 5x headroom) and by the watcher itself (a
+gap is measured from the end of a service to the detection of the next request, so a sleeping
+watcher measures longer gaps). On a discrete GPU the round trip over PCIe may push gaps within a
+burst past 50 us; calls would then fall to the sleeping steps (untested, no such machine).
+Possible later: measure true gaps from a GPU timestamp (`%globaltimer`) written into each request,
+after calibrating GPU against CPU time once, and derive the fixed values (window cap, 20 us x 8,
+100 us) from the measured distribution. On the Orin that can at best match the hand-tuned values;
+it is worth doing only with a second platform to show it.
+
 ### Layer 2: the synchronous protocol on an integrated GPU (research core)
 
 Question: on an IO-coherent integrated GPU with a ~4.9 us round trip, what request protocol gets a
@@ -332,3 +346,35 @@ means GPU maps, whose sizing is direction 1.
 - GENESYS (ISCA '18): GPU-issued system calls coalesced on an AMD integrated GPU.
 - LLVM libc GPU RPC: warp-wide ports and several slots.
 - NVBit's device-to-host channel (one buffer, a host receiver thread).
+
+### Framing for a paper (discussion 2026-11-13)
+
+Layer 2 as planned above (warp batching, several slots, an arbiter in GPU memory) is close to
+GENESYS and LLVM libc's GPU RPC; done well, it still reads as known ideas applied to eBPF.
+
+What could be new: eBPF programs can be analyzed when they are loaded, so the runtime knows, for
+each call site, which helper it calls, whether the result is used, whether the operation commutes,
+and whether the lanes of a warp share the key. It can then pick, per call site, the cheapest
+execution that keeps BPF semantics:
+
+| call site | execution | example |
+|---|---|---|
+| the data can live on the GPU | no host call (eliminate) | ordinary ARRAY maps, pid (layer 1, done) |
+| result unused, operation commutes | buffer on the GPU, apply on the host in batches, final state exact (defer) | counters and histograms, `map[key] += 1` |
+| lanes of a warp on the same key | one request for the warp (aggregate) | many threads updating one counter |
+| the result is needed at once | synchronous round trip, with the host-side waiting rules (layer 1) | a lookup whose value is used; `BPF_NOEXIST`/`BPF_EXIST`, deletes |
+
+Thesis: most eBPF helper calls on a GPU do not need a synchronous per-thread round trip, and
+because eBPF programs are analyzable the runtime can choose, per call site, to eliminate,
+aggregate, defer or synchronize without changing what the program observes. This spans layers 2
+and 3 and differs from gpu_ext, which applies warp-leader execution and asynchronous, approximate
+map shards to whole maps rather than choosing per call site while keeping results exact.
+
+- First check: survey the call sites of GPU eBPF tools (bpftime's GPU examples, gpu_ext's tools)
+  by these properties. The framing holds only if most call sites can avoid a synchronous round
+  trip.
+- Evaluation needs a discrete GPU (over PCIe each avoided round trip is worth more), real
+  workloads (LLM inference and the like), and comparisons with official bpftime, gpu_ext, NVBit
+  and Neutrino; check what upstream (gpu_ext) is doing first to avoid overlap.
+- Judgement at the time: layer 1 alone is workshop material; a top venue only if the per-call-site
+  choice works and the survey shows most call sites can skip the round trip.
