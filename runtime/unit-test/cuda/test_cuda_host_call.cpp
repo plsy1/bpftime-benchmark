@@ -22,6 +22,7 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -1200,11 +1201,35 @@ TEST_CASE("An array map the GPU addresses stays allocated after its fd is closed
 	}
 }
 
+// Sets (or, with nullptr, unsets) an environment variable for a scope (the
+// watcher reads its settings when its thread starts).
+struct scoped_env {
+	std::string name;
+	std::optional<std::string> previous;
+	scoped_env(const char *n, const char *value) : name(n)
+	{
+		if (const char *v = getenv(n))
+			previous = v;
+		if (value)
+			setenv(n, value, 1);
+		else
+			unsetenv(n);
+	}
+	~scoped_env()
+	{
+		if (previous)
+			setenv(name.c_str(), previous->c_str(), 1);
+		else
+			unsetenv(name.c_str());
+	}
+};
+
 // A sleeping watcher (50 us doubling to 1 ms between requests) answered a
 // host call that came after a pause 0-1 ms late (results
-// gpu/hostwake-20261111). While a probed kernel may run it now waits on the
-// request flag with WFE, and a noted launch ends its sleep.
-TEST_CASE("The host-call watcher answers at once while a probed kernel runs",
+// gpu/hostwake-20261111). With BPFTIME_CUDA_WATCHER_WFE=1 it waits on the
+// request flag with WFE while a probed kernel may run, and a noted launch
+// ends its park.
+TEST_CASE("With WFE the host-call watcher answers at once while a probed kernel runs",
 	  "[cuda-host-call]")
 {
 	if (!use_primary_context())
@@ -1215,6 +1240,7 @@ TEST_CASE("The host-call watcher answers at once while a probed kernel runs",
 #else
 	SKIP("WFE waiting is aarch64 only");
 #endif
+	scoped_env wfe("BPFTIME_CUDA_WATCHER_WFE", "1");
 	constexpr int map_fd = 7;
 	agent_segment segment("cuda-host-wake", [&]() {
 		REQUIRE(bpftime_maps_create(
@@ -1261,8 +1287,10 @@ TEST_CASE("The host-call watcher answers at once while a probed kernel runs",
 		INFO("host calls 2 ms apart: median " << median_us << " us, max "
 						      << ns.back() / 1000.0
 						      << " us");
-		// sleeping between them: about 300-950 us (gpu/hostwake-20261111)
-		CHECK(median_us < 100);
+		// with WFE about 15 us; sleeping 100 us between requests
+		// (the default) about 70; up to 1 ms: about 300-950 us
+		// (gpu/hostwake-20261111)
+		CHECK(median_us < 40);
 		// after the kernel the watcher sleeps between requests again
 		bool idle = false;
 		for (int i = 0; i < 100 && !idle; i++) {
@@ -1271,10 +1299,10 @@ TEST_CASE("The host-call watcher answers at once while a probed kernel runs",
 		}
 		CHECK(idle);
 
-		// A launch noted while the watcher sleeps (5 ms idle: 1 ms
-		// sleeps) ends the sleep: the watcher waits on the flag at once,
-		// not when its sleep is over.
-		std::vector<double> to_flag_us;
+		// A launch noted while the watcher parks (5 ms idle: 1 ms
+		// backstops) ends the park: the watcher waits on the flag at
+		// once, not when its park is over.
+		std::vector<double> to_flag_us, off_flag_us;
 		uint64_t one = 1, long_gap = 5'000'000;
 		void *long_params[] = { &map, &outp, &one, &long_gap };
 		for (int i = 0; i < 10; i++) {
@@ -1294,20 +1322,237 @@ TEST_CASE("The host-call watcher answers at once while a probed kernel runs",
 					std::chrono::steady_clock::now() - t0)
 					.count());
 			REQUIRE(cuStreamSynchronize(stream) == CUDA_SUCCESS);
-			for (int j = 0; j < 100 && ctx.cuda_watcher_waits_on_flag();
-			     j++)
-				std::this_thread::sleep_for(
-					std::chrono::milliseconds(1));
+			// the kernel's end is queried every 100 us: the
+			// watcher leaves the flag (and its core) soon after
+			const auto t1 = std::chrono::steady_clock::now();
+			while (ctx.cuda_watcher_waits_on_flag() &&
+			       std::chrono::steady_clock::now() - t1 <
+				       std::chrono::milliseconds(100))
+				;
+			off_flag_us.push_back(
+				std::chrono::duration<double, std::micro>(
+					std::chrono::steady_clock::now() - t1)
+					.count());
 		}
 		std::sort(to_flag_us.begin(), to_flag_us.end());
+		std::sort(off_flag_us.begin(), off_flag_us.end());
 		INFO("noted launch to waiting on the flag: median "
 		     << to_flag_us[5] << " us, max " << to_flag_us.back()
-		     << " us");
+		     << " us; kernel end to off the flag: median "
+		     << off_flag_us[5] << " us");
 		// about 10 us; a sleep ending on its own: up to 1 ms (median
 		// 160 us in the mutation check)
 		CHECK(to_flag_us[5] < 50);
+		// about 100 us; queried every 1 ms: 0-1 ms after the end
+		CHECK(off_flag_us[5] < 400);
+
+		// Requests from launches no hook notes latch the watcher out of
+		// parking; it sleeps 100 us between them, it does not wait on
+		// the flag (that held a core for the life of the application)
+		uint64_t ten = 10, gap_2ms = 2'000'000;
+		void *unnoted_params[] = { &map, &outp, &ten, &gap_2ms };
+		REQUIRE(cuLaunchKernel(function, 1, 1, 1, 1, 1, 1, 0, stream,
+				       unnoted_params,
+				       nullptr) == CUDA_SUCCESS);
+		REQUIRE(cuStreamSynchronize(stream) == CUDA_SUCCESS);
+		std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		CHECK(ctx.cuda_watcher_unseen_latched());
+		CHECK(!ctx.cuda_watcher_waits_on_flag());
 		cuStreamDestroy(stream);
 	}
+}
+
+namespace
+{
+// A test segment with one hash map and a context whose watcher serves it, and
+// the spaced-calls kernel: calls(n, gap_ns, note) launches it on a stream of
+// its own, notes the launch if asked (the launch hook's part), and returns
+// the GPU-timed latency of every call in us.
+struct spaced_calls_fixture {
+	static constexpr int map_fd = 7;
+	// the default policy (the variable unset), whatever the environment
+	// says
+	scoped_env no_wfe{ "BPFTIME_CUDA_WATCHER_WFE", nullptr };
+	agent_segment segment;
+	std::optional<bpf_attach_ctx> ctx;
+	std::optional<test_module> module;
+	CUfunction function = nullptr;
+	CUstream stream = nullptr;
+
+	explicit spaced_calls_fixture(const char *name)
+		: segment(name, []() {
+			  REQUIRE(bpftime_maps_create(
+					  map_fd, "spaced_calls_map",
+					  { .type = (int)bpf_map_type::
+						    BPF_MAP_TYPE_HASH,
+					    .key_size = 8,
+					    .value_size = 8,
+					    .max_ents = 1024 }) == map_fd);
+		  })
+	{
+		ctx.emplace();
+		const uintptr_t comm =
+			cuda::cuda_shared_mem_device_pointer_storage().load();
+		REQUIRE(comm != 0);
+		module.emplace();
+		module->set_comm(comm);
+		module->set_map_info(map_fd,
+				     { .enabled = true,
+				       .key_size = 8,
+				       .value_size = 8,
+				       .max_entries = 1024,
+				       .map_type = (int)bpf_map_type::BPF_MAP_TYPE_HASH,
+				       .extra_buffer = nullptr,
+				       .max_thread_count = 0 });
+		REQUIRE(cuModuleGetFunction(&function, module->module,
+					    "bpftime_test_spaced_calls") ==
+			CUDA_SUCCESS);
+		REQUIRE(cuStreamCreate(&stream, CU_STREAM_NON_BLOCKING) ==
+			CUDA_SUCCESS);
+	}
+	~spaced_calls_fixture()
+	{
+		if (stream)
+			cuStreamDestroy(stream);
+		module.reset();
+		ctx.reset();
+	}
+	std::vector<double> calls(uint64_t n, uint64_t gap_ns, bool note)
+	{
+		device_buffer out(n * sizeof(uint64_t));
+		uint64_t map = map_fd, outp = out.ptr, count = n, gap = gap_ns;
+		void *params[] = { &map, &outp, &count, &gap };
+		REQUIRE(cuLaunchKernel(function, 1, 1, 1, 1, 1, 1, 0, stream,
+				       params, nullptr) == CUDA_SUCCESS);
+		if (note)
+			attach::launch_activity().note(stream);
+		REQUIRE(cuStreamSynchronize(stream) == CUDA_SUCCESS);
+		std::vector<double> us;
+		for (uint64_t ns : out.read())
+			us.push_back(ns / 1000.0);
+		return us;
+	}
+};
+
+double median_of(std::vector<double> v)
+{
+	std::sort(v.begin(), v.end());
+	return v[v.size() / 2];
+}
+} // namespace
+
+// While a noted probed kernel may run, the watcher sleeps 100 us between
+// requests (after the poll window and the deferral sleeps); a call that
+// comes after a pause waits for the current sleep. With sleeps doubling to
+// 1 ms (before 46f5a7cb) such calls took 300-950 us; parked, they would wait
+// for the 1 ms backstop.
+TEST_CASE("The host-call watcher answers spaced calls within a short sleep while a probed kernel runs",
+	  "[cuda-host-call]")
+{
+	if (!use_primary_context())
+		SKIP("no CUDA device");
+	spaced_calls_fixture f("cuda-watcher-sleep");
+	const uint64_t parks = f.ctx->cuda_watcher_parks(),
+		       sleeps = f.ctx->cuda_watcher_sleeps();
+	auto us = f.calls(20, 2'000'000, true);
+	const double median = median_of(us);
+	INFO("host calls 2 ms apart: median "
+	     << median << " us; parks " << f.ctx->cuda_watcher_parks() - parks
+	     << ", 100 us sleeps " << f.ctx->cuda_watcher_sleeps() - sleeps);
+	// about 70 us (gpu/watcher-policy-20261112, c02: median 69, p90 108)
+	CHECK(median < 150);
+	// it slept 100 us at a time (about 300 sleeps in 40 ms), neither
+	// polling (millions of passes) nor parking while the noted kernel ran
+	// (a park or two after its end)
+	const uint64_t slept = f.ctx->cuda_watcher_sleeps() - sleeps;
+	CHECK(slept >= 150);
+	CHECK(slept <= 1000);
+	CHECK(f.ctx->cuda_watcher_parks() - parks <= 3);
+	CHECK(!f.ctx->cuda_watcher_waits_on_flag());
+	CHECK(!f.ctx->cuda_watcher_unseen_latched());
+}
+
+// Idle, the watcher parks until a launch is noted (1 ms backstop): 0.002 cores
+// instead of 0.011 sleeping 100 us at a time (c11). A noted launch ends the
+// park, so the kernel's first call does not wait for the backstop.
+TEST_CASE("The host-call watcher parks while idle and a noted launch ends the park",
+	  "[cuda-host-call]")
+{
+	if (!use_primary_context())
+		SKIP("no CUDA device");
+	spaced_calls_fixture f("cuda-watcher-park");
+	std::vector<double> first_call;
+	for (int i = 0; i < 10; i++) {
+		const uint64_t parks = f.ctx->cuda_watcher_parks();
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		// about 5 parks in 5 ms
+		REQUIRE(f.ctx->cuda_watcher_parks() - parks >= 2);
+		first_call.push_back(f.calls(1, 0, true)[0]);
+	}
+	const double median = median_of(first_call);
+	INFO("first call after 5 ms idle: median " << median << " us");
+	// about 100 us; a park ending on its own: up to 1 ms
+	CHECK(median < 250);
+	CHECK(!f.ctx->cuda_watcher_unseen_latched());
+}
+
+// Calls back to back come a few microseconds after the previous answer: the
+// poll window opens (from 10 us, doubling) and catches them, where every one
+// would wait for a 20 us deferral sleep (window off: 27.0 against 11.8 us per
+// call in 32-call bursts, gpu/watcher-policy-20261112 v3, c06).
+TEST_CASE("The host-call watcher's poll window catches calls back to back",
+	  "[cuda-host-call]")
+{
+	if (!use_primary_context())
+		SKIP("no CUDA device");
+	spaced_calls_fixture f("cuda-watcher-window");
+	const uint64_t caught = f.ctx->cuda_watcher_window_catches();
+	auto us = f.calls(64, 0, true);
+	const uint64_t n = f.ctx->cuda_watcher_window_catches() - caught;
+	INFO("64 calls back to back: " << n << " caught by the window, median "
+				       << median_of(us) << " us");
+	CHECK(n >= 48);
+}
+
+// Launches no hook notes (graphs, CUDA 13 kernel handles the hooks cannot
+// resolve) run probed kernels the watcher does not know about: parked, it
+// answers their calls at the 1 ms backstop. Two such requests within a
+// second latch it out of parking; a second without them unlatches it.
+TEST_CASE("Requests from unnoted launches keep the watcher from parking until they stop",
+	  "[cuda-host-call]")
+{
+	if (!use_primary_context())
+		SKIP("no CUDA device");
+	spaced_calls_fixture f("cuda-watcher-latch");
+	CHECK(!f.ctx->cuda_watcher_unseen_latched());
+	auto us = f.calls(40, 2'000'000, false);
+	CHECK(f.ctx->cuda_watcher_unseen_latched());
+	const double median_last =
+		median_of(std::vector<double>(us.begin() + 20, us.end()));
+	// latched it does not park while such kernels run; it sleeps
+	const uint64_t parks_latched = f.ctx->cuda_watcher_parks(),
+		       sleeps_latched = f.ctx->cuda_watcher_sleeps();
+	f.calls(20, 2'000'000, false);
+	INFO("unnoted calls 2 ms apart, the last 20: median "
+	     << median_last << " us; then parks "
+	     << f.ctx->cuda_watcher_parks() - parks_latched << ", sleeps "
+	     << f.ctx->cuda_watcher_sleeps() - sleeps_latched);
+	CHECK(f.ctx->cuda_watcher_parks() == parks_latched);
+	CHECK(f.ctx->cuda_watcher_sleeps() - sleeps_latched >= 150);
+	CHECK(f.ctx->cuda_watcher_sleeps() - sleeps_latched <= 1000);
+	// about 70 us latched (c18: 69-70 us); parked about 200 us here, as
+	// each wait starts when the previous call returns
+	CHECK(median_last < 150);
+	// idle: unlatched after 1 s, parking again
+	bool unlatched = false;
+	for (int i = 0; i < 300 && !unlatched; i++) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		unlatched = !f.ctx->cuda_watcher_unseen_latched();
+	}
+	CHECK(unlatched);
+	const uint64_t parks = f.ctx->cuda_watcher_parks();
+	std::this_thread::sleep_for(std::chrono::milliseconds(20));
+	CHECK(f.ctx->cuda_watcher_parks() - parks >= 5);
 }
 
 // A launch into a stream being captured only goes into a graph. Noting it

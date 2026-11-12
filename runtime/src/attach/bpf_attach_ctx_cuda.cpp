@@ -4,7 +4,10 @@
 #include "nv_attach_impl.hpp"
 #include "nv_attach_utils.hpp"
 #include "probed_launch_activity.hpp"
+#include "cuda_watcher_policy.hpp"
 #include <sys/auxv.h>
+#include <sys/prctl.h>
+#include <time.h>
 #include "bpf_map/array_map_binding.hpp"
 #include <bpf_attach_ctx.hpp>
 #include "bpftime_ratelimited_log.hpp"
@@ -183,14 +186,6 @@ void serve_cuda_request(cuda::CUDAContext *ctx)
 	}
 }
 
-// After serving a request the watcher keeps polling this long before it
-// sleeps: the next GPU thread posts its request only after it has read this
-// response, a few microseconds later.
-constexpr auto cuda_watcher_busy_window = std::chrono::microseconds(200);
-// Idle, the watcher sleeps for this long, doubling up to the maximum.
-constexpr auto cuda_watcher_min_sleep = std::chrono::microseconds(50);
-constexpr auto cuda_watcher_max_sleep = std::chrono::microseconds(1000);
-
 inline void cpu_relax()
 {
 #if defined(__aarch64__)
@@ -200,22 +195,23 @@ inline void cpu_relax()
 #endif
 }
 
-// While a probed kernel may run, the watcher waits for a request with WFE: an
-// exclusive load marks flag1's line, and the GPU's write to it ends the wait
-// (results gpu/wfe-20261111: about 2 us at any gap, at the power of a sleeping
-// core; a sleeping watcher answered 0-1 ms late, gpu/hostwake-20261111). The
-// architected timer's event stream ends every wait within about 100 us too, so
-// the watcher still sees its stop flag and a kernel's end; without it, or off
-// aarch64, the watcher keeps sleeping between requests.
-// BPFTIME_CUDA_WATCHER_WFE=0 keeps the old policy (sleeping between requests
-// whatever runs): a watcher in WFE counts as running for the scheduler and
-// holds its core for as long as any probed kernel runs, with or without host
-// calls.
+// With BPFTIME_CUDA_WATCHER_WFE=1 the watcher waits for a request with WFE
+// while a probed kernel may run: an exclusive load marks flag1's line, and the
+// GPU's write to it ends the wait (results gpu/wfe-20261111: about 2 us at any
+// gap; a host call 14-16 us, gpu/hostwake-fix-20261111). The architected
+// timer's event stream ends every wait within about 100 us too, so the
+// watcher still sees its stop flag and, querying the events every 100 us, a
+// kernel's end; without it, or off aarch64, the setting does nothing. Only for
+// noted launches: requests from unnoted ones (the latch) take the sleeps. Not
+// the default: a watcher in WFE counts as running for the scheduler and holds
+// its core while any noted probed kernel runs, with host calls or not; under
+// full CPU load the load lost 13% of its throughput and 11% of host calls took
+// over 1 ms (46f5a7cb's build, set W of gpu/watcher-policy-20261112).
 bool cuda_watcher_can_wait_on_flag()
 {
 #if defined(__aarch64__)
-	if (const char *v = getenv("BPFTIME_CUDA_WATCHER_WFE");
-	    v != nullptr && strcmp(v, "0") == 0)
+	const char *v = getenv("BPFTIME_CUDA_WATCHER_WFE");
+	if (v == nullptr || strcmp(v, "1") != 0)
 		return false;
 	return (getauxval(AT_HWCAP) & HWCAP_EVTSTRM) != 0;
 #else
@@ -245,8 +241,15 @@ inline void wait_while_equal(volatile int *p, int old)
 #endif
 }
 
-// How often a watcher in WFE checks whether the probed kernels have ended.
-constexpr auto cuda_watcher_kernel_check = std::chrono::microseconds(100);
+// How often a watcher in WFE checks whether the noted kernels have ended.
+constexpr uint64_t wfe_event_query_every_us = 100;
+
+inline uint64_t watcher_now_us()
+{
+	timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_sec * 1000000ull + (uint64_t)ts.tv_nsec / 1000;
+}
 } // namespace
 
 void bpf_attach_ctx::start_cuda_watcher_thread()
@@ -271,10 +274,7 @@ void bpf_attach_ctx::start_cuda_watcher_thread()
 			SPDLOG_WARN(
 				"CUDA watcher: no context for device {}; GPU map lookups through host calls return NULL",
 				cuda_device_ordinal());
-		using clock = std::chrono::steady_clock;
-		auto last_request = clock::now() - cuda_watcher_busy_window;
-		auto idle_sleep = std::chrono::duration_cast<
-			std::chrono::microseconds>(cuda_watcher_min_sleep);
+		namespace w = cuda_watcher;
 		auto &activity = attach::launch_activity();
 		const bool wfe = cuda_watcher_can_wait_on_flag();
 		// The watcher queries events (activity.any_running()) while
@@ -283,89 +283,140 @@ void bpf_attach_ctx::start_cuda_watcher_thread()
 		// threads invalidate the capture. Relaxed for this thread only.
 		CUstreamCaptureMode capture_mode = CU_STREAM_CAPTURE_MODE_RELAXED;
 		cuThreadExchangeStreamCaptureMode(&capture_mode);
-		// launches of probed code seen so far; a newer one makes the
-		// watcher wait with WFE until every noted launch has ended
+		// The deferral sleeps are 20 us: with the default 50 us timer
+		// slack they would end up to 50 us late. This thread only.
+		prctl(PR_SET_TIMERSLACK, 1000UL, 0, 0, 0);
+		auto *state = ctx->cuda_watcher.get();
+		auto *comm = ctx->cuda_shared_mem;
+
+		w::poll_window window;
+		w::deferral deferral;
+		w::unseen_launch_latch latch;
+		uint64_t last_request = 0; // end of the last service, 0: none
+		// launches of probed code seen so far; inflight: a noted launch
+		// may still run (rechecked every event_query_every_us)
 		uint64_t seen_launches = activity.generation();
-		bool on_flag = false;
-		auto last_kernel_check = clock::now();
-		auto *waiting_on_flag = ctx->cuda_watcher_waiting_on_flag.get();
+		bool inflight = false;
+		uint64_t last_event_query = 0;
+		bool was_latched = false;
+
+		auto try_serve = [&]() -> bool {
+			int posted = 1;
+			// flag1 1 -> 0 takes the request; acquire: the GPU
+			// wrote it before flag1 (membar.sys)
+			if (__atomic_load_n(&comm->flag1, __ATOMIC_RELAXED) !=
+				    1 ||
+			    !__atomic_compare_exchange_n(&comm->flag1, &posted,
+							 0, false,
+							 __ATOMIC_ACQUIRE,
+							 __ATOMIC_RELAXED))
+				return false;
+			const uint64_t t = watcher_now_us();
+			serve_cuda_request(ctx);
+			// release: the response before flag2
+			__atomic_store_n(&comm->flag2, 1, __ATOMIC_RELEASE);
+			latch.on_request(t, !inflight &&
+						    activity.generation() ==
+							    seen_launches);
+			const uint64_t gap =
+				last_request ? t - last_request : UINT64_MAX;
+			if (gap <= window.window_us())
+				state->window_catches.fetch_add(
+					1, std::memory_order_relaxed);
+			window.on_request(gap);
+			deferral.on_request();
+			last_request = watcher_now_us();
+			return true;
+		};
+		// Whether a probed kernel may run: a launch noted since the
+		// last look, a noted launch not finished at the last event
+		// query (made every query_every_us), or the unseen-launch latch.
+		auto kernels_may_run = [&](uint64_t t,
+					   uint64_t query_every_us) -> bool {
+			const uint64_t g = activity.generation();
+			if (g != seen_launches) {
+				seen_launches = g;
+				inflight = true;
+				last_event_query = t;
+			} else if (inflight &&
+				   t - last_event_query >= query_every_us) {
+				inflight = activity.any_running();
+				last_event_query = t;
+			}
+			const bool latched = latch.latched(t);
+			if (latched != was_latched) {
+				was_latched = latched;
+				state->unseen_latched.store(
+					latched, std::memory_order_release);
+				SPDLOG_DEBUG(
+					"CUDA watcher: {}",
+					latched ?
+						"requests come from launches no hook noted; not parking" :
+						"no unnoted requests for 1 s; parking again");
+			}
+			return inflight || latched;
+		};
+		auto sleep_us = [&](uint64_t us) {
+			const uint64_t t0 = watcher_now_us();
+			timespec ts{ 0, (long)(us * 1000) };
+			clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, nullptr);
+			deferral.on_sleep(us, watcher_now_us() - t0);
+		};
 
 		while (!flag->load(std::memory_order_acquire)) {
-			if (ctx != nullptr) {
-				auto *comm = ctx->cuda_shared_mem;
-				int posted = 1;
-				// flag1 1 -> 0 takes the request; acquire: the
-				// GPU wrote it before flag1 (membar.sys)
-				if (__atomic_load_n(&comm->flag1,
-						    __ATOMIC_RELAXED) == 1 &&
-				    __atomic_compare_exchange_n(
-					    &comm->flag1, &posted, 0, false,
-					    __ATOMIC_ACQUIRE,
-					    __ATOMIC_RELAXED)) {
-					serve_cuda_request(ctx);
-					// release: the response before flag2
-					__atomic_store_n(&comm->flag2, 1,
-							 __ATOMIC_RELEASE);
-					last_request = clock::now();
-					idle_sleep = cuda_watcher_min_sleep;
+			if (try_serve())
+				continue;
+			const uint64_t t = watcher_now_us();
+			if (wfe) {
+				// WFE for noted launches only, whose ends are
+				// queried every 100 us as before; requests from
+				// unnoted launches (latched) take the sleeps
+				// below: WFE there held a core while idle.
+				kernels_may_run(t, wfe_event_query_every_us);
+				const bool on_flag = inflight;
+				if (on_flag != state->waiting_on_flag.load(
+						       std::memory_order_relaxed))
+					state->waiting_on_flag.store(
+						on_flag,
+						std::memory_order_release);
+				if (on_flag) {
+					wait_while_equal(&comm->flag1, 0);
 					continue;
 				}
 			}
-			if (wfe && !on_flag &&
-			    activity.generation() != seen_launches) {
-				on_flag = true;
-				last_kernel_check = clock::now();
-				waiting_on_flag->store(true,
-						       std::memory_order_release);
-				SPDLOG_DEBUG(
-					"CUDA watcher: a probed kernel was launched; waiting on the request flag");
-			}
-			if (on_flag) {
-				if (ctx != nullptr)
-					wait_while_equal(&ctx->cuda_shared_mem
-								  ->flag1,
-							 0);
-				const auto now = clock::now();
-				if (now - last_kernel_check >=
-				    cuda_watcher_kernel_check) {
-					last_kernel_check = now;
-					// generation first: a launch noted
-					// after it brings the watcher back
-					const uint64_t g = activity.generation();
-					if (!activity.any_running()) {
-						seen_launches = g;
-						on_flag = false;
-						last_request = now;
-						idle_sleep = cuda_watcher_min_sleep;
-						waiting_on_flag->store(
-							false,
-							std::memory_order_release);
-						SPDLOG_DEBUG(
-							"CUDA watcher: the probed kernels have ended; sleeping between requests");
-					}
-				}
-				continue;
-			}
-			if (clock::now() - last_request <
-			    cuda_watcher_busy_window) {
+			// polls for the window after the last request
+			if (last_request != 0 &&
+			    t - last_request < window.window_us()) {
 				cpu_relax();
 				continue;
 			}
-			// A launch of probed code ends the sleep at once. Launches
-			// the hooks do not see or skip (graph launches, launches
-			// into a stream being captured, CUDA 13 kernel handles they
-			// cannot resolve) are still served after the sleep. Without WFE a noted launch
-			// only ends the current sleep: the watcher then polls for
-			// the busy window and sleeps again.
-			if (!wfe && activity.generation() != seen_launches) {
-				seen_launches = activity.generation();
-				last_request = clock::now();
-				idle_sleep = cuda_watcher_min_sleep;
+			if (deferral.take()) {
+				sleep_us(w::deferral_sleep_us);
 				continue;
 			}
-			activity.wait_for_note(seen_launches, idle_sleep);
-			idle_sleep = std::min<std::chrono::microseconds>(
-				idle_sleep * 2, cuda_watcher_max_sleep);
+			if (kernels_may_run(t, w::event_query_every_us)) {
+				state->sleeps.fetch_add(1,
+							std::memory_order_relaxed);
+				sleep_us(w::slow_sleep_us);
+				continue;
+			}
+			// No probed kernel runs: park until a launch is noted
+			// (a request that came meanwhile first). A request found
+			// waiting when the park ends at its backstop came from a
+			// launch no hook noted: a hit for the latch.
+			if (try_serve())
+				continue;
+			const uint64_t g0 = seen_launches;
+			state->parks.fetch_add(1, std::memory_order_relaxed);
+			activity.wait_for_note(
+				g0, std::chrono::microseconds(
+					    w::park_backstop_us));
+			const uint64_t now = watcher_now_us();
+			if (activity.generation() == g0 &&
+			    now - t >= w::park_backstop_us &&
+			    __atomic_load_n(&comm->flag1, __ATOMIC_ACQUIRE) ==
+				    1)
+				latch.on_hit(now);
 		}
 		if (primary != nullptr) {
 			cuCtxSetCurrent(nullptr);

@@ -14,6 +14,7 @@ endif()
 find_package(Boost REQUIRED)
 
 set(TEST_SOURCES
+    test_cuda_watcher_policy.cpp
     maps/test_array_jit_lifetime.cpp
     maps/test_array_jit_poc.cpp
     maps/test_per_cpu_array.cpp

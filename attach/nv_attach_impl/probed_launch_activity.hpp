@@ -3,8 +3,9 @@
 // Which probed kernels may be running, for the agent's host-call watcher.
 //
 // A GPU thread makes host calls only from a probed kernel. The launch hooks
-// note every launch of probed code (note()); the watcher waits for requests
-// with WFE while such a launch may still run, and sleeps otherwise. One object
+// note every launch of probed code (note()); the watcher sleeps between
+// requests while such a launch may still run (with WFE if asked), and parks
+// in wait_for_note() otherwise. One object
 // per process (launch_activity()), in the attach library: the watcher starts
 // before nv_attach_impl is registered.
 #include <atomic>
