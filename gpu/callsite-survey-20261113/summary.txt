@@ -1,0 +1,130 @@
+===== bpftime-A records first/verified 91 91 changes 8
+  file benchmark/gpu/micro/cuda_probe.bpf.c device | Micro-benchmark probe set for vectorAdd: one program per mode (empty, entry/exit, GPU ringbuf output, globaltimer, CPU ARRAY/HASH update/lookup/delete | variant_of: 
+  file benchmark/gpu/micro/cuda_probe_kernel_gpu.bpf.c device | Micro-benchmark for the kernel-GPU shared array (1504, BPF_F_MMAPABLE): retprobe lookup+update counter or lookup-only; loader reads no map. | variant_of: benchmark/gpu/micro/cuda_probe.bpf.c
+  file example/gpu/cuda-counter/cuda_probe.bpf.c device | Per-block kernel timing + per-pid call counter for vectorAdd with printk on entry and exit; loader prints call_count every second (start_ts and total_ | variant_of: 
+  file example/gpu/cudagraph/cuda_probe.bpf.c device | CUDA-graph variant of cuda-counter that runs the map work only in the leader thread block(0,0,0)/thread(0,0,0), keyed by pid; loader prints call_count | variant_of: example/gpu/cuda-counter/cuda_probe.bpf.c
+  file example/gpu/rocm-counter/rocm_probe.bpf.c device | ROCm/HIP copy of cuda-counter (call_count uses *cnt+=1 plus a BPF_EXIST self-write instead of an atomic add); dev 52126f33 has no ROCm device attach ( | variant_of: example/gpu/cuda-counter/cuda_probe.bpf.c
+  file example/gpu/host_map_test/host_map_test.bpf.c device | Demo of host-memory GPU maps (1512 per-thread, 1513 shared) on Tegra: per-thread entry ts/duration/count and a tid%10-keyed shared counter, printk per | variant_of: 
+  file example/gpu/gpu_shared_map/gpu_shared_map.bpf.c device | Demo of GPU_ARRAY_MAP (1503) counter updated by every thread at exit plus a leader-thread write of the counter value into a GPU_HASH_MAP (1501) keyed  | variant_of: 
+===== bpftime-B records first/verified 89 89 changes 8
+  file example/gpu/atomizer/atomizer.bpf.c device | Partitions a kernel's blocks: each block reads partition_num/index (CPU-written 1503 arrays) and exits via bpf_cuda_exit if outside its [L,H) range; p | variant_of: 
+  file example/gpu/threadhist/threadhist.bpf.c device | Per-thread exit counter (kretprobe vectorAdd) in a per-thread 1502 array that the loader reads as a thread histogram. | variant_of: 
+  file example/gpu/faiss-test/threadhist.bpf.c device | threadhist on the faiss l2NormRowMajor kernel (only the SEC differs). | variant_of: example/gpu/threadhist/threadhist.bpf.c
+  file example/gpu/llama-cpp-test/threadhist.bpf.c device | threadhist on the llama.cpp rms_norm_f32 kernel (only the SEC differs). | variant_of: example/gpu/threadhist/threadhist.bpf.c
+  file example/gpu/pytorch-test/threadhist.bpf.c device | threadhist on the PyTorch bitonicSortKVInPlace kernel (only the SEC differs). | variant_of: example/gpu/threadhist/threadhist.bpf.c
+  file example/gpu/threadhist-gpu-kernel-shared-map/threadhist.bpf.c device | A GPU kretprobe atomically counts thread exits in slot 0, and a kernel uretprobe on cudaLaunchKernel counts launches in slot 1, of a kernel-shared 150 | variant_of: example/gpu/threadhist/threadhist.bpf.c
+  file example/gpu/cutlass/counter/cutlass_launch_counter.bpf.c device | Counts CUTLASS GEMM kernel launches: at kernel exit, thread 0 of block 0 does a lookup and an update on a 1503 array. | variant_of: 
+  file example/gpu/mem_trace/mem_trace.bpf.c device | Counts memory accesses: the __memcapture probe runs before every ld/st and increments a 1503 counter. | variant_of: 
+  file example/gpu/kernelretsnoop/kernelretsnoop.bpf.c device | At kernel exit every thread emits (thread idx, globaltimer) into a GPU ringbuf that the loader polls. | variant_of: 
+  file example/gpu/kernel_trace/kernel_trace.bpf.c device | Once per launch, thread 0 of block 0 emits a kernel-entry event (block/thread idx and globaltimer) into a GPU ringbuf. | variant_of: 
+  file example/gpu/launchlate/launchlate.bpf.c device | Launch latency: a CPU uprobe on cudaLaunchKernel stores a calibrated timestamp in an ARRAY, and the GPU kprobe computes globaltimer minus that timesta | variant_of: 
+  file example/gpu/launchlate-kernel-gpu-shared-map/launchlate.bpf.c device | launchlate with every map as a 1504 kernel-shared array and the uprobe running in the kernel. | variant_of: example/gpu/launchlate/launchlate.bpf.c
+  file example/gpu/threadscheduling/threadscheduling.bpf.c device | Records each thread's SM/warp/lane mapping, plus SM and warp histograms, in CPU HASH maps that the loader iterates. | variant_of: 
+  file example/gpu/threadscheduling_dynamic_hook/threadscheduling.bpf.c device | threadscheduling with GPU_HASH_MAP 1501 maps, on the vectorAdd(...,int) kernel. | variant_of: example/gpu/threadscheduling/threadscheduling.bpf.c
+  file example/gpu/directly_run_on_gpu/directly_run.bpf.c device | eBPF programs launched as GPU kernels (bpftimetool run-on-cuda): a print, vec_add and GEMM over 1503 arrays that the loader fills and reads. | variant_of: 
+===== gpu_ext-1 records first/verified 29 29 changes 11
+  file microbench/fig15-device/map_probe.bpf.c device | Fig.15 map-placement microbench with 7 alternative kprobe programs on fig15_map_kernel (1 block x 32 threads). Each lane updates or looks up key = lan | variant_of: 
+  file microbench/fig15-device/strict-uniform-map/uniform_probe.bpf.c device | Strict-verifier variant of map_probe. Every lane uses constant key 0 and the same value. Only 1503 vs 1513 arms (no ARRAY arm), and the loader autoloa | variant_of: microbench/fig15-device/map_probe.bpf.c
+  file microbench/fig15-device/strict-warp-map-scaling/warp_map_probe.bpf.c device | Warp-granularity variant of map_probe: a 1503 array update with key 0 (shared) or key = %warpid (per warp), block shapes of 1-32 warps. The loader zer | variant_of: microbench/fig15-device/map_probe.bpf.c
+  file microbench/trampoline-scaling/probe.bpf.c device | Trampoline scaling microbench: a marker kernel (1 x 32) and a target kernel (up to 4096 blocks x 256 threads) each count calls in per-thread 1502 coun | variant_of: 
+  file workloads/bpftime-device-smoke/probe.bpf.c device | Device smoke test (adapted from bpftime's threadhist example): a kretprobe on vectorAdd counts returns per thread in a 1502 array, and the loader read | variant_of: 
+  file workloads/cross-layer-raw-map/raw_map.bpf.c device | Cross-layer raw-record test: a kretprobe on raw_map_kernel keeps per-thread aggregates in a 1502 array and emits one raw record per thread into GPU ri | variant_of: 
+  file workloads/sass-kretprobe/bpf/kretprobe_sass.bpf.c device | Trivial cuda__/kretprobe_sass program that writes 42 into its ctx slot. It is compiled to SASS and injected at every EXIT by NVBit, not through bpftim | variant_of: 
+  file workloads/xsched/bpftime_hpf.bpf.c NOT-device | XSched highest-priority-first policy: computes a suspend bitmask over a queue snapshot. It runs on the CPU under the ubpf JIT inside the XSched server | variant_of: 
+  file workloads/hummingbird/hostdev/hb_map.bpf.c device | Hummingbird coordinate mapping (out = block + off, from hb_map_policy.h), exported by hb_map_exporter as a PTX device function that PTX patching puts  | variant_of: 
+===== gpu_ext-2 records first/verified 71 71 changes 11
+  file llama-rq4/raw/preflight-575-06/gpubpf_tool_build/kernelretsnoop/kernelretsnoop.bpf.c device | kernelretsnoop in its original 80-byte form: a kretprobe on rope_norm makes every thread write block, thread and blockDim plus globaltimer to the GPU  | variant_of: 
+  file llama-rq4/device-verifier-s0/raw/s0-575-02/gpubpf_tool_build/kernelretsnoop/kernelretsnoop.bpf.c device | kernelretsnoop with a 32-byte record (global x/y/z coordinate plus timestamp) written to the GPU ringbuf at each thread exit. ebpf_puts is declared bu | variant_of: llama-rq4/raw/preflight-575-06/gpubpf_tool_build/kernelretsnoop/kernelretsnoop.bpf.c
+  file llama-rq4/results-table1-warp-plt-575-03/gpubpf_tool_build/kernelretsnoop/kernelretsnoop.bpf.c device | kernelretsnoop warp-leader variant: only lane 0 of each warp (1 of 32 lanes) writes the warp coordinate plus timestamp to the GPU ringbuf. ebpf_puts i | variant_of: llama-rq4/device-verifier-s0/raw/s0-575-02/gpubpf_tool_build/kernelretsnoop/kernelretsnoop.bpf.c
+  file llama-rq4/device-verifier-s0/raw/s0-575-02/gpubpf_tool_build/threadhist/threadhist.bpf.c device | threadhist counts rope_norm exits per thread in a per-thread array (1502); the loader reads all slots with one lookup(key 0) at the end. ebpf_puts is  | variant_of: 
+  file llama-rq4/full-record-device-buffer/full-record-device-buffer.bpf.c device | Storage redesign of kernelretsnoop: the full stream of 80-byte per-thread records is kept in 32 banks of a GPU array (1503) instead of the ringbuf and | variant_of: llama-rq4/raw/preflight-575-06/gpubpf_tool_build/kernelretsnoop/kernelretsnoop.bpf.c
+  file llama-rq4/onevalue-array-candidate/onevalue-array.bpf.c device | Warp-leader kernelretsnoop events (on vectorAdd) appended into a single 1503 map value with per-warp counters, drained after the run. | variant_of: llama-rq4/results-table1-warp-plt-575-03/gpubpf_tool_build/kernelretsnoop/kernelretsnoop.bpf.c
+  file llama-rq4/results-launchlate-perf-plt-575-01/gpubpf_tool_build/launchlate/launchlate.bpf.c device | launchlate: a CPU uprobe on the kernel's launch stub enqueues a host timestamp into a 1513 FIFO (cursors in 1513 queue_state); the GPU entry probe (th | variant_of: 
+  file llama-rq4/raw/preflight-575-06/gpubpf_tool_build/launchlate/launchlate.bpf.c device | launchlate plus a clock-calibration interval (1513), host-side status counters (ARRAY, CPU only), device-side status counters and dequeue ticket (1503 | variant_of: llama-rq4/results-launchlate-perf-plt-575-01/gpubpf_tool_build/launchlate/launchlate.bpf.c
+  file llama-rq4/raw/preflight-575-07/gpubpf_tool_build/launchlate/launchlate.bpf.c device | launchlate 575-06 plus the GPU entry timestamp written back into the 1513 FIFO record, so the loader reads launch_times after the run and classifies e | variant_of: llama-rq4/raw/preflight-575-06/gpubpf_tool_build/launchlate/launchlate.bpf.c
+
+class by source: Counter({('bpftime', 'gpu_local_already'): 109, ('gpu_ext', 'gpu_local_already'): 80, ('bpftime', 'defer'): 39, ('bpftime', 'eliminate'): 20})
+host_call_today: Counter({('bpftime', 'no'): 109, ('gpu_ext', 'no'): 80, ('bpftime', 'yes'): 59})
+
+== bpftime: host-call sites today 59
+ class: Counter({'defer': 39, 'eliminate': 20})
+ helper: Counter({'bpf_map_update_elem': 20, 'bpf_map_lookup_elem': 14, 'bpf_printk -> bpf_trace_printk': 11, 'bpf_trace_printk': 10, 'bpf_map_delete_elem': 4})
+ op: Counter({'output': 21, 'accumulate': 13, 'insert_if_absent': 8, 'overwrite': 7, 'delete': 4, 'read': 3, 'update_if_exists': 3})
+ result_use: Counter({'unused': 45, 'pointer_rmw': 9, 'value_used': 5})
+ aggregatable: Counter({True: 51, False: 8})
+ freq: Counter({'per_thread_per_launch': 49, 'per_launch': 10})
+ cpu_reads: Counter({'n/a': 21, 'no': 20, 'yes': 18})
+ key: Counter({'constant': 26, 'per_block': 14, 'none': 11, 'per_thread': 4, 'per_warp': 4})
+   eliminate benchmark/gpu/micro/cuda_probe.bpf.c:163 bpf_map_update_elem (2)      map=hash_map           BPF_MAP_TYPE_HASH      op=overwrite use=unused key=constant cpu=no agg=True | 
+   eliminate benchmark/gpu/micro/cuda_probe.bpf.c:171 bpf_map_lookup_elem (1)      map=hash_map           BPF_MAP_TYPE_HASH      op=accumulate use=pointer_rmw key=constant cpu=no agg=True | lookup + non-atomic ++ counter
+   eliminate benchmark/gpu/micro/cuda_probe.bpf.c:182 bpf_map_delete_elem (3)      map=hash_map           BPF_MAP_TYPE_HASH      op=delete use=unused key=constant cpu=no agg=True | 
+   eliminate example/gpu/cuda-counter/cuda_probe.bpf.c:44 bpf_map_update_elem (2)      map=start_ts           BPF_MAP_TYPE_HASH      op=overwrite use=unused key=per_block cpu=no agg=True | entry ts store / exit ts read (per block
+   defer     example/gpu/cuda-counter/cuda_probe.bpf.c:48 bpf_map_lookup_elem (1)      map=call_count         BPF_MAP_TYPE_HASH      op=accumulate use=pointer_rmw key=constant cpu=yes agg=True | lookup + atomic_add / NOEXIST insert cou
+   defer     example/gpu/cuda-counter/cuda_probe.bpf.c:52 bpf_map_update_elem (2)      map=call_count         BPF_MAP_TYPE_HASH      op=insert_if_absent use=unused key=constant cpu=yes agg=True | lookup + atomic_add / NOEXIST insert cou
+   defer     example/gpu/cuda-counter/cuda_probe.bpf.c:55 bpf_trace_printk (6, bpf_pri map=                                          op=output use=unused key=per_block cpu=n/a agg=True | 
+   eliminate example/gpu/cuda-counter/cuda_probe.bpf.c:66 bpf_map_lookup_elem (1)      map=start_ts           BPF_MAP_TYPE_HASH      op=read use=value_used key=per_block cpu=no agg=True | entry ts store / exit ts read (per block
+   eliminate example/gpu/cuda-counter/cuda_probe.bpf.c:70 bpf_map_delete_elem (3)      map=start_ts           BPF_MAP_TYPE_HASH      op=delete use=unused key=constant cpu=no agg=True | entry ts store / exit ts read (per block
+   eliminate example/gpu/cuda-counter/cuda_probe.bpf.c:73 bpf_map_lookup_elem (1)      map=total_time_ns      BPF_MAP_TYPE_HASH      op=accumulate use=pointer_rmw key=constant cpu=no agg=True | lookup + += delta / EXIST self-write / N
+   eliminate example/gpu/cuda-counter/cuda_probe.bpf.c:76 bpf_map_update_elem (2)      map=total_time_ns      BPF_MAP_TYPE_HASH      op=update_if_exists use=unused key=constant cpu=no agg=True | lookup + += delta / EXIST self-write / N
+   eliminate example/gpu/cuda-counter/cuda_probe.bpf.c:79 bpf_map_update_elem (2)      map=total_time_ns      BPF_MAP_TYPE_HASH      op=insert_if_absent use=unused key=constant cpu=no agg=True | lookup + += delta / EXIST self-write / N
+   defer     example/gpu/cuda-counter/cuda_probe.bpf.c:82 bpf_trace_printk (6, bpf_pri map=                                          op=output use=unused key=per_block cpu=n/a agg=True | 
+   defer     example/gpu/cuda-counter/cuda_probe.bpf.c:86 bpf_trace_printk (6, bpf_pri map=                                          op=output use=unused key=per_block cpu=n/a agg=True | 
+   eliminate example/gpu/rocm-counter/rocm_probe.bpf.c:44 bpf_map_update_elem (2)      map=start_ts           BPF_MAP_TYPE_HASH      op=overwrite use=unused key=per_block cpu=no agg=True | entry ts store / exit ts read (per block
+   defer     example/gpu/rocm-counter/rocm_probe.bpf.c:48 bpf_map_lookup_elem (1)      map=call_count         BPF_MAP_TYPE_HASH      op=accumulate use=pointer_rmw key=constant cpu=yes agg=True | lookup + ++ / EXIST self-write / NOEXIST
+   defer     example/gpu/rocm-counter/rocm_probe.bpf.c:51 bpf_map_update_elem (2)      map=call_count         BPF_MAP_TYPE_HASH      op=update_if_exists use=unused key=constant cpu=yes agg=True | lookup + ++ / EXIST self-write / NOEXIST
+   defer     example/gpu/rocm-counter/rocm_probe.bpf.c:53 bpf_map_update_elem (2)      map=call_count         BPF_MAP_TYPE_HASH      op=insert_if_absent use=unused key=constant cpu=yes agg=True | lookup + ++ / EXIST self-write / NOEXIST
+   defer     example/gpu/rocm-counter/rocm_probe.bpf.c:56 bpf_trace_printk (6, bpf_pri map=                                          op=output use=unused key=per_block cpu=n/a agg=True | 
+   eliminate example/gpu/rocm-counter/rocm_probe.bpf.c:67 bpf_map_lookup_elem (1)      map=start_ts           BPF_MAP_TYPE_HASH      op=read use=value_used key=per_block cpu=no agg=True | entry ts store / exit ts read (per block
+   eliminate example/gpu/rocm-counter/rocm_probe.bpf.c:71 bpf_map_delete_elem (3)      map=start_ts           BPF_MAP_TYPE_HASH      op=delete use=unused key=constant cpu=no agg=True | entry ts store / exit ts read (per block
+   eliminate example/gpu/rocm-counter/rocm_probe.bpf.c:74 bpf_map_lookup_elem (1)      map=total_time_ns      BPF_MAP_TYPE_HASH      op=accumulate use=pointer_rmw key=constant cpu=no agg=True | lookup + += delta / EXIST self-write / N
+   eliminate example/gpu/rocm-counter/rocm_probe.bpf.c:77 bpf_map_update_elem (2)      map=total_time_ns      BPF_MAP_TYPE_HASH      op=update_if_exists use=unused key=constant cpu=no agg=True | lookup + += delta / EXIST self-write / N
+   eliminate example/gpu/rocm-counter/rocm_probe.bpf.c:80 bpf_map_update_elem (2)      map=total_time_ns      BPF_MAP_TYPE_HASH      op=insert_if_absent use=unused key=constant cpu=no agg=True | lookup + += delta / EXIST self-write / N
+   defer     example/gpu/rocm-counter/rocm_probe.bpf.c:83 bpf_trace_printk (6, bpf_pri map=                                          op=output use=unused key=per_block cpu=n/a agg=True | 
+   defer     example/gpu/rocm-counter/rocm_probe.bpf.c:87 bpf_trace_printk (6, bpf_pri map=                                          op=output use=unused key=per_block cpu=n/a agg=True | 
+   eliminate example/gpu/cudagraph/cuda_probe.bpf.c:53 bpf_map_update_elem (2)      map=start_ts           BPF_MAP_TYPE_HASH      op=overwrite use=unused key=constant cpu=no agg=True | entry ts store / exit ts read (per proce
+   defer     example/gpu/cudagraph/cuda_probe.bpf.c:56 bpf_map_lookup_elem (1)      map=call_count         BPF_MAP_TYPE_HASH      op=accumulate use=value_used key=constant cpu=yes agg=True | lookup + update(*cnt+1) counter
+   defer     example/gpu/cudagraph/cuda_probe.bpf.c:58 bpf_map_update_elem (2)      map=call_count         BPF_MAP_TYPE_HASH      op=accumulate use=unused key=constant cpu=yes agg=True | lookup + update(*cnt+1) counter
+   eliminate example/gpu/cudagraph/cuda_probe.bpf.c:75 bpf_map_lookup_elem (1)      map=start_ts           BPF_MAP_TYPE_HASH      op=read use=value_used key=constant cpu=no agg=True | entry ts store / exit ts read (per proce
+   eliminate example/gpu/cudagraph/cuda_probe.bpf.c:78 bpf_map_delete_elem (3)      map=start_ts           BPF_MAP_TYPE_HASH      op=delete use=unused key=constant cpu=no agg=True | entry ts store / exit ts read (per proce
+   eliminate example/gpu/cudagraph/cuda_probe.bpf.c:79 bpf_map_lookup_elem (1)      map=total_time_ns      BPF_MAP_TYPE_HASH      op=accumulate use=value_used key=constant cpu=no agg=True | lookup + update(*total+delta) sum
+   eliminate example/gpu/cudagraph/cuda_probe.bpf.c:81 bpf_map_update_elem (2)      map=total_time_ns      BPF_MAP_TYPE_HASH      op=accumulate use=unused key=constant cpu=no agg=True | lookup + update(*total+delta) sum
+   defer     example/gpu/host_map_test/host_map_test.bpf.c:108 bpf_trace_printk (6, bpf_pri map=                                          op=output use=unused key=per_thread cpu=n/a agg=False | 
+   defer     example/gpu/host_map_test/host_map_test.bpf.c:154 bpf_trace_printk (6, bpf_pri map=                                          op=output use=unused key=per_thread cpu=n/a agg=False | 
+   defer     example/gpu/gpu_shared_map/gpu_shared_map.bpf.c:52 bpf_trace_printk (6)         map=                                          op=output use=unused key=constant cpu=n/a agg=True | 
+   defer     example/gpu/gpu_shared_map/gpu_shared_map.bpf.c:55 bpf_map_update_elem (2)      map=counter_per_thread BPF_MAP_TYPE_GPU_HASH_ op=overwrite use=unused key=constant cpu=yes agg=True | leader-thread publish of counter value
+   defer     example/gpu/gpu_shared_map/gpu_shared_map.bpf.c:73 bpf_trace_printk (6)         map=                                          op=output use=unused key=constant cpu=n/a agg=True | 
+   defer     example/gpu/atomizer/atomizer.bpf.c:48 bpf_printk -> bpf_trace_prin map=                   n/a                    op=output use=unused key=none cpu=n/a agg=True | debug print
+   defer     example/gpu/atomizer/atomizer.bpf.c:50 bpf_printk -> bpf_trace_prin map=                   n/a                    op=output use=unused key=none cpu=n/a agg=True | debug print
+   defer     example/gpu/atomizer/atomizer.bpf.c:57 bpf_printk -> bpf_trace_prin map=                   n/a                    op=output use=unused key=none cpu=n/a agg=True | debug print
+   defer     example/gpu/atomizer/atomizer.bpf.c:59 bpf_printk -> bpf_trace_prin map=                   n/a                    op=output use=unused key=none cpu=n/a agg=True | debug print
+   defer     example/gpu/atomizer/atomizer.bpf.c:68 bpf_printk -> bpf_trace_prin map=                   n/a                    op=output use=unused key=none cpu=n/a agg=True | debug print
+   defer     example/gpu/atomizer/atomizer.bpf.c:74 bpf_printk -> bpf_trace_prin map=                   n/a                    op=output use=unused key=none cpu=n/a agg=True | debug print
+   defer     example/gpu/launchlate/launchlate.bpf.c:114 bpf_printk -> bpf_trace_prin map=                   n/a                    op=output use=unused key=none cpu=n/a agg=False | debug print
+   defer     example/gpu/launchlate/launchlate.bpf.c:117 bpf_printk -> bpf_trace_prin map=                   n/a                    op=output use=unused key=none cpu=n/a agg=False | debug print
+   defer     example/gpu/launchlate-kernel-gpu-shared-map/launchlate.bpf.c:119 bpf_printk -> bpf_trace_prin map=                   n/a                    op=output use=unused key=none cpu=n/a agg=False | debug print
+   defer     example/gpu/launchlate-kernel-gpu-shared-map/launchlate.bpf.c:122 bpf_printk -> bpf_trace_prin map=                   n/a                    op=output use=unused key=none cpu=n/a agg=False | debug print
+   defer     example/gpu/threadscheduling/threadscheduling.bpf.c:86 bpf_map_update_elem (2)      map=thread_mapping     BPF_MAP_TYPE_HASH      op=overwrite use=unused key=per_thread cpu=yes agg=False | per-thread record store (BPF_ANY)
+   defer     example/gpu/threadscheduling/threadscheduling.bpf.c:90 bpf_map_lookup_elem (1)      map=sm_histogram       BPF_MAP_TYPE_HASH      op=accumulate use=pointer_rmw key=per_block cpu=yes agg=True | lookup + __sync_fetch_and_add, else NOEX
+   defer     example/gpu/threadscheduling/threadscheduling.bpf.c:95 bpf_map_update_elem (2)      map=sm_histogram       BPF_MAP_TYPE_HASH      op=insert_if_absent use=unused key=per_block cpu=yes agg=True | lookup + __sync_fetch_and_add, else NOEX
+   defer     example/gpu/threadscheduling/threadscheduling.bpf.c:100 bpf_map_lookup_elem (1)      map=warp_histogram     BPF_MAP_TYPE_HASH      op=accumulate use=pointer_rmw key=per_warp cpu=yes agg=True | lookup + __sync_fetch_and_add, else NOEX
+   defer     example/gpu/threadscheduling/threadscheduling.bpf.c:105 bpf_map_update_elem (2)      map=warp_histogram     BPF_MAP_TYPE_HASH      op=insert_if_absent use=unused key=per_warp cpu=yes agg=True | lookup + __sync_fetch_and_add, else NOEX
+   defer     example/gpu/threadscheduling_dynamic_hook/threadscheduling.bpf.c:89 bpf_map_update_elem (2)      map=thread_mapping     BPF_MAP_TYPE_GPU_HASH_ op=overwrite use=unused key=per_thread cpu=yes agg=False | per-thread record store (BPF_ANY)
+   defer     example/gpu/threadscheduling_dynamic_hook/threadscheduling.bpf.c:93 bpf_map_lookup_elem (1)      map=sm_histogram       BPF_MAP_TYPE_GPU_HASH_ op=accumulate use=pointer_rmw key=per_block cpu=yes agg=True | lookup + __sync_fetch_and_add, else NOEX
+   defer     example/gpu/threadscheduling_dynamic_hook/threadscheduling.bpf.c:98 bpf_map_update_elem (2)      map=sm_histogram       BPF_MAP_TYPE_GPU_HASH_ op=insert_if_absent use=unused key=per_block cpu=yes agg=True | lookup + __sync_fetch_and_add, else NOEX
+   defer     example/gpu/threadscheduling_dynamic_hook/threadscheduling.bpf.c:103 bpf_map_lookup_elem (1)      map=warp_histogram     BPF_MAP_TYPE_GPU_HASH_ op=accumulate use=pointer_rmw key=per_warp cpu=yes agg=True | lookup + __sync_fetch_and_add, else NOEX
+   defer     example/gpu/threadscheduling_dynamic_hook/threadscheduling.bpf.c:108 bpf_map_update_elem (2)      map=warp_histogram     BPF_MAP_TYPE_GPU_HASH_ op=insert_if_absent use=unused key=per_warp cpu=yes agg=True | lookup + __sync_fetch_and_add, else NOEX
+   defer     example/gpu/directly_run_on_gpu/directly_run.bpf.c:79 bpf_printk -> bpf_trace_prin map=                   n/a                    op=output use=unused key=none cpu=n/a agg=True | debug print
+ gpu-local sites 109 helpers: [('bpf_map_lookup_elem', 30), ('bpf_map_update_elem', 16), ('bpf_get_globaltimer', 15), ('bpf_get_block_idx', 15), ('bpf_get_thread_idx', 13), ('bpf_get_current_pid_tgid', 7), ('bpf_perf_event_output', 3), ('bpf_get_sm_id', 2), ('bpf_get_warp_id', 2), ('bpf_get_lane_id', 2), ('bpf_get_block_dim', 2), ('bpf_get_grid_dim', 1)]
+ gpu-local map types: [('-', 30), ('n/a', 30), ('BPF_MAP_TYPE_GPU_ARRAY_MAP 1503', 15), ('BPF_MAP_TYPE_GPU_KERNEL_SHARED_ARRAY_MAP', 7), ('BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP (15', 7), ('BPF_MAP_TYPE_GPU_ARRAY_MAP (1503)', 6), ('BPF_MAP_TYPE_PERGPUTD_ARRAY_MAP 1502', 4), ('BPF_MAP_TYPE_ARRAY', 3), ('BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP (1513)', 3), ('BPF_MAP_TYPE_GPU_RINGBUF_MAP 1527', 2), ('BPF_MAP_TYPE_GPU_RINGBUF_MAP (1527)', 1), ('BPF_MAP_TYPE_PERGPUTD_ARRAY_MAP (1502)', 1)]
+
+== gpu_ext: host-call sites today 0
+ class: Counter()
+ helper: Counter()
+ op: Counter()
+ result_use: Counter()
+ aggregatable: Counter()
+ freq: Counter()
+ cpu_reads: Counter()
+ key: Counter()
+ gpu-local sites 80 helpers: [('bpf_map_lookup_elem', 27), ('bpf_map_update_elem', 12), ('bpf_get_block_idx', 9), ('bpf_get_thread_idx', 9), ('bpf_get_globaltimer', 8), ('bpf_get_block_dim', 5), ('bpf_perf_event_output', 4), ('bpf_get_lane_id', 1), ('bpf_get_warp_id', 1), ('gpu_grid_dim', 1), ('gpu_block_dim', 1), ('device_lane_id', 1)]
+ gpu-local map types: [('-', 37), ('BPF_MAP_TYPE_GPU_ARRAY_MAP 1503', 11), ('BPF_MAP_TYPE_GPU_ARRAY_MAP (1503)', 10), ('BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP (1513)', 7), ('BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP 1513', 4), ('BPF_MAP_TYPE_PERGPUTD_ARRAY_MAP 1502', 3), ('BPF_MAP_TYPE_GPU_RINGBUF_MAP (1527)', 3), ('BPF_MAP_TYPE_ARRAY', 2), ('1502 (PERGPUTD_ARRAY_MAP)', 1), ('BPF_MAP_TYPE_GPU_RINGBUF_MAP 1527', 1), ('BPF_MAP_TYPE_PERGPUTD_ARRAY_MAP (1502)', 1)]
