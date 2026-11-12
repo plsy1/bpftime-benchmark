@@ -1,0 +1,442 @@
+{
+  "summary": "Recheck the rewritten clock-regime README against the data",
+  "agentCount": 8,
+  "logs": [
+    "wording: 6 non-minor finding(s) beyond 3 returned unverified",
+    "numbers: 4 non-minor finding(s) beyond 3 returned unverified"
+  ],
+  "result": [
+    {
+      "lens": "numbers",
+      "verified": [
+        {
+          "claim": "graphs (c18, c29), dense requests (c31, c32), c21, c24 and c26-c28 were not rerun",
+          "problem": "The list of cells that were not rerun is wrong. c26 and c27 are not cells of ../dev/, and c15 and c30 are left out.",
+          "evidence": "../dev/ has 17 cells. They are listed in rounds-dev-cells.txt, rounds6.sh and the '### cNN' headers of dev/summary.md: c01 c02 c05 c06 c11 c15 c17 c18 c21 c23 c24 c25 c28 c29 c30 c31 c32. rounds7.sh reran c01 c02 c05 c06 c11 c17 c23 c25. That leaves c15 (short kernels, full load), c18, c21, c24, c28 (4 calls per launch, full load), c29, c30 (graphs, then plain launches) and c31, c32. No cell named c26 or c27 exists in ../dev/.",
+          "severity": "wrong",
+          "fix": "graphs (c18, c29, c30), dense requests (c31, c32), c15, c21, c24 and c28 were not rerun",
+          "verdict": {
+            "holds": true,
+            "reason": "I checked this against the data and the problem is real. ../dev/ has 17 cells (rounds-dev-cells.txt has 17 lines, and they match rounds6.sh and the '### cNN' headers in dev/summary.md): c01 c02 c05 c06 c11 c15 c17 c18 c21 c23 c24 c25 c28 c29 c30 c31 c32. rounds7.sh's CELLS array lists only c01 c02 c05 c06 c11 c17 c23 c25. Those are also the only cells present in logs/dvfs/{on,off}/r1..r4 and in dvfs/{on,off}/summary.md. So 9 cells of ../dev/ were not rerun: c15, c18, c21, c24, c28, c29, c30, c31, c32. c26 and c27 appear nowhere in dev/summary.md, rounds6.sh or rounds-dev-cells.txt. They are ../v3/ cells (rounds-v3-cells.txt: 4 and 8 calls per launch, no load), so they do not belong in a count out of 17. The README's list therefore drops c15 (short kernels, full load) and c30 (graphs, then plain launches) and adds c26 and c27, which are not ../dev/ cells. The proposed fix gets the list right, but it leaves the start of the sentence, 'Eight of the 17 cells:', unchanged. That would put 9 cells under 'Eight'. Line 5's 'Eight of the 17 cells' means the 8 that were rerun; the 'not rerun' count is 9. The corrected fix below changes the count too.",
+            "corrected_fix": "- Nine of the 17 cells of `../dev/` were not rerun: graphs (c18, c29, c30), dense requests (c31, c32), c15, c21, c24 and c28 (nor `../v3/`'s c26 and c27, 4 and 8 calls per launch without load)."
+          }
+        },
+        {
+          "claim": "Measured off/on ratios of the CPU figures run from 1.2 (M100 c02) to 4.5 (AC4 c23).",
+          "problem": "The lower end is wrong. The basis that gives 1.23 for M100 c02 and 4.50 for AC4 c23 gives 0.88 for M100 c23. It also gives about 1.0 for W in every cell and for every set in the full-load cells.",
+          "evidence": "Basis: off/on ratio of the 'minus P' medians from summary.md, recomputed from raw rows. M100 c02 0.113/0.092 = 1.23 and AC4 c23 0.267/0.059 = 4.50, both match the README. On the same basis:\n- M100 c23: 0.912/1.032 = 0.88. This cell is in README table 1, where M100 off is 0.871-1.091.\n- W: c02 0.99, c06 0.99, c23 1.02, c25 0.99, c17 0.96.\n- c01, all sets: 0.96-1.02.\n- c05: 1.10-1.16.\n- c17: 0.96-1.16.\nThe range 1.2-4.5 holds only for the sleeping sets in the no-load cells, with M100 c23 left out (M100 c06 1.23, c02 1.23, ... AC4 c23 4.50).",
+          "severity": "wrong",
+          "fix": "Measured off/on ratios of the CPU figures run from 0.88 (M100 c23) and about 1.0 (W everywhere, and every set under full load) to 4.5 (AC4 c23). For the sleeping sets in c02, c06, c11 and c25 they run from 1.2 (M100) to 2.8.",
+          "verdict": {
+            "holds": true,
+            "reason": "The claim reproduces, but the proposed Fix overstates two points. I recomputed the dCPU ('minus P') medians at full precision from the raw rows, using summarize.py through runpy from the policy directory, and spot-checked the .victim cpu_s and wall_s values. Only this basis gives the README's two endpoints: M100 c02 0.1131/0.0916 = 1.23 and AC4 c23 0.2667/0.0593 = 4.50. On raw CPU without subtracting P they would be 1.31 and 1.90, so the README must mean minus-P medians.\n\nOn the same basis the lower end is wrong:\n- M100 c23 is 0.9118/1.0317 = 0.88. The off rounds are 1.091, 0.871, 0.903 and 0.920; the on rounds are 1.001-1.042. Even the best pairing (1.091/1.001 = 1.09) does not reach 1.2.\n- W is 0.99 in c01, c02, c06 and c25, 1.01 in c05, 1.02 in c23 and 0.96 in c17.\n- c01 runs 0.96-1.02 for all sets.\n- c17's sleeping sets run 0.99-1.16.\n\nLimiting the sentence to the CPU rows the README prints (c02, c23) does not save it: W is 0.99 and 1.02, and M100 c23 is 0.88.\n\nTwo errors in the claim and its Fix:\n1. W is not about 1.0 in every cell. In c11 it is 0.0057/0.0022 = 2.63 (raw cpu_s 0.018-0.019 on, 0.044-0.049 off, over 8.002 s). The claim's evidence leaves c11 out.\n2. Full load is not about 1.0 for every set. In c05 the sleeping sets run 1.10-1.16, and their on and off round ranges do not overlap (for example AC3 0.122-0.126 on against 0.140-0.145 off). Only c01 and W in c05 are about 1.0.\n\nThe Fix also leaves out c17's sleeping sets. Its second sentence is right: the sleeping sets in c02, c06, c11 and c25 run 1.23-2.82. The D and AC sets in c23 run 2.12-4.50.",
+            "corrected_fix": "Off/on ratios of the CPU figures (medians of 'minus P') run from 0.88 (M100 c23) to 4.5 (AC4 c23). M100 c23's 0.88 lies within its round spread. Where a set holds a core, or the CPU runs at 1728 MHz in both regimes, they stay near 1: W 0.96-1.02 in every cell except c11, c01 0.96-1.02, c17 0.96-1.16. In c05, where the GPU is slower, the sleeping sets run 1.10-1.16. With a core free, the sleeping sets run 1.2 (M100) to 2.6 in c02, c06 and c25. In c11, W included, they run about 2.6-2.8. The D and AC sets in c23 run 2.1-4.5."
+          }
+        },
+        {
+          "claim": "Most of it is VDD_SOC (memory controller and EMC: 2407 vs 1469 and 2411 vs 1458 mW)",
+          "problem": "This holds for c02 but not for c11. In c11 VDD_SOC accounts for less than half of the 2.0 W difference, and VDD_CPU_GPU_CV is almost as large.",
+          "evidence": "Basis: P, median over rounds of the in-window means (the summarize.py power window), raw .power files.\n- c02: VDD_IN 6914.5 vs 5733.8 (diff 1181 mW). VDD_SOC 2407.0 vs 1468.5 (diff 938.5 = 79%).\n- c11: VDD_IN 6614.6 vs 4625.6 (diff 1989 mW). VDD_SOC 2411.0 vs 1458.0 (diff 953 = 48%). VDD_CPU_GPU_CV 1447.0 vs 527.6 (diff 919 = 46%).\nThe review (U39) said 'most' about c02 only.",
+          "severity": "wrong",
+          "fix": "With a kernel running most of it is VDD_SOC (memory controller and EMC: 2407 vs 1469 mW, 0.94 of 1.18 W). Idle it splits about evenly between VDD_SOC (2411 vs 1458) and VDD_CPU_GPU_CV (1447 vs 528), ...",
+          "verdict": {
+            "holds": true,
+            "reason": "The claimed problem reproduces exactly. I recomputed the P runs from the raw .power files with summarize.py's window (whole-second tegrastats samples from realtime start+1 s to end-1 s), took the mean per round and then the median over the 4 valid rounds (all valid in verify.csv). Script: /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/rails.py.\n\nc02 P (kernel running), on vs off: VDD_IN 6914.5 vs 5733.8 (diff 1180.7). VDD_SOC 2407.0 vs 1468.5 (diff 938.5, 79%). VDD_CPU_GPU_CV 1685.0 vs 1550.8 (diff 134.2, 11%). Unmeasured rest 108 (9%). So 'most' is right for c02.\n\nc11 P (idle), on vs off: VDD_IN 6614.6 vs 4625.6 (diff 1989.1). VDD_SOC 2411.0 vs 1458.0 (diff 952.9, 48%). VDD_CPU_GPU_CV 1447.0 vs 527.6 (diff 919.4, 46%). Rest 116.7 (6%).\n\nThe c11 result does not depend on how rounds are paired. The largest per-round VDD_SOC difference is about 954 mW and the smallest per-round VDD_IN difference is 1914.5 mW (6602.5 - 4688), so the share stays below 50% in every pairing. VDD_SOC is only marginally the largest rail idle and is nearly tied with VDD_CPU_GPU_CV. The sentence 'Most of it is VDD_SOC (... 2407 vs 1469 and 2411 vs 1458 mW)' covers both the 1.2 W and the 2.0 W, so it is wrong for c11. The review's U39 said 'about 80%' for c02 only and gave c11's CV as nearly equal (-919 vs -953).",
+            "corrected_fix": "With a kernel running, most of the 1.2 W is VDD_SOC (memory controller and EMC: 2407 vs 1469 mW, 0.94 of 1.18 W), which depends on the EMC setting (unrecorded in off); VDD_CPU_GPU_CV is 1685 vs 1551 mW (0.13 W). Idle, the 2.0 W splits about evenly between VDD_SOC (2411 vs 1458 mW, 0.95 W) and VDD_CPU_GPU_CV (1447 vs 528 mW, 0.92 W; GPU 1020 vs 306 MHz, idle states)."
+          }
+        }
+      ],
+      "unverified": [
+        {
+          "claim": "the sleeping sets keep 98.5-99% of the load's throughput with about 1% of host calls over 1 ms",
+          "problem": "This is wrong for M100, which the README counts as a sleeping set ('every sleeping set (D, AC3, M100, AC2, AC4)'). In c05, the 32-call burst cell named in the same sentence, the sleeping sets keep less than 98.5%.",
+          "evidence": "c01 M100, from perround.txt (reproduced from raw):\n- load vs P: on 0.978, 0.980, 0.981, 0.980; off 0.980, 0.979, 0.980, 0.976 (97.6-98.1%).\n- calls > 1 ms: on 3.84, 3.53, 4.00, 3.94; off 3.38, 3.50, 3.50, 3.53 (3.4-4.0%).\nAC3, D, AC2 and AC4 in c01 are 0.985-0.990 and 0.81-1.38%, as stated. In c05 the sleeping sets' load vs P is 0.963-0.986 (summary.md).",
+          "severity": "wrong",
+          "fix": "in c01 AC3, D, AC2 and AC4 keep 98.5-99% of the load's throughput with about 1% of host calls over 1 ms, M100 97.6-98.1% and 3.4-4.0%"
+        },
+        {
+          "claim": "tegrastats reads the CPU at 729-771 MHz (W's cluster excepted, below)",
+          "problem": "The upper bound is too low. A non-W set's run mean reaches 782 MHz. W's other cluster (policy4, not the one its watcher keeps fast) also reaches 878 MHz.",
+          "evidence": "inwin.txt, reproduced exactly by scripts/inwin.py. Values are per-run means of the 100 ms samples inside the window, off regime.\n- c25 M100 policy4: 729-782.\n- W policy4: c02 759-878, c06 730-806.\nEvery other non-W value is at most 771 (c06 P policy0).",
+          "severity": "wrong",
+          "fix": "tegrastats reads the CPU at 729-782 MHz (run means; W excepted: its policy0, below, and its policy4 at 759-878 in c02 and 730-806 in c06)"
+        },
+        {
+          "claim": "the junction temperature drifts 0.5-1.4 C across a cell's seven runs",
+          "problem": "This does not hold for c25, one of the four power cells. There tj hardly moves across the seven runs. The upper bound is 1.3, not 1.4.",
+          "evidence": "Basis: tegrastats tj@ averaged over the same in-window samples as power, then max-min over the 7 runs of one cell, round and regime. This reproduces the review's c11 off r1 example: 48.67 -> 47.36, a drift of 1.31.\n- c02, c06 and c11: 0.49-1.31 C.\n- c25: 0.02-0.36 C. Examples: off r2 48.08-48.10, off r3 48.01-48.07, on r4 50.17-50.33, on r1 50.61-50.97.",
+          "severity": "wrong",
+          "fix": "the junction temperature drifts up to 1.3 C across a cell's seven runs (0.5-1.3 in c02, c06 and c11; under 0.4 in c25)"
+        },
+        {
+          "claim": "AC3 1449 / 1135, its policy0 below P's in every round, policy4 above; D, M100, AC2, AC4 both above",
+          "problem": "'Both above' holds only for the medians across rounds. Set against AC3's 'in every round', it reads as per-round, but 5 of the 32 round-and-cluster comparisons for D, M100, AC2 and AC4 are below P.",
+          "evidence": "resid.py per-round policy means, c17 off.\n- P: policy0 1459, 1499, 1530, 1511; policy4 867, 741, 785, 751.\n- D: policy0 r4 1233 (P 1511); policy4 r1 778 (P 867).\n- M100: policy0 r1 1450 (P 1459).\n- AC2: policy0 r3 1515 (P 1530).\n- AC4: policy4 r1 854 (P 867).\nAC3's per-round claim holds (policy0 1424, 1474, 1482, 1286; policy4 1216, 1053, 1029, 1231).",
+          "severity": "missing-caveat",
+          "fix": "AC3 1449 / 1135, its policy0 below P's in every round, policy4 above; D, M100, AC2, AC4 both above by median (with single rounds below P: D policy0 r4 and policy4 r1, M100 policy0 r1, AC2 policy0 r3, AC4 policy4 r1)"
+        }
+      ],
+      "minor": [
+        {
+          "claim": "the window exceeds the timed loop by 0.2-0.5 s for P, 0.7-1.2 s for the bpftime sets",
+          "problem": "The bpftime range is off at both ends. It is 0.57-1.26 s over all runs (on 0.57-1.20, off 0.66-1.26). The c17 bound in section 4 is also loose.",
+          "evidence": "Basis, per run: resid.py wall_s (time between the 'before' and 'after' snapshots) minus the victim's window_ns duration.\n- P: 0.16-0.47 s (on 0.16-0.46, off 0.20-0.47).\n- bpftime sets: no-load cells 0.57-0.77 s; c01/c05 0.73-1.20 (on) and 0.93-1.26 (off).\nIn c17 the excess is at most 0.76 s (sleeping-set windows 12.9-13.6 s). The 'at most 1.2 s of about 13 s, up to about 90 MHz' in section 4 is therefore about 0.76 s, which is about 60 MHz.",
+          "severity": "minor",
+          "fix": "the window exceeds the timed loop by 0.2-0.5 s for P, 0.6-1.3 s for the bpftime sets (0.6-0.8 s without load). In section 4: 'start-up included: at most 0.8 s of about 13 s, up to about 60 MHz of these means'."
+        },
+        {
+          "claim": "no core idles (c7 share at most 0.00015 of CPU time, WFI at most 0.001)",
+          "problem": "The WFI bound holds only for the off regime. The sentence covers both regimes, and under jetson_clocks the WFI share reaches 0.0016.",
+          "evidence": "resid.py wfi_share per run, c01/c05.\n- on: max 0.00161 (c01 W r2), then 0.00155 (c01 W r1), 0.00128 (c05 M100 r2), 0.00127 (c05 AC3 r1), 0.00108 (c01 AC4 r3).\n- off: max 0.00094 (c05 D r3).\nThe c7 maximum of 0.00015 (c05 AC2 r2, off) is correct. The review's V36 bound of 0.001 covered off runs only.",
+          "severity": "minor",
+          "fix": "no core idles (c7 share at most 0.00015 of CPU time, WFI at most 0.0016)"
+        },
+        {
+          "claim": "The sleeping sets' bursts cost 2.4-3.9 us more per call without `jetson_clocks`, W's 0.5",
+          "problem": "These figures are rounding artifacts. They come from subtracting summary.md's 1-decimal medians. The unrounded differences are 2.48-3.93 and 0.56.",
+          "evidence": "Median cost per call in c05, (set's per-launch mean - P's) / 32 per round, unrounded, off - on:\n- D 17.83 - 15.36 = 2.48\n- AC3 2.62\n- AC2 3.22\n- M100 3.67\n- AC4 3.93\n- W 22.11 - 21.56 = 0.56\nThe README's figures follow from the rounded values (D 17.8 - 15.4 = 2.4, W 22.1 - 21.6 = 0.5).",
+          "severity": "minor",
+          "fix": "The sleeping sets' bursts cost 2.5-3.9 us more per call without `jetson_clocks`, W's 0.6"
+        },
+        {
+          "claim": "W in c17 rose by median (0.11% -> 0.40%; ranges 0.06-0.16 and 0.16-0.53 touch)",
+          "problem": "The off median is 0.39%, not 0.40%. The 0.40 comes from averaging the rounded per-round values 0.38 and 0.41.",
+          "evidence": "W c17 calls > 1 ms out of 3200 per round:\n- on: 4, 2, 5, 3. Median 3.5/3200 = 0.109%.\n- off: 17, 5, 13, 12. Median 12.5/3200 = 0.391%.\nPooled shares are 0.109% -> 0.367%. The touching ranges are correct (5/3200 = 0.156% in both).",
+          "severity": "minor",
+          "fix": "W in c17 rose by median (0.11% -> 0.39%; ranges 0.06-0.16 and 0.16-0.53 touch)"
+        }
+      ]
+    },
+    {
+      "lens": "wording",
+      "verified": [
+        {
+          "claim": "Cautions, line 89-90: \"P's victim runs at the CPU floor, W's on the cluster W keeps fast.\" Compare §1, line 130-131: \"Possibly the victim's own host work ran on the fast cluster W kept up (the victim is not pinned; not separated from c7 exits).\"",
+          "problem": "The two passages contradict each other. The caution states the victim's placement as a fact, while §1 calls the same mechanism only possible and untested. Confirmed finding V37 asked for exactly this split: keep the firm statement (P is not a zero for W) apart from the mechanism, which stays hedged. Only §1 does that.",
+          "evidence": "Nothing records where the victim ran: it is not pinned, and inwin.py and resid.py give per-cluster frequency only. The firm part does hold. In c25 off, W's per-launch mean minus P's minus W's own host-call time per launch is -9.6, -6.3, +0.6 and -8.6 us. With jetson_clocks it is +12.3, +10.7, +11.4 and +14.6, and AC3 off is +15.5 to +20.5. Sources: logs/dvfs/{on,off}/r*/c25_{W,P,AC3}.1.victim and .1.loader under /home/jetson/src/bpftime-gpu-work/policy.",
+          "severity": "wrong",
+          "fix": "Rewrite the caution with the firm statement only: \"P's run has both clusters at the floor while W keeps one near 1728 MHz. W's launches come out shorter than P's plus W's own host-call time (c25: -9.6 to +0.6 us per launch without, +10.7 to +14.6 with), so P is not a zero for W.\" Move the mechanism (victim on the fast cluster, or fewer c7 exits) to the hedged sentence in §1.",
+          "verdict": {
+            "holds": true,
+            "reason": "The claim reproduces. The two passages do not contradict each other logically; they state the same mechanism with different certainty. V37 asked for the firm statement and the mechanism to be kept apart, and the caution (lines 89-90) still mixes them.\n\n1. **The numbers match when the host-call median is used.** For each round I took the c25 per-launch mean from the .1.victim file, subtracted P's mean, then subtracted the median of the loader's hostspin values (`logs/dvfs/{on,off}/r1..r4/c25_{W,P,AC3}.1.{victim,loader}`).\n   - W off: -9.6, -6.3, +0.6, -8.6 us per launch.\n   - W on: +12.3, +10.7, +11.4, +14.6.\n   - AC3 off: +20.5, +15.6, +15.5, +15.6.\n   - These medians are W's c25 host-call figures, about 22.5-23.6 us on and 26.2-26.5 us off. They match README §1.\n   - Using the hostspin mean instead gives W off -10.0 to +0.0 and AC3 off +13.8 to +19.9. The conclusion is the same.\n\n2. **The firm half holds.** P is not a zero for W in off. In P's c25 off runs both clusters sit at 729-743 MHz (inwin.txt), so \"P's victim runs at the CPU floor\" is true wherever its threads ran. W keeps policy0 at 1709-1728 MHz.\n\n3. **The placement half is not recorded.** The claim's evidence is slightly off here: `.resid` also holds per-CPU cpuidle counters, not only per-cluster frequency. Those counters still do not settle where the victim ran:\n   - In every W run, the one core busy about 0.9 of the time is a policy0 core (the waiting thread).\n   - In W off rounds 1-3, a policy4 core, which runs at the floor, takes 1,300-2,500 WFI entries. That is about one per launch (2,000 launches). W on has under 600 and P off mostly under 200.\n   - Those counts do not track the residual. Round 4 has few entries (189/278) and a residual of -8.6; round 1 has 2,506 and -9.6.\n   - The counters are system-wide and include start-up.\n\n   So the victim's launch-path placement can only be inferred, and that supports hedging it as §1 does.\n\n4. **The obvious rebuttal does not work.** W's waiting thread is in the victim process (c25 W cpu_s 5.216, about equal to wall_s 5.141). So \"W's victim runs on the fast cluster\" is trivially true of that one thread. But the caution uses the sentence to explain why W's launch times come out biased. That depends on where the launch-path threads ran, which nothing records. §1 (lines 130-131) correctly says only \"possibly\", and adds the c7-exit alternative.\n\n**The proposed fix has two errors.**\n- \"W's launches come out shorter than P's plus W's own host-call time (c25: -9.6 to +0.6 ... without, +10.7 to +14.6 with)\" is wrong. The values with jetson_clocks are positive, and W off round 3 is +0.6, so not every launch is \"shorter\". The fix should state the quantity instead.\n- The units need labelling. The figures are per launch (two calls), while the same bullet says \"about 10 us per call\".\n\n**Two more points for the rewrite.**\n- Keep AC3 off (+15.5 to +20.5) in the caution. It shows the drop is specific to W, not a property of the off regime.\n- Keep the \"biased low ... W's own latency is given instead\" sentence. The \"(biased)\" cells in the §1 table rely on it.\n\n§1 already carries the hedged mechanism, so the change is a deletion from the caution, not a move.",
+            "corrected_fix": "Replace README.md lines 89-91 (the second caution bullet) with:\n\n- **P is not a zero for W without `jetson_clocks`**: P's run has both clusters at the CPU floor, while W's waiting thread keeps one cluster at about 1700 MHz (c25 1709-1728, c02 1581-1705). In c25, W's per-launch mean minus P's minus W's own host-call median (one launch = two calls) is -9.6 to +0.6 us without `jetson_clocks`. It is +10.7 to +14.6 with them, and +15.5 to +20.5 for AC3 without. So W's \"cost over P\" in the no-load cells is biased low (by about 10 us per call in c25); W's own latency is given instead. Why is open (§1).\n\nLeave §1 lines 130-131 as they are. They already give the mechanism with a hedge: the victim's host work possibly ran on the fast cluster, the victim is not pinned, and c7 exits were not separated. Optionally, add there \"per-CPU idle counts do not settle it\"."
+          }
+        },
+        {
+          "claim": "§2, line 148-149: \"The sleeping sets' bursts cost 2.4-3.9 us more per call without `jetson_clocks`, W's 0.5 (GPU at 938-1002 instead of 1020 MHz, EMC unknown).\" Also line 57-59 (\"differ between regimes only in the GPU (nvhost_podgov, run means 938-1002 MHz, against 1020 fixed) and the EMC setting\") and line 146-147 (\"this shows the comparison does not depend on the GPU governor or the EMC setting\").",
+          "problem": "938-1002 MHz are `.resid` means over the whole victim life, start-up included. They do not show the GPU below 1020 MHz during the timed bursts. The GPU's time below 1020 MHz fits inside the time outside the timed loop in every run. So it is not established that c01 and c05 ran the GPU at a lower clock, or that they tested the GPU governor at all. The parenthesis reads as the cause of the 2.4-3.9 us rise, but that rise is unexplained. Also, W's '0.5' lies within its round spread.",
+          "evidence": "Per-run GPU trans_stat deltas (resid.py's parse) for all 56 off runs of c01 and c05:\n- Time below 1020 MHz: 0.24-1.12 s per run.\n- Time outside the timed loop (resid window minus the victim's realtime_ns window): 0.36-1.26 s.\n- Below-1020 time is smaller than that excess in every run.\n- Almost all of it is at 306 MHz, the idle clock before the GPU gets work: 0.14-0.24 s for P, 0.65-1.0 s for the bpftime sets.\n\nThis matches the start-up signature: P's run means are 999 (c01) and 993 (c05), every bpftime set's 946-962, whatever its policy (perround.txt).\n\nW c05 cost per call: 21.1-22.9 on vs 20.9-23.2 off (perround.txt).",
+          "severity": "overclaim",
+          "fix": "Say: \"GPU run means 938-1002 MHz include start-up at 306 MHz. The time below 1020 fits in each run's out-of-loop time, so the in-loop GPU clock is not shown to differ from 1020.\" Then:\n- Drop the GPU from the parenthesis in §2 and from \"tested against the GPU ... settings\" (line 147, 226-227).\n- Name the EMC floor (rate unknown) as the only known setting difference.\n- Call the 2.4-3.9 us rise unexplained.\n- Call W's 0.5 within the round spread.",
+          "verdict": {
+            "holds": true,
+            "reason": "I could not refute the claim. Recomputed per run from the raw .resid GPU trans_stat with resid.py's parse, against the victim's realtime_ns window, for all 56 off runs of c01 and c05 (logs/dvfs/off/r1..r4).\n\nPer-run figures:\n- GPU means are 938-1002 MHz, which is exactly the README's range. They are whole-window means, start-up included.\n- Time below 1020 MHz is 236-1120 ms.\n- Out-of-loop time (resid window minus realtime_ns window) is 363-1255 ms.\n- Below-1020 time is under the out-of-loop time in 0 of 56 runs exceeded; the smallest margin is 98 ms.\n- Time at 306 MHz is 140-240 ms for P and 648-1004 ms for the bpftime sets.\n\nTwo further checks make the point stronger and do not depend on trans_stat's booking (sums differ from the wall window by up to -110 ms):\n- Time at 1020 MHz is at least the loop length in every run, by at least 120 ms.\n- Time at 306 is below the pre-loop time in every run, by at least 18 ms. The step-down staircase (918 to 408 MHz) fits in the post-loop time in all but two P runs (c01 r2, c05 r2), which are 6 ms over, within jiffy and snapshot granularity.\n- 48 of 56 runs show one jump from 306 to 1020 MHz and one staircase down (or less), so their 1020 MHz time is one contiguous block.\n- 4 runs (c01 r2 AC2, c01 r3 AC2, c01 r4 D, c05 r3 AC4) have 10 transitions. Each has one extra 1020 to 918 to 1020 dip of about 16-20 ms, at an unknown point.\n\nSo the data fits the GPU running at 1020 MHz for the whole timed loop. At most about 20 ms in 4 runs could have been at 918 MHz. Nothing shows a lower in-loop GPU clock. No tegrastats files (.power) exist for c01 or c05, so no other in-loop GPU measure exists.\n\nThe other parts also reproduce:\n- perround.txt GPU medians are P 999 (c01) and 993 (c05), and 946-962 for every bpftime set.\n- Sleeping-set median rise, off minus on: D +2.45, AC3 +2.7, AC2 +3.25, M100 +3.65, AC4 +3.9 us, so 2.4-3.9.\n- W c05 is 21.1-22.9 on and 20.9-23.2 off. The medians differ by +0.55, while the paired per-round differences run from about -2.0 to +2.0, so the 0.5 is within the round spread.\n- With the CPU at 1728 MHz and not idling in both regimes, and the GPU not shown off 1020 MHz in the loop, nothing in the data explains the rise. The EMC rate is the only clock whose in-loop value is unknown.\n\nMinor nuance: \"almost all at 306 MHz\" is accurate for the bpftime sets (about 84-90% of below-1020 time) but loose for P (about 59-69%).",
+            "corrected_fix": "Apply the review's fix with three refinements: the EMC bullet must not claim EMC is the only differing setting, line 133 needs the same change, and the in-loop GPU statement can be stronger.\n\n(1) Lines 57-59: replace \"These cells differ between regimes only in the GPU (nvhost_podgov, run means 938-1002 MHz, against 1020 fixed) and the EMC setting: they test neither CPU frequency scaling nor idle states.\" with: \"The governor and idle-state settings differ between regimes, but here the CPU sat at 1728 MHz without idling in both. GPU run means of 938-1002 MHz include start-up at 306 MHz (0.14-0.24 s for P, 0.65-1.0 s for the bpftime sets). In every run the GPU's time below 1020 MHz fits in the out-of-loop time, and its time at 1020 MHz exceeds the timed loop by at least 120 ms. So the in-loop GPU clock is not shown to differ from 1020 MHz; 4 of the 56 runs have one dip to 918 MHz of about 20 ms at an unknown point. The EMC rate (floor 204 MHz requested, rate chosen by the BPMP, unrecorded) is the only clock whose in-loop value is unknown. These cells test neither CPU nor GPU frequency scaling, nor idle states.\"\n\n(2) Line 133 heading: \"Under full load (c01, c05): unchanged; only the EMC rate is not known to be equal\".\n\n(3) Lines 146-147: replace \"so this shows the comparison does not depend on the GPU governor or the EMC setting; it says nothing about CPU frequency scaling or idle states\" with: \"and the GPU is not shown below 1020 MHz in the loop (above). So this says nothing about CPU or GPU frequency scaling or idle states; only the EMC rate may have differed.\"\n\n(4) Lines 148-149: \"The sleeping sets' bursts cost 2.4-3.9 us more per call without `jetson_clocks` (medians). This rise is unexplained: the CPU and, as far as measured, the GPU ran at the same clocks, and the EMC rate is unknown. W's 0.5 lies within its round spread (21.1-22.9 vs 20.9-23.2).\"\n\n(5) Lines 226-227: \"Under full load the CPU neither scaled nor idled and the GPU is not shown below 1020 MHz in the loop, so the burst-under-load comparison tested at most the EMC setting (rate unknown).\""
+          }
+        },
+        {
+          "claim": "§5, line 204-208: \"The window was larger at detection without `jetson_clocks`, consistent with longer gaps within bursts at lower clocks (gaps were not recorded): in c06 ... in c25 ...\"",
+          "problem": "The same shift happens in c05, where every core runs at 1728 MHz and never idles in both regimes. Lower CPU clocks are therefore not needed to produce it, and the offered explanation is not supported. c05 is not mentioned.",
+          "evidence": "AC3 c05 .stats, per run, as win20/win80:\n- With jetson_clocks: 34397/42433, 56458/20373, 128/76703, 41971/34860.\n- Without: 2/76829 in all four rounds.\n\nSources: logs/dvfs/{on,off}/r*/c05_AC3.stats. Residency: c01 and c05 off are at 1728 MHz 100% of the time, with c7 share at most 0.00015 (resid.py). c06 off r3 also has win20=9224.",
+          "severity": "missing-caveat",
+          "fix": "Add c05 to the bullet: \"also in c05 (full load, CPU at 1728 MHz in both regimes: 20,373-76,703 of 76,832 at 40-50 us with, 76,829 in every run without).\" Replace \"consistent with longer gaps ... at lower clocks\" with \"the cause is not established: it also appears where the CPU clock is identical (c05); EMC rate and gaps were not recorded\".",
+          "verdict": {
+            "holds": true,
+            "reason": "I recomputed the claim from logs/dvfs/{on,off}/r1..r4/c05_AC3.stats and it reproduces exactly. All runs have req=76832, wmode=3 and win_max=50.\n- With jetson_clocks, win20/win80 per run are 34397/42433, 56458/20373, 128/76703 and 41971/34860. Medians are 38,184 and 38,646.\n- Without, every run reads 2/76829.\n\nSo c05 shows the same shift to a 40-50 us window as c06 and c25. In c05 it is the most uniform of the three cells, and README §5 does not mention c05.\n\nresid.py on c05_AC3 confirms the CPU was identical in both regimes. Every run shows policy0_atmax=1 and policy4_atmax=1 (1728 MHz), c7_share=0 and wfi_share at most 0.0013 in both regimes. Lower CPU frequency and idle states are therefore not needed to produce the shift. The c06 and c25 runs without jetson_clocks sit at about 730-820 MHz with c7 share 0.17-0.29.\n\nThe other evidence also checks out: c06 off r3 has win20=9224, and c25 off r3 has win20=1315. The README's own medians are correct (c06 45,056/31,775 with and 76,828 without; c25 4,001 and 3,994).\n\nOne counter-argument: the README says \"lower clocks\", not \"lower CPU clocks\". c05 without jetson_clocks does run the GPU lower (nvhost_podgov, run means 942-955 MHz against a fixed 1020) and requests an EMC floor of 204 MHz instead of 3199. So c05 does not strictly rule out \"lower clocks\" read as GPU or EMC. It does rule out the CPU-clock reading that the bullet invites by citing only the two cells where the CPU sits at its floor. Two other facts weaken the gap explanation further:\n- The bucket split varies widely between rounds under identical clocks. c05 on r3 already reads 128/76,703, and c06 on ranges from 23,503 to 58,192 at 40-50 us.\n- In mode 3 (v3 patch) the window only doubles (10, 20, 40, 50). It closes only after two gaps of 50 us or more in a row. A win20 of 2 therefore means the window reached 40-50 within the first requests and never closed, so the buckets reflect a few early gaps, not the gap distribution within bursts.\n\nThe problem holds, but the proposed fix needs two changes. It omits the GPU difference, which the README's own residency section names for c01 and c05. It also mixes a range into a bullet labelled \"medians over runs\", so the c05 range needs its own label.",
+            "corrected_fix": "Rewrite the bullet: \"The window was larger at detection without `jetson_clocks`: in c06 10-20 us for 45,056 and 40-50 us for 31,775 of 76,832 requests with, 40-50 us for 76,828 without; in c25 10-20 us for 4,001 of 4,002 with, 40-50 us for 3,994 without (medians over runs); and in c05 (full load) 40-50 us for 20,373-76,703 of 76,832 with (range over runs), 76,829 in every run without. Lower CPU frequency and idle states are not needed for this: in c05 every core runs at 1728 MHz and no core idles in both regimes, which differ there only in the GPU (nvhost_podgov, run means 938-1002 MHz, against 1020 fixed) and the EMC setting. The cause is not established: gaps and the EMC rate were not recorded, and the split varies widely between rounds under identical clocks (c05 with `jetson_clocks` r3 already 76,703 at 40-50 us). (Counter buckets `win20` = 1-20 us, `win80` = 21-80 us; the window takes 10, 20, 40, 50, grows on a gap it missed and closes only after two gaps of 50 us or more in a row.)\""
+          }
+        }
+      ],
+      "unverified": [
+        {
+          "claim": "Line 29-30: \"in the timed window of every off run of c02, c06, c11 and c25 tegrastats reads the CPU at 729-771 MHz (W's cluster excepted, below)\"",
+          "problem": "729-771 MHz is not what tegrastats reads.\n- The figures are per-run means over the window; single 100 ms samples reach 1728 MHz in runs of P, D, AC3, M100, AC2 and AC4.\n- Even the means exceed 771 outside \"W's cluster\": M100 c25 policy4 reaches 782.\n- W's other cluster (policy4) reaches 878 in c02 and 806 in c06. The README's own table shows 759-878 for it.",
+          "evidence": "inwin.txt off:\n- c25 M100 policy4 729-782.\n- c02 W policy4 759-878.\n- c06 W policy4 730-806.\n\nRe-running inwin.py's window logic with per-sample maxima (scratchpad inwin2.py) gives sample maxima of policy0 1728 for c06 P, c02 M100/AC4, c06 D/AC3/M100/AC2 and c11 D/AC3/AC2/AC4.",
+          "severity": "wrong",
+          "fix": "Write: \"per-run window means of 729-782 MHz for every set but W (W: the cluster it keeps fast 1581-1728, the other up to 878); single samples reach 1728 MHz.\""
+        },
+        {
+          "claim": "What this does not cover, line 225-226: \"Eight of the 17 cells: graphs (c18, c29), dense requests (c31, c32), c21, c24 and c26-c28 were not rerun.\"",
+          "problem": "The not-rerun list does not match the 17 cells it refers to. Line 67 says these are the definitions of `../dev/`.\n- c26 and c27 are v3 cells, not among the 17.\n- c15 (short kernels, full load) and c30 (graphs, then plain launches, unlatch) are among the 17, were not rerun, and are not named.",
+          "evidence": "/home/jetson/src/bpftime-gpu-work/policy/rounds-dev-cells.txt lists c01 c02 c05 c06 c11 c15 c17 c18 c21 c23 c24 c25 c28 c29 c30 c31 c32 (17); dev/README.md line 54 says \"17 cells\". rounds7.sh reruns c01 c02 c05 c06 c11 c17 c23 c25. v3/README.md has c26 and c27 (2 / 4 / 8 calls per launch).",
+          "severity": "wrong",
+          "fix": "Write: \"Eight of `../dev/`'s 17 cells; not rerun: c15 (short kernels, full load), graphs (c18, c29, c30), dense requests (c31, c32), c21, c24, c28; nor `../v3/`'s c26, c27.\""
+        },
+        {
+          "claim": "§3, line 181-184: \"The on regime draws 1.2 W (c02 P ...) and 2.0 W (c11 P ...) more than this off regime. Most of it is VDD_SOC (memory controller and EMC: 2407 vs 1469 and 2411 vs 1458 mW), which depends on the EMC setting (unrecorded in off); VDD_CPU_GPU_CV ... 1447 vs 528 idle (GPU 1020 vs 306 MHz, idle states).\"",
+          "problem": "\"Most of it\" holds for c02 but not for c11.\n- In c11 the SOC and CPU/GPU/CV rails each carry about half of the 2.0 W.\n- \"Depends on the EMC setting\" is a cause this run did not test, because the EMC rate was not recorded in off.\n- The CV parenthesis leaves out the CPU clock, which also differs (1728 vs about 730 MHz in the window).",
+          "evidence": "In-window means for P (scratchpad soc.py over logs/dvfs/{on,off}/r*/{c02,c11}_P.power):\n- c11: VDD_IN 6615 vs 4626 (-1989). VDD_SOC 2411 vs 1458 (-953, 48%). VDD_CPU_GPU_CV 1447 vs 528 (-919, 46%).\n- c02: VDD_IN -1180. SOC -938 (80%).\n\ninwin.txt: off c11 CPU 729-762 MHz, on 1728.",
+          "severity": "wrong",
+          "fix": "Write: \"With a kernel running most of it is VDD_SOC (2407 vs 1469 mW); idle it splits about evenly between VDD_SOC (2411 vs 1458) and VDD_CPU_GPU_CV (1447 vs 528; CPU about 730 vs 1728 MHz, GPU 306 vs 1020, idle states).\" Hedge the EMC link: \"likely from the EMC setting (rate unrecorded in off)\"."
+        },
+        {
+          "claim": "§2, line 145-146: \"the sleeping sets keep 98.5-99% of the load's throughput with about 1% of host calls over 1 ms, W 85-87% and 6-13%.\"",
+          "problem": "M100 is one of the sleeping sets by the README's own definition. Line 169 reads \"every sleeping set (D, AC3, M100, AC2, AC4)\". M100 keeps less of the load's throughput than stated, and its share of calls over 1 ms is 3-4 times larger.",
+          "evidence": "README §2 table and perround.txt, c01: M100 load vs P 0.978-0.981 (on) and 0.976-0.980 (off); M100 calls over 1 ms 3.53-4.00% and 3.38-3.53%. AC3, D, AC2 and AC4 sit at 0.985-0.990 and 0.81-1.38%.",
+          "severity": "wrong",
+          "fix": "Write: \"AC3, D, AC2 and AC4 keep 98.5-99% ... with about 1% of host calls over 1 ms, M100 97.6-98.1% and 3.4-4.0%, W 85-87% and 6-13%.\""
+        },
+        {
+          "claim": "Caution 1, line 86-87: \"Measured off/on ratios of the CPU figures run from 1.2 (M100 c02) to 4.5 (AC4 c23).\"",
+          "problem": "The measured ratios do not start at 1.2. W is about 1.0 in every cell, because it keeps its cluster fast. Every set is about 1.0 in c01 and 1.1-1.16 in c05. M100 in c23 is 0.88. The 1.2-4.5 range holds only for the sleeping sets in no-load cells, M100 c23 excluded. The caution's message stands; the stated range does not.",
+          "evidence": "minus-P values, off/on, from on/summary.md and off/summary.md: M100 c23 0.912/1.032 = 0.88; W c02 0.99, c06 0.99, c25 0.99, c23 1.02; c01 AC3 1.00, AC2 0.96, D 0.96; c05 1.10-1.16; c17 D 0.93; AC4 c23 0.267/0.059 = 4.5.",
+          "severity": "wrong",
+          "fix": "Write: \"off/on ratios run from about 1.0 where the set's cluster stays at 1728 MHz (W everywhere, every set at full load; M100 c23 0.88) to 1.2-4.5 for the sleeping sets without load.\""
+        },
+        {
+          "claim": "§3, line 169-171: \"With `jetson_clocks`, W is below every sleeping set (D, AC3, M100, AC2, AC4) in every round of c02, c06 and c25, paired by round, by 1-90 mW (... c25 -37 to -1, the -1 being equal within a step).\"",
+          "problem": "The sentence contradicts itself: it says \"below ... in every round\" and then calls the -1 round equal. Several other \"below\" pairs are also far under the 40 mW step the README itself cites. The confirmed U24/U42 fix (\"c25 in 3 of 4 rounds\") was not adopted.",
+          "evidence": "perround.txt on, W minus set, per round:\n- c25: AC3 -2/-30/-37/-32; AC2 -7/-15/-22/-37; AC4 -23/-19/-8/-37; M100 -9/-63/-16/-89.\n- c06: D -78/-9/-35/-45.\n\nREADME line 166: steps of about 40 mW.",
+          "severity": "overclaim",
+          "fix": "Write: \"below AC3 in every round of c02 and c06 and in 3 of 4 rounds of c25 (round 1 equal within a step); below all five sleeping sets in most pairs, several by less than a quarter step (7-9 mW).\""
+        }
+      ],
+      "minor": [
+        {
+          "claim": "§1, line 125-127: \"W with a core free: its own latency got a little worse without `jetson_clocks` in every no-load cell (... c11, one call per run after a launch: 14.6-15.0 -> 40.2-43.3)\"",
+          "problem": "\"A little worse\" fits c02, c23 and c25 (+2 to +3 us) but not c11, where the call became about 2.8 times slower. The c11 case gets lost inside the \"a little\" sentence.",
+          "evidence": "perround.txt c11 W med: on 14.6, 14.7, 15.0, 14.9; off 40.2, 41.8, 43.3, 42.2. Also the c11 W .1.loader values (warm-up dropped): on 14.6-15.0, off 40.2-43.3 us.",
+          "severity": "minor",
+          "fix": "Split the c11 case out: \"a little worse in c02, c23 and c25 (+2-3 us); in c11 a single call after a launch took 40-43 us instead of 15 (W's cluster at the floor there, inwin.txt 729-742 MHz)\"."
+        },
+        {
+          "claim": "§5, line 209-211: \"while the end-of-run lateness average stayed at 3.3-4.6 us (`late_ewma_us`; -0.4 to -0.1 with), far below its 30 us threshold.\"",
+          "problem": "A guard skip happens only while the EWMA is above 30 us. In the 12 off runs that recorded skips, the EWMA therefore went above 30 us during the run. 3.3-4.6 us is its value at exit, not a level it \"stayed\" at.",
+          "evidence": "/home/jetson/src/bpftime-gpu-work/policy/src/runtime/src/attach/bpf_attach_ctx_cuda.cpp:333 `LATE_GUARD_US = 30`, :367 `late_ewma += (late - late_ewma) / 8.0`, :568-570 `if (late_ewma > LATE_GUARD_US) { k = 0; st.guard_skips++; }`.\n\nAC3 .stats, off: c02 skips 2/5/4/7 with late_ewma 4.0/3.3/4.0/4.0; c23 r1 25 skips with late_ewma 3.4.",
+          "severity": "minor",
+          "fix": "Write: \"while the lateness average at the end of each run was 3.3-4.6 us ... (it exceeded 30 us briefly in the runs with skips)\"."
+        },
+        {
+          "claim": "Line 56-57: \"Full load (c01, c05): every core at 1728 MHz all the time in both regimes, and no core idles (c7 share at most 0.00015 of CPU time, WFI at most 0.001).\"",
+          "problem": "The WFI bound holds only without jetson_clocks. With jetson_clocks the WFI share is higher.",
+          "evidence": "resid.py over logs/dvfs/on/r*/c01_*.resid: WFI share max 0.00161; c05: 0.00128. Off: c01 0.00074, c05 0.00094. The review's V16 also reported 0.0016 for on.",
+          "severity": "minor",
+          "fix": "Write \"WFI at most 0.0016\" (or \"0.001 without, 0.0016 with\")."
+        },
+        {
+          "claim": "Line 52-54: \"(the window exceeds the timed loop by 0.2-0.5 s for P, 0.7-1.2 s for the bpftime sets), so its means mix start-up with the timed loop\". Line 60: \"c7 share of CPU time 0.17-0.38 for P\".",
+          "problem": "The excess range is off at both ends for the bpftime sets.\n- Its low end is 0.57 s, not 0.7: every no-load cell with jetson_clocks sits at 0.57-0.62.\n- 0.05-0.22 s of the excess comes after the loop (tear-down), not start-up.\n\nThe 0.17 low end of the c7 range is c23. There the residency window is 0.6-0.7 s, about a third of it outside the loop, and it has no in-window clock data. Caution 1 also leaves c23 out of its same-clock list. Confirmed finding U38 asked to drop c23 residency.",
+          "evidence": "Scratchpad excess.py: (resid after - before) minus the victim realtime_ns window, all 448 runs.\n- P: 0.16-0.47 s.\n- bpftime sets: 0.57-1.26 s; on no-load cells 0.57-0.62.\n- Post-loop part: 0.05-0.22 s.\n- c23: P window 0.5-0.7 s with 0.16-0.25 s outside the loop.\n\nperround.txt off: c23 P c7 0.17; other no-load cells 0.31-0.38.",
+          "severity": "minor",
+          "fix": "Write: \"exceeds the timed loop by 0.2-0.5 s for P and 0.6-1.3 s for the bpftime sets (start-up, plus 0.05-0.2 s of tear-down)\". Give P's c7 share for c02, c06, c11 and c25 only (0.31-0.38) and drop c23's."
+        },
+        {
+          "claim": "§4, line 190-192: \"AC3 1449 / 1135, its policy0 below P's in every round, policy4 above; D, M100, AC2, AC4 both above\"",
+          "problem": "The sentence mixes bases. AC3's clause holds per round. \"D, M100, AC2, AC4 both above\" holds only for medians: paired by round, several clusters sit below P's. This feeds the following claim that the sleeping sets \"raise\" the clusters.",
+          "evidence": "resid.py on logs/dvfs/off/r*/c17_*.resid, MHz per round:\n- P: policy0 1459/1499/1530/1511; policy4 867/741/785/751.\n- D: policy0 r4 1233; policy4 r1 778.\n- M100: policy0 r1 1450.\n- AC2: policy0 r3 1515.\n- AC4: policy4 r1 854.\n\nWithout AC3, policy0 is above P in 13 of 16 set-rounds and policy4 in 14 of 16.",
+          "severity": "minor",
+          "fix": "Write: \"D, M100, AC2, AC4 both above in medians (policy0 in 13 of 16 set-rounds, policy4 in 14 of 16)\"."
+        },
+        {
+          "claim": "Line 25-28: \"before each run `run_one.sh` checked it (on: cpu5, cpu0 and the GPU at 1728 / 1728 / 1020 MHz, before and after the victims; off: `clocks.sh check-off`, which covers ... but not podgov's tunables, whose writes are not checked)\"",
+          "problem": "The description of the checks does not match the scripts.\n- With jetson_clocks, run_one.sh aborts only on cpu5 and the GPU, and only before the victims. cpu0 and the after-values are recorded by state() and checked later by summarize.py (clocks_ok).\n- check_off also does not check the CPU governor, so the table's \"schedutil\" is not checked per run.\n- check-off runs only before the victims. Confirmed finding U41 listed both of these points.",
+          "evidence": "run_one.sh.diff: `on) [ \"$cpu\" = 1728000 ] && [ \"$gpu\" = 1020000000 ]` with cpu = cpu5 only, before the victims; `state after` only records. summarize.py.diff: clocks_ok compares the recorded (cpu5, cpu0, gpu) before and after. clocks.sh check_off: no scaling_governor test. The snapshots clocks-r1..r4-off.txt show schedutil.",
+          "severity": "minor",
+          "fix": "Write: \"run_one.sh aborted unless cpu5 and the GPU read 1728 / 1020 MHz before the victims, and summarize.py required cpu5, cpu0 and the GPU at those values before and after\". For off, add \"before the victims only; not the CPU governor (schedutil in every snapshot) nor podgov's tunables\"."
+        },
+        {
+          "claim": "§1, line 112-113: \"With 32 calls and no load it stays 0.4-1 us below them (ranges just apart in both regimes).\"",
+          "problem": "The basis is unstated, and the previous sentence uses \"paired by round\". 0.4-0.9 us fits the medians. Paired by round the gap runs from 0.1 to 1.6 us.",
+          "evidence": "perround.txt c06 cost/call.\n- On: AC3 11.7/11.7/11.7/12.0; AC2 12.4/12.1/12.1/12.1 (paired +0.7/+0.4/+0.4/+0.1); AC4 12.4/12.4/12.4/12.3.\n- Off: AC3 13.6/14.5/14.1/13.9; AC2 15.2/14.9/14.6/14.6 (+1.6/+0.4/+0.5/+0.7); AC4 14.8/14.8/15.0/15.5 (+1.2/+0.3/+0.9/+1.6).\n- Medians (summary.md): 0.4/0.7 on, 0.8/0.9 off.",
+          "severity": "minor",
+          "fix": "Write: \"0.4-0.9 us below them (medians; 0.1-1.6 paired by round)\"."
+        },
+        {
+          "claim": "§3, line 166-167: \"the junction temperature drifts 0.5-1.4 C across a cell's seven runs\"",
+          "problem": "No method is named, and c25 falls below the stated lower bound. c25 is the last power cell of each block.",
+          "evidence": "Mean tj inside each run's power window (scratchpad tj.py over logs/dvfs/*/r*/c{02,06,11,25}_*.power): c25 range 0.16-0.36 C (on) and 0.02-0.24 C (off); c02, c06 and c11 0.49-1.31 C. The maximum zone in the .env before/after snapshots gives 0.41-0.72 C for c25 and up to 1.78 C elsewhere.",
+          "severity": "minor",
+          "fix": "Name the measure and give its range, e.g. \"in-window tj drifts 0.5-1.3 C across the seven runs of c02, c06 and c11, under 0.4 C in c25\"."
+        }
+      ]
+    }
+  ],
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "Recheck"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 2,
+      "title": "Verify"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "recheck:numbers",
+      "phaseIndex": 1,
+      "phaseTitle": "Recheck",
+      "agentId": "afa443139c7eb76f6",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794491745751,
+      "queuedAt": 1794491745702,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "A measurement write-up was rewritten after a review: /home/jetson/src/results/gpu/watcher-policy-20261112/dvfs/README.md (bpftime CUDA host-call watcher policies on a Jetson Orin Nano under two clock regimes: on = jetson_clocks, off = DVFS + CPU idle states). The earlier review's findings are in review/findings.txt next to it. Data: dvfs/{on,off}/summary.md and verify.csv, perround.txt (per-round …",
+      "promptFramed": true,
+      "lastProgressAt": 1794492773105,
+      "tokens": 212430,
+      "toolCalls": 48,
+      "durationMs": 1027353,
+      "resultPreview": "{\"findings\":[{\"claim\":\"graphs (c18, c29), dense requests (c31, c32), c21, c24 and c26-c28 were not rerun\",\"problem\":\"The list of cells that were not rerun is wrong. c26 and c27 are not cells of ../dev/, and c15 and c30 are left out.\",\"evidence\":\"../dev/ has 17 cells. They are listed in rounds-dev-cells.txt, rounds6.sh and the '### cNN' headers of dev/summary.md: c01 c02 c05 c06 c11 c15 c17 c18 c21…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "recheck:wording",
+      "phaseIndex": 1,
+      "phaseTitle": "Recheck",
+      "agentId": "a79e8c8f7e65bc15c",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794491745751,
+      "queuedAt": 1794491745703,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "A measurement write-up was rewritten after a review: /home/jetson/src/results/gpu/watcher-policy-20261112/dvfs/README.md (bpftime CUDA host-call watcher policies on a Jetson Orin Nano under two clock regimes: on = jetson_clocks, off = DVFS + CPU idle states). The earlier review's findings are in review/findings.txt next to it. Data: dvfs/{on,off}/summary.md and verify.csv, perround.txt (per-round …",
+      "promptFramed": true,
+      "lastProgressAt": 1794492711014,
+      "tokens": 225403,
+      "toolCalls": 39,
+      "durationMs": 964284,
+      "resultPreview": "{\"findings\":[{\"claim\":\"Cautions, line 89-90: \\\"P's victim runs at the CPU floor, W's on the cluster W keeps fast.\\\" Compare §1, line 130-131: \\\"Possibly the victim's own host work ran on the fast cluster W kept up (the victim is not pinned; not separated from c7 exits).\\\"\",\"problem\":\"The two passages contradict each other. The caution states the victim's placement as a fact, while §1 calls the sam…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 3,
+      "label": "verify:wording",
+      "phaseIndex": 2,
+      "phaseTitle": "Verify",
+      "agentId": "a62ff8e7317b120e3",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794492711081,
+      "queuedAt": 1794492711026,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "The claim reproduces. The two passages do not contradict ea…",
+      "promptPreview": "A measurement write-up was rewritten after a review: /home/jetson/src/results/gpu/watcher-policy-20261112/dvfs/README.md (bpftime CUDA host-call watcher policies on a Jetson Orin Nano under two clock regimes: on = jetson_clocks, off = DVFS + CPU idle states). The earlier review's findings are in review/findings.txt next to it. Data: dvfs/{on,off}/summary.md and verify.csv, perround.txt (per-round …",
+      "promptFramed": true,
+      "lastProgressAt": 1794492898171,
+      "tokens": 78084,
+      "toolCalls": 11,
+      "durationMs": 187088,
+      "resultPreview": "{\"holds\":true,\"reason\":\"The claim reproduces. The two passages do not contradict each other logically; they state the same mechanism with different certainty. V37 asked for the firm statement and the mechanism to be kept apart, and the caution (lines 89-90) still mixes them.\\n\\n1. **The numbers match when the host-call median is used.** For each round I took the c25 per-launch mean from the .1.vic…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 4,
+      "label": "verify:wording",
+      "phaseIndex": 2,
+      "phaseTitle": "Verify",
+      "agentId": "ab5e72225d6099e04",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794492711081,
+      "queuedAt": 1794492711027,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "I could not refute the claim. Recomputed per run from the r…",
+      "promptPreview": "A measurement write-up was rewritten after a review: /home/jetson/src/results/gpu/watcher-policy-20261112/dvfs/README.md (bpftime CUDA host-call watcher policies on a Jetson Orin Nano under two clock regimes: on = jetson_clocks, off = DVFS + CPU idle states). The earlier review's findings are in review/findings.txt next to it. Data: dvfs/{on,off}/summary.md and verify.csv, perround.txt (per-round …",
+      "promptFramed": true,
+      "lastProgressAt": 1794492968326,
+      "tokens": 84639,
+      "toolCalls": 10,
+      "durationMs": 255894,
+      "resultPreview": "{\"holds\":true,\"reason\":\"I could not refute the claim. Recomputed per run from the raw .resid GPU trans_stat with resid.py's parse, against the victim's realtime_ns window, for all 56 off runs of c01 and c05 (logs/dvfs/off/r1..r4).\\n\\nPer-run figures:\\n- GPU means are 938-1002 MHz, which is exactly the README's range. They are whole-window means, start-up included.\\n- Time below 1020 MHz is 236-112…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 5,
+      "label": "verify:wording",
+      "phaseIndex": 2,
+      "phaseTitle": "Verify",
+      "agentId": "ab93cdbf320499240",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794492711082,
+      "queuedAt": 1794492711027,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "I recomputed the claim from logs/dvfs/{on,off}/r1..r4/c05_A…",
+      "promptPreview": "A measurement write-up was rewritten after a review: /home/jetson/src/results/gpu/watcher-policy-20261112/dvfs/README.md (bpftime CUDA host-call watcher policies on a Jetson Orin Nano under two clock regimes: on = jetson_clocks, off = DVFS + CPU idle states). The earlier review's findings are in review/findings.txt next to it. Data: dvfs/{on,off}/summary.md and verify.csv, perround.txt (per-round …",
+      "promptFramed": true,
+      "lastProgressAt": 1794492919036,
+      "tokens": 75840,
+      "toolCalls": 15,
+      "durationMs": 206602,
+      "resultPreview": "{\"holds\":true,\"reason\":\"I recomputed the claim from logs/dvfs/{on,off}/r1..r4/c05_AC3.stats and it reproduces exactly. All runs have req=76832, wmode=3 and win_max=50.\\n- With jetson_clocks, win20/win80 per run are 34397/42433, 56458/20373, 128/76703 and 41971/34860. Medians are 38,184 and 38,646.\\n- Without, every run reads 2/76829.\\n\\nSo c05 shows the same shift to a 40-50 us window as c06 and c…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 6,
+      "label": "verify:numbers",
+      "phaseIndex": 2,
+      "phaseTitle": "Verify",
+      "agentId": "ac0f785c429ece60a",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794492773121,
+      "queuedAt": 1794492773114,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "I checked this against the data and the problem is real. ..…",
+      "promptPreview": "A measurement write-up was rewritten after a review: /home/jetson/src/results/gpu/watcher-policy-20261112/dvfs/README.md (bpftime CUDA host-call watcher policies on a Jetson Orin Nano under two clock regimes: on = jetson_clocks, off = DVFS + CPU idle states). The earlier review's findings are in review/findings.txt next to it. Data: dvfs/{on,off}/summary.md and verify.csv, perround.txt (per-round …",
+      "promptFramed": true,
+      "lastProgressAt": 1794492810324,
+      "tokens": 53672,
+      "toolCalls": 6,
+      "durationMs": 37202,
+      "resultPreview": "{\"holds\":true,\"reason\":\"I checked this against the data and the problem is real. ../dev/ has 17 cells (rounds-dev-cells.txt has 17 lines, and they match rounds6.sh and the '### cNN' headers in dev/summary.md): c01 c02 c05 c06 c11 c15 c17 c18 c21 c23 c24 c25 c28 c29 c30 c31 c32. rounds7.sh's CELLS array lists only c01 c02 c05 c06 c11 c17 c23 c25. Those are also the only cells present in logs/dvfs/{…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 7,
+      "label": "verify:numbers",
+      "phaseIndex": 2,
+      "phaseTitle": "Verify",
+      "agentId": "ad90f0fc598ccfca1",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794492810331,
+      "queuedAt": 1794492773114,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "The claim reproduces, but the proposed Fix overstates two p…",
+      "promptPreview": "A measurement write-up was rewritten after a review: /home/jetson/src/results/gpu/watcher-policy-20261112/dvfs/README.md (bpftime CUDA host-call watcher policies on a Jetson Orin Nano under two clock regimes: on = jetson_clocks, off = DVFS + CPU idle states). The earlier review's findings are in review/findings.txt next to it. Data: dvfs/{on,off}/summary.md and verify.csv, perround.txt (per-round …",
+      "promptFramed": true,
+      "lastProgressAt": 1794492964963,
+      "tokens": 84392,
+      "toolCalls": 10,
+      "durationMs": 154631,
+      "resultPreview": "{\"holds\":true,\"reason\":\"The claim reproduces, but the proposed Fix overstates two points. I recomputed the dCPU ('minus P') medians at full precision from the raw rows, using summarize.py through runpy from the policy directory, and spot-checked the .victim cpu_s and wall_s values. Only this basis gives the README's two endpoints: M100 c02 0.1131/0.0916 = 1.23 and AC4 c23 0.2667/0.0593 = 4.50. On …"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 8,
+      "label": "verify:numbers",
+      "phaseIndex": 2,
+      "phaseTitle": "Verify",
+      "agentId": "ade31d04b63512eaf",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794492899390,
+      "queuedAt": 1794492773114,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "The claimed problem reproduces exactly. I recomputed the P …",
+      "promptPreview": "A measurement write-up was rewritten after a review: /home/jetson/src/results/gpu/watcher-policy-20261112/dvfs/README.md (bpftime CUDA host-call watcher policies on a Jetson Orin Nano under two clock regimes: on = jetson_clocks, off = DVFS + CPU idle states). The earlier review's findings are in review/findings.txt next to it. Data: dvfs/{on,off}/summary.md and verify.csv, perround.txt (per-round …",
+      "promptFramed": true,
+      "lastProgressAt": 1794492939740,
+      "tokens": 56185,
+      "toolCalls": 6,
+      "durationMs": 40350,
+      "resultPreview": "{\"holds\":true,\"reason\":\"The claimed problem reproduces exactly. I recomputed the P runs from the raw .power files with summarize.py's window (whole-second tegrastats samples from realtime start+1 s to end-1 s), took the mean per round and then the median over the 4 valid rounds (all valid in verify.csv). Script: /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/rail…"
+    }
+  ],
+  "totalTokens": 870645,
+  "totalToolCalls": 145
+}
