@@ -1,0 +1,87 @@
+bpftime host-call sites 59
+ 10 A lookup; null? update(NOEXIST,1) : atomic add
+     class {'defer': 10} use {'pointer_rmw': 5, 'unused': 5} key {'constant': 2, 'per_block': 4, 'per_warp': 4} map {'HASH': 6, '1501': 4} agg {True: 10} freq {'per_thread_per_launch': 10} cpu_reads {'yes': 10}
+     sites cuda-counter/cuda_probe.bpf.c:48 cuda-counter/cuda_probe.bpf.c:52 threadscheduling/threadscheduling.bpf.c:90 threadscheduling/threadscheduling.bpf.c:95 threadscheduling/threadscheduling.bpf.c:100 threadscheduling/threadscheduling.bpf.c:105 threadscheduling_dynamic_hook/threadscheduling.bpf.c:93 threadscheduling_dynamic_hook/threadscheduling.bpf.c:98 threadscheduling_dynamic_hook/threadscheduling.bpf.c:103 threadscheduling_dynamic_hook/threadscheduling.bpf.c:108
+  3 B lookup; null? update(NOEXIST,1) : plain +=1 then update(EXIST,ptr)
+     class {'defer': 3} use {'pointer_rmw': 1, 'unused': 2} key {'constant': 3} map {'HASH': 3} agg {True: 3} freq {'per_thread_per_launch': 3} cpu_reads {'yes': 3}
+     sites rocm-counter/rocm_probe.bpf.c:48 rocm-counter/rocm_probe.bpf.c:51 rocm-counter/rocm_probe.bpf.c:53
+  6 B lookup; null? update(NOEXIST,delta) : plain +=delta then update(EXIST,ptr)
+     class {'eliminate': 6} use {'pointer_rmw': 2, 'unused': 4} key {'constant': 6} map {'HASH': 6} agg {True: 6} freq {'per_thread_per_launch': 6} cpu_reads {'no': 6}
+     sites cuda-counter/cuda_probe.bpf.c:73 cuda-counter/cuda_probe.bpf.c:76 cuda-counter/cuda_probe.bpf.c:79 rocm-counter/rocm_probe.bpf.c:74 rocm-counter/rocm_probe.bpf.c:77 rocm-counter/rocm_probe.bpf.c:80
+  4 C leader: lookup; v=ptr?*ptr+d:d; update(ANY,v)
+     class {'defer': 2, 'eliminate': 2} use {'value_used': 2, 'unused': 2} key {'constant': 4} map {'HASH': 4} agg {True: 4} freq {'per_launch': 4} cpu_reads {'yes': 2, 'no': 2}
+     sites cudagraph/cuda_probe.bpf.c:56 cudagraph/cuda_probe.bpf.c:58 cudagraph/cuda_probe.bpf.c:79 cudagraph/cuda_probe.bpf.c:81
+  9 E entry update(ANY,ts) / exit lookup+delete
+     class {'eliminate': 9} use {'unused': 6, 'value_used': 3} key {'per_block': 4, 'constant': 5} map {'HASH': 9} agg {True: 9} freq {'per_thread_per_launch': 6, 'per_launch': 3} cpu_reads {'no': 9}
+     sites cuda-counter/cuda_probe.bpf.c:44 cuda-counter/cuda_probe.bpf.c:66 cuda-counter/cuda_probe.bpf.c:70 rocm-counter/rocm_probe.bpf.c:44 rocm-counter/rocm_probe.bpf.c:67 rocm-counter/rocm_probe.bpf.c:71 cudagraph/cuda_probe.bpf.c:53 cudagraph/cuda_probe.bpf.c:75 cudagraph/cuda_probe.bpf.c:78
+  2 F per-thread record update(BPF_ANY)
+     class {'defer': 2} use {'unused': 2} key {'per_thread': 2} map {'HASH': 1, '1501': 1} agg {False: 2} freq {'per_thread_per_launch': 2} cpu_reads {'yes': 2}
+     sites threadscheduling/threadscheduling.bpf.c:86 threadscheduling_dynamic_hook/threadscheduling.bpf.c:89
+  1 G leader publish update(ANY)
+     class {'defer': 1} use {'unused': 1} key {'constant': 1} map {'1501': 1} agg {True: 1} freq {'per_launch': 1} cpu_reads {'yes': 1}
+     sites gpu_shared_map/gpu_shared_map.bpf.c:55
+ 21 H printk
+     class {'defer': 21} use {'unused': 21} key {'per_block': 6, 'per_thread': 2, 'constant': 2, 'none': 11} map {'-': 21} agg {True: 15, False: 6} freq {'per_thread_per_launch': 19, 'per_launch': 2} cpu_reads {'n/a': 21}
+     sites cuda-counter/cuda_probe.bpf.c:55 cuda-counter/cuda_probe.bpf.c:82 cuda-counter/cuda_probe.bpf.c:86 rocm-counter/rocm_probe.bpf.c:56 rocm-counter/rocm_probe.bpf.c:83 rocm-counter/rocm_probe.bpf.c:87 host_map_test/host_map_test.bpf.c:108 host_map_test/host_map_test.bpf.c:154 gpu_shared_map/gpu_shared_map.bpf.c:52 gpu_shared_map/gpu_shared_map.bpf.c:73 atomizer/atomizer.bpf.c:48 atomizer/atomizer.bpf.c:50 atomizer/atomizer.bpf.c:57 atomizer/atomizer.bpf.c:59 atomizer/atomizer.bpf.c:68 atomizer/atomizer.bpf.c:74 launchlate/launchlate.bpf.c:114 launchlate/launchlate.bpf.c:117 launchlate-kernel-gpu-shared-map/launchlate.bpf.c:119 launchlate-kernel-gpu-shared-map/launchlate.bpf.c:122 directly_run_on_gpu/directly_run.bpf.c:79
+  3 J benchmark hash op (const key 0, GPU-only)
+     class {'eliminate': 3} use {'unused': 2, 'pointer_rmw': 1} key {'constant': 3} map {'HASH': 3} agg {True: 3} freq {'per_thread_per_launch': 3} cpu_reads {'no': 3}
+     sites micro/cuda_probe.bpf.c:163 micro/cuda_probe.bpf.c:171 micro/cuda_probe.bpf.c:182
+total 59
+bpftime gpu_local_already 109
+    4 ('bpf_map_lookup_elem', '1503', 'read', 'value_used', 'constant')
+    4 ('bpf_map_lookup_elem', '1502', 'accumulate', 'pointer_rmw', 'constant')
+    4 ('bpf_map_lookup_elem', '1503', 'read', 'value_used', 'per_thread')
+    3 ('bpf_map_lookup_elem', '1503', 'accumulate', 'value_used', 'constant')
+    3 ('bpf_map_update_elem', '1512', 'overwrite', 'unused', 'per_thread')
+    2 ('bpf_map_update_elem', '1503', 'accumulate', 'unused', 'constant')
+    2 ('bpf_map_update_elem', '1513', 'accumulate', 'unused', 'per_thread')
+    2 ('bpf_map_update_elem', '1512', 'accumulate', 'unused', 'per_thread')
+    2 ('bpf_perf_event_output', '1527', 'output', 'unused', 'per_thread')
+    2 ('bpf_map_update_elem', '1503', 'overwrite', 'unused', 'per_thread')
+    1 ('bpf_perf_event_output', '1527', 'output', 'unused', 'none')
+    1 ('bpf_map_update_elem', 'ARRAY', 'overwrite', 'unused', 'constant')
+    1 ('bpf_map_lookup_elem', 'ARRAY', 'accumulate', 'pointer_rmw', 'constant')
+    1 ('bpf_map_lookup_elem', '1502', 'accumulate', 'pointer_rmw', 'per_thread')
+    1 ('bpf_map_lookup_elem', '1503', 'read', 'null_check_only', 'constant')
+    1 ('bpf_map_lookup_elem', '1504', 'accumulate', 'value_used', 'constant')
+    1 ('bpf_map_update_elem', '1504', 'accumulate', 'unused', 'constant')
+    1 ('bpf_map_lookup_elem', '1504', 'read', 'null_check_only', 'constant')
+    1 ('bpf_map_lookup_elem', '1513', 'accumulate', 'value_used', 'per_thread')
+    1 ('bpf_map_lookup_elem', '1512', 'read', 'value_used', 'per_thread')
+    1 ('bpf_map_lookup_elem', '1512', 'accumulate', 'value_used', 'per_thread')
+    1 ('bpf_map_lookup_elem', '1503', 'read', 'unused', 'constant')
+    1 ('bpf_map_lookup_elem', '1504', 'accumulate', 'pointer_rmw', 'constant')
+    1 ('bpf_map_update_elem', '1503', 'overwrite', 'unused', 'constant')
+    1 ('bpf_map_lookup_elem', '1503', 'accumulate', 'pointer_rmw', 'constant')
+    1 ('bpf_map_lookup_elem', 'ARRAY', 'read', 'value_used', 'constant')
+    1 ('bpf_map_lookup_elem', '1503', 'accumulate', 'pointer_rmw', 'data_dependent')
+    1 ('bpf_map_update_elem', '1503', 'insert_if_absent', 'unused', 'data_dependent')
+    1 ('bpf_map_lookup_elem', '1504', 'read', 'value_used', 'constant')
+    1 ('bpf_map_lookup_elem', '1504', 'accumulate', 'pointer_rmw', 'data_dependent')
+    1 ('bpf_map_update_elem', '1504', 'insert_if_absent', 'unused', 'data_dependent')
+  map/output sites 49 other helpers 60
+gpu_ext gpu_local_already 80
+    4 ('bpf_map_update_elem', '1503', 'overwrite', 'unused', 'per_thread')
+    4 ('bpf_map_update_elem', '1503', 'overwrite', 'unused', 'constant')
+    4 ('bpf_map_lookup_elem', '1513', 'read', 'value_used', 'constant')
+    4 ('bpf_perf_event_output', '1527', 'output', 'unused', 'none')
+    3 ('bpf_map_lookup_elem', '1503', 'accumulate', 'pointer_rmw', 'constant')
+    3 ('bpf_map_lookup_elem', '1503', 'other', 'value_used', 'constant')
+    3 ('bpf_map_lookup_elem', '1503', 'accumulate', 'pointer_rmw', 'data_dependent')
+    2 ('bpf_map_lookup_elem', '1502', 'accumulate', 'pointer_rmw', 'constant')
+    2 ('bpf_map_lookup_elem', '1513', 'read', 'value_used', 'data_dependent')
+    1 ('bpf_map_update_elem', '1513', 'overwrite', 'unused', 'per_thread')
+    1 ('bpf_map_update_elem', 'ARRAY', 'overwrite', 'unused', 'per_thread')
+    1 ('bpf_map_lookup_elem', '1503', 'read', 'value_used', 'per_thread')
+    1 ('bpf_map_lookup_elem', '1513', 'read', 'value_used', 'per_thread')
+    1 ('bpf_map_lookup_elem', 'ARRAY', 'read', 'value_used', 'per_thread')
+    1 ('bpf_map_update_elem', '1513', 'overwrite', 'unused', 'constant')
+    1 ('bpf_map_lookup_elem', '1503', 'read', 'value_used', 'constant')
+    1 ('bpf_map_update_elem', '1503', 'overwrite', 'unused', 'per_warp')
+    1 ('bpf_map_lookup_elem', '1502', 'accumulate', 'pointer_rmw', 'per_kernel')
+    1 ('bpf_map_lookup_elem', '1502', 'accumulate', 'value_used', 'constant')
+    1 ('bpf_map_lookup_elem', '1502', 'accumulate', 'pointer_rmw', 'per_thread')
+    1 ('bpf_map_lookup_elem', '1503', 'other', 'value_used', 'per_thread')
+    1 ('bpf_map_lookup_elem', '1513', 'other', 'value_used', 'data_dependent')
+    1 ('bpf_map_lookup_elem', '1513', 'other', 'value_used', 'constant')
+  map/output sites 43 other helpers 37

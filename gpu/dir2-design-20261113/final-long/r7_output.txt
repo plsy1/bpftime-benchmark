@@ -1,0 +1,33 @@
+records 180 host-call 59 gpu_local 109
+class tally Counter({'defer': 39, 'eliminate': 20}) + gpu_local_already 109
+decision tally Counter({'defer_unit': 24, 'defer_out': 21, 'defer_set': 7, 'defer_del': 4, 'resident_read': 3})
+decision x (operation, result_use) [(('defer_del', 'delete', 'unused'), 4), (('defer_out', 'output', 'unused'), 21), (('defer_set', 'overwrite', 'unused'), 7), (('defer_unit', 'accumulate', 'pointer_rmw'), 9), (('defer_unit', 'accumulate', 'unused'), 2), (('defer_unit', 'accumulate', 'value_used'), 2), (('defer_unit', 'insert_if_absent', 'unused'), 8), (('defer_unit', 'update_if_exists', 'unused'), 3), (('resident_read', 'read', 'value_used'), 3)]
+class mismatches vs survey: []
+aggregatable3 tally {'yes': 47, 'timing': 8, 'no': 4}
+aggregatable3 yes/no records disagreeing with survey: []
+timing records (survey value): [('cuda-counter/cuda_probe.bpf.c', 55, True), ('cuda-counter/cuda_probe.bpf.c', 82, True), ('rocm-counter/rocm_probe.bpf.c', 56, True), ('rocm-counter/rocm_probe.bpf.c', 83, True), ('launchlate/launchlate.bpf.c', 114, False), ('launchlate/launchlate.bpf.c', 117, False), ('launchlate-kernel-gpu-shared-map/launchlate.bpf.c', 119, False), ('launchlate-kernel-gpu-shared-map/launchlate.bpf.c', 122, False)]
+slice-1 rewritten sites: 20 [('cuda-counter/cuda_probe.bpf.c', 48), ('cuda-counter/cuda_probe.bpf.c', 52), ('cuda-counter/cuda_probe.bpf.c', 73), ('cuda-counter/cuda_probe.bpf.c', 76), ('cuda-counter/cuda_probe.bpf.c', 79), ('micro/cuda_probe.bpf.c', 171), ('rocm-counter/rocm_probe.bpf.c', 48), ('rocm-counter/rocm_probe.bpf.c', 51), ('rocm-counter/rocm_probe.bpf.c', 53), ('rocm-counter/rocm_probe.bpf.c', 74), ('rocm-counter/rocm_probe.bpf.c', 77), ('rocm-counter/rocm_probe.bpf.c', 80), ('threadscheduling/threadscheduling.bpf.c', 90), ('threadscheduling/threadscheduling.bpf.c', 95), ('threadscheduling/threadscheduling.bpf.c', 100), ('threadscheduling/threadscheduling.bpf.c', 105), ('threadscheduling_dynamic_hook/threadscheduling.bpf.c', 93), ('threadscheduling_dynamic_hook/threadscheduling.bpf.c', 98), ('threadscheduling_dynamic_hook/threadscheduling.bpf.c', 103), ('threadscheduling_dynamic_hook/threadscheduling.bpf.c', 108)]
+survey aggregatable: Counter({True: 51, False: 8})
+rule pr624: aggregatable {True: 47, False: 12}; records differing from survey: 12
+    launchlate/launchlate.bpf.c:114 survey=False rule=True
+    launchlate/launchlate.bpf.c:117 survey=False rule=True
+    launchlate-kernel-gpu-shared-map/launchlate.bpf.c:119 survey=False rule=True
+    launchlate-kernel-gpu-shared-map/launchlate.bpf.c:122 survey=False rule=True
+    threadscheduling/threadscheduling.bpf.c:90 survey=True rule=False
+    threadscheduling/threadscheduling.bpf.c:95 survey=True rule=False
+    threadscheduling/threadscheduling.bpf.c:100 survey=True rule=False
+    threadscheduling/threadscheduling.bpf.c:105 survey=True rule=False
+    threadscheduling_dynamic_hook/threadscheduling.bpf.c:93 survey=True rule=False
+    threadscheduling_dynamic_hook/threadscheduling.bpf.c:98 survey=True rule=False
+    threadscheduling_dynamic_hook/threadscheduling.bpf.c:103 survey=True rule=False
+    threadscheduling_dynamic_hook/threadscheduling.bpf.c:108 survey=True rule=False
+rule hw_strict: aggregatable {True: 47, False: 12}; records differing from survey: 4
+    cuda-counter/cuda_probe.bpf.c:55 survey=True rule=False
+    cuda-counter/cuda_probe.bpf.c:82 survey=True rule=False
+    rocm-counter/rocm_probe.bpf.c:56 survey=True rule=False
+    rocm-counter/rocm_probe.bpf.c:83 survey=True rule=False
+rule hw_timing_uniform: aggregatable {True: 55, False: 4}; records differing from survey: 4
+    launchlate/launchlate.bpf.c:114 survey=False rule=True
+    launchlate/launchlate.bpf.c:117 survey=False rule=True
+    launchlate-kernel-gpu-shared-map/launchlate.bpf.c:119 survey=False rule=True
+    launchlate-kernel-gpu-shared-map/launchlate.bpf.c:122 survey=False rule=True

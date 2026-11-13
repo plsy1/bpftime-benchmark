@@ -1,0 +1,481 @@
+{
+ "summary": "Semantics facts for direction 2 (what exact can mean for deferred or aggregated GPU helper calls), read at dev 52126f33, the L4T Linux 6.8.12 tree, the callsite and overlap surveys, and upstream official/revision/automatic-warp-execution (e27d009b). (1) Linux guarantees atomicity per helper call and per BPF_ATOMIC instruction, not per program: lookup returns a pointer into the map; plain read-modify-write through it is a data race; the lookup-miss then BPF_NOEXIST insert race loses increments in the kernel too; hash updates of an existing key replace the element, so an add through an older pointer is lost; user-space reads copy one element without a lock and give no snapshot across keys or CPUs; kprobe executions may be skipped (counted misses); trace_printk lines from different CPUs are merged by timestamp and can be overrun. (2) The 59 bpftime host-call sites reduce to 8 shapes (counter with NOEXIST insert and atomic add 10; non-atomic RMW plus EXIST self-write plus NOEXIST insert 9; leader-only lookup+update(ANY) 4; benchmark hash ops 3; entry/exit timestamp map 9; per-thread record update(ANY) 2; leader publish 1; printk 21); gpu_ext has 0 host calls. Under today's per-lane serialized host call, a warp's 32 lookups all finish before any lane branches, so on first touch every lane misses and only one NOEXIST insert lands, and plain RMW through a shared pointer collapses to one update per warp. On CUDA-IPC GPUs the 1501 map's lookup returns a per-map host staging copy and its NOEXIST insert always fails (read, not run). (3) Auto-warp admits a whole program only if it has no atomics, no trace_printk/puts/perf_event_output/cuda_exit, no per-thread map writes, and only shared-GPU-map update/delete with uniform key and value; it claims observational equivalence, but by reading the uniformity rules a plain *val = *val + 1 on a shared map with a uniform key is admitted and then counts one per converged group (inferred). gpu_ext's paper states relaxed, eventual consistency with shards merged at kernel completion; no implementation exists. (4) Five candidate reference semantics are listed with consequences: per-operation linearizability (Linux's own; today's lost counts are legal), serializability of probe executions (lost counts illegal; deferred adds exact), per-key linearizability with idiom-level RMW, equivalence only at observation points (kernel completion, stream sync, host bpf() read, periodic), and gpu_ext-style eventual consistency.",
+ "answers": [
+  {
+   "question": "Q1a. Linux: what bpf_map_lookup_elem returns and how long the pointer stays meaningful",
+   "answer": "The helper returns a pointer to the value inside the map, or NULL (uapi bpf.h:1755-1760; helpers.c:38-52 ret_type RET_PTR_TO_MAP_VALUE_OR_NULL). For a hash map the pointer is into the element (hashtab.c:699-707: l->key + round_up(key_size, 8)); for an array it is into the array storage (arraymap.c:166-175). map_array.rst:42-45 says the helper returns a pointer into the array element, so to avoid data races with user space reading the value, the user must use primitives like __sync_fetch_and_add() when updating the value in place. A hash update of an existing key does not write in place: it allocates a new element, links it at the head and unlinks the old one (hashtab.c:1171-1185; prealloc maps hand the old element to the per-CPU extra_elems slot, hashtab.c:1014-1021, so it is reused by that CPU's next update). Inferred from that code: an RMW through a pointer obtained before a concurrent update of the same key goes to the replaced element and is lost, and a pointer kept longer can write into a reused element. Only BPF_F_LOCK updates write in place (hashtab.c:1125-1140, 1157-1168). bpftime's CPU hash map copies this behaviour on purpose (dev CLAUDE.md:853-860: a value pointer is valid until the key is updated or deleted; a BPF *v += 1 racing an update of that key goes to the old element, lost; kernel the same).",
+   "sources": [
+    "L4T 6.8.12 include/uapi/linux/bpf.h:1755-1760",
+    "kernel/bpf/helpers.c:38-52",
+    "kernel/bpf/hashtab.c:699-707,1014-1021,1125-1185",
+    "kernel/bpf/arraymap.c:166-175",
+    "Documentation/bpf/map_array.rst:42-45",
+    "bpftime dev 52126f33 CLAUDE.md:853-860"
+   ],
+   "inferred": false
+  },
+  {
+   "question": "Q1b. Linux: concurrent updates and non-atomic read-modify-write",
+   "answer": "Hash values can be accessed concurrently by programs on different CPUs; the documented synchronization is struct bpf_spin_lock (map_hash.rst:110-116; map_array.rst:85-89). Array update is copy_map_value in place with no lock unless BPF_F_LOCK (arraymap.c:336-348); copy_map_value is a plain memcpy (include/linux/bpf.h:483-506), so a value larger than one word can be read torn by a concurrent reader (inferred). A plain load/add/store through the lookup pointer from two CPUs is an ordinary data race: lost updates are a legal kernel outcome (inferred: no doc or code makes it atomic; the array doc explicitly asks for __sync_fetch_and_add). The idiom lookup; if NULL update(BPF_NOEXIST, 1) else atomic add loses increments in the kernel too when two CPUs miss at once: check_flags returns -EEXIST to the second inserter (hashtab.c:1084-1089) and the program ignores it. libbpf-tools' bpf_map_lookup_or_try_init (maps.bpf.h:9-40) avoids this by inserting the initial value (0), tolerating -EEXIST and looking up again, so the following atomic add is never lost.",
+   "sources": [
+    "Documentation/bpf/map_hash.rst:110-116",
+    "Documentation/bpf/map_array.rst:85-89",
+    "kernel/bpf/arraymap.c:313-350",
+    "include/linux/bpf.h:483-506",
+    "kernel/bpf/hashtab.c:1084-1096",
+    "bcc v0.37.0 libbpf-tools/maps.bpf.h:9-40"
+   ],
+   "inferred": true
+  },
+  {
+   "question": "Q1c. Linux: BPF_ATOMIC add / fetch-add / xchg / cmpxchg and their ordering",
+   "answer": "Documentation/bpf/standardization/instruction-set.rst:492-551 defines BPF_ATOMIC (32- and 64-bit only) with imm BPF_ADD/OR/AND/XOR, the optional BPF_FETCH modifier (src gets the old value), BPF_XCHG and BPF_CMPXCHG (compares with R0, old value zero-extended into R0); atomic means the operation cannot be interrupted or corrupted by other access to the same memory region by other BPF programs or means outside the specification (495-497). The 6.8 docs state no memory ordering (grep for memory model/ordering/barrier in Documentation/bpf found nothing). The arm64 JIT (arch/arm64/net/bpf_jit_comp.c:490-526) emits STADD/STCLR/STSET/STEOR for the non-fetch forms (no acquire/release; relaxed by the arm64 definition, inferred) and LDADDAL/LDCLRAL/LDSETAL/LDEORAL, SWPAL, CASAL (acquire+release) for fetch, xchg, cmpxchg. clang emits the non-fetch form for __atomic_add_fetch with an unused result (cuda-counter object, insn 28: lock *(u64 *)(r0 + 0x0) += r6) and for __sync_fetch_and_add with an unused result (threadscheduling object, insns 59 and 82). On the GPU, llvmbpf lowers every BPF atomic RMW to an LLVM atomicrmw with Monotonic ordering and the default sync scope (vm/llvm-jit src/compiler_utils.cpp:372-401, compiler.cpp:1637-1690; cmpxchg Monotonic/Monotonic at 1690-1718), and saved PTX of a probe from the 11-09 feasibility run shows an unscoped atom.add.u64 after the lookup (results gpu/feasibility-20261109/gpu-env/attach-probe/probe_raw.ptx:74, .target sm_61, PTX 5.0; that file's generator is not established, so that dev's llvmbpf emits the same unscoped atom is inferred). BPF_CMPXCHG in llvmbpf (compiler.cpp:1690-1718, read, not run): R0 is set from a plain load of the target taken before the cmpxchg (beforeVal), and the cmpxchg's own result is discarded, so R0 is not atomic with the exchange; a CAS loop can see R0 == expected while the exchange failed (a lost update) or R0 != expected after it succeeded (applied twice) when another thread writes in between (inferred). BPF_XCHG uses atomicrmw xchg with fetch (compiler.cpp:1682-1689). The patch overlay vm/compat/llvm-vm/*.patch has no atomic changes (grep).",
+   "sources": [
+    "Documentation/bpf/standardization/instruction-set.rst:492-551",
+    "arch/arm64/net/bpf_jit_comp.c:471-533",
+    "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/cuda-counter/.output/cuda_probe.bpf.o (llvm-objdump-16, /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/disasm/cuda-counter.txt)",
+    "/home/jetson/src/bpftime-gpu-work/example/gpu/threadscheduling/.output/threadscheduling.bpf.o (source identical to dev)",
+    "vm/llvm-jit 87bac39a src/compiler_utils.cpp:372-401, src/compiler.cpp:1637-1718",
+    "vm/compat/llvm-vm/*.patch (dev 52126f33)",
+    "/home/jetson/src/results/gpu/feasibility-20261109/gpu-env/attach-probe/probe_raw.ptx:74"
+   ],
+   "inferred": true
+  },
+  {
+   "question": "Q1d. Linux: update flags BPF_ANY/BPF_NOEXIST/BPF_EXIST, return codes, delete",
+   "answer": "Flags: BPF_ANY 0 create or update, BPF_NOEXIST 1 create only if absent, BPF_EXIST 2 update only if present, BPF_F_LOCK 4 (uapi bpf.h:1302-1305, helper doc 1762-1778: BPF_NOEXIST cannot be used for ARRAY/PERCPU_ARRAY). Hash: unknown flags -EINVAL (hashtab.c:1111-1113); NOEXIST on an existing key -EEXIST, EXIST on a missing key -ENOENT (check_flags 1084-1096); no free element -E2BIG (prealloc freelist empty 1025-1027; non-prealloc is_map_full 1032-1039, -ENOMEM on allocation failure 1042-1044); bucket lock already held on this CPU (re-entry, e.g. from NMI) -EBUSY (htab_lock_bucket 150-170, used by update 1147-1149 and delete 1444-1446). Hash delete of a missing key -ENOENT (1448-1452). Array: index >= max_entries -E2BIG, any BPF_NOEXIST -EEXIST because all elements exist (arraymap.c:324-330), delete always -EINVAL (392-395). The syscall side documents the same errno set (uapi bpf.h:181-213). bpftime's CPU hash (fix_size_hash_map_impl) follows the kernel htab for all of these (dev CLAUDE.md:664-675), returning -1 plus errno. Divergence in dev: the device fast paths for 1502/1503/1504/1512/1513 ignore flags and always overwrite (default_trampoline.cu:291-335), so a GPU BPF_NOEXIST on those arrays succeeds, while the host path of 1503 returns EEXIST (nv_gpu_shared_array_map.cpp:137-140) and Linux arrays return -EEXIST; the ARRAY fast path checks flags like the CPU (default_trampoline.cu:336-353).",
+   "sources": [
+    "include/uapi/linux/bpf.h:181-213,1302-1305,1762-1785",
+    "kernel/bpf/hashtab.c:150-170,1025-1044,1084-1113,1147-1149,1425-1459",
+    "kernel/bpf/arraymap.c:313-350,392-395",
+    "dev CLAUDE.md:664-675",
+    "dev attach/nv_attach_impl/trampoline/default_trampoline.cu:287-366",
+    "dev runtime/src/bpf_map/gpu/nv_gpu_shared_array_map.cpp:130-185"
+   ],
+   "inferred": false
+  },
+  {
+   "question": "Q1e. Linux: per-CPU maps and skipped executions",
+   "answer": "For PERCPU_HASH/PERCPU_ARRAY the helpers access the current CPU's slot (map_hash.rst:91-96; map_array.rst:63-72; hashtab.c:958-972 pcpu_copy_value with this_cpu_ptr; arraymap.c:336-339). kprobe programs do not nest on one CPU: trace_call_bpf increments the per-CPU bpf_prog_active and, if another BPF program is already running on this CPU, skips the program and counts a miss (kernel/trace/bpf_trace.c:117-129). So for those programs a per-CPU slot has one writer at a time and a plain RMW on it is exact (inferred), and the Linux reference already allows a probe execution not to run, as long as it is counted as a miss. User space reads a per-CPU element by copying every possible CPU's slot one after another while programs keep running (bpf_percpu_array_copy, arraymap.c:266-291), so the per-CPU values are not a consistent cut (inferred). GPU analog in dev: per-thread maps 1502/1512 pick the slot by getGlobalThreadId (default_trampoline.cu:181-217); unlike a CPU, two probed kernels running at once can have threads with the same index (the ringbuf code says so at :454-455), so a per-thread slot is not guaranteed a single writer (inferred for 1502/1512).",
+   "sources": [
+    "Documentation/bpf/map_hash.rst:91-96",
+    "Documentation/bpf/map_array.rst:63-72",
+    "kernel/bpf/hashtab.c:958-972",
+    "kernel/bpf/arraymap.c:266-291,336-339",
+    "kernel/trace/bpf_trace.c:111-155",
+    "dev default_trampoline.cu:181-217,454-459"
+   ],
+   "inferred": true
+  },
+  {
+   "question": "Q1f. Linux: what user space may assume when it reads a map while programs run",
+   "answer": "BPF_MAP_LOOKUP_ELEM copies one element: bpf_map_copy_value looks the key up under rcu_read_lock and copies with copy_map_value (no lock) unless the caller passes BPF_F_LOCK, which copies under the element's bpf_spin_lock (syscall.c:212-270). Consequences (inferred from that code and the docs' silence): a read sees each element as of some moment, possibly torn for values wider than a word without BPF_F_LOCK; there is no snapshot across keys, across get_next_key iterations (a deleted cur_key restarts from the first key, map_hash.rst:136-139) or across CPUs of a per-CPU value; nothing documents a bound or a happens-before between a program's write and a later user-space read beyond cache coherence. A user-space reader therefore already tolerates values that are mid-update and counts that keep moving. bpftime's loader-side read (syscall server BPF_MAP_LOOKUP_ELEM) copies straight from the shared segment in the loader's own process (syscall_context.cpp:600-623) with no message to the agent process that runs the GPU work.",
+   "sources": [
+    "kernel/bpf/syscall.c:212-270",
+    "Documentation/bpf/map_hash.rst:121-139",
+    "dev runtime/syscall-server/syscall_context.cpp:600-623"
+   ],
+   "inferred": true
+  },
+  {
+   "question": "Q1g. Linux: bpf_trace_printk ordering",
+   "answer": "bpf_trace_printk is a debugging facility that appends one line per call to the trace (uapi bpf.h:1804-1861: slow, should only be used for debugging; returns bytes written or a negative error). The implementation formats into a buffer and emits the trace_bpf_trace_printk tracepoint (kernel/trace/bpf_trace.c:375-397) into the ftrace ring buffer, which is per CPU (Documentation/trace/ring-buffer-design.rst:80). trace_pipe/trace merge the per-CPU buffers by picking the entry with the smallest timestamp (kernel/trace/trace.c:3735-3752), and events can be lost by overwrite or a full buffer (Documentation/trace/ftrace.rst:770-790). So the reference gives program order per CPU and timestamp order across CPUs, with possible loss, and no global order. A grep of kernel/trace/bpf_trace.c finds no trace_printk_lock, so nothing there serializes printk across CPUs (only that file was grepped). bpftime's host printk writes one log record per call through the BPFTIME_LOG_OUTPUT sink, or one write() per message for BPFTIME_TRACE_PRINTK_OUTPUT (dev CLAUDE.md:1676-1688).",
+   "sources": [
+    "include/uapi/linux/bpf.h:1804-1861",
+    "kernel/trace/bpf_trace.c:375-397",
+    "Documentation/trace/ring-buffer-design.rst:80",
+    "kernel/trace/trace.c:3709-3758",
+    "Documentation/trace/ftrace.rst:770-790",
+    "dev CLAUDE.md:1676-1688"
+   ],
+   "inferred": false
+  },
+  {
+   "question": "Q1h. bpftime dev 52126f33: what a GPU host call does today (the baseline that loses counts)",
+   "answer": "One request slot per process (CommSharedMem, gpu_helper_protocol.h:69-84). host_call (default_trampoline.cu:129-174) loops turn = 0..31; in each turn only the lane with laneid == turn takes the per-module GPU lock and the per-process occupy_flag, writes the request under both, membar.sys, sets flag1, spins on flag2, reads the response, releases, then __syncwarp(active). So within one helper call the lanes of a warp are served one at a time in ascending lane order and no lane returns until all 32 turns are done; warps are served in the order they win the GPU lock (no fairness). The watcher serves one request at a time (bpf_attach_ctx_cuda.cpp:303-330). A lookup answers with the device address of the host value (bpf_attach_ctx_cuda.cpp:133-144; gpu_address_of_map_value 559-574: device/managed memory as is, host memory through cuMemHostGetDevicePointer of the registered segment), so the GPU's later loads, stores and atomics through that pointer go straight to host memory without another host call. Update/delete/printk/puts answer an int. Since 1b3d9c99 ordinary ARRAY lookups/updates use the device address directly (default_trampoline.cu:265-275, 336-353), and since aa6eb973 pid_tgid comes from a module global (:410-422). 1501 has no device path (lookup/update fall through to host_call). On the Orin, 1501 is created as an ordinary HASH (bpftime_shm.hpp:137-154; syscall_context.cpp:567-576).",
+   "sources": [
+    "dev attach/nv_attach_impl/trampoline/gpu_helper_protocol.h:22-84",
+    "dev default_trampoline.cu:118-174,233-422",
+    "dev runtime/src/attach/bpf_attach_ctx_cuda.cpp:124-187,303-330,559-574",
+    "dev runtime/include/bpftime_shm.hpp:137-154",
+    "dev runtime/syscall-server/syscall_context.cpp:567-576",
+    "dev CLAUDE.md:2176-2190,2309-2316"
+   ],
+   "inferred": false
+  },
+  {
+   "question": "Q2-A. Idiom: counter = lookup; if NULL update(BPF_NOEXIST, 1) else atomic add through the pointer",
+   "answer": "Sites: 10 bpftime host-call sites, all class defer, CPU reads the map, aggregatable, per thread per launch: cuda-counter cuda_probe.bpf.c:48,52 (call_count HASH, key pid: constant); threadscheduling.bpf.c:90,95 (sm_histogram HASH, key sm_id: warp- and block-uniform, survey key per_block) and :100,105 (warp_histogram HASH, key (sm_id<<16)|warp_id: per_warp); threadscheduling_dynamic_hook :93,98,103,108 (same on 1501). gpu_ext: 0 such host-call sites; its GPU-local counters drop the insert (arrays): lookup(bin)+__sync_fetch_and_add on 1503 (2 sites), status counters lookup+__sync_fetch_and_add on 1503 (2 definitions, each inlined 10 times). Instruction shape (disassembled cuda-counter entry insns 20-37, threadscheduling 49-93): *(u32*)(fp-4)=key; r0 = call 1(map, fp-4); if r0 == 0 goto MISS; lock *(u64*)(r0+0) += r6 (BPF_ATOMIC DW, imm BPF_ADD, no FETCH); goto END; MISS: *(u64*)(fp-48)=1; call 2(map, fp-4, fp-48, r4=1 BPF_NOEXIST); r0 of the update ignored. Lookup result use: null check plus target of one non-fetch atomic add; nothing else reads it. Lockstep today: the 32 lookups of a warp all finish before any lane branches, so on first touch every active lane gets NULL and the 32 NOEXIST inserts then run one by one: lane 0 inserts 1, lanes 1-31 get -1/EEXIST; every other warp whose lookups ran before that insert also loses all its counts, so the loss is not bounded by 31 (survey reason for cuda-counter:52, deduced not observed). After the key exists each lane's atom.add lands in host memory: 32 per warp, exact among GPU lanes. 1501 on a CUDA-IPC GPU (not the Orin; read, not run): lookup returns array_map.elem_lookup(&index), which copies the device value into the map's single host staging buffer value_buffer and returns its address (nv_gpu_shared_hash_map.cpp:47-62; nv_gpu_shared_array_map.cpp:84-127), so the atomic add goes into the staging copy and never reaches the map; and the insert forwards BPF_NOEXIST to array_map.elem_update (hash .cpp:84-87), which returns EEXIST when the bucket index < max_entries and E2BIG otherwise (array .cpp:137-144; buckets = next_prime(max_entries), hash .cpp:19), so the key is never inserted and the histogram stays empty. Linux CPU: same first-touch race but only among CPUs that miss within the lookup-to-insert window. As a deferred or per-warp op the idiom is add(key, n) creating the key with 0 if absent (the survey: deferrable only at the idiom level, since N deferred NOEXIST inserts would collapse to 1).",
+   "sources": [
+    "records.json (callsite-survey-20261113) verified records for these 10 sites",
+    "dev example/gpu/cuda-counter/cuda_probe.bpf.c:46-53",
+    "dev example/gpu/threadscheduling/threadscheduling.bpf.c:88-106",
+    "dev example/gpu/threadscheduling_dynamic_hook/threadscheduling.bpf.c:91-109",
+    "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/disasm/cuda-counter.txt and /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/disasm/threadscheduling.txt",
+    "dev default_trampoline.cu:134-174",
+    "dev runtime/src/bpf_map/gpu/nv_gpu_shared_hash_map.cpp:15-109",
+    "dev runtime/src/bpf_map/gpu/nv_gpu_shared_array_map.cpp:70-185",
+    "dev CLAUDE.md:664-669"
+   ],
+   "inferred": true
+  },
+  {
+   "question": "Q2-B. Idiom: lookup; if NULL update(BPF_NOEXIST, d) else plain *p += d then update(BPF_EXIST, p) (self-write)",
+   "answer": "Sites: 9 bpftime host-call sites: rocm-counter rocm_probe.bpf.c:48,51,53 (call_count HASH, d = 1, CPU reads, defer) and total_time_ns cuda-counter cuda_probe.bpf.c:73,76,79 plus rocm_probe.bpf.c:74,77,80 (HASH, d = delta, GPU-only, eliminate). Key constant (pid). gpu_ext: none. Shape (disassembled cuda-counter retprobe insns 28-41, 69-76): r0 = call 1(total_time_ns, &pid); if r0 == 0 goto MISS; r1 = *(u64*)(r0+0); r1 += r7; *(u64*)(r0+0) = r1 (plain load/add/store); call 2(map, &pid, r3 = r0 (the map value itself), r4 = 2 BPF_EXIST); MISS: call 2(map, &pid, &delta, r4 = 1 BPF_NOEXIST). rocm-counter has no built object and no ROCm device attach in dev; its shape is inferred from C (rocm_probe.bpf.c:48-54). Lookup result use: null check, plain RMW, and the pointer escapes as the value argument of another helper. Lockstep today: the 32 lookups return the same pointer P; the plain RMW runs converged, every lane loads the same v and stores v+d_i to the same address, one store survives (+one d per warp instead of the sum; PR #740 / 466e91b0 describe the same collapse for mem_trace: 9 of 10 updates lost); then 32 serialized update(BPF_EXIST) calls each copy value_size bytes from P inside the request fill (default_trampoline.cu:354-364), while each host update replaces the element and retires the old one as the stripe's spare (CLAUDE.md:811-823), so later lanes copy from a retired element (inferred: still holds v+d, so the net stays +one d per warp). Miss path: same first-touch loss as Q2-A. delta: globaltimer minus *tsp where tsp = start_ts[blockIdx.x], so warp-uniform tsp and a per-lane timer read. Linux CPU: the plain += is racy across CPUs, and the EXIST self-write replaces the element (hashtab.c:1171-1185), so a concurrent CPU's += through its older pointer is lost too. As an exact op the idiom is add(key, d) with create-if-absent.",
+   "sources": [
+    "records.json verified records",
+    "dev example/gpu/cuda-counter/cuda_probe.bpf.c:60-91",
+    "dev example/gpu/rocm-counter/rocm_probe.bpf.c:36-92",
+    "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/disasm/cuda-counter.txt",
+    "dev default_trampoline.cu:287-366",
+    "dev CLAUDE.md:811-823,853-860",
+    "official master 466e91b0 (PR #740) commit message"
+   ],
+   "inferred": true
+  },
+  {
+   "question": "Q2-C. Idiom: leader-only lookup; v = p ? *p + d : d; update(BPF_ANY, v)",
+   "answer": "Sites: 4 bpftime host-call sites in cudagraph cuda_probe.bpf.c: :56,58 (call_count HASH, d = 1, CPU reads, defer) and :79,81 (total_time_ns HASH, d = delta, GPU-only, eliminate). Key constant (pid). Only thread (0,0,0) of block (0,0,0) reaches them (source :42-47 and :67-72; disassembly insns 14-25 test six indices), so once per launch and no lanes to aggregate. Shape (cudagraph object insns 43-56): r0 = call 1; if r0 == 0 then r1 = 1 else r1 = *(u64*)(r0+0) + 1; store r1 to stack; call 2(map, &pid, &new, r4 = 0 BPF_ANY). Lookup result: value read for arithmetic only, no escape. Lockstep today: one active lane, exact unless two launches of the process run the probe at once (then the same non-atomic RMW race as on Linux CPUs). As an exact deferred op: add(key, d).",
+   "sources": [
+    "records.json verified records",
+    "dev example/gpu/cudagraph/cuda_probe.bpf.c:36-85",
+    "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/disasm/cudagraph.txt (/home/jetson/src/bpftime-gpu-work/example/gpu/cudagraph/.output/cuda_probe.bpf.o, source identical to dev)"
+   ],
+   "inferred": false
+  },
+  {
+   "question": "Q2-D. Idiom: entry timestamp update(BPF_ANY) / exit lookup (value used) + delete",
+   "answer": "Sites: 9 bpftime host-call sites, all eliminate (map touched only by GPU probes; loaders never read it): cuda-counter :44 (update start_ts key &x), :66 (lookup &x, value used), :70 (delete &pid); rocm-counter :44,:67,:71 (same); cudagraph :53,:75,:78 (key pid, leader-only, delete with the right key). Key scope: per block for cuda/rocm (x is blockIdx.x, a u64 passed to a 4-byte key, low half on little-endian), constant for cudagraph. It is not written and read by the same thread: in cuda-counter every thread of every block with that x overwrites start_ts[x] at entry (last writer wins), any thread of such a block reads it at exit, and with no barrier one warp can exit before another warp of the block has entered (inferred), so the exit sees some entry timestamp of that key. The delete uses &pid while entries are keyed by x (source bug: deletes nothing almost always), and the exit printk reads *tsp again after the delete (cuda-counter object insn 105 loads (r6+0) after the delete call at insn 27). Lockstep today: 32 serialized updates (last lane's ts wins within the warp), 32 lookups returning the same pointer, 32 deletes returning ENOENT. Linux CPU: concurrent writers of one key also give last writer wins; a read through the pointer after delete may see a reused element.",
+   "sources": [
+    "records.json verified records and reasons",
+    "dev example/gpu/cuda-counter/cuda_probe.bpf.c:36-91",
+    "dev example/gpu/rocm-counter/rocm_probe.bpf.c:36-92",
+    "dev example/gpu/cudagraph/cuda_probe.bpf.c:36-85",
+    "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/disasm/cuda-counter.txt"
+   ],
+   "inferred": true
+  },
+  {
+   "question": "Q2-E. Idiom: per-thread record update(BPF_ANY) keyed by thread index",
+   "answer": "Sites: 2 bpftime host-call sites, defer, CPU reads (loader iterates), not aggregatable: threadscheduling.bpf.c:86 (thread_mapping HASH, 4096 entries, key (u32)((block_x << 16) | (thread_x & 0xFFFF)), value 80-byte struct thread_map) and threadscheduling_dynamic_hook :89 (1501). Shape: struct filled on the stack, call 2(map, &key, &info, r4 = 0 BPF_ANY), r0 ignored (threadscheduling object insns 41-50). Key per thread within a launch, but blockIdx.y/z are ignored and thread_x is truncated to 16 bits, so keys alias across those, and every launch writes the same keys again (inferred). Lockstep today: 32 serialized inserts of distinct keys, all succeed until the map holds 4096 keys, then new keys get E2BIG (bpftime hash follows the kernel, CLAUDE.md:664-669); which keys get in depends on service order (survey caveat). gpu_ext analogs are GPU-local per-lane overwrites (key = lane id) on 1503/1513/ARRAY. As an exact deferred op: last-writer-wins per key in program order per key (the same key from a later launch must win), with the E2BIG outcome allowed to depend on apply order.",
+   "sources": [
+    "records.json verified records and reasons",
+    "dev example/gpu/threadscheduling/threadscheduling.bpf.c:23-86",
+    "dev example/gpu/threadscheduling_dynamic_hook/threadscheduling.bpf.c:80-89",
+    "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/disasm/threadscheduling.txt",
+    "dev CLAUDE.md:664-669"
+   ],
+   "inferred": true
+  },
+  {
+   "question": "Q2-F. Idiom: leader-thread publish update(BPF_ANY) of a value",
+   "answer": "Site: 1 bpftime host-call site, defer: gpu_shared_map.bpf.c:55 update(counter_per_thread 1501, &pid, &newv, BPF_ANY), result unused, reached only by the thread whose thread+block index sum is 0 (source :45-56), once per launch; newv is that thread's own view of a 1503 counter it just bumped non-atomically (:36-43), which every thread of the kernel bumps the same racy way. The loader iterates the map every second (survey reason). Lockstep today: one active lane. As an exact deferred op: overwrite key with the last value, in launch order.",
+   "sources": [
+    "records.json verified record for gpu_shared_map.bpf.c:55",
+    "dev example/gpu/gpu_shared_map/gpu_shared_map.bpf.c:16-76"
+   ],
+   "inferred": false
+  },
+  {
+   "question": "Q2-G. Idiom: bpf_trace_printk / bpf_printk (and puts)",
+   "answer": "Sites: 21 bpftime host-call sites, all defer, result unused: cuda-counter 3, rocm-counter 3, host_map_test 2, gpu_shared_map 2, atomizer 6, launchlate 2, launchlate-kernel-gpu-shared-map 2, directly_run 1. Argument scope: per_block 6, per_thread 2, constant 2, none 11; 19 run per thread per launch, 2 per launch (leader). No puts site in the surveyed programs. gpu_ext: none (its tools declare ebpf_puts but the survey records no call on the GPU). Shape: format string built on the stack, call 6(fmt, size, a1, a2, a3), r0 ignored (cuda-counter object insns 38-60). Today: each call is one host call; lanes go in lane order, warps in GPU-lock order; the host writes one record per call in service order (bpf_attach_ctx_cuda.cpp:162-170); the format string is cut at 1000 bytes, 3 args (default_trampoline.cu:386-408). Aggregating identical lines changes the number of lines (observable), which is why auto-warp rejects printk (warp_execution_eligibility.cpp:166-167). Deferral keeps the lines but moves them in time relative to host output; Linux itself gives per-CPU order, timestamp merge across CPUs, and possible loss (Q1g).",
+   "sources": [
+    "records.json verified records",
+    "summary.txt (callsite-survey-20261113)",
+    "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/disasm/cuda-counter.txt",
+    "dev default_trampoline.cu:386-408,487-502",
+    "dev bpf_attach_ctx_cuda.cpp:162-183",
+    "official/revision/automatic-warp-execution bpftime-verifier/src/gpu/warp_execution_eligibility.cpp:164-172"
+   ],
+   "inferred": false
+  },
+  {
+   "question": "Q2-H. Idiom: benchmark hash micro-ops (constant key 0, GPU-only)",
+   "answer": "Sites: 3 bpftime host-call sites, eliminate, each in its own program of benchmark/gpu/micro/cuda_probe.bpf.c: :163 update(hash_map, key 0, 1, BPF_ANY), :171 lookup + non-atomic (*val)++, :182 delete key 0. The loader enables one mode and reads no map; in lookup and delete modes nothing inserts key 0, so by the code the lookup always returns NULL and the delete ENOENT (survey reasons). Lockstep today: 32 identical serialized updates (idempotent, final value 1), 32 NULL lookups, 32 ENOENT deletes.",
+   "sources": [
+    "records.json verified records and reasons",
+    "dev benchmark/gpu/micro/cuda_probe.bpf.c:156-184"
+   ],
+   "inferred": false
+  },
+  {
+   "question": "Q2-I. GPU-local idioms (no host call today) that bear on exactness",
+   "answer": "Of 109 bpftime GPU-local sites, 49 are map or ringbuf operations; of gpu_ext's 80, 43 (grouping script /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/scripts/group.py, output /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/groups.txt; the rest are index, time, pid and SM/warp/lane helpers plus one bpf_cuda_exit). (1) Plain RMW on a shared GPU map: mem_trace.bpf.c:25-27 (1503, *val = *val + 1, every memory access; object insns 6-10 plain load/add/store), gpu_shared_map :37-43 (1503 lookup + update(*val+1, BPF_ANY)), benchmark cuda_probe :214/218 (1503), cuda_probe_kernel_gpu :28/32 (1504), host_map_test :99-105 (1513, key tid_x % 10, so a warp hits 10 keys), launchlate :106-111 and launchlate-kernel-gpu-shared-map :111-116 (histogram plain += 1, data-dependent bin), benchmark array :149 (ARRAY (*val)++); gpu_ext: a plain +1 histogram (results-launchlate-perf-plt-575-01 launchlate.bpf.c:171) and non-atomic overflow counters in the full-record arena (:80). The device update of 1502/1503/1504/1512/1513 is a plain byte copy (default_trampoline.cu:291-335). Converged lanes collapse these to one update per warp (#739/#740). (2) Atomic add on a shared GPU map: threadhist-gpu-kernel-shared-map :27 (1504 __atomic_add_fetch); gpu_ext histogram and status counters (__sync_fetch_and_add on 1503): exact among GPU threads. (3) Per-thread maps 1502/1512 (threadhist and copies, host_map_test, gpu_ext smoke/scaling/raw_map/threadhist): slot by global thread id, plain += 1, exact unless concurrent kernels share thread ids or a thread is past max_thread_count (NULL and a one-time warning, default_trampoline.cu:191-217). (4) gpu_ext FIFO dequeue: __sync_fetch_and_add whose result is the queue slot (value-used atomic; launchlate variants), which no deferral can serve; a warp-aggregated fetch-add with per-lane prefix offsets could (inferred). (5) gpu_ext per-lane, per-warp and uniform overwrites (fig15 microbenchmarks).",
+   "sources": [
+    "records.json verified records",
+    "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/groups.txt",
+    "dev example/gpu/mem_trace/mem_trace.bpf.c:21-29",
+    "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/disasm/mem_trace.txt",
+    "dev example/gpu/gpu_shared_map/gpu_shared_map.bpf.c:33-58",
+    "dev example/gpu/host_map_test/host_map_test.bpf.c:86-110",
+    "dev example/gpu/launchlate/launchlate.bpf.c:88-121",
+    "dev default_trampoline.cu:191-335",
+    "official master 466e91b0 (#740)"
+   ],
+   "inferred": false
+  },
+  {
+   "question": "Q2-K. Idiom: per-thread timestamp written at entry and read at exit by the same thread",
+   "answer": "Sites: 2 bpftime GPU-local sites (no host call today, class gpu_local_already), host_map_test.bpf.c:95 update(thread_timestamp, key 0, &ts, BPF_ANY) at entry and :127 lookup(thread_timestamp, key 0) at exit with the value used (duration = now - *start_ts, :127-133); thread_timestamp is a 1512 per-thread host array (source :74-78), so key 0 names the calling thread's own slot (default_trampoline.cu:204-217, 314-324) and the same thread writes and reads it. The loader reads the map (survey: cpu reads yes). gpu_ext: per-thread exit timestamp records (3) and per-warp records (2) are written but not read back on the GPU. This is the only surveyed instance of the same-thread entry/exit pattern; the host-call timestamp maps (Q2-D) are per block or per process. Exactness: one writer per slot within a launch, so any semantics holds as long as no other concurrently running kernel has a thread with the same global index (inferred, see Q1e).",
+   "sources": [
+    "records.json verified records host_map_test.bpf.c:95,127",
+    "dev example/gpu/host_map_test/host_map_test.bpf.c:74-133",
+    "dev default_trampoline.cu:204-217,252-257,314-324"
+   ],
+   "inferred": false
+  },
+  {
+   "question": "Q2-L. Idiom: host-written, GPU-read values (configuration and CPU-side timestamps)",
+   "answer": "Sites (all GPU-local today, value used): launchlate.bpf.c:95 reads last_uprobe_time (ordinary ARRAY, read on the GPU through its device address since dev 1b3d9c99), written by the CPU uprobe at :46-64 (bpf_map_update_elem BPF_ANY of a calibrated timestamp); launchlate-kernel-gpu-shared-map :100 the same on 1504, written by a uprobe (:51-69) that this example runs in the kernel; atomizer.bpf.c:45,54 read partition_num_map / partition_index_map (1503) that the loader writes with bpf_map_update_elem (atomizer.c:29-42); directly_run.bpf.c:100,108,109,132,148,149 read loader-filled 1503 inputs; gpu_ext reads loader-written clock_calibration (1513, 2 sites) and the CPU-enqueued FIFO launch_times / queue_state (1513, several sites in the launchlate variants). This is the only direction where staleness runs from host to GPU: an eliminate or cache-on-GPU decision for such a map must still see host writes made before the launch (stream order) and, for launchlate, writes made by a CPU uprobe on cudaLaunchKernel just before the kernel starts. Today the GPU reads host memory directly (1513 and ARRAY paths issue membar.sys before returning the pointer, default_trampoline.cu:258-275), so it sees whatever the host has written by then (inferred: no ordering beyond the fence). The callsite survey's eliminate class rests on the loader never reading or writing the map (README Limits).",
+   "sources": [
+    "records.json verified records for these sites",
+    "dev example/gpu/launchlate/launchlate.bpf.c:46-64,86-121",
+    "dev example/gpu/launchlate-kernel-gpu-shared-map/launchlate.bpf.c:51-69,91-100",
+    "dev example/gpu/atomizer/atomizer.c:29-42",
+    "dev example/gpu/atomizer/atomizer.bpf.c:40-61",
+    "dev default_trampoline.cu:252-275",
+    "callsite-survey-20261113/README.md (Limits)"
+   ],
+   "inferred": true
+  },
+  {
+   "question": "Q2-J. Shape totals and cross-idiom observations",
+   "answer": "Letters here are this answer's (Q2-A..Q2-H); groups.txt labels the same groups A, B, C, E, F, G, H, J. The 59 bpftime host-call sites split exactly as: A counter NOEXIST+atomic 10, B plain RMW+EXIST self-write+NOEXIST 9, C leader lookup+update(ANY) 4, D entry/exit timestamps 9, E per-thread record 2, F leader publish 1, G printk 21, H benchmark hash 3 (sum 59; eliminate 20 = B-total_time 6 + C-total 2 + D 9 + H 3; defer 39 = A 10 + B-call_count 3 + C-call_count 2 + E 2 + F 1 + G 21). Result use of the 38 map sites: the lookup pointer is used only for a non-fetch atomic add (A), for a plain RMW and as the value of a later update (B), read for arithmetic (C, D exit), or ignored (inserts, deletes, overwrites). None of the 59 host-call sites uses a helper's integer return code or a fetch-add result (the GPU-local gpu_ext FIFO dequeue does use a fetch-add result). Key scope of host-call map sites: constant (pid or 0) in A(cuda-counter), B, C, D(cudagraph), F, H; block-uniform sm_id or blockIdx.x in A(threadscheduling) and D(cuda/rocm); warp-uniform in A(warp_histogram); per thread only in E. The survey marks 51 of 59 aggregatable and 49 per thread per launch.",
+   "sources": [
+    "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/groups.txt (scripts/group.py over records.json)",
+    "callsite-survey-20261113/README.md and summary.txt"
+   ],
+   "inferred": false
+  },
+  {
+   "question": "Q3a. Upstream official/revision/automatic-warp-execution: exact eligibility rules (read from code)",
+   "answer": "Opt-in: BPFTIME_GPU_AUTO_WARP_EXECUTION non-empty and not 0 (nv_attach_impl.cpp:191-202 on e27d009b); decided once per program at attach and never an admission gate (:310-334). evaluate_warp_execution_eligibility first runs the full GPU verifier (PREVAIL, uniformity, SIMT safety; warp_execution_eligibility.cpp:221-251, 98-111), then rejects at the first reachable: any BPF_ATOMIC instruction (:130-134, atomic side effects are lane-multiplicative); a plain ST/STX through an untracked pointer or into a map value that may be a per-thread slot (:136-156; may_target_shared_map is true for every map type except 1502/1512, uniformity_analysis.cpp:406-416, so CPU-map values count as shared); helper 25 perf_event_output, 6 trace_printk, 501 puts, 507 cuda_exit (:161-173); update/delete whose map cannot be resolved, is per-thread (1502/1512), or is not a shared GPU map (1501, 1503, 1504, 1513 only; CPU maps rejected) (:46-57, 176-197); update whose value bytes are not proven warp-uniform (:198-208). The SIMT check additionally requires uniform branch predicates, uniform atomic addresses, uniform values for plain stores into shared map values, uniform keys for every lookup/update/delete and uniform update flags (simt_safety_check.cpp:204-272). Helper table: lookup returns uniform when its key is uniform (uniformity_analysis.cpp:418-429); globaltimer 502, block idx 503, block dim 504, grid dim 508, warp id 510, pid 14 are UNIFORM; thread idx 505, sm id 509, lane id 511, update/delete returns, trace_printk, perf_event_output are VARYING; 501 and 506 PROHIBITED (gpu_platform.cpp:108-171). Lowering: every lane reaching the site runs %laneid, activemask (or vote.ballot.sync of the site predicate), and the lowest active predicate-true lane calls the handler; no shuffle, broadcast or __syncwarp (ptxpass_core core.cpp:403-514), only with PTX .version >= 6.0 (:336-353). Inferred from the election: the handler runs once per converged group that reaches the site, not once per warp. Consequences (inferred): threadscheduling fails (sm_id VARYING as a key; CPU-map updates), cuda-counter fails (atomic; printk; CPU-map updates), gpu_shared_map fails (printk); kprobe/__memcapture is not lowered (overlap survey: ptxpass_kprobe_entry main.cpp:28-39).",
+   "sources": [
+    "official/revision/automatic-warp-execution e27d009b: attach/nv_attach_impl/nv_attach_impl.cpp:188-202,310-334",
+    "bpftime-verifier/src/gpu/warp_execution_eligibility.hpp:15-45",
+    "bpftime-verifier/src/gpu/warp_execution_eligibility.cpp:23-251",
+    "bpftime-verifier/src/gpu/uniformity_analysis.cpp:394-429,595-644",
+    "bpftime-verifier/src/gpu/simt_safety_check.cpp:195-272",
+    "bpftime-verifier/src/gpu/gpu_platform.cpp:108-171",
+    "attach/nv_attach_impl/pass/ptxpass_core/src/core.cpp:330-514",
+    "overlap-survey-20261113 workflow-output.json (bpftime_upstream checked items)"
+   ],
+   "inferred": false
+  },
+  {
+   "question": "Q3b. Auto-warp's claimed exactness and the suspected non-atomic += miscount",
+   "answer": "Claim: a program is eligible only when lowering its hook-site invocations to once-per-active-warp leader execution is observationally equivalent to the current per-thread execution (warp_execution_eligibility.hpp:15-21), with side effects idempotent under the warp (:23-31). Inference chain, read and not run: a lookup on a non-per-thread map with a uniform key returns UNIFORM (uniformity_analysis.cpp:418-429) and yields a MAP_VALUE pointer whose pointee is UNIFORM and may_target_shared_map true (:628-643); a load through it is UNIFORM (:595-604); val + 1 stays UNIFORM; a plain STX of a uniform value into a shared map value passes the SIMT check (simt_safety_check.cpp:223-229) and eligibility (warp_execution_eligibility.cpp:141-156); only atomics are rejected (:132-134). So *val = *val + 1 on 1501/1503/1504/1513 or on a CPU-map value with a constant key is admitted, as is lookup + update(BPF_ANY, *val + 1) on a shared GPU map (uniform value). Leader-only execution then adds 1 per converged group, which equals the lockstep-collapsed count that #739/#740 called a 90% undercount: equivalent to the racy per-thread behaviour on converged warps, not to a per-thread count. The overlap survey's checker reached the same inference; no fixture covers the pattern. Under per-operation linearizability (Q4 S1) this result is a legal outcome; under serializability (S2) it is not. Also: globaltimer is treated as uniform, so the leader's timestamp stands for the warp's (a modelling assumption).",
+   "sources": [
+    "official/revision/automatic-warp-execution e27d009b bpftime-verifier/src/gpu/warp_execution_eligibility.hpp:15-31",
+    "uniformity_analysis.cpp:406-429,595-644",
+    "simt_safety_check.cpp:223-229",
+    "warp_execution_eligibility.cpp:130-156",
+    "overlap-survey-20261113/workflow-output.json (added item: code-reading inference, not executed)",
+    "gh issue 739 / PR 740 (as cited by the overlap survey), official master 466e91b0"
+   ],
+   "inferred": true
+  },
+  {
+   "question": "Q3c. gpu_ext's stated consistency contract",
+   "answer": "arXiv 2512.12615v2 (v1 identical) section 4.4.3: Following eBPF's soft-state philosophy, gpu_ext maps provide relaxed, eventual consistency. Instead of strong global ordering, our runtime periodically merges GPU-local map shards into canonical snapshots at synchronization points, such as GPU kernel completion boundaries. This snapshot-based model is sufficient for policy decisions relying on approximate statistics. Occasional staleness affects decision optimality but cannot violate correctness invariants such as memory integrity. Section 5.3: Consistency across shards is maintained via snapshot-based aggregation at GPU kernel completion boundaries. A runtime daemon asynchronously flushes GPU-local shards to host-visible canonical map instances, providing coherent snapshots to host-side policies without synchronization overhead. Shard updates occur strictly at warp granularity through warp-leader threads without GPU atomic operations. The revision sources (yunwei37/gbpf-paper main 5df2969, tex-revision/design.tex:231-233 and implementation.tex:81-83) keep it: maps use eventual consistency, periodically merging device-local shards into canonical snapshots at GPU kernel completions; periodically refreshed snapshots; warp-leader updates without atomics. The contract names no exactness, no per-operation merge rule (sum versus last writer), no staleness bound, and no rule for maps the host writes. Status: not implemented in gpu_ext or bpftime (gpu_ext audits 2026-09-04; overlap survey F15/F16); the low-overhead tools are hand-written.",
+   "sources": [
+    "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir1-overlap/paper/v2.txt:603,625 (arXiv 2512.12615v2 HTML text, sections 4.4.3 and 5.3)",
+    "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir1-overlap/paper-main = gbpf-paper 5df2969 (blob-matched): tex-revision/design.tex:231-233, tex-revision/implementation.tex:79-83",
+    "overlap-survey-20261113/README.md and workflow-output.json findings F15, F16"
+   ],
+   "inferred": false
+  },
+  {
+   "question": "Q4. Candidate reference semantics for exact, with what each allows and what staleness it permits (not choosing)",
+   "answer": "S1 to S3 say which states are legal; S4 says when the host must see one; staleness for S1 to S3 is zero if they must hold at every host read, and bounded by the chosen S4 point otherwise. S1 Per-operation linearizability (what Linux guarantees: each helper call and each BPF_ATOMIC is atomic; plain accesses through value pointers race). Legal under S1: today's first-touch loss (A), collapse of plain RMW to +1 per warp (B, mem_trace), auto-warp's leader-only result, last writer wins on shared keys (D, F). Allows deferring any helper whose result is unused and per-warp aggregation of atomic adds and of identical overwrites; it does not say when the host must see effects, so it needs a visibility rule from S4. It cannot tell a runtime that counts correctly from one that loses counts. Staleness under S1 alone: Linux gives no bound (a host read sees whatever has been written so far), so deferral is legal only with an S4 point. S2 Serializability of probe executions (final state, and every value a probe reads, equals some serial order of whole program executions). Illegal: every lost count above; required: A and B count every execution (add(key,n) with create-if-absent), C counts overlapping launches. Allows deferral of commutative effects (adds) and of overwrites applied in a per-key order consistent with some serial order; E2BIG outcomes and the keys that fit a full map may follow any serial order; printk lines must form a serial order consistent with each thread's program order. Value-returning ops (D exit read, C value, fetch-add tickets) must read a state of that order: GPU-resident data or sync. Stronger than Linux CPUs give, so a runtime meeting it is more exact than the kernel. Staleness under S2: a host read must return a prefix of the serial order; deferred effects make that prefix older, bounded by the S4 point. S3 Per-key linearizability with idiom-level operations (each recognized idiom instance on key k, e.g. lookup+atomic add+NOEXIST insert as add(k,1), or lookup+plain RMW+EXIST self-write as add(k,d), is one atomic op; keys independent). Same per-key counts as S2, but no consistency across keys or maps (sm_histogram and warp_histogram may disagree at a read); deferral and per-warp aggregation per key; needs idiom recognition at load time and a rule for unrecognized plain RMWs (fall back to sync or atomic). Staleness under S3: per key, a host read sees a prefix of that key's operations, bounded by the S4 point; different keys may be at different prefixes. S4 Equivalence only at observation points (state equals the S1/S2/S3 result at defined points, stale in between): candidate points are (a) completion of the probed launch, detectable for noted launches through the per-stream event the hooks record (probed_launch_activity.cpp:16-37; one event per stream re-recorded per launch, so per launch only by ordering), (b) the application's stream or device synchronization, (c) a host bpf() read, which today runs in the loader's process directly on the shared segment (syscall_context.cpp:600-623) so a flush-on-read needs cross-process signalling to the agent, (d) a periodic flush. Consequences: loaders that poll while kernels run (per the survey, the cuda-counter loader prints call_count every second and the gpu_shared_map loader iterates its map every second; the threadscheduling loader iterates its maps) see counts up to one kernel duration or flush period old; unnoted launches (graphs, unresolved CUDA 13 handles, captures; CLAUDE.md:2240-2255) have no completion event, so (a) does not exist for them and only (b)-(d) remain; long-running or persistent kernels need (d); host writes and deletes racing deferred GPU ops need an order (a deferred add after a loader delete re-creates the key; CLAUDE.md:670-675 records the 20% overcount when a counter ignored BPF_EXIST after a reader's delete); several CUDA processes on one segment are not covered (CLAUDE.md:2318-2319). S5 gpu_ext eventual consistency (merge at kernel completion, approximate statistics). Allows everything including lossy aggregation; gives no exactness to measure against; staleness: until the next merge point, which for a kernel that never completes is unbounded. Cross-cutting: Linux permits skipped executions only with a counted miss (bpf_trace.c:117-129), so dropping work is legal only if counted; per-thread GPU slots are not single-writer across concurrent kernels (unlike per-CPU); exactness of GPU atomics on host memory against CPU writers depends on PTX atom scope (open question).",
+   "sources": [
+    "kernel/bpf/hashtab.c:1084-1096,1171-1185",
+    "kernel/trace/bpf_trace.c:117-129",
+    "kernel/bpf/syscall.c:212-270",
+    "dev attach/nv_attach_impl/probed_launch_activity.cpp:16-37",
+    "dev attach/nv_attach_impl/probed_launch_activity.hpp:23-42",
+    "dev runtime/syscall-server/syscall_context.cpp:600-623",
+    "dev CLAUDE.md:670-675,2192-2255,2318-2319",
+    "callsite-survey-20261113 records.json reasons (loader read frequency)",
+    "Q2 and Q3 answers above"
+   ],
+   "inferred": true
+  }
+ ],
+ "facts": [
+  {
+   "statement": "Kernel tree read: L4T r39.2.1 kernel-noble, Makefile VERSION 6 PATCHLEVEL 8 SUBLEVEL 12.",
+   "source": "/home/jetson/src/l4t-r39.2.1/Linux_for_Tegra/source/kernel/kernel-noble/Makefile:2-4"
+  },
+  {
+   "statement": "bpf_map_lookup_elem returns the map value associated to key or NULL; the helper returns map->ops->map_lookup_elem directly (pointer into the map).",
+   "source": "include/uapi/linux/bpf.h:1755-1760; kernel/bpf/helpers.c:38-52"
+  },
+  {
+   "statement": "Hash lookup returns l->key + round_up(key_size, 8), a pointer into the element; array lookup returns array->value + elem_size * index.",
+   "source": "kernel/bpf/hashtab.c:699-707; kernel/bpf/arraymap.c:166-175"
+  },
+  {
+   "statement": "Array doc: lookup returns a pointer into the array element, so to avoid data races with user space the user must use primitives like __sync_fetch_and_add() when updating in place.",
+   "source": "Documentation/bpf/map_array.rst:42-45"
+  },
+  {
+   "statement": "Hash update of an existing key allocates a new element, adds it at the bucket head and unlinks the old one (in place only with BPF_F_LOCK).",
+   "source": "kernel/bpf/hashtab.c:1125-1185"
+  },
+  {
+   "statement": "check_flags: BPF_NOEXIST on an existing element gives -EEXIST, BPF_EXIST on a missing one -ENOENT; flags above BPF_EXIST (ignoring F_LOCK) give -EINVAL.",
+   "source": "kernel/bpf/hashtab.c:1084-1113"
+  },
+  {
+   "statement": "Hash insert into a full preallocated map returns -E2BIG (freelist empty); bucket-lock re-entry on the same CPU returns -EBUSY for update and delete; deleting a missing key returns -ENOENT.",
+   "source": "kernel/bpf/hashtab.c:150-170,1025-1027,1147-1149,1444-1452"
+  },
+  {
+   "statement": "Array update: index >= max_entries -E2BIG, BPF_NOEXIST -EEXIST (all elements exist), value copied in place; array delete returns -EINVAL.",
+   "source": "kernel/bpf/arraymap.c:313-350,392-395"
+  },
+  {
+   "statement": "BPF atomic ops: ADD/OR/AND/XOR with optional FETCH, XCHG, CMPXCHG on 32/64-bit; atomic = cannot be interrupted or corrupted by other BPF programs or other access; 6.8 docs state no memory ordering.",
+   "source": "Documentation/bpf/standardization/instruction-set.rst:492-551"
+  },
+  {
+   "statement": "arm64 JIT: non-fetch BPF atomics become STADD/STCLR/STSET/STEOR; fetch forms LD*AL; XCHG SWPAL; CMPXCHG CASAL.",
+   "source": "arch/arm64/net/bpf_jit_comp.c:490-526"
+  },
+  {
+   "statement": "User-space BPF_MAP_LOOKUP_ELEM copies the element with copy_map_value (memcpy) under rcu_read_lock, locked only with BPF_F_LOCK; per-CPU values are copied CPU by CPU.",
+   "source": "kernel/bpf/syscall.c:212-270; include/linux/bpf.h:483-506; kernel/bpf/arraymap.c:266-291"
+  },
+  {
+   "statement": "trace_call_bpf skips a kprobe program and counts a miss when another BPF program already runs on this CPU.",
+   "source": "kernel/trace/bpf_trace.c:111-155"
+  },
+  {
+   "statement": "bpf_trace_printk emits the trace_bpf_trace_printk tracepoint into the per-CPU ftrace ring buffer; trace readers merge CPUs by smallest timestamp; overruns lose events.",
+   "source": "kernel/trace/bpf_trace.c:375-397; kernel/trace/trace.c:3735-3752; Documentation/trace/ring-buffer-design.rst:80; Documentation/trace/ftrace.rst:770-790"
+  },
+  {
+   "statement": "libbpf-tools bpf_map_lookup_or_try_init inserts the init value with BPF_NOEXIST, tolerates -EEXIST and looks up again.",
+   "source": "bcc v0.37.0 libbpf-tools/maps.bpf.h:9-40"
+  },
+  {
+   "statement": "dev host_call serves lanes of a warp one at a time in ascending lane order inside one helper call, with __syncwarp between turns; no lane returns before all 32 turns.",
+   "source": "dev 52126f33 attach/nv_attach_impl/trampoline/default_trampoline.cu:129-174"
+  },
+  {
+   "statement": "dev GPU map lookups through host calls answer with the device address of the host value (cuMemHostGetDevicePointer of the registered segment), so later GPU loads/stores/atomics through it hit host memory directly.",
+   "source": "dev runtime/src/attach/bpf_attach_ctx_cuda.cpp:133-144,559-574; CLAUDE.md:2309-2316"
+  },
+  {
+   "statement": "dev device fast paths for 1502/1503/1504/1512/1513 updates ignore the flags and copy bytes non-atomically; the ARRAY fast path rejects BPF_NOEXIST and flags above BPF_EXIST like the CPU map.",
+   "source": "dev default_trampoline.cu:287-353"
+  },
+  {
+   "statement": "dev deletes go to the host for every map type except ARRAY (which returns -1 locally).",
+   "source": "dev default_trampoline.cu:368-384"
+  },
+  {
+   "statement": "On integrated GPUs (Orin) 1501 is created as BPF_MAP_TYPE_HASH, 1502 as 1512, 1503 as 1513.",
+   "source": "dev runtime/include/bpftime_shm.hpp:137-154; runtime/syscall-server/syscall_context.cpp:567-576"
+  },
+  {
+   "statement": "On CUDA-IPC GPUs, 1501 lookup returns the address of one per-map host staging buffer filled by cuMemcpyDtoH, not a pointer into device storage (read, not run).",
+   "source": "dev runtime/src/bpf_map/gpu/nv_gpu_shared_hash_map.cpp:47-62; nv_gpu_shared_array_map.cpp:70-128"
+  },
+  {
+   "statement": "On CUDA-IPC GPUs, 1501 update forwards flags to the backing array, which rejects BPF_NOEXIST with EEXIST for index < max_entries and E2BIG for index >= max_entries, so a NOEXIST insert never succeeds; buckets = next_prime(max_entries) so BPF_ANY inserts landing in buckets >= max_entries also fail (read, not run).",
+   "source": "dev nv_gpu_shared_hash_map.cpp:15-27,65-109; nv_gpu_shared_array_map.cpp:130-144"
+  },
+  {
+   "statement": "On CUDA-IPC GPUs, 1501 delete empties the bucket under linear probing and lookups stop at the first empty bucket, so keys placed past it become unreachable (inferred from code).",
+   "source": "dev nv_gpu_shared_hash_map.cpp:47-63,111-132"
+  },
+  {
+   "statement": "bpftime CPU hash: update of an existing key replaces the element (stripe spare), a value pointer is valid until the key is updated or deleted; a racing *v += 1 goes to the old element, as in the kernel.",
+   "source": "dev CLAUDE.md:811-823,853-860"
+  },
+  {
+   "statement": "bpftime CPU hash follows kernel flags (EEXIST/ENOENT/E2BIG/EINVAL, delete ENOENT); counters depend on BPF_EXIST, ignoring it after a reader's delete overcounted by up to 20%.",
+   "source": "dev CLAUDE.md:664-675"
+  },
+  {
+   "statement": "llvmbpf lowers BPF atomic RMW to LLVM atomicrmw with Monotonic ordering and default scope; a saved probe PTX from the feasibility run shows unscoped atom.add.u64 (PTX 5.0, sm_61); that dev emits the same is inferred (generator of that PTX not established).",
+   "source": "vm/llvm-jit 87bac39a src/compiler_utils.cpp:372-401; src/compiler.cpp:1637-1718; results/gpu/feasibility-20261109/gpu-env/attach-probe/probe_raw.ptx:74"
+  },
+  {
+   "statement": "cuda-counter object: entry uses lock *(u64 *)(r0 + 0x0) += r6 then BPF_NOEXIST insert on miss; exit does plain load/add/store on total then update(map, &pid, r0, BPF_EXIST); exit printk reloads *tsp after the delete.",
+   "source": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/cuda-counter/.output/cuda_probe.bpf.o, llvm-objdump-16 (/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/disasm/cuda-counter.txt insns 26-37, 28-41, 105)"
+  },
+  {
+   "statement": "mem_trace (dev source) compiles to plain load/add/store through the lookup pointer.",
+   "source": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/disasm/mem_trace.txt insns 6-10 (/home/jetson/src/bpftime-gpu-work/compare/devex/example/gpu/mem_trace/.output/mem_trace.bpf.o, source identical to dev)"
+  },
+  {
+   "statement": "The 59 bpftime host-call sites: counter NOEXIST+atomic 10, plain RMW+EXIST+NOEXIST 9, leader lookup+update(ANY) 4, entry/exit timestamps 9, per-thread record 2, leader publish 1, printk 21, benchmark hash 3.",
+   "source": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir2-read/groups.txt from records.json"
+  },
+  {
+   "statement": "gpu_ext device-side tools make 0 host calls (80 GPU-local sites).",
+   "source": "callsite-survey-20261113/README.md, summary.txt"
+  },
+  {
+   "statement": "Auto-warp is opt-in per program via BPFTIME_GPU_AUTO_WARP_EXECUTION, never an admission gate, on unmerged branch official/revision/automatic-warp-execution (tip e27d009b).",
+   "source": "e27d009b attach/nv_attach_impl/nv_attach_impl.cpp:188-202,310-334"
+  },
+  {
+   "statement": "Auto-warp rejects atomics, stores through untracked pointers or possibly per-thread slots, helpers 25/6/501/507, update/delete on per-thread or non-shared-GPU maps, and non-uniform update values; shared GPU maps are 1501/1503/1504/1513.",
+   "source": "e27d009b bpftime-verifier/src/gpu/warp_execution_eligibility.cpp:23-57,121-212"
+  },
+  {
+   "statement": "Auto-warp leader = lowest active, predicate-true lane via activemask / vote.ballot.sync; no shuffle, broadcast or syncwarp; requires PTX >= 6.0.",
+   "source": "e27d009b attach/nv_attach_impl/pass/ptxpass_core/src/core.cpp:336-353,403-514"
+  },
+  {
+   "statement": "Auto-warp helper table marks globaltimer, block idx/dim, grid dim, warp id and pid UNIFORM; thread idx, sm id and lane id VARYING; puts and gpu_membar PROHIBITED.",
+   "source": "e27d009b bpftime-verifier/src/gpu/gpu_platform.cpp:108-171"
+  },
+  {
+   "statement": "gpu_ext paper: relaxed, eventual consistency; shards merged into canonical snapshots at synchronization points such as kernel completion; warp-leader shard updates without GPU atomics.",
+   "source": "arXiv 2512.12615v2 sections 4.4.3 and 5.3 (/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir1-overlap/paper/v2.txt:603,625); gbpf-paper 5df2969 tex-revision/design.tex:231-233, implementation.tex:79-83"
+  },
+  {
+   "statement": "Launch notes record one CUevent per stream, re-recorded after each noted probed launch; launches into a capturing stream are not noted.",
+   "source": "dev attach/nv_attach_impl/probed_launch_activity.cpp:16-37"
+  },
+  {
+   "statement": "Unnoted launches (graphs, unresolved CUDA 13 handles, nvcc 13 default launches, captures) run probed kernels the watcher does not know about.",
+   "source": "dev CLAUDE.md:2240-2255"
+  },
+  {
+   "statement": "The loader's BPF_MAP_LOOKUP_ELEM reads the shared segment in the loader process (memcpy from bpftime_map_lookup_elem), with no call into the agent.",
+   "source": "dev runtime/syscall-server/syscall_context.cpp:600-623"
+  },
+  {
+   "statement": "Upstream #740 (466e91b0) made mem_trace's counter atomic: converged lanes writing one key lost 9 of 10 updates.",
+   "source": "git show 466e91b0 (official master)"
+  },
+  {
+   "statement": "llvmbpf BPF_CMPXCHG sets R0 from a plain load taken before the cmpxchg and discards the cmpxchg result, so R0 is not atomic with the exchange (read, not run); the patch overlay does not touch atomics.",
+   "source": "vm/llvm-jit 87bac39a src/compiler.cpp:1690-1718; dev vm/compat/llvm-vm/*.patch (grep: no atomic/cmpxchg)"
+  },
+  {
+   "statement": "launchlate: a CPU uprobe writes last_uprobe_time (BPF_ANY) and the GPU kprobe reads it; atomizer: the loader writes the partition maps the GPU reads.",
+   "source": "dev example/gpu/launchlate/launchlate.bpf.c:46-64,95; example/gpu/atomizer/atomizer.c:29-42"
+  }
+ ],
+ "open_questions": [
+  "Is an unscoped PTX atom.add.u64 (default scope as emitted by llvmbpf, PTX 5.0 here) on host-registered memory atomic with respect to concurrent CPU atomics or stores on the same word (e.g. a CPU uprobe program and a GPU probe updating one map value)? The PTX ISA atom section was not read this session (the fetched page was truncated before 9.7.15.5).",
+  "1501 on CUDA-IPC GPUs (staging-copy lookup, NOEXIST always failing, linear-probing delete) is read from code only; not run on a discrete GPU.",
+  "rocm-counter has no ROCm device attach in dev; its GPU behaviour is by analogy with the nv trampoline, and no object was disassembled.",
+  "Is the lockstep collapse of plain RMW guaranteed on sm_70+ with independent thread scheduling, or only typical? The compiled code converges, but PTX does not promise that the stores of diverged-then-reconverged lanes coincide.",
+  "With per-warp aggregation, what counts as one execution: auto-warp's election runs once per converged group reaching the site, which depends on divergence; an exact add must count active lanes, not elections.",
+  "Which observation point should a host bpf() read in the loader process trigger, given that it runs in a different process from the agent and the GPU work?",
+  "How should deferred GPU effects be ordered against host-side deletes or updates of the same key made while the kernel runs (re-creation, lost adds)?",
+  "E2BIG under deferral: which keys survive when a map fills is order dependent; is any serial order acceptable, or must it match the GPU's execution order?",
+  "Does printk exactness include the line count and per-thread order only, or also interleaving with host output and with other GPU threads?",
+  "The camera-ready paper text (cached as dir1-overlap/paper-cr, coherent snapshots wording) could not be matched to a gbpf-paper commit in the local clone; only arXiv v2 and gbpf-paper 5df2969 are pinned.",
+  "Whether kprobe-style misses (skipped executions counted as misses) should be part of the GPU reference semantics, e.g. for a full per-warp buffer.",
+  "BPF_CMPXCHG in llvmbpf returns a pre-exchange plain load in R0; is any surveyed or expected GPU tool using CAS loops (none of the surveyed sites does), and does the CPU JIT share the same lowering issue?"
+ ]
+}
