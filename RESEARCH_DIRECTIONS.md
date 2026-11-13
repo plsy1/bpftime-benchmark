@@ -7,7 +7,8 @@ started. Newest last.
 
 ## 1. GPU maps sized by thread index: per-thread arrays and the GPU ringbuf
 
-Decided 2026-11-11.
+Decided 2026-11-11. Real-application evidence and the discussion of 11-14: "Real applications"
+at the end.
 
 ### The problem
 
@@ -195,6 +196,7 @@ per-thread state (privatization plus reduction, per-thread counters on GPUs) has
 
 Decided 2026-11-11. Larger than direction 1, so it is split into three layers: layer 1 is
 engineering and comes first, layer 2 is the research core, layer 3 waits for direction 1.
+Measured on a real application (11-13): "Real applications" at the end.
 
 ### What goes through the host
 
@@ -388,3 +390,174 @@ map shards to whole maps rather than choosing per call site while keeping result
   and Neutrino; check what upstream (gpu_ext) is doing first to avoid overlap.
 - Judgement at the time: layer 1 alone is workshop material; a top venue only if the per-call-site
   choice works and the survey shows most call sites can skip the round trip.
+
+## Real applications: what the two directions are worth (2026-11-13/14)
+
+The advisor's question (11-13): the GPU numbers so far came from microbenchmarks; find mainstream
+scenarios and measure what share the operations of the two directions take in real applications,
+then decide how far to take each direction.
+
+Terms:
+- **Census:** every kernel launch of an application counted with Nsight Systems, without bpftime.
+- **Per-firing operation table:** for each tool, the map and helper operations one probe firing
+  executes, read from the sources twice independently.
+- **Projected:** census times table, not measured.
+
+### Mainstream scenarios (survey, `results/gpu/real-scenarios-20261113`)
+
+- **No measured shares.** None of the published work read for the survey measures these shares.
+- **Direction-1 operations come from what a scenario needs:** per-thread or per-warp state and
+  records. Examples are kernel and warp timing, per-thread histograms, address traces and
+  intra-kernel region timing.
+- **Direction-2 operations come from how a tool is written.**
+  - Among the tools whose data path was read, only tools written the CPU way (HASH maps, printk per
+    thread) make a host call per event. The one exception is hang debugging (CUTracer, SM90+).
+  - The tools already run on real kernels make none in their current sources: bpftime's four
+    examples on llama.cpp, PyTorch, FAISS and CUTLASS, and gpu_ext's 15 device-side tools.
+- **The top-ranked scenarios first need attach points bpftime lacks:** any instruction, and the
+  effective address of an access. They are ranked by the number of tools implementing them, not by
+  usage, which nobody reports. They are correctness checking (Compute Sanitizer), instruction mix,
+  address traces and intra-kernel region timing; address traces and region timing then also need
+  direction 1.
+- **On the Orin, only the application's own kernels built with PTX can be probed in practice.**
+  - cuBLAS, cuDNN and cuRAND carry PTX only for sm_120/121.
+  - A few entries in cuBLASLt, cuSPARSE, cuSOLVER and TensorRT would pass the PTX selection; they
+    are unchecked.
+  - dev does not hook Triton's `cuModuleLoadData`.
+
+### llama.cpp on the Orin (`results/gpu/llama-census-20261113`)
+
+Setup: llama.cpp 7874988b built with sm_87 PTX, TinyLlama-1.1B Q4_K_M, batch 1, dev 52126f33. CUDA
+graphs were off in every bpftime run.
+
+- **Every kernel is llama.cpp's own and carries sm_87 PTX.**
+  - One 512-token prefill: 444 launches, 192.6M thread executions, 204.6 ms of GPU time.
+  - Decode: 424 launches and 39.4M thread executions per token.
+  - Threads per launch range from 512 to 4,194,304 within the 512-token prefill, and from 256 to
+    4,096,000 within decode.
+  - One kernel at different call sites spans 125 times: mul_mat_vec_q runs at 32,768 to 4,096,000
+    threads.
+- **Probes counted every thread exactly on four kernels:**
+  - rms_norm;
+  - the largest mul_mat_q (40.5% of prefill GPU time);
+  - the largest mul_mat_vec_q (62.7% of decode);
+  - the RoPE kernel applied to the keys (gpu_ext's target).
+- **Steady-state overhead is small** (warm runs, one kernel):
+  - Once patched, rms_norm with an empty probe runs at the no-agent rate.
+  - threadhist's probe body on rms_norm costs 3.3% of a 512-token prefill.
+- **Start-up is a separate cost, outside both directions.** Agent start-up added 14.4-14.8 s.
+  - dev extracted and patched the 10 modules llama.cpp loads lazily, and every request missed the
+    patch cache.
+  - Most of the time is likely this; it was not timed per step.
+- **Direction 1, measured.** With the default 1,024 slots, 99.6% of rms_norm's thread executions at
+  512 tokens were not counted. There was one GPU warning and no count of the loss.
+- **Direction 2, measured.** A HASH lookup per thread on rms_norm (1.5% of that prefill's GPU time)
+  made a 32-token prefill take 7.63 s instead of 24.9 ms, 307 times slower.
+  - Each call took 10.8 µs, and the calls were served one after another, about 93,000 a second.
+  - Counts were exact, because the loader inserted the key before attaching, so every lookup hit.
+    The usual insert-on-miss counter loses counts through synchronous calls.
+  - The projection had said 6.9-11.0 s.
+- **Projected:**
+  - CPU-style tools on every kernel would take 31 min to 6.7 h per 512-token prefill.
+  - One host call per launch would cost 26-42% of decode GPU time.
+  - Per-thread rings in kernelretsnoop's layout would need about 63-65 GiB at 4.1-4.2M threads.
+
+### Direction 2: what the measurement says
+
+- **Where the 10.8 µs per call goes.** About 4.9 µs is the bare GPU-CPU round trip on this board:
+  the ping-pong in `results/gpu/feasibility-20261109`, with a busy-polling host.
+  - About 6 µs is the protocol on top: the per-module lock and `occupy_flag`, the request written
+    into uncached host memory, four `membar.sys` per call (the ping-pong had fences too), and the
+    host's lookup plus `cuPointerGetAttribute` (0.21 µs).
+  - This split is inferred from separate measurements, not timed per step. `globaltimer` stamps
+    per step would split it.
+- **The watcher's waiting rules were probably not the cost.** The 10.8 µs matches the dense-burst
+  microbenchmark (9.8-10.4 µs), against about 69 µs for a sparse call. This is inferred: the run
+  kept no watcher statistics.
+- **Serialization dominates.** There is one request slot per process, so the total is calls times
+  the cost of one call.
+  - Even at the bare round trip, the 705,536 calls would take about 3.5 s, 140 times the prefill.
+  - So a cheaper synchronous call is worth at most about 2 times for per-thread calls.
+  - Per-thread calls have to be eliminated or deferred, as the direction-2 design does
+    (`results/gpu/dir2-design-20261113`).
+  - The protocol's cost still matters for calls made once per launch.
+- **Relation to gpu_ext.** The aim is the same as gpu_ext's: no host call per thread. gpu_ext reaches
+  it by rewriting tools by hand; here the runtime would do it for unmodified tools.
+
+### Direction 1: discussion (2026-11-14)
+
+- **Counters can be sized large, but the bound is unknown when the map is created.** A per-thread
+  counter is 8 B per thread: 32 MiB covers every kernel at 512 tokens.
+  - The application's configuration sets the bound: llama.cpp's ubatch (512 tokens by default;
+    prompts are cut into ubatches), model sizes, and the batch.
+  - The vocabulary is one such size: 32,000 rows x 128 threads here. A 128,256-word vocabulary would
+    give about 16.4M threads if the kernel keeps its shape [inferred].
+  - The only moment the bound is known is the launch (grid x block).
+  - A loss is nearly silent.
+- **Per-thread records cannot be sized large.** 16 records of 1,032 B plus a 24-B header per thread
+  is 64.6 GiB at 4.19M threads.
+  - When a 1527 map does not fit, the server halves its thread count until it fits, with a warning.
+  - Every poll scans every thread's header.
+- **What grows with what.** Thread ids restart at 0 at every launch.
+  - Storage keyed by thread id grows with the size of one launch, not with run time.
+  - What grows with run time is the number of records. Decode at about 57 tokens a second is about
+    2.25 billion thread executions a second: about 70M warps and 24,000 launches.
+- **LLM inference.** The largest launch is fixed by the model and the configuration.
+  - But prefill and decode differ by up to 512 times for one kernel: rms_norm runs 262,144 threads
+    in a 512-token prefill and 512 in decode.
+  - Our judgement, not a survey result: most questions asked of inference need per-launch,
+    per-block, per-warp or per-SM data rather than per-thread data. Examples are time per kernel or
+    per layer, launch latency, SM balance and tail effects. Per-thread uses exist: per-thread
+    histograms, and Neutrino's per-thread byte and tensor-op counts.
+- **How other tools handle it** (survey; KPerfIR, Proton, IKET and Triton-distributed were read only
+  through documentation summaries; re-check before citing):
+  - **Neutrino** sizes its maps at every launch from grid x block. Records per thread are capped by
+    hand or by a counting launch, and every probed launch becomes synchronous.
+  - **NVBit** (nvbit-tutorial) streams records through a fixed channel. When it is full, the writing
+    warps stall until the host drains it. Counters are aggregated with atomics.
+  - **KPerfIR** keeps a fixed circular buffer per warp group and overwrites the oldest records.
+    **Proton** drops older counters when a segment is full.
+  - **IKET** runs a sizing pass first; **Triton-distributed** leaves the size to the user.
+  - **gpu_ext** both reuses bpftime's per-thread maps with hand-set capacities (threadhist with
+    1,048,576 slots, of which 2.1% were used; an 892 MiB per-thread ring) and rewrites tools by hand
+    to avoid them.
+
+  Apart from gpu_ext, none of these keys storage by global thread id with a capacity fixed in
+  advance. bpftime inherited eBPF's fixed maps created at load. On the CPU, per-CPU maps are sized by
+  the hardware; on the GPU, per-thread maps are sized by the data.
+- **A new map model (an idea, not designed).** Key storage by hardware position, as per-CPU maps do.
+  - Positions on the Orin: per SM (8), per resident warp slot (384), per resident thread slot
+    (12,288). User space sums the slots, as with per-CPU maps.
+  - Records go to a ring per SM, with drops counted, as with per-CPU perf buffers.
+  - Allocation per launch only where a value per logical thread is really needed.
+  - CPU-written tools that use `PERCPU_ARRAY`, `PERCPU_HASH`, `RINGBUF` or `PERF_EVENT_ARRAY` might
+    need fewer changes if bpftime mapped those types onto these on the GPU. Caveats:
+    - user space would have to combine the GPU slots into libbpf's one-value-per-CPU layout;
+    - none of bpftime's GPU examples uses these types today;
+    - probes still need their kernel names set.
+  - This complements direction 2. Direction 1 decides where the data lives and how it leaves the
+    GPU; direction 2 decides how read-modify-write idioms avoid the host.
+- **Why we judge direction 1 harder in kind.**
+  - Direction 2 has a fixed target, the helpers' own semantics; its difficulty is getting a
+    concurrent protocol right.
+  - Direction 1 has to choose what to give up: per-thread semantics, simplicity (per-launch
+    lifecycles, graph launches) or completeness (overwrite or drop).
+  - It can be done in tiers:
+    1. count and report every loss, put the needed size into the warning, no silent shrinking;
+    2. hardware-position arrays and per-SM rings;
+    3. per-launch per-thread storage, only if a scenario needs it.
+
+### Conclusions and open decisions
+
+- **What breaks on llama.cpp on the Orin** (one application, one model, CUDA graphs off):
+  - per-thread host calls (measured: 307 times slower on one kernel with 1.5% of the GPU time);
+  - per-thread rings (projected: tens of GiB);
+  - per-thread counters with the default capacity (measured: 99.6% lost).
+- **What works:** counters with the capacity set by hand, and hand-rewritten tools. So existing
+  eBPF tools written the CPU way are not usable on such applications without directions 1 and 2.
+- **Directions 1 and 2 are not sufficient.** Start-up time, missing attach points, and the coverage of
+  vendor libraries and Triton remain.
+- **Open, with the advisor:**
+  - Which comes first: design direction 1, implement the direction-2 design's first step (slice 1:
+    20 of the 59 host-call sites), or both at once.
+  - How far direction 1 goes (the tiers above).

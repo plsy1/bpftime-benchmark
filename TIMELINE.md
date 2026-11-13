@@ -279,7 +279,33 @@ documents up to 2026-10-30. Commits are on the dev branch
   (refuters per finding), corrections worked in.
 - `results/gpu/watcher-policy-20261112/dvfs`
 
-## Where it stands (11-12)
+## 11-13 – 11-14: direction 2's design; the two directions on a real application
+
+- **Call-site survey.** It classed none of the 59 host-call sites in bpftime's GPU examples as
+  needing a synchronous answer. This is a static classification of examples only
+  (`results/gpu/callsite-survey-20261113`).
+- **Direction 2's design.** The design chooses, per call site, to eliminate, aggregate, defer or
+  synchronize (`results/gpu/dir2-design-20261113`). It is a design only.
+  - Reviewed three times: the core held twice, and the last revision of the lifecycle rules is
+    unreviewed.
+- **The advisor's question.** He asked to measure the two directions on real applications before
+  deciding how far to go. A survey of mainstream scenarios found no published work, among the
+  sources read, that measures this. On the Orin, in practice only applications' own PTX kernels can
+  be probed (`results/gpu/real-scenarios-20261113`).
+- **llama.cpp on the Orin** (TinyLlama Q4_K_M, CUDA graphs off; `results/gpu/llama-census-20261113`):
+  - Every kernel is the application's own, with sm_87 PTX. Probes on four of them counted every
+    thread exactly.
+  - Launches span 256 to 4.19M threads.
+  - The default per-thread capacity lost 99.6% of the counts.
+  - One host call per thread on a kernel with 1.5% of the GPU time made a prefill 307 times slower
+    (10.8 µs per call, as projected).
+  - Agent start-up added 14.4-14.8 s.
+- **Conclusion.** Per-thread host calls and per-thread storage keep CPU-style eBPF tools from being
+  usable on this application (partly measured, partly projected), so both directions are needed. We
+  judge direction 1 the harder one: it has to give up per-thread semantics, simplicity or
+  completeness. Tiers and a per-CPU-like map model are in `RESEARCH_DIRECTIONS.md`.
+
+## Where it stands (11-14)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
   (10-26 figures in [reports/bpftime-research-overview.md](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/reports/bpftime-research-overview.md),
@@ -288,6 +314,9 @@ documents up to 2026-10-30. Commits are on the dev branch
 - System call tracing and CUDA attach work on ARM64 with the dev branch; GPU host calls: layer 1
   done but for several CUDA processes on one segment and lookup address translation, the watcher
   sleeps and parks by measured rules (checked with and without `jetson_clocks`).
+- GPU on a real application (llama.cpp on the Orin, graphs off): probes on four kernels counted
+  every thread exactly. Per-thread host calls and per-thread storage keep CPU-style eBPF tools from
+  being usable there (directions 1 and 2). Start-up is 14.4-14.8 s longer with the agent.
 - Open: Gum's per-function usage counter under many threads; the agent's own load time (about
   9 ms); the CUDA late path (`bpftime attach` to a running GPU process; 5–9 µs per launch slower
   than official's); fixes not yet offered upstream.
