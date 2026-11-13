@@ -1,6 +1,6 @@
 # UnitFold: exact per-call-site execution of GPU eBPF helper calls
 
-Design for direction 2 of `RESEARCH_DIRECTIONS.md` (main): GPU-to-CPU host calls. It merges three drafts (analysis-first, semantics-first, performance-first, in `drafts/`) after two reviews, which both chose analysis-first as the base. It was then revised after two red-team passes (semantics, feasibility). Every red-team issue and its status is in "Red-team issues and their status" at the end; an independent recheck of the revision followed ("Independent recheck after the revision").
+Design for direction 2 of `RESEARCH_DIRECTIONS.md` (main): GPU-to-CPU host calls. It merges three drafts (analysis-first, semantics-first, performance-first, in `drafts/`) after two reviews, which both chose analysis-first as the base. It was then revised after two red-team passes (semantics, feasibility). Every red-team issue and its status is in "Red-team issues and their status" at the end; two independent rechecks of the revision followed ("Independent recheck after the revision", "Second independent recheck").
 - `final-long/design.md`: the longer synthesis before the red team, with the full test and mutation tables. Where it differs from this file, this file holds.
 - `final-long/r7_check.py`, `r7_output.txt`, `r7_records.json`: the R7 simulation.
 - `scripts/exec_mode.py`, `exec-mode.txt`, `records-exec.json`: what the runtime would run per site (added after the red team).
@@ -115,10 +115,23 @@ The routing is in `attach/nv_attach_impl/trampoline/default_trampoline.cu:233-42
 | fold | applying record deltas to the element under the stripe lock |
 | straggler | a GPU commit landing after a host operation's read; ordered after that operation |
 | hint | CPU-written slot state (NONE = 0, LIVE, ABSENT, SYNC, DEAD) that the GPU reads |
-| device block [new] | per (ledger, agent) device memory: lock table, shadows, key-to-slot cache, `devmode` |
-| flip [new] | taking a map out of deferral when a late pointer writer appears: hints to SYNC and a fold (slice 1), plus the owner's drain kernel (slice 2) |
+| device block [new] | per (ledger, agent) device memory: a header (the ledger's segment device addresses, C, NL), lock table, shadows, key-to-slot cache, `devmode` |
+| flip [new] | taking a map out of deferral when a late pointer writer appears: FLIPPED, hints to SYNC and a fold (slice 1), plus the owner's flip kernel (slice 2) |
 | sweep [new] | folding pending re-creations before capacity-changing operations |
 | strict mode | the default: one record per slot (S = 1) and one deferring agent per map |
+| retired ledger [new] | a ledger whose owner was found dead; still folded by every reader until the map closes |
+| `gen` [new] | a map's generation: a segment counter bumped at every map creation, so a reused fd is told apart (R3.8) |
+| section | one helper-600 critical section of a group leader, from loading the hint to the commit |
+| tool, loader | the user-space eBPF tool (`bpf()` calls, handled by the syscall server in its own process) |
+| agent, watcher | the bpftime library inside the traced application; its watcher thread serves GPU host calls |
+| `map_info` | the trampoline's `__constant__` table of map descriptors (`MapBasicInfo`), written into each patched module |
+| stripe lock | the hash map's per-bucket-group writer lock (`CLAUDE.md`, "Hash Map Concurrency") |
+| A, S | number of deferring agents, number of record shards per slot (both 1 in strict mode) |
+| LWW | last writer wins (SET/DEL ledgers) |
+| D, N | the 52126f33 runtime and slice 1, compared in R10 |
+| victim | the CUDA application a benchmark probes |
+
+Map type numbers: 1501 GPU shared hash, 1502 per-thread array, 1503/1504/1513 single-copy GPU arrays, 1512 per-thread array (variant), 1527 GPU ring buffer (bpftime's GPU map types; 1501 is an ordinary HASH on the Orin).
 
 ### What changes
 
@@ -126,7 +139,7 @@ The routing is in `attach/nv_attach_impl/trampoline/default_trampoline.cu:233-42
 |---|---|
 | start of `init_attach_ctx_from_handlers`, before loop 1 (`runtime/src/attach/bpf_attach_ctx.cpp:229-245`; loop 2, CUDA links, `:248-259`) | analyzer over all handlers; pointer-writer scan, flip and fold before any link; ledgers |
 | `write_trampoline_globals`, `fatbin_record::try_loading_ptxs`, `run_attach_entry_on_gpu` (`nv_attach_impl.cpp:2366-2385`, `nv_attach_fatbin_record.cpp:251-292`, `nv_attach_impl.cpp:1316-1349`) | one helper writes `map_info` with the context rule (R3.2) |
-| `MapBasicInfo` (`default_trampoline.cu:84-92`, host copy) | new fields: `gen`, ledger flag |
+| `MapBasicInfo` (`default_trampoline.cu:84-92`, host copy) | a 32-bit `gen` in the padding at offset 20 and the ledger flag at offset 1, so the entry stays 40 B (`map_info[1024]` is 40 KiB of the 64 KiB constant bank the module shares with the application) |
 | `bpf_attach_ctx.cpp:639` | pass the rewritten words |
 | `create_map_basic_info` (`bpf_attach_ctx_cuda.cpp:505-554`) | `extra_buffer` of a ledgered HASH = this agent's device block |
 | `core.cpp:234-253` | register ids 600-604 |
@@ -135,10 +148,15 @@ The routing is in `attach/nv_attach_impl/trampoline/default_trampoline.cu:233-42
 | `gpu_helper_protocol.h:22-30` | four opcodes |
 | `serve_cuda_request` (`bpf_attach_ctx_cuda.cpp:124-187`) | serve the opcodes; fold before serving |
 | `map_handler.cpp/.hpp` | ledger pointer, `gen`, hooks, `map_lookup_copy` |
-| `bpftime_hash_map.hpp` | locked fold-then-op variants, in-place atomic add shaped like `with_existing_value` (`:699-709`), a relaxed free counter |
+| `bpftime_hash_map.hpp` | locked fold-then-op variants, in-place atomic add shaped like `with_existing_value` (`:699-709`), a free counter kept only while a ledger is attached (the redesign dropped a shared count for its cost, `CLAUDE.md`, "Hash Map Concurrency") |
+| `syscall_context.cpp:615-622`, `bpftime_shm_internal.cpp:295-315`, `handler_manager.cpp:116-123` | `map_lookup_copy`; cached-handler branches to the generic paths; close marks ledgers DEAD |
+| `vm/compat/llvm-vm` overlay | `nomerge` and ExitOnError hunks |
+| agent | ledger ownership (`flock` file), writer registration, retired-ledger list |
+| `tools/bpftimetool/main.cpp:65-117` | `run` runs the scan and flip first |
+| benchmark and example loaders, configs | measurement plumbing (R10, item 7) |
 | typed HASH helpers (`runtime/src/bpf_helper.cpp:470-622`) | take the generic path when a ledger exists |
 
-**Unchanged:** the request protocol, lane serialisation, the watcher's sleep policies, GPU map types, the ARRAY path, loaders and tools.
+**Unchanged:** the flag1/flag2 handshake, lane serialisation, the watcher's sleep policies, GPU map types, the ARRAY path; user loaders need no change.
 
 ## R1. Reference semantics
 
@@ -155,7 +173,7 @@ The routing is in `attach/nv_attach_impl/trampoline/default_trampoline.cu:233-42
 
 **Plain pointer accesses** outside units are data races, as in Linux.
 
-**Precondition PW** [new, enforced in R3.6]. On a ledgered map, no attached program does any of the following through a lookup pointer:
+**Precondition PW** [new, enforced in R3.6]. On a ledgered map, no program that runs (attached by any agent, or run by `bpftimetool run`) does any of the following through a lookup pointer, or through a helper that writes through a pointer argument:
 - a plain store;
 - a non-ADD atomic;
 - on the GPU, any atomic.
@@ -232,12 +250,11 @@ In strict mode, host reads are linearizable: one record per key, one seqlock sna
   - Sweeps run before every insert and delete near capacity.
   - What remains: when several stragglers are pending on a nearly full map, which ones get in follows sweep order.
   - Counter: `e2big_sweep`.
-- **D5.** When a GPU program that does atomics through lookup pointers attaches late (R3.6), sections that loaded a LIVE hint before the hints were set to SYNC can still commit.
-  - Those commits are folded by element replacement, never in place.
-  - An atomic through a pointer to the replaced element goes to the retired element and is lost or, once the element is reused, lands in another key (Linux's update semantics, triggered by the fold).
-  - New sections go to the host from the hint store on, and every later hint write keeps SYNC, so D5 is limited to sections already running then (one device-lock section each, longer only under preemption). Slice 2's flip kernel removes it.
-  - A late CPU pointer writer causes no deviation: its lookups fold first (R3.4), so every commit that happened before its lookup is in the element before it gets the pointer, and later stragglers are added in place, ordered after its store.
-  - Counter: `late_stragglers`.
+- **D5. Late pointer writers.** When a program that writes through lookup pointers of a ledgered map M starts to run late (R3.6):
+  - *Stragglers*, sections that loaded a LIVE hint before the hints were set to SYNC, can still commit. For a CPU writer they are folded in place: a straggler that happened before the writer's store but is folded after it lands on top of the store, where SR overwrites it (the writer's own lookups fold first, so only commits that reach it through another path, such as a fold of another map, can do this). For a GPU writer with atomics they are folded by element replacement: an atomic through a pointer to the replaced element goes to the retired element and is lost or, once the element is reused, lands in another key (Linux's update semantics, triggered by the fold).
+  - *After a GPU writer's flip*, every later unit on M runs with Linux per-helper semantics, as today: the host finds or creates the element and returns its address, and the leader adds with a GPU atomic after the reply. A delete or update between the reply and the add sends the add to a freed or retired element, as a Linux program's atomic through a lookup pointer can.
+  - New sections go to the host from the hint store on, and every later hint write keeps SYNC, so stragglers are limited to sections already running then (one section each, longer only under preemption). Slice 2's flip kernel removes the stragglers; the per-helper semantics stay while the GPU writer is attached.
+  - Counters: `late_stragglers`, `post_flip_units`.
 - **D6.** Deferred GPU writes after `BPF_MAP_FREEZE` are applied, as Linux allows for programs. Today GPU host calls get EPERM (`runtime/src/handler/map_handler.cpp:445-448, 776-779`). UNIT_* operations use program semantics; unrewritten sites keep EPERM.
 - **D7 (inherited).** The base hash map can return E2BIG with free elements left while deletes run concurrently (its per-CPU free lists: the window of the kernel's `pcpu_freelist`, documented in `CLAUDE.md`, "Hash Map Concurrency"). No serial order explains such a return. UnitFold neither adds nor removes it; Lemma 4 holds up to it.
 
@@ -330,7 +347,8 @@ Each core fact is litmus-checked at start-up. Deferral is enabled only if H2-H4 
   - records per (slot, shard): `ver` plus two halves. ADD halves hold {sum, count}; LWW halves add {wseq, wkind, sum_at, count_at, value}.
 
 **Device block** [new], agent `cuMemAlloc` in the primary context (the agent already uses it: the watcher retains it and makes it current, `bpf_attach_ctx_cuda.cpp:262-276`):
-- `devmode`, written only by the agent's flip kernel;
+- a header: the ledger's segment device addresses (index, hints, records), C and NL;
+- `devmode`, set to DEFER when the agent allocates (and zeroes) the block, written later only by the flip kernel (slice 2);
 - a lock table of NL = 2C lock words indexed by **hash(key bytes, shard)**;
 - shadows per (slot, shard), protected by that lock;
 - the key-to-slot cache. It is only a hint: before using a cached slot s the leader checks s < C, the index entry's occupied bit and its key bytes. The host writes an index entry once at slot creation (occupied bit last, after the key) and never changes it while the ledger lives (no reclamation). A torn, empty (all-zero: key 0, slot 0) or stale cache entry therefore costs a miss (one UNIT_ADD), never a wrong slot. Duplicates are harmless because the host assigns one slot per key. Hint encoding: NONE = 0 (never created), LIVE, ABSENT, SYNC, DEAD.
@@ -345,8 +363,8 @@ Each core fact is litmus-checked at start-up. Deferral is enabled only if H2-H4 
 
 Helper 600 then takes its B == 0 path (UNIT_ADD per group, R3.3). One deferring context per (ledger, agent) also keeps one writer per record. A device block is never re-created for an existing ledger: if the owner's context id changes (`cudaDeviceReset` in a live process), the owner retires the ledger as on death (R3.8).
 
-**One writer per word.**
-- The GPU writes only records, after the CPU zeroes them at slot creation.
+**One writer per segment word.**
+- In the segment, the GPU writes only records, after the CPU zeroes them at slot creation (the device block is GPU-written device memory).
 - The CPU writes everything else.
 - The map element is written only by host code.
 
@@ -355,7 +373,7 @@ Helper 600 then takes its B == 0 path (UNIT_ADD per group, R3.3). One deferring 
 **Grouping is checked at run time, never trusted** (revised after the red team).
 - **Why.** The lanes active at one call of helper 600 need not come from one site. LLVM 15's legacy O3, the pipeline `generate_ptx` runs (`vm/llvm-jit/src/llvm_jit_context.cpp:279-288, 946-948`), merges two rewritten units in sibling branches into one call with a `select`ed site or fd (`redteam/sink.ll` → `sink.O3legacy.ll`: 4 calls become 2). Lanes of both sites then reach the call together, and trusting `popc(activemask)` counts every lane on the leader's key. Under independent thread scheduling, lanes from two call sites might also be active together inside the shared helper body (open).
 - **`nomerge`.** An llvmbpf overlay hunk marks every call to ids ≥ 600 `nomerge`. With it the same `opt-15 -O3 -enable-new-pm=0` keeps all 4 calls (`redteam/sink-nomerge.ll` → `sink-nomerge.O3legacy.ll`). This keeps sites apart in the common case, so the constant fast path stays fast. It covers only the IR optimizer, not NVPTX code generation or nvPTXCompiler, so it is not the correctness argument.
-- **The check (peeling).** Each round, the lowest active lane broadcasts (fd, site, key words) with `shfl.sync`; `vote.ballot.sync` over equality gives the group G; the lanes of G commit and leave; the rest repeat. All of this happens before any staging add. This needs only sm_30-level PTX (`shfl.sync`, `vote.sync`, PTX ISA 6.0 [external]), whose acceptance after the sm_87 retarget step 0 checks (C-PTX). `match.any.sync` (sm_70) is an optional faster form.
+- **The check (peeling).** Each round, the lowest remaining lane broadcasts (fd, site, desc) and then its key words with `shfl.sync`; `vote.ballot.sync` over equality of all four gives the group G; G's leader commits; the rest repeat. Every loop bound and branch in a round comes from broadcast values only (the number of key words from `map_info[lfd].key_size`, the immediate bit and the add width from the leader's desc), so all lanes of the warp run the same `shfl.sync` sequence even when a merged call brings lanes of different maps, key sizes or delta kinds; a lane whose key is shorter pads it with zeros, and its fd differs anyway (second recheck). This needs only sm_30-level PTX (`shfl.sync`, `vote.sync`, PTX ISA 6.0 [external]), whose acceptance after the sm_87 retarget step 0 checks (C-PTX). `match.any.sync` (sm_70) is an optional faster form.
 - **Without C-PTX** (step 0 rejects the text): lane-turn everywhere. Lanes take turns as in today's 32-step loop (`default_trampoline.cu:134-175`), each lane its own group (n = 1) under its key's lock. Still exact and with no round trip; a warp on one key costs 32 × `c_commit` instead of today's 32 × `c_rt` (about 32 × 11 us). `c_commit` is unmeasured, so no number is claimed.
 - **What the analysis decides.** Uniformity only sizes ledgers (keybound, R6) and feeds the cost model. When the site's delta is an immediate, agreement on the site implies equal deltas, so the sum is n·d. Otherwise every lane of the warp runs the same gather loop over G's set bits with `shfl.sync` (or one `redux.sync` when accepted). No staging word is needed, so the path without a device block sums the same way (second recheck).
 - **Rounds end with a barrier.** Every lane that entered stays in the loop until all groups are done; each round ends with `__syncwarp(m0)`, as `host_call`'s turn loop does (`default_trampoline.cu:126-175`). Only one leader per warp is inside a lock or a host call at a time, so two groups of one warp never spin on each other (same key on two sites, colliding lock entries, the module comm lock), with or without independent thread scheduling.
@@ -368,18 +386,20 @@ _bpf_helper_ext_0600(fd, key, delta, desc, site):
   m0 = activemask(); left = m0
   while left:                                       // uniform over m0
     leader = ffs(left) - 1
-    (lfd, lsite, lkey) = shfl.sync(m0, (fd, site, key words), leader)
-    G = vote.ballot.sync(m0, lane in left && fd == lfd && site == lsite && key == lkey)
+    (lfd, lsite, ldesc) = shfl.sync(m0, (fd, site, desc), leader)
+    kw = key_words(map_info[lfd].key_size)          // from broadcast values only
+    lkey = shfl.sync(m0, own key words 0..kw-1 (zero-padded), leader)
+    G = vote.ballot.sync(m0, lane in left && (fd, site, desc) == (lfd, lsite, ldesc) && key == lkey)
     n = popc(G)
-    sigma = immediate(delta) ? n*d : sum over lanes l in G of shfl.sync(m0, delta, l)
+    sigma = immediate(ldesc) ? n*d(ldesc) : sum over lanes l in G of shfl.sync(m0, delta, l)
     if lane == leader:
-      if B == 0: host_call(UNIT_ADD, gen, key, sigma, n, ...)
+      if B == 0: r = host_call(UNIT_ADD, gen, key, sigma, n, ...); if r.addr: atomicAdd(r.addr, sigma)   // r.addr: after a GPU-writer flip only (D5)
       else:
         L = &B.locktab[hash(key, shard) & (NL-1)]; lock(L)
         s = keycache_find(B, key)                   // hint; s < C and key bytes checked at index[s]
         h = s valid ? ld.volatile slot_state[s] : NONE   // hint (H3); NONE = 0
         DEAD -> drop; IF_PRESENT && ABSENT -> no-op
-        devmode != DEFER || h != LIVE -> host_call(UNIT_ADD, gen, key, sigma, n, ...)  // L held; cache slot
+        devmode != DEFER || h != LIVE -> r = host_call(UNIT_ADD, gen, key, sigma, n, ...); if r.addr: atomicAdd(r.addr, sigma)  // L held; cache slot
         else: sh = shadow[s]; v = sh.ver; sh.sum += sigma; sh.count += n
               st rec.ver = v+1; membar.sys
               st rec.half[((v>>1)+1)&1] = {sh.sum, sh.count}; membar.sys
@@ -438,7 +458,7 @@ A tool killed inside a fold leaves the stripe locked, and the watcher's fold-bef
 **UNIT_ADD (watcher).**
 1. Check `gen`.
 2. Sweep if needed, lock, fold.
-3. Run the unit: present → add; absent → UPSERT inserts with Linux's E2BIG, IF_PRESENT no-ops. After a flip caused by a GPU pointer writer, a present key is not added on the host: the reply carries the element's device address and the leader adds sigma with a GPU atomic, in the same atomicity domain as that writer's atomics (R3.6).
+3. Run the unit: present → add; absent → UPSERT inserts with Linux's E2BIG, IF_PRESENT no-ops. After a flip caused by a GPU pointer writer, a present key is not added on the host: the reply carries the element's device address and the leader adds sigma with a GPU atomic, in the same atomicity domain as that writer's atomics (R3.6). This is Linux per-helper semantics, not SR (D5).
 4. Find or create the slot (NOSLOT if full); set the hint (SYNC if flipped); return the slot.
 
 **Stragglers.** Without store buffering, a commit can land after a host operation's read. It is ordered after that operation:
@@ -449,7 +469,7 @@ A tool killed inside a fold leaves the stripe locked, and the watcher's fold-bef
 No GPU-local read of ADD keys exists, so no observer saw it earlier.
 
 **Sweep.**
-- Before every operation that changes the key count (host insert of an absent key, delete, lookup_and_delete, UNIT_* insert, fold re-creation), and only when the relaxed free count ≤ absent-list length + 64, fold each absent-list slot whose count moved.
+- Before every operation that changes the key count (host insert of an absent key, delete, lookup_and_delete, UNIT_* insert, fold re-creation), and only when the free count (kept while a ledger is attached) ≤ absent-list length + 64, fold each absent-list slot whose count moved.
 - One stripe lock at a time, never two. A fold needing re-creation releases its lock, sweeps, and retries.
 - Pending GPU DELs are folded before an insert fails with E2BIG (O(C), only on that path).
 
@@ -470,22 +490,24 @@ A ledger-pointer test (one load) sits in each of these:
 
 ### R3.6 Pointer writers and flip [new]
 
-**Scan before any link.** The scan runs at the start of `init_attach_ctx_from_handlers`, before loop 1 (`bpf_attach_ctx.cpp:229-245`), which already attaches CPU links (`instantiate_bpf_link_handler_at`, non-CUDA links at `:656-686`; only CUDA links wait for loop 2). It reads every program handler in the segment and sets two flags:
+**Scan before any link.** The scan runs inside `init_attach_ctx_from_handlers`'s attempt loop, after the session-epoch check and immediately before loop 1 (`bpf_attach_ctx.cpp:200-282`, loop 1 `:229-245`), on every attempt; the map-binding mutex held for the whole transaction (`:196-199`) keeps handlers from appearing in between. Loop 1 already attaches CPU links (`instantiate_bpf_link_handler_at`, non-CUDA links at `:656-686`; only CUDA links wait for loop 2). It reads every program handler in the segment and sets two flags:
 - `gpu_ptr_writer(M)`: any GPU site **not rewritten** stores, or runs any atomic, through a lookup pointer of M;
 - `cpu_ptr_writer(M)`: any CPU program does a store, or an atomic other than ADD, through such a pointer.
 
-A lookup pointer (or one derived from it) passed to a helper that writes through a pointer argument counts as a store: on the CPU `bpf_probe_read*`, `bpf_get_current_comm` and the like; on the GPU helper 503, which stores through its three arguments (`default_trampoline.cu:511-517`).
+A lookup pointer (or one derived from it) passed to a helper that writes through a pointer argument counts as a store: on the CPU `bpf_probe_read*`, `bpf_get_current_comm` and the like; on the GPU helpers 503, 504, 505 and 508, which store through their three arguments (`default_trampoline.cu:511-517, 520-528, 530-539, 552-561`). The scan reads a table of helper argument effects, checked against the trampoline source by a unit test.
 
-Either flag means M gets no ledger. CPU atomic ADD is allowed only next to add-only ledgers. The scan reads only handlers in the segment and needs no CUDA context, so every agent of this build runs it, with or without a GPU (mixed builds in one segment are unsupported anyway, `CLAUDE.md`, "Ordinary Array JIT Specialization").
+Either flag means M gets no ledger. CPU atomic ADD is allowed only next to add-only ledgers.
+
+**Registration across agents** (second recheck). Rewriting is decided per agent (`BPFTIME_GPU_SITE_EXEC`, the start-up gate), so "not rewritten" differs between agents. Every agent of this build, whatever its own setting, registers in the segment each unrewritten GPU site that stores or does atomics through a lookup pointer of M before loop 2 attaches it: a per-map writer count under the ledger mutex, each entry tied to the agent's liveness lock (R3.8) so a dead agent's entries are dropped. A ledger is created only while the count is zero; registering into a ledgered map flips it first. `bpftimetool run` (`tools/bpftimetool/main.cpp:65-117`), which executes segment programs without `init_attach_ctx_from_handlers`, runs the scan and flip first. The scan reads only handlers in the segment and needs no CUDA context, so every agent of this build runs it, with or without a GPU (mixed builds in one segment are unsupported anyway, `CLAUDE.md`, "Ordinary Array JIT Specialization").
 
 **Late pointer writers are the normal case, not an exception.** Links are re-made while the process runs: `refresh_attach_session` (`runtime/agent/agent.cpp:702-730`, reached from the agent socket and `bpftime_agent_control`) destroys every link and runs `init_attach_ctx_from_handlers` again; the auto-refresh threads call `init_attach_ctx_from_handlers` directly, without destroying links (`agent.cpp:777, 1183`); and another process's agent can start at any time. So "no ledger whenever a late attach is possible" would mean no ledger at all. Instead, at every such entry, before loop 1, whoever finds a new pointer writer of a ledgered map M:
 1. sets FLIPPED in M's ledger header under the ledger mutex, then stores SYNC into every slot hint of M. The GPU loads the hint at every commit (R3.3), so from then on new sections send UNIT_* host operations; no kernel of the owner is needed. Every later hint writer keeps SYNC (R3.4), so deferral does not resume;
-2. folds every slot of M, re-storing SYNC under each stripe lock (this closes a hint writer's check-then-store race);
-3. only then runs loop 1, which attaches the new program.
+2. folds every slot of M, re-storing SYNC under each stripe lock (this closes a hint writer's check-then-store race). The stripe locks are taken with bounded trylocks: the flip runs under the map-binding mutex, and a process killed inside a fold would otherwise wedge every agent's init and every tool's handler change. On a timeout FLIPPED and the SYNC hints stay, the fold is retried at the next entry, and the new program is not attached until it has completed;
+3. only then runs loop 1, which attaches the new program. The agent's statistics record a sequence number for the FLIPPED store and for each pointer writer's attach (T22 checks their order).
 
 Sections that loaded LIVE before step 1 can still commit (D5; `late_stragglers` counts commits whose `ver` moved after step 2's fold):
-- **CPU pointer writer:** stragglers are folded in place with an aligned 4/8-byte CPU atomic add, single-copy atomic against the uprobe's aligned plain stores and atomics. Nothing is lost; the add and the store are ordered one way or the other.
-- **GPU pointer writer with atomics:** an in-place CPU add would meet the GPU's atomics on the same word, the CPU-GPU atomicity the design otherwise never needs, so stragglers are folded by replacement. A concurrent write through a pointer to the replaced element goes to the retired element, as with Linux's update of an element a program holds a pointer to. Later UNIT_ADDs add in place with a GPU atomic (R3.4, step 3), so this is limited to the stragglers.
+- **CPU pointer writer:** stragglers are folded in place with an aligned 4/8-byte CPU atomic add, single-copy atomic against the uprobe's aligned plain stores and atomics, so nothing tears. A straggler that happened before the writer's store but is folded after it lands on top of the store (D5).
+- **GPU pointer writer with atomics:** an in-place CPU add would meet the GPU's atomics on the same word, the CPU-GPU atomicity the design otherwise never needs, so stragglers are folded by replacement (D5). From the flip on, M runs with Linux per-helper semantics for every rewritten unit: UNIT_ADD on a present key returns the element's device address and the leader adds sigma with a GPU atomic, in the same domain as the writer's atomics (for a leader in another context this needs C-XA, as today's GPU atomics through host-call pointers do). The result is today's behaviour, not SR, and is counted (`post_flip_units`).
 
 **Slice 2: the flip kernel** removes D5. The owner launches a one-block kernel on a private stream: `devmode = SYNC`, `__threadfence()`, then acquire and release every lock-table entry. Every section that read DEFER has then finished, and later sections see SYNC (H1, H5). The watcher must never block on that kernel: UNIT_* holds a lock-table entry across a round trip only the watcher serves (`bpf_attach_ctx_cuda.cpp:303-330`), so a watcher waiting on the flip kernel while the flip kernel spins on that entry is a deadlock. The watcher polls the kernel's event with `cuEventQuery` between `try_serve` calls. Test: a UNIT_ADD first touch in flight during the flip; mutation: the watcher blocks on the event. The only precedent for an agent-launched kernel, `run_attach_entry_on_gpu` (`nv_attach_impl.cpp:1190`, launch `:1360`, sync `:1364`), uses `cuCtxSynchronize`; whether such a kernel gets scheduled while application kernels hold every SM is C-SCHED, measured in step 0.
 
@@ -510,14 +532,14 @@ Only C-SB excludes the cycle.
 
 ### R3.8 Identity, close, takeover, agents
 
-- **`gen`** [new]: a 64-bit segment counter in the handler. Today `id` is the fd (`map_handler.hpp:89-102, 370`). It is carried in the header and in UNIT_* requests; a mismatch drops the request.
+- **`gen`** [new]: a 64-bit segment counter in the handler. Today `id` is the fd (`map_handler.hpp:89-102, 370`). The ledger header holds it whole; `map_info` and UNIT_* requests carry its low 32 bits; a mismatch drops the request.
 - **Close:** sets DEAD and detaches. Ledger and device block stay until the agent exits, because patched images cannot be unloaded (`nv_attach_impl.cpp:2387-2390`).
 - **fd reuse:** old rewritten sites see DEAD or a `gen` mismatch. Old unrewritten sites keep the pre-existing hazard.
 - **Maps missing from `map_info`** (created later, or fd ≥ 1024) are never rewritten.
-- **Owner liveness is a lock the kernel releases** (revised twice). The owner opens a per-ledger file in the segment's directory (`/dev/shm`, named by segment and ledger incarnation id) with `O_CLOEXEC` and holds a `flock` on it for its lifetime. Another agent declares the owner dead only when it can take that lock (non-blocking). This works across pid namespaces that share `/dev/shm` and across `exec` (the descriptor closes, and the old image's CUDA context is gone with it). A child forked by the owner inherits the lock until it exits or closes the descriptor; deferral for other agents stays off meanwhile, which costs speed, not exactness. The header also records (pid, start time, incarnation id) for diagnostics and for a refresh in the same process to find its own ledger.
+- **Owner liveness is a lock the kernel releases** (revised twice). The owner opens a per-ledger file in the segment's directory (`/dev/shm`, named by segment and ledger incarnation id) with `O_CLOEXEC` and holds a `flock` on it for its lifetime; it creates and locks the file before the CAS that publishes the ledger. Another agent declares the owner dead only when it can take that lock (non-blocking), opening the file without `O_CREAT`: a missing file means "not provably dead", so no retire follows. Only the retirer unlinks an old file, after its CAS; removing the segment unlinks the rest, and the measurement clean-up and checks include them. This works across pid namespaces that share `/dev/shm` and across `exec` (the descriptor closes, and the old image's CUDA context is gone with it). A child forked by the owner inherits the lock until it exits or closes the descriptor; deferral for other agents stays off meanwhile, which costs speed, not exactness. The header also records (pid, start time, incarnation id) for diagnostics and for a refresh in the same process to find its own ledger.
 - The alive-agent set is not used: a pid enters it only after init (`agent.cpp:1119-1121` then `:1195-1196`; `:726` then `:733` on refresh), leaves it at detach while the owner's GPU work can still run (`:463-473`; the last detach waits at most 2 s and only for noted launches, `nv_attach_impl.cpp:160-167`), stays after SIGKILL, and pids are reused. (pid, start time) read from `/proc` is not enough either: from another pid namespace a live owner looks dead.
 - **Ownership ends only at process exit or exec.** The process's CUDA context goes with it, so no GPU writer of the old records remains. Detach does not release ownership; a refresh in the same process rejoins its own device block (matched by incarnation id). A changed context id in the owner itself (`cudaDeviceReset`) is handled like death: the owner retires the ledger.
-- **Slice 1, owner dead:** the agent that takes the lock folds every slot, marks the old ledger DEAD and installs a new one with a CAS on the handler's ledger pointer (no shadow seeding). An agent that loses the CAS uses UNIT_* through the host-only bit. Totals continue exactly, because they are in the map once folded.
+- **Slice 1, owner dead:** the agent that takes the lock folds every slot and installs a new ledger with a CAS on the handler's ledger pointer (no shadow seeding); an agent that loses the CAS uses UNIT_* through the host-only bit. The old ledger is *retired*, not DEAD: its hints and records stay as they are, and it stays on the handler's list of retired ledgers, folded by every reader, until the map closes. The release of the `flock` is not ordered with the teardown of the owner's CUDA context (an exiting process closes its descriptors in no fixed order, and an application may close the descriptor itself), so a kernel of the old owner may still commit after the retire: those commits are folded, not lost. A reader checks the key's record in each retired ledger (one index probe and one `ver` load each); reads of a key whose records move in two ledgers at once are regular, not linearizable (D1), until the old owner's work has ended. After 4 retirements a map gets no new ledger (UNIT_* only: speed, not exactness). DEAD is used only at close.
 - **Slice 2, takeover** [new]: instead of retiring, an agent takes ownership with a CPU CAS after confirming death.
   - It seeds its shadows from each record's committed half (`ver` = 2c, totals from half c&1) via `cuMemcpyHtoD` before any commit.
   - If the dead owner left `ver` odd, the new first commit stores 2c+1, then 2c+2; `ver` stays monotone.
@@ -562,8 +584,8 @@ Merged calls are split per incoming flags edge (cuda-counter retprobe pc 76 → 
 
 **Rewrite (slice 1)** happens in place: argument setup, `call 60x`, `ja` join, with the rest of the region padded by `ja +0`. No jump fixups are needed.
 - **cuda-counter entry A:** pc 22-37 → pc 26-30 `r3=r6; r4=desc; r5=site; call 600; ja 38`, then pc 31-37 nops. pc 22-25 keep the key pointer and the map LDDW.
-- **retprobe B:** pc 28-35, plus nops at 36-42 and 69-76. The printk path 43-68 is reached only from pc 16; r1-r5 are redefined at 105-110; slot `r10-0x28` is kept and read at 107 (`dir2-read/disasm/cuda-counter.txt`).
-- **micro hash_lookup** (`benchmark/gpu/micro/cuda_probe.bpf.c:167-176`): a built object exists and the unit fits in exactly 5 slots, with no slack (feasibility red team, read from its disassembly). Any extra argument word would not fit in place.
+- **retprobe B:** pc 28-35, plus nops at 36-42 and 69-76. The printk path 43-68 is reached only from pc 16; r1-r5 are redefined at 105-110; slot `r10-0x28` is kept and read at 107 (`read/disasm/cuda-counter.txt`).
+- **micro hash_lookup** (`benchmark/gpu/micro/cuda_probe.bpf.c:167-176`): a built object exists, and the unit fits in its 5 slots (pc 70-74) using 4 (`r3`, a one-slot descriptor, `r5`, `call 600`) and falling through to pc 75 (feasibility red team and second recheck, from its disassembly). A descriptor wider than one slot would not fit, here or in A's rewrite.
 
 Non-fitting units stay unchanged. The general patcher arrives in slice 2. A structural self-check runs after rewriting, and T14 does differential validation.
 
@@ -585,7 +607,7 @@ Non-fitting units stay unchanged. The general patcher arrives in slice 2. A stru
 - UnitFold: the pid key is the same in every lane, so the run-time check finds one group per warp and Σ = n·d with n = popc(G). The first touch is one UNIT_ADD, then records. Result: 128/128.
 - The first-touch race does not exist, because presence is decided by a host operation under the stripe lock.
 
-**B.** Linux loses updates through the racy RMW and through EXIST replacement (`kernel/bpf/hashtab.c:1171-1185`); today about one update per warp lands; UnitFold gives Σd through the staging sum.
+**B.** Linux loses updates through the racy RMW and through EXIST replacement (`kernel/bpf/hashtab.c:1171-1185`); today about one update per warp lands; UnitFold gives Σd through the `shfl.sync` gather sum.
 
 **C.** One lane per launch (`cudagraph/cuda_probe.bpf.c:44-47`). The gain is the removed round trip, and the result is exact across overlapping launches.
 
@@ -646,7 +668,7 @@ The names `_bpf_helper_ext_06xx` pass the extern filter (`core.cpp:280-283`).
 | index + header | segment | 256 B + 2C(ks8 + 8) | NOSLOT → UNIT_* (exact) | - |
 | hints + watermarks | segment | C(8 + 24·S·A) | - | folds |
 | records | segment | ADD: 64 B per (slot, shard); LWW: round64(8 + 2(48 + vs8)) | - | nobody needs to; readers fold; optional 100 ms watcher fold |
-| device block | device memory | NL(4 + 8) + C·S·24 + cache 2C(ks8 + 8) | cache full → UNIT_* | seeded at takeover |
+| device block | device memory | header + NL·4 + C·S·24 + cache 2C(ks8 + 8) | cache full → UNIT_* | seeded at takeover |
 | printk ring (slice 3) | segment, per agent | 32 Ki × 48 B = 1.5 MiB | CAS reservation checks head → synchronous printk after drain | watcher every turn, before any sync printk, at exit (≤ 100 ms) [new]; loader orphan drain if the agent is dead |
 
 **Examples.**
@@ -670,7 +692,7 @@ The names `_bpf_helper_ext_06xx` pass the extern filter (`core.cpp:280-283`).
 - Late links: every entry into `init_attach_ctx_from_handlers` re-runs the step (refresh, auto-refresh, another agent's start; R3.6).
 - Offline: `bpftime-site-analyze` over `.bpf.o` with `.BTF.ext`.
 - Device blocks are allocated under a `with_cuda_context`-like helper (`nv_attach_impl.cpp:2306`, used at `:2370`) with the primary context [inferred]. With no `cuda_ctx` (`bpf_attach_ctx.cpp:623-628`) there is no ledger.
-- Cost: no usable anchor. The auto-warp branch's 2.2-2.5 ms for 4,096 instructions (`device-verifier-phase-attribution-20260904.md`) is the uniformity phase alone, on an x86 host pinned to one CPU, on synthetic programs with no maps and no helper calls. This analyzer also tracks stack bytes, value numbers and def-use on the Orin's cores; it is measured in slice 1 and runs once per refresh, not per launch.
+- Cost: no usable anchor. The auto-warp branch's 2.2-2.5 ms for 4,096 instructions (`device-verifier-phase-attribution-20260904.md`) is the uniformity phase alone, on an x86 host pinned to one CPU, on synthetic programs with no maps and no helper calls. This analyzer also tracks stack bytes, value numbers and def-use on the Orin's cores. It runs at every entry into `init_attach_ctx_from_handlers`, which auto-refresh makes every `auto_refresh_ms` (`agent.cpp:1178-1184`), so results are cached per program handler by an instruction hash, and only the cross-program flags are recomputed when the handler set changed. Measured in slice 1.
 
 **Inputs:**
 - program words;
@@ -744,7 +766,7 @@ The words do not depend on ledger addresses.
 - **Costs:** commits become posted PCIe stores plus fences; hint loads become PCIe reads (optional; drop them except for the ABSENT cache); `c_rt` grows.
 - **1501 on CUDA-IPC GPUs** (`nv_gpu_shared_hash_map.cpp:47-62`) is not ledgered until checked.
 - **sm_61:** argued, not tested.
-- **Primitives:** only those the trampoline already emits; it is built for sm_61 (`trampoline/Makefile:3, 26`) and retargeted.
+- **Primitives:** those the trampoline already emits (`activemask`, `bar.warp.sync`), plus `shfl.sync` and `vote.ballot.sync`, gated by step 0; it is built for sm_61 (`trampoline/Makefile:3, 26`) and retargeted.
 
 ## R9. Interactions
 
@@ -782,11 +804,11 @@ The words do not depend on ledger addresses.
 ### Build (≈ 4 weeks)
 
 Cut after the feasibility red team: slice 1 builds only what its programs exercise, plus the rules that keep it exact when something unexpected happens (a late pointer writer, a dead owner, another context).
-1. The analyzer library and offline driver: A, B, J-lookup units, records with `exec_mode` for all sites, the pointer-writer scan (re-run at every refresh and agent start), the in-place rewrite with self-check.
-2. Helper 600: the grouping check (peeling) or lane-turn, the n·d or staging sum, record commit, UNIT_ADD. `nomerge` overlay hunk.
+1. The analyzer library and offline driver: it decides every idiom (A-J: C, E's SET/READ/DEL, F, G, H too) for the records and T17, which asserts the full-design default `exec_mode`; it rewrites only A, B and the J lookup. Also the pointer-writer scan and writer registration (every entry into init, inside the attempt loop before loop 1), analysis results cached per program handler, the in-place rewrite with self-check.
+2. Helper 600: the grouping check (peeling, every bound from broadcast values) or lane-turn, the n·d or `shfl.sync` gather sum, record commit, UNIT_ADD with the device-address reply after a GPU-writer flip. `nomerge` overlay hunk.
 3. ADD ledgers in strict mode; device block with the hashed lock table and the verified key-to-slot cache; `extra_buffer = 0` in other contexts.
-4. Host: all R3.5 hooks, typed paths included; the fold with its `ver` guard; fast paths for CPU probes and the loader; `map_lookup_copy`; `gen`, DEAD; the UNIT_ADD opcode; fold-before-serve; the absent-list sweep (in `get_next_key` from the first or a missing key, and before count-changing host operations near capacity): tool deletes of ledgered keys happen in slice 1 (the loaders' print-and-clear pattern), and without the sweep a pending re-creation would be invisible to iteration.
-5. The scan, flip (FLIPPED flag, hints to SYNC) and fold before loop 1; D5 counted. Owner liveness by `flock`; on a dead owner, fold all, retire, install a new ledger by CAS.
+4. Host: all R3.5 hooks, typed paths included; the fold with its `ver` guard; fast paths for CPU probes and the loader; `map_lookup_copy`; `gen`, DEAD; the UNIT_ADD opcode; fold-before-serve; the absent-list sweep (in `get_next_key` from the first or a missing key, and before count-changing host operations near capacity): a tool can delete ledgered keys at any time (T4, T11 and T12 do), and without the sweep a pending re-creation would be invisible to iteration. A free counter is kept only while a ledger is attached.
+5. The flip before loop 1 (FLIPPED flag, hints to SYNC, the fold with bounded trylocks, statistics sequence numbers), for CPU writers (in-place straggler folds) and GPU writers (replacement folds, then per-helper UNIT_ADD); D5 counted. `bpftimetool run` runs the scan and flip first. Owner liveness by `flock` (file created and locked before the ledger is published); on a dead owner, fold all, retire (the retired list stays folded), install a new ledger by CAS.
 6. Registration of 600, the `ptxpass_site_exec_abi` gate, the containment test, the ExitOnError hunk, `BPFTIME_GPU_SITE_EXEC`, and the start-up gate: deferral only with a step-0 result for this device, driver and build (cached file; a mismatch leaves every site on today's path).
 7. **Measurement plumbing** (none of it exists at 52126f33):
    - micro modes `hash-lookup-present` (the loader inserts key 0, so the lookup + `(*v)++` unit commits) and `hash-counter` (a new program: unit A on the pid key), with config entries in `micro_vec_add_config.json`, where the CPU Hash cases are;
@@ -801,7 +823,7 @@ Cut after the feasibility red team: slice 1 builds only what its programs exerci
 
 ### Expected numbers [inferred]
 
-Anchors: probed floor ≈ 48 us; ≈ 11 us per host call (aa6eb973: (2,877.5 − 48) / 256). D is re-measured at 52126f33. `c_commit` comes from step 0.
+Anchors: probed floor ≈ 48 us; ≈ 11 us per host call (aa6eb973: (2,877.5 − 48) / 256). D (the 52126f33 runtime) and N (slice 1) run the same new benchmark binaries and configs, built once; D is re-measured. `c_commit` comes from step 0.
 
 | case | today | slice 1 | check |
 |---|---|---|---|
@@ -818,14 +840,14 @@ The CUDA Counter headline is exactness (97 → 128) with a modest speedup: slice
 ### Measurement
 
 - **Comparison:** D vs N with the compare flags; upstream `benchmark/gpu` runner with legacy-launch victims; 10 interleaved rounds; Mann-Whitney.
-- **Checks before every batch:** cpu5 1728000 and GPU 1020000000; no leftovers, no segment, no root `/dev/shm` debris; timeouts outside `LD_PRELOAD`; containers removed.
+- **Checks before every batch:** cpu5 1728000 and GPU 1020000000; no leftovers, no segment, no root `/dev/shm` debris (segments and per-ledger lock files); timeouts outside `LD_PRELOAD`; containers removed.
 - **Request counting:** a smoke round counts requests from the watcher's debug lines.
 - **Statistics** dumped at exit.
 - **PTX kept**, to confirm one `call _bpf_helper_ext_0600` per unit after O3.
 
 ### Exactness tests (oracles from SR)
 
-- **T1** first touch, N·L, 1-1,024 warps, partial warps.
+- **T1** first touch, N·L, 1-1,024 warps, partial warps; a variant with key = lane % 4 (four groups per warp).
 - **T2** RMW sum = Σ per-thread deltas, recorded in a 1512 map.
 - **T3** two-sided real-time bound with `CLOCK_MONOTONIC` stamps; monotone reads.
 - **T4** print-and-clear: Σ returned + final = N·L.
@@ -833,22 +855,23 @@ The CUDA Counter headline is exactness (97 → 128) with a modest speedup: slice
 - **T6** CPU uprobe in an **all-HASH** program (typed helper): final = N·L + L; its reads are ≥ committed.
 - **T7** close and fd reuse.
 - **T8** ledger full.
-- **T9** exit or SIGKILL, then the application runs again (takeover): totals continue.
+- **T9** (slice 2) exit or SIGKILL, then the application runs again and the new agent takes over with seeded shadows: totals continue. In slice 1, T19 covers SIGKILL.
 - **T10** torn reads.
 - **T11** d = 0 after a host delete re-creates the key.
 - **T12** full map with `max_entries` = 4.
-- **T13** (slice 2) late CPU pointer writer with the flip kernel: the flip completes while application kernels run; a variant whose flip kernel cannot be scheduled reports D5.
+- **T13** (slice 2) late GPU pointer writer with atomics and the flip kernel: the flip completes while application kernels run, and no straggler remains after it; a variant whose flip kernel cannot be scheduled reports `late_stragglers`.
 - **T14** llvmbpf CPU JIT differential over random serial schedules, plus near-miss fixtures.
 - **T15** 1527 witness ring.
 - **T16** divergent return probes.
 - **T17** R7 survey check, with `exec_mode` asserted per record.
-- **T18** two A units in sibling branches, on different keys and on different maps, 16 lanes on each side: every key gets its own lanes' count. The fixture forces one merged call (built without the `nomerge` hunk, or a hand-written unit whose single call has a `select`ed site and fd, as `redteam/sink.O3legacy.ll`), so the check is what it exercises; a separate check counts the calls in the kept PTX with `nomerge`.
-- **T19** owner death: the application SIGKILLed with records pending, then run again; totals continue, and the second run defers (request count) although the dead pid is still in the alive-agent set. Variants: a live owner in another pid namespace sharing `/dev/shm` is not retired; two agents starting at once after the death install one ledger.
+- **T18** two A units in sibling branches, on different keys and on different maps, 16 lanes on each side: every key gets its own lanes' count. The fixture forces one merged call (built without the `nomerge` hunk, or a hand-written unit whose single call has a `select`ed site and fd, as `redteam/sink.O3legacy.ll`), so the check is what it exercises; a separate check counts the calls in the kept PTX with `nomerge`. A variant merges units with different key sizes and with one immediate and one register delta.
+- **T19** owner death: the application SIGKILLed with records pending, then run again; totals continue, and the second run defers (request count) although the dead pid is still in the alive-agent set. Variants: a live owner in another pid namespace sharing `/dev/shm` is not retired; two agents starting at once after the death install one ledger; a test hook closes the owner's lock file while its kernel still commits (the commits are folded from the retired ledger); a first agent running with `BPFTIME_GPU_SITE_EXEC=off` and unrewritten pointer atomics keeps a second agent from creating a ledger.
 - **T20** fold guard: a unit test that hands the fold a record older than its watermark, and an accepted read with v1 = 2c, v2 = 2c+2 followed by a read at 2c+2; no change, no wrap, and commit c+1 is folded.
 - **T21** a module loaded in an application-created context (`cuCtxCreate`, then `cuLibraryLoadData`), and the late path after a refresh in such a context: no fault, its groups go to UNIT_ADD, exact, with the retprobe unit (a varying delta).
-- **T22** a late CPU pointer writer (`*v = 0` in a uprobe) attached through a refresh and through auto-refresh: no CPU store lost; after the hint store, a UNIT_ADD on an existing key, a first touch of a new key and a tool update all leave the hints SYNC, and no record `ver` moves for sections that start after it.
+- **T22** a late CPU pointer writer (`*v = 0` in a uprobe) attached through a refresh, through auto-refresh and through init's retry path: the statistics show the FLIPPED store before the writer's attach; after the hint store, a UNIT_ADD on an existing key, a first touch of a new key and a tool update all leave the hints SYNC; no record `ver` moves for sections that start after it; every CPU store survives except where it meets a counted straggler (`late_stragglers` ≤ sections in flight at the hint store).
+- **T23** a late GPU pointer writer with atomics (`lock *v += 1` through a lookup pointer) attached by refresh: FLIPPED before its attach; no record moves for sections after the hint store; every later unit is counted in `post_flip_units`; totals equal the sum of all adds up to the counted deviations.
 
-**Slice 1 runs** T1-T8, T10-T12, T14-T22 and their mutations (T7: `gen`/DEAD and T8: NOSLOT are built in slice 1; T12 covers the sweep; T15 is the oracle; T16 covers the retprobe units). T9's takeover variant and T13 follow with slice 2.
+**Slice 1 runs** T1-T8, T10-T12 and T14-T23 with their mutations (T7: `gen`/DEAD and T8: NOSLOT are built in slice 1; T12 covers the sweep; T15 is the oracle; T16 covers the retprobe units). T9 and T13 follow with slice 2.
 
 ### Mutations (each must fail its test)
 
@@ -856,18 +879,18 @@ The CUDA Counter headline is exactness (97 → 128) with a modest speedup: slice
 |---|---|
 | M1 typed-path hook missing | T6 |
 | M2 fold after the operation | T4/T5 |
-| M3 fold without the lock | T4 |
+| M3 fold without the lock | T4 in a host unit test with a hook that pauses two folders at the record read |
 | M4 CPU resets record words | T4/T5 |
-| M5 `popc(activemask)` for per-lane groups | histograms, T1 with lane % 4 |
-| M6 re-creation by Δsum | T11 |
-| M7 no odd `ver` or fence | T10/T15 |
+| M5 trusting `popc(activemask)` (same code as M17) | T1's key = lane % 4 variant |
+| M6 re-creation by Δsum | T11 in a host unit test: delete a key, then a CPU thread runs the commit protocol with count + 1 and sum + 0, then fold |
+| M7 no odd `ver` | T10 with a simulated writer paused between the half store and the even `ver` (no fence: reported only, like the litmus negative controls) |
 | M8 init ≠ delta accepted | T14 |
 | M9 r0 liveness ignored | T14 |
 | M10 no `gen` check | T7 |
 | M11 600 unregistered | containment test |
-| M12 flip skips the sweep | T13 |
-| M13 no sweep | T12 |
-| M14 loader copy outside the fold | T3 |
+| M12 the flip kernel skips the lock-table pass (slice 2) | T13 |
+| M13 (merged into M24) | - |
+| M14 loader copy outside the fold | T3 in a host unit test with a hook that runs an in-place add during the copy |
 | M15 check-script mutation (cudagraph:56 "needed now") | T17 reports an `exec_mode` mismatch at cudagraph:56 |
 | M16 no takeover seeding (slice 2; checked on a run where takeover actually happens) | T9 |
 | M17 no grouping check (trust `popc(activemask)`) | T18 |
@@ -876,16 +899,20 @@ The CUDA Counter headline is exactness (97 → 128) with a modest speedup: slice
 | M20 device-block pointer written into a module of another context | T21 |
 | M21 no hint store before attaching a late pointer writer | T22 |
 | M22 a hint writer ignores FLIPPED | T22 |
-| M23 the scan after loop 1 | T22 (auto-refresh variant) |
-| M24 no sweep | T4, T12 |
+| M23 the scan after loop 1 | T22's sequence check (also on the retry and auto-refresh paths) |
+| M24 no sweep | T12 in a host unit test: after a delete a CPU thread runs the commit protocol for that key, then `get_next_key` and an insert near capacity |
 | M25 owner death by (pid, start time) | T19 (namespace variant) |
 | M26 watermark `ver` from the second load | T20 |
+| M27 per-lane loop bounds in the peeling loop | T18's mixed-size variant (hangs) |
+| M28 no writer registration across agents | T19's `BPFTIME_GPU_SITE_EXEC=off` variant |
+| M29 a GPU-writer flip leaves the ledger deferring | T23 (records move after the hint store) |
+| M30 retire marks the old ledger DEAD | T19's lock-file variant |
 
 ### Exit criteria
 
 - Step 0 passed.
 - T17 passes with the real library.
-- The slice-1 tests pass and their mutations fail.
+- The slice-1 tests pass and their mutations fail (race windows through the deterministic harnesses named in the table; fence-free variants are reported only).
 - calls=128 and 160 requests per launch.
 - hash-lookup-present (a commit per group) within 1.2× of CPU Array lookup; the absent-key case reported apart.
 - hash-counter ≈ 48 + `c_commit`.
@@ -893,9 +920,9 @@ The CUDA Counter headline is exactness (97 → 128) with a modest speedup: slice
 
 ### Later slices
 
-2. SET, DEL, LOOKUP_COPY, C, patcher; the flip kernel (watcher never blocks on it), takeover seeding, the sweep.
+2. SET, DEL, LOOKUP_COPY, C, patcher; the flip kernel (watcher never blocks on it), takeover seeding.
 3. printk ring and orphan drain.
-4. C-PTX grouping, warp-batched sync, tier-1 IR inlining between `optimizeModule` and codegen (`llvm_jit_context.cpp:947-948`).
+4. `match.any`/`redux` grouping, warp-batched sync, tier-1 IR inlining between `optimizeModule` and codegen (`llvm_jit_context.cpp:947-948`).
 5. READ_LOCAL under C-SB, shards and multi-agent records, discrete GPUs.
 
 Extension: ATOMIC_LOCAL for lossy plain RMWs on GPU-local maps (mem_trace, ARRAY `(*v)++`).
@@ -919,7 +946,7 @@ Extension: ATOMIC_LOCAL for lossy plain RMWs on GPU-local maps (mem_trace, ARRAY
 15. Takeover seeding after SIGKILL with an odd `ver` (slice 2).
 16. Hashed-lock collisions.
 17. printk order when a synchronous printk drains the ring "up to the first uncommitted record" (slice 3): the semantics red team showed it can break per-thread order; the drain rule must be settled before slice 3.
-18. A tool killed inside a fold leaves a stripe locked (R3.4); robust locks are not in this design.
+18. A tool killed inside a fold leaves a stripe locked (R3.4); robust locks are not in this design. The flip's folds run under the map-binding mutex and use bounded trylocks (R3.6), so a dead holder delays a late writer's attach instead of wedging every agent's init.
 
 ## Must-fix coverage (short)
 
@@ -937,7 +964,7 @@ Extension: ATOMIC_LOCAL for lossy plain RMWs on GPU-local maps (mem_trace, ARRAY
 11. CPU plain stores excluded → R3.6.
 12. memcapture → R3.7.
 13. Capacity host-linearized → R3.4/Lemma 4/T12.
-14. Host-reachable after SIGKILL, discrete too → R6/R8/T9.
+14. Host-reachable after SIGKILL, discrete too → R6/R8/T19 (slice 1), T9 (slice 2).
 15. Per-group fallbacks; ids → R5.
 16. Hot keys → R8/step 0.
 17. R7 check → R7.
@@ -945,7 +972,7 @@ Extension: ATOMIC_LOCAL for lossy plain RMWs on GPU-local maps (mem_trace, ARRAY
 
 **Feasibility review:**
 1. Typed hooks.
-2. No `%warpid` scratch: hashed lock and staging.
+2. No `%warpid` scratch: hashed lock and a `shfl.sync` gather.
 3. PW as a precondition (READ_LOCAL needs C-SB instead of an epoch).
 4. Exact hardware list.
 5. Slice A+B+J, in place, T14, conservative CPU scan.
@@ -960,7 +987,7 @@ Extension: ATOMIC_LOCAL for lossy plain RMWs on GPU-local maps (mem_trace, ARRAY
 
 ## Reviewer disagreements and decisions
 
-1. **Slice scope:** A + B + J lookup (feasibility); C moves to slice 2. After the red team, the flip kernel, takeover seeding and the sweep move to slice 2 as well, and measurement plumbing moves in.
+1. **Slice scope:** A + B + J lookup (feasibility); C moves to slice 2. After the red team, the flip kernel and takeover seeding move to slice 2 as well (the sweep stayed, after recheck R2), and measurement plumbing moves in.
 2. **Rewrite:** in place now (all slice-1 regions fit); the patcher later.
 3. **Validation:** T14 differential plus a self-check instead of value-number re-analysis.
 4. **Hot keys:** strict linearizable default; sharding opt-in with D1 (both reviews satisfied).
@@ -1013,7 +1040,7 @@ Extension: ATOMIC_LOCAL for lossy plain RMWs on GPU-local maps (mem_trace, ARRAY
 - the odd-constant single-word idea.
 
 **New here:**
-- hashed lock and staging table;
+- hashed lock table;
 - straggler ordering without incarnations;
 - the sweep rule;
 - the fast path with a `ver` recheck;
@@ -1026,7 +1053,7 @@ Extension: ATOMIC_LOCAL for lossy plain RMWs on GPU-local maps (mem_trace, ARRAY
 
 **After the red team:**
 - the run-time grouping check and `nomerge`;
-- owner identity by (pid, start time, incarnation), retire-on-death in slice 1;
+- owner liveness by a `flock` held for the owner's lifetime ((pid, start time, incarnation) kept for diagnostics), retire-on-death with a retired-ledger list in slice 1;
 - the hint store before a late pointer writer attaches;
 - the fold's `ver` guard and the three-party litmus tests;
 - the context rule for device blocks;
@@ -1089,3 +1116,24 @@ Two fresh readers (mechanisms; consistency and citations) checked the revised te
 | R16 | mechanisms, minor | a context reset in a live owner leaves records ahead of a fresh device block | fixed: a changed context id retires the ledger |
 | R17 | mechanisms, minor | lookup pointers passed to helpers that write through them escaped the scan | fixed: counted as stores (R3.6) |
 | R18 | consistency, minor | threadscheduling row understated host calls; 14 vs 10 measured sites; "never needed" GPU atomics; facts vs the gate; key-check loads missing from the cost; watermark `ver` unstated; citation slips | fixed |
+
+## Second independent recheck
+
+Two fresh readers again (`recheck2-workflow-output.json`), told to form their findings before reading the issue tables. Found sound: the record protocol and the watermark rule, nested host calls in a leader section, the path without a device block, the lane-turn fallback, FLIPPED stickiness under stripe locks, the scan against concurrent handler changes (the map-binding mutex is held through init), the three `map_info` writers, fork inheritance of the liveness lock, every re-checked citation, and the tallies. No blocking issue; all of the following are addressed in the text above:
+
+| # | reader, severity | issue | status |
+|---|---|---|---|
+| S1 | mechanisms, major | in a merged call, per-lane key sizes and delta kinds gave lanes different `shfl.sync` sequences: a hang | fixed: every bound from broadcast values (R3.3); T18 variant, M27 |
+| S2 | both, major | after a GPU-writer flip, the GPU's add after the reply can land in a freed or reused element: outside D5 as written, and not in slice 1 | fixed: stated as Linux per-helper semantics for every post-flip unit (D5, counted `post_flip_units`); path built in slice 1; T23, M29 |
+| S3 | mechanisms, major | "not rewritten" is a per-agent decision; an agent with the feature off went unseen by the owner | fixed: writer registration across agents (R3.6); T19 variant, M28 |
+| S4 | mechanisms, major | releasing the `flock` is not ordered with CUDA context teardown; a retire could drop late commits | fixed: retired ledgers stay folded until close, DEAD only at close (R3.8); T19 variant, M30 |
+| S5 | mechanisms, major | a straggler that happened before a CPU writer's store can be folded after it | fixed: CPU writers back in D5 |
+| S6 | consistency, major | several mutations needed a race window to fail | fixed: deterministic host-test harnesses (M3, M6, M7, M14, M24) |
+| S7 | consistency, major | M23 could not fail T22 | fixed: sequence numbers for the FLIPPED store and the writer's attach |
+| S8 | consistency, major | T17 and M15 need decisions for every idiom, the build list named A, B, J only | fixed: the analyzer decides all idioms, rewrites A, B, J |
+| S9 | mechanisms, minor | `bpftimetool run` runs segment programs without the scan | fixed: it runs the scan and flip first; PW stated over programs that run |
+| S10 | mechanisms, minor | lock file ordering against ledger publication; a missing file | fixed: created and locked before the CAS; missing means not provably dead |
+| S11 | mechanisms, minor | GPU helpers 504, 505, 508 also write through pointers | fixed: listed, with a helper-effects table checked by a unit test |
+| S12 | mechanisms, minor | scan placement vs init's retry loop | fixed: inside the attempt loop, every attempt |
+| S13 | mechanisms, minor | the flip's folds under the map-binding mutex widen the dead-holder exposure | fixed: bounded trylocks; open question 18 |
+| S14 | consistency, minor | leftovers (staging, the sweep in slice 2, (pid, start time), T13/M12 wording, duplicate M5/M13), undefined terms, `MapBasicInfo` size, device-block header, free counter cost, What-changes rows, D/N, citations, flock file clean-up, analyzer cost under auto-refresh | fixed |
