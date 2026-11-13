@@ -76,7 +76,7 @@ The probe is threadhist: a kretprobe, one 1502/1512 per-thread counter per threa
 | rms_norm, 512-token prefill, **default 1,024 slots** (`llama-th-default-pp512`) | 1,024 | 45,056 | 45 | 11,273,216 thread executions: 99.60% not counted |
 
 - Each probe was a copy of the port with only the SEC name changed (`probes/th-*`). Every probed launch was counted in full.
-- With the default thread count, every thread at index 1,024 or above was skipped, and no warning appeared in either log.
+- With the default thread count, every thread at index 1,024 or above was skipped. The application printed one line from the GPU, as designed (`bpftime: GPU thread 2336, key 0 is outside map 3 (1024 threads, 1 entries): lookups return NULL, updates fail. Set BPFTIME_MAP_GPU_THREAD_COUNT ...`). Neither log said how many were lost.
 - The tokens/s of the runs without warm-up include the agent's start-up (below), so they are not throughput figures.
 
 ## 3. Warm overhead (llama-bench, warm-up then 3 timed runs, graphs off)
@@ -104,11 +104,11 @@ All runs are in `runs/summary.md`.
 
 **Direction 1 (per-thread storage), for probes that keep one slot or ring per thread:**
 - **One capacity has to cover the largest launch.** For a probe on every kernel that is 4.19M slots. The average launch then writes 10% of them at 512 tokens, 0.9% at 32 tokens and 2.3% in decode.
-- **With the default 1,024 slots**, at least 97-99.8% of per-thread records are lost. Measured on rms_norm at 512 tokens (section 2): 99.60% not counted, and no warning was logged. For 1527, lost records are not counted as drops either.
+- **With the default 1,024 slots**, at least 97-99.8% of per-thread records are lost. Measured on rms_norm at 512 tokens (section 2): 99.60% not counted, with one warning line from the GPU and no count of the loss. For 1527, lost records are not counted as drops either.
 - **kernelretsnoop's per-thread rings** (16 x 1,032 B per thread) would need 63-65 GiB at 4.1-4.2M threads; the segment is 128 MiB. A probe on gpu_ext's single RoPE-K kernel already needs 8.1 GiB at 512 tokens.
 - **The counter form fits.** threadhist's array is 32 MiB at 4.19M slots.
 
-**Direction 2 (host calls):**
+**Direction 2 (host calls; one case measured, section 6):**
 - **Tools written for real kernels make none.** That covers gpu_ext's kernelretsnoop (warp leader), launchlate (thread 0) and threadhist, and bpftime's threadhist and kernelretsnoop.
 - **CPU-style tools (bpftime's launchlate, threadscheduling, cuda-counter) make 1, 3 or 8 host calls per thread per launch.**
   - On rms_norm alone (2% of GPU time), a 32-token prefill would take 7-11 s with one printk per thread and 55-88 s with cuda-counter, against 24 ms of GPU time.
@@ -128,11 +128,29 @@ All runs are in `runs/summary.md`.
   - The only regime where a host call per probe is tolerable is per launch, and even that costs a quarter or more of decode time.
   - So on real applications, direction 2 matters only if CPU-style tools are to be usable. That would mean removing per-thread host calls (eliminate or defer, as in the design) rather than making synchronous calls faster. Whether that is worth doing is open.
 
+## 6. Measured: one host call per thread on a real kernel
+
+The probe is a CPU-style counter on rms_norm (`probes/th-hostcall`): one `bpf_map_lookup_elem` on an ordinary HASH map per GPU thread, then an atomic add through the returned pointer.
+- On dev, every lookup is a synchronous host call.
+- The loader inserts key 0 before attaching, so every lookup hits.
+- The run was a 32-token prefill: one warm-up, then one timed run, with graphs off (`runs/llama-hostcall-pp32`, 23:02 JST, clocks checked).
+
+| | measured | projected (section 4, one host call per thread on rms_norm) |
+|---|---:|---:|
+| count after warm-up + timed run | 1,411,072 = 2 x 705,536, every thread counted | 705,536 per prefill |
+| timed prefill | **7.63 s** (4.2 tokens/s) | 6.9-11.0 s |
+| per host call | 10.8 us (7.63 s / 705,536); 10.7 us from the loader's once-a-second count (median of 14 busy seconds, 84-98k calls/s) | 9.8-15.6 us |
+| against the same prefill without the agent | 24.9 ms (1,287 tokens/s): **307 times slower** | 291-463 times the GPU time |
+
+- **The host-call cost holds on a real kernel.** The microbenchmark's cost carries over to llama.cpp at 10.8 us per call, and the calls ran one after another at about 93,000 per second.
+- **No increment was lost.** The pointer the host call returns is usable for an atomic add from every lane.
+- **The probed kernel is small.** rms_norm is 1.5% of this prefill's GPU time and runs 45 of its 488 launches. A per-thread host call on it alone turned a 25 ms prefill into 7.6 s.
+
 ## Limits
 
 - One application and one model; prompts of 32, 128 and 512 tokens; decode of 128 tokens; batch 1.
 - Census counts come from cold runs (`--no-warmup`); times in the census tables are first-run GPU times.
-- Only threadhist on one kernel was measured with bpftime. kernelretsnoop and the CPU-style tools were not run on llama.cpp; their numbers are projections.
+- Measured with bpftime: threadhist on four kernels and one CPU-style host-call counter on rms_norm (section 6). kernelretsnoop and the other CPU-style tools were not run on llama.cpp; their numbers are projections. The host-call projection matched the one measured case (7.63 s against 6.9-11.0 s).
 - The overhead extrapolation to every kernel assumes the per-thread-op cost on rms_norm carries over to other kernels.
 - Host-call costs come from the protocol microbenchmark. Under CUDA graphs, calls would cost more (about 70 us); graphs were off in every bpftime run.
 - Per-thread host-call counts are from `per-firing-ops.json`: 8 for cuda-counter, 3 for threadscheduling. They supersede the "about 10" and "5" in `../real-scenarios-20261113` (see item 16 there).
@@ -143,8 +161,8 @@ All runs are in `runs/summary.md`.
   - `<run>-<graphs>.csv`: per kernel launches, threads per launch, thread executions, GPU time;
   - `libggml-cuda-entries.txt`;
   - `logs/`: llama-bench JSON, clocks, configure log.
-- `runs/`: the 14 bpftime runs (meta, loader and victim logs) and `summary.md`.
-- `probes/`: the threadhist port and the empty control.
+- `runs/`: the 15 bpftime runs (meta, loader and victim logs) and `summary.md`.
+- `probes/`: the threadhist port, its copies on other kernels (`th-*`), the empty control and the host-call counter (`th-hostcall`).
 - `per-firing-ops.json`: two independent per-firing operation tables and the reconcile verdicts. Made by `scripts/per-firing-op-workflow.js`.
 - `projection.md`: made by `scripts/projection.py`.
 - `scripts/`: census.sh, batch2.sh (graph census and count checks), parse_census.py, projection.py, runs_summary.py.
