@@ -1,0 +1,19 @@
+sites: 59
+survey class: {'defer': 39, 'eliminate': 20}
+exec_mode, full design, default: {'gpu_after_first_touch': 35, 'ring_record': 21, 'round_trip_per_group': 3}
+exec_mode, full design, with C-SB: {'gpu_after_first_touch': 35, 'gpu_read_after_first_touch': 3, 'ring_record': 21}
+exec_mode, slice 1: {'gpu_after_first_touch': 20, 'sync_per_lane (today)': 39}
+exec_mode, slice 1, sites that run on the Orin (47): {'gpu_after_first_touch': 14, 'sync_per_lane (today)': 33}
+survey class x default exec_mode:
+    ('defer', 'gpu_after_first_touch') 18
+    ('defer', 'ring_record') 21
+    ('eliminate', 'gpu_after_first_touch') 17
+    ('eliminate', 'round_trip_per_group') 3
+aggregatable3 x default exec_mode:
+    ('no', 'gpu_after_first_touch') 2
+    ('no', 'ring_record') 2
+    ('timing', 'ring_record') 8
+    ('yes', 'gpu_after_first_touch') 33
+    ('yes', 'ring_record') 11
+    ('yes', 'round_trip_per_group') 3
+exec_mode mismatches against (operation, result_use): []
