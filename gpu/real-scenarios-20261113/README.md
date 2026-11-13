@@ -374,6 +374,11 @@ How to read the matrix:
 
 15. **Which launchlate gpu_ext's P40 number (14%) used** is not identified. gpu_ext's later RTX 5090 version (revision-rq4, 575-01) runs in thread 0 and makes no host calls. If the P40 run used a copy of bpftime's example, it made a printk per thread (and, on bpftime versions where an ordinary ARRAY lookup was still a host call, one more per thread). That would be the only published real-application cost of direction-2 operations. Check gpu_ext's history before citing either way.
 
+16. **Superseded per-thread host-call counts** (checked 11-13 in `../llama-census-20261113/per-firing-ops.json`, two independent readings of the sources on dev 52126f33):
+    - cuda-counter makes 8 host calls per thread per launch (3 at entry, 5 at exit), not about 10. The 10 was measured on an older dev, where `bpf_get_current_pid_tgid` (called once at entry and once at exit) was still a host call; since aa6eb973 it is not.
+    - threadscheduling has 5 host-call sites; a firing executes 3 of them in steady state and up to 5 when a key is first touched.
+    - The per-prefill times in this report that use about 10 calls per thread for cuda-counter are therefore about 20% high. `../llama-census-20261113/projection.md` uses the corrected counts on the measured launch geometry and supersedes them.
+
 ## Sources (keys used above)
 
 **Local results and code**

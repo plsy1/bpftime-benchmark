@@ -41,8 +41,13 @@ Terms:
 | one 512-token prefill | 444 | 192,560,640 | 512 to 4,194,304 | 204.6 ms | 100% |
 | 128 decode tokens | 54,272 (424 per token) | 5,037,359,104 (39.4M per token) | 256 to 4,096,000 | 2,036.9 ms (15.9 ms per token) | 100% |
 
-- **Coverage is complete.** With Q4_K_M weights, every kernel is llama.cpp's own: MMQ, mul_mat_vec_q, flash_attn_ext, rope_norm, rms_norm, quantize and binary ops. No cuBLAS kernel ran. So 100% of GPU time is probeable in the PTX build.
-- **Graphs do not change the work.** With CUDA graphs on (`*-graph.csv`), the same kernels, launches and thread counts were recorded.
+- **Every kernel is llama.cpp's own and carries sm_87 PTX.** With Q4_K_M weights the kernels are MMQ, mul_mat_vec_q, flash_attn_ext, rope_norm, rms_norm, quantize and binary ops. No cuBLAS kernel ran.
+  - Probes were verified with exact counts (section 2) on rms_norm, the largest mul_mat_q (40.5% of 512-token prefill GPU time), the largest mul_mat_vec_q (62.7% of decode GPU time) and RoPE K.
+  - The other kernels were not probed.
+- **CUDA graphs change neither the kernels nor the thread counts.**
+  - With graphs on (`*-graph.csv`, `GGML_CUDA_DISABLE_GRAPHS` unset), decode ran 53,848 of its 54,272 launches inside graphs. Prefill used none.
+  - Kernels, launches and thread executions are identical to the runs with graphs off. Decode GPU time was 1,963.8 ms against 2,036.9 ms.
+  - A first graph pass set `GGML_CUDA_DISABLE_GRAPHS=0`. llama.cpp only tests whether the variable is set (`ggml-cuda/graph.cuh:66`), so that pass also ran without graphs and was redone (`scripts/census.sh`, `batch2.sh`).
 - **Thread counts per launch span four orders of magnitude within one run:**
   - rms_norm: 512 threads.
   - The output projection (mul_mat_vec_q, 32,000-row vocabulary x 128): 4,096,000.
@@ -52,7 +57,7 @@ Terms:
   - prefill: mul_mat_q 77% at 512 tokens;
   - decode: mul_mat_vec_q 92%.
 
-## 2. Smoke test: threadhist on rms_norm, under llama-bench
+## 2. Smoke test and count checks: threadhist under llama-bench
 
 The probe is threadhist: a kretprobe, one 1502/1512 per-thread counter per thread. Its target is `rms_norm_f32<512,1,true,true,false,false>`, the variant this build runs.
 - Only the SEC name and the loader's printout changed: the loader sums all slots instead of printing 7 (`probes/threadhist-llama/`). This is a tool port; llama.cpp is unchanged.
@@ -65,6 +70,14 @@ The probe is threadhist: a kretprobe, one 1502/1512 per-thread counter per threa
 | 32-token prefill, no warm-up (`runs/llama-th-pp32`) | 16,384 | 705,536 | 45 | 16,384 threads max, 705,536 thread executions, 45 launches |
 | 32-token prefill, warm-up + 3 (`llama-th-pp32-b`) | 16,384 | 2,822,144 | 180 | 4 x 705,536, 4 x 45 |
 | 512-token prefill, warm-up + 3 (`llama-th-pp512`, `-b`) | 262,144 | 45,092,864 | 180 | 4 x 11,273,216, 4 x 45 |
+| largest mul_mat_q, 512-token prefill, no warm-up (`llama-th-mmq-pp512`) | 90,112 | 1,892,352 | 21 | 90,112, 1,892,352, 21 |
+| RoPE K (gpu_ext's target), 512-token prefill (`llama-th-ropek-pp512`) | 524,288 | 11,534,336 | 22 | 524,288, 11,534,336, 22 |
+| largest mul_mat_vec_q, 128-token decode (`llama-th-mmvq-tg128`) | 720,896 | 3,137,339,392 | 7,040 | 720,896, 3,137,339,392, 7,040 |
+| rms_norm, 512-token prefill, **default 1,024 slots** (`llama-th-default-pp512`) | 1,024 | 45,056 | 45 | 11,273,216 thread executions: 99.60% not counted |
+
+- Each probe was a copy of the port with only the SEC name changed (`probes/th-*`). Every probed launch was counted in full.
+- With the default thread count, every thread at index 1,024 or above was skipped, and no warning appeared in either log.
+- The tokens/s of the runs without warm-up include the agent's start-up (below), so they are not throughput figures.
 
 ## 3. Warm overhead (llama-bench, warm-up then 3 timed runs, graphs off)
 
@@ -77,7 +90,9 @@ All runs are in `runs/summary.md`.
 | agent, threadhist on rms_norm | 2,394.6 / 2,397.6 (-3.3%) | 1,255.2 (-2.4%) |
 
 - **Patching and the trampoline cost nothing measurable.** The empty probe runs at the no-agent rate.
-- **The direction-1 operation costs about 7 ms per 512-token prefill** (213.7 vs 206.7 ms). That is 11.27M per-thread lookups and increments into host-registered memory, about 0.6 ns per thread execution amortized. Since rms_norm itself takes about 4 ms of GPU time, the probe more than doubles that kernel's time.
+- **threadhist's probe body costs about 7 ms per 512-token prefill** (213.7 vs 206.7 ms). The body is 11.27M lookups of a per-thread slot (with a `membar.sys`) and increments into host-registered memory, about 0.6 ns per thread execution amortized. Since rms_norm itself takes about 4 ms of GPU time, the probe more than doubles that kernel's time.
+  - No control does the same work on storage that is not thread-indexed. So this is the cost of the probe body, not a cost of direction 1 as such.
+  - Extrapolated linearly to a probe on every kernel, it would be about +120 ms per 512-token prefill (+58%) [inferred, not measured; it assumes the per-thread cost is the same in other kernels].
 - **Start-up is a separate cost.** Every agent run took 15.3-16.1 s against 0.6-1.4 s without the agent.
   - llama.cpp loads its CUDA modules on first use. dev processes about 20 of them, extracting PTX with `cuobjdump` and running the passes. Each run made 11 patch requests, and none was found in the cache.
   - With `--no-warmup`, this landed inside the timed prefill: 2.2 tokens/s, 140 times slower than 300 tokens/s.
@@ -89,9 +104,9 @@ All runs are in `runs/summary.md`.
 
 **Direction 1 (per-thread storage), for probes that keep one slot or ring per thread:**
 - **One capacity has to cover the largest launch.** For a probe on every kernel that is 4.19M slots. The average launch then writes 10% of them at 512 tokens, 0.9% at 32 tokens and 2.3% in decode.
-- **With the default 1,024 slots**, at least 97-99.8% of per-thread records are lost. Lost records are not counted as drops for 1527.
-- **kernelretsnoop's per-thread rings** (16 x 1,032 B per thread) would need about 65 GB at 4.19M threads; the segment is 128 MiB. A probe on gpu_ext's single RoPE-K kernel already needs 8.1 GiB at 512 tokens.
-- **The counter form fits but slows the kernel.** threadhist's array is 32 MiB at 4.19M slots, so it fits. Its measured cost on one kernel (section 3) extrapolates linearly to about +120 ms per 512-token prefill if every kernel is probed (+58%) [inferred, not measured].
+- **With the default 1,024 slots**, at least 97-99.8% of per-thread records are lost. Measured on rms_norm at 512 tokens (section 2): 99.60% not counted, and no warning was logged. For 1527, lost records are not counted as drops either.
+- **kernelretsnoop's per-thread rings** (16 x 1,032 B per thread) would need 63-65 GiB at 4.1-4.2M threads; the segment is 128 MiB. A probe on gpu_ext's single RoPE-K kernel already needs 8.1 GiB at 512 tokens.
+- **The counter form fits.** threadhist's array is 32 MiB at 4.19M slots.
 
 **Direction 2 (host calls):**
 - **Tools written for real kernels make none.** That covers gpu_ext's kernelretsnoop (warp leader), launchlate (thread 0) and threadhist, and bpftime's threadhist and kernelretsnoop.
@@ -101,17 +116,17 @@ All runs are in `runs/summary.md`.
   - Combining the calls of a warp into one cuts this by 32 times but leaves 59-96 s per 512-token prefill with one call per thread, every kernel.
 - **Even one host call per launch is visible in decode.** It costs 4.4-6.9 ms per 512-token prefill (2.1-3.4% of its GPU time). In decode it costs 4.2-6.6 ms per token, 26-42% of the 15.9 ms GPU time per token, because decode runs 424 small-to-medium launches per token.
 
-## 5. What this says for how far to go
+## 5. Observations for deciding how far to go
 
 - **Direction 1 shows up in every per-thread scenario on a real application.** The symptoms are the ones gpu_ext reported, here with exact counts:
   - one guessed capacity cannot fit launches from 512 to 4.19M threads;
   - the default loses almost everything;
   - per-thread rings do not fit in memory.
 
-  Fixing sizing and storage, by sizing per launch or keeping per-warp or GPU-local storage, is useful on the real workload.
+  Sizing per launch, or keeping per-warp or GPU-local storage, would address these on the real workload.
 - **Direction 2 has no volume in tools written for real kernels.** For CPU-style tools on a real model, per-thread host calls cannot be used at any realistic cost, even aggregated per warp.
   - The only regime where a host call per probe is tolerable is per launch, and even that costs a quarter or more of decode time.
-  - So direction 2's value on real applications is to make CPU-style tools usable. That means removing per-thread host calls (eliminate or defer, as in the design), not making synchronous calls faster.
+  - So on real applications, direction 2 matters only if CPU-style tools are to be usable. That would mean removing per-thread host calls (eliminate or defer, as in the design) rather than making synchronous calls faster. Whether that is worth doing is open.
 
 ## Limits
 
@@ -120,6 +135,7 @@ All runs are in `runs/summary.md`.
 - Only threadhist on one kernel was measured with bpftime. kernelretsnoop and the CPU-style tools were not run on llama.cpp; their numbers are projections.
 - The overhead extrapolation to every kernel assumes the per-thread-op cost on rms_norm carries over to other kernels.
 - Host-call costs come from the protocol microbenchmark. Under CUDA graphs, calls would cost more (about 70 us); graphs were off in every bpftime run.
+- Per-thread host-call counts are from `per-firing-ops.json`: 8 for cuda-counter, 3 for threadscheduling. They supersede the "about 10" and "5" in `../real-scenarios-20261113` (see item 16 there).
 
 ## Files
 
@@ -127,9 +143,9 @@ All runs are in `runs/summary.md`.
   - `<run>-<graphs>.csv`: per kernel launches, threads per launch, thread executions, GPU time;
   - `libggml-cuda-entries.txt`;
   - `logs/`: llama-bench JSON, clocks, configure log.
-- `runs/`: the 10 bpftime runs (meta, loader and victim logs) and `summary.md`.
+- `runs/`: the 14 bpftime runs (meta, loader and victim logs) and `summary.md`.
 - `probes/`: the threadhist port and the empty control.
 - `per-firing-ops.json`: two independent per-firing operation tables and the reconcile verdicts. Made by `scripts/per-firing-op-workflow.js`.
 - `projection.md`: made by `scripts/projection.py`.
-- `scripts/`: census.sh, parse_census.py, projection.py, runs_summary.py.
+- `scripts/`: census.sh, batch2.sh (graph census and count checks), parse_census.py, projection.py, runs_summary.py.
 - Raw nsys reports and SQLite exports (about 40 MB) stay in `bpftime-gpu-work/llama/census/`; they are not committed.
