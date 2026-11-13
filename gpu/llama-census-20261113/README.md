@@ -89,12 +89,12 @@ All runs are in `runs/summary.md`.
 | agent, empty kretprobe on rms_norm | 2,476.7 (0.0%) | 1,284.8 (-0.2%, within the sd of 15-19) |
 | agent, threadhist on rms_norm | 2,394.6 / 2,397.6 (-3.3%) | 1,255.2 (-2.4%) |
 
-- **Patching and the trampoline cost nothing measurable.** The empty probe runs at the no-agent rate.
+- **Once patched, the trampoline costs nothing measurable.** rms_norm with an empty probe runs at the no-agent rate (warm runs). The patching itself is part of the start-up cost below.
 - **threadhist's probe body costs about 7 ms per 512-token prefill** (213.7 vs 206.7 ms). The body is 11.27M lookups of a per-thread slot (with a `membar.sys`) and increments into host-registered memory, about 0.6 ns per thread execution amortized. Since rms_norm itself takes about 4 ms of GPU time, the probe more than doubles that kernel's time.
   - No control does the same work on storage that is not thread-indexed. So this is the cost of the probe body, not a cost of direction 1 as such.
   - Extrapolated linearly to a probe on every kernel, it would be about +120 ms per 512-token prefill (+58%) [inferred, not measured; it assumes the per-thread cost is the same in other kernels].
 - **Start-up is a separate cost.** Every agent run took 15.3-16.1 s against 0.6-1.4 s without the agent.
-  - llama.cpp loads its CUDA modules on first use. dev processes about 20 of them, extracting PTX with `cuobjdump` and running the passes. Each run made 11 patch requests, and none was found in the cache.
+  - llama.cpp loads its CUDA modules on first use. dev processed 10 of them per run (9 in the decode run), extracting PTX with `cuobjdump` and running the passes. Each run made 10 patch requests and one PTX compile, and none was found in the cache. Most of the start-up is likely this; it was not timed per step.
   - With `--no-warmup`, this landed inside the timed prefill: 2.2 tokens/s, 140 times slower than 300 tokens/s.
   - This belongs to neither direction. It was not investigated further.
 
