@@ -1,0 +1,8 @@
+name=llama-base-pp32 exdir=example/gpu/threadhist-llama
+server: SRV_ENV='BPFTIME_MAP_GPU_THREAD_COUNT=262144 THREADHIST_N=262144' ./threadhist
+victim: VIC_ENV='GGML_CUDA_DISABLE_GRAPHS=1' NO_AGENT='1' /home/jetson/src/workloads/llama.cpp/build-ptx87/bin/llama-bench -m /home/jetson/src/workloads/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf -n 0 -r 3 -o json -p 32
+start 2026-11-13 22:41:59.064346410
+server ready 22:42:03.288905007
+client_rc=0 client_ms=645
+server_rc=0
+end 2026-11-13 22:42:18.000039659

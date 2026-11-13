@@ -1,0 +1,3802 @@
+{
+ "a": {
+  "tools": [
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/kernelretsnoop/kernelretsnoop.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 1,
+      "d2_per_firing": 0,
+      "none_per_firing": 2,
+      "d1_per_firing_all_threads": 1,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 36,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 37,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 38,
+        "helper": "bpf_perf_event_output (25)",
+        "dir": "D1",
+        "count": 1,
+        "who": "all threads",
+        "map": "rb",
+        "map_type": "1527 (unchanged on Orin)",
+        "condition": "Writes this thread's own ring at getGlobalThreadId() (trampoline 429-485). Returns 1 without writing when tid >= ring thread count (default 1024, bpftime_shm.hpp:45, or BPFTIME_MAP_GPU_THREAD_COUNT). Dropped (2) when the thread's 16 entries are full."
+       }
+      ]
+     }
+    ],
+    "output_volume": "One 32-byte record (+8-byte size word) per thread per launch: T records/launch for T threads, up to the ring thread count (default 1024). Each slot is 8+1024 B because the declared value type is big_struct (1024 B). Each thread's ring holds 16 records until drained. Ring storage = thread_count x (header + 16 x 1032 B).",
+    "notes": "CONVENTIONS used in every entry: op `count` is the steady-state count. First-touch-only and alternate-branch rows have count 0, and their path is in `condition`. Rows sum to the *_per_firing totals; rows marked 'all threads' sum to *_all_threads. Helper 14 is counted as a none op. Atomic or plain stores through returned pointers are not counted. CPU sections have d1=d2=0, and none_per_firing there counts CPU-side helper/map calls, not GPU ops. RULE CHECK against HEAD 52126f33: (1) On the integrated GPU the syscall server remaps at creation 1502->1512, 1503->1513 and 1501->BPF_MAP_TYPE_HASH (syscall_context.cpp:566-577 calling gpu_map_type_without_cuda_ipc, bpftime_shm.hpp:137-154). 1504, 1513 and 1527 are unchanged. (2) Trampoline helper 1 and helper 2 (default_trampoline.cu:233-366) are local for 1502/1503/1504/1512/1513 and for ARRAY with extra_buffer; everything else is host_call. (3) Helper 3 (368-384) is local only for ARRAY with extra_buffer (returns -1). Every other delete is host_call, including 1502/1512, so the D1 rule 'any operation on 1502/1512' is wrong for delete: such a delete is a host call (D2). No program here deletes from a per-thread map. (4) Helper 6 and 501 are host calls. Helper 14 (410-422) is local only once the agent wrote __bpftime_pid_tgid, otherwise a host call. Helper 25 serves only 1527 with no host call. 502-511 are local. (5) Lookup/update/delete on 1527 fall to host_call (no 1527 branch). (6) ARRAY is local only when extra_buffer != NULL (bpf_attach_ctx_cuda.cpp:480-502, 527-528); it falls back to host calls in map-usage-stats builds, for segments without the binding mutex, or when cuMemHostGetDevicePointer fails. No loader sets a map type at run time; the only run-time map change in any loader is rb max_entries in the gpu_ext kernelretsnoop. A D2 op per thread is serialized lane by lane (host_call 134-174): 32 host calls per warp. This tool's loader (kernelretsnoop.c:69-93) only opens, loads, attaches and reads rb. Declared but unused: 501, 502-505 helpers other than those listed."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/kernel_trace/kernel_trace.bpf.c",
+    "programs": [
+     {
+      "section": "kprobe/_Z9vectorAddPKfS0_Pfi",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "thread0_of_grid",
+      "d1_per_firing": 1,
+      "d2_per_firing": 0,
+      "none_per_firing": 3,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 31,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 32,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 37,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "condition": "Only block (0,0,0) thread (0,0,0); the guard is at lines 34-36."
+       },
+       {
+        "line": 38,
+        "helper": "bpf_perf_event_output (25)",
+        "dir": "D1",
+        "count": 1,
+        "who": "guarded threads only",
+        "map": "events",
+        "map_type": "1527 (unchanged on Orin)",
+        "condition": "Only global thread 0, which writes ring 0."
+       }
+      ]
+     }
+    ],
+    "output_volume": "One 56-byte record (7 u64) per launch, independent of T. Ring storage is still sized per thread: thread_count (default 1024) x (header + 16 x (8+56) B), of which only thread 0's ring is used.",
+    "notes": "Thread-0 sampling keeps the per-thread (D1) ring allocated for every thread, although only one thread writes. Loader kernel_trace.c:69-100 sets nothing at run time."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/threadhist/threadhist.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 1,
+      "d2_per_firing": 0,
+      "none_per_firing": 0,
+      "d1_per_firing_all_threads": 1,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 25,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "D1",
+        "count": 1,
+        "who": "all threads",
+        "map": "call_count",
+        "map_type": "1502 (created as 1512 on Orin)",
+        "condition": "Returns this thread's slot (extra_buffer + key*thread_count*8 + tid*8, trampoline 206-217, 252-257) after a membar.sys. NULL when tid >= max_thread_count (default 1024), in which case nothing is counted. Line 27 `*cnt += 1` is a plain store into the thread-private slot and is not counted."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records. One 8-byte counter per thread: storage max_thread_count x 8 B (default 1024 threads). The host reads all slots with one bpf() lookup (value = thread_count x 8 B).",
+    "notes": "Loader threadhist.c:36-80 sets nothing at run time. Helpers 501-505 are declared but unused."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/llama-cpp-test/threadhist.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z12rms_norm_f32ILi1024ELb1ELb0EEvPKfPfilllfS1_lll5uint3S3_S3_S3_S1_lllS3_S3_S3_S3_",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 1,
+      "d2_per_firing": 0,
+      "none_per_firing": 0,
+      "d1_per_firing_all_threads": 1,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 25,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "D1",
+        "count": 1,
+        "who": "all threads",
+        "map": "call_count",
+        "map_type": "1502 (created as 1512 on Orin)",
+        "condition": "Returns this thread's slot; NULL when tid >= max_thread_count (default 1024). Line 27 is a plain increment and is not counted."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records. One 8-byte counter per thread; storage max_thread_count x 8 B.",
+    "notes": "Same body as example/gpu/threadhist, attached to rms_norm_f32. Loader threadhist.c:36-80 sets nothing at run time. Threads beyond the guessed thread count are silently not counted (one warning per module)."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/threadhist-gpu-kernel-shared-map/threadhist.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/cuda__Z9vectorAddPKfS0_Pf",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 1,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 27,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "map": "call_count",
+        "map_type": "1504 (unchanged; kernel ARRAY mmap under run_with_kernel)",
+        "condition": "shared_array_offset into the kernel array's mapping (extra_buffer from array_map_kernel_gpu_impl, map_handler.cpp:1693-1697). Line 29 __atomic_add_fetch on the returned pointer is a GPU-local atomic with every thread on one word; not counted."
+       }
+      ]
+     },
+     {
+      "section": "uretprobe/./vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st",
+      "attach_point": "cpu_uprobe",
+      "runs_on_gpu": false,
+      "executing_threads": "other: host CPU thread returning from cudaLaunchKernel<char> (kernel eBPF uretprobe; under run_with_kernel uprobes go to the kernel, syscall_context.cpp:869-877)",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 2,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 38,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "condition": "Kernel bpf on the CPU; not a GPU op."
+       },
+       {
+        "line": 40,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "call_count",
+        "map_type": "1504 (kernel ARRAY)",
+        "condition": "CPU side. Line 42 is an atomic add, not counted."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records. Two u64 counters: key 0 gets T atomic adds per launch (every GPU thread); key 1 gets one per host launch call.",
+    "notes": "Works only in kernel-shared mode (run_with_kernel). There, 1504 is created as a kernel ARRAY while the bpftime handler keeps type 1504 (syscall_context.cpp:526-560). A 'cuda_' kprobe name is stripped and treated as a GPU probe (syscall_context.cpp:906-928). Loader threadhist.c:36-78 sets nothing at run time."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/threadscheduling/threadscheduling.bpf.c",
+    "programs": [
+     {
+      "section": "kprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 3,
+      "none_per_firing": 6,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 3,
+      "ops": [
+       {
+        "line": 59,
+        "helper": "bpf_get_sm_id (509)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 60,
+        "helper": "bpf_get_warp_id (510)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 61,
+        "helper": "bpf_get_lane_id (511)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 66,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 67,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 84,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 86,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "map": "thread_mapping",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "condition": "BPF_ANY with key block_x<<16|thread_x, one key per thread. Past 4096 distinct keys a new key fails E2BIG, but the host call is still made."
+       },
+       {
+        "line": 90,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "map": "sm_histogram",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "condition": "On a hit, line 92 __sync_fetch_and_add runs on the host value through its device mapping; not counted."
+       },
+       {
+        "line": 95,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "map": "sm_histogram",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "condition": "First touch of an SM key only: +1 D2. Lanes take turns per host call, so a whole warp misses before the insert lands; one update succeeds and the others get EEXIST, losing their counts."
+       },
+       {
+        "line": 100,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "map": "warp_histogram",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "condition": "On a hit, line 102 is an atomic add; not counted."
+       },
+       {
+        "line": 105,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "map": "warp_histogram",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "condition": "First touch of an (sm,warp) key only: +1 D2. First-touch path in total: up to 5 D2."
+       }
+      ]
+     }
+    ],
+    "output_volume": "3 host calls per thread per launch (3T), plus up to 2 more per thread on first touch. thread_mapping gets one 80 B value per thread (capped at 4096 entries). Histograms are <=128 and <=1024 keys of 8 B.",
+    "notes": "Loader threadscheduling.c:56-273 only reads the maps; no type changes."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/threadscheduling_dynamic_hook/threadscheduling.bpf.c",
+    "programs": [
+     {
+      "section": "kprobe/_Z9vectorAddPKfS0_Pfi",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 3,
+      "none_per_firing": 6,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 3,
+      "ops": [
+       {
+        "line": 62,
+        "helper": "bpf_get_sm_id (509)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 63,
+        "helper": "bpf_get_warp_id (510)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 64,
+        "helper": "bpf_get_lane_id (511)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 69,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 70,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 87,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 89,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "map": "thread_mapping",
+        "map_type": "1501 (created as BPF_MAP_TYPE_HASH on Orin)",
+        "condition": "BPF_ANY, one key per thread; past 4096 keys E2BIG, still a host call."
+       },
+       {
+        "line": 93,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "map": "sm_histogram",
+        "map_type": "1501 (HASH on Orin)",
+        "condition": "On a hit, line 95 is an atomic add through the host value's device mapping; not counted."
+       },
+       {
+        "line": 98,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "map": "sm_histogram",
+        "map_type": "1501 (HASH on Orin)",
+        "condition": "First touch per SM key only: +1 D2."
+       },
+       {
+        "line": 103,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "map": "warp_histogram",
+        "map_type": "1501 (HASH on Orin)",
+        "condition": "On a hit, line 105 is an atomic add; not counted."
+       },
+       {
+        "line": 108,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "map": "warp_histogram",
+        "map_type": "1501 (HASH on Orin)",
+        "condition": "First touch per (sm,warp) key only: +1 D2."
+       }
+      ]
+     }
+    ],
+    "output_volume": "Same as threadscheduling: 3T host calls per launch (up to 5T on first touch); thread_mapping one 80 B value per thread, capped at 4096.",
+    "notes": "On a discrete GPU, 1501 would be nv_gpu_shared_hash_map_impl, but the trampoline has no 1501 branch in helpers 1 and 2, so it is a host call there too. Loader sets nothing at run time."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/cuda-counter/cuda_probe.bpf.c",
+    "programs": [
+     {
+      "section": "kprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 3,
+      "none_per_firing": 3,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 3,
+      "ops": [
+       {
+        "line": 39,
+        "helper": "bpf_get_current_pid_tgid (14)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Returns the module's __bpftime_pid_tgid (trampoline 410-422); a host call only if the agent did not write it."
+       },
+       {
+        "line": 40,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 42,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 44,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "map": "start_ts",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "condition": "BPF_ANY, keyed by the low 32 bits of block_x."
+       },
+       {
+        "line": 48,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "map": "call_count",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "condition": "Key is the tgid (one key). On a hit, line 50 __atomic_add_fetch runs through the host value's device mapping; not counted."
+       },
+       {
+        "line": 52,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "map": "call_count",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "condition": "First touch only (BPF_NOEXIST): +1 D2. The first warp's lanes all miss; one insert wins and the rest get EEXIST."
+       },
+       {
+        "line": 55,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "2 args, so helper 6. The format string is on the stack (BPF_NO_GLOBAL_DATA)."
+       }
+      ]
+     },
+     {
+      "section": "kretprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 5,
+      "none_per_firing": 3,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 5,
+      "ops": [
+       {
+        "line": 64,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 65,
+        "helper": "bpf_get_current_pid_tgid (14)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 66,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "map": "start_ts",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "condition": "Key block_x. The entry probe stored it and it is never deleted (see line 70), so the steady state is the tsp-found branch."
+       },
+       {
+        "line": 69,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "condition": "tsp-found branch."
+       },
+       {
+        "line": 70,
+        "helper": "bpf_map_delete_elem (3)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "map": "start_ts",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "condition": "Example bug: the delete uses key &pid, not &x, so it normally fails with ENOENT. It is still a host call."
+       },
+       {
+        "line": 73,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "map": "total_time_ns",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "condition": "Key tgid. On a hit, line 75 `*total += delta` is a plain store through the host value's device mapping; not counted."
+       },
+       {
+        "line": 76,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "map": "total_time_ns",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "condition": "Hit path (BPF_EXIST)."
+       },
+       {
+        "line": 79,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "map": "total_time_ns",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "condition": "First touch (BPF_NOEXIST) replaces the line 76 update, so there is still one update per firing."
+       },
+       {
+        "line": 82,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "3 args, so helper 6; tsp-found branch."
+       },
+       {
+        "line": 86,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "condition": "Only when the start_ts lookup missed. That path is lookup + printk = 2 D2, plus 503 and 14 = 2 none."
+       }
+      ]
+     }
+    ],
+    "output_volume": "2 printk lines per thread per launch (2T). Host calls: 3T at entry + 5T at exit = 8T per launch. Maps are constant-size (keys block_x <= 1024 and the tgid). The example launches vectorAdd<<<1,10>>> (vec_add.cu:81): T=10.",
+    "notes": "All maps are ordinary HASH, so every map op is D2. Loader cuda_probe.c:37-96 sets nothing at run time. CLAUDE.md lists kprobe+kretprobe on one kernel as a known late-path problem; substitution mode is the normal path."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/launchlate/launchlate.bpf.c",
+    "programs": [
+     {
+      "section": "uprobe",
+      "attach_point": "cpu_uprobe",
+      "runs_on_gpu": false,
+      "executing_threads": "other: host CPU thread calling cudaLaunchKernel (bpftime userspace uprobe in the target process; attached at launchlate.c:276)",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 5,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 49,
+        "helper": "bpf_ktime_get_ns (5)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "condition": "CPU side."
+       },
+       {
+        "line": 50,
+        "helper": "bpf_get_current_pid_tgid (14)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "condition": "CPU side."
+       },
+       {
+        "line": 55,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "condition": "CPU side."
+       },
+       {
+        "line": 59,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "clock_offset",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "condition": "CPU side."
+       },
+       {
+        "line": 64,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "last_uprobe_time",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "condition": "CPU side."
+       }
+      ]
+     },
+     {
+      "section": "kprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 1,
+      "none_per_firing": 3,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 1,
+      "ops": [
+       {
+        "line": 89,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 95,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "map": "last_uprobe_time",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "condition": "GPU-local through extra_buffer (trampoline 267-275, bpf_attach_ctx_cuda.cpp:480-502). It would be a host call if the binding or device mapping were unavailable."
+       },
+       {
+        "line": 106,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "map": "time_histogram",
+        "map_type": "1503 (created as 1513 on Orin)",
+        "condition": "Taken when *uprobe_ts > 0, the steady state. Line 108 is a plain, racy increment on a shared bin by every thread; not counted."
+       },
+       {
+        "line": 111,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "none",
+        "count": 0,
+        "who": "all threads",
+        "map": "time_histogram",
+        "map_type": "1503 (1513 on Orin)",
+        "condition": "Unreachable: bins 0-9 are always below max_entries 10, so the lookup never returns NULL."
+       },
+       {
+        "line": 114,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "3 args, so helper 6; if-branch."
+       },
+       {
+        "line": 117,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "condition": "Else-branch, before any uprobe timestamp: also 1 D2, with 2 none ops (502 and the line 95 lookup)."
+       }
+      ]
+     }
+    ],
+    "output_volume": "T printk lines per launch (one D2 host call per thread). The histogram has 10 bins, and every thread increments it, so a launch adds T (racy) counts.",
+    "notes": "The only D2 here is the per-thread printk, on both branches. The ARRAY read is GPU-local since 1b3d9c99."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/launchlate-kernel-gpu-shared-map/launchlate.bpf.c",
+    "programs": [
+     {
+      "section": "uprobe",
+      "attach_point": "cpu_uprobe",
+      "runs_on_gpu": false,
+      "executing_threads": "other: host CPU thread calling cudaLaunchKernel (kernel eBPF uprobe under run_with_kernel, syscall_context.cpp:869-877; attached at launchlate.c:192)",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 5,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 54,
+        "helper": "bpf_ktime_get_ns (5)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "condition": "CPU side."
+       },
+       {
+        "line": 55,
+        "helper": "bpf_get_current_pid_tgid (14)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "condition": "CPU side."
+       },
+       {
+        "line": 60,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "condition": "CPU side."
+       },
+       {
+        "line": 64,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "clock_offset",
+        "map_type": "1504 (kernel ARRAY)",
+        "condition": "CPU side."
+       },
+       {
+        "line": 69,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "last_uprobe_time",
+        "map_type": "1504 (kernel ARRAY)",
+        "condition": "CPU side."
+       }
+      ]
+     },
+     {
+      "section": "kprobe/cuda__Z9vectorAddPKfS0_Pf",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 1,
+      "none_per_firing": 3,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 1,
+      "ops": [
+       {
+        "line": 94,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 100,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "map": "last_uprobe_time",
+        "map_type": "1504",
+        "condition": "shared_array_offset (trampoline 245-250)."
+       },
+       {
+        "line": 111,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "map": "time_histogram",
+        "map_type": "1504",
+        "condition": "Steady state (*uprobe_ts > 0). Line 113 is a plain, racy increment; not counted."
+       },
+       {
+        "line": 116,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "none",
+        "count": 0,
+        "who": "all threads",
+        "map": "time_histogram",
+        "map_type": "1504",
+        "condition": "Unreachable (bin < 10 = max_entries)."
+       },
+       {
+        "line": 119,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "If-branch."
+       },
+       {
+        "line": 122,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "condition": "Else-branch: also 1 D2, with 2 none ops."
+       }
+      ]
+     }
+    ],
+    "output_volume": "T printk lines per launch (one D2 per thread); 10-bin histogram, T racy increments per launch.",
+    "notes": "Kernel-shared mode only: 1504 maps are kernel ARRAYs with bpftime type 1504 (syscall_context.cpp:526-560), and 'cuda_' is stripped from the kprobe name (906-928). No run-time type changes; the loader only writes clock_offset (launchlate.c:178)."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/mem_trace/mem_trace.bpf.c",
+    "programs": [
+     {
+      "section": "kprobe/__memcapture",
+      "attach_point": "memcapture",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 1,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 25,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "map": "counter",
+        "map_type": "1503 (created as 1513 on Orin)",
+        "condition": "shared_array_offset with a membar.sys. Line 27 `*val = *val + 1` is a plain read-modify-write on one shared word, so updates are lost; not counted."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records. One shared u64 counter (key 0 of 4), hit once per executed ld/st instruction per thread: firings per launch = T x (instrumented ld/st instructions executed per thread).",
+    "notes": "One firing = one executed PTX ld/st. The pass (ptxpass_kprobe_memcapture/main.cpp:41-152) inserts `call __memcapture__N` after every PTX line matching the ld/st regex (line 46). The eBPF it prepends only copies the instruction text onto the stack and points r1 at it (STDW, SUB64, MOV, LDDW, STXDW); it calls no helper. Loader mem_trace.c:52-75 sets nothing at run time."
+   },
+   {
+    "file": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl/gpu_ext/repo/workloads/llama.cpp/observability_overhead/revision-rq4/results-table1-warp-plt-575-03/gpubpf_tool_build/kernelretsnoop/kernelretsnoop.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "warp_leader",
+      "d1_per_firing": 1,
+      "d2_per_firing": 0,
+      "none_per_firing": 4,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 37,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 38,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 39,
+        "helper": "bpf_get_block_dim (504)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 48,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "condition": "Only threads whose linear in-block index is a multiple of 32 (lines 40-43). This is a software warp leader; it does not use laneid."
+       },
+       {
+        "line": 49,
+        "helper": "bpf_perf_event_output (25)",
+        "dir": "D1",
+        "count": 1,
+        "who": "guarded threads only",
+        "map": "rb",
+        "map_type": "1527 (unchanged on Orin)",
+        "condition": "Written into the leader's ring at getGlobalThreadId(); nothing is written if that tid >= ring thread count (default 1024 or BPFTIME_MAP_GPU_THREAD_COUNT)."
+       }
+      ]
+     }
+    ],
+    "output_volume": "One 32 B record (+8 B size word) per warp per launch: blocks x ceil(threads_per_block/32) records (rope_norm pp512 geometry 2048 x 256 gives 16,384 per launch). Ring storage is still per thread: thread_count x (header + entries x 40 B), with entries = max_entries.",
+    "notes": "The loader sets rb max_entries at run time from the required BPFTIME_KERNELRETSNOOP_RING_ENTRIES (kernelretsnoop.c:401-413, 426-431, 451); the type stays 1527. Only warp leaders write, but the ring is indexed by global thread id, so 31/32 of the per-thread rings are allocated and never used: D1 sizing waste."
+   },
+   {
+    "file": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl/gpu_ext/repo/workloads/llama.cpp/observability_overhead/revision-rq4/results-table1-warp-plt-575-03/gpubpf_tool_build/threadhist/threadhist.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 1,
+      "d2_per_firing": 0,
+      "none_per_firing": 0,
+      "d1_per_firing_all_threads": 1,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 25,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "D1",
+        "count": 1,
+        "who": "all threads",
+        "map": "call_count",
+        "map_type": "1502 (created as 1512 on Orin)",
+        "condition": "Returns this thread's slot; NULL when tid >= max_thread_count (default 1024). Line 27 is a plain increment; not counted."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records. One 8 B counter per thread; storage max_thread_count x 8 B. rope_norm 2048 x 256 = 524,288 threads needs BPFTIME_MAP_GPU_THREAD_COUNT >= 524288, otherwise threads past 1024 are not counted.",
+    "notes": "Same body as the dev threadhist. Loader threadhist.c:37-106 sets nothing at run time."
+   },
+   {
+    "file": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl/gpu_ext/repo/workloads/llama.cpp/observability_overhead/revision-rq4/results-table1-warp-plt-575-03/gpubpf_tool_build/launchlate/launchlate.bpf.c",
+    "programs": [
+     {
+      "section": "uprobe",
+      "attach_point": "cpu_uprobe",
+      "runs_on_gpu": false,
+      "executing_threads": "other: host CPU thread in the selected kernel's host launch stub (bpftime userspace uprobe; attached at launchlate.c:479)",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 7,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 75,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "host_target",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "condition": "CPU side."
+       },
+       {
+        "line": 76,
+        "helper": "bpf_get_func_ip (173)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "condition": "CPU side."
+       },
+       {
+        "line": 93,
+        "helper": "bpf_ktime_get_ns (5)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "condition": "CPU side, after the stub matches (lines 77-91)."
+       },
+       {
+        "line": 98,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "clock_offset",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "condition": "CPU side."
+       },
+       {
+        "line": 102,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "queue_state",
+        "map_type": "1513",
+        "condition": "CPU side. Line 105 is an atomic add, not counted."
+       },
+       {
+        "line": 107,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "queue_state",
+        "map_type": "1513",
+        "condition": "CPU side."
+       },
+       {
+        "line": 110,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 0,
+        "who": "CPU thread",
+        "map": "queue_state",
+        "map_type": "1513",
+        "condition": "Only when the queue overflows (4096 pending)."
+       },
+       {
+        "line": 116,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "launch_times",
+        "map_type": "1513",
+        "condition": "CPU side."
+       }
+      ]
+     },
+     {
+      "section": "kprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "thread0_of_grid",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 7,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 149,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 150,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 156,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "map": "queue_state",
+        "map_type": "1513",
+        "condition": "Only block (0,0,0) thread (0,0,0) (line 151)."
+       },
+       {
+        "line": 157,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "map": "queue_state",
+        "map_type": "1513",
+        "condition": "If the queue is empty (line 158), the thread returns here after 4 none ops. Line 162 is a plain store; not counted."
+       },
+       {
+        "line": 165,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "map": "launch_times",
+        "map_type": "1513",
+        "condition": "Steady state: the host enqueued this launch's timestamp."
+       },
+       {
+        "line": 168,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only"
+       },
+       {
+        "line": 171,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "map": "time_histogram",
+        "map_type": "1503 (created as 1513 on Orin)",
+        "condition": "Line 173 is a plain increment; not counted."
+       }
+      ]
+     }
+    ],
+    "output_volume": "One histogram increment per launch, independent of T; no records. The host side writes one 8 B FIFO slot per launch.",
+    "notes": "Byte-identical to the results-launchlate-perf-plt-575-01 copy (diff empty). Declared 1513 maps are not remapped; 1503 becomes 1513 on the Orin. No loader type changes: launchlate.c:437 and 465 write host_target and clock_offset only. GPU side has no host calls at all."
+   },
+   {
+    "file": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl/gpu_ext/repo/workloads/llama.cpp/observability_overhead/revision-rq4/results-launchlate-perf-plt-575-01/gpubpf_tool_build/launchlate/launchlate.bpf.c",
+    "programs": [
+     {
+      "section": "uprobe",
+      "attach_point": "cpu_uprobe",
+      "runs_on_gpu": false,
+      "executing_threads": "other: host CPU thread in the selected kernel's host launch stub (bpftime userspace uprobe; attached at launchlate.c:479)",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 7,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 75,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "host_target",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "condition": "CPU side."
+       },
+       {
+        "line": 76,
+        "helper": "bpf_get_func_ip (173)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "condition": "CPU side."
+       },
+       {
+        "line": 93,
+        "helper": "bpf_ktime_get_ns (5)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "condition": "CPU side."
+       },
+       {
+        "line": 98,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "clock_offset",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "condition": "CPU side."
+       },
+       {
+        "line": 102,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "queue_state",
+        "map_type": "1513",
+        "condition": "CPU side. Line 105 is an atomic add, not counted."
+       },
+       {
+        "line": 107,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "queue_state",
+        "map_type": "1513",
+        "condition": "CPU side."
+       },
+       {
+        "line": 110,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 0,
+        "who": "CPU thread",
+        "map": "queue_state",
+        "map_type": "1513",
+        "condition": "Only on queue overflow."
+       },
+       {
+        "line": 116,
+        "helper": "bpf_map_update_elem (2)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU thread",
+        "map": "launch_times",
+        "map_type": "1513",
+        "condition": "CPU side."
+       }
+      ]
+     },
+     {
+      "section": "kprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "thread0_of_grid",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 7,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 149,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 150,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 156,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "map": "queue_state",
+        "map_type": "1513",
+        "condition": "Only global thread 0."
+       },
+       {
+        "line": 157,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "map": "queue_state",
+        "map_type": "1513",
+        "condition": "An empty queue returns here."
+       },
+       {
+        "line": 165,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "map": "launch_times",
+        "map_type": "1513"
+       },
+       {
+        "line": 168,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only"
+       },
+       {
+        "line": 171,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "map": "time_histogram",
+        "map_type": "1503 (created as 1513 on Orin)"
+       }
+      ]
+     }
+    ],
+    "output_volume": "One histogram increment per launch; no records.",
+    "notes": "Identical to the results-table1-warp-plt-575-03 copy; reported separately because it is its own file."
+   },
+   {
+    "file": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl/gpu_ext/repo/workloads/llama.cpp/observability_overhead/revision-rq4/full-record-device-buffer/full-record-device-buffer.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 6,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 37,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 38,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 39,
+        "helper": "bpf_get_block_dim (504)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 40,
+        "helper": "bpf_get_grid_dim (508)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 51,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 89,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "map": "arena",
+        "map_type": "1503 (created as 1513 on Orin)",
+        "condition": "In-range path (thread_id < 524288), the steady state. The record and slot counter are plain stores into this thread's slot (lines 92-139); not counted."
+       },
+       {
+        "line": 80,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 0,
+        "who": "all threads",
+        "map": "arena",
+        "map_type": "1503 (1513 on Orin)",
+        "condition": "Only for thread_id >= FRDB_TOTAL_SLOTS. It replaces the line 89 lookup, so there is still 1 lookup."
+       }
+      ]
+     }
+    ],
+    "output_volume": "One 80 B record per thread per launch (T x 80 B), up to 256 per slot, 524,288 slots. Storage: 32 entries x 335,675,408 B = 10,741,613,056 B (about 10.0 GiB; header lines 42-45, 151-155).",
+    "notes": "No host calls, and no D1 by the rule (1503). Semantically, though, it is per-thread storage built by hand: thread_id indexes slots in a single-copy array sized by a fixed geometry (FRDB_TOTAL_SLOTS 524288), which is the D1 pattern without a 1502 map. The layout macros (Makefile:26-30: SoA, AoSoA, warp-contiguous index) change only the stores, not the op counts. The loader (full-record-device-buffer.c:101-150) sets no type."
+   },
+   {
+    "file": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl/gpu_ext/repo/workloads/llama.cpp/observability_overhead/revision-rq4/onevalue-array-candidate/onevalue-array.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "warp_leader",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 5,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 36,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 37,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 38,
+        "helper": "bpf_get_block_dim (504)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 47,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "condition": "Only threads with linear in-block index % 32 == 0 (lines 39-42)."
+       },
+       {
+        "line": 49,
+        "helper": "bpf_map_lookup_elem (1)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "map": "arena",
+        "map_type": "1503 (created as 1513 on Orin)",
+        "condition": "The event and the per-warp counter are plain stores (lines 57-70); not counted."
+       }
+      ]
+     }
+    ],
+    "output_volume": "One 32 B event per warp per launch: blocks x ceil(threads_per_block/32), up to 44 per warp and 16,384 warps. One value of 23,199,768 B (header lines 18-19, 43).",
+    "notes": "No host calls. As with full-record, this is warp-indexed storage built by hand inside one 1503 value, sized by a guessed warp count (ONEVALUE_ARRAY_MAX_WARPS 16384): the D1 pattern, but 'none' by the rule. The loader (onevalue-array.c:82-118) sets no type."
+   }
+  ]
+ },
+ "b": {
+  "tools": [
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/kernelretsnoop/kernelretsnoop.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 1,
+      "d2_per_firing": 0,
+      "none_per_firing": 2,
+      "d1_per_firing_all_threads": 1,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 36,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 37,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 38,
+        "helper": "bpf_perf_event_output (25)",
+        "map": "rb",
+        "map_type": "1527 GPU_RINGBUF",
+        "dir": "D1",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Writes into the calling thread's own ring, chosen by getGlobalThreadId (default_trampoline.cu:438-447). Returns 1 without writing when tid >= max_thread_count. Returns 2 and counts a drop when that thread's 16-entry ring is full and not yet drained."
+       }
+      ]
+     }
+    ],
+    "output_volume": "One record per thread per launch: 8-byte length plus the 32-byte struct data. Storage is allocated up front: thread_count x (ring header + 16 x (8 + 1024)) bytes, because value_size is the 1024-byte big_struct, not the 32-byte record. thread_count comes from BPFTIME_MAP_GPU_THREAD_COUNT or the attr default and is halved under shm pressure (map_handler.cpp:1389-1416).",
+    "notes": "CONVENTIONS FOR ALL ENTRIES. (a) *_per_firing counts the common steady-state path of one thread that passes the guard; none_per_firing includes the helpers that thread ran before the guard. (b) *_all_threads counts D1/D2 ops that run before any guard, so every thread pays them. In unguarded programs they equal *_per_firing; in every guarded program here only 5xx helpers come before the guard, so they are 0. (c) An op with count 0 is off the common path (first touch, miss branch, or unreachable); its condition says when it runs (1 op then). (d) CPU sections get runs_on_gpu=false and d1=d2=none=0; their ops are listed for completeness with dir none and who CPU. (e) Atomic or plain stores through a returned pointer are not counted. RULE VERIFICATION against dev 52126f33, all rules hold. lookup (default_trampoline.cu:233-285): 1502 goes per-thread at 238-243, 1503/1504 shared at 245-250, 1512 per-thread at 252-257, 1513 shared at 259-263, ordinary ARRAY with extra_buffer at 267-276, everything else falls to host_call at 277-284. update (287-366) follows the same split. delete (368-384) is local only for an ARRAY with extra_buffer (returns -1); everything else is a host call, including GPU array types. printk (helper 6, 386-408) and puts (501, 487-501) are always host calls. perf_event_output (25, 429-485) accepts only 1527 and writes a per-tid ring. 502-511 are pure device reads (504-590). Integrated-GPU remaps (bpftime_shm.hpp:137-155, applied at syscall_context.cpp:566-577): 1502->1512, 1503->1513, 1501->HASH. These remaps sit after the run_with_kernel early return (syscall_context.cpp:526-560), so kernel-shared mode skips them. Conditional caveats: (1) An ordinary ARRAY is GPU-local only when gpu_address_of_array_values binds it (bpf_attach_ctx_cuda.cpp:480-502, used at 526-528). It returns NULL, which means host calls, in BPFTIME_ENABLE_MAP_USAGE_STATS builds or on a segment without the binding protocol. (2) Helper 14 is local only once the agent has written __bpftime_pid_tgid (default_trampoline.cu:410-421); while it is 0, it is a host call. (3) host_call (130-171) serializes the lanes of a warp (32 turns) behind a module lock and the process-wide occupy_flag, so D2 cost grows with active threads. THIS TOOL: the loader kernelretsnoop.c:81 attaches the skeleton and polls rb at :93. No map type or size is changed at run time."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/kernel_trace/kernel_trace.bpf.c",
+    "programs": [
+     {
+      "section": "kprobe/_Z9vectorAddPKfS0_Pfi",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "thread0_of_grid",
+      "d1_per_firing": 1,
+      "d2_per_firing": 0,
+      "none_per_firing": 3,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 31,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 32,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 37,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only (block 0,0,0 thread 0,0,0; lines 34-36)"
+       },
+       {
+        "line": 38,
+        "helper": "bpf_perf_event_output (25)",
+        "map": "events",
+        "map_type": "1527 GPU_RINGBUF",
+        "dir": "D1",
+        "count": 1,
+        "who": "guarded threads only (block 0,0,0 thread 0,0,0)",
+        "condition": "Writes into global tid 0's ring (getGlobalThreadId, default_trampoline.cu:438-447). Dropped (returns 2) when the 16-entry ring is full."
+       }
+      ]
+     }
+    ],
+    "output_volume": "One record per launch (8-byte length + 56-byte kernel_trace_event), independent of thread count. Storage is still thread_count x (ring header + 16 x (8 + 56)) bytes, because 1527 allocates one ring per thread (map_handler.cpp:1374-1420). Only tid 0's ring is ever written.",
+    "notes": "The loader kernel_trace.c:82 attaches and reads events at :100. No map type is changed at run time. The guard compares all six block/thread indices (lines 34-36), so exactly one thread per grid passes. The D1 per-thread ring sizing still applies even though only one thread samples."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/threadhist/threadhist.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 1,
+      "d2_per_firing": 0,
+      "none_per_firing": 0,
+      "d1_per_firing_all_threads": 1,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 25,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "call_count",
+        "map_type": "1502 PERGPUTD_ARRAY (created as 1512 on the Orin)",
+        "dir": "D1",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Returns the calling thread's own slot (array_map_offset, default_trampoline.cu:211-222, 252-257). Line 27 does a plain *cnt += 1 on that private slot, with no race and no atomic. The lookup returns NULL, so nothing is counted, when global tid >= max_thread_count; that also prints one device printf warning per module (lines 187-202)."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records. The map holds 1 entry x thread_count x 8 bytes (map_handler.cpp:94-96, 1422-1435), with thread_count from BPFTIME_MAP_GPU_THREAD_COUNT (947-956). The loader reads it at threadhist.c:36.",
+    "notes": "The loader threadhist.c:80 attaches and does not change the map type. The 1502->1512 remap comes from bpftime_shm.hpp:145-146 via syscall_context.cpp:568-576. Threads beyond the guessed thread count are silently uncounted (D1)."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/llama-cpp-test/threadhist.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z12rms_norm_f32ILi1024ELb1ELb0EEvPKfPfilllfS1_lll5uint3S3_S3_S3_S1_lllS3_S3_S3_S3_",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 1,
+      "d2_per_firing": 0,
+      "none_per_firing": 0,
+      "d1_per_firing_all_threads": 1,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 25,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "call_count",
+        "map_type": "1502 PERGPUTD_ARRAY (created as 1512 on the Orin)",
+        "dir": "D1",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Same as example/threadhist: the thread's private slot, then a plain += at line 27. NULL when global tid >= max_thread_count."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records. The map is 1 entry x thread_count x 8 bytes, read by the loader at threadhist.c:36.",
+    "notes": "Identical program to example/threadhist; only the target kernel differs (rms_norm_f32). The loader threadhist.c:80 attaches and does not change the type at run time."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/threadhist-gpu-kernel-shared-map/threadhist.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/cuda__Z9vectorAddPKfS0_Pf",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 1,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 27,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "call_count",
+        "map_type": "1504 GPU_KERNEL_SHARED_ARRAY",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Shared slot 0 (default_trampoline.cu:245-250). Line 29 does __atomic_add_fetch on the returned GPU-local pointer; not counted."
+       }
+      ]
+     },
+     {
+      "section": "uretprobe/./vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st",
+      "attach_point": "cpu_uprobe",
+      "runs_on_gpu": false,
+      "executing_threads": "other: CPU thread returning from cudaLaunchKernel<char> (run by the kernel per the comment at line 34)",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 0,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 38,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program; not a GPU op"
+       },
+       {
+        "line": 40,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "call_count",
+        "map_type": "1504 (kernel ARRAY backing)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program. Line 42 adds atomically to key 1."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records: two 8-byte counters (key 0 counts GPU thread exits, key 1 counts CPU launches).",
+    "notes": "The 'cuda_' section prefix is stripped, making this a GPU probe, only under BPFTIME_RUN_WITH_KERNEL (syscall_context.cpp:908-928), so this tool runs in kernel-shared mode. Maps then go through the run_with_kernel path (syscall_context.cpp:526-560), which skips the integrated-GPU remap; that does not matter here because only 1504 is used. The 1504 device address comes from array_map_kernel_gpu_impl::try_initialize_for_agent_and_get_mapped_address (map_handler.cpp:1693-1697). The loader threadhist.c:78 attaches and reads the map at :36; no type change at run time."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/threadscheduling/threadscheduling.bpf.c",
+    "programs": [
+     {
+      "section": "kprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 3,
+      "none_per_firing": 6,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 3,
+      "ops": [
+       {
+        "line": 59,
+        "helper": "bpf_get_sm_id (509)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 60,
+        "helper": "bpf_get_warp_id (510)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 61,
+        "helper": "bpf_get_lane_id (511)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 66,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 67,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 84,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 86,
+        "helper": "bpf_map_update_elem (2) BPF_ANY",
+        "map": "thread_mapping",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Every firing. Once the 4096 entries are full, an update with a new key fails but is still a host call."
+       },
+       {
+        "line": 90,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "sm_histogram",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Steady state: hit, then __sync_fetch_and_add (line 92) on the host-memory pointer the host call returned (not counted)."
+       },
+       {
+        "line": 95,
+        "helper": "bpf_map_update_elem (2) BPF_NOEXIST",
+        "map": "sm_histogram",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "condition": "First touch only: runs (1 op) when the sm_id key is absent, once per distinct SM, but every thread that races on the same miss issues it and only one succeeds."
+       },
+       {
+        "line": 100,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "warp_histogram",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Steady state: hit, then __sync_fetch_and_add at line 102 (not counted)."
+       },
+       {
+        "line": 105,
+        "helper": "bpf_map_update_elem (2) BPF_NOEXIST",
+        "map": "warp_histogram",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "condition": "First touch only: runs (1 op) per distinct (sm_id<<16 | warp_id) key. The first-touch path is 5 D2 per thread."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records. Up to 4096 thread_mapping entries of 80 bytes (key block_x<<16 | thread_x, last writer wins), 128 SM counters and 1024 warp counters, all host-memory hash maps, every access a host call.",
+    "notes": "All maps are BPF_MAP_TYPE_HASH and fall to host_call (default_trampoline.cu:277-284, 352-365). The atomic adds at lines 92/102 go through a pointer returned by a host call (resp.map_lookup.value, a host address in the shm segment), not a GPU-local lookup, so the 'atomic on a GPU-local pointer' rule does not cover them; they are not counted. The loader threadscheduling.c:273 attaches and reads the maps at :56, :137 and :180; no type change at run time."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/threadscheduling_dynamic_hook/threadscheduling.bpf.c",
+    "programs": [
+     {
+      "section": "kprobe/_Z9vectorAddPKfS0_Pfi",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 3,
+      "none_per_firing": 6,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 3,
+      "ops": [
+       {
+        "line": 62,
+        "helper": "bpf_get_sm_id (509)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 63,
+        "helper": "bpf_get_warp_id (510)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 64,
+        "helper": "bpf_get_lane_id (511)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 69,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 70,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 87,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 89,
+        "helper": "bpf_map_update_elem (2) BPF_ANY",
+        "map": "thread_mapping",
+        "map_type": "1501 GPU_HASH (created as BPF_MAP_TYPE_HASH on the Orin)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Every firing; fails but is still a host call once the 4096 entries are full."
+       },
+       {
+        "line": 93,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "sm_histogram",
+        "map_type": "1501 -> HASH",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Steady state: hit, then __sync_fetch_and_add at line 95 on the host pointer (not counted)."
+       },
+       {
+        "line": 98,
+        "helper": "bpf_map_update_elem (2) BPF_NOEXIST",
+        "map": "sm_histogram",
+        "map_type": "1501 -> HASH",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "condition": "First touch only (1 op) per distinct sm_id; racing threads all issue it."
+       },
+       {
+        "line": 103,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "warp_histogram",
+        "map_type": "1501 -> HASH",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Steady state: hit, then __sync_fetch_and_add at line 105 (not counted)."
+       },
+       {
+        "line": 108,
+        "helper": "bpf_map_update_elem (2) BPF_NOEXIST",
+        "map": "warp_histogram",
+        "map_type": "1501 -> HASH",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "condition": "First touch only (1 op) per distinct (sm,warp) key. The first-touch path is 5 D2."
+       }
+      ]
+     }
+    ],
+    "output_volume": "Same as threadscheduling: no records, three host-memory hash maps, every access a host call.",
+    "notes": "1501 becomes BPF_MAP_TYPE_HASH on the integrated GPU (bpftime_shm.hpp:149-150, applied at syscall_context.cpp:568-576), and even un-remapped, 1501 has no trampoline fast path (default_trampoline.cu:233-285 falls to host_call). The atomics go through host-call pointers and are not counted. The loader threadscheduling.c:273 attaches; no type change in the loader."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/cuda-counter/cuda_probe.bpf.c",
+    "programs": [
+     {
+      "section": "kprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 3,
+      "none_per_firing": 3,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 3,
+      "ops": [
+       {
+        "line": 39,
+        "helper": "bpf_get_current_pid_tgid (14)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Local once __bpftime_pid_tgid is written by the agent (default_trampoline.cu:410-421); a host call while it is 0."
+       },
+       {
+        "line": 40,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 42,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 44,
+        "helper": "bpf_map_update_elem (2) BPF_ANY",
+        "map": "start_ts",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Key is &x (u64 blockIdx.x, low 4 bytes used since key_size=4)."
+       },
+       {
+        "line": 48,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "call_count",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Steady state: hit, then __atomic_add_fetch at line 50 on the host pointer returned by the host call (not counted)."
+       },
+       {
+        "line": 52,
+        "helper": "bpf_map_update_elem (2) BPF_NOEXIST",
+        "map": "call_count",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads",
+        "condition": "First touch only (1 op) per pid; every thread racing on the first miss issues it."
+       },
+       {
+        "line": 55,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "2 args, so helper 6 (libbpf bpf_helpers.h:334-341 picks __bpf_printk for <=3 args)."
+       }
+      ]
+     },
+     {
+      "section": "kretprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 5,
+      "none_per_firing": 3,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 5,
+      "ops": [
+       {
+        "line": 64,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 65,
+        "helper": "bpf_get_current_pid_tgid (14)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Local once __bpftime_pid_tgid is written."
+       },
+       {
+        "line": 66,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "start_ts",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Hits in steady state: the same thread's entry probe stored start_ts[x], and line 70 never removes it (wrong key). Misses only if start_ts filled (1024 entries) before x was stored."
+       },
+       {
+        "line": 69,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads (tsp hit)"
+       },
+       {
+        "line": 70,
+        "helper": "bpf_map_delete_elem (3)",
+        "map": "start_ts",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads (tsp hit)",
+        "condition": "Deletes key pid, not x (source bug): usually -ENOENT, but still a host call."
+       },
+       {
+        "line": 73,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "total_time_ns",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads (tsp hit)"
+       },
+       {
+        "line": 76,
+        "helper": "bpf_map_update_elem (2) BPF_EXIST",
+        "map": "total_time_ns",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads (tsp hit, total found)",
+        "condition": "Steady state, after the plain non-atomic *total += delta at line 75 through the host-call pointer. On first touch per pid, line 79 runs instead, so the op count is the same."
+       },
+       {
+        "line": 79,
+        "helper": "bpf_map_update_elem (2) BPF_NOEXIST",
+        "map": "total_time_ns",
+        "map_type": "BPF_MAP_TYPE_HASH",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads (tsp hit, total missing)",
+        "condition": "First touch only (1 op) per pid; replaces line 76."
+       },
+       {
+        "line": 82,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads (tsp hit)",
+        "condition": "3 args, so helper 6."
+       },
+       {
+        "line": 86,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads (tsp miss)",
+        "condition": "Miss branch only (1 op). The miss path totals lookup + printk = 2 D2 and 2 none."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records. Three host-memory hash maps (start_ts up to 1024 block keys, call_count and total_time_ns keyed by pid), plus a printk host call on every firing of every thread on both probes.",
+    "notes": "All three maps are BPF_MAP_TYPE_HASH, so every map op is a host call (default_trampoline.cu:277-284, 352-365, 376-383). The atomic at line 50 and the plain += at line 75 go through host-call pointers, not GPU-local ones; not counted. The loader cuda_probe.c:96 attaches and reads call_count at :37; no type change at run time."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/launchlate/launchlate.bpf.c",
+    "programs": [
+     {
+      "section": "uprobe",
+      "attach_point": "cpu_uprobe",
+      "runs_on_gpu": false,
+      "executing_threads": "other: CPU thread calling the launch function chosen at run time (launchlate.c:270-283 bpf_program__attach_uprobe_opts)",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 0,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 49,
+        "helper": "bpf_ktime_get_ns (5)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 50,
+        "helper": "bpf_get_current_pid_tgid (14)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 55,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 59,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "clock_offset",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 64,
+        "helper": "bpf_map_update_elem (2)",
+        "map": "last_uprobe_time",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       }
+      ]
+     },
+     {
+      "section": "kprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 1,
+      "none_per_firing": 3,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 1,
+      "ops": [
+       {
+        "line": 89,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 95,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "last_uprobe_time",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "condition": "GPU-local through the bound device address (default_trampoline.cu:267-276); a host call (D2) if the binding failed or in a usage-stats build (bpf_attach_ctx_cuda.cpp:480-502)."
+       },
+       {
+        "line": 106,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "time_histogram",
+        "map_type": "1503 GPU_ARRAY (created as 1513 on the Orin)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads (uprobe_ts > 0, the steady state)",
+        "condition": "Never NULL: bin is always <= 9 < HIST_BINS=10. Line 108 does a plain, non-atomic *count += 1 from every thread into one shared slot (lost updates); not counted."
+       },
+       {
+        "line": 111,
+        "helper": "bpf_map_update_elem (2) BPF_NOEXIST",
+        "map": "time_histogram",
+        "map_type": "1503 -> 1513",
+        "dir": "none",
+        "count": 0,
+        "who": "none",
+        "condition": "Unreachable: the lookup at line 106 is never NULL for bins 0-9."
+       },
+       {
+        "line": 114,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads (uprobe_ts > 0)",
+        "condition": "3 args, so helper 6. Every thread on every firing."
+       },
+       {
+        "line": 117,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads (no uprobe timestamp yet)",
+        "condition": "Runs (1 op) only before the first uprobe write, replacing lines 106 and 114. Either branch costs 1 D2 per thread."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records. A 10-bin histogram of 8-byte counters in a shared 1513 array (non-atomic, so undercounts under contention), plus one printk host call per thread per launch.",
+    "notes": "Every GPU thread does one printk host call per firing; that is the only D2. time_histogram 1503 is remapped to 1513 on the Orin (bpftime_shm.hpp:147-148, syscall_context.cpp:568-576). The loader writes clock_offset at launchlate.c:261, attaches the uprobe manually at :276, and attaches the kprobe via the skeleton at :286. No map type is changed at run time."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/launchlate-kernel-gpu-shared-map/launchlate.bpf.c",
+    "programs": [
+     {
+      "section": "uprobe",
+      "attach_point": "cpu_uprobe",
+      "runs_on_gpu": false,
+      "executing_threads": "other: CPU thread calling the launch function chosen at run time (launchlate.c:186-200)",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 0,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 54,
+        "helper": "bpf_ktime_get_ns (5)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 55,
+        "helper": "bpf_get_current_pid_tgid (14)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 60,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 64,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "clock_offset",
+        "map_type": "1504 GPU_KERNEL_SHARED_ARRAY",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 69,
+        "helper": "bpf_map_update_elem (2)",
+        "map": "last_uprobe_time",
+        "map_type": "1504 GPU_KERNEL_SHARED_ARRAY",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       }
+      ]
+     },
+     {
+      "section": "kprobe/cuda__Z9vectorAddPKfS0_Pf",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 1,
+      "none_per_firing": 3,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 1,
+      "ops": [
+       {
+        "line": 94,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 100,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "last_uprobe_time",
+        "map_type": "1504 GPU_KERNEL_SHARED_ARRAY",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 111,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "time_histogram",
+        "map_type": "1504 GPU_KERNEL_SHARED_ARRAY",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads (uprobe_ts > 0)",
+        "condition": "Never NULL for bins 0-9. Line 113 does a plain non-atomic *count += 1 from all threads; not counted."
+       },
+       {
+        "line": 116,
+        "helper": "bpf_map_update_elem (2) BPF_NOEXIST",
+        "map": "time_histogram",
+        "map_type": "1504",
+        "dir": "none",
+        "count": 0,
+        "who": "none",
+        "condition": "Unreachable (bin < HIST_BINS)."
+       },
+       {
+        "line": 119,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 1,
+        "who": "all threads (uprobe_ts > 0)",
+        "condition": "3 args, so helper 6."
+       },
+       {
+        "line": 122,
+        "helper": "bpf_printk -> bpf_trace_printk (6)",
+        "dir": "D2",
+        "count": 0,
+        "who": "all threads (no uprobe timestamp)",
+        "condition": "Alternative branch (1 op); either branch costs 1 D2 per thread."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records. A 10-bin kernel-shared histogram plus one printk host call per thread per launch.",
+    "notes": "The 'cuda_' section prefix is stripped only with BPFTIME_RUN_WITH_KERNEL (syscall_context.cpp:908-928), so this tool runs in kernel-shared mode: maps are created as kernel maps with bpftime type 1504 (syscall_context.cpp:526-560). The integrated-GPU remap is skipped there, which does not matter because 1504 is unchanged anyway. The loader writes clock_offset at launchlate.c:178 and attaches at :192 and :203."
+   },
+   {
+    "file": "/home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate/example/gpu/mem_trace/mem_trace.bpf.c",
+    "programs": [
+     {
+      "section": "kprobe/__memcapture",
+      "attach_point": "memcapture",
+      "runs_on_gpu": true,
+      "executing_threads": "other: every thread, once per instrumented ld/st PTX instruction it executes (all kernels in the patched module)",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 1,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 25,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "counter",
+        "map_type": "1503 GPU_ARRAY (created as 1513 on the Orin)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads",
+        "condition": "Shared slot 0. Line 27 does a plain, non-atomic *val = *val + 1 from every thread on every memory instruction (lost updates); not counted."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records: a 4 x 8-byte shared counter array, of which only key 0 is used.",
+    "notes": "One firing is one execution of a ld/st line matched by the regex in ptxpass_kprobe_memcapture/main.cpp:44-46; the pass inserts 'call __memcapture__N' after each one (main.cpp:139-147), including ld.param/ld.local/ld.const. The injected prologue (main.cpp:62-127) only copies the PTX source line onto the eBPF stack and passes it in r1; it makes no helper call. The firing rate is therefore memory instructions x threads, not launches. The loader mem_trace.c:65 attaches and reads counter at :75; no type change at run time."
+   },
+   {
+    "file": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl/gpu_ext/repo/workloads/llama.cpp/observability_overhead/revision-rq4/results-table1-warp-plt-575-03/gpubpf_tool_build/kernelretsnoop/kernelretsnoop.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "warp_leader",
+      "d1_per_firing": 1,
+      "d2_per_firing": 0,
+      "none_per_firing": 4,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 37,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 38,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 39,
+        "helper": "bpf_get_block_dim (504)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 48,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only (linear in-block thread id % 32 == 0, lines 40-43)"
+       },
+       {
+        "line": 49,
+        "helper": "bpf_perf_event_output (25)",
+        "map": "rb",
+        "map_type": "1527 GPU_RINGBUF",
+        "dir": "D1",
+        "count": 1,
+        "who": "guarded threads only (one lane-0 thread per warp)",
+        "condition": "The ring is chosen by the leader's global thread id (default_trampoline.cu:438-447), so the map must cover the highest leader tid. Returns 1 if tid >= max_thread_count, 2 (drop) if that ring is full."
+       }
+      ]
+     }
+    ],
+    "output_volume": "One record per warp per launch (8-byte length + 32-byte struct data). Storage is thread_count x (ring header + N x (8 + 32)) bytes, with N = BPFTIME_KERNELRETSNOOP_RING_ENTRIES (loader kernelretsnoop.c:401-412) set through bpf_map__set_max_entries at kernelretsnoop.c:451. Only 1 in 32 per-thread rings is ever written.",
+    "notes": "The loader changes only max_entries of rb at run time (kernelretsnoop.c:451), not its type; it attaches at :465 and polls through bpftime_syscall_server__poll_gpu_ringbuf_map at :470-497. BPFTIME_MAP_GPU_THREAD_COUNT is read by the loader (:388-399) and by the runtime to size the per-thread rings (map_handler.cpp:947-956, 1389-1416). This is a gpu_ext copy, evaluated under the dev 52126f33 rules as asked."
+   },
+   {
+    "file": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl/gpu_ext/repo/workloads/llama.cpp/observability_overhead/revision-rq4/results-table1-warp-plt-575-03/gpubpf_tool_build/threadhist/threadhist.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 1,
+      "d2_per_firing": 0,
+      "none_per_firing": 0,
+      "d1_per_firing_all_threads": 1,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 25,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "call_count",
+        "map_type": "1502 PERGPUTD_ARRAY (created as 1512 on the Orin)",
+        "dir": "D1",
+        "count": 1,
+        "who": "all threads",
+        "condition": "The thread's private slot, then a plain *cnt += 1 at line 27. NULL (not counted) when global tid >= max_thread_count."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records. The map is 1 entry x thread_count x 8 bytes, read by the loader at threadhist.c:37.",
+    "notes": "The loader requires BPFTIME_MAP_GPU_THREAD_COUNT to be set explicitly to an integer in [1, 1048576] (threadhist.c:111-126), which is the D1 guessed-thread-count input. It attaches at :106 and does not change the map type at run time."
+   },
+   {
+    "file": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl/gpu_ext/repo/workloads/llama.cpp/observability_overhead/revision-rq4/results-table1-warp-plt-575-03/gpubpf_tool_build/launchlate/launchlate.bpf.c",
+    "programs": [
+     {
+      "section": "uprobe",
+      "attach_point": "cpu_uprobe",
+      "runs_on_gpu": false,
+      "executing_threads": "other: CPU thread hitting the target ELF's launch PLT entry (launchlate.c:479-487), filtered by func == expected kernel stub (lines 75-91)",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 0,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 75,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "host_target",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 76,
+        "helper": "bpf_get_func_ip (173)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 93,
+        "helper": "bpf_ktime_get_ns (5)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program, after the filter passes"
+       },
+       {
+        "line": 98,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "clock_offset",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 102,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "queue_state",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program. Line 105 does __sync_fetch_and_add on the write sequence."
+       },
+       {
+        "line": 107,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "queue_state",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 110,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "queue_state",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 0,
+        "who": "CPU",
+        "condition": "Queue overflow only (1 op), then returns"
+       },
+       {
+        "line": 116,
+        "helper": "bpf_map_update_elem (2)",
+        "map": "launch_times",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       }
+      ]
+     },
+     {
+      "section": "kprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "thread0_of_grid",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 7,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 149,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 150,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 156,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "queue_state",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only (block 0,0,0 thread 0,0,0; line 151)"
+       },
+       {
+        "line": 157,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "queue_state",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "condition": "If the queue is empty (*read_seq >= *write_seq, line 158: underflow) the program returns here, and the guarded thread totals 4 none. Line 162 is a plain store to the read cursor."
+       },
+       {
+        "line": 165,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "launch_times",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only (queue non-empty)",
+        "condition": "Returns if the slot is 0 (line 166)."
+       },
+       {
+        "line": 168,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only"
+       },
+       {
+        "line": 171,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "time_histogram",
+        "map_type": "1503 GPU_ARRAY (created as 1513 on the Orin)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "condition": "Line 173 does a plain *count = *count + 1 by the single sampling thread; not counted."
+       }
+      ]
+     }
+    ],
+    "output_volume": "No records. One histogram sample per launch into a 10 x 8-byte array, plus a 4096-slot host/GPU timestamp FIFO (32 KiB) and 4 queue counters, all independent of thread count.",
+    "notes": "The whole GPU path is GPU-local: 1513 maps (default_trampoline.cu:259-263) and 1503->1513 (bpftime_shm.hpp:147-148). The loader writes host_target and clock_offset (launchlate.c:437, :465), attaches the uprobe at the launch PLT (:479) and the kprobe via the skeleton (:490), and reads time_histogram and queue_state (:300, :361). No map type or size is changed at run time."
+   },
+   {
+    "file": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl/gpu_ext/repo/workloads/llama.cpp/observability_overhead/revision-rq4/results-launchlate-perf-plt-575-01/gpubpf_tool_build/launchlate/launchlate.bpf.c",
+    "programs": [
+     {
+      "section": "uprobe",
+      "attach_point": "cpu_uprobe",
+      "runs_on_gpu": false,
+      "executing_threads": "other: CPU thread hitting the target ELF's launch PLT entry (launchlate.c:479-487), filtered by func == expected kernel stub (lines 75-91)",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 0,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 75,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "host_target",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 76,
+        "helper": "bpf_get_func_ip (173)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 93,
+        "helper": "bpf_ktime_get_ns (5)",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 98,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "clock_offset",
+        "map_type": "BPF_MAP_TYPE_ARRAY",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 102,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "queue_state",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program; atomic add at line 105"
+       },
+       {
+        "line": 107,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "queue_state",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       },
+       {
+        "line": 110,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "queue_state",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 0,
+        "who": "CPU",
+        "condition": "Overflow only (1 op)"
+       },
+       {
+        "line": 116,
+        "helper": "bpf_map_update_elem (2)",
+        "map": "launch_times",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 1,
+        "who": "CPU",
+        "condition": "CPU program"
+       }
+      ]
+     },
+     {
+      "section": "kprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+      "attach_point": "entry",
+      "runs_on_gpu": true,
+      "executing_threads": "thread0_of_grid",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 7,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 149,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 150,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 156,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "queue_state",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only (block 0,0,0 thread 0,0,0)"
+       },
+       {
+        "line": 157,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "queue_state",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "condition": "Queue empty (underflow, line 158): returns here with 4 none in total."
+       },
+       {
+        "line": 165,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "launch_times",
+        "map_type": "1513 GPU_ARRAY_HOST",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only (queue non-empty)"
+       },
+       {
+        "line": 168,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only"
+       },
+       {
+        "line": 171,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "time_histogram",
+        "map_type": "1503 -> 1513 on the Orin",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "condition": "Plain increment at line 173; not counted."
+       }
+      ]
+     }
+    ],
+    "output_volume": "Same as the table1 copy: one histogram sample per launch, fixed-size maps independent of thread count.",
+    "notes": "Byte-identical to results-table1-warp-plt-575-03/.../launchlate.bpf.c and its loader (diff clean). All counts and line numbers are the same."
+   },
+   {
+    "file": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl/gpu_ext/repo/workloads/llama.cpp/observability_overhead/revision-rq4/full-record-device-buffer/full-record-device-buffer.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "all",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 6,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 37,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 38,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 39,
+        "helper": "bpf_get_block_dim (504)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 40,
+        "helper": "bpf_get_grid_dim (508)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 51,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 89,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "arena",
+        "map_type": "1503 GPU_ARRAY (created as 1513 on the Orin)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads with thread_id < 524288",
+        "condition": "Key = bank (thread_id / 16384). The thread then writes an 80-byte record with plain stores (lines 137, or 108-117 / 125-134 under the AoSoA/SoA build flags) and bumps its own slot_counters[slot] (line 139). At 256 records per slot it instead does a plain total_overflow += 1 (line 94, racy across a bank)."
+       },
+       {
+        "line": 80,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "arena",
+        "map_type": "1503 -> 1513",
+        "dir": "none",
+        "count": 0,
+        "who": "threads with thread_id >= 524288",
+        "condition": "Out-of-range path only (1 op, replaces line 89): a plain, racy total_out_of_range += 1 in bank 0."
+       }
+      ]
+     }
+    ],
+    "output_volume": "One 80-byte record per thread per launch, up to 256 per thread slot, for thread_id < 524288. Storage is fixed at 32 banks x 335,675,408 bytes (about 10 GiB, value header) whatever the thread count; threads past 524288 are only counted.",
+    "notes": "By the rules this is 'none' (1503->1513, GPU-local), but the tool hand-builds per-thread storage indexed by global thread id inside a 1503 map, sized for a fixed guessed geometry (FRDB_TOTAL_SLOTS = 32 x 16384, header lines 42-45). It therefore has the D1 sizing problem in user code, without using a D1 map type. The layout flags (Makefile:26-30: SOA, AOSOA, SOA+WARP_CONTIGUOUS_INDEX) change only the stores and the slot mapping, not the helper/map op counts. The loader full-record-device-buffer.c:111 attaches and reads arena at :117 and :143; no type change at run time."
+   },
+   {
+    "file": "/tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dl/gpu_ext/repo/workloads/llama.cpp/observability_overhead/revision-rq4/onevalue-array-candidate/onevalue-array.bpf.c",
+    "programs": [
+     {
+      "section": "kretprobe/_Z9vectorAddPKfS0_Pf",
+      "attach_point": "exit",
+      "runs_on_gpu": true,
+      "executing_threads": "warp_leader",
+      "d1_per_firing": 0,
+      "d2_per_firing": 0,
+      "none_per_firing": 5,
+      "d1_per_firing_all_threads": 0,
+      "d2_per_firing_all_threads": 0,
+      "ops": [
+       {
+        "line": 36,
+        "helper": "bpf_get_block_idx (503)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 37,
+        "helper": "bpf_get_thread_idx (505)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 38,
+        "helper": "bpf_get_block_dim (504)",
+        "dir": "none",
+        "count": 1,
+        "who": "all threads"
+       },
+       {
+        "line": 47,
+        "helper": "bpf_get_globaltimer (502)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only (linear in-block thread id % 32 == 0, lines 39-42)"
+       },
+       {
+        "line": 49,
+        "helper": "bpf_map_lookup_elem (1)",
+        "map": "arena",
+        "map_type": "1503 GPU_ARRAY (created as 1513 on the Orin)",
+        "dir": "none",
+        "count": 1,
+        "who": "guarded threads only",
+        "condition": "Single value (key 0). The leader writes one 32-byte event at events[coordinate_x*44 + slot] (lines 63-69) and a plain *counter = slot + 1 (line 70). Out-of-range (coordinate_x >= 16384, or y/z != 0) and overflow (>= 44 events) do plain, racy += on shared totals (lines 54, 60)."
+       }
+      ]
+     }
+    ],
+    "output_volume": "One 32-byte event per warp per launch, up to 44 per warp coordinate, for at most 16384 warp coordinates. Storage is a fixed 23,199,768-byte value (onevalue_array_value.h:18-19, 43) whatever the thread count.",
+    "notes": "By the rules this is 'none' (1503->1513, GPU-local), but it hand-builds per-warp storage sized for a guessed warp count (ONEVALUE_ARRAY_MAX_WARPS = 16384, 44 events per warp): D1-style sizing in user code. The loader onevalue-array.c:92 attaches, prints the type and size at :98-102, and reads the map at :118; no type change at run time."
+   }
+  ]
+ },
+ "keys": [
+  "gpu/cuda-counter/cuda_probe.bpf.c|kprobe/_Z9vectorAddPKfS0_Pf",
+  "gpu/cuda-counter/cuda_probe.bpf.c|kretprobe/_Z9vectorAddPKfS0_Pf",
+  "gpu/kernel_trace/kernel_trace.bpf.c|kprobe/_Z9vectorAddPKfS0_Pfi",
+  "gpu/kernelretsnoop/kernelretsnoop.bpf.c|kretprobe/_Z9vectorAddPKfS0_Pf",
+  "gpu/launchlate-kernel-gpu-shared-map/launchlate.bpf.c|kprobe/cuda__Z9vectorAddPKfS0_Pf",
+  "gpu/launchlate-kernel-gpu-shared-map/launchlate.bpf.c|uprobe",
+  "gpu/launchlate/launchlate.bpf.c|kprobe/_Z9vectorAddPKfS0_Pf",
+  "gpu/launchlate/launchlate.bpf.c|uprobe",
+  "gpu/llama-cpp-test/threadhist.bpf.c|kretprobe/_Z12rms_norm_f32ILi1024ELb1ELb0EEvPKfPfilllfS1_lll5uint3S3_S3_S3_S1_lllS3_S3_S3_S3_",
+  "gpu/mem_trace/mem_trace.bpf.c|kprobe/__memcapture",
+  "gpu/threadhist-gpu-kernel-shared-map/threadhist.bpf.c|kretprobe/cuda__Z9vectorAddPKfS0_Pf",
+  "gpu/threadhist-gpu-kernel-shared-map/threadhist.bpf.c|uretprobe/./vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st",
+  "gpu/threadhist/threadhist.bpf.c|kretprobe/_Z9vectorAddPKfS0_Pf",
+  "gpu/threadscheduling/threadscheduling.bpf.c|kprobe/_Z9vectorAddPKfS0_Pf",
+  "gpu/threadscheduling_dynamic_hook/threadscheduling.bpf.c|kprobe/_Z9vectorAddPKfS0_Pfi",
+  "gpubpf_tool_build/kernelretsnoop/kernelretsnoop.bpf.c|kretprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+  "gpubpf_tool_build/launchlate/launchlate.bpf.c|kprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+  "gpubpf_tool_build/launchlate/launchlate.bpf.c|uprobe",
+  "gpubpf_tool_build/threadhist/threadhist.bpf.c|kretprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+  "revision-rq4/full-record-device-buffer/full-record-device-buffer.bpf.c|kretprobe/_Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiPKifff14rope_corr_dimsfPKfPKli",
+  "revision-rq4/onevalue-array-candidate/onevalue-array.bpf.c|kretprobe/_Z9vectorAddPKfS0_Pf"
+ ],
+ "diffs": [
+  {
+   "key": "gpu/launchlate-kernel-gpu-shared-map/launchlate.bpf.c|uprobe",
+   "fields": [
+    "executing_threads",
+    "none_per_firing"
+   ],
+   "a": {
+    "section": "uprobe",
+    "attach_point": "cpu_uprobe",
+    "runs_on_gpu": false,
+    "executing_threads": "other: host CPU thread calling cudaLaunchKernel (kernel eBPF uprobe under run_with_kernel, syscall_context.cpp:869-877; attached at launchlate.c:192)",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 5,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 54,
+      "helper": "bpf_ktime_get_ns (5)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side."
+     },
+     {
+      "line": 55,
+      "helper": "bpf_get_current_pid_tgid (14)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side."
+     },
+     {
+      "line": 60,
+      "helper": "bpf_printk -> bpf_trace_printk (6)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side."
+     },
+     {
+      "line": 64,
+      "helper": "bpf_map_lookup_elem (1)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "map": "clock_offset",
+      "map_type": "1504 (kernel ARRAY)",
+      "condition": "CPU side."
+     },
+     {
+      "line": 69,
+      "helper": "bpf_map_update_elem (2)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "map": "last_uprobe_time",
+      "map_type": "1504 (kernel ARRAY)",
+      "condition": "CPU side."
+     }
+    ]
+   },
+   "b": {
+    "section": "uprobe",
+    "attach_point": "cpu_uprobe",
+    "runs_on_gpu": false,
+    "executing_threads": "other: CPU thread calling the launch function chosen at run time (launchlate.c:186-200)",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 0,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 54,
+      "helper": "bpf_ktime_get_ns (5)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     },
+     {
+      "line": 55,
+      "helper": "bpf_get_current_pid_tgid (14)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     },
+     {
+      "line": 60,
+      "helper": "bpf_printk -> bpf_trace_printk (6)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     },
+     {
+      "line": 64,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "clock_offset",
+      "map_type": "1504 GPU_KERNEL_SHARED_ARRAY",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     },
+     {
+      "line": 69,
+      "helper": "bpf_map_update_elem (2)",
+      "map": "last_uprobe_time",
+      "map_type": "1504 GPU_KERNEL_SHARED_ARRAY",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     }
+    ]
+   }
+  },
+  {
+   "key": "gpu/launchlate/launchlate.bpf.c|uprobe",
+   "fields": [
+    "executing_threads",
+    "none_per_firing"
+   ],
+   "a": {
+    "section": "uprobe",
+    "attach_point": "cpu_uprobe",
+    "runs_on_gpu": false,
+    "executing_threads": "other: host CPU thread calling cudaLaunchKernel (bpftime userspace uprobe in the target process; attached at launchlate.c:276)",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 5,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 49,
+      "helper": "bpf_ktime_get_ns (5)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side."
+     },
+     {
+      "line": 50,
+      "helper": "bpf_get_current_pid_tgid (14)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side."
+     },
+     {
+      "line": 55,
+      "helper": "bpf_printk -> bpf_trace_printk (6)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side."
+     },
+     {
+      "line": 59,
+      "helper": "bpf_map_lookup_elem (1)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "map": "clock_offset",
+      "map_type": "BPF_MAP_TYPE_ARRAY",
+      "condition": "CPU side."
+     },
+     {
+      "line": 64,
+      "helper": "bpf_map_update_elem (2)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "map": "last_uprobe_time",
+      "map_type": "BPF_MAP_TYPE_ARRAY",
+      "condition": "CPU side."
+     }
+    ]
+   },
+   "b": {
+    "section": "uprobe",
+    "attach_point": "cpu_uprobe",
+    "runs_on_gpu": false,
+    "executing_threads": "other: CPU thread calling the launch function chosen at run time (launchlate.c:270-283 bpf_program__attach_uprobe_opts)",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 0,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 49,
+      "helper": "bpf_ktime_get_ns (5)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     },
+     {
+      "line": 50,
+      "helper": "bpf_get_current_pid_tgid (14)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     },
+     {
+      "line": 55,
+      "helper": "bpf_printk -> bpf_trace_printk (6)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     },
+     {
+      "line": 59,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "clock_offset",
+      "map_type": "BPF_MAP_TYPE_ARRAY",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     },
+     {
+      "line": 64,
+      "helper": "bpf_map_update_elem (2)",
+      "map": "last_uprobe_time",
+      "map_type": "BPF_MAP_TYPE_ARRAY",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     }
+    ]
+   }
+  },
+  {
+   "key": "gpu/mem_trace/mem_trace.bpf.c|kprobe/__memcapture",
+   "fields": [
+    "executing_threads"
+   ],
+   "a": {
+    "section": "kprobe/__memcapture",
+    "attach_point": "memcapture",
+    "runs_on_gpu": true,
+    "executing_threads": "all",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 1,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 25,
+      "helper": "bpf_map_lookup_elem (1)",
+      "dir": "none",
+      "count": 1,
+      "who": "all threads",
+      "map": "counter",
+      "map_type": "1503 (created as 1513 on Orin)",
+      "condition": "shared_array_offset with a membar.sys. Line 27 `*val = *val + 1` is a plain read-modify-write on one shared word, so updates are lost; not counted."
+     }
+    ]
+   },
+   "b": {
+    "section": "kprobe/__memcapture",
+    "attach_point": "memcapture",
+    "runs_on_gpu": true,
+    "executing_threads": "other: every thread, once per instrumented ld/st PTX instruction it executes (all kernels in the patched module)",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 1,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 25,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "counter",
+      "map_type": "1503 GPU_ARRAY (created as 1513 on the Orin)",
+      "dir": "none",
+      "count": 1,
+      "who": "all threads",
+      "condition": "Shared slot 0. Line 27 does a plain, non-atomic *val = *val + 1 from every thread on every memory instruction (lost updates); not counted."
+     }
+    ]
+   }
+  },
+  {
+   "key": "gpu/threadhist-gpu-kernel-shared-map/threadhist.bpf.c|uretprobe/./vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st",
+   "fields": [
+    "executing_threads",
+    "none_per_firing"
+   ],
+   "a": {
+    "section": "uretprobe/./vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st",
+    "attach_point": "cpu_uprobe",
+    "runs_on_gpu": false,
+    "executing_threads": "other: host CPU thread returning from cudaLaunchKernel<char> (kernel eBPF uretprobe; under run_with_kernel uprobes go to the kernel, syscall_context.cpp:869-877)",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 2,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 38,
+      "helper": "bpf_printk -> bpf_trace_printk (6)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "Kernel bpf on the CPU; not a GPU op."
+     },
+     {
+      "line": 40,
+      "helper": "bpf_map_lookup_elem (1)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "map": "call_count",
+      "map_type": "1504 (kernel ARRAY)",
+      "condition": "CPU side. Line 42 is an atomic add, not counted."
+     }
+    ]
+   },
+   "b": {
+    "section": "uretprobe/./vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st",
+    "attach_point": "cpu_uprobe",
+    "runs_on_gpu": false,
+    "executing_threads": "other: CPU thread returning from cudaLaunchKernel<char> (run by the kernel per the comment at line 34)",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 0,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 38,
+      "helper": "bpf_printk -> bpf_trace_printk (6)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program; not a GPU op"
+     },
+     {
+      "line": 40,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "call_count",
+      "map_type": "1504 (kernel ARRAY backing)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program. Line 42 adds atomically to key 1."
+     }
+    ]
+   }
+  },
+  {
+   "key": "gpubpf_tool_build/launchlate/launchlate.bpf.c|uprobe",
+   "fields": [
+    "executing_threads",
+    "none_per_firing"
+   ],
+   "a": {
+    "section": "uprobe",
+    "attach_point": "cpu_uprobe",
+    "runs_on_gpu": false,
+    "executing_threads": "other: host CPU thread in the selected kernel's host launch stub (bpftime userspace uprobe; attached at launchlate.c:479)",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 7,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 75,
+      "helper": "bpf_map_lookup_elem (1)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "map": "host_target",
+      "map_type": "BPF_MAP_TYPE_ARRAY",
+      "condition": "CPU side."
+     },
+     {
+      "line": 76,
+      "helper": "bpf_get_func_ip (173)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side."
+     },
+     {
+      "line": 93,
+      "helper": "bpf_ktime_get_ns (5)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side."
+     },
+     {
+      "line": 98,
+      "helper": "bpf_map_lookup_elem (1)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "map": "clock_offset",
+      "map_type": "BPF_MAP_TYPE_ARRAY",
+      "condition": "CPU side."
+     },
+     {
+      "line": 102,
+      "helper": "bpf_map_lookup_elem (1)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "map": "queue_state",
+      "map_type": "1513",
+      "condition": "CPU side. Line 105 is an atomic add, not counted."
+     },
+     {
+      "line": 107,
+      "helper": "bpf_map_lookup_elem (1)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "map": "queue_state",
+      "map_type": "1513",
+      "condition": "CPU side."
+     },
+     {
+      "line": 110,
+      "helper": "bpf_map_lookup_elem (1)",
+      "dir": "none",
+      "count": 0,
+      "who": "CPU thread",
+      "map": "queue_state",
+      "map_type": "1513",
+      "condition": "Only on queue overflow."
+     },
+     {
+      "line": 116,
+      "helper": "bpf_map_update_elem (2)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "map": "launch_times",
+      "map_type": "1513",
+      "condition": "CPU side."
+     }
+    ]
+   },
+   "b": {
+    "section": "uprobe",
+    "attach_point": "cpu_uprobe",
+    "runs_on_gpu": false,
+    "executing_threads": "other: CPU thread hitting the target ELF's launch PLT entry (launchlate.c:479-487), filtered by func == expected kernel stub (lines 75-91)",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 0,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 75,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "host_target",
+      "map_type": "BPF_MAP_TYPE_ARRAY",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     },
+     {
+      "line": 76,
+      "helper": "bpf_get_func_ip (173)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     },
+     {
+      "line": 93,
+      "helper": "bpf_ktime_get_ns (5)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     },
+     {
+      "line": 98,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "clock_offset",
+      "map_type": "BPF_MAP_TYPE_ARRAY",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     },
+     {
+      "line": 102,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "queue_state",
+      "map_type": "1513 GPU_ARRAY_HOST",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program; atomic add at line 105"
+     },
+     {
+      "line": 107,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "queue_state",
+      "map_type": "1513 GPU_ARRAY_HOST",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     },
+     {
+      "line": 110,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "queue_state",
+      "map_type": "1513 GPU_ARRAY_HOST",
+      "dir": "none",
+      "count": 0,
+      "who": "CPU",
+      "condition": "Overflow only (1 op)"
+     },
+     {
+      "line": 116,
+      "helper": "bpf_map_update_elem (2)",
+      "map": "launch_times",
+      "map_type": "1513 GPU_ARRAY_HOST",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU",
+      "condition": "CPU program"
+     }
+    ]
+   }
+  }
+ ],
+ "verdicts": [
+  {
+   "key": "gpu/launchlate-kernel-gpu-shared-map/launchlate.bpf.c|uprobe",
+   "correct": {
+    "section": "uprobe",
+    "attach_point": "cpu_uprobe",
+    "runs_on_gpu": false,
+    "executing_threads": "other: host CPU thread calling the uprobe target from argv[1] (default ./vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st, launchlate.c:111-131), attached at launchlate.c:184-192; runs as a kernel eBPF uprobe because README:72 starts the loader with BPFTIME_RUN_WITH_KERNEL=true and syscall_context.cpp:870-877 passes uprobe perf_event_open to the kernel",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 0,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 54,
+      "helper": "bpf_ktime_get_ns (5)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "Runs in kernel eBPF on the CPU; not a GPU op and not in the GPU per-firing totals."
+     },
+     {
+      "line": 55,
+      "helper": "bpf_get_current_pid_tgid (14)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side; not in the GPU totals."
+     },
+     {
+      "line": 60,
+      "helper": "bpf_printk -> bpf_trace_printk (6)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "Kernel trace_printk on the CPU. This is not a GPU-to-CPU host call, so it is not D2. It is not in the GPU totals."
+     },
+     {
+      "line": 64,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "clock_offset",
+      "map_type": "1504 GPU_KERNEL_SHARED_ARRAY (kernel ARRAY under run_with_kernel, syscall_context.cpp:527-560)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side; not in the GPU totals."
+     },
+     {
+      "line": 69,
+      "helper": "bpf_map_update_elem (2)",
+      "map": "last_uprobe_time",
+      "map_type": "1504 GPU_KERNEL_SHARED_ARRAY (kernel ARRAY under run_with_kernel)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side; not in the GPU totals."
+     }
+    ]
+   },
+   "reason": "none_per_firing: the schema defines it as 'GPU-local map ops and GPU helper calls' executed by one GPU thread per firing. This program runs on the CPU (runs_on_gpu=false), so every GPU per-firing total is 0. Reader B is right. Reader A's 5 counts CPU-side ops. If A's convention were applied consistently, the bpf_printk at line 60 would have to count too, which contradicts both readers' d2=0. The op rows stay as documentation (count 1, dir none); the totals deliberately leave them out, so the parent should not replace the totals with the sum of the op rows. executing_threads: both readers say a CPU thread, but A adds the mode. I verified the mode: README:72 runs the loader with BPFTIME_RUN_WITH_KERNEL=true, and syscall_context.cpp:870-877 then hands uprobe perf_event_open to the kernel, so this is a kernel eBPF uprobe. The target comes from argv[1] and defaults to the cudaLaunchKernel<char> template wrapper in ./vec_add (launchlate.c:111-131). The attach happens at launchlate.c:184-192."
+  },
+  {
+   "key": "gpu/launchlate/launchlate.bpf.c|uprobe",
+   "correct": {
+    "section": "uprobe",
+    "attach_point": "cpu_uprobe",
+    "runs_on_gpu": false,
+    "executing_threads": "other: host CPU thread calling the first defined STT_FUNC symbol whose name contains 'cudaLaunchKernel' in the target binary (launchlate.c:20, 211-212), attached at launchlate.c:270-283; bpftime userspace uprobe (README:84 runs the loader under libbpftime-syscall-server.so without BPFTIME_RUN_WITH_KERNEL)",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 0,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 49,
+      "helper": "bpf_ktime_get_ns (5)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side; not in the GPU per-firing totals."
+     },
+     {
+      "line": 50,
+      "helper": "bpf_get_current_pid_tgid (14)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side; not in the GPU totals."
+     },
+     {
+      "line": 55,
+      "helper": "bpf_printk -> bpf_trace_printk (6)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "Runs on the CPU in the bpftime userspace VM. This is not a GPU-to-CPU host call, so it is not D2. It is not in the GPU totals."
+     },
+     {
+      "line": 59,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "clock_offset",
+      "map_type": "BPF_MAP_TYPE_ARRAY",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side; not in the GPU totals."
+     },
+     {
+      "line": 64,
+      "helper": "bpf_map_update_elem (2)",
+      "map": "last_uprobe_time",
+      "map_type": "BPF_MAP_TYPE_ARRAY",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side; not in the GPU totals."
+     }
+    ]
+   },
+   "reason": "none_per_firing: this is a CPU uprobe (runs_on_gpu=false), so no GPU thread executes any op and the GPU-local count is 0 (reader B). The schema defines none_per_firing as GPU-local map ops and GPU helper calls. Reader A's 5 counts CPU ops, and A's own d2=0 for the printk shows that CPU ops sit outside the direction taxonomy. The op rows stay as documentation, but the totals deliberately leave them out. executing_threads: I described the target the way the loader picks it. find_defined_symbol_containing returns the first defined STT_FUNC containing DEFAULT_UPROBE_SYMBOL_HINT \"cudaLaunchKernel\" (launchlate.c:20, 211-212). vec_add is built with -cudart shared, so this is most likely the cudaLaunchKernel<char> template wrapper, but I did not list the ELF symbols. The attach is at launchlate.c:270-283; A's 276 falls inside that range. Mode: README:84 runs the loader with LD_PRELOAD=libbpftime-syscall-server.so and no RUN_WITH_KERNEL, so this is a bpftime userspace uprobe in the target process, as A said."
+  },
+  {
+   "key": "gpu/mem_trace/mem_trace.bpf.c|kprobe/__memcapture",
+   "correct": {
+    "section": "kprobe/__memcapture",
+    "attach_point": "memcapture",
+    "runs_on_gpu": true,
+    "executing_threads": "all",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 1,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 25,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "counter",
+      "map_type": "1503 GPU_ARRAY (created as 1513 on the Orin)",
+      "dir": "none",
+      "count": 1,
+      "who": "all threads",
+      "condition": "No guard: every thread runs the body (lines 21-29). One firing = one instrumented PTX ld/st. The memcapture pass (attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/main.cpp:45-56, 147) inserts an unpredicated 'call __memcapture__N' after every line matching ^\\s*(ld|st)\\.(const|global|local|param)?.<type>. Predicated (@p) and .nc-qualified loads do not match the regex, so they are not instrumented. Line 27 '*val = *val + 1' is a plain, non-atomic read-modify-write on the shared slot 0, so concurrent increments are lost. It is not counted as an op."
+     }
+    ]
+   },
+   "reason": "The readers agree on every count and differ only in executing_threads. The field asks which threads run the body past any guard. The program has no guard (lines 24-28), so the canonical value is 'all' (reader A). Reader B's 'other: every thread, once per instrumented ld/st' is true, but it describes how often the probe fires, not which threads run it. I moved that firing-granularity detail into the op condition, citing the memcapture PTX pass (main.cpp:45-56 regex, 147 call insertion)."
+  },
+  {
+   "key": "gpu/threadhist-gpu-kernel-shared-map/threadhist.bpf.c|uretprobe/./vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st",
+   "correct": {
+    "section": "uretprobe/./vec_add:_Z16cudaLaunchKernelIcE9cudaErrorPT_4dim3S3_PPvmP11CUstream_st",
+    "attach_point": "cpu_uprobe",
+    "runs_on_gpu": false,
+    "executing_threads": "other: host CPU thread returning from cudaLaunchKernel<char> in ./vec_add; kernel eBPF uretprobe (comment line 34 'Run by kernel'; README:5 uses BPFTIME_RUN_WITH_KERNEL=true, so syscall_context.cpp:870-877 hands the uprobe perf_event_open to the kernel)",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 0,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 38,
+      "helper": "bpf_printk -> bpf_trace_printk (6)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "Kernel eBPF on the CPU. This is not a GPU-to-CPU host call, so it is not D2. It is not in the GPU per-firing totals."
+     },
+     {
+      "line": 40,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "call_count",
+      "map_type": "1504 GPU_KERNEL_SHARED_ARRAY (kernel ARRAY backing under run_with_kernel)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread",
+      "condition": "CPU side; not in the GPU totals. Line 42 is an atomic add on key 1 through the returned pointer and is not counted."
+     }
+    ]
+   },
+   "reason": "none_per_firing: this program runs on the CPU (runs_on_gpu=false), so the GPU-local count is 0 (reader B). The schema field counts GPU-local map ops and GPU helper calls that a GPU thread executes. Reader A's 2 counts CPU-side ops, and A's own d2=0 for the printk at line 38 shows CPU ops are outside the direction taxonomy. The op rows stay as documentation, but the totals deliberately leave them out. executing_threads: the two descriptions are equivalent. I merged them: the SEC string fixes the target, line 34 says 'Run by kernel', and I verified the mechanism (README:5 BPFTIME_RUN_WITH_KERNEL=true -> syscall_context.cpp:870-877)."
+  },
+  {
+   "key": "gpubpf_tool_build/launchlate/launchlate.bpf.c|uprobe",
+   "correct": {
+    "section": "uprobe",
+    "attach_point": "cpu_uprobe",
+    "runs_on_gpu": false,
+    "executing_threads": "other: host CPU thread calling cudaLaunchKernel through the target ELF's PLT entry (uprobe at the cudaLaunchKernel@plt file offset, launchlate.c:405-412, 474-481); bpftime userspace uprobe (README:98, syscall-server LD_PRELOAD). Lines 75-91 run on every PLT call. The body past line 91 runs only when arg0 func equals the selected kernel's host stub address (host_target filter)",
+    "d1_per_firing": 0,
+    "d2_per_firing": 0,
+    "none_per_firing": 0,
+    "d1_per_firing_all_threads": 0,
+    "d2_per_firing_all_threads": 0,
+    "ops": [
+     {
+      "line": 75,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "host_target",
+      "map_type": "BPF_MAP_TYPE_ARRAY",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread (every PLT call)",
+      "condition": "CPU side; not in the GPU per-firing totals."
+     },
+     {
+      "line": 76,
+      "helper": "bpf_get_func_ip (173)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread (every PLT call)",
+      "condition": "CPU side; not in the GPU totals."
+     },
+     {
+      "line": 93,
+      "helper": "bpf_ktime_get_ns (5)",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread, matching launches only",
+      "condition": "Only after the func == expected filter at line 90. CPU side."
+     },
+     {
+      "line": 98,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "clock_offset",
+      "map_type": "BPF_MAP_TYPE_ARRAY",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread, matching launches only",
+      "condition": "CPU side."
+     },
+     {
+      "line": 102,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "queue_state",
+      "map_type": "1513 GPU_ARRAY_HOST",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread, matching launches only",
+      "condition": "CPU side. Line 105 is an atomic fetch-add through the returned pointer and is not counted."
+     },
+     {
+      "line": 107,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "queue_state",
+      "map_type": "1513 GPU_ARRAY_HOST",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread, matching launches only",
+      "condition": "CPU side."
+     },
+     {
+      "line": 110,
+      "helper": "bpf_map_lookup_elem (1)",
+      "map": "queue_state",
+      "map_type": "1513 GPU_ARRAY_HOST",
+      "dir": "none",
+      "count": 0,
+      "who": "CPU thread, matching launches only",
+      "condition": "Only on queue overflow (seq >= read_seq + 4096); the program then returns before line 116."
+     },
+     {
+      "line": 116,
+      "helper": "bpf_map_update_elem (2)",
+      "map": "launch_times",
+      "map_type": "1513 GPU_ARRAY_HOST",
+      "dir": "none",
+      "count": 1,
+      "who": "CPU thread, matching launches only",
+      "condition": "CPU side, on the common (no-overflow) path."
+     }
+    ]
+   },
+   "reason": "This key covers both results-table1-warp-plt-575-03 and results-launchlate-perf-plt-575-01. I diffed the two copies: launchlate.bpf.c and launchlate.c are byte-identical, so one record serves both. none_per_firing: this is a CPU uprobe (runs_on_gpu=false), so the GPU-local count is 0 (reader B). Reader A's 7 counts CPU ops. The op rows stay as documentation, but the totals deliberately leave them out. executing_threads: reader B is right. The loader attaches at the cudaLaunchKernel@plt file offset in the target ELF (find_x86_64_plt_entry at launchlate.c:405-412; attach at 474-481, with the comment 'Attach at the target ELF's launch PLT entry; arg0 is filtered in BPF'). It then filters on func == expected stub (bpf.c:75-91). Reader A's 'in the selected kernel's host launch stub' follows the stale comment at bpf.c:66-67. Lines 75-76 run on every PLT call, and the rest only on matching launches. A's 'bpftime userspace uprobe' is confirmed by README:98 (syscall-server LD_PRELOAD, no RUN_WITH_KERNEL). Platform note: the loader is x86_64-only. find_x86_64_plt_entry rejects e_machine != EM_X86_64 (launchlate.c:189) and expects 16-byte .plt/.plt.sec entries, so this tool cannot attach on the Orin (aarch64) as built."
+  }
+ ]
+}
