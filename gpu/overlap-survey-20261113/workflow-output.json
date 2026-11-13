@@ -1,0 +1,1118 @@
+{
+  "summary": "How much gpu_ext and upstream bpftime overlap with direction 1 (GPU maps sized by thread index); read paper, repo, upstream branches, then verify",
+  "agentCount": 6,
+  "logs": [],
+  "result": [
+    {
+      "key": "paper",
+      "found": {
+        "findings": [
+          {
+            "claim": "The per-GPU-thread array (bpftime map types 1502/1512) shows up once in the paper: as an x-axis label, 'Per-GPU-thread array', in Fig. 12(a), 'GPU-side Operations Overhead'. Our runtime ('gBPF (ours)') is about 78% cheaper per operation than eGPU-style injection, roughly 4.3 us down to about 1.0 us read off the bars. The paper does not describe its layout, its key (thread index), how its size or thread count is chosen, or what happens to a thread beyond capacity. The benchmark is a vector-add with '32 elements, 10K iterations' on an RTX 5090 (§6.4.2, paragraph 'Device-side Runtime Overhead and Optimization'), with the launch shape not given, so capacity versus grid size is never tested. Tier: evaluated only as per-operation latency.",
+            "source": "arXiv 2512.12615v2, Fig. 12(a) (PDF p.12; HTML figure S6.F12, microbench_comparison.svg) and §6.4.2 text",
+            "approach": "other",
+            "status": "measurement",
+            "date": "v2 2025-12-20 (same in v1 2025-12-14)"
+          },
+          {
+            "claim": "The GPU ringbuf (type 1527) also appears only as the 'Ringbuf' bar in Fig. 12(a): -69% versus eGPU-style, roughly 5.4 us down to 1.7 us. The paper contains no text on the ringbuf: nothing on per-thread versus shared layout, reservation, size, overflow or drop behaviour, or how the consumer drains it. The words 'ring buffer', 'overflow', 'drop' and 'lost' do not appear anywhere. Tier: per-operation latency only.",
+            "source": "arXiv 2512.12615v2, Fig. 12(a); full-text search of the v2 HTML and PDF",
+            "approach": "other",
+            "status": "measurement",
+            "date": "2025-12-20"
+          },
+          {
+            "claim": "The paper presents warp-leader aggregated execution as a general runtime mechanism, implemented and evaluated. Design (§4.4.2): policy logic runs once per warp on a 'warp leader' (typically lane 0). Each lane computes its own contribution, the warp aggregates them, the leader runs the handler once, and the result is broadcast back. Implementation (§5.3): per-lane inputs are aggregated with __ballot_sync/__shfl_sync, the leader is __ffs(__activemask()), and results return via shuffle. Evaluation: Fig. 12(a) shows 60-80% lower overhead than eGPU per-thread execution (Entry+Exit only -17%). Table 2 tools show 3-14% overhead against 85-93% for NVBit. This aggregates execution and map updates per warp. It is not a shared output buffer: no warp-leader reservation into a shared or per-SM ring is described.",
+            "source": "arXiv 2512.12615v2 §4.4.2, §5.3 (second paragraph), Fig. 12(a), Table 2",
+            "approach": "shared_warp_buffer",
+            "status": "measurement",
+            "date": "2025-12-20"
+          },
+          {
+            "claim": "Hierarchical cross-layer maps. Design (§4.4.3): each map is one logical key-value store, physically sharded across host DRAM, GPU global memory and GPU-local storage ('shared memory, SM-local'). 'The runtime dynamically determines shard placement based on access frequency, latency, and capacity constraints.' Consistency is relaxed: GPU-local shards are merged into canonical snapshots at sync points such as kernel completion. §5.3 (paragraph 'Hierarchical Maps and Cross-Domain State') states it in present tense, as if implemented: cold state in host DRAM, frequently accessed state in GPU global memory, 'hot per-warp or per-SM data is cached in GPU shared memory'. Shard sizes are never given. Nothing says how shard or slot count is set: per warp or per SM of what launch, or how many. No placement algorithm is given, and nothing is evaluated: no experiment measures shards, placement, flush or staleness. Fig. 12(b) measures only eGPU's CPU-map latency. Fig. 3 draws a single 'Share Maps' box with no tiers. Per-warp and per-SM shards are indexed by hardware position, which is the closest the paper comes to our hardware_slots idea, but only in prose.",
+            "source": "arXiv 2512.12615v2 §4.4.3; §5.3 paragraph 'Hierarchical Maps and Cross-Domain State'; §4.2 ('backing storage is automatically partitioned and replicated'); Fig. 3",
+            "approach": "hardware_slots",
+            "status": "paper_only",
+            "date": "2025-12-20"
+          },
+          {
+            "claim": "Shard updates: 'Shard updates occur strictly at warp granularity through warp-leader threads without GPU atomic operations.' Example: per-region access counters accumulate in warp-local registers, are aggregated per warp, and are stored into GPU-local shards. A 'runtime daemon asynchronously flushes GPU-local shards to host-visible canonical map instances', using snapshot aggregation at kernel completion boundaries. This defers host-visible state: buffer on the GPU, publish later. It is fixed for maps, not chosen per helper call site. Stated as implemented in §5.3, not evaluated; no flush period, shard size or memory cost is given.",
+            "source": "arXiv 2512.12615v2 §5.3 paragraph 'Hierarchical Maps and Cross-Domain State'; §4.4.3",
+            "approach": "dir2_automatic_warp",
+            "status": "paper_only",
+            "date": "2025-12-20"
+          },
+          {
+            "claim": "Restrictions in the SIMT-aware verifier: 'branch conditions, loop bounds, and map-update keys be warp-uniform or derived via warp-level aggregation'. It prohibits 'GPU-wide barriers, global synchronization primitives, and non-uniform atomic operations', and sets 'resource budgets per policy hook to bound memory and thread resource usage' (instructions, helper invocations, memory operations, §5.3). §5.3 adds that gpu_ext 'avoids cross-SM synchronization primitives', unlike eGPU's atomics. The paper does not reconcile two things. First, the warp-uniform map-key rule sits beside a benchmarked per-GPU-thread array, whose key is lane-varying by definition. Second, the no-atomics and no-cross-SM-sync statements sit beside a benchmarked ringbuf, and a shared ring would need cross-warp reservation. The budgets limit operations per hook. They do not validate map size against thread count. Status: the verification pass is said to be implemented (§5.3); no evaluation of rejections or budgets.",
+            "source": "arXiv 2512.12615v2 §3 Principle 3, §4.4.1, §5.3 (first and second paragraphs)",
+            "approach": "other",
+            "status": "paper_only",
+            "date": "2025-12-20"
+          },
+          {
+            "claim": "Per-launch hook exists, but there is no sizing at launch. §5.3: 'Before each GPU kernel runs, gpu_ext dynamically intercepts CUDA runtime APIs to extract GPU kernel PTX, rewrite it with binary trampolines, and load instrumented GPU kernels back.' So the runtime does act per launch, but the paper never links that step to allocating or growing map storage from grid x block. The word 'grid' does not occur in the paper.",
+            "source": "arXiv 2512.12615v2 §5.3 (second paragraph)",
+            "approach": "size_at_launch",
+            "status": "paper_only",
+            "date": "2025-12-20"
+          },
+          {
+            "claim": "Dir2 (automatic choice per call site) is not in the paper. Warp aggregation applies uniformly to every hook ('Each hook invocation conceptually follows a two-phase approach', §4.4.2). The load-time dataflow analysis (§5.3: propagate warp-uniformity through arithmetic, logical and memory operations; walk the CFG) only rejects lane-varying branch, loop and key dependencies; it does not choose an execution mode. The JIT 'inline[s] helper functions and map accesses' (§5.3), plus 'specialization and inlining' (§4.4.2). The only automatic decision mentioned is shard placement for maps (§4.4.3), with no algorithm. Nothing chooses, per helper call site, between eliminating the call, aggregating it per warp, deferring it, or keeping a synchronous host round trip.",
+            "source": "arXiv 2512.12615v2 §4.4.2, §4.4.3, §5.3",
+            "approach": "dir2_automatic_warp",
+            "status": "paper_only",
+            "date": "2025-12-20"
+          },
+          {
+            "claim": "Cost of a host round trip, motivating hot state on the GPU. Fig. 12(b), 'CPU Map (PCIe)': eGPU's CPU-map Array lookup and Array update each take about 34 ms (bar labels). The §6.4.2 text says 'CPU map access via PCIe is 6000x slower than GPU-side operations, motivating gpu_ext's hierarchical map design'. This measures eGPU, the prior work. The paper gives no figure for its own shard path.",
+            "source": "arXiv 2512.12615v2 Fig. 12(b) and §6.4.2 paragraph 'Device-side Runtime Overhead and Optimization'",
+            "approach": "dir2_automatic_warp",
+            "status": "measurement",
+            "date": "2025-12-20"
+          },
+          {
+            "claim": "Device-to-host signalling without a synchronous call. The device-side helper 'gdev_mem_prefetch(gmem_region_t* r)' is described as 'Request prefetch, triggers handler in host driver' (§4.3.1 listing, lines 29-30). §6.2.1 implements it as device-side prefetch.global.L2 instructions that 'trigger non-blocking page faults, while host-side callbacks extend prefetching'. The host-side work runs asynchronously on the UVM fault path, with no GPU-to-CPU round trip. Evaluated: 1.34x speedup with device-only prefetch plus default host prefetch, and 1.77x with combined host-device stride prefetch (vector-add, 40 GB working set, 1.25x oversubscription).",
+            "source": "arXiv 2512.12615v2 §4.3.1 (gdev_mem_ops listing), §6.2.1 paragraph 'Memory Policy Microbenchmarks'",
+            "approach": "dir2_automatic_warp",
+            "status": "measurement",
+            "date": "2025-12-20"
+          },
+          {
+            "claim": "Data keyed by hardware position, but no storage scheme. Fig. 2, 'observed via eBPF tracing', shows (a) thread count per SM ID (16 SMs; SM 15: 382 threads vs SM 6: 3 threads, a 127x imbalance) and (b) a heatmap of thread count per (SM ID x warp ID) (warp IDs 0-15). The tool, its map type, slot layout and sizes are not described, so this is motivation data, not a hardware-slot map design.",
+            "source": "arXiv 2512.12615v2 §2.1, Fig. 2 (thread_scheduling_motivation.png)",
+            "approach": "hardware_slots",
+            "status": "measurement",
+            "date": "2025-12-20"
+          },
+          {
+            "claim": "Observability tools, overhead only. kernelretsnoop ('per-thread block finish timestamp recording', 153 LOC, Device): 8% vs NVBit 85%. threadhist (89 LOC, Device): 3% vs 87%. launchlate (347 LOC, Host+Device): 14% vs 93%. Measured on a P40 with llama.cpp prefill (Llama 1B), as token/s degradation. The text says '3-14% vs 85-87%', which is inconsistent with the table's 93%. No ring or map size, memory footprint, grid size, thread count or drop count is reported. The 892 MiB ring for 22 MiB of payload comes from the repo notes, not the paper.",
+            "source": "arXiv 2512.12615v2 §6.4.2 and Table 2",
+            "approach": "other",
+            "status": "measurement",
+            "date": "2025-12-20"
+          },
+          {
+            "claim": "Versions: v1 submitted 2025-12-14 09:39:59 UTC, v2 2025-12-20 15:00:39 UTC. The abs page says v2 is current, and /abs/2512.12615v3 returned 404 on 2026-11-13. A text diff of the v1 and v2 HTML shows changes only in the Abstract and §1 wording; §3-§7 are identical. The paper gives no repository URL and has no artifact appendix (16-page PDF, references only after §8). The Fig. 12 legend names the device runtime 'gBPF (ours)', which is worth searching for in the repo.",
+            "source": "https://arxiv.org/abs/2512.12615 submission history; diff of the arxiv.org/html v1 and v2 pages",
+            "approach": "other",
+            "status": "doc_note",
+            "date": "2025-12-14 (v1), 2025-12-20 (v2)"
+          }
+        ],
+        "summary": "I read the whole gpu_ext paper, arXiv 2512.12615v2 (2025-12-20; still the latest version, v3 returns 404). I read the HTML text, the PDF, and the Fig. 2, 3 and 12 images, and diffed v2 against v1. The paper covers our direction-1 problem (map size fixed by thread index) only indirectly.\n\n(a) The per-GPU-thread array and the GPU ringbuf appear only as two bars in Fig. 12(a): -78% and -69% per-operation overhead against eGPU-style injection, on a 32-element vector-add. The paper says nothing about their layout, thread count or capacity, overflow, drops, or memory use.\n\n(b) Warp-leader aggregated execution (__ballot_sync/__shfl_sync, leader = __ffs(__activemask()), result broadcast back) is a general mechanism. The paper presents it as implemented (§5.3) and evaluates it (Fig. 12a: 60-80% lower; Table 2: tools at 3-14% overhead against NVBit's 85-93%). It aggregates execution and map updates per warp. It is not a shared output buffer with warp-leader reservation.\n\n(c) Hierarchical map shards (host DRAM / GPU global / GPU shared memory holding 'hot per-warp or per-SM data'), placed by the runtime 'dynamically' and flushed by a daemon as snapshots at kernel completion. This is design in §4.4.3 and described as implemented in §5.3, but never evaluated. It gives no shard sizes, no placement algorithm, and no sizing rule; Fig. 3 draws a single 'Share Maps' box. Per-warp and per-SM shards are the closest thing to our hardware-slots idea, and they exist only in prose.\n\n(d) There is no per-launch sizing. §5.3 does intercept and rewrite PTX before each kernel runs, but never sizes maps from the grid.\n\n(e) Three cheap fixes are absent: thread-count validation, a warning at launch, and drop counters.\n\n(f) For direction 2, warp aggregation applies to every hook. The load-time dataflow analysis is used only to reject programs, not to choose an execution mode per call site. The only device-to-host 'call' (gdev_mem_prefetch) runs asynchronously through prefetch.global.L2 and non-blocking page faults (1.34x and 1.77x in §6.2.1). Fig. 12(b) puts eGPU's CPU-map access over PCIe at about 34 ms, '6000x slower'.\n\n(g) The paper leaves two tensions unexplained. The verifier requires warp-uniform map-update keys yet a per-thread array is benchmarked. It says it avoids atomics and cross-SM synchronization, yet a ringbuf is benchmarked.\n\nOn status labels: 'paper_only' means the source is the paper's text and I did not check the repo. It does not mean the code lacks the feature. I never use runtime_feature_* because a paper cannot show what is merged. Scratch files (the paper text, PDF and figure crops) are under /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir1-overlap/paper/.",
+        "not_found": [
+          "How the capacity or thread count of the per-GPU-thread array or ringbuf is chosen. No thread_count, max_entries, default 1024 or environment variable is mentioned. The word 'grid' never appears.",
+          "What happens on overflow, i.e. a thread beyond capacity: no 'overflow', 'drop', 'lost' or 'loss' anywhere in v1 or v2.",
+          "Allocating or growing map storage per launch from grid x block. The per-launch PTX rewrite in §5.3 is not connected to sizing.",
+          "Memory footprint of any map or ring (no MiB or byte numbers for maps). The 892 MiB kernelretsnoop ring is not in the paper.",
+          "Any ringbuf design: per-thread vs shared, reservation protocol, record format, consumer or drain path.",
+          "A shared output buffer (global or per SM) with warp-leader reservation that keeps memory independent of the grid.",
+          "A map layout by hardware slot (SM x warp slot x lane, or GT-Pin-style buckets). Fig. 2 shows data keyed by SM and warp ID, but the storage is not described.",
+          "Shard sizes, how shard capacity is set, the placement algorithm, flush period, and any evaluation of the shards, flush daemon or snapshot staleness.",
+          "Cheap fixes: thread-count validation, a warning when the grid exceeds a map's thread count, drop counters by reason.",
+          "Choosing per helper call site, by analysis, between eliminating the host call, aggregating per warp, deferring, or a synchronous round trip. The warp-uniformity analysis is used only to reject programs.",
+          "How the warp-uniform map-key rule fits with the per-GPU-thread array, and how the no-atomics / no-cross-SM-sync statements fit with the ringbuf.",
+          "A newer paper version (v3 returns 404 on 2026-11-13), an artifact appendix, or a repo URL in the paper."
+        ]
+      },
+      "verified": {
+        "checked": [
+          {
+            "claim": "Per-GPU-thread array (bpftime types 1502/1512) appears only as the Fig. 12(a) x-axis label 'Per-GPU-thread array'. gBPF is about 78% cheaper than eGPU-style (about 4.3 to 1.0 us). The paper gives no layout, key, sizing or overflow behaviour. Benchmark: vector-add, 32 elements, 10K iterations, RTX 5090, launch shape not given.",
+            "verdict": "confirmed",
+            "source": "Re-fetched https://arxiv.org/html/2512.12615v2 (byte-identical to the reader's copy) and microbench_comparison.svg. Decoded the glyph data-text labels and measured the bar geometry against the y-ticks at 0 and 5. §6.4.2 paragraph 'Device-side Runtime Overhead and Optimization'. PDF p.12 (pdftotext places both Fig. 12 and Table 2 on p.12).",
+            "correction": "Bar geometry gives eGPU-style 4.36 us and gBPF 0.96 us; the label reads -78%. The words 'grid', 'thread count' (outside the Fig. 2 axis labels), 'max_entries' and 'thread_count' do not occur. Note: the numbers 1502/1512 are the reader's mapping to bpftime; the paper never names map types."
+          },
+          {
+            "claim": "The GPU ringbuf (1527) appears only as the 'Ringbuf' bar in Fig. 12(a): -69%, about 5.4 to 1.7 us. No text on layout, reservation, size, overflow, drops or drain. 'ring buffer', 'overflow', 'drop' and 'lost' appear nowhere.",
+            "verdict": "confirmed",
+            "source": "Fig. 12(a) SVG (geometry: 5.48 to 1.71 us, label -69%). Text search of the v2 HTML text and of the pdftotext output of v2.pdf: ringbuf, ring buffer, overflow, drop, lost and grid all return 0 hits in the body text. 'Ringbuf' exists only as glyph labels inside the SVG.",
+            "correction": ""
+          },
+          {
+            "claim": "The paper presents warp-leader aggregated execution as a general runtime mechanism, implemented and evaluated (§4.4.2 design; §5.3 __ballot_sync/__shfl_sync, leader __ffs(__activemask()), broadcast by shuffle). Fig. 12(a) shows 60-80% lower overhead (Entry+Exit -17%). Table 2: 3-14% vs NVBit 85-93%. It is not a shared output buffer.",
+            "verdict": "corrected",
+            "source": "v2 §4.4.2; §5.3 second paragraph; Fig. 12(a) SVG; Table 2. Cross-check: bpftime official/master 42cf71c4 (2026-11-12), attach/nv_attach_impl/trampoline/default_trampoline.cu.",
+            "correction": "The paper text is quoted correctly. Two corrections. (1) Numbers: the bars read -65, -68, -17, -81, -80, -70, -69, -79, -78, -78%. Exit probe at -81% sits just outside the text's '60-80%'. (2) 'Implemented' is the paper's own claim. In bpftime master 42cf71c4 the trampoline has no __ballot_sync, __shfl_sync or leader path (git grep over attach/ and runtime/ finds none). make_helper_call (default_trampoline.cu:131-168) loops over all 32 lanes and serialises each active lane through a global spin lock and a host round trip. The per-thread array and ringbuf write per-thread slots. Warp-leader lowering exists only on the unmerged branch official/revision/automatic-warp-execution (e801d287 and 49d71e5e, 2026-09-08). It is opt-in via BPFTIME_GPU_AUTO_WARP_EXECUTION and admitted per program. The vm/llvm-jit submodule was not inspected, and the gpu_ext repo was not examined by me."
+          },
+          {
+            "claim": "Hierarchical cross-layer maps: sharded over host DRAM, GPU global and GPU-local/shared memory, placed 'dynamically', merged at kernel completion. Stated as implemented in §5.3, never evaluated, no sizes, no placement algorithm. Fig. 3 shows a single 'Share Maps' box. Per-warp/per-SM shards are 'indexed by hardware position', the closest thing to hardware_slots.",
+            "verdict": "corrected",
+            "source": "v2 §4.4.3; §5.3 paragraph 'Hierarchical Maps and Cross-Domain State'; §4.2 ('backing storage is automatically partitioned and replicated across host and device with consistency'); Fig. 3 image gpu-ebpf-arch.png (single 'Share Maps' cylinder); Fig. 12(b) caption 'eGPU CPU map access latency via PCIe'.",
+            "correction": "All quotes and absences check out. One phrase is the reader's inference: 'indexed by hardware position'. The paper only says 'hot per-warp or per-SM data is cached in GPU shared memory'. 'Per-warp' may mean the logical warp, not the hardware warp slot. CUDA shared memory is per thread block, so 'per-SM' data held there would live only for a block's lifetime, and the paper does not explain this. Treat it as a weak, prose-only hint toward hardware_slots. Code status: bpftime master 42cf71c4 has no shard, snapshot or __shared__ storage in runtime/src/bpf_map/gpu/ or the trampoline. The gpu_ext repo was not checked here."
+          },
+          {
+            "claim": "Shard updates happen 'strictly at warp granularity through warp-leader threads without GPU atomic operations'. Counters accumulate in warp-local registers and are stored into GPU-local shards. A 'runtime daemon asynchronously flushes' them as snapshots at kernel completion. Deferral is fixed for maps, not chosen per call site. Stated as implemented, not evaluated.",
+            "verdict": "confirmed",
+            "source": "v2 §5.3 paragraph 'Hierarchical Maps and Cross-Domain State' (verbatim match); §4.4.3 ('periodically merges GPU-local map shards into canonical snapshots at synchronization points').",
+            "correction": "Note: bpftime master shows the opposite pattern in a hand-written tool. 466e91b0 (2026-11-12, #740) changed example/gpu/mem_trace/mem_trace.bpf.c to use __atomic_add_fetch on a shared counter, because per-thread execution lost 9 of 10 updates. Master runs handlers per thread and fixes shared-key races with atomics, not warp-leader aggregation."
+          },
+          {
+            "claim": "The verifier requires warp-uniform branch, loop and map-update keys, forbids GPU-wide barriers and non-uniform atomics, and sets per-hook budgets. §5.3 says it 'avoids cross-SM synchronization primitives'. The paper leaves two tensions unexplained: the warp-uniform key rule against a per-GPU-thread array whose key is 'lane-varying by definition', and no-atomics/no-cross-SM against a ringbuf that needs cross-warp reservation. Budgets do not validate map size against thread count.",
+            "verdict": "corrected",
+            "source": "v2 §3 Principle 3, §4.4.1, §5.3 first and second paragraphs. Cross-check: bpftime master 42cf71c4 default_trampoline.cu:180-199 (getGlobalThreadId, array_map_offset) and :364-378 (ringbuf); branch official/codex/gpu-simt-verifier-clean, bpftime-verifier/src/gpu/uniformity_analysis.cpp (is_per_thread_gpu_map, map_lookup_may_be_per_thread); branch official/revision/automatic-warp-execution, bpftime-verifier/src/gpu/warp_execution_eligibility.hpp.",
+            "correction": "The quotes, prohibitions and budgets ('instructions, helper invocations, and memory operations') are correct, as is the point that budgets do not check thread count. Both 'tensions' are the reader's inference, and the code weakens them. (a) The per-thread array's key is the ordinary array index. The runtime picks the thread's copy implicitly: extra_buffer + idx*max_thread_count*value_size + getGlobalThreadId()*value_size (default_trampoline.cu:189-199). So a warp-uniform key is compatible. The SIMT verifier branch treats lookups on 1502/1512 as returning lane-varying values, not as lane-varying keys. (b) The master GPU ringbuf is one ring per thread at tid*entry_size (:364-378). It needs no cross-warp reservation; it uses only a per-ring __atomic_fetch_add on the tail. The real tension is between once-per-warp leader execution and per-lane outputs. The unmerged automatic-warp branch resolves it by excluding programs with perf_event_output, trace_printk, per-thread map writes or atomics from leader lowering. Status of the verifier itself: it exists only on unmerged branches. official/codex/gpu-simt-verifier-clean: real work ac6154ba..44c35114, 2026-08-01 to 08-05; its 2026-11-12 tip 7aca4027 is only a merge of master. official/feat/gpu-verifier: tip 4bf1a7fa, 2026-03-19. It is not in master."
+          },
+          {
+            "claim": "There is a per-launch hook ('Before each GPU kernel runs, gpu_ext dynamically intercepts CUDA runtime APIs to extract GPU kernel PTX, rewrite it...'), so the runtime acts per launch, but never sizes maps from grid x block. 'grid' does not occur.",
+            "verdict": "corrected",
+            "source": "v2 §5.3 second paragraph; text search. Cross-check: bpftime master 42cf71c4 attach/nv_attach_impl/nv_attach_impl_frida_setup.cpp:172-175, 211-213, 256, 355, 431-450, 531-545.",
+            "correction": "The quote and the absence of 'grid' are confirmed. 'The runtime does act per launch' over-reads the sentence: it covers PTX extraction and rewriting, which is naturally once per module or kernel, and the paper never says per launch. In bpftime master, PTX is captured at __cudaRegisterFatBinary / __cudaRegisterFatBinaryEnd (frida_setup.cpp:256, 355). The launch hooks (cudaLaunchKernel :431-450, cuLaunchKernel :531-545) have grid_dim and block_dim in hand but only log them (:443) and forward them to cuLaunchKernel (:172-175, :211-213). Nothing sizes maps per launch, in the paper or in master."
+          },
+          {
+            "claim": "Dir2 (automatic choice per helper call site among eliminate, aggregate per warp, defer or synchronous) is not in the paper. Warp aggregation applies to every hook, and the load-time dataflow analysis only rejects programs.",
+            "verdict": "confirmed",
+            "source": "v2 §4.4.2 ('Each hook invocation conceptually follows a two-phase approach'), §4.4.3, §5.3 (dataflow analysis 'to reject lane-varying dependencies'; 'we inline helper functions and map accesses').",
+            "correction": "Code goes further than the paper: see the added item on the unmerged automatic-warp-execution branch. Its analysis chooses per program between warp-leader and per-thread execution, not per call site, and offers no eliminate or defer modes."
+          },
+          {
+            "claim": "Fig. 12(b): eGPU's CPU-map Array lookup and Array update each take about 34 ms. Text: 'CPU map access via PCIe is 6000x slower than GPU-side operations'. This is eGPU, not gpu_ext's shard path.",
+            "verdict": "confirmed",
+            "source": "Fig. 12(b) SVG: bar geometry 33,739 and 33,887 us against the 25000 tick; labels '34ms', '34ms'; caption '(b) eGPU CPU map access latency via PCIe'; §6.4.2.",
+            "correction": "Note: 34 ms / 6000 is about 5.6 us. That matches the eGPU-style GPU-op bars (Array update 5.97 us, Ringbuf 5.48 us), not gBPF's 0.2-1.8 us. The '6000x' is therefore relative to eGPU-style operations. The paper does not say whether 34 ms is per access or per batch of iterations."
+          },
+          {
+            "claim": "gdev_mem_prefetch ('Request prefetch, triggers handler in host driver', §4.3.1 listing lines 29-30). §6.2.1 implements it as prefetch.global.L2 with non-blocking faults and host callbacks, an asynchronous device-to-host path. 1.34x and 1.77x on vector-add, 40 GB, 1.25x oversubscription.",
+            "verdict": "corrected",
+            "source": "v2 §4.3.1 listing (line 28 '// Device-side helpers', line 29 comment, line 30 signature) and the prose 'Operations like prefetch can be performed on device and then trigger host-side prefetch handlers'; §6.2.1 'Memory Policy Microbenchmarks'; Table 1.",
+            "correction": "The numbers and setup are confirmed: modified stride vector-add, 40GB working set, 1.25x oversubscription. 1.34x is 'device-only prefetch and default host prefetch at thread entry'; 1.77x is 'combined host-device stride-based eBPF prefetch'; sequential prefetch is 8% slower. Two corrections. §6.2.1 never names gdev_mem_prefetch, so the link to prefetch.global.L2 is inferred, though consistent with §4.3.1. The 'host' handler is the kernel UVM driver hook (gpu_mem_ops.gpu_prefetch), reached through a page fault, not a user-space helper server. Table 1 lists 'GPU L2 Stride Prefetch, Device, 45 LOC'."
+          },
+          {
+            "claim": "Fig. 2 ('observed via eBPF tracing'): threads per SM ID (16 SMs; SM 15 382 vs SM 6 3, 127x) and a heatmap of SM ID x warp ID (0-15). The tool, map type and layout are not described; this is motivation data, not a slot design.",
+            "verdict": "confirmed",
+            "source": "v2 §2.1 and Fig. 2 caption; image thread_scheduling_motivation.png (SM IDs 0-15, warp IDs 0-15, 'Ideal (74)', 'Load Balance: 48.6%').",
+            "correction": "Addition: the panel implies about 16 x 74 = 1,184 traced threads. The paper does not name the tool. bpftime master holds a matching hand-written tool, example/gpu/threadscheduling (see added items). Table 2's threadhist is described as 'for load imbalance detection', but the paper does not tie it to Fig. 2."
+          },
+          {
+            "claim": "Table 2: kernelretsnoop (153 LOC, Device) 8% vs 85%; threadhist (89) 3% vs 87%; launchlate (347, Host+Device) 14% vs 93%. P40, llama.cpp prefill Llama 1B, token/s degradation. The text '3-14% vs 85-87%' contradicts 93%. No ring or map sizes. The 892 MiB figure is not in the paper.",
+            "verdict": "confirmed",
+            "source": "v2 §6.4.2 and Table 2 (parsed from the HTML table); search for '892' and 'MiB': 0 hits in the HTML text and the PDF text.",
+            "correction": "Workload detail: 'Llama 1B, IO3, sequence-mixed'."
+          },
+          {
+            "claim": "Versions: v1 2025-12-14 09:39:59 UTC, v2 2025-12-20 15:00:39 UTC; v3 returns 404 (2026-11-13). The v1/v2 diff touches only the Abstract and §1. No repo URL, no artifact appendix, 16-page PDF. The Fig. 12 legend says 'gBPF (ours)'.",
+            "verdict": "confirmed",
+            "source": "arxiv.org/abs/2512.12615 submission history; /abs/2512.12615v3 returned HTTP 404 on 2026-11-13; my own text diff of the v1 and v2 HTML (differences only at the date line, the Abstract and two §1 paragraphs); microbench_comparison.svg byte-identical in v1 and v2; pdfinfo 16 pages, references start p.13; arXiv API title search 'gpu_ext' returns only 2512.12615v2.",
+            "correction": "Addition: the paper names no repository, but §5.1 says the 'userspace loader and JIT infrastructure (~10 KLOC) builds upon bpftime's framework' (uncited), plus an 'LLVM-based backend (~1 KLOC)' to PTX, on Linux 6.15. The bpftime branches revision/* and table1-preparation point to revision work on the paper in Aug-Sep 2026 that is not on arXiv (see added items)."
+          }
+        ],
+        "added": [
+          {
+            "claim": "The paper partly credits its device-side savings to map layout: 'gpu_ext's warp-uniform execution and coalesced map access reduce overhead by 60-80%'. It describes the eGPU-style baseline as having 'per-thread execution and uncoalesced memory access'. It never describes the layout. bpftime master stores the per-thread array as [key][thread]: idx*max_thread_count*value_size + tid*value_size. Adjacent threads therefore hit adjacent addresses for the same key, which is coalesced. The other side of this layout is that memory scales with max_thread_count times max_entries.",
+            "source": "arXiv 2512.12615v2 §6.4.2 'Device-side Runtime Overhead and Optimization'; bpftime official/master 42cf71c4 attach/nv_attach_impl/trampoline/default_trampoline.cu:189-199",
+            "approach": "other",
+            "status": "measurement"
+          },
+          {
+            "claim": "Master already has a partial cheap fix for the per-thread array: a per-access device printf 'WARNING: getGlobalThreadId(..) exceeds max_thread_count (..) of map .., please set BPFTIME_MAP_GPU_THREAD_COUNT'. It then still returns the out-of-range offset, so the write goes past the map. It is not a launch-time warning and nothing is counted. The master GPU ringbuf returns 1 when tid >= max_thread_count and 2 when full, with no counters. thread_count comes from env BPFTIME_MAP_GPU_THREAD_COUNT (std::stoull, unvalidated) or attr.gpu_thread_count (default 1024).",
+            "source": "bpftime official/master 42cf71c4: default_trampoline.cu:189-199 (warning added by 6aa1989f, 2025-11-23, #501), :364-386 (ringbuf); runtime/include/bpftime_shm.hpp:45; runtime/src/handler/map_handler.cpp:752-757",
+            "approach": "cheap_fixes",
+            "status": "runtime_feature_merged"
+          },
+          {
+            "claim": "Automatic warp-leader execution exists in bpftime only on the unmerged branch official/revision/automatic-warp-execution (tip e27d009b, 2026-09-24; merge-base 1dd02f76, 2026-08-09). It is opt-in via env BPFTIME_GPU_AUTO_WARP_EXECUTION (nv_attach_impl.cpp:192-198, 316-319). A verifier-informed eligibility analysis (warp_execution_eligibility.hpp) admits a whole program only when leader execution is 'observationally equivalent' to per-thread execution. Programs with per-lane append helpers (perf_event_output, trace_printk, puts), per-thread map writes, bpf_cuda_exit, atomics, or stores that may hit per-thread slots stay on the per-thread path. The PTX passes emit warp-leader hook prefixes (ptxpass_core core.cpp:355-403; 49d71e5e 'lower kernel-entry hooks to warp leaders'). This is the closest existing thing to dir2: an analysis-driven choice, but per program rather than per call site, with only two modes (leader or per-thread) and no eliminate or defer.",
+            "source": "bpftime official/revision/automatic-warp-execution: e801d287 (2026-09-08 'gpu: checkpoint opt-in warp lowering and runtime wiring'), 49d71e5e, 0c3b6d10, d6db11ec, 88c2949a (all 2026-09-08); bpftime-verifier/src/gpu/warp_execution_eligibility.hpp",
+            "approach": "dir2_automatic_warp",
+            "status": "runtime_feature_branch"
+          },
+          {
+            "claim": "The same unmerged branch has the direction-1 cheap fixes. (a) Thread-count validation: runtime/src/handler/gpu_map_thread_count.hpp rejects values that are empty, non-numeric, 0 or above MAX_GPU_MAP_THREAD_COUNT = 1048576, for both the env var and attr (201bb2dc, 2026-09-03, with unit-test maps/test_gpu_thread_count.cpp). (b) Ringbuf drop counters by reason (oob_drops, full_drops, bad_size_drops, other_drops) placed after the per-thread rings and incremented with atomicAdd_system (052513a5, 2026-09-03 'make kernel-exit collection lossless'). There is no launch-time grid check and no per-launch sizing (gridDim is used only by the grid-dim helper at default_trampoline.cu:813-815).",
+            "source": "bpftime official/revision/automatic-warp-execution: 201bb2dc, 052513a5; attach/nv_attach_impl/trampoline/default_trampoline.cu:440-480 on that branch",
+            "approach": "cheap_fixes",
+            "status": "runtime_feature_branch"
+          },
+          {
+            "claim": "The branch also has opt-in 'warp-coalesced ring output'. Bit 63 of the bpf_perf_event_output flags (BPF_PERF_EVENT_GPU_WARP_ONLY_OUTPUT) makes only the first active lane (__ffs(__activemask())-1) run the reserve/copy path; the other lanes return 0. The leader still writes into its own per-thread ring at getGlobalThreadId(), so storage stays indexed by thread and sized by max_thread_count. It is not a shared or per-SM buffer with warp-leader reservation, and memory still grows with the thread count. A 'transposed record transport' layout (batch_output == 3; 886b4ca3, 2026-09-08) reorders words for coalescing.",
+            "source": "bpftime official/revision/automatic-warp-execution: 89a12447 (2026-09-05 'perf(gpu): add warp-coalesced ring output'), 886b4ca3; default_trampoline.cu:447-505 on that branch",
+            "approach": "shared_warp_buffer",
+            "status": "runtime_feature_branch"
+          },
+          {
+            "claim": "The paper's SIMT-aware verifier (§4.4.1, §5.3) exists in bpftime only on unmerged branches. official/codex/gpu-simt-verifier-clean: ac6154ba 'feat: add GPU SIMT-aware verifier' through 44c35114, 2026-08-01 to 08-05; its tip 7aca4027 (2026-11-12) is only 'Merge master'. It covers uniformity_analysis.cpp and simt_safety_check.cpp, and treats lookups on 1502/1512 as lane-varying values. official/feat/gpu-verifier: tip 4bf1a7fa, 2026-03-19. Neither checks map thread_count against the grid.",
+            "source": "bpftime refs official/codex/gpu-simt-verifier-clean and official/feat/gpu-verifier (git log official/master..branch); bpftime-verifier/src/gpu/uniformity_analysis.cpp on the branch",
+            "approach": "other",
+            "status": "runtime_feature_branch"
+          },
+          {
+            "claim": "Hardware-position keying exists in master only as a hand-written tool. example/gpu/threadscheduling uses helpers 509/510/511 (%smid, %warpid, %laneid; default_trampoline.cu:491-515) to key BPF_MAP_TYPE_HASH maps by sm_id (max_entries 128) and by (sm_id<<16)|warp_id (max_entries 1024). This matches the axes of the paper's Fig. 2 and predates v1 by six days, but the paper does not name its tool. There is no general hardware-slot map type.",
+            "source": "bpftime official/master 42cf71c4 example/gpu/threadscheduling/threadscheduling.bpf.c:25-43, 51-52, 89-99; added by 3019ad08 (2025-12-08, #523)",
+            "approach": "hardware_slots",
+            "status": "tool_handwritten"
+          },
+          {
+            "claim": "Work after 2026-11-11: 466e91b0 (2026-11-12, #740, on master) changed mem_trace's shared counter from '*val = *val + 1' to __atomic_add_fetch. The commit message says that under per-thread SIMT execution, lanes writing the same key lost 9 of 10 updates. Master executes probes per thread and fixes shared-key races with atomics in tool code, the opposite of the paper's 'warp-leader, without GPU atomic operations' description. Other 11-12 branch updates checked (fix/cuda-multicontext-attach, rocm-attach, ci/gpu-path-gate, gpu-simt-verifier-clean) are merges, CI or attach fixes, with nothing on map sizing or warp execution. The local refs were last fetched 2026-11-12 17:21 JST; I ran no new fetch.",
+            "source": "bpftime official/master 466e91b0 example/gpu/mem_trace/mem_trace.bpf.c; git for-each-ref --sort=-committerdate refs/remotes/official",
+            "approach": "dir2_automatic_warp",
+            "status": "tool_handwritten"
+          },
+          {
+            "claim": "Evidence of an unpublished paper revision: on official/revision/automatic-warp-execution, table1-preparation/README.md describes a 'Table 1 private runtime preparation' that includes 'the production attr.gpu_thread_count = thread_count assignment from ea9907d' and points to gpu_ext/workloads/llama.cpp/observability_overhead/revision-rq4/gpubpf-observability.patch. A new threadhist observer 'records configured entries, actually overwritten entries' and checks full-width completion. So the observability numbers (Table 2) are being redone with tools that set thread_count per map, not per launch. arXiv still has only v2 (2025-12-20).",
+            "source": "bpftime official/revision/automatic-warp-execution table1-preparation/README.md (branch tip e27d009b, 2026-09-24); arXiv API title search",
+            "approach": "cheap_fixes",
+            "status": "doc_note"
+          }
+        ],
+        "summary": "I re-checked all 13 findings against my own fresh downloads of the arXiv v1 and v2 HTML, the v2 PDF, the abs page and the Fig. 2, 3 and 12 images. I decoded the Fig. 12 SVG labels and measured its bars from the geometry. 7 findings are confirmed and 6 corrected; none struck.\n\nConfirmed as stated: the Fig. 12(a) per-thread array result (4.36 to 0.96 us, -78%) and ringbuf result (5.48 to 1.71 us, -69%). The paper has no text on capacity, overflow, drops or 'grid'. Also confirmed: the shard and flush-daemon prose, the absence of dir2, Table 2 (including the 85-87% vs 93% inconsistency), Fig. 2, and the versions (v1 2025-12-14, v2 2025-12-20, v3 404 on 2026-11-13; v1/v2 differ only in the Abstract and §1).\n\nCorrections:\n(a) Warp-leader execution: the Fig. 12(a) bars run -65 to -81% apart from Entry+Exit at -17%. 'Implemented' is only the paper's claim. bpftime master 42cf71c4 has no leader path; make_helper_call serialises every lane.\n(b) Verifier 'tensions': these are the reader's inference and largely do not hold. The per-thread array key is a plain index, with the thread slot added implicitly. The master ringbuf is one ring per thread, so it needs no cross-warp reservation. The real tension is leader execution against per-lane outputs.\n(c) 'Indexed by hardware position' for shards is inference.\n(d) The paper's 'before each GPU kernel runs' does not say per launch. Master captures PTX at fatbin registration, and its launch hooks only forward grid_dim.\n(e) The link between gdev_mem_prefetch and prefetch.global.L2 is inferred, and the 'host' it reaches is the UVM driver hook.\n(f) The '6000x' is relative to eGPU-style GPU operations (about 5.6 us), not to gBPF's.\n\nAdded: §5.1 says the loader and JIT build on bpftime, and §6.4.2 credits 'coalesced map access'. In bpftime:\n- Master has only a per-access printf warning (6aa1989f, 2025-11-23) and still writes past the map; the ringbuf drops silently.\n- The unmerged branch official/revision/automatic-warp-execution (Sep 2026) has opt-in automatic warp-leader execution, gated by a per-program eligibility analysis. It is dir2-like, but per program, not per call site.\n- The same branch has thread-count validation, drop counters by reason, and opt-in warp-only ring output. That output is still per-thread storage, not a shared warp buffer.\n- The SIMT verifier exists only on unmerged branches.\n- Hardware-slot keying exists only in a hand-written tool, example/gpu/threadscheduling (2025-12-08).\n- After 2026-11-11: master 466e91b0 (11-12) fixed a shared counter with atomics, the opposite of the paper's no-atomics warp-leader model.\n- table1-preparation shows paper revision work not yet on arXiv.\n\nNothing anywhere sizes per-thread storage from grid x block at launch.\n\nLimits: I did not examine the gpu_ext repo, did not inspect the vm/llvm-jit submodule, and ran no git fetch (refs as of 2026-11-12 17:21 JST). Scratch files are under /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir1-overlap/verify-paper/ and the scripts under /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir1-overlap/vscripts/."
+      }
+    },
+    {
+      "key": "gpu_ext_repo",
+      "found": {
+        "findings": [
+          {
+            "claim": "NOT launch-time sizing. gpu_ext's benchmark runners size the thread-indexed maps by hand before the run. They work out the expected llama.cpp rope launch geometry offline (4 x pp x 256 threads: 32,768 at pp32, 524,288 at pp512) and export BPFTIME_MAP_GPU_THREAD_COUNT plus a matching BPFTIME_SHM_MEMORY_MB to the loader before map creation. For the original 80-byte, 256-entry kernelretsnoop the per-thread ring then needs slots*(24+88*256)+32 = 11,823,743,008 bytes. The same pattern appears in five runners: fig15 map tier, strict-uniform, strict-warp-map, trampoline-scaling and cross-layer-raw-map each set the count to the launched thread count. Nothing in the runtime reads the grid.",
+            "source": "gpu_ext 50a51ad: workloads/llama.cpp/observability_overhead/revision-rq4/run_table1_perf.py:78,83,204-209,222; run_revision_rq4.py:59-63,114-136,811-812; preflight-575-noncross-clock-01-capacity-diagnosis.md:10-13,23-29; docs/experiment/table1-auto-warp-runner-20260908/README.md:12-17,50-62; docs/experiment/automatic-warp-continuation-20260908.md:76 ('The runner must set the loader environment before map creation'); microbench/fig15-device/strict-warp-map-scaling/run_strict_warp_map_scaling.py:521; workloads/cross-layer-raw-map/run_raw_map.py:289",
+            "approach": "size_at_launch",
+            "status": "tool_handwritten",
+            "date": "2026-09-03 (capacity diagnosis, gpu_ext c1672561) to 2026-09-08 (runner, gpu_ext c96d15e7/f0f4dc83)"
+          },
+          {
+            "claim": "Measured evidence that thread-index sizing loses data. A pp32 preflight allocated the ring for 22,528 thread coordinates while the launch had 32,768 threads. It recorded 450,560 OOB drops, exactly (32,768-22,528) x 44 launches, and the collector rejected the cell. The earlier July pp512 Table-1 result used the default 8,192-slot setting (DEFAULT_GPU_THREAD_COUNT=8192; README: 'other tools keep BPFTIME_MAP_GPU_THREAD_COUNT=8192') for a 524,288-thread kernel. gpu_ext itself calls it 'a capped/lossy 8,192-slot collector ... evidence that this workload was run, not evidence for a safe current capacity'. The copied kernelretsnoop README of that period advised setting the thread count 'to a smaller value (such as 10) to avoid bad_alloc'.",
+            "source": "gpu_ext 50a51ad: workloads/llama.cpp/observability_overhead/revision-rq4/preflight-575-noncross-clock-01-capacity-diagnosis.md:3-18; workloads/llama.cpp/observability_overhead/README.md:54-55; run_observability_overhead.py:43; workloads/llama.cpp/results/exp_observability_overhead/20260706_170753/tool_build/kernelretsnoop/README.md:5",
+            "approach": "cheap_fixes",
+            "status": "measurement",
+            "date": "2026-07-06 (lossy run); 2026-09-03 (diagnosis, gpu_ext c1672561)"
+          },
+          {
+            "claim": "Hand-written per-warp sampling inside a thread-indexed ring, which wastes memory. The Table-1 kernelretsnoop capacity patch adds a manual lane guard ((linear_thread & 31) != 0 -> return) and replaces the 80-byte per-thread record with a 32-byte warp-coordinate record. It still calls bpf_perf_event_output on GPU_RINGBUF 1527 with flags 0, so each leader writes to the ring slot of its own global thread id. The ring allocates 524,288 thread slots x (24 B header + 44 x 40 B records) + 32 B = 935,329,824 B (about 892 MiB) for 720,896 events of 22 MiB payload. gpu_ext's notes: 'capacity [cannot] simply be reduced in the current runtime: its slot indexing and the normalized event coordinate are distinct.' The same patch is the basis of the 90.71% 5090 Table-1 row. Branches revision/table1-opt-qwen and table1-pure-runner carry same-subject earlier versions; master equivalence is by commit subject only, with no content diff run.",
+            "source": "gpu_ext 50a51ad: workloads/llama.cpp/observability_overhead/revision-rq4/kernelretsnoop-phase-capacity.patch:28-41; results-table1-warp-plt-575-03/gpubpf_tool_build/kernelretsnoop/kernelretsnoop.bpf.c:14-19,40-50; device-array-runtime-notes.md:20-27; commits gpu_ext bd5cfa4d 'perf(table1): sample kernel exits per warp' and ce7adec8 'select warp leaders across 3D blocks'",
+            "approach": "other",
+            "status": "tool_handwritten",
+            "date": "2026-09-05"
+          },
+          {
+            "claim": "'onevalue arena', meaning one map value that holds every event. It is hand-written in one tool's BPF source on the existing map type 1503 (cuMemAlloc device array), with no runtime change. One entry holds 16,384 per-warp append counters plus 16,384 x 44 fixed 32-byte events (23,199,768 B). Constants are frozen to the pp512 geometry by _Static_assert. The slot index is a linear logical warp id (block_x*warps_per_block + warp-in-block), still grid-derived, at warp granularity. Each leader owns its warp's counter, so there is no shared reservation, atomic or global counter. Events beyond 44 per warp and coordinates beyond 16,384 warps are counted with plain non-atomic += in total_overflow/total_out_of_range and dropped. The host does one whole-value lookup after the run (about 10.6 ms). gpu_ext says it is 'sized for this pp512 geometry and serial target launches, not an unbounded or concurrent-kernel streaming collector'. It is the closest gpu_ext artifact to a per-warp buffer, but its memory still scales with the maximum warp index.",
+            "source": "gpu_ext 50a51ad: workloads/llama.cpp/observability_overhead/revision-rq4/onevalue-array-candidate/onevalue_array_value.h:18-19,28-44; onevalue-array.bpf.c:6,15-20,36-71; results-onevalue-array-bootstrap-575-20260907/README.md:28-35,80-102; device-array-runtime-notes.md:40-54",
+            "approach": "other",
+            "status": "tool_handwritten",
+            "date": "2026-09-06 (gpu_ext 99b66423)"
+          },
+          {
+            "claim": "The paper's headline kernelretsnoop number comes from the hand-written onevalue tool, not from a runtime mechanism. The camera-ready RQ2 figure (fig:obs-overhead) reports 5.57% for kernelretsnoop. gpu_ext ARTIFACT.md maps that bar to the first five onevalue GPU-array pairs; the ten-pair extension gives 5.40%. Mean paired overhead is 5.40%, against 90.71% with the per-thread ring path. The paper text (eval.tex:504) attributes the low overhead to 'the warp-uniform execution model'.",
+            "source": "gpu_ext 50a51ad: ARTIFACT.md:86; workloads/llama.cpp/observability_overhead/revision-rq4/results-onevalue-array-bootstrap-575-20260907/README.md:10-16,46-52; cross-repo gbpf-paper 8cf95bd: tex-revision/eval.tex:504,506",
+            "approach": "other",
+            "status": "doc_note",
+            "date": "2026-09-07 (results gpu_ext b8dda046); paper 2026-09-24"
+          },
+          {
+            "claim": "'Full-record banked arena', meaning 32 map values ('banks') of 16,384 thread slots each. It is hand-written in a tool's BPF source on map type 1503 and is still sized by thread index. It holds 32 x 16,384 = 524,288 thread slots x 256 records x 80 B, about 10.7 GB of GPU memory (10,741,613,056 B). Banking was forced because a single value exceeded the signed-int value-size field and the compiler BTF truncated the 1.25-GiB value. The slot is getGlobalThreadId or, in the opt-in 'soa-warp' build, a block-major/thread-major order for the pp512 rope grid. Out-of-range threads are counted in bank 0 and per-slot overflow is counted; both use non-atomic increments and drop the event. Collection is a post-run drain of all 32 values (about 1.49 s). Layouts: AoS, plus opt-in SoA, AoSoA and soa-warp. gpu_ext describes it as 'bounded capture with post-run collection, not an unbounded concurrently drained streaming ring' with a 'frozen original per-thread geometry'. Copies are retained on the bpftime branch revision/automatic-warp-execution (e27d009).",
+            "source": "gpu_ext 50a51ad: workloads/llama.cpp/observability_overhead/revision-rq4/full-record-device-buffer/full_record_device_buffer_value.h:8-11,42-45,62-80; full-record-device-buffer.bpf.c:16-21,53-96; full-record-device-buffer/README.md:23-31,139-148,297-305; full-record-device-buffer-plan.md:107-125; cross-repo bpftime e27d009 'retain full-record layout experiment sources'",
+            "approach": "other",
+            "status": "tool_handwritten",
+            "date": "2026-09-08 (gpu_ext 743ef571) to 2026-09-09 (gpu_ext f144de04); bpftime e27d009 2026-09-24"
+          },
+          {
+            "claim": "Measurements of record-preserving storage on pp512 TinyLlama, RTX 5090, with 23,068,672 80-byte per-thread records. The host-mapped per-thread ring with transport 3 reached 345 token/s, a 99.10% loss. The GPU-local banked arena (AoS) reached 23,267 token/s, a 39.10% loss and a 67.5x gain over the ring. Field-major SoA lost 27.64%. soa-warp lost 12.86%, a +20.57% paired gain over SoA. All runs had zero overflow/out-of-range. The post-client drain took about 1.49 s outside the timed window.",
+            "source": "gpu_ext 50a51ad: workloads/llama.cpp/observability_overhead/revision-rq4/results-full-record-device-buffer-20260908.md:8-12,36-41; results-full-record-soa-warp-20260909.md:1-14",
+            "approach": "other",
+            "status": "measurement",
+            "date": "2026-09-08 (gpu_ext 01611d2c) and 2026-09-09 (gpu_ext 29c1c39d)"
+          },
+          {
+            "claim": "Thread-count validation exists only on unmerged upstream bpftime branches (cross-repo). bpftime 201bb2d adds gpu_map_thread_count.hpp. BPFTIME_MAP_GPU_THREAD_COUNT, or the attribute, must be a decimal in [1, 1,048,576]; otherwise map creation for 1502 and 1527 fails with -EINVAL, and handler_manager unregisters the fd. This is validation of the configured number only: no comparison with any launch grid. The commit is on revision/table1-575, revision/table1-host-plt-fix and revision/automatic-warp-execution, not on master. bpftime master 42cf71c (2026-11-12) still parses with std::stoull and no check (runtime/src/handler/map_handler.cpp:750-760). gpu_ext's audit records that the CPU-only thread-count tests passed 23 assertions.",
+            "source": "cross-repo bpftime 201bb2d 'fix(runtime): validate GPU map thread counts' (runtime/src/handler/gpu_map_thread_count.hpp, map_handler.cpp, handler_manager.cpp, unit-test/maps/test_gpu_thread_count.cpp); bpftime master 42cf71c map_handler.cpp:750-760; gpu_ext 50a51ad docs/experiment/revision-device-map-audit-20260904.md:35-38",
+            "approach": "cheap_fixes",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-03"
+          },
+          {
+            "claim": "Ring drops counted by reason, on unmerged upstream bpftime branches only (cross-repo). bpftime 052513a adds a 32-byte ringbuf_error_counters block after the per-thread rings, with fields oob_drops, full_drops, bad_size_drops and other_drops. The device increments them with atomicAdd_system and returns codes 1/2/3/4. A dirty-word CAS turns a concurrent second producer on the same tid into other_drops. The commit also adds a stats API (struct bpftime_gpu_ringbuf_stats with allocated_thread_slots, committed/collected/pending, the four drop counters and dirty_slots; bpftime_syscall_server__get_gpu_ringbuf_stats). The gpu_ext tools print these counters and use them to reject a run. On master 42cf71c the ring still returns 1 silently when tid >= max_thread_count (default_trampoline.cu:365-370). Per gpu_ext docs/artifact/table1-runtime.md:33, the paper's 5090 Table-1 runtime came from branch revision/table1-host-plt-fix (eef8a51), which contains 052513a, 201bb2d and 89a1244; I did not verify the exact build commit.",
+            "source": "cross-repo bpftime 052513a 'fix(gpu): make kernel-exit collection lossless' (attach/nv_attach_impl/trampoline/default_trampoline.cu, runtime/include/bpftime_gpu_ringbuf.h, runtime/src/bpf_map/gpu/nv_gpu_ringbuf_map.cpp); gpu_ext 50a51ad workloads/llama.cpp/observability_overhead/revision-rq4/results-table1-warp-plt-575-03/gpubpf_tool_build/kernelretsnoop/kernelretsnoop.c:18,473-581; docs/artifact/table1-runtime.md:33",
+            "approach": "cheap_fixes",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-03"
+          },
+          {
+            "claim": "Drop counting proven end to end, but only for the ring. gpu_ext's cross-layer raw-record campaign deliberately overflows the per-thread GPU ring (1527). Five overflow cells report all 2,560 dropped records and reject the incomplete streams. Ten positive cells recover all 34,560 bounded tuples. gpu_ext's own wording: 'fixed-capacity queues can drop records and ... the tested runtime reports those drops fail-closed'. It explicitly excludes on-chip shards, automatic placement and unbounded data.",
+            "source": "gpu_ext 50a51ad: workloads/cross-layer-raw-map/plan.md:5-12,28-35; docs/experiment/revision-device-map-audit-20260904.md:28-33; docs/revision-completion-checklist.md:469",
+            "approach": "cheap_fixes",
+            "status": "measurement",
+            "date": "2026-09-04"
+          },
+          {
+            "claim": "The per-thread array OOB write is NOT fixed on any branch checked. At the tip of bpftime revision/automatic-warp-execution (e27d009), array_map_offset for 1502/1512 still only printf-warns when getGlobalThreadId() >= max_thread_count and then returns the address past the allocation. The code is identical on master 42cf71c. threadhist, the paper's 2.97% tool, uses 1502 with max_entries 1. gpu_ext avoids overflow by setting the thread count to 1,048,576 by default, and the tool refuses to run unless the variable is set to a value in [1, 1,048,576]. That is a tool-level check, not a runtime bound.",
+            "source": "cross-repo bpftime e27d009 attach/nv_attach_impl/trampoline/default_trampoline.cu:278-287 (master 42cf71c :189-198); gpu_ext 50a51ad workloads/llama.cpp/observability_overhead/revision-rq4/results-table1-warp-plt-575-03/gpubpf_tool_build/threadhist/threadhist.bpf.c:6-13 and threadhist.c:111-128; workloads/llama.cpp/observability_overhead/README.md:54",
+            "approach": "cheap_fixes",
+            "status": "doc_note",
+            "date": "bpftime e27d009 2026-09-24; bpftime master 2026-11-12"
+          },
+          {
+            "claim": "Bit-63 'warp-only output' flag, on an unmerged bpftime branch (cross-repo). It is leader sampling that drops the other lanes; memory is unchanged. BPF_PERF_EVENT_GPU_WARP_ONLY_OUTPUT (flags bit 63) on helper 25 lets only the first active lane write, and every other active lane returns 0. There is no aggregation and no drop counter for the skipped lanes. The record still goes to the leader's own per-thread ring slot, so the allocation stays thread-count-sized. gpu_ext notes that it 'drops nonleader appends and therefore is not a substitute' for record-preserving batching. The Table-1 patch does not use the flag; it uses a manual lane guard with flags 0.",
+            "source": "cross-repo bpftime 89a1244 'perf(gpu): add warp-coalesced ring output' (default_trampoline.cu); gpu_ext 50a51ad docs/experiment/automatic-warp-continuation-20260908.md:156-163; workloads/llama.cpp/observability_overhead/revision-rq4/transport-soa-20260908/README.md:77-78",
+            "approach": "other",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-05"
+          },
+          {
+            "claim": "Ring 'transports' 1/2/3, meaning payload-copy and publication modes of the existing per-thread ring, all record-preserving and all still sized by thread count, on an unmerged bpftime branch (cross-repo). 1 = aligned 8-byte-word payload copy (5a90e03). 2 = encoded publication: the published tail is folded into the dirty word (c4c83cd). 3 = transposed thread-major layout, payload_base = n*24 with word stride n*8 where n = max_thread_count, so adjacent tids write adjacent words (886b4ca). The mode is chosen at map creation via BPFTIME_GPU_RINGBUF_TRANSPORT under BPFTIME_GPU_AUTO_WARP_EXECUTION!=0. Allocation stays n*entry_size+32. Measured on the original 80-byte per-thread object: legacy 34.5 token/s, transport 2 at 194 token/s (5.77x, still a 99.49% loss), transport 3 at 346.8 token/s (1.65x over transport 2).",
+            "source": "cross-repo bpftime 5a90e03, c4c83cd, 886b4ca, 241872b (shm up to 16 GiB); gpu_ext 50a51ad workloads/llama.cpp/observability_overhead/revision-rq4/transport-soa-20260908/README.md:24-59,61-78; results-original-ring-encoded-20260908.md:10-14,51-59; results-transport23-20260908.md:7-13,19-26; docs/experiment/automatic-warp-continuation-20260908.md:45-76",
+            "approach": "other",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-08"
+          },
+          {
+            "claim": "No shared warp-reservation buffer exists in the runtime; gpu_ext states this. 'The existing output helper ... uses per-thread rings, a system-scope dirty-word CAS, multiple system fences, and tail/dirty system atomics. There is no single shared allocation counter that can simply be replaced with one warp-wide reservation.' Record-preserving 'full-record aggregation remains unfinished'. The device-map audit adds that 'No audited map type allocates values in per-block on-chip CUDA shared memory'. It also says that a per-block shared-SRAM map 'would require a new ABI, lifetime rules, lowering, and verifier treatment; it should not be promised as a quick follow-up.' gpu_ext's closest artifact is the hand-written, warp-indexed onevalue arena, which has no reservation.",
+            "source": "gpu_ext 50a51ad: docs/experiment/automatic-warp-continuation-20260908.md:84-90,144-163; docs/experiment/revision-device-map-audit-20260904.md:21-26,56,61,124-129",
+            "approach": "shared_warp_buffer",
+            "status": "doc_note",
+            "date": "2026-09-04 (audit); 2026-09-08 (continuation, gpu_ext 70859227 to 8429a122)"
+          },
+          {
+            "claim": "Per-warp GPU-local shards are claimed in the paper only, and gpu_ext's own audit contradicts the claim (cross-repo paper). Camera-ready §4.2 'Hierarchical Maps and Cross-Domain State' says the shards are placed 'in GPU-accessible memory tiers: ... per-warp data in GPU shared memory'. It also says 'Shard updates occur at warp granularity through warp-leader threads without GPU atomic operations: handlers accumulate counters in warp-local registers, aggregate per warp, and store into GPU-local shards for periodic host flush', and that 'A runtime daemon asynchronously flushes GPU-local shards'. §3.5.4 says maps are 'hierarchical shards dynamically placed by the runtime'. gpu_ext's 2026-09-04 audit found no map type backed by CUDA shared memory. Its cross-layer results explicitly do not test on-chip shards or automatic placement.",
+            "source": "cross-repo gbpf-paper 8cf95bd (2026-09-24 camera-ready; also present at main 5df2969, 2026-10-14): tex-revision/implementation.tex:79-83; tex-revision/design.tex:223-229; vs gpu_ext 50a51ad docs/experiment/revision-device-map-audit-20260904.md:21-26; workloads/cross-layer-raw-map/README.md:87",
+            "approach": "shared_warp_buffer",
+            "status": "paper_only",
+            "date": "paper 2026-09-24"
+          },
+          {
+            "claim": "Warp-leader aggregated execution is in the paper only, and gpu_ext's own audits say it was never implemented (cross-repo paper). Camera-ready §3.5.3 'Warp-level Execution Optimizations' (design.tex:215-220) says per-lane results are aggregated and a warp leader runs the policy once and broadcasts. §4.2 (implementation.tex:69) says trampolines use __ballot_sync/__shfl_sync with an __ffs(__activemask()) leader. §5.3 (eval.tex:523-525) claims a 60-80% overhead reduction against eGPU. gpu_ext's audits found no connected implementation in any local bpftime ref, only a verifier-only placeholder commit (9a753e1), and recommended stating the idea as future work. The paper commit that did so (gbpf-paper 54e15e2, 2026-09-04, on tex/design.tex) is absent from tex-revision at both 8cf95bd and 5df2969. A later audit (2026-09-04) says the strict warp-map result 'does not revive the retired Fig. 15 warp-aggregation wording'.",
+            "source": "cross-repo gbpf-paper 8cf95bd: tex-revision/design.tex:215-220, tex-revision/implementation.tex:69, tex-revision/eval.tex:523-525; gbpf-paper 54e15e2; vs gpu_ext 50a51ad microbench/fig15-device/warp-source-gap.md:3-4,41-71,87-108; microbench/fig15-device/legacy-evidence-audit.md:9-22,62-74; microbench/fig15-device/strict-warp-map-scaling/results-full-575-01-20260904.md:12-16",
+            "approach": "dir2_automatic_warp",
+            "status": "paper_only",
+            "date": "paper 2026-09-24 (also main 5df2969 2026-10-14); audits 2026-09-04 (gpu_ext f6f695c4, 55409587, c2124bcc)"
+          },
+          {
+            "claim": "Automatic warp execution, on an unmerged bpftime branch (cross-repo), is whole-program only: one strategy, no per-call-site choice and no defer path. The opt-in BPFTIME_GPU_AUTO_WARP_EXECUTION switch (e801d28, 49d71e5, 0c3b6d1, d6db11e) runs verifier-informed eligibility (bpftime-verifier/src/gpu/warp_execution_eligibility.cpp). A whole program is admitted only when PREVAIL, uniformity and SIMT checks pass and it has no atomics, no per-thread-map stores and no helper 25 (perf_event_output), trace_printk, puts or bpf_cuda_exit. Only shared-map update/delete with warp-uniform key/value is allowed. Eligible kprobe/kretprobe sites are rewritten so the lowest active, predicate-true lane (activemask/vote.ballot on %laneid) calls the handler; the emitter has no shuffle/broadcast. Ineligible programs keep the per-thread path. gpu_ext records admission only for the 14-instruction 'cuda__shared' microbench probe. Helper 25 is 'explicitly ineligible', so on kernelretsnoop the switch only selects the ring transport. There is no host-call elimination, per-site aggregation or deferral; the host-helper RPC fallback still serializes the active lanes in a 32-iteration loop. Not on bpftime master 42cf71c: its verifier src has only 2 files, and ptxpass core.cpp's only warp mention is a test helper.",
+            "source": "cross-repo bpftime revision/automatic-warp-execution e27d009: bpftime-verifier/src/gpu/warp_execution_eligibility.hpp:15-34, attach/nv_attach_impl/pass/ptxpass_core/src/core.cpp:403-460; gpu_ext 50a51ad microbench/fig15-device/strict-warp-map-scaling/results-automatic-warp-initial-20260908.lyHajw/runtime-source.patch; docs/experiment/automatic-warp-continuation-20260908.md:3-5,247-255; docs/experiment/device-storage-continuation-20260908.md:116-119; results-original-ring-encoded-20260908.md:51-59; microbench/fig15-device/warp-source-gap.md:52-55",
+            "approach": "dir2_automatic_warp",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-08 (bpftime e801d28 to d6db11e)"
+          },
+          {
+            "claim": "Automatic warp execution measured adverse or neutral (microbenchmark only). On the 128-thread shared-map probe with 128 launches, median elapsed time was native 0.236, off 0.329 and on 0.520 ms, a paired on/off change of +57.29% [56.31, 58.28]. The mask-only peephole gave +53.13%. 32 and 1024 threads gave +0.52% (CI includes 0) and -0.13%. 2/4/8 CTAs gave +57-58%. Arithmetic work of 8/32/128 iterations gave +15.4%/+0.18%/-0.15%. Observed scalar handler calls fell 32x (e.g. 512 to 16), but gpu_ext concludes this 'does not establish a speedup'. There is no Table-1 auto-warp throughput result; the three-arm runner is dry-run only.",
+            "source": "gpu_ext 50a51ad: microbench/fig15-device/strict-warp-map-scaling/results-automatic-warp-shared-10blocks-20260908.ORjHAp/README.md:14-22; results-automatic-warp-shapes-20260908.oCA5Jf/README.md:13-17; results-geometry-work-20260908.md:13-20; results-observed-counts-20260908.md:8-15,53-58; docs/experiment/table1-auto-warp-runner-20260908/README.md:19-25",
+            "approach": "dir2_automatic_warp",
+            "status": "measurement",
+            "date": "2026-09-08 (gpu_ext 43802974, 4279f762, d28b6ab3, bf4c108c)"
+          },
+          {
+            "claim": "Hardware-position helpers exist, but only as identity helpers; there is no slot-indexed storage. Upstream bpftime master defines helpers 509 (%smid), 510 (%warpid) and 511 (%laneid). No map type indexes values by SM, hardware warp slot or lane. gpu_ext's only BPF use is a microbenchmark that keys a 64-entry shared 1503 map by helper 510. The audit notes these keys 'are SM-local hardware warp slots', which collide across SMs. Every lane still executes the update, and warp-keyed updates showed no scaling advantage (1 to 32 warps per block: 1.0060 [0.9915, 1.0604]). I did not determine when the helpers were merged.",
+            "source": "cross-repo bpftime master 42cf71c attach/nv_attach_impl/trampoline/default_trampoline.cu:491-514; gpu_ext 50a51ad microbench/fig15-device/strict-warp-map-scaling/warp_map_probe.bpf.c:5-16,32-41; independent-review.md:104-114; results-full-575-01-20260904.md:12-28",
+            "approach": "hardware_slots",
+            "status": "tool_handwritten",
+            "date": "microbench 2026-09-04 (gpu_ext e9639994/826c35a5); helper merge date not determined"
+          },
+          {
+            "claim": "Per-SM storage sized from the hardware bound, inside one workload's adapter; it is policy state, not observability. The POD-Attention port's application wrapper queries %nsmid once, rejects bounds >= 2^20, and allocates a CUDA tensor of %nsmid+2 u32 counters reset each launch. The shared CUDA/BPF policy then does an atomic ticket on counters[%smid] plus two work-claim counters. The BPF version reaches the array through a raw device pointer in a per-CTA PodSelectorContext, not through a bpftime map, and the application kernel supplies smid. This is grid-independent hardware-position indexing written by hand in gpu_ext workload code; it ports the original POD rule, which indexes by %smid.",
+            "source": "gpu_ext 50a51ad: workloads/pod-attention/selector_abi.h:15-33; selector_policy.h:24-56; selector.bpf.c:1-9; pod_runtime.cu:13-15,31,59,66; plan.md:133-138; pod-compat.patch:244-283",
+            "approach": "hardware_slots",
+            "status": "tool_handwritten",
+            "date": "about 2026-09-03 (results-575-20260903)"
+          },
+          {
+            "claim": "launchlate avoids grid sizing by sampling a single thread. Its device probe returns unless the thread is (0,0,0) in block (0,0,0). It uses fixed-size shared maps: a 10-bin 1503 histogram, a 4096-entry 1513 FIFO and a 4-entry 1513 queue state with an overflow slot, updated with plain stores. One sample per launch means storage is independent of the grid. It is a hand-written manual guard, not a runtime feature.",
+            "source": "gpu_ext 50a51ad: workloads/llama.cpp/observability_overhead/revision-rq4/results-table1-warp-plt-575-03/gpubpf_tool_build/launchlate/launchlate.bpf.c:6-7,12-42,138-160",
+            "approach": "other",
+            "status": "tool_handwritten",
+            "date": "2026-09-05 (table1 warp-plt builds)"
+          }
+        ],
+        "summary": "I checked the gpu_ext repository (plus the bpftime branches and paper repo it points to) against the five approaches. Nothing in gpu_ext or bpftime master gives a general fix for thread-index sizing. The partial runtime fixes that exist sit only on an unmerged upstream bpftime branch, and the paper claims warp-level aggregation that gpu_ext's own audits say was never built.\n\n**What I fetched**\n- gpu_ext has no commits after 50a51ad; master has not moved since 2026-09-24.\n- I fetched all gpu_ext branches and PR refs and found nothing new on this topic. revision/table1-opt-qwen and revision/table1-pure-runner carry earlier versions of the per-warp sampling commits whose same-subject equivalents are on master (bd5cfa4d, ce7adec8); I compared subjects only, not content. The lmcache branches, pr/2 and pr/4 are unrelated.\n- I unshallowed the shared clone and added about 1,736 text blobs to it, without blobs for raw/ logs. No checkout or edit was done.\n- I also built small commit-only or blobless clones of upstream bpftime (master plus three revision branches) and of the paper repo yunwei37/gbpf-paper. Everything is under /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir1-overlap/: exported gpu_ext text in master/, clones in bpftime.git and paper.git, paper text in paper-cr/ and paper-main/.\n\n**Coverage by approach**\n- **(1) Size at launch: none.** gpu_ext's runners size the maps by hand before the run. They compute the expected llama.cpp rope thread count offline (524,288 at pp512) and set BPFTIME_MAP_GPU_THREAD_COUNT and the shared-memory size before the map is created. gpu_ext's docs record losses from this:\n  - an earlier pp512 run used a capped, lossy 8,192 setting;\n  - a pp32 preflight dropped 450,560 events out of range.\n- **(2) Shared warp buffer: none in any runtime, and gpu_ext says so.** Its notes state there is no shared allocation counter that could become a warp-wide reservation, and no map type backed by CUDA shared memory. The closest designs are hand-written in single tools on the existing device-array map type 1503, with constants frozen to the pp512 geometry:\n  - the \"onevalue arena\" (one map value holding all events): indexed by logical warp, 16,384 warps x 44 events, about 22 MiB, overflow counted and dropped. This is the source of the paper's 5.57% kernelretsnoop bar.\n  - the \"full-record banked arena\" (32 map values of 16,384 thread slots each): still indexed by thread, about 10.7 GB, drained after the run.\n\n  Only the paper describes per-warp shared-memory shards updated by warp leaders without atomics and flushed to the host.\n- **(3) Hardware slots: helpers only.** bpftime master has helpers for the SM id (509), hardware warp slot (510) and lane id (511), but no map indexed by them. In gpu_ext there are only two hand-written uses:\n  - one microbenchmark keys a map by hardware warp slot;\n  - the POD-Attention port keeps policy counters indexed by SM id, sized from the hardware SM-id bound and passed as a raw pointer rather than a bpftime map.\n- **(4) Cheap fixes: partial, on an unmerged bpftime branch only.**\n  - Thread-count validation (201bb2d) rejects values outside 1 to 1,048,576 at map creation.\n  - The ring buffer counts drops by reason (052513a): out of range, full, bad size, other. A stats API reads them, and gpu_ext tools reject runs on any drop.\n\n  Both commits are on revision/table1-575, revision/table1-host-plt-fix and revision/automatic-warp-execution, not on master 42cf71c (2026-11-12). The per-thread array still writes past its allocation after a printf warning on both the branch tip and master. No launch-time warning compares the grid with the map's thread count.\n- **(5) Direction 2, automatic per-warp handling: partial, on the unmerged branch revision/automatic-warp-execution.** An opt-in switch admits a whole program only if it passes the verifier, has no atomics or per-thread map writes, and calls no per-lane output helpers (perf_event_output, trace_printk, puts). An admitted program then runs once per warp in an elected leader. There is no per-call-site choice and no defer or eliminate path. kernelretsnoop is not eligible. On a microbenchmark it was 57% slower, or neutral, even though handler calls fell 32x.\n- **Other runtime work on the same branch** keeps every record:\n  - three ring \"transports\" (payload copy and publication modes), still sized by thread count: 5.77x and then 1.65x faster, but still about a 99% throughput loss;\n  - a bit-63 \"warp-only output\" flag that drops non-leader lanes.\n\n**Paper inconsistency**\nThe camera-ready paper (gbpf-paper 8cf95bd, 2026-09-24, unchanged at 5df2969, 2026-10-14) still describes warp-leader aggregated execution with ballot/shuffle and broadcast (§3.5.3, §4.2). It still claims a 60–80% overhead reduction (§5.3). gpu_ext's 2026-09-04 audits found no such implementation and asked that it be stated as future work. A paper commit did that (54e15e2), but its wording is not in the camera-ready text.",
+        "not_found": [
+          "No commits on gpu_ext master after 50a51ad (git log 50a51ad..origin/HEAD is empty; 2026-09-24). No unmerged gpu_ext branch (revision/lmcache-*, revision/table1-*, pr/2, pr/4) adds anything on this topic beyond the per-warp sampling commits whose same-subject equivalents are on master.",
+          "Per-launch or grid-sized allocation (approach 1), checked as runtime code or as a plan/TODO. gpu_ext master 50a51ad text files outside raw/ (md/patch/c/h/cu/cpp/py/txt/tex) for 'per-launch alloc', 'size(d) by/from grid|launch', 'grid-sized', 'launch-time alloc', 'grow with grid', 'resize': none. bpftime branch e27d009 and master 42cf71c get_thread_count still reads only the env variable or map attribute at map creation.",
+          "A launch-time warning comparing grid x block with a map's thread_count, on bpftime master 42cf71c and branch e27d009. There is only a per-access printf for 1502/1512 and the silent (master) or counted (branch) out-of-range drop for 1527.",
+          "A fix for out-of-bounds per-thread array (1502/1512) writes when the thread id exceeds max_thread_count, on any bpftime ref checked (master 42cf71c, revision/automatic-warp-execution e27d009).",
+          "A runtime shared ring/buffer with warp-leader reservation and memory independent of the grid. gpu_ext states none exists (automatic-warp-continuation-20260908.md:148-154).",
+          "A bpftime map backed by CUDA block shared memory or a per-SM buffer (revision-device-map-audit-20260904.md:21-26). The paper's 'per-warp data in GPU shared memory' and 'runtime daemon flushes GPU-local shards' have no source in gpu_ext.",
+          "A map type indexed by hardware position (SM x warp slot x lane) or GT-Pin-like buckets. Only identity helpers 509/510/511 exist; a gpu_ext grep for 'GT-Pin|GTPin' found nothing.",
+          "Per-call-site analysis that chooses, for each helper call, among eliminate, aggregate per warp, defer or keep the synchronous host call. Auto-warp eligibility is whole-program only, and there is no deferral or batched-apply mechanism for host helper calls.",
+          "A shuffle/broadcast of handler results in the auto-warp lowering (grep 'shfl|broadcast' in ptxpass_core/src/core.cpp at e27d009 found none; only leader election by activemask/vote.ballot).",
+          "Any Table-1 llama.cpp throughput measurement with auto-warp on: the three-arm runner was only dry-run (table1-auto-warp-runner-20260908/README.md:19-25).",
+          "Neutrino and Xtrace are named only in related-work lists. Checked: docs/resubmission-v2/intro_draft3.md:51 and docs/presentation/gpu_ext_lpc/outline.md:89 (Neutrino). Not line-checked: docs/presentation/gpu_ext_lpc/slides.md, docs/presentation/gpu_ext_gpumode/outline.md and slides.md. No design discussion of their per-launch allocation was found. No 'Xtrace' hit was line-verified.",
+          "arXiv 2512.12615 version mapping not checked. Paper section numbers are inferred from the tex-revision heading order in gbpf-paper (camera-ready 8cf95bd). The pre-revision tex/ files (restored to 628c17d by 52429bd) contain the same warp-aggregation claims (tex/design.tex:129-135, tex/implementation.tex:63,73,77, tex/eval.tex:412-415), but I did not confirm they match the arXiv PDF.",
+          "Line numbers that gpu_ext notes quote for the authors' local bpftime worktrees (e.g. map_handler.cpp:1019/1075, default_trampoline.cu:261-303 and 140-179) were not verified. Only lines printed here from gpu_ext 50a51ad, bpftime 42cf71c/e27d009/commit diffs and gbpf-paper 8cf95bd/5df2969 are verified.",
+          "When bpftime helpers 509/510/511 were merged into master was not determined.",
+          "raw/ experiment logs, binary build outputs and git-lfs payloads in gpu_ext were not read."
+        ]
+      },
+      "verified": {
+        "checked": [
+          {
+            "claim": "F1. Nothing sizes maps at launch. gpu_ext runners compute the llama.cpp rope thread count offline (4 x pp x 256: 32,768 at pp32, 524,288 at pp512) and export BPFTIME_MAP_GPU_THREAD_COUNT plus BPFTIME_SHM_MEMORY_MB before the maps are created. The original 80 B x 256-entry ring needs 11,823,743,008 B. Five runners do this.",
+            "verdict": "confirmed",
+            "source": "gpu_ext 50a51ad: run_table1_perf.py:75-84, 203-224 (PP=512 at :51; 256*2048*1=524,288; 524,288*(24+88*256)+32=11,823,743,008); run_revision_rq4.py:59-63, 114-136, 808-815; preflight-575-noncross-clock-01-capacity-diagnosis.md:10-13, 20-29; table1-auto-warp-runner-20260908/README.md:12-17, 50-62; automatic-warp-continuation-20260908.md:76; run_strict_warp_map_scaling.py:521; run_raw_map.py:289. Commit dates: c167256 2026-09-03; c96d15e and f0f4dc8 2026-09-08. Nuances: fig15 run_map_tier.py:406 and run_strict_uniform_map.py:450 hard-code '32', which equals the launched thread count. trampoline-scaling/run_scaling.py:625 sets the sweep maximum (1,048,576), not each run's count. The per-thread ring's entries per thread (44) are also chosen by hand from the benchmark's 44 launches (see added)."
+          },
+          {
+            "claim": "F2. Measured loss from thread-index sizing. A pp32 preflight dropped 450,560 events as out of range ((32,768-22,528) x 44). The July pp512 run used 8,192 slots, which gpu_ext calls capped/lossy. The kernelretsnoop README of that period advised a small thread count to avoid bad_alloc.",
+            "verdict": "confirmed",
+            "source": "gpu_ext 50a51ad: preflight-575-noncross-clock-01-capacity-diagnosis.md:3-18; observability_overhead/README.md:54-55; run_observability_overhead.py:43-44; results/exp_observability_overhead/20260706_180506/result.json:13,19 ('pp': 512, 'gpu_thread_count': 8192); results/exp_observability_overhead/20260706_170753/tool_build/kernelretsnoop/README.md:5"
+          },
+          {
+            "claim": "F3. Table-1 kernelretsnoop uses a hand-written lane guard ((linear_thread&31)!=0 -> return) and a 32-byte warp-coordinate record, but still writes to GPU_RINGBUF 1527 with flags 0. The ring is therefore still allocated per thread: 524,288 x (24+44x40)+32 = 935,329,824 B (about 892 MiB) for 720,896 events (22 MiB). This configuration is the 90.71% 5090 row.",
+            "verdict": "confirmed",
+            "source": "gpu_ext 50a51ad: kernelretsnoop-phase-capacity.patch:28-41; results-table1-warp-plt-575-03/gpubpf_tool_build/kernelretsnoop/kernelretsnoop.bpf.c:14-19, 37-50; device-array-runtime-notes.md:20-27; results-table1-warp-plt-575-06/README.md:11 (3493.665 token/s, 90.7050859%); docs/artifact/table1-runtime.md:32 (the patch applies to kernelretsnoop). bd5cfa4 and ce7adec on master are dated 2026-09-05 -0700. Same-subject copies exist on revision/table1-opt-qwen (ffa3d78, 5e688da) and revision/table1-pure-runner (5ce5632, 51bf37c)."
+          },
+          {
+            "claim": "F4. The onevalue arena is a single value of map type 1503, hand-written in the tool. It holds 16,384 per-warp counters plus 16,384 x 44 x 32 B events (23,199,768 B, frozen by _Static_assert), indexed by logical warp id. There is no atomic or shared reservation. Overflow and out-of-range events are counted with non-atomic += and dropped. The host does one bulk lookup of about 10.6 ms. gpu_ext describes it as a finite pp512 buffer, not a streaming collector.",
+            "verdict": "confirmed",
+            "source": "gpu_ext 50a51ad: onevalue-array-candidate/onevalue_array_value.h:18-19, 28-44; onevalue-array.bpf.c:6, 15-20, 36-71; results-onevalue-array-bootstrap-575-20260907/README.md:28-35, 80-102; device-array-runtime-notes.md:40-54. Commit 99b6642, 2026-09-06 -0700. Nuances: the shipped source's SEC targets _Z9vectorAddPKfS0_Pf (onevalue-array.bpf.c:22); the measured build rewrote it to the rope_norm symbol (onevalue-array-candidate/build-and-measurement.md:17; README.md:64-73). All runs used warning-mode verification: the cells.json stderr shows 'GPU eBPF verification failed' and the program ran anyway (results README:74-78)."
+          },
+          {
+            "claim": "F5. The paper's 5.57% kernelretsnoop bar comes from the hand-written onevalue tool (ten-pair result 5.40%, against 90.71% with the ring). eval.tex:504 attributes the low overhead to 'the warp-uniform execution model'.",
+            "verdict": "corrected",
+            "correction": "The 5.57% bar (ARTIFACT.md:86: first five onevalue GPU-array pairs; ten pairs give 5.400619%) does come from the hand-written onevalue tool. However, the 'due to the warp-uniform execution model' sentence at gbpf-paper 8cf95bd tex-revision/eval.tex:504 refers only to the P40 panel (a), whose overheads were 3-14% against NVBit's 85-93%. The 5.57% result appears at eval.tex:506 (RTX 5090 panel (b)) with no mechanism attributed. That sentence compares it against NVBit 99.62%, which was measured with NVBit's per-thread channel collector, so the comparison is unmatched. When gpu_ext gave NVBit the same bounded warp array (be7bbc80, 2026-09-07), NVBit lost 9.49% (median) and gpubpf lost 5.21%. gpu_ext itself warns against attributing the whole aggregation benefit to BPF (results-warp-array-matched-575-20260908/README.md:64, 83-89).",
+            "source": "gbpf-paper 8cf95bd tex-revision/eval.tex:496, 504, 506, 514; gpu_ext 50a51ad ARTIFACT.md:86; results-onevalue-array-bootstrap-575-20260907/README.md:10-16, 46-52 (commit b8dda04, 2026-09-07 -0700); results-warp-array-matched-575-20260908/README.md:59-64, 77-89"
+          },
+          {
+            "claim": "F6. The full-record banked arena (32 values of type 1503, each holding 16,384 thread slots x 256 records x 80 B) is about 10.74 GB and is still indexed by thread. It was banked because of the signed-int value-size field and BTF truncation. Out-of-range threads are counted in bank 0 and per-slot overflow is counted, both non-atomically. It is drained after the run (about 1.49 s). Layouts are AoS plus opt-in SoA, AoSoA and soa-warp. Copies are kept in bpftime e27d009.",
+            "verdict": "confirmed",
+            "source": "gpu_ext 50a51ad: full-record-device-buffer/full_record_device_buffer_value.h:8-31, 42-80 (16+16384*8+16384*256*80 = 335,675,408 B per bank; x32 = 10,741,613,056 B); full-record-device-buffer.bpf.c:16-21, 53-96; README.md:23-31, 135-148, 297-305; full-record-device-buffer-plan.md:107-125; commits 743ef57 (2026-09-08) and f144de0 (2026-09-09); bpftime e27d009 'chore(gpu): retain full-record layout experiment sources' 2026-09-24. Nuances: banking happened in two steps. The signed-int map-info value-size limit first forced 8 banks of 65,536 slots (plan:109-112). The 1.25-GiB value was then truncated by a BTF size-in-bits overflow (declared 1,342,701,584 B, emitted 268,959,760 B), which forced 32 banks (README:23-28). The writer reads the grid at run time with helper 508 bpf_get_grid_dim to compute its index (bpf.c:14, 40, 69-73), but capacity stays the compile-time 524,288."
+          },
+          {
+            "claim": "F7. Full-record measurements: the ring with transport 3 reached 345 token/s (99.10% loss); the GPU-local AoS arena 23,267 token/s (39.10% loss, 67.5x); SoA 27.64% loss; soa-warp 12.86% loss (+20.57% over SoA). All runs had zero overflow. The drain took about 1.49 s.",
+            "verdict": "confirmed",
+            "source": "gpu_ext 50a51ad: results-full-record-device-buffer-20260908.md:8-19, 37-47 (medians; commit 01611d2, 2026-09-08); results-full-record-soa-warp-20260909.md:1-14, 26 (commit 29c1c39, 2026-09-09). The SoA 27.641% figure is the SoA arm inside the soa-warp campaign."
+          },
+          {
+            "claim": "F8. Thread-count validation to [1, 1,048,576] with -EINVAL for map types 1502 and 1527 (bpftime 201bb2d) exists only on unmerged branches. Master still uses std::stoull with no check.",
+            "verdict": "confirmed",
+            "source": "bpftime 201bb2d (2026-09-03 18:11 -0700): runtime/src/handler/gpu_map_thread_count.hpp (MAX 1048576, from_chars, attribute 0 or above max rejected); diff in map_handler.cpp (1502 and 1527 return -EINVAL) and handler_manager.cpp (resets handlers[fd] to unused_handler). Master 42cf71c map_handler.cpp:750-760 is unchanged. gpu_ext revision-device-map-audit-20260904.md:35-38 (23 assertions). Branch list is incomplete: 201bb2d is also on revision/launchlate-finish, revision/sass-backend and revision/sass-existing-application; still not on master. Type 1512 is not covered (see added)."
+          },
+          {
+            "claim": "F9. Per-reason ring drop counters (oob/full/bad_size/other, atomicAdd_system, return codes 1-4) and a stats API (bpftime 052513a) exist on unmerged branches only. Master returns 1 silently when tid >= max_thread_count.",
+            "verdict": "confirmed",
+            "source": "bpftime 052513a (2026-09-03 16:43 -0700): default_trampoline.cu diff (ringbuf_error_counters, atomicAdd_system, atomicCAS_system on dirty -> other_drops/return 4, full -> return 2), runtime/include/bpftime_gpu_ringbuf.h:11-22 (struct bpftime_gpu_ringbuf_stats), and the 'bpftime_syscall_server__get_gpu_ringbuf_stats' symbol. Master 42cf71c default_trampoline.cu:365-370. gpu_ext 575-03 kernelretsnoop.c:18, 479-554; docs/artifact/table1-runtime.md:33. 052513a is also on launchlate-finish, sass-backend and sass-existing-application. Master additionally halves the ring's thread count on shared-memory bad_alloc (see added)."
+          },
+          {
+            "claim": "F10. Drop counting was demonstrated end to end for 1527 in the cross-layer campaign: 5 overflow cells reported all 2,560 drops and were rejected; 10 positive cells recovered 34,560 tuples. On-chip shards and automatic placement were excluded.",
+            "verdict": "confirmed",
+            "source": "gpu_ext 50a51ad: workloads/cross-layer-raw-map/plan.md:5-12, 28-35; README.md:84-89; docs/experiment/revision-device-map-audit-20260904.md:28-33 (commit 4d76140, 2026-09-04); docs/revision-completion-checklist.md:469"
+          },
+          {
+            "claim": "F11. The per-thread array (1502/1512) OOB write is not fixed: array_map_offset only printf-warns and returns an address past the allocation, on both master and e27d009. threadhist uses 1502 with max_entries 1, and gpu_ext avoids overflow with a 1,048,576 default plus a tool-side env check.",
+            "verdict": "confirmed",
+            "source": "bpftime e27d009 default_trampoline.cu:278-288 and master 42cf71c :189-199; callers have no bound check (master :211, 228, 259, 281). gpu_ext 50a51ad 575-03 threadhist.bpf.c:6-13, threadhist.c:111-129; observability_overhead/README.md:54. Status precision: this is a runtime gap in merged code plus a hand-written tool check, not a doc note. The threadhist env check runs after threadhist_bpf__attach (threadhist.c:106 vs 111), when the map already exists."
+          },
+          {
+            "claim": "F12. The bit-63 BPF_PERF_EVENT_GPU_WARP_ONLY_OUTPUT flag (bpftime 89a1244) is first-active-lane sampling: other lanes return 0, with no aggregation and no drop counter, and the per-thread allocation is unchanged. It is on unmerged branches only, and the Table-1 patch uses a manual guard instead.",
+            "verdict": "confirmed",
+            "source": "bpftime 89a1244 (2026-09-05 21:58 -0700) default_trampoline.cu diff (+13 lines: __activemask, __ffs, %laneid, return 0). Contained only in revision/automatic-warp-execution and revision/table1-host-plt-fix. gpu_ext automatic-warp-continuation-20260908.md:156-163; transport-soa-20260908/README.md:77-78"
+          },
+          {
+            "claim": "F13. Ring transports 1/2/3 (5a90e03, c4c83cd, 886b4ca) keep every record and are still sized n*entry_size+32. They are selected at map creation under BPFTIME_GPU_AUTO_WARP_EXECUTION, on an unmerged branch. Throughput: legacy 34.5, transport 2 194 (5.77x, 99.49% loss), transport 3 346.8 (1.65x over transport 2).",
+            "verdict": "confirmed",
+            "source": "bpftime e27d009 default_trampoline.cu:493-553 (n=max_thread_count, payload_base=n*24, word_stride=n*8); commits 5a90e03, c4c83cd and 886b4ca (all 2026-09-08), only on revision/automatic-warp-execution. gpu_ext transport-soa-20260908/README.md:20-78; results-original-ring-encoded-20260908.md:10-19; results-transport23-20260908.md:7-15, 19-30. Numbers come from two campaigns; see added."
+          },
+          {
+            "claim": "F14. No shared warp-reservation buffer exists in the runtime; gpu_ext says so (per-thread rings, dirty-word CAS, no single shared allocation counter). The audit found no map type in CUDA shared memory, and a per-block SRAM map would need a new ABI.",
+            "verdict": "confirmed",
+            "source": "gpu_ext 50a51ad docs/experiment/automatic-warp-continuation-20260908.md:84-90, 144-163; revision-device-map-audit-20260904.md:21-26, 56, 61, 124-129. Commit dates: 70859227 2026-09-07 22:21 -0700 (2026-09-08 UTC); 8429a122 2026-09-08."
+          },
+          {
+            "claim": "F15. Only the paper claims per-warp GPU shared-memory shards with leader updates without atomics and daemon flush; gpu_ext's audit contradicts this.",
+            "verdict": "confirmed",
+            "source": "gbpf-paper 8cf95bd tex-revision/implementation.tex:79-83 (a \\paragraph 'Hierarchical Maps and Cross-Domain State' inside \\subsection 'GPU Runtime' = section 4.2); tex-revision/design.tex:223-231 (section 3.5.4). Main 5df2969 (2026-10-14) differs from 8cf95bd in these files only by citations. gpu_ext 50a51ad revision-device-map-audit-20260904.md:21-26; workloads/cross-layer-raw-map/README.md:84-89"
+          },
+          {
+            "claim": "F16. Only the paper claims warp-leader aggregated execution (sections 3.5.3, 4.2, and 5.3 with 60-80%); gpu_ext audits found no implementation. The future-work wording of gbpf-paper 54e15e2 is absent from tex-revision.",
+            "verdict": "corrected",
+            "correction": "The paper claims and the gpu_ext audit findings are as stated: design.tex:215-220, implementation.tex:69 and eval.tex:523-525 (section 5.3 = RQ2) at gbpf-paper 8cf95bd; warp-source-gap.md:3-4, 41-71, 87-108; legacy-evidence-audit.md:9-22, 60-74; results-full-575-01-20260904.md:10-16; gpu_ext commits f6f695c, 5540958 and c2124bc, all dated 2026-09-04. The paper history is more specific than 'absent'. 54e15e2 (2026-09-04, 'scope warp aggregation as future work', on tex/design.tex) is an ancestor of 8cf95bd. Its 'Warp-level Execution Opportunity' wording was carried into the revision sources (tex-revision/tex/design.tex) by the restructure 52429bd (2026-09-04). It was then actively reverted by 11c744d (2026-09-05, 'revision: rebuild draft on submitted text with minimal changes'). That commit replaced the subsection with 'Warp-level Execution Optimizations ... introduces warp-level aggregated execution ... warp leader executes the policy once, broadcasting decisions back', and this text survives in camera-ready 8cf95bd and main 5df2969. The future-work scoping was therefore removed in the revision, not merely missed.",
+            "source": "gbpf-paper: git log -S'Warp-level Execution Opportunity' origin/main -> 11c744d, 52429bd, 54e15e2; 'git show 11c744d -- tex-revision/tex/design.tex' lines -/+ 'Warp-level Execution Opportunity'/'Optimizations'; merge-base --is-ancestor 54e15e2 8cf95bd = true; 8cf95bd tex/design.tex:129 (unused pre-revision copy); gpu_ext 50a51ad microbench/fig15-device/warp-source-gap.md, legacy-evidence-audit.md, strict-warp-map-scaling/results-full-575-01-20260904.md"
+          },
+          {
+            "claim": "F17. Automatic warp execution (e801d28..d6db11e, unmerged branch) admits only whole programs: PREVAIL+uniformity+SIMT checks pass; no atomics, per-thread map stores, helper 25, trace_printk, puts or cuda_exit; only shared-map update/delete with uniform key/value. The lowest active predicate-true lane calls the handler (activemask/vote.ballot), with no shuffle/broadcast, no per-site choice and no defer. The host-helper RPC still serializes lanes. Nothing of this is on master.",
+            "verdict": "confirmed",
+            "source": "bpftime e27d009 bpftime-verifier/src/gpu/warp_execution_eligibility.hpp:15-34; warp_execution_eligibility.cpp (case 25/6/501/507 rejects, is_atomic, per-thread map 1502/1512 rejects, uniform value check); ptxpass_core/src/core.cpp:403-453 (activemask.b32, vote.ballot.sync.b32, %laneid; no shfl or broadcast); default_trampoline.cu:200-222, 239-262 (32-iteration lane loop with spin_lock). git log eef8a51..e27d009 shows only e801d28, 49d71e5, 0c3b6d1, d6db11e, 88c2949, e5e52e5, fa96b77, 7cfba18, e61bdb3, 5a90e03, c4c83cd, 241872b, 886b4ca and e27d009, with no record-preserving warp batching. Master 42cf71c: bpftime-verifier/src has only bpftime-verifier.cpp and platform-impl.cpp; ptxpass core.cpp's only warp mention is :222 (test registration of helper 510). gpu_ext device-storage-continuation-20260908.md:116-119; strict-warp-map-scaling/results-automatic-warp-on-retry-20260908.TJ94Fl/README.md:17 (14-instruction probe)"
+          },
+          {
+            "claim": "F18. Measured auto-warp was adverse or neutral on microbenchmarks: +57.29% [56.31, 58.28]; mask-only +53.13%; 32/1024 threads +0.52%/-0.13%; 2/4/8 CTAs +57-58%; work 8/32/128 +15.4/+0.18/-0.15%; handler calls 32x fewer. The Table-1 three-arm runner was only dry-run.",
+            "verdict": "confirmed",
+            "source": "gpu_ext 50a51ad: results-automatic-warp-shared-10blocks-20260908.ORjHAp/README.md:14-23; automatic-warp-continuation-20260908.md:104-134; results-automatic-warp-shapes-20260908.oCA5Jf/README.md:14-17; results-geometry-work-20260908.md:13-20; results-observed-counts-20260908.md:9-16, 41 (the 'does not establish a speedup' sentence is at :41, not :53-58); table1-auto-warp-runner-20260908/README.md:19-25. Commits: 43802974, 4279f762, d28b6ab3 and a0c5edf6 (2026-09-08); bf4c108c (2026-09-08 16:44 -0700). Note: the 1024-thread -0.1292% interval [-0.2620, -0.0086] excludes zero, so it is a tiny improvement, not strictly neutral."
+          },
+          {
+            "claim": "F19. Helpers 509/510/511 (%smid/%warpid/%laneid) exist on master but no map type indexes by hardware position. gpu_ext's only use keys a 64-entry 1503 map by helper 510 (SM-local slots), with no scaling advantage (1.0060 [0.9915, 1.0604]). The merge date was not determined.",
+            "verdict": "confirmed",
+            "source": "bpftime master 42cf71c default_trampoline.cu:490-515; gpu_ext 50a51ad strict-warp-map-scaling/warp_map_probe.bpf.c:5-16, 32-41; independent-review.md:103-115; results-full-575-01-20260904.md:17-30; commits e963999 and 826c35a (2026-09-04). Merge date now determined (see added): 3019ad08, PR #523, 2025-12-08."
+          },
+          {
+            "claim": "F20. The POD-Attention port keeps per-SM counters (%nsmid+2 u32, bound below 2^20, reset each launch) with an atomic ticket on counters[%smid], reached through a raw pointer in PodSelectorContext rather than a bpftime map. It is hand-written policy state.",
+            "verdict": "confirmed",
+            "source": "gpu_ext 50a51ad workloads/pod-attention/selector_abi.h:15-33; selector_policy.h:24-56 (POD_FETCH_ADD(&counters[c->smid]) and counters[nsmid+op]); selector.bpf.c:1-9; pod_runtime.cu:13-15, 31, 59, 66; plan.md:132-138; pod-compat.patch:244-283 (application reads %nsmid/%smid and fills local.counters/nsmid/smid)"
+          },
+          {
+            "claim": "F21. launchlate samples only thread (0,0,0) of block (0,0,0), with fixed-size shared maps (10-bin 1503 histogram, 4096-entry and 4-entry 1513) updated by plain stores, so storage does not depend on the grid. This is a hand-written guard.",
+            "verdict": "confirmed",
+            "source": "gpu_ext 50a51ad results-table1-warp-plt-575-03/gpubpf_tool_build/launchlate/launchlate.bpf.c:6-7, 13-42, 138-175. It is a kprobe (entry) program. The comment at :141-143 notes that the driver's GPU verifier rejects XADD with a non-zero immediate, which is why the updates are non-atomic."
+          }
+        ],
+        "added": [
+          {
+            "claim": "Matched NVBit control. With the same bounded per-warp GPU-local array (16,384 warp counters x 44 x 32 B, 23,199,768 B), NVBit's kernelretsnoop lost 9.49% median (mean 9.56%) and gpubpf lost 5.21% (mean 5.31%). This compares with 99.62% for NVBit's per-thread channel. In gpu_ext's words: 'GPU-local aggregation helps both implementations'; the experiment does not support 'attribution of the entire aggregation benefit to BPF itself'. The storage design, not the runtime, accounts for most of the drop from 90.7%/99.6%, yet the camera-ready paper still compares 5.57% against the unmatched 99.62%.",
+            "source": "gpu_ext 50a51ad workloads/llama.cpp/observability_overhead/revision-rq4/results-warp-array-matched-575-20260908/README.md:1-30, 59-64, 77-89; commit be7bbc80 (2026-09-07 18:58 -0700); gbpf-paper 8cf95bd tex-revision/eval.tex:506",
+            "approach": "shared_warp_buffer",
+            "status": "measurement"
+          },
+          {
+            "claim": "Upstream bpftime master automatically shrinks, never grows, the GPU ring. When the shared-memory allocation for map type 1527 throws bad_alloc, map creation halves thread_count repeatedly and logs only a WARN ('Clamped GPU ringbuf thread count from X to Y'). The device bound comes from the impl (get_gpu_map_max_thread_count). On master, threads past the reduced count are then dropped by the silent 'return 1' with no counter. On master attr.gpu_thread_count is not updated after the clamp; the branch e27d009 updates it (map_handler.cpp:1095). Merged on 2026-01-02 (+0800).",
+            "source": "bpftime master 42cf71c runtime/src/handler/map_handler.cpp:1065-1095, 1286-1306; attach/nv_attach_impl/trampoline/default_trampoline.cu:365-370; introduced by a911ee68 '[CI] Add gpu examples CI tests & Fix errors in gpu_example (#490)' (git log -S'Clamped GPU ringbuf thread count'); same loop at e27d009 map_handler.cpp:1071-1095",
+            "approach": "cheap_fixes",
+            "status": "runtime_feature_merged"
+          },
+          {
+            "claim": "The host per-thread array (type 1512, PERGPUTD_ARRAY_HOST_MAP) never reads BPFTIME_MAP_GPU_THREAD_COUNT and is not covered by the 201bb2d validation. Its map_init passes attr.gpu_thread_count straight to nv_gpu_array_host_map_impl (default 1024 in bpftime_shm.hpp:45; the impl maps 0 to 1). It shares the unchecked array_map_offset device path, so its out-of-bounds hazard is the same as for 1502. This holds on master and on the branch tip.",
+            "source": "bpftime master 42cf71c runtime/src/handler/map_handler.cpp:1098-1107; runtime/include/bpftime_shm.hpp:45; runtime/src/bpf_map/gpu/nv_gpu_array_host_map.cpp:61-74; e27d009 map_handler.cpp:1101-1110",
+            "approach": "cheap_fixes",
+            "status": "runtime_feature_merged"
+          },
+          {
+            "claim": "Helpers 509/510/511 were merged into bpftime master by 3019ad08 'Add thread scheduling example for SM/Warp/Lane mapping (#523)' on 2025-12-08 -0800 (merged 2025-12-09 UTC). The same PR's example/gpu/threadscheduling keys ordinary CPU BPF_MAP_TYPE_HASH maps by SM id (sm_histogram, 128 entries) and by (sm_id<<16)|warp_id (warp_histogram, 1024 entries), incrementing with __sync_fetch_and_add. That is hand-written hardware-position-keyed storage in an upstream example, served through the host-helper path; it is not a GPU-local map type.",
+            "source": "bpftime 3019ad08 (git log -S'_bpf_helper_ext_0509' origin/master -- default_trampoline.cu); gh pr view 523 (files include default_trampoline.cu and ptxpass_core/src/core.cpp); master 42cf71c example/gpu/threadscheduling/threadscheduling.bpf.c:23-45, 51-53, 88-106",
+            "approach": "hardware_slots",
+            "status": "tool_handwritten"
+          },
+          {
+            "claim": "Transport throughput figures come from two separate campaigns. Legacy 34.514 vs transport 2 194.059 token/s (means; median paired ratio 5.7702x) is a 10-pair campaign on runtime 241872b, whose baselines are earlier controls. The 1.650x (median paired) of transport 3 is relative to transport 2 at 208.757 token/s median (mean 209.208) in a separate 5-pair campaign on runtime 886b4ca. 346.8/194 = 1.79 is not a measured ratio.",
+            "source": "gpu_ext 50a51ad results-original-ring-encoded-20260908.md:10-19, 31-39; results-transport23-20260908.md:7-15, 19-26",
+            "approach": "other",
+            "status": "measurement"
+          },
+          {
+            "claim": "Moving collection after the run does not help. With all 720,896 events collected only at the end, the ring-based kernelretsnoop lost 90.81% (3493.318 token/s), against 90.71% for the continuous collector. gpu_ext concludes that collector timing alone does not resolve the overhead; only GPU-local producer storage (onevalue) did.",
+            "source": "gpu_ext 50a51ad workloads/llama.cpp/observability_overhead/revision-rq4/device-array-runtime-notes.md:10-16; results-onevalue-array-bootstrap-575-20260907/README.md:50-51; kernelretsnoop-final-only.patch; results-final-only-575-20260907/",
+            "approach": "other",
+            "status": "measurement"
+          },
+          {
+            "claim": "Per-thread ring depth is also sized by hand from the workload. Timing uses 44 entries per coordinate because the benchmark makes exactly 44 selected launches ('a 45th entry would be the first that could find a full per-coordinate ring'). The runner rejects any geometry that is not x-by-256-by-1. Both the thread dimension and the depth of the per-thread ring are therefore fitted offline to one workload.",
+            "source": "gpu_ext 50a51ad workloads/llama.cpp/observability_overhead/revision-rq4/table1-compact-coordinate-build-readiness-20260904.md:20-30; run_revision_rq4.py:59-63, 122-132",
+            "approach": "size_at_launch",
+            "status": "tool_handwritten"
+          },
+          {
+            "claim": "201bb2d (thread-count validation) and 052513a (ring drop counters) are on six branches, not three: revision/table1-575, revision/table1-host-plt-fix, revision/automatic-warp-execution, revision/launchlate-finish, revision/sass-backend and revision/sass-existing-application (tips 2026-09-03 to 2026-09-24). Neither is on master 42cf71c (2026-11-12). 89a1244 (warp-only flag) is only on table1-host-plt-fix and automatic-warp-execution. All auto-warp and transport commits (e801d28 onward) are only on revision/automatic-warp-execution.",
+            "source": "bpftime.git: git branch -r --contains 201bb2d / 052513a / 89a1244 / e801d28 after fetching all 62 heads",
+            "approach": "cheap_fixes",
+            "status": "runtime_feature_unmerged_branch"
+          },
+          {
+            "claim": "Nothing after 2026-11-11 changes the picture. gpu_ext: no commits after 50a51ad (2026-09-24), the newest tag v0.0.1017 points to 50a51ad, and the only PR refs are #2 and #4. bpftime: master has 16 commits since 2026-11-01, none touching GPU map sizing, warp storage or ring drops. Heads updated on 2026-11-11 and 2026-11-12 (codex/gpu-simt-verifier-clean, ci/gpu-path-gate, fix/cuda-multicontext-attach, rocm-attach, feat/per-cpu-bpf-serialization, fix/reject-unregistered-helper-at-load and others) cover the verifier, CI, attach and CPU work. The only related item is example-level: PR #740 (466e91b0, merged 2026-11-12) made the mem_trace example's shared counter atomic, because lanes running in lockstep that wrote one shared key lost 9 of every 10 updates (last writer wins). This illustrates the shared-slot hazard that a shared or warp buffer must handle.",
+            "source": "gpu_ext: git log 50a51ad..origin/HEAD (empty), for-each-ref refs/tags --sort=-creatordate, git ls-remote origin 'refs/pull/*/head'; bpftime: git log --since=2026-11-01 origin/master, for-each-ref --sort=-committerdate refs/remotes/origin; gh pr view 740 (example/gpu/mem_trace/mem_trace.bpf.c)",
+            "approach": "shared_warp_buffer",
+            "status": "tool_handwritten"
+          },
+          {
+            "claim": "The 'generic' device-array-candidate/ that device-array-runtime-notes.md:64-65 assigns a directory to never existed in any gpu_ext ref; git log --all on that path is empty. Only the single-value onevalue-array-candidate was built, so gpu_ext has no general per-warp device-array design.",
+            "source": "gpu_ext: git log --all -- workloads/llama.cpp/observability_overhead/revision-rq4/device-array-candidate (no output); 50a51ad device-array-runtime-notes.md:64-66",
+            "approach": "shared_warp_buffer",
+            "status": "not_found"
+          }
+        ],
+        "summary": "I re-opened every cited source read-only, using git show/ls-tree/log in the blobless gpu_ext clone (35 MB after the checks), the tree:0 bpftime clone (now fetched with all 62 heads) and the gbpf-paper clone, plus gh for upstream PRs. I made no checkouts or edits. Of the 21 findings, 19 hold as written; I added nuances to several (F1, F4, F6, F8, F9, F11, F18). Two were corrected:\n- **F5:** the paper's 'due to the warp-uniform execution model' (eval.tex:504) refers to the P40 panel, not the 5090 5.57% bar. That 5.57% is compared with an unmatched per-thread NVBit 99.62%. With the same warp array, NVBit lost 9.49% (be7bbc80).\n- **F16:** the future-work wording of 54e15e2 did reach the revision sources through 52429bd, then was actively reverted by 11c744d (2026-09-05). That is how the warp-aggregation claim survives in camera-ready 8cf95bd and main 5df2969.\n\nThe status picture stands. Nothing in gpu_ext or bpftime sizes per-thread storage by grid or per launch. All runtime partial fixes (thread-count validation, ring drop counters, warp-only flag, transports, whole-program auto-warp) are on unmerged revision/* branches. The low-overhead result comes from a hand-written, pp512-frozen per-warp arena in one tool.\n\nImportant additions:\n- **Master shrinks the ring silently:** upstream master halves the GPU ring's thread count on shared-memory bad_alloc with only a WARN (a911ee68, 2026-01-02). Threads past the reduced count are then dropped without a counter.\n- **Type 1512 is unchecked:** it ignores BPFTIME_MAP_GPU_THREAD_COUNT and the validation (attr default 1024).\n- **Helpers 509/510/511 date and example:** they were merged by PR #523 (3019ad08, 2025-12-08). Its example keys CPU hash maps by SM and by SM+warp slot.\n- **Workload-fitted ring depth:** the ring depth (44) is also fitted by hand to the benchmark's 44 launches.\n- **Nothing new after 2026-11-11:** no gpu_ext activity after 2026-09-24. On bpftime, the only related change is the 2026-11-12 example-level PR #740, an atomic fix for a lockstep shared-counter undercount.\n\nNot verified:\n- 9a753e1 (the verifier-only placeholder commit) is not in any fetched bpftime ref; it is known only from gpu_ext's audit text.\n- Line numbers quoted from the authors' local bpftime worktrees.\n- Mapping to the arXiv 2512.12615 versions.\n- raw/ logs and git-lfs payloads.\n- The exact runtime build commit for the Table-1 runs (only the branch name is documented).\n\nScratch files are in /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir1-overlap/verify-gpuext/ (verdicts-draft.txt, master_map_handler.cpp, master_tramp.cu, e27_tramp.cu, e27_core.cpp)."
+      }
+    },
+    {
+      "key": "bpftime_upstream",
+      "found": {
+        "summary": "Upstream bpftime source, read-only; ran git fetch official on 2026-11-13. official/master moved from 1e39125a to 42cf71c4.\n\n(a) official/master since 39cc1fce has 11 commits (fa842ad7 .. 42cf71c4, 2026-11-11..12). None touch the GPU map types 1502/1512/1527/1503/1513, thread counts, the GPU ringbuf, warp-leader output, make_helper_call or the CUDA watcher.\n- The only GPU-side commit is 466e91b0 (#740): it makes the mem_trace example counter atomic, because lockstep lanes lost 9 of 10 non-atomic updates.\n- 8e257dd2 (#735) tests the CPU userspace ringbuf, not 1527.\n\nOn master today, direction 1 is covered only by these merged pieces:\n- an unvalidated BPFTIME_MAP_GPU_THREAD_COUNT (default 1024);\n- a per-access device printf for 1502/1512, which then writes past the map anyway;\n- a silent `return 1` for ringbuf threads beyond the count;\n- halving of the ringbuf thread count when allocation fails (bad_alloc);\n- hardware-position helpers 508-511 plus one hand-written SM/warp histogram example;\n- documentation telling users to set the env var by hand.\n\n(b) There are 7 official/revision/* branches, all by LinuxDev9002, dated 2026-09-03..09-24. None is merged and none has a PR:\n- `git cherry` finds no equivalents;\n- master has 0 hits for their symbols;\n- no PR exists with these heads.\n\nFive of them (launchlate-finish, table1-575, table1-host-plt-fix, sass-*, automatic-warp-execution) share one commit chain on merge-base 1dd02f76 (2026-08-09). That chain contains the cheap fixes:\n- validation of the thread-count env (only 1502 and 1527, cap 1048576, -EINVAL);\n- per-reason drop counters and a stats API for 1527 only;\n- the per-thread array still writes out of bounds;\n- no warning at launch on any ref.\n\nautomatic-warp-execution adds:\n- an opt-in warp-only output flag (bit 63) for perf_event_output: the first active lane writes, the other lanes' records are dropped, nothing is aggregated, it still uses per-thread slots, and no tool uses it;\n- ringbuf transport levels 1-3: still per-thread and per-event, and memory is unchanged;\n- 'automatic warp execution'.\n\nAutomatic warp execution is opt-in (BPFTIME_GPU_AUTO_WARP_EXECUTION and a build with the verifier). It is a yes/no decision per program, not per call site:\n- It admits a program only if the full SIMT verifier accepts it and every side effect is idempotent across the warp, i.e. stores to shared GPU maps (1501/1503/1504/1513) with warp-uniform values.\n- It rejects any atomic, perf_event_output, trace_printk, puts and cuda_exit, and any write to per-thread maps 1502/1512.\n- It then rewrites each kretprobe, kernel-entry or stub hook site so that only the lowest lane among those active at the site with the site predicate true (activemask plus vote.ballot.sync) calls the handler.\n- Results are exact by construction. There is no aggregation, deferral, or commutativity or result-usage analysis.\n- It excludes exactly the programs that use direction 1's maps.\n- Its eligibility test fixtures were never compiled or run.\n- It depends on the GPU SIMT verifier, which is only in open PR #624.\n\nSo for direction 1:\n- size_at_launch, a shared or per-SM warp buffer, and hardware-slot map types are absent from both master and every branch;\n- cheap fixes exist only partially and only on an unmerged branch.\n\nFor direction 2, the only related piece is the narrow exact deduplication of idempotent programs (leader-only execution). Because it runs the whole handler once per warp, it also removes duplicate host calls such as lookups and 1501 updates.\n\ngh worked. Since 2026-09 there are no PRs or issues about thread_count, max_thread_count, warp leaders or automatic warp. The relevant items found are #739/#740, #752 and #697/#698/#706/#735 (CPU ringbuf), plus the older #530 (2025-12).",
+        "findings": [
+          {
+            "claim": "official/master 39cc1fce..42cf71c4 (11 commits, 2026-11-11..2026-11-12; fetch moved master past 1e39125a by 4 commits): fa842ad7 build dep, bb8f87ad get_current_comm, 9e1660bf USDT cookie, e4a7f6a7 prog-array TLS, 466e91b0 mem_trace example, efd854a3/1e39125a/3e47e678 CI, d6d49c53 mmap leak, 8e257dd2 CPU ringbuf straddle test, 42cf71c4 docs (CLAUDE.md/runtime README, no GPU mention). None touches GPU map types 1502/1512/1527/1503/1513, thread counts, GPU ringbuf, warp-leader output, make_helper_call or the CUDA watcher. The only GPU-side change: 466e91b0 (#740, fixes issue #739) changes example/gpu/mem_trace/mem_trace.bpf.c:27 from `*val = *val + 1` to `__atomic_add_fetch` because 10 lockstep lanes of one warp lost 9/10 updates (last-writer-wins). 8e257dd2 (#735) covers runtime/unit-test/maps/test_ringbuf_map.cpp = CPU userspace ringbuf, not 1527.",
+            "source": "git log 39cc1fce..official/master; git show 466e91b0, 8e257dd2, 42cf71c4 (worktree /home/jetson/src/bpftime-daily-state/worktrees/4708f4092d1e/candidate)",
+            "approach": "other",
+            "status": "tool_handwritten",
+            "date": "2026-11-12"
+          },
+          {
+            "claim": "Master baseline (merged) for thread-count handling. get_thread_count does unvalidated std::stoull of BPFTIME_MAP_GPU_THREAD_COUNT, else attr.gpu_thread_count, whose default is 1024 and which nothing in the runtime sets. Per-thread array lookups call array_map_offset: it only printf-warns per access when getGlobalThreadId() >= max_thread_count, then returns the out-of-range pointer, so the access writes past the map. GPU ringbuf perf_event_output silently returns 1 for such threads, with no counter. On boost bad_alloc, the 1527 ringbuf halves thread_count until it fits and logs one SPDLOG_WARN 'Clamped GPU ringbuf thread count'; this came from a911ee68 (#490, 2026-01-02). No launch-time check compares the grid with map thread counts: the patched-launch path in nv_attach_impl_frida_setup.cpp calls cuLaunchKernel directly.",
+            "source": "official/master:runtime/src/handler/map_handler.cpp:750-760, :1065-1092; runtime/include/bpftime_shm.hpp:45; attach/nv_attach_impl/trampoline/default_trampoline.cu:180-199 (array_map_offset warning at 192-194), :364-370; attach/nv_attach_impl/nv_attach_impl_frida_setup.cpp:~165-193",
+            "approach": "cheap_fixes",
+            "status": "runtime_feature_merged",
+            "date": "2026-01-02 (clamp); state at 42cf71c4 2026-11-12"
+          },
+          {
+            "claim": "PERGPUTD_ARRAY_HOST_MAP (1512) ignores BPFTIME_MAP_GPU_THREAD_COUNT on both master and the revision branch tip. map_init builds nv_gpu_array_host_map_impl with attr.gpu_thread_count directly, which is the default 1024. The only code that sets that field is benchmark/gpu/host/gpu_per_thread_array_map_host_perf.cpp:142. Meanwhile example/gpu/host_map_test/host_map_test.c:28-40 sizes its readback from the env var. So with the env var set, the tool and the runtime disagree on 1512's width; the branch's validation fix (201bb2dc) also skips 1512.",
+            "source": "official/master:runtime/src/handler/map_handler.cpp:1098-1104; official/revision/automatic-warp-execution:runtime/src/handler/map_handler.cpp:1101-1107; official/master:example/gpu/host_map_test/host_map_test.c:28-40",
+            "approach": "cheap_fixes",
+            "status": "runtime_feature_merged",
+            "date": "state at 42cf71c4 (2026-11-12) and e27d009b (2026-09-24)"
+          },
+          {
+            "claim": "On master, sizing per-thread maps for the grid is left to the user, by documentation only:\n- attach/nv_attach_impl/README.md:178 says 'Override the maximum GPU thread count for all GPU maps ... Useful when the auto-computed value is too large'; no value is auto-computed in code.\n- example/gpu/README.md:244 gives memory = max_entries x max_thread_count x value_size.\n- example/gpu/kernelretsnoop/README.md:5 advises setting it to 'a smaller value (such as 10) to avoid bad_alloc'.\n- example/gpu/README.md:290 describes host helpers as 'spinlocks and warp-level serialization'.\n- In issue #530 (2025-12-15, closed 2025-12-17), a maintainer's workaround for threadhist was BPFTIME_MAP_GPU_THREAD_COUNT=524288, and they said 'Some examples need this prefix and we will improve it'.",
+            "source": "official/master docs (paths/lines in claim); gh issue view 530 --repo eunomia-bpf/bpftime",
+            "approach": "size_at_launch",
+            "status": "doc_note",
+            "date": "2025-12-15 (issue); docs state at 2026-11-12"
+          },
+          {
+            "claim": "Measurement on master (#558, 27b853f9, 2026-03-08). It compares the host-side update/lookup cost of GPU_ARRAY (1503) against PERGPUTD_ARRAY (1502) on an RTX 5090 using the cuMemcpyDtoH fallback (no gdrcopy), at the same effective bytes per key. With thread_count 32/128/256/1024, update costs 3832.8/3851.5/3911.0/4327.6 ns/op for per-thread and lookup 4835.0..5896.6 ns/op; the ratio stays about 1.00x. Host-only; it does not measure in-kernel cost or the grid-vs-thread_count problem.",
+            "source": "official/master:benchmark/gpu/host/gpu_array_vs_per_thread_overhead_rtx5090.md (commit 27b853f9)",
+            "approach": "other",
+            "status": "measurement",
+            "date": "2026-03-08"
+          },
+          {
+            "claim": "Hardware-position building blocks exist on master, but only as helpers and one hand-written tool:\n- Helpers 508 bpf_get_grid_dim, 509 bpf_get_sm_id (%smid), 510 bpf_get_warp_id (%warpid) and 511 bpf_get_lane_id (%laneid) are in the trampoline.\n- example/gpu/threadscheduling (#523, 3019ad08, 2025-12-08) keys histograms by sm_id and by (sm_id<<16 | warp_id) in CPU BPF_MAP_TYPE_HASH maps. Those are host-call maps, updated with __sync_fetch_and_add on the lookup pointer.\n- No map type indexes storage by SM x warp-slot x lane, and no GT-Pin-like bucket map exists.\n- Issue #752 (2026-11-13, open) reports a wrong denominator in this example's Load Balance Score.",
+            "source": "official/master:attach/nv_attach_impl/trampoline/default_trampoline.cu:480-515; example/gpu/threadscheduling/threadscheduling.bpf.c; gh issue 752",
+            "approach": "hardware_slots",
+            "status": "tool_handwritten",
+            "date": "2025-12-08"
+          },
+          {
+            "claim": "The master host-call path does no warp aggregation:\n- make_helper_call loops over the 32 lanes and does one spin-locked host round trip per active lane (flag1/flag2 handshake), with __syncwarp between lanes.\n- Lookup/update/delete on any map other than 1502/1503/1504/1512/1513 fall through to make_helper_call. That includes GPU_HASH_MAP 1501, which has no device fast path in _bpf_helper_ext_0001/0002.\n- No master commit since 39cc1fce changed this path.",
+            "source": "official/master:attach/nv_attach_impl/trampoline/default_trampoline.cu:131-172, :201-248 (host call at 245), :250-306 (host call at 305), :320",
+            "approach": "dir2_automatic_warp",
+            "status": "runtime_feature_merged",
+            "date": "state at 42cf71c4 (2026-11-12)"
+          },
+          {
+            "claim": "official/revision/* inventory:\n- 7 branches, all by LinuxDev9002; author date = committer date.\n- automatic-warp-execution: tip e27d009b (2026-09-24), 48 ahead / 56 behind master, merge-base 1dd02f76 (2026-08-09).\n- table1-host-plt-fix: tip eef8a51a (09-07), 34 ahead.\n- launchlate-finish: tip dd49095f (09-04), 29 ahead.\n- table1-575: tip 2d61d476 (09-05), 30 ahead.\n- sass-backend: tip 8e4e64d4 (09-05), 33 ahead.\n- sass-existing-application: tip fd976ea2 (09-05), 30 ahead.\n- r5-safety-evidence: tip ea9907d1 (09-03), 31 ahead, merge-base e382ed94 (2026-08-02); this is the GPU SIMT-verifier line (ac6154ba..1fca893b) plus 36610ee5/b4b0ba8a/ea9907d1.\n\nThe first six share one chain: tracepipe port 510c5b82..d6316fa7 (2026-03-08/08-09), then 052513a5..39d09919/c1c4cf63/9a8af417 (09-03..09-04).\n\nUnique tails:\n- launchlate/table1: launchlate example and host-PLT timing fixes.\n- sass-*: eBPF-to-SASS AOT (bf048fa2, fd976ea2, 31b9fdcb, 4e5110fd, 8e4e64d4); these touch no map, trampoline or pass paths.\n- table1-host-plt-fix: adds 89a12447 (warp-only output) and eef8a51a.\n- automatic-warp-execution: adds those two plus e801d287..e27d009b (09-08..09-24).\n\nMerge status:\n- None is merged: `git cherry` shows no patch-equivalent in master.\n- `git grep` on official/master finds 0 files for ringbuf_error_counters, bpftime_gpu_ringbuf_stats, MAX_GPU_MAP_THREAD_COUNT, GPU_WARP_ONLY_OUTPUT, warp_auto_execution, make_map_helper_call and warp_execution_eligibility.\n- `gh pr list --head` returns no PR for any revision/* head.",
+            "source": "git branch -r; git merge-base/rev-list/log/cherry; git grep official/master; gh pr list --repo eunomia-bpf/bpftime --head revision/...",
+            "approach": "other",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-03..2026-09-24"
+          },
+          {
+            "claim": "201bb2dc 'fix(runtime): validate GPU map thread counts' (2026-09-03, on all six chain branches) adds runtime/src/handler/gpu_map_thread_count.hpp:\n- MAX_GPU_MAP_THREAD_COUNT = 1048576 (:13).\n- parse_gpu_map_thread_count accepts only decimal values in [1, 1048576]; resolve_gpu_map_thread_count (:34) lets the env override the attribute.\n- map_init returns -EINVAL with 'BPFTIME_MAP_GPU_THREAD_COUNT must be a decimal integer in [1, 1048576]' for PERGPUTD_ARRAY 1502 (map_handler.cpp:976 at tip) and GPU_RINGBUF 1527 (:1049).\n- handler_manager::set_handler now propagates map_init failures.\n- Unit test: runtime/unit-test/maps/test_gpu_thread_count.cpp.\n\nRelated commits:\n- af759303 (09-03) and ea9907d1 (r5, 09-03) write attr.gpu_thread_count = allocated count for 1502 (:1002), and the tip does the same for 1527 (:1095), so readback matches the allocation.\n- af759303 also makes threadhist require the env explicitly.\n\nLimits:\n- This validates only the env value. It never compares it with the launch grid and adds no launch-time warning.\n- 1512 is not covered.\n- The 1527 ringbuf still halves on bad_alloc (:1072-1094).",
+            "source": "git show 201bb2dc, af759303, ea9907d1; official/revision/automatic-warp-execution:runtime/src/handler/gpu_map_thread_count.hpp:13,34; runtime/src/handler/map_handler.cpp:753,976,1002,1049,1095",
+            "approach": "cheap_fixes",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-03"
+          },
+          {
+            "claim": "052513a5 'fix(gpu): make kernel-exit collection lossless' (2026-09-03, all six chain branches) adds per-reason drop counters for GPU_RINGBUF 1527 only.\n\nDevice side (struct ringbuf_error_counters, default_trampoline.cu:440 at tip):\n- A trailer {oob_drops, full_drops, bad_size_drops, other_drops} sits after the per-thread slots and is incremented with atomicAdd_system.\n- oob_drops counts tid >= max_thread_count (:479); full_drops a full slot; bad_size_drops data_size > value_size; other_drops a null data pointer or a dirty-lock collision.\n- The header's dirty field becomes u64, protected by CAS and membar.sys; the tail is published with atomicExch.\n- Records are 8-byte aligned.\n\nHost side (nv_gpu_ringbuf_map.cpp):\n- drain_data (:123) now skips a dirty slot instead of aborting the whole drain, and returns the drained count.\n- get_stats (:215) fills struct bpftime_gpu_ringbuf_stats (runtime/include/bpftime_gpu_ringbuf.h:11) with allocated_thread_slots, committed/collected/pending records, the four drop counters and dirty_slots.\n- It is exported as bpftime_get_gpu_ringbuf_stats / bpftime_syscall_server__get_gpu_ringbuf_stats.\n\nLimits:\n- 'Lossless' is a gate in the kernelretsnoop collector: it passes only if requested == allocated slots and all drops, pending and dirty counts are 0. It is not a runtime guarantee.\n- Per-thread arrays 1502/1512 get no counters; array_map_offset at the tip (default_trampoline.cu:278-288) still printf-warns and writes past the map.",
+            "source": "git show 052513a5; official/revision/automatic-warp-execution:attach/nv_attach_impl/trampoline/default_trampoline.cu:278-288,440,479; runtime/src/bpf_map/gpu/nv_gpu_ringbuf_map.cpp:123,215; runtime/include/bpftime_gpu_ringbuf.h:11; example/gpu/kernelretsnoop/kernelretsnoop.c",
+            "approach": "cheap_fixes",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-03"
+          },
+          {
+            "claim": "Hand-written geometry checks in tools, same chain:\n- 4642d6b2 (09-03) adds BPFTIME_KERNELRETSNOOP_EXACT_ORACLE=1 to kernelretsnoop. It hard-codes the llama.cpp rope_norm launch geometry (block (1,256,1), grid.x 4/8/88) and checks exact per-coordinate multiplicities, the event total and the loss counters. Per the README it is 'intentionally specific to that workload'.\n- bf74d323 (09-03) records block_dim per event and normalizes coordinates per launch.\n- Both are tool-side drop detection against a known grid; the runtime does none of this.",
+            "source": "git show 4642d6b2 (example/gpu/kernelretsnoop/README.md, kernelretsnoop.c), git show bf74d323",
+            "approach": "cheap_fixes",
+            "status": "tool_handwritten",
+            "date": "2026-09-03"
+          },
+          {
+            "claim": "89a12447 'perf(gpu): add warp-coalesced ring output' (2026-09-05; on table1-host-plt-fix and automatic-warp-execution) is NOT a shared warp buffer.\n- Bit 63 of the perf_event_output flags (BPF_PERF_EVENT_GPU_WARP_ONLY_OUTPUT, default_trampoline.cu:450, checked at :459) is an explicit opt-in by the program author.\n- When set, only the first active lane (__ffs(__activemask())-1) runs the normal per-thread reserve/copy into its own tid-indexed slot; every other active lane returns 0.\n- The other lanes' records are therefore discarded, not aggregated.\n- Storage still scales with max_thread_count, and threads with tid >= thread_count are still dropped.\n- No example or doc in the tree uses the flag.\n- The automatic-warp eligibility analysis rejects helper 25 altogether, so the two features do not compose.",
+            "source": "git show 89a12447; official/revision/automatic-warp-execution:attach/nv_attach_impl/trampoline/default_trampoline.cu:450,459; git grep WARP_ONLY on the branch (only the trampoline)",
+            "approach": "shared_warp_buffer",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-05"
+          },
+          {
+            "claim": "Ringbuf transport levels on automatic-warp-execution:\n- Commits: 5a90e03e (level 1, aligned 8-byte payload copy), c4c83cde (level 2, tail encoded into the dirty word: odd = locked, saving one system-scope RMW and one fence per event) and 886b4ca3 (level 3, packed headers with record words transposed so adjacent tids write adjacent 8-byte words; the host reassembles each record). All 2026-09-08.\n- Selection: the level is fixed per map at construction by ringbuf_output_transport_level (nv_gpu_ringbuf_map.cpp:47). Any non-'0' BPFTIME_GPU_AUTO_WARP_EXECUTION gives level 1; BPFTIME_GPU_RINGBUF_TRANSPORT=2 or 3 selects the others. The choice does not depend on whether any program was found warp-eligible.\n- The level is passed to the device via MapBasicInfo.batch_output (default_trampoline.cu:492/581/637).\n- Every level still reserves and publishes per event in per-thread slots indexed by getGlobalThreadId, so memory is unchanged.\n- The commit messages say 'not warp-level batching of multiple records', 'This does not claim cross-lane batching or a measured speedup' and 'runtime build and performance measurement remain pending'.",
+            "source": "git show 5a90e03e, c4c83cde, 886b4ca3; official/revision/automatic-warp-execution:runtime/src/bpf_map/gpu/nv_gpu_ringbuf_map.cpp:47; attach/nv_attach_impl/trampoline/default_trampoline.cu:492,581,637",
+            "approach": "other",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-08"
+          },
+          {
+            "claim": "Upstream's answer on the branch to grid-sized maps is larger caps, not grid-independent storage:\n- 241872b1 (2026-09-08) raises the BPFTIME_SHM_MEMORY_MB limit from 10240 to 16384, with the comment 'Explicit large GPU per-thread maps may exceed 10 GiB' (runtime/src/bpftime_config.cpp).\n- 201bb2dc caps the thread count at 1048576.",
+            "source": "git show 241872b1; official/revision/automatic-warp-execution:runtime/src/handler/gpu_map_thread_count.hpp:13",
+            "approach": "size_at_launch",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-08"
+          },
+          {
+            "claim": "e27d009b 'chore(gpu): retain full-record layout experiment sources' (2026-09-24, automatic-warp-execution only) contains hand-written tools, not runtime code.\n- Directories: example/gpu/full-record-{soa-20260908.fpd5QL, aosoa-20260909.wXFOqg, soa-warp-20260909.3mlEOo}.\n- Storage: per-thread records go into a GPU_ARRAY_MAP 1503 'arena' of 32 banks x 16384 slots, with 256 records x 80 B per slot, about 10 GiB in total. It is hand-sized for one fixed llama.cpp rope_norm geometry: 524288 slots = grid 2048 x block 256.\n- Indexing: the thread id is computed with bpf_get_grid_dim/block_dim/thread_idx. Ids beyond 524288 increment total_out_of_range; slots that are full increment total_overflow.\n- Layouts: AoS, SoA, 32-lane AoSoA, and 'soa-warp', which only changes the thread-id-to-slot mapping so adjacent warp lanes hit adjacent slots.\n- The README says it 'adds no new GPU measurements' and points to the sibling gpu_ext repository: workloads/llama.cpp/observability_overhead/revision-rq4/ (results-full-record-soa-20260908.md, aosoa-regression-codegen-analysis-20260909.md, results-full-record-soa-warp-20260909.md).",
+            "source": "git show e27d009b: example/gpu/full-record-*/README.md, full-record-device-buffer.bpf.c, full_record_device_buffer_value.h",
+            "approach": "size_at_launch",
+            "status": "tool_handwritten",
+            "date": "2026-09-24 (sources dated 2026-09-08/09)"
+          },
+          {
+            "claim": "39d09919 'fix(cuda): serialize GPU map RPC payloads' (2026-09-04, all six chain branches) adds make_map_helper_call (default_trampoline.cu:224 at tip). It copies each lane's key/value/flags into the shared CommSharedMem request while holding __bpftime_comm_lock, which fixes lanes overwriting one another's request payloads. It still makes one serialized host round trip per active lane: there is no aggregation, deduplication or deferral. GPU_HELPER_MAX_BUF becomes 1 MiB with ABI static_asserts (from 052513a5). The CUDA watcher (host) loop is otherwise unchanged on the branch; bpf_attach_ctx_cuda.cpp changes only pass batch_output.",
+            "source": "git show 39d09919, 052513a5; official/revision/automatic-warp-execution:attach/nv_attach_impl/trampoline/default_trampoline.cu:200-222,224-260",
+            "approach": "other",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-04"
+          },
+          {
+            "claim": "Automatic warp execution: what it is, and the per-program decision.\n- Commits: e801d287 'gpu: checkpoint opt-in warp lowering and runtime wiring', 49d71e5e, 0c3b6d10 (all 2026-09-08, branch official/revision/automatic-warp-execution only).\n- Opt-in: BPFTIME_GPU_AUTO_WARP_EXECUTION must be a non-empty value other than '0' (nv_attach_impl.cpp:194), and the build must have ENABLE_BPFTIME_VERIFIER.\n- At attach time (nv_attach_impl.cpp:316-333), evaluate_warp_execution_eligibility decides once per eBPF program: there is no per-call-site choice and no choice among eliminate/aggregate/defer/sync. If the program is admitted, a flag (RuntimeInput.warp_auto_execution, JSON) goes to the PTX passes. Otherwise it logs 'not admitted ... (per-thread hook path preserved)'.\n- It is never an admission gate: ineligible programs keep the normal per-thread call.\n- Semantics: the goal is 'observationally equivalent' leader-only execution (warp_execution_eligibility.hpp). Results are exact by construction, because only programs whose effects are idempotent across the lanes are admitted.\n- No merge and no PR.",
+            "source": "git show e801d287, 49d71e5e, 0c3b6d10; official/revision/automatic-warp-execution:attach/nv_attach_impl/nv_attach_impl.cpp:194,316-333; bpftime-verifier/src/gpu/warp_execution_eligibility.hpp",
+            "approach": "dir2_automatic_warp",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-08"
+          },
+          {
+            "claim": "Automatic warp execution: the eligibility rules (bpftime-verifier/src/gpu/warp_execution_eligibility.cpp at tip).\n\nPrerequisite (:233): verify_gpu_program must pass in full, i.e. PREVAIL plus uniformity analysis plus SIMT safety. The SIMT check itself already requires:\n- warp-uniform conditional-branch predicates (simt_safety_check.cpp:213);\n- warp-uniform map keys (:264);\n- uniform values in shared-map updates;\n- a closed helper table (gpu_platform.cpp:108-172): helpers 1, 2, 3, 6, 14, 25 and 501-511, with 501 puts and 506 membar prohibited.\n\nThen any reachable instruction rejects the whole program if it is:\n- an atomic: 'atomic side effects are lane-multiplicative' (:133). No commutativity reasoning; 32 atomic adds are not turned into one add of 32.\n- a plain store through an untracked pointer (:148), or into a map value that may be a per-thread slot (:154);\n- a call to helper 25 perf_event_output, 6 trace_printk, 501 puts or 507 cuda_exit (:164-171);\n- a map update/delete on a per-thread map 1502/1512 (:192), on a map that is not a shared GPU map (1501/1503/1504/1513) (:196), or with update value bytes not proven warp-uniform (:206).\n\nAllowed: lookups on any map, helper 14, and timers/indices.\n\nConsequences:\n- Programs using direction 1's maps (1502/1512 writes, 1527 output) are never eligible.\n- No result-usage analysis exists beyond uniformity.\n- For direction 2, eligible programs do lose their duplicate host round trips, such as lookups on CPU maps or 1501 (which have no device fast path), helper 14, and uniform 1501 updates. The authors never state this, and it covers the 'eliminate idempotent duplicates' case only.",
+            "source": "official/revision/automatic-warp-execution:bpftime-verifier/src/gpu/warp_execution_eligibility.cpp:133,148,154,164-171,192,196,206,233; bpftime-verifier/src/gpu/simt_safety_check.cpp:213,254,264; bpftime-verifier/src/gpu/gpu_platform.cpp:108-172",
+            "approach": "dir2_automatic_warp",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-08"
+          },
+          {
+            "claim": "Automatic warp execution: the lowering, and divergent lanes.\n\nThe election preamble is emit_warp_leader_hook_prefix (ptxpass_core/src/core.cpp:403-512 at tip). The PTX passes insert it before each hook call in the selected kernel:\n- kretprobe: every (possibly predicated) ret/exit site (ptxpass_kretprobe/main.cpp:49-61);\n- kprobe_entry: the kernel-entry call (ptxpass_kprobe_entry/main.cpp:251-266) and stub-call sites such as __memcapture (:71-104).\n\nThe preamble works like this:\n1. Read %laneid and the activemask.\n2. For a predicated site, take vote.ballot.sync of the original site predicate (negation preserved). For an unconditional site, use the activemask itself (0c3b6d10).\n3. The leader is the lane with no lower ballot bit; only it executes `call __probe_func`.\n\nDivergent lanes:\n- The leader is elected among the lanes active at that site whose predicate is true. Each converged sub-group that reaches a site separately gets its own leader, so the handler runs once per converged group, not strictly once per warp.\n- Correctness does not depend on this, because the verifier already demands uniform branches inside the probe and admits only idempotent effects.\n\nFallback: a PTX ISA older than 6.0 or failure to insert register declarations falls back to the per-thread call.",
+            "source": "git show e801d287, 49d71e5e, 0c3b6d10; official/revision/automatic-warp-execution:attach/nv_attach_impl/pass/ptxpass_core/src/core.cpp:403-512; pass/ptxpass_kretprobe/main.cpp:49-61; pass/ptxpass_kprobe_entry/main.cpp:71-104,251-266",
+            "approach": "dir2_automatic_warp",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-08"
+          },
+          {
+            "claim": "Automatic warp execution: validation status.\n- 7cfba188 and e61bdb39 (09-08) add an opt-in diagnostic, BPFTIME_GPU_WARP_HOOK_CALL_COUNT. A predicated red.add on the module global bpftime_warp_hook_call_count at each leader call site counts real handler invocations; the host reads it back after cuStreamSynchronize.\n- d6db11ec adds PTX-lowering and JSON round-trip unit tests (attach/nv_attach_impl/test/test_ptxpass.cpp).\n- 88c2949a adds warp_execution_eligibility_test.cpp. Its checkpoint note (bpftime-verifier/test/warp_execution_eligibility_checkpoint.md) says the fixtures 'have not been compiled or run; do not cite them as passing', and its atomic-helper section has no assertion.\n- e5e52e57 and fa96b776 refresh and regenerate the embedded trampoline PTX.\n- There are no measurement results in the bpftime repo; e27d009b points to gpu_ext revision-rq4.\n- No .md file documents BPFTIME_GPU_AUTO_WARP_EXECUTION or BPFTIME_GPU_RINGBUF_TRANSPORT.",
+            "source": "git show 7cfba188, e61bdb39, d6db11ec, 88c2949a; official/revision/automatic-warp-execution:bpftime-verifier/test/warp_execution_eligibility_checkpoint.md",
+            "approach": "dir2_automatic_warp",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-08"
+          },
+          {
+            "claim": "Automatic warp execution depends on the GPU SIMT verifier, which is not on master: official/master has no bpftime-verifier/src/gpu/ files.\n- b266cf28 'gpu: enable strict SIMT verification in table1 runtime' (2026-09-04) brought into the chain: gpu_platform.cpp, uniformity_analysis.cpp (821 lines), simt_safety_check.cpp and gpu_verifier.cpp, with strict/warning/off modes.\n- The upstream review copy is PR #624 'feat: add conservative GPU SIMT verification': head codex/gpu-simt-verifier-clean, OPEN since 2026-08-01, last updated 2026-11-12 (merge-of-master 7aca4027). It does not contain warp_execution_eligibility.\n- The earlier PR #561 (feat/gpu-verifier) was CLOSED (2026-03).\n- r5-safety-evidence holds the same verifier line plus 36610ee5 (revision SIMT safety tests) and b4b0ba8a (counter rejection control).",
+            "source": "git ls-tree official/master; git show --stat b266cf28; gh pr view 624 / pr list (561); git log on official/revision/r5-safety-evidence",
+            "approach": "dir2_automatic_warp",
+            "status": "runtime_feature_unmerged_branch",
+            "date": "2026-09-04 (branch); PR #624 opened 2026-08-01, updated 2026-11-12"
+          },
+          {
+            "claim": "PR/issue search (gh worked) on eunomia-bpf/bpftime with terms thread_count, max_thread_count, per-thread, ringbuf, warp, warp leader, automatic-warp, thread count, GPU map, coalesced, SIMT, uniform, eligib, BPFTIME_MAP_GPU_THREAD_COUNT, bad_alloc.\n\nSince 2026-09, no PR or issue addresses GPU map thread counts, warp-leader output or automatic warp execution. Relevant items:\n- #739 (issue, closed 2026-11-12) and #740 (PR, merged 2026-11-12): non-atomic mem_trace counter loses lockstep-lane updates; fixed in the example.\n- #752 (open 2026-11-13): threadscheduling metric bug.\n- #697 (open), #698 (open PR), #706 (merged 2026-10-18), #735 (merged 2026-11-13): CPU userspace ringbuf straddle.\n\nOlder:\n- #530 (2025-12): exceeds max_thread_count; workaround via env.\n- #558 (2026-03): measurement.\n- #517 (open since 2025-11-29): per-thread timing example.\n- #624/#561: verifier.",
+            "source": "gh pr list / gh issue list --repo eunomia-bpf/bpftime --search ... (run 2026-11-13)",
+            "approach": "other",
+            "status": "doc_note",
+            "date": "2026-11-13"
+          }
+        ],
+        "not_found": [
+          "size_at_launch as a runtime feature: on master and on all 7 revision/* branches, nothing sizes or grows per-thread storage (1502/1512/1527) from grid x block at launch. Thread count is fixed at map creation; the launch interception (nv_attach_impl_frida_setup.cpp) never compares the grid with map thread counts.",
+          "Warning at launch when the grid exceeds a map's thread_count: none on any ref. There are only per-access device printfs for 1502/1512 and, for 1527, the silent drop on master or the oob_drops counter on the branch.",
+          "shared_warp_buffer: no map type or ringbuf mode whose memory is independent of the grid. That means no shared or per-SM buffer with warp-leader reservation and no per-warp aggregation of records. Every ringbuf path, transports 1-3 included, indexes per-thread slots by getGlobalThreadId; the bit-63 flag drops non-leader lanes instead of aggregating them.",
+          "hardware_slots: no map type indexed by SM x warp-slot x lane and no GT-Pin-like buckets. Only helpers 508-511 and the hand-written threadscheduling histogram example exist.",
+          "Drop counters or an out-of-bounds guard for per-thread arrays 1502/1512 on any ref. array_map_offset at the branch tip still writes past the map after a printf.",
+          "Thread-count env validation for 1512: it ignores BPFTIME_MAP_GPU_THREAD_COUNT on both master and the branch.",
+          "Any official/revision/* commit merged into master, directly or squashed: git cherry shows no equivalents, and master has 0 grep hits for the branch symbols.",
+          "Any PR whose head is a revision/* branch.",
+          "Any PR or issue since 2026-09 mentioning thread_count, max_thread_count, warp leader or automatic warp execution.",
+          "Automatic warp execution features absent even on the branch:\n- a per-call-site decision;\n- aggregation of commutative updates (atomics are rejected outright);\n- deferring or buffering helper effects and applying them later with exact final state;\n- any analysis of result usage or commutativity;\n- support for programs using perf_event_output or per-thread maps.",
+          "Documentation (.md) of BPFTIME_GPU_AUTO_WARP_EXECUTION, BPFTIME_GPU_RINGBUF_TRANSPORT, BPFTIME_GPU_WARP_HOOK_CALL_COUNT, or the bit-63 warp-only perf_event_output flag. No example uses the flag.",
+          "Measurement results for automatic warp execution or transport levels 1-3 inside the bpftime repo. Commit messages say build/measurement pending, and e27d009b points to gpu_ext workloads/llama.cpp/observability_overhead/revision-rq4/, which I did not read from this source.",
+          "Changes on master since 39cc1fce to make_helper_call or the CUDA watcher, or to any warp aggregation of host calls."
+        ]
+      },
+      "verified": {
+        "checked": [
+          {
+            "claim": "official/master 39cc1fce..42cf71c4: 11 commits (2026-11-11..12). None touches GPU maps 1502/1512/1527/1503/1513, thread counts, the GPU ringbuf, warp-leader output, make_helper_call or the CUDA watcher. Only GPU-side change: 466e91b0 (#740), the atomic mem_trace counter. 8e257dd2 (#735) tests the CPU ringbuf.",
+            "verdict": "confirmed",
+            "source": "git fetch official (2026-11-13) -> official/master = 42cf71c4. Checked with git log 39cc1fce..official/master, git diff --stat 39cc1fce official/master (17 files, no trampoline/map/handler file), git show 466e91b0 (mem_trace.bpf.c:27). 42cf71c4 adds no line mentioning gpu/cuda, and the .github diff has no THREAD_COUNT change.",
+            "correction": "Note on dates: git short dates are in each commit's local time zone. In UTC, #735 merged 2026-11-13T01:58Z and #753 merged on 2026-11-13."
+          },
+          {
+            "claim": "Merged thread-count handling on master:\n- get_thread_count is an unvalidated std::stoull of the env value, else attr.gpu_thread_count (default 1024, never set by the runtime).\n- array_map_offset printf-warns, then still writes out of bounds.\n- 1527 silently returns 1 for out-of-range threads.\n- bad_alloc halving with a 'Clamped GPU ringbuf thread count' warning (a911ee68, #490).\n- No launch-time comparison of the grid with map thread counts.",
+            "verdict": "confirmed",
+            "source": "official/master runtime/src/handler/map_handler.cpp:750-760 (get_thread_count), :1065-1092 (halving loop, warning at :1090); runtime/include/bpftime_shm.hpp:45; attach/nv_attach_impl/trampoline/default_trampoline.cu:189-199 (warning at 192-194), :364-369; nv_attach_impl_frida_setup.cpp:172,211 (cuLaunchKernel). git grep finds no thread_count in the launch path on master or on any revision/* branch. a911ee68 is dated 2026-01-02 (PR #490 merged 2026-01-01T22:51Z UTC).",
+            "correction": "Status precision: these are only minimal, partial guards.\n- The 1502/1512 printf does not prevent the out-of-bounds write.\n- The halving is a reaction to shared-memory pressure and is not driven by the grid."
+          },
+          {
+            "claim": "1512 (PERGPUTD_ARRAY_HOST_MAP) ignores BPFTIME_MAP_GPU_THREAD_COUNT on master and on the branch tip; it uses attr.gpu_thread_count (1024). host_map_test.c sizes its readback from the env var, so the tool and the runtime disagree; 201bb2dc skips 1512.",
+            "verdict": "corrected",
+            "source": "official/master map_handler.cpp:1098-1104; official/revision/automatic-warp-execution map_handler.cpp:1101-1107; example/gpu/host_map_test/host_map_test.c:28-40 (env parse); host_map_test.bpf.c:20,46,74 (it really is a 1512 map); benchmark/gpu/host/gpu_per_thread_array_map_host_perf.cpp:138-142.",
+            "correction": "The facts are confirmed, but the status tag is wrong.\n- This is a gap (a missing cheap fix), not a merged cheap-fix feature.\n- The only code that sets attr.gpu_thread_count (benchmark :142) does so for a 1502 map (BPF_MAP_TYPE_PERGPUTD_ARRAY_MAP at :138), not for 1512."
+          },
+          {
+            "claim": "On master, sizing for the grid is left to the user by documentation:\n- attach/nv_attach_impl/README.md:178 ('auto-computed', but nothing is auto-computed);\n- example/gpu/README.md:244 and :290;\n- kernelretsnoop/README.md:5 ('such as 10');\n- issue #530: maintainer workaround 524288, 'Some examples need this prefix and we will improve it'.",
+            "verdict": "confirmed",
+            "source": "git grep on official/master (exact lines 178, 244, 290, 5); gh issue view 530.",
+            "correction": "Precision on #530:\n- Created 2025-12-15, closed 2025-12-17.\n- Sy0307 replied on 2025-12-16 with the 524288 prefix.\n- The 'we will improve it' reply (2025-12-17) adds that README would be updated when GPU example CI #490 was ready."
+          },
+          {
+            "claim": "Measurement #558 (27b853f9, 2026-03-08) compares host-side update/lookup of 1503 vs 1502 on an RTX 5090 using the cuMemcpyDtoH fallback.\n- thread_count 32/128/256/1024: per-thread update 3832.8/3851.5/3911.0/4327.6 ns/op; lookup 4835.0..5896.6 ns/op; ratio about 1.00x.\n- It measures the host side only.",
+            "verdict": "confirmed",
+            "source": "official/master benchmark/gpu/host/gpu_array_vs_per_thread_overhead_rtx5090.md. Ratios are 0.992x..1.009x. Its own interpretation says it 'does not cover in-kernel helper cost or GPU-side contention'. PR #558 merged 2026-03-08T11:00Z."
+          },
+          {
+            "claim": "Hardware-position helpers 508-511 are on master. One hand-written example (threadscheduling #523, 3019ad08) keys CPU HASH maps by sm_id and by (sm<<16|warp). No SM x warp x lane map type exists. Issue #752 is open.",
+            "verdict": "corrected",
+            "source": "official/master default_trampoline.cu:480-515; example/gpu/threadscheduling/threadscheduling.bpf.c:25-43,51-52,89-102; example/gpu/threadscheduling_dynamic_hook/threadscheduling.bpf.c:10,28-56 (max_entries 4096/128/1024); git log --diff-filter=A (fac864e5); gh issue view 752 (created 2026-11-13).",
+            "correction": "There are TWO hand-written SM/warp examples on master, not one.\n- threadscheduling: #523, 3019ad08 (2025-12-08 local; merged 2025-12-09T03:00Z), CPU BPF_MAP_TYPE_HASH.\n- threadscheduling_dynamic_hook: #542, fac864e5, 2026-05-11. It uses GPU_HASH_MAP 1501 keyed by sm_id (128 entries), (sm_id<<16|warp_id) (1024) and (block_x<<16|thread_x) (4096), and also declares helper 511 bpf_get_lane_id.\n\nIn both, every map operation is a host round trip: 1501 also has no device fast path on master. The rest of the claim is confirmed."
+          },
+          {
+            "claim": "Host-call path on master does no warp aggregation.\n- make_helper_call does one spin-locked round trip per active lane, with __syncwarp between lanes.\n- Lookup/update/delete on maps other than 1502/1503/1504/1512/1513 fall through to the host, including 1501.\n- Nothing changed since 39cc1fce.",
+            "verdict": "corrected",
+            "source": "official/master default_trampoline.cu:131-172 (make_helper_call), :201-247 (0001), :250-306 (0002), :309-322 (0003), :241, :298-302, :317.",
+            "correction": "Two precision fixes:\n1. Delete (_bpf_helper_ext_0003, :309-322) has NO device fast path for any map type: every delete, including on 1502-1513, goes to the host.\n2. On master the key/value/flags are copied into the shared CommSharedMem request (:241, :298-302, :317) BEFORE make_helper_call takes __bpftime_comm_lock. Concurrent lanes and warps can therefore overwrite each other's request payloads. This is fixed only on the unmerged branch, by 39d09919.\n\nThe per-lane serialization and the lack of any aggregation are confirmed."
+          },
+          {
+            "claim": "Inventory of official/revision/* branches.\n- 7 branches, all by LinuxDev9002, author date = committer date.\n- Tips: AWE e27d009b (09-24, 48 ahead / 56 behind, merge-base 1dd02f76 2026-08-09), table1-host-plt-fix eef8a51a (34), launchlate-finish dd49095f (29), table1-575 2d61d476 (30), sass-backend 8e4e64d4 (33), sass-existing-application fd976ea2 (30), r5-safety-evidence ea9907d1 (31, merge-base e382ed94).\n- Five of them share one chain.\n- None is merged; no PR.",
+            "verdict": "corrected",
+            "source": "git branch -r; git merge-base / rev-list --count / log --format='%an|%cn' / cherry. git cherry: AWE 47 '+', r5 29 '+', no '-'; the merges are not counted. git grep official/master: 0 files for all 7 branch symbols, plus BPFTIME_GPU_AUTO_WARP_EXECUTION and BPFTIME_GPU_RINGBUF_TRANSPORT. gh pr list --head revision/<each> --state all returns 0.",
+            "correction": "Three details are off:\n1. SIX branches share the 1dd02f76 chain (launchlate-finish, table1-575, table1-host-plt-fix, sass-backend, sass-existing-application, automatic-warp-execution); the reader lists six but says 'five'.\n2. Not every commit is by LinuxDev9002: r5-safety-evidence contains merge d29eacd0 'Merge branch master into codex/gpu-simt-verifier-clean', authored by 云微 (2026-08-05) and committed via GitHub.\n3. '2026-09-03..09-24' are tip dates only. The chain starts with tracepipe commits dated 2026-03-08 (510c5b82..7310cfb4). r5 runs 2026-08-01..09-03, and 36610ee5 is dated 2026-08-31.\n\nConfirmed:\n- tips, ahead/behind counts and merge-bases;\n- table1-575 is an ancestor of AWE;\n- author date = committer date (day level) for every revision commit;\n- not merged, no PR."
+          },
+          {
+            "claim": "201bb2dc (2026-09-03) adds gpu_map_thread_count.hpp.\n- MAX_GPU_MAP_THREAD_COUNT = 1048576 (:13); env overrides the attribute (:34).\n- -EINVAL for 1502 (:976) and 1527 (:1049).\n- handler_manager propagates map_init failures; unit test added.\n- af759303 and ea9907d1 write attr.gpu_thread_count for 1502 (:1002); the tip does the same for 1527 (:1095).\n- Limits: no grid comparison, no launch warning, 1512 not covered, 1527 still halves.",
+            "verdict": "confirmed",
+            "source": "git show 201bb2dc (5 files: gpu_map_thread_count.hpp, handler_manager.cpp, map_handler.cpp, unit-test CMake, test_gpu_thread_count.cpp); official/revision/automatic-warp-execution runtime/src/handler/gpu_map_thread_count.hpp:13,26-27,33-45; map_handler.cpp:751-755,972-978,1002,1045-1051,1080,1095,1101-1107; git blame map_handler.cpp; git show af759303, ea9907d1.",
+            "correction": "Provenance precision:\n- The 1527 write `attr.gpu_thread_count = thread_count` at :1095 comes from 052513a5 (2026-09-03 16:43 -0700).\n- The 1502 line :1002 was added by af759303 (17:23) and rewritten to *thread_count by 201bb2dc (18:11).\n- The error text is at :976/:1049; `return -EINVAL` is at :978/:1051."
+          },
+          {
+            "claim": "052513a5 (2026-09-03) adds 1527-only drop counters.\n- Trailer {oob, full, bad_size, other} after the per-thread slots, incremented with atomicAdd_system; dirty becomes u64 with CAS/membar.sys; tail published with atomicExch; records 8-byte aligned.\n- drain_data skips dirty slots; get_stats/bpftime_gpu_ringbuf_stats are exported.\n- 'Lossless' is only a gate in the kernelretsnoop collector.\n- 1502/1512 get no counters.",
+            "verdict": "confirmed",
+            "source": "git show 052513a5 (22 files); official/revision/automatic-warp-execution default_trampoline.cu:440-444,473-489; nv_gpu_ringbuf_map.cpp:123 ff. (dirty -> continue), :215; runtime/include/bpftime_gpu_ringbuf.h:11-23; bpftime_shm.hpp:432; syscall-server.version:2; official/master nv_gpu_ringbuf_map.cpp:64-66.",
+            "correction": "Precision:\n1. On master, drain aborts the WHOLE drain at the first dirty slot: `SPDLOG_WARN(\"Ignored dirty pages\"); return 0;` at nv_gpu_ringbuf_map.cpp:64-66.\n2. The same commit shrinks the device GPU_HELPER_MAX_BUF from 1<<24 to 1<<20.\n3. The collector gate also requires: entries_per_thread >= 256, value_size == sizeof(data), committed == collected == count, second_drain == 0, cartesian.complete, and the oracle gate."
+          },
+          {
+            "claim": "4642d6b2 (09-03) ADDS BPFTIME_KERNELRETSNOOP_EXACT_ORACLE=1 with the hard-coded rope_norm geometry (block (1,256,1), grid.x 4/8/88). bf74d323 records block_dim per event. Both are tool-side drop detection.",
+            "verdict": "corrected",
+            "source": "git show 052513a5 (kernelretsnoop.c: multiplicity_oracle_mode() reads BPFTIME_KERNELRETSNOOP_EXACT_ORACLE; run_multiplicity_oracle_selftest); git show 4642d6b2 (README.md +8 lines, ORACLE_BLOCK_DIM_Y=256, HIGH/MIDDLE/LOW blocks 4/4/80); git show bf74d323.",
+            "correction": "4642d6b2 does not add the oracle: 052513a5 introduced the env var and the multiplicity self-test earlier the same day (16:43 -0700), using a coordinate-id model (ids <1024 -> 220, <2048 -> 44, else 22).\n\n4642d6b2 (20:09 -0700) rewrites the oracle onto the launch geometry and adds the README text 'intentionally specific to that workload':\n- block y = 256;\n- grid.x blocks 4 + 4 + 80, i.e. cumulative 4/8/88;\n- multiplicities 220/44/22.\n\nbf74d323 is confirmed (block_dim via helper 504; invalid_launch_coordinates). The status tool_handwritten is correct."
+          },
+          {
+            "claim": "89a12447 (2026-09-05; on table1-host-plt-fix and automatic-warp-execution) adds the bit-63 warp-only output flag.\n- Only the first active lane writes into its own tid slot; the other lanes return 0 and their records are discarded.\n- Storage still per-thread; no user of the flag.\n- AWE rejects helper 25.\n- Tagged shared_warp_buffer / unmerged.",
+            "verdict": "corrected",
+            "source": "git show 89a12447 (default_trampoline.cu +13, trampoline_ptx.h); official/revision/automatic-warp-execution default_trampoline.cu:447-466 (constant at :450, check at :459, __ffs(__activemask())-1 vs %laneid); git grep WARP_ONLY on the branch (trampoline only); warp_execution_eligibility.cpp:164.",
+            "correction": "The facts are confirmed, but the approach tag contradicts the claim itself.\n- This is not even a partial shared_warp_buffer: memory is still max_thread_count x entries, and records are dropped rather than aggregated.\n- It is a lossy, opt-in, per-call warp deduplication of output. Tag it approach 'other', status runtime_feature_unmerged_branch."
+          },
+          {
+            "claim": "Ringbuf transport levels 1-3 on AWE: 5a90e03e, c4c83cde, 886b4ca3 (2026-09-08).\n- The level is fixed per map at construction (:47); any non-'0' BPFTIME_GPU_AUTO_WARP_EXECUTION gives level 1; TRANSPORT=2/3 select the others.\n- Passed to the device via batch_output; still per-thread and per-event, memory unchanged.\n- The commit messages say 'not warp-level batching of multiple records', 'does not claim cross-lane batching...' and 'runtime build and performance measurement remain pending'.",
+            "verdict": "corrected",
+            "source": "git show 5a90e03e, c4c83cde, 886b4ca3 (bodies); official/revision/automatic-warp-execution nv_gpu_ringbuf_map.cpp:36-58,68,73-75; default_trampoline.cu:492,581-590,637; runtime/src/attach/bpf_attach_ctx_cuda.cpp:376-378.",
+            "correction": "The quote 'not warp-level batching of multiple records' is not from a commit message; 886b4ca3 has no body at all. It is a code comment:\n- default_trampoline.cu:583;\n- similar wording at nv_gpu_ringbuf_map.cpp:44, 'per-event publication schemes, not warp-level record batching'.\n\nThe other two quotes are commit bodies, of 5a90e03e and c4c83cde respectively, and are confirmed.\n\nAlso confirmed:\n- Level 1 needs the env to be non-empty and not '0'.\n- The host sets batch_output from the stored map level (bpf_attach_ctx_cuda.cpp:376), so the level does not depend on eligibility."
+          },
+          {
+            "claim": "241872b1 (2026-09-08) raises the BPFTIME_SHM_MEMORY_MB cap from 10240 to 16384 ('Explicit large GPU per-thread maps may exceed 10 GiB'). 201bb2dc caps the thread count at 1048576. Tagged size_at_launch.",
+            "verdict": "corrected",
+            "source": "git show 241872b1 (runtime/src/bpftime_config.cpp parse_numeric_env<int>(\"BPFTIME_SHM_MEMORY_MB\", 1, 10240 -> 16384)); gpu_map_thread_count.hpp:13.",
+            "correction": "The facts are confirmed, but the approach tag is wrong: raising a static cap is not size_at_launch, since nothing is sized from the grid or per launch. Tag it 'other' (static capacity limits), status runtime_feature_unmerged_branch."
+          },
+          {
+            "claim": "e27d009b (2026-09-24, AWE only) holds hand-written full-record experiment sources.\n- A 1503 arena of 32 banks x 16384 slots x 256 records x 80 B (about 10 GiB), hand-sized for grid 2048 x block 256 (524288 slots).\n- total_out_of_range / total_overflow counters; AoS/SoA/AoSoA/soa-warp layouts.\n- README: 'adds no new GPU measurements'; points to gpu_ext revision-rq4.",
+            "verdict": "confirmed",
+            "source": "git show e27d009b (18 files); full_record_device_buffer_value.h:8-9,30-33,97-103 (value 335675408 B per bank; 32 banks ~ 10.0 GiB); full-record-device-buffer.bpf.c:6,17,54-58,66,78; soa-warp source comment 'fixed pp512 rope geometry (grid 2048x1x1, block 1x256x1)'; README.md.",
+            "correction": "Approach note: this is storage hand-sized at build time for one known grid, not per-launch sizing. Read 'size_at_launch' as the closest approach only. The status tool_handwritten is correct."
+          },
+          {
+            "claim": "39d09919 (2026-09-04, all six chain branches) adds make_map_helper_call (default_trampoline.cu:224).\n- Copies the key/value/flags under __bpftime_comm_lock, fixing payload overwrites.\n- Still one serialized round trip per active lane; GPU_HELPER_MAX_BUF becomes 1 MiB (052513a5).\n- The watcher loop is otherwise unchanged; bpf_attach_ctx_cuda.cpp only passes batch_output.",
+            "verdict": "confirmed",
+            "source": "git show 39d09919 (default_trampoline.cu, test_map_rpc_protocol.py, trampoline_ptx.h); official/revision/automatic-warp-execution default_trampoline.cu:200-222,224-264; git diff 1dd02f76..branch -- runtime/src/attach/bpf_attach_ctx_cuda.cpp (+19, only batch_output) and runtime/include/bpf_attach_ctx.hpp (only ABI static_asserts and rejected-attach cleanup)."
+          },
+          {
+            "claim": "Automatic warp execution (e801d287, 49d71e5e, 0c3b6d10; 2026-09-08; AWE only).\n- Opt-in: BPFTIME_GPU_AUTO_WARP_EXECUTION (nv_attach_impl.cpp:194) plus ENABLE_BPFTIME_VERIFIER.\n- One decision per program at attach (:316-333); the flag goes to RuntimeInput.warp_auto_execution; it is never an admission gate.\n- Leader-only execution is 'observationally equivalent', so results are exact by construction.\n- No merge, no PR.",
+            "verdict": "corrected",
+            "source": "official/revision/automatic-warp-execution attach/nv_attach_impl/nv_attach_impl.cpp:194-200,253,316-333; ptxpass_core/include/ptxpass/core.hpp:79-93; bpftime-verifier/src/gpu/warp_execution_eligibility.hpp:15-34; uniformity_analysis.cpp:394-416,595-604,628-640; simt_safety_check.cpp:223-228; warp_execution_eligibility.cpp:139-155; fixtures warp_execution_eligibility_test.cpp and b4b0ba8a's counter fixture (that one uses 1502).",
+            "correction": "Wiring, opt-in and the per-program decision are confirmed. 'Exact by construction' needs a caveat; what follows is an inference from reading the code, not executed.\n\nWhy a non-atomic counter would be admitted:\n- A lookup on a shared map (any type other than 1502/1512) with a uniform key yields pointee_uniformity UNIFORM (uniformity_analysis.cpp:628-640), so loads from it are UNIFORM (:595-604).\n- A plain STX of a uniform value into such a value passes both the SIMT check (simt_safety_check.cpp:223-228) and eligibility (warp_execution_eligibility.cpp:146-155). Only atomics are rejected.\n- So a non-atomic `*val = *val + 1` on 1503/1501 (or on a CPU-map value) with a constant key is admissible.\n\nWhat the result is:\n- The leader-only result equals the lockstep-collapsed count (+1 per warp) that issue #739 / PR #740 called a 90% undercount bug. That is equivalence to the racy observed per-thread behaviour, not to a per-thread count.\n- No fixture covers this pattern; b4b0ba8a's counter fixture uses 1502.\n- Results are exact only for truly idempotent effects."
+          },
+          {
+            "claim": "Eligibility rules (warp_execution_eligibility.cpp).\n- Full verify_gpu_program first (:233): uniform branches (simt:213), uniform map keys (:264), closed helper table (gpu_platform.cpp:108-172; 501 and 506 prohibited).\n- Rejects atomics (:133), untracked stores (:148), stores into possibly per-thread slots (:154), helpers 25/6/501/507 (:164-171), update/delete on per-thread maps (:192) or non-shared-GPU maps (:196), and non-uniform update values (:206).\n- Lookups on any map are allowed; eligible programs lose duplicate host round trips, e.g. CPU-map lookups and 1501 lookups.",
+            "verdict": "confirmed",
+            "source": "official/revision/automatic-warp-execution bpftime-verifier/src/gpu/warp_execution_eligibility.cpp:46-63,133,148,154,164-171,189-206,233; simt_safety_check.cpp:213,254,257-265; gpu_platform.cpp:108-172 (helpers 1,2,3,6,14,25,501-511; 501 and 506 PROHIBITED), :231-242; gpu_verifier.cpp:482-488.",
+            "correction": "I checked the CPU-map part of the direction-2 consequence, and it holds.\n- verify_gpu_program accepts non-GPU map types: types outside 1500-1599 map to Linux platform types (gpu_platform.cpp:231-242), and only unknown 15xx types are rejected (gpu_verifier.cpp:482-488).\n- Lookups on CPU maps are not rejected by eligibility.\n- Updates/deletes on CPU maps are rejected (:194-196).\n\nAlso note:\n- The SIMT check requires uniform keys for EVERY map operation (simt:257-265), which already excludes programs keyed by thread or SM id.\n- The table marks 510 bpf_get_warp_id as UNIFORM and 509/511 as VARYING."
+          },
+          {
+            "claim": "Lowering: emit_warp_leader_hook_prefix (core.cpp:403-512) uses %laneid + activemask (+ vote.ballot.sync of the site predicate, negation kept), and the lowest-lane leader calls the handler.\n- Applied at kretprobe ret/exit sites (kretprobe main.cpp:49-61) and at the kernel-entry and stub-call sites 'such as __memcapture' (kprobe_entry main.cpp:71-104, 251-266).\n- The handler runs once per converged group.\n- Fallback for PTX < 6.0 or a failed register-decl insertion.",
+            "verdict": "corrected",
+            "source": "official/revision/automatic-warp-execution attach/nv_attach_impl/pass/ptxpass_core/src/core.cpp:336-352 (ptx_supports_warp_sync: .version >= 6.0), :403-514; ptxpass_kretprobe/main.cpp:49-63,84-110; ptxpass_kprobe_entry/main.cpp:28-39,60-110,251-274; ptxpass_kprobe_memcapture/main.cpp:30-33 (no warp code); git grep -l warp_auto_execution (only nv_attach_impl, kprobe_entry, kretprobe, core, test).",
+            "correction": "The stub-call site in ptxpass_kprobe_entry is `__bpftime_cuda__kernel_trace` (params.stub_name, :39), not __memcapture.\n- kprobe_entry explicitly excludes '^kprobe/__memcapture$' (:30).\n- The separate ptxpass_kprobe_memcapture pass never reads warp_auto_execution.\n- So per-memory-access probes, the highest-frequency hook, are never warp-lowered.\n\nThe election preamble, the once-per-converged-group behaviour and the PTX 6.0 fallback are confirmed."
+          },
+          {
+            "claim": "Validation status of automatic warp execution:\n- An opt-in counter (BPFTIME_GPU_WARP_HOOK_CALL_COUNT) is read after cuStreamSynchronize.\n- PTX-lowering tests exist (d6db11ec).\n- The eligibility fixtures 'have not been compiled or run'; the atomic-helper section has no assertion.\n- Embedded PTX regenerated (e5e52e57, fa96b776).\n- No measurement results and no .md documentation of the env vars.",
+            "verdict": "confirmed",
+            "source": "git show --stat 7cfba188, e61bdb39 (cuStreamSynchronize + cuMemcpyDtoH), d6db11ec (test_ptxpass.cpp +260), 88c2949a; ptxpass_core/include/ptxpass/core.hpp:202-205 (symbol 'bpftime_warp_hook_call_count', env at :205); bpftime-verifier/test/warp_execution_eligibility_checkpoint.md; git grep on '*.md' of the branch for the four env/flag names returns 0."
+          },
+          {
+            "claim": "AWE depends on the GPU SIMT verifier, which is not on master.\n- b266cf28 (2026-09-04) brought in gpu_platform.cpp, uniformity_analysis.cpp (821 lines), simt_safety_check.cpp and gpu_verifier.cpp.\n- PR #624 is OPEN since 2026-08-01, updated 2026-11-12 (7aca4027), without warp_execution_eligibility.\n- Earlier PR #561 was CLOSED (2026-03).",
+            "verdict": "corrected",
+            "source": "git ls-tree official/master bpftime-verifier/src (only bpftime-verifier.cpp, platform-impl.cpp); git show --stat b266cf28 (24 files, uniformity_analysis.cpp +821); gh pr view 624 (files: no warp/eligibility file; last commit 7aca4027 by yunwei37 2026-11-12T14:22Z); gh pr view 561.",
+            "correction": "PR #561 'feat: add GPU SIMT-aware eBPF verifier' (head feat/gpu-verifier) was OPENED 2026-03-19 and CLOSED 2026-08-02T01:57Z, the day after #624 was opened. It was not closed in 2026-03.\n\nEverything else is confirmed, including #624's merge-of-master on 2026-11-12, authored by yunwei37."
+          },
+          {
+            "claim": "PR/issue search since 2026-09: nothing on GPU map thread counts, warp-leader output or automatic warp.\n- Relevant: #739/#740, #752, #697/#698/#706/#735 (CPU ringbuf).\n- Older: #530, #558, #517, #624/#561.",
+            "verdict": "confirmed",
+            "source": "gh search issues --include-prs --created '>=2026-09-01' for thread_count, max_thread_count, BPFTIME_MAP_GPU_THREAD_COUNT, grid, gpu_ext (0 hits each), warp (only #739/#740), per-thread, ringbuf, 'GPU map'; gh pr/issue view for dates (#739 closed 2026-11-12T13:08Z; #740 merged 2026-11-12T13:08Z; #735 merged 2026-11-13T01:58Z; #706 merged 2026-10-18; #697/#698 open; #752 open 2026-11-13).",
+            "correction": "Minor additions:\n- #755 (open, 2026-11-13) is about elem_lookup raw pointers after the lock is released. It mentions the runtime/src/bpf_map/gpu*/ maps among the should_lock=false backends, but not thread counts.\n- #517 is a PR (a per-thread timing example on a CPU HASH map), not an issue."
+          }
+        ],
+        "added": [
+          {
+            "claim": "Second hand-written hardware-position tool on master: example/gpu/threadscheduling_dynamic_hook (#542, fac864e5, 2026-05-11).\n- Histograms in GPU_HASH_MAP 1501, keyed by sm_id (128 entries) and (sm_id<<16|warp_id) (1024 entries), plus a (block_x<<16|thread_x) mapping (4096 entries).\n- Declares helpers 509/510/511.\n- Every access is a host round trip, because 1501 has no device fast path in _bpf_helper_ext_0001/0002.\n- It is not a hardware-slot map type.",
+            "source": "official/master example/gpu/threadscheduling_dynamic_hook/threadscheduling.bpf.c:10,28-56; git log --diff-filter=A official/master (fac864e5); official/master default_trampoline.cu:201-247",
+            "approach": "hardware_slots",
+            "status": "tool_handwritten"
+          },
+          {
+            "claim": "Merged payload race in the master host-call path.\n- _bpf_helper_ext_0001/0002/0003 copy key/value/flags into the single shared CommSharedMem request before make_helper_call takes __bpftime_comm_lock.\n- Lanes or warps that call concurrently can therefore overwrite each other's request, so a lookup or update can run on another lane's key.\n- Fixed only on the unmerged revision chain, by 39d09919 (make_map_helper_call copies under the lock).",
+            "source": "official/master attach/nv_attach_impl/trampoline/default_trampoline.cu:241-245, 298-305, 317-320, 131-172; git show 39d09919",
+            "approach": "dir2_automatic_warp",
+            "status": "runtime_feature_merged"
+          },
+          {
+            "claim": "Silent loss in the merged GPU ringbuf drain.\n- On master, nv_gpu_ringbuf_map drain returns 0 at the first slot whose dirty flag is set ('Ignored dirty pages'), so a single in-progress writer stalls collection for every thread slot in that poll.\n- No counter records this.\n- The unmerged 052513a5 changes this to a per-slot skip and counts dirty_slots.",
+            "source": "official/master runtime/src/bpf_map/gpu/nv_gpu_ringbuf_map.cpp:62-67; official/revision/automatic-warp-execution nv_gpu_ringbuf_map.cpp:123 ff., :215-258",
+            "approach": "cheap_fixes",
+            "status": "runtime_feature_merged"
+          },
+          {
+            "claim": "Merged readback-size mismatch for per-thread arrays.\n- get_value_size multiplies by attr.gpu_thread_count for 1502/1512, but on master the 1502 allocation uses the env override and attr stays 1024.\n- With BPFTIME_MAP_GPU_THREAD_COUNT set, the syscall-side value size therefore differs from the allocated per-thread width.\n- Fixed for 1502 only on unmerged branches: af759303 and 201bb2dc on the chain, ea9907d1 on r5.",
+            "source": "official/master runtime/src/handler/map_handler.cpp:70-84, 976-1000; git show af759303, 201bb2dc, ea9907d1",
+            "approach": "cheap_fixes",
+            "status": "runtime_feature_merged"
+          },
+          {
+            "claim": "Code-reading inference, not executed: automatic warp execution would admit a non-atomic read-modify-write counter (e.g. `*val = *val + 1` on 1503/1501 or on a CPU-map value with a constant key), because:\n- a load from a shared-map lookup is UNIFORM;\n- a plain store of a uniform value into a shared-map value passes both the SIMT check and the eligibility rules;\n- only atomics are rejected.\n\nLeader-only execution then reproduces the per-warp collapsed count that #739 reported as a bug (fixed in the example by #740 with an atomic, which AWE would reject). The analysis has no notion of non-idempotent plain read-modify-write, and no fixture covers this case.",
+            "source": "official/revision/automatic-warp-execution bpftime-verifier/src/gpu/uniformity_analysis.cpp:394-416,595-604,628-640; simt_safety_check.cpp:223-228; warp_execution_eligibility.cpp:128-155; gh issue 739 / PR 740",
+            "approach": "dir2_automatic_warp",
+            "status": "runtime_feature_unmerged_branch"
+          },
+          {
+            "claim": "kprobe/__memcapture probes (one call per memory access, the highest-frequency GPU hook) are excluded from automatic warp execution.\n- ptxpass_kprobe_entry excludes '^kprobe/__memcapture$'.\n- ptxpass_kprobe_memcapture has no warp-lowering code.\n- Only kretprobe exits and kernel-entry / __bpftime_cuda__kernel_trace stub sites are lowered.",
+            "source": "official/revision/automatic-warp-execution attach/nv_attach_impl/pass/ptxpass_kprobe_entry/main.cpp:28-39; ptxpass_kprobe_memcapture/main.cpp:30-33; git grep -l warp_auto_execution",
+            "approach": "dir2_automatic_warp",
+            "status": "runtime_feature_unmerged_branch"
+          },
+          {
+            "claim": "Work after 2026-11-11 on the AMD side: branch official/rocm-attach (PR #407 'feat: support rocm-attach', open; tip 16914362 merges master on 2026-11-12; feature commits by officeyutong 2026-10-18..11-07).\n- ROCm attach supports only helper 506 and rejects maps: 'ROCm maps and global-data relocations are not supported yet'.\n- MapBasicInfo, including max_thread_count, is hoisted from nv_attach_impl.hpp into base_attach_impl.hpp.\n- There is no per-thread, wavefront or grid-sized map design for AMD yet.",
+            "source": "git log merge-base..official/rocm-attach; git diff official/master...official/rocm-attach -- attach/base_attach_impl/base_attach_impl.hpp attach/nv_attach_impl/nv_attach_impl.hpp attach/rocm_attach_impl/rocm_ebpf_compiler.cpp; gh pr list --head rocm-attach",
+            "approach": "other",
+            "status": "runtime_feature_unmerged_branch"
+          },
+          {
+            "claim": "official/review/pr-253-fix 7356191c (2026-09-05, LinuxDev9002; no PR) contains an earlier squash-style copy of the tool changes:\n- threadhist reads BPFTIME_MAP_GPU_THREAD_COUNT (default 1024) and refuses values above 1024*1024 ('exceeds tool capacity');\n- kernelretsnoop records block and thread indices;\n- BPFTIME_CUDA_TARGETED_LATE_BOOTSTRAP is added.\nThe sizing checks are tool-side only and add no runtime check.",
+            "source": "git log/show 7356191c (example/gpu/threadhist/threadhist.c, kernelretsnoop.bpf.c, nv_attach_impl.cpp); git branch -r --contains 7356191c; gh pr list --head review/pr-253-fix",
+            "approach": "cheap_fixes",
+            "status": "tool_handwritten"
+          },
+          {
+            "claim": "Negative check across all 63 official/* refs: no ref sizes or grows GPU map storage from the grid. git grep for grid_dim/gridDim/grid_size in runtime/src/bpf_map and runtime/src/handler finds nothing on any ref.\n\nOther GPU PRs and branches updated 2026-11-08..13 do not touch thread counts, per-thread maps or warp output:\n- #571, whose trampoline diff only regenerates PTX for basic-block tracing;\n- #627 cuda-multicontext;\n- #763 Frida listener;\n- #747 GPU CI;\n- feat/multi-gpu-attach, ci/gpu-path-gate, codex/*.",
+            "source": "git for-each-ref refs/remotes/official + git grep per ref; gh pr list --search 'updated:>=2026-11-08'; gh pr diff 571 grep for thread_count/max_thread/getGlobalThreadId/ballot; git diff merge-base..branch grep for these terms",
+            "approach": "size_at_launch",
+            "status": "other"
+          }
+        ],
+        "summary": "I re-checked all 22 findings against upstream bpftime using read-only git and gh. `git fetch official` on 2026-11-13 moved official/master to 42cf71c4. Result: 11 confirmed and 11 corrected; none struck. The reader's overall conclusion stands.\n\n**Conclusion (confirmed):**\n- No upstream ref sizes per-thread storage per launch, adds a shared or per-SM warp buffer, or adds a hardware-slot map type.\n- Cheap fixes (env validation, 1527 drop counters) exist only on the unmerged LinuxDev9002 revision chain. There is no launch-time warning anywhere, and 1512 is never covered.\n- Automatic warp execution is opt-in and only on official/revision/automatic-warp-execution. It makes one decision per program and runs the handler on a leader lane only. It does not aggregate, defer, or analyse commutativity or result usage. It depends on the verifier in open PR #624.\n\n**Main corrections:**\n- **#6:** there are two hand-written SM/warp examples, not one. The second is threadscheduling_dynamic_hook (#542, fac864e5, 2026-05-11, on map type 1501).\n- **#7:** map delete has no device fast path at all. On master, lanes can overwrite each other's request payloads (see added items).\n- **#8:** six branches share one commit chain, not five. Branch r5 has one merge commit by another author. 09-03..09-24 are only the tip dates.\n- **#11:** the kernelretsnoop exact-oracle env var was introduced by 052513a5. 4642d6b2 only rebased it onto the launch geometry and documented it.\n- **#13:** the quote 'not warp-level batching' is a code comment, not a commit message.\n- **#17:** 'exact by construction' needs a caveat (see added items).\n- **#19:** the stub hook site is `__bpftime_cuda__kernel_trace`. `__memcapture` probes are excluded from warp lowering.\n- **#21:** PR #561 was open from 2026-03-19 to 2026-08-02, not closed in 2026-03.\n- **Status tags:** #3, #12 and #14 carry approach or status tags that their own text contradicts:\n  - #3 is a gap, not a merged cheap fix;\n  - #12, the bit-63 flag, is lossy output deduplication, not a shared warp buffer;\n  - #14 raises a static cap rather than sizing at launch.\n\n**Added items:**\n- **Master payload race:** the map helpers copy key, value and flags into the shared request before taking the lock. This is merged on master; only the unmerged 39d09919 fixes it.\n- **Ringbuf drain:** on master the drain aborts at the first dirty slot. The 1502 readback size also disagrees with the allocation when the env var is set.\n- **Possible miscount under automatic warp execution:** my reading of the code says a non-atomic `*val=*val+1` on a shared map would pass eligibility. Leader-only execution would then reproduce the per-warp count that #739 called a bug. I did not run this.\n- **Newer work (after 2026-11-11):** rocm-attach (PR #407, open, tip merged master 2026-11-12) does not support maps yet. 7356191c (branch review/pr-253-fix, no PR) adds tool-side thread-count caps only.\n\n**Date convention:** git dates are in each commit's local time zone; gh times are UTC. For example, #735 merged 2026-11-13T01:58Z.\n\nScratch files are in /tmp/claude-2002/-home-jetson-src/6ac0883f-4479-466c-bec5-5fa31cffe4de/scratchpad/dir1-overlap/."
+      }
+    }
+  ],
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "Read"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 2,
+      "title": "Verify"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "read:paper",
+      "phaseIndex": 1,
+      "phaseTitle": "Read",
+      "agentId": "aa066af26f8694436",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794540031899,
+      "queuedAt": 1794540031842,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "I read the whole gpu_ext paper, arXiv 2512.12615v2 (2025-12…",
+      "promptPreview": "Background (our research, \"direction 1\"): bpftime's GPU maps sized by thread INDEX. PERGPUTD_ARRAY (map types 1502 / 1512 host variant) and GPU_RINGBUF (1527) keep one copy per linear global thread id (getGlobalThreadId in attach/nv_attach_impl/trampoline/default_trampoline.cu). thread_count is fixed when the map is created by the syscall server (default 1024, env BPFTIME_MAP_GPU_THREAD_COUNT), be…",
+      "promptFramed": true,
+      "lastProgressAt": 1794540402407,
+      "tokens": 107734,
+      "toolCalls": 29,
+      "durationMs": 370506,
+      "resultPreview": "{\"findings\":[{\"claim\":\"The per-GPU-thread array (bpftime map types 1502/1512) shows up once in the paper: as an x-axis label, 'Per-GPU-thread array', in Fig. 12(a), 'GPU-side Operations Overhead'. Our runtime ('gBPF (ours)') is about 78% cheaper per operation than eGPU-style injection, roughly 4.3 us down to about 1.0 us read off the bars. The paper does not describe its layout, its key (thread in…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "read:gpu_ext_repo",
+      "phaseIndex": 1,
+      "phaseTitle": "Read",
+      "agentId": "ac4ac793f22877fc7",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794540031900,
+      "queuedAt": 1794540031842,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "I checked the gpu_ext repository (plus the bpftime branches…",
+      "promptPreview": "Background (our research, \"direction 1\"): bpftime's GPU maps sized by thread INDEX. PERGPUTD_ARRAY (map types 1502 / 1512 host variant) and GPU_RINGBUF (1527) keep one copy per linear global thread id (getGlobalThreadId in attach/nv_attach_impl/trampoline/default_trampoline.cu). thread_count is fixed when the map is created by the syscall server (default 1024, env BPFTIME_MAP_GPU_THREAD_COUNT), be…",
+      "promptFramed": true,
+      "lastProgressAt": 1794541629914,
+      "tokens": 301685,
+      "toolCalls": 104,
+      "durationMs": 1596561,
+      "resultPreview": "{\"findings\":[{\"claim\":\"NOT launch-time sizing. gpu_ext's benchmark runners size the thread-indexed maps by hand before the run. They work out the expected llama.cpp rope launch geometry offline (4 x pp x 256 threads: 32,768 at pp32, 524,288 at pp512) and export BPFTIME_MAP_GPU_THREAD_COUNT plus a matching BPFTIME_SHM_MEMORY_MB to the loader before map creation. For the original 80-byte, 256-entry …"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 3,
+      "label": "read:bpftime_upstream",
+      "phaseIndex": 1,
+      "phaseTitle": "Read",
+      "agentId": "acac8022dd9c4d625",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794540031900,
+      "queuedAt": 1794540031842,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "Upstream bpftime source, read-only; ran git fetch official …",
+      "promptPreview": "Background (our research, \"direction 1\"): bpftime's GPU maps sized by thread INDEX. PERGPUTD_ARRAY (map types 1502 / 1512 host variant) and GPU_RINGBUF (1527) keep one copy per linear global thread id (getGlobalThreadId in attach/nv_attach_impl/trampoline/default_trampoline.cu). thread_count is fixed when the map is created by the syscall server (default 1024, env BPFTIME_MAP_GPU_THREAD_COUNT), be…",
+      "promptFramed": true,
+      "lastProgressAt": 1794540823169,
+      "tokens": 239395,
+      "toolCalls": 71,
+      "durationMs": 789813,
+      "resultPreview": "{\"summary\":\"Upstream bpftime source, read-only; ran git fetch official on 2026-11-13. official/master moved from 1e39125a to 42cf71c4.\\n\\n(a) official/master since 39cc1fce has 11 commits (fa842ad7 .. 42cf71c4, 2026-11-11..12). None touch the GPU map types 1502/1512/1527/1503/1513, thread counts, the GPU ringbuf, warp-leader output, make_helper_call or the CUDA watcher.\\n- The only GPU-side commit…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 4,
+      "label": "verify:paper",
+      "phaseIndex": 2,
+      "phaseTitle": "Verify",
+      "agentId": "a3dbbea6adb2a5717",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794540402465,
+      "queuedAt": 1794540402418,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "I re-checked all 13 findings against my own fresh downloads…",
+      "promptPreview": "Background (our research, \"direction 1\"): bpftime's GPU maps sized by thread INDEX. PERGPUTD_ARRAY (map types 1502 / 1512 host variant) and GPU_RINGBUF (1527) keep one copy per linear global thread id (getGlobalThreadId in attach/nv_attach_impl/trampoline/default_trampoline.cu). thread_count is fixed when the map is created by the syscall server (default 1024, env BPFTIME_MAP_GPU_THREAD_COUNT), be…",
+      "promptFramed": true,
+      "lastProgressAt": 1794541125235,
+      "tokens": 153379,
+      "toolCalls": 69,
+      "durationMs": 722768,
+      "resultPreview": "{\"checked\":[{\"claim\":\"Per-GPU-thread array (bpftime types 1502/1512) appears only as the Fig. 12(a) x-axis label 'Per-GPU-thread array'. gBPF is about 78% cheaper than eGPU-style (about 4.3 to 1.0 us). The paper gives no layout, key, sizing or overflow behaviour. Benchmark: vector-add, 32 elements, 10K iterations, RTX 5090, launch shape not given.\",\"verdict\":\"confirmed\",\"source\":\"Re-fetched https:…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 5,
+      "label": "verify:bpftime_upstream",
+      "phaseIndex": 2,
+      "phaseTitle": "Verify",
+      "agentId": "a621f807d82aa8825",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794540823187,
+      "queuedAt": 1794540823179,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "I re-checked all 22 findings against upstream bpftime using…",
+      "promptPreview": "Background (our research, \"direction 1\"): bpftime's GPU maps sized by thread INDEX. PERGPUTD_ARRAY (map types 1502 / 1512 host variant) and GPU_RINGBUF (1527) keep one copy per linear global thread id (getGlobalThreadId in attach/nv_attach_impl/trampoline/default_trampoline.cu). thread_count is fixed when the map is created by the syscall server (default 1024, env BPFTIME_MAP_GPU_THREAD_COUNT), be…",
+      "promptFramed": true,
+      "lastProgressAt": 1794541851522,
+      "tokens": 211747,
+      "toolCalls": 104,
+      "durationMs": 1028333,
+      "resultPreview": "{\"checked\":[{\"claim\":\"official/master 39cc1fce..42cf71c4: 11 commits (2026-11-11..12). None touches GPU maps 1502/1512/1527/1503/1513, thread counts, the GPU ringbuf, warp-leader output, make_helper_call or the CUDA watcher. Only GPU-side change: 466e91b0 (#740), the atomic mem_trace counter. 8e257dd2 (#735) tests the CPU ringbuf.\",\"verdict\":\"confirmed\",\"source\":\"git fetch official (2026-11-13) ->…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 6,
+      "label": "verify:gpu_ext_repo",
+      "phaseIndex": 2,
+      "phaseTitle": "Verify",
+      "agentId": "a69508662378f6dcd",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1794541629936,
+      "queuedAt": 1794541629928,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "I re-opened every cited source read-only, using git show/ls…",
+      "promptPreview": "Background (our research, \"direction 1\"): bpftime's GPU maps sized by thread INDEX. PERGPUTD_ARRAY (map types 1502 / 1512 host variant) and GPU_RINGBUF (1527) keep one copy per linear global thread id (getGlobalThreadId in attach/nv_attach_impl/trampoline/default_trampoline.cu). thread_count is fixed when the map is created by the syscall server (default 1024, env BPFTIME_MAP_GPU_THREAD_COUNT), be…",
+      "promptFramed": true,
+      "lastProgressAt": 1794543146609,
+      "tokens": 238850,
+      "toolCalls": 108,
+      "durationMs": 1516672,
+      "resultPreview": "{\"checked\":[{\"claim\":\"F1. Nothing sizes maps at launch. gpu_ext runners compute the llama.cpp rope thread count offline (4 x pp x 256: 32,768 at pp32, 524,288 at pp512) and export BPFTIME_MAP_GPU_THREAD_COUNT plus BPFTIME_SHM_MEMORY_MB before the maps are created. The original 80 B x 256-entry ring needs 11,823,743,008 B. Five runners do this.\",\"verdict\":\"confirmed\",\"source\":\"gpu_ext 50a51ad: run_…"
+    }
+  ],
+  "totalTokens": 1252790,
+  "totalToolCalls": 485
+}
