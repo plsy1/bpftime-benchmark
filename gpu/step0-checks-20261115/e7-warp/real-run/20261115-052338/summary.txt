@@ -1,0 +1,16 @@
+check 7 (standalone): warp-level reservation in a __noinline__ helper under partial masks
+correct under partial masks: yes
+  native: yes; violations (correct helper) 0; bad_rank violations {'early': 229573, 'lowlanes': 218626, 'nested': 253381, 'loops': 438247, 'memcap': 308489}; bad_leader0 {'early': 508296, 'lowlanes': 498736, 'nested': 510030, 'loops': 1039557, 'memcap': 626223}
+  jit: yes; violations (correct helper) 0; bad_rank violations {'early': 229518, 'lowlanes': 219102, 'nested': 252722, 'loops': 437466, 'memcap': 310567}; bad_leader0 {'early': 508296, 'lowlanes': 498736, 'nested': 510030, 'loops': 1039557, 'memcap': 630939}
+[native] case: calls, launches, records per call mean/median, popc==1, popc==32, lane0-absent share, chunk waste C=8/C=32, share of calls with lanes from >1 call site
+  early       4078985  30   6.72/4  0.202  0.000  0.791  0.405/0.790  0.000
+  lowlanes    4004867  32   5.71/4  0.151  0.000  1.000  0.434/0.822  0.683
+  nested      4309689  14  12.53/12  0.000  0.000  0.610  0.219/0.609  0.996
+  loops       4081957   5  17.39/19  0.057  0.016  0.616  0.176/0.457  0.000
+  memcap      4274216  11   7.66/5  0.173  0.008  0.763  0.364/0.761  0.731
+[jit] case: calls, launches, records per call mean/median, popc==1, popc==32, lane0-absent share, chunk waste C=8/C=32, share of calls with lanes from >1 call site
+  early       4078985  30   6.72/4  0.202  0.000  0.791  0.405/0.790  0.000
+  lowlanes    4004867  32   5.71/4  0.151  0.000  1.000  0.434/0.822  0.683
+  nested      4309689  14  12.53/12  0.000  0.000  0.610  0.219/0.609  0.996
+  loops       4081957   5  17.39/19  0.057  0.016  0.616  0.176/0.457  0.000
+  memcap      4274247  11   7.66/5  0.173  0.008  0.765  0.364/0.761  0.730

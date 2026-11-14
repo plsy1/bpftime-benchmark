@@ -1,0 +1,8 @@
+ATOM atom.add.u64 	%rd94, [%rd95], 1; | space generic (none given) | sem none given | scope none given (ptxas: see SASS .STRONG.<scope>)
+ATOM atom.cas.b64 	%rd64, [%rd48], %rd10, %rd63; | space generic (none given) | sem none given | scope none given (ptxas: see SASS .STRONG.<scope>)
+ATOM atom.add.u64 	%rd71, [%rd70], 1; | space generic (none given) | sem none given | scope none given (ptxas: see SASS .STRONG.<scope>)
+CAS before: ld.u32 	%rd61, [%rd48+4]; ; shl.b64 	%rd62, %rd61, 32; ; or.b64  	%rd10, %rd62, %rd60; ; add.s64 	%rd63, %rd10, 1;
+CAS       : atom.cas.b64 	%rd64, [%rd48], %rd10, %rd63;
+CAS after : setp.lt.u64 	%p6, %rd10, 131072; ; @%p6 bra 	$L__BB0_9; ; bra.uni 	$L__BB0_7; ; $L__BB0_9:
+fences: []
+calls: ['_bpf_helper_ext_0001', '_bpf_helper_ext_0503', '_bpf_helper_ext_0504', '_bpf_helper_ext_0505', 'seq']

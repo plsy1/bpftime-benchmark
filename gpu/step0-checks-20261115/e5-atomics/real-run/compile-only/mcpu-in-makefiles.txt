@@ -1,0 +1,20 @@
+== bpftime example Makefiles (dev tree) with -mcpu:
+(none)
+== bpftime example BPF compile rule (threadhist):
+37:# to the includes list when compiling with `-target bpf` because otherwise some
+115:	$(Q)$(CLANG) -Xlinker --export-dynamic -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH)		      \
+== libbpf-tools (bcc v0.37.0) Makefile:
+15:BPFCFLAGS := -g -O2 -Wall -Werror=undef
+16:BPFCFLAGS_softirqs := $(BPFCFLAGS) -mcpu=v3
+206:$(OUTPUT)/softirqs.bpf.o: BPFCFLAGS = $(BPFCFLAGS_softirqs)
+210:	$(Q)$(CLANG) $(BPFCFLAGS) -target bpf -D__TARGET_ARCH_$(ARCH)	      \
+== clang-15 default BPF cpu:
+Available CPUs for this target:
+
+	generic
+	probe
+	v1
+	v2
+	v3
+
+Use -mcpu or -mtune to specify the target's processor.

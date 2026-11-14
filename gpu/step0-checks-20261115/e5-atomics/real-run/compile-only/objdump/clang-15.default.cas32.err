@@ -1,0 +1,72 @@
+atomics_cases.bpf.c:29:38: error: Unsupported atomic operations, please use 64 bit version
+u32 f(struct v32 *v, u32 o) { return __sync_val_compare_and_swap(&v->x, o, o + 1); }
+                                     ^
+fatal error: error in backend: Cannot select: 0xaaaac9c914f0: i64,ch = AtomicCmpSwap<(load store seq_cst seq_cst (s32) on %ir.0)> 0xaaaac9c3cca8, 0xaaaac9c913b8, 0xaaaac9c91488, 0xaaaac9c91898, atomics_cases.bpf.c:29:38
+  0xaaaac9c913b8: i64,ch = CopyFromReg 0xaaaac9c3cca8, Register:i64 %0
+    0xaaaac9c91350: i64 = Register %0
+  0xaaaac9c91488: i64,ch = CopyFromReg 0xaaaac9c3cca8, Register:i64 %1
+    0xaaaac9c91420: i64 = Register %1
+  0xaaaac9c91898: i64 = add 0xaaaac9c91488, Constant:i64<1>, atomics_cases.bpf.c:29:78
+    0xaaaac9c91488: i64,ch = CopyFromReg 0xaaaac9c3cca8, Register:i64 %1
+      0xaaaac9c91420: i64 = Register %1
+    0xaaaac9c91830: i64 = Constant<1>
+In function: f
+PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace, preprocessed source, and associated run script.
+Stack dump:
+0.	Program arguments: clang-15 -O2 -g -target bpf -DCASE_cas32 -c atomics_cases.bpf.c -o /home/jetson/src/bpftime-gpu-work/step0/e5-atomics/results/compile-only/objdump/clang-15.default.cas32.o
+1.	<eof> parser at end of file
+2.	Code generation
+3.	Running pass 'Function Pass Manager' on module 'atomics_cases.bpf.c'.
+4.	Running pass 'BPF DAG->DAG Pattern Instruction Selection' on function '@f'
+Stack dump without symbol names (ensure you have llvm-symbolizer in your PATH or set the environment var `LLVM_SYMBOLIZER_PATH` to point to it):
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm3sys15PrintStackTraceERNS_11raw_ostreamEi+0x48)[0xffffa8b764e0]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm3sys17RunSignalHandlersEv+0x74)[0xffffa8b744a0]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(+0xe749d0)[0xffffa8a949d0]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(+0xe74954)[0xffffa8a94954]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm3sys7Process4ExitEib+0x34)[0xffffa8b70aa8]
+clang-15(+0x1411c)[0xaaaac5cb411c]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm18report_fatal_errorERKNS_5TwineEb+0x120)[0xffffa8aa6e84]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZNK4llvm16SelectionDAGISel19isOrEquivalentToAddEPKNS_6SDNodeE+0x0)[0xffffa93452ec]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm16SelectionDAGISel16SelectCodeCommonEPNS_6SDNodeEPKhj+0x327c)[0xffffa934487c]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(+0x30c856c)[0xffffaace856c]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm16SelectionDAGISel22DoInstructionSelectionEv+0x148)[0xffffa933d89c]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm16SelectionDAGISel17CodeGenAndEmitDAGEv+0x384)[0xffffa933d088]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm16SelectionDAGISel20SelectAllBasicBlocksERKNS_8FunctionE+0x12f4)[0xffffa933c690]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm16SelectionDAGISel20runOnMachineFunctionERNS_15MachineFunctionE+0x5ac)[0xffffa933a7dc]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm19MachineFunctionPass13runOnFunctionERNS_8FunctionE+0x1f4)[0xffffa8efee88]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm13FPPassManager13runOnFunctionERNS_8FunctionE+0x26c)[0xffffa8cc2bb8]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm13FPPassManager11runOnModuleERNS_6ModuleE+0x40)[0xffffa8cc99f4]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm6legacy15PassManagerImpl3runERNS_6ModuleE+0x7d4)[0xffffa8cc3610]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZN5clang17EmitBackendOutputERNS_17DiagnosticsEngineERKNS_19HeaderSearchOptionsERKNS_14CodeGenOptionsERKNS_13TargetOptionsERKNS_11LangOptionsEN4llvm9StringRefEPNSE_6ModuleENS_13BackendActionESt10unique_ptrINSE_17raw_pwrite_streamESt14default_deleteISK_EE+0xae0)[0xffffb03ac66c]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(+0x1cd4880)[0xffffb06b4880]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZN5clang8ParseASTERNS_4SemaEbb+0x2f4)[0xffffaf4b4728]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZN5clang14FrontendAction7ExecuteEv+0x84)[0xffffb109d1d0]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZN5clang16CompilerInstance13ExecuteActionERNS_14FrontendActionE+0x32c)[0xffffb102c054]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZN5clang25ExecuteCompilerInvocationEPNS_16CompilerInstanceE+0x220)[0xffffb11178e8]
+clang-15(_Z8cc1_mainN4llvm8ArrayRefIPKcEES2_Pv+0x800)[0xaaaac5cb3bf4]
+clang-15(+0x12058)[0xaaaac5cb2058]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(+0x23216b0)[0xffffb0d016b0]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm20CrashRecoveryContext9RunSafelyENS_12function_refIFvvEEE+0xd8)[0xffffa8a948d0]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZNK5clang6driver10CC1Command7ExecuteEN4llvm8ArrayRefINS2_8OptionalINS2_9StringRefEEEEEPNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEPb+0x124)[0xffffb0d00fe0]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZNK5clang6driver11Compilation14ExecuteCommandERKNS0_7CommandERPS3_b+0x2e0)[0xffffb0ccf274]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZNK5clang6driver11Compilation11ExecuteJobsERKNS0_7JobListERN4llvm15SmallVectorImplISt4pairIiPKNS0_7CommandEEEEb+0x8c)[0xffffb0ccf4b8]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZN5clang6driver6Driver18ExecuteCompilationERNS0_11CompilationERN4llvm15SmallVectorImplISt4pairIiPKNS0_7CommandEEEE+0x154)[0xffffb0ce5564]
+clang-15(_Z10clang_mainiPPc+0x24d0)[0xaaaac5cb175c]
+/lib/aarch64-linux-gnu/libc.so.6(+0x284c4)[0xffffa76e84c4]
+/lib/aarch64-linux-gnu/libc.so.6(__libc_start_main+0x98)[0xffffa76e8598]
+clang-15(_start+0x30)[0xaaaac5caedf0]
+clang: error: clang frontend command failed with exit code 70 (use -v to see invocation)
+Ubuntu clang version 15.0.7
+Target: bpf
+Thread model: posix
+InstalledDir: /usr/bin
+clang: note: diagnostic msg: 
+********************
+
+PLEASE ATTACH THE FOLLOWING FILES TO THE BUG REPORT:
+Preprocessed source(s) and associated run script(s) are located at:
+clang: note: diagnostic msg: /tmp/atomics_cases-d13571.c
+clang: note: diagnostic msg: /tmp/atomics_cases-d13571.sh
+clang: note: diagnostic msg: 
+
+********************

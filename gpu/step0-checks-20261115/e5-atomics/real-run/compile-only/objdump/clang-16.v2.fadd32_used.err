@@ -1,0 +1,39 @@
+fatal error: error in backend: line 17: Invalid usage of the XADD return value
+PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace, preprocessed source, and associated run script.
+Stack dump:
+0.	Program arguments: clang-16 -O2 -g -target bpf -mcpu=v2 -DCASE_fadd32_used -c atomics_cases.bpf.c -o /home/jetson/src/bpftime-gpu-work/step0/e5-atomics/results/compile-only/objdump/clang-16.v2.fadd32_used.o
+1.	<eof> parser at end of file
+2.	Code generation
+3.	Running pass 'Function Pass Manager' on module 'atomics_cases.bpf.c'.
+4.	Running pass 'BPF PreEmit Checking' on function '@f'
+Stack dump without symbol names (ensure you have llvm-symbolizer in your PATH or set the environment var `LLVM_SYMBOLIZER_PATH` to point to it):
+0  libLLVM-16.so.1    0x0000ffff96ba335c llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) + 84
+1  libLLVM-16.so.1    0x0000ffff96ba1598 llvm::sys::RunSignalHandlers() + 116
+2  libLLVM-16.so.1    0x0000ffff96ae2a94
+3  libLLVM-16.so.1    0x0000ffff96ae2a40
+4  libLLVM-16.so.1    0x0000ffff96b9e0f4 llvm::sys::Process::Exit(int, bool) + 52
+5  clang-16           0x0000aaaac8544b94
+6  libLLVM-16.so.1    0x0000ffff96af005c llvm::report_fatal_error(llvm::Twine const&, bool) + 252
+7  libLLVM-16.so.1    0x0000ffff98c2a7c4
+8  libLLVM-16.so.1    0x0000ffff96f22038 llvm::MachineFunctionPass::runOnFunction(llvm::Function&) + 564
+9  libLLVM-16.so.1    0x0000ffff96ce5ad8 llvm::FPPassManager::runOnFunction(llvm::Function&) + 596
+10 libLLVM-16.so.1    0x0000ffff96ceb4ac llvm::FPPassManager::runOnModule(llvm::Module&) + 64
+11 libLLVM-16.so.1    0x0000ffff96ce6080 llvm::legacy::PassManagerImpl::run(llvm::Module&) + 808
+12 libclang-cpp.so.16 0x0000ffff9e92e488 clang::EmitBackendOutput(clang::DiagnosticsEngine&, clang::HeaderSearchOptions const&, clang::CodeGenOptions const&, clang::TargetOptions const&, clang::LangOptions const&, llvm::StringRef, llvm::Module*, clang::BackendAction, std::unique_ptr<llvm::raw_pwrite_stream, std::default_delete<llvm::raw_pwrite_stream>>) + 2364
+13 libclang-cpp.so.16 0x0000ffff9ec23138
+14 libclang-cpp.so.16 0x0000ffff9da0b028 clang::ParseAST(clang::Sema&, bool, bool) + 748
+15 libclang-cpp.so.16 0x0000ffff9f59ee64 clang::FrontendAction::Execute() + 116
+16 libclang-cpp.so.16 0x0000ffff9f5311d4 clang::CompilerInstance::ExecuteAction(clang::FrontendAction&) + 780
+17 libclang-cpp.so.16 0x0000ffff9f616f48 clang::ExecuteCompilerInvocation(clang::CompilerInstance*) + 528
+18 clang-16           0x0000aaaac854463c cc1_main(llvm::ArrayRef<char const*>, char const*, void*) + 1944
+19 clang-16           0x0000aaaac8541b84
+20 libclang-cpp.so.16 0x0000ffff9f24b3f4
+21 libLLVM-16.so.1    0x0000ffff96ae2a10 llvm::CrashRecoveryContext::RunSafely(llvm::function_ref<void ()>) + 168
+22 libclang-cpp.so.16 0x0000ffff9f24a964 clang::driver::CC1Command::Execute(llvm::ArrayRef<std::optional<llvm::StringRef>>, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char>>*, bool*) const + 336
+23 libclang-cpp.so.16 0x0000ffff9f21b5e8 clang::driver::Compilation::ExecuteCommand(clang::driver::Command const&, clang::driver::Command const*&, bool) const + 748
+24 libclang-cpp.so.16 0x0000ffff9f21b7f8 clang::driver::Compilation::ExecuteJobs(clang::driver::JobList const&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*>>&, bool) const + 140
+25 libclang-cpp.so.16 0x0000ffff9f232900 clang::driver::Driver::ExecuteCompilation(clang::driver::Compilation&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*>>&) + 340
+26 clang-16           0x0000aaaac85411c0 clang_main(int, char**) + 10356
+27 libc.so.6          0x0000ffff957984c4
+28 libc.so.6          0x0000ffff95798598 __libc_start_main + 152
+29 clang-16           0x0000aaaac853e5b0 _start + 48

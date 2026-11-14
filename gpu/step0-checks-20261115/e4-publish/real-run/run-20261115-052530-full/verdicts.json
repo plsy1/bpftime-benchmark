@@ -1,0 +1,156 @@
+{
+ "t1_stress": {
+  "mode": "stress",
+  "problems": [],
+  "checker_detects": true,
+  "A_rounds": 1000000128,
+  "A_violations": 0,
+  "C_rounds": 200000256,
+  "C_violations": 299982,
+  "C_rate": 0.0014999080801176574,
+  "expected_A_violations_if_like_C": 1499908.2721058917,
+  "verdict": "no violation observed in 1000000128 rounds of A; C failed 299982 times in 200000256 rounds of the same setup: evidence that one leader fence after __syncwarp suffices in this layout (the publisher's own payload stores share instructions with the other lanes'; whether the fence orders stores of lanes that did not fence is decided by A0, lane 0 idle) (95% upper bound on A's rate: 3.00e-09 per round)",
+  "A_fence_ns_first_round": {
+   "n": 2500224,
+   "p50": 28032,
+   "p90": 38848,
+   "p99": 41024,
+   "overflow": 0
+  },
+  "A_fence_ns_other_rounds": {
+   "n": 7499904,
+   "p50": 26624,
+   "p90": 36288,
+   "p99": 42368,
+   "overflow": 0
+  },
+  "Am_rounds": 10000128,
+  "Am_violations": 0,
+  "Cd_rounds": 200000256,
+  "Cd_violations": 0,
+  "Cd_mean_delay_ns": 28204.7,
+  "attribution": "the fence's duration: Cd (a fenceless wait of 28205 ns, A's median fence 28032 ns) showed 0 in 200000256 rounds where C-like failures would be 299982.0, so A is 'safe in practice here, not attributable to fence semantics'",
+  "Cd15_info": "C plus a fixed 1.5 us fenceless wait (informational, not a rule): 17341 violating rounds in 10000128",
+  "rate_A": 3446510.8,
+  "rate_B": 3440315.4,
+  "rate_C": 3454520.5,
+  "rate_Cd": 3485638.7,
+  "rate_D1": 3439402.7,
+  "rate_D2": 3493112.6,
+  "rate_Am": 3517789.5
+ },
+ "t1_normal": {
+  "mode": "normal",
+  "problems": [],
+  "checker_detects": true,
+  "A_rounds": 1000000128,
+  "A_violations": 0,
+  "C_rounds": 200000256,
+  "C_violations": 1370,
+  "C_rate": 6.849991232011223e-06,
+  "expected_A_violations_if_like_C": 6849.992108810101,
+  "verdict": "no violation observed in 1000000128 rounds of A; C failed 1370 times in 200000256 rounds of the same setup: evidence that one leader fence after __syncwarp suffices in this layout (the publisher's own payload stores share instructions with the other lanes'; whether the fence orders stores of lanes that did not fence is decided by A0, lane 0 idle) (95% upper bound on A's rate: 3.00e-09 per round)",
+  "A_fence_ns_first_round": {
+   "n": 2500224,
+   "p50": 6400,
+   "p90": 7552,
+   "p99": 8448,
+   "overflow": 0
+  },
+  "A_fence_ns_other_rounds": {
+   "n": 7499904,
+   "p50": 5248,
+   "p90": 6592,
+   "p99": 7680,
+   "overflow": 0
+  },
+  "Am_rounds": 10000128,
+  "Am_violations": 0,
+  "Cd_rounds": 200000256,
+  "Cd_violations": 2,
+  "Cd_mean_delay_ns": 6597.1,
+  "attribution": "undecided: Cd failed 2 times in 200000256 rounds, too few to separate A's zero from a delay (needs >= 3 Cd failures and an expectation of >= 3 in A's rounds)",
+  "Cd15_info": "C plus a fixed 1.5 us fenceless wait (informational, not a rule): 0 violating rounds in 10000128",
+  "rate_A": 16301463.3,
+  "rate_B": 16320977.2,
+  "rate_C": 19200518.7,
+  "rate_Cd": 13369277.9,
+  "rate_D1": 16605962.7,
+  "rate_D2": 16125688.2,
+  "rate_Am": 16080364.8
+ },
+ "t1_long": {
+  "mode": "long",
+  "problems": [],
+  "checker_detects": true,
+  "A_rounds": 100000128,
+  "A_violations": 0,
+  "C_rounds": 100000128,
+  "C_violations": 4,
+  "C_rate": 3.999994880006554e-08,
+  "expected_A_violations_if_like_C": 4.0,
+  "verdict": "no violation observed in 100000128 rounds of A; C failed 4 times in 100000128 rounds of the same setup: evidence that one leader fence after __syncwarp suffices in this layout (the publisher's own payload stores share instructions with the other lanes'; whether the fence orders stores of lanes that did not fence is decided by A0, lane 0 idle) (95% upper bound on A's rate: 3.00e-08 per round)",
+  "rate_A": 12907044.6,
+  "rate_C": 12477518.5
+ },
+ "t1_lane0_idle": {
+  "mode": "stress, lane 0 idle",
+  "problems": [],
+  "A0_rounds": 200000256,
+  "A0_violations": 0,
+  "C0_rounds": 10000128,
+  "C0_violations": 17210,
+  "expected_A0_violations_if_like_C0": 344196.03486675373,
+  "fence_ns_first_round_p50_lane0_idle_warps": 21632,
+  "fence_ns_first_round_p50_warps_without_payload": 22656,
+  "fence_ratio_without_over_with_own_stores": 1.047337278106509,
+  "verdict": "no violation observed in 200000256 rounds of A0 (the publishing lane wrote no payload) while C0 failed 17210 times in 10000128 (95% upper bound 1.50e-08 per round), but not separable from the fence's duration: a fence in a warp without payload took 1.05x as long under the same load, so a fence that ordered nothing of the payload would have hidden the race too"
+ },
+ "t2": {
+  "control_stale_rounds": {
+   "cas": 253301,
+   "casfence": 174
+  },
+  "checker_detects": true,
+  "t2_cas": {
+   "rounds": 10000000,
+   "stale_rounds": 0,
+   "double_winners": 0,
+   "winners_bad_cpu": 0,
+   "cpu_bad_gpu_payload_rounds": 0,
+   "iter_cap_hits": 0,
+   "rate_rounds_per_s": 131118.6,
+   "verdict": "no stale read and no double winner in 10000000 rounds (95% bound 3.00e-07 per round); the control shows the check can detect stale data"
+  },
+  "t2_casfence": {
+   "rounds": 10000000,
+   "stale_rounds": 0,
+   "double_winners": 0,
+   "winners_bad_cpu": 0,
+   "cpu_bad_gpu_payload_rounds": 0,
+   "iter_cap_hits": 0,
+   "rate_rounds_per_s": 58457.7,
+   "verdict": "no stale read and no double winner in 10000000 rounds (95% bound 3.00e-07 per round); the control shows the check can detect stale data"
+  },
+  "t2_casacq": {
+   "rounds": 3000000,
+   "stale_rounds": 0,
+   "double_winners": 0,
+   "winners_bad_cpu": 0,
+   "cpu_bad_gpu_payload_rounds": 0,
+   "iter_cap_hits": 0,
+   "rate_rounds_per_s": 53937.1,
+   "verdict": "no stale read and no double winner in 3000000 rounds (95% bound 1.00e-06 per round); the control shows the check can detect stale data"
+  },
+  "t2_cas_stress": {
+   "rounds": 3000000,
+   "stale_rounds": 0,
+   "double_winners": 0,
+   "winners_bad_cpu": 0,
+   "cpu_bad_gpu_payload_rounds": 0,
+   "iter_cap_hits": 0,
+   "rate_rounds_per_s": 60738.7,
+   "verdict": "no stale read and no double winner in 3000000 rounds (95% bound 1.00e-06 per round); the control shows the check can detect stale data"
+  }
+ }
+}

@@ -1,0 +1,39 @@
+fatal error: error in backend: line 17: Invalid usage of the XADD return value
+PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace, preprocessed source, and associated run script.
+Stack dump:
+0.	Program arguments: clang-15 -O2 -g -target bpf -mcpu=v1 -DCASE_fadd32_used -c atomics_cases.bpf.c -o /home/jetson/src/bpftime-gpu-work/step0/e5-atomics/results/compile-only/objdump/clang-15.v1.fadd32_used.o
+1.	<eof> parser at end of file
+2.	Code generation
+3.	Running pass 'Function Pass Manager' on module 'atomics_cases.bpf.c'.
+4.	Running pass 'BPF PreEmit Checking' on function '@f'
+Stack dump without symbol names (ensure you have llvm-symbolizer in your PATH or set the environment var `LLVM_SYMBOLIZER_PATH` to point to it):
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm3sys15PrintStackTraceERNS_11raw_ostreamEi+0x48)[0xffff8b4a64e0]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm3sys17RunSignalHandlersEv+0x74)[0xffff8b4a44a0]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(+0xe749d0)[0xffff8b3c49d0]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(+0xe74954)[0xffff8b3c4954]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm3sys7Process4ExitEib+0x34)[0xffff8b4a0aa8]
+clang-15(+0x1411c)[0xaaaae7be411c]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm18report_fatal_errorERKNS_5TwineEb+0x120)[0xffff8b3d6e84]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(+0x30df328)[0xffff8d62f328]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm19MachineFunctionPass13runOnFunctionERNS_8FunctionE+0x1f4)[0xffff8b82ee88]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm13FPPassManager13runOnFunctionERNS_8FunctionE+0x26c)[0xffff8b5f2bb8]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm13FPPassManager11runOnModuleERNS_6ModuleE+0x40)[0xffff8b5f99f4]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm6legacy15PassManagerImpl3runERNS_6ModuleE+0x7d4)[0xffff8b5f3610]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZN5clang17EmitBackendOutputERNS_17DiagnosticsEngineERKNS_19HeaderSearchOptionsERKNS_14CodeGenOptionsERKNS_13TargetOptionsERKNS_11LangOptionsEN4llvm9StringRefEPNSE_6ModuleENS_13BackendActionESt10unique_ptrINSE_17raw_pwrite_streamESt14default_deleteISK_EE+0xae0)[0xffff92cdc66c]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(+0x1cd4880)[0xffff92fe4880]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZN5clang8ParseASTERNS_4SemaEbb+0x2f4)[0xffff91de4728]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZN5clang14FrontendAction7ExecuteEv+0x84)[0xffff939cd1d0]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZN5clang16CompilerInstance13ExecuteActionERNS_14FrontendActionE+0x32c)[0xffff9395c054]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZN5clang25ExecuteCompilerInvocationEPNS_16CompilerInstanceE+0x220)[0xffff93a478e8]
+clang-15(_Z8cc1_mainN4llvm8ArrayRefIPKcEES2_Pv+0x800)[0xaaaae7be3bf4]
+clang-15(+0x12058)[0xaaaae7be2058]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(+0x23216b0)[0xffff936316b0]
+/usr/lib/llvm-15/bin/../lib/libLLVM-15.so.1(_ZN4llvm20CrashRecoveryContext9RunSafelyENS_12function_refIFvvEEE+0xd8)[0xffff8b3c48d0]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZNK5clang6driver10CC1Command7ExecuteEN4llvm8ArrayRefINS2_8OptionalINS2_9StringRefEEEEEPNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEPb+0x124)[0xffff93630fe0]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZNK5clang6driver11Compilation14ExecuteCommandERKNS0_7CommandERPS3_b+0x2e0)[0xffff935ff274]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZNK5clang6driver11Compilation11ExecuteJobsERKNS0_7JobListERN4llvm15SmallVectorImplISt4pairIiPKNS0_7CommandEEEEb+0x8c)[0xffff935ff4b8]
+/usr/lib/llvm-15/bin/../lib/libclang-cpp.so.15(_ZN5clang6driver6Driver18ExecuteCompilationERNS0_11CompilationERN4llvm15SmallVectorImplISt4pairIiPKNS0_7CommandEEEE+0x154)[0xffff93615564]
+clang-15(_Z10clang_mainiPPc+0x24d0)[0xaaaae7be175c]
+/lib/aarch64-linux-gnu/libc.so.6(+0x284c4)[0xffff8a0184c4]
+/lib/aarch64-linux-gnu/libc.so.6(__libc_start_main+0x98)[0xffff8a018598]
+clang-15(_start+0x30)[0xaaaae7bdedf0]

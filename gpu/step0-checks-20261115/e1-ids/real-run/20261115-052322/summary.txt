@@ -1,0 +1,72 @@
+check 1: one full-occupancy id log
+S: max smid+1 = 8, %nsmid = [8]
+W: max warpid+1 = 48, %nwarpid = [48]
+(smid, warpid) exclusive among co-resident warps: yes (0 collisions in 33 proven launches; 0 not proven; oversubscribed control capped: True; (smid, tid/32) control collides: True; b pairs sharing an SM: 9)
+%warpid: hardware slot (differs from tid/32 and exclusive per SM) (466 of 10752 warps have warpid == tid/32)
+entry->exit id changes in a/b: 0
+%gridid unique per launch (replays included): no (5994 duplicates; replay counters complete: True; missing records 0; parts with fewer launches []; graph node overflow 0)
+  c1: launches 1000, duplicates 0, strictly increasing True
+  c2: launches 1000, duplicates 0, strictly increasing True
+  c3: launches 3000, duplicates 2997, strictly increasing False
+  c4: launches 3000, duplicates 2997, strictly increasing False
+  d: launches 900, duplicates 0, strictly increasing True
+%gridid width: {'u32_read_ne_low_half_of_u64': 0, 'records_with_high_half_nonzero': 0}
+ids stable after preemption: yes
+  detector_positive_control_ok: True
+  control_max_dt_below_threshold: True
+  control_warp_gaps: 0
+  hog_episodes_ge_half_warps: 198
+  hog_warp_gaps: 76032
+  id_changes_total: 0
+  id_changes_without_gap: 0
+  exit_collisions: 0
+  gap_time_covered_by_hog_running: [0.8162577019618039, 0.8163172168492036, 0.8162260875972926]
+  gaps_attributed_to_hog: True
+  event_log_overflow: 0
+  warps_with_cap_flags: 0
+  hog_alive_at_end: True
+same-context priority preemption (extra): {'intruders_started_inside_long_kernel': 0, 'intruders': 30, 'intruders_issued_within_long_dur': 30, 'intruders_unwritten': 0, 'warp_gaps': 0, 'id_changes': 0, 'observed': 'no', 'intruder_capped_warps': 0}
+case a launches (bs, blocks, proven, collisions entry/exit, control (smid,tid/32) collisions, max CTAs on one SM, max warpid, gridid):
+  a L0 bs=32 blocks=128 proven=True coll=0/0 ctl=120 ctas/sm=16 maxwarpid=15 gridid=[[2]]
+  a L1 bs=48 blocks=128 proven=True coll=0/0 ctl=240 ctas/sm=16 maxwarpid=31 gridid=[[4]]
+  a L2 bs=64 blocks=128 proven=True coll=0/0 ctl=240 ctas/sm=16 maxwarpid=31 gridid=[[6]]
+  a L3 bs=96 blocks=128 proven=True coll=0/0 ctl=360 ctas/sm=16 maxwarpid=47 gridid=[[8]]
+  a L4 bs=128 blocks=96 proven=True coll=0/0 ctl=352 ctas/sm=12 maxwarpid=47 gridid=[[10]]
+  a L5 bs=256 blocks=48 proven=True coll=0/0 ctl=320 ctas/sm=6 maxwarpid=47 gridid=[[12]]
+  a L6 bs=512 blocks=24 proven=True coll=0/0 ctl=256 ctas/sm=3 maxwarpid=47 gridid=[[14]]
+  a L7 bs=1024 blocks=8 proven=True coll=0/0 ctl=0 ctas/sm=1 maxwarpid=31 gridid=[[16]]
+  a L8 bs=32 blocks=128 proven=True coll=0/0 ctl=120 ctas/sm=16 maxwarpid=15 gridid=[[18]]
+  a L9 bs=48 blocks=128 proven=True coll=0/0 ctl=240 ctas/sm=16 maxwarpid=31 gridid=[[20]]
+  a L10 bs=64 blocks=128 proven=True coll=0/0 ctl=240 ctas/sm=16 maxwarpid=31 gridid=[[22]]
+  a L11 bs=96 blocks=128 proven=True coll=0/0 ctl=360 ctas/sm=16 maxwarpid=47 gridid=[[24]]
+  a L12 bs=128 blocks=96 proven=True coll=0/0 ctl=352 ctas/sm=12 maxwarpid=47 gridid=[[26]]
+  a L13 bs=256 blocks=48 proven=True coll=0/0 ctl=320 ctas/sm=6 maxwarpid=47 gridid=[[28]]
+  a L14 bs=512 blocks=24 proven=True coll=0/0 ctl=256 ctas/sm=3 maxwarpid=47 gridid=[[30]]
+  a L15 bs=1024 blocks=8 proven=True coll=0/0 ctl=0 ctas/sm=1 maxwarpid=31 gridid=[[32]]
+  a L16 bs=32 blocks=128 proven=True coll=0/0 ctl=120 ctas/sm=16 maxwarpid=15 gridid=[[34]]
+  a L17 bs=48 blocks=128 proven=True coll=0/0 ctl=240 ctas/sm=16 maxwarpid=31 gridid=[[36]]
+  a L18 bs=64 blocks=128 proven=True coll=0/0 ctl=240 ctas/sm=16 maxwarpid=31 gridid=[[38]]
+  a L19 bs=96 blocks=128 proven=True coll=0/0 ctl=360 ctas/sm=16 maxwarpid=47 gridid=[[40]]
+  a L20 bs=128 blocks=96 proven=True coll=0/0 ctl=352 ctas/sm=12 maxwarpid=47 gridid=[[42]]
+  a L21 bs=256 blocks=48 proven=True coll=0/0 ctl=320 ctas/sm=6 maxwarpid=47 gridid=[[44]]
+  a L22 bs=512 blocks=24 proven=True coll=0/0 ctl=256 ctas/sm=3 maxwarpid=47 gridid=[[46]]
+  a L23 bs=1024 blocks=8 proven=True coll=0/0 ctl=0 ctas/sm=1 maxwarpid=31 gridid=[[48]]
+  a_over L24 bs=128 blocks=192 proven=False coll=384/384 ctl=736 ctas/sm=24 maxwarpid=47 gridid=[[50]]
+  b L0 bs=128 proven=True coll=0/0 sms_with_both_grids=8 gridids={'0': [2], '1': [3]}
+  b L1 bs=256 proven=True coll=0/0 sms_with_both_grids=8 gridids={'2': [5], '3': [6]}
+  b L2 bs=96 proven=True coll=0/0 sms_with_both_grids=8 gridids={'4': [8], '5': [9]}
+  b L3 bs=128 proven=True coll=0/0 sms_with_both_grids=8 gridids={'6': [11], '7': [12]}
+  b L4 bs=256 proven=True coll=0/0 sms_with_both_grids=8 gridids={'8': [14], '9': [15]}
+  b L5 bs=96 proven=True coll=0/0 sms_with_both_grids=8 gridids={'10': [17], '11': [18]}
+  b L6 bs=128 proven=True coll=0/0 sms_with_both_grids=8 gridids={'12': [20], '13': [21]}
+  b L7 bs=256 proven=True coll=0/0 sms_with_both_grids=8 gridids={'14': [23], '15': [24]}
+  b L8 bs=96 proven=True coll=0/0 sms_with_both_grids=8 gridids={'16': [26], '17': [27]}
+  e_ctl L0: warp-gaps 0, episodes>=half 0 (all 0), max dt 10720 ns, id changes 0+0, injected 384/384, ns/iter 1175, hog coverage None
+  e_ctl L1: warp-gaps 0, episodes>=half 0 (all 0), max dt 5856 ns, id changes 0+0, injected 384/384, ns/iter 1175, hog coverage None
+  e_ctl L2: warp-gaps 0, episodes>=half 0 (all 0), max dt 5856 ns, id changes 0+0, injected 384/384, ns/iter 1177, hog coverage None
+  e_hog L0: warp-gaps 25344, episodes>=half 66 (all 66), max dt 2528960 ns, id changes 0+0, injected 384/384, ns/iter 2621, hog coverage 0.8162577019618039
+  e_hog L1: warp-gaps 25344, episodes>=half 66 (all 66), max dt 2518720 ns, id changes 0+0, injected 384/384, ns/iter 2619, hog coverage 0.8163172168492036
+  e_hog L2: warp-gaps 25344, episodes>=half 66 (all 66), max dt 2517952 ns, id changes 0+0, injected 384/384, ns/iter 2621, hog coverage 0.8162260875972926
+  e_prio L0: warp-gaps 0, episodes>=half 0 (all 0), max dt 8640 ns, id changes 0+0, injected 384/384, ns/iter 1174, hog coverage None
+  e_prio L1: warp-gaps 0, episodes>=half 0 (all 0), max dt 5920 ns, id changes 0+0, injected 384/384, ns/iter 1171, hog coverage None
+  e_prio L2: warp-gaps 0, episodes>=half 0 (all 0), max dt 5888 ns, id changes 0+0, injected 384/384, ns/iter 1171, hog coverage None

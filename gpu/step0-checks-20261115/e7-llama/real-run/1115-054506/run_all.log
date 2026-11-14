@@ -1,0 +1,183 @@
+e7-llama run_all 1115-054506 GPU_BUILD=/home/jetson/src/step0-bpftime-exp/build-cuda
+ok   no build running
+ok   build.log has no errors
+ok   built target bpftime-agent
+ok   built target bpftime-syscall-server
+ok   built target ptxpass_kprobe_entry
+ok   built target ptxpass_kretprobe
+ok   built target ptxpass_kprobe_memcapture
+ok   built target nv_attach_impl_ptx_compiler
+ok   runtime/agent/libbpftime-agent.so
+ok   runtime/syscall-server/libbpftime-syscall-server.so
+ok   attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so
+ok   attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so
+ok   attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+ok   attach/nv_attach_impl/ptx_compiler/libnv_attach_impl_ptx_compiler.so
+ok   agent trampoline has _bpf_helper_ext_0520
+ok   agent has the geometry log
+ok   agent pass paths point into /home/jetson/src/step0-bpftime-exp/build-cuda
+ok   agent PTX compiler path points into /home/jetson/src/step0-bpftime-exp/build-cuda
+ok   kretprobe pass registers helper 520
+ok   HEAD 7e78a5d2 step0: instrumentation helpers 520-523 and launch geometry log (experiment only)
+ok   worktree clean (tracked files)
+ok   exists /home/jetson/src/workloads/llama.cpp/build-ptx87/bin/llama-bench
+ok   exists /home/jetson/src/workloads/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+ok   exists /home/jetson/src/bpftime-gpu-work/run.sh
+ok   exists /home/jetson/src/bpftime-gpu-work/llama/census/pp512-graph.sqlite
+ok   exists /home/jetson/src/bpftime-gpu-work/llama/census/tg128-graph.sqlite
+ok   no leftover llama-bench/e7/threadhist/cudagraph processes
+ok   no e7/e9 shm segments
+ok   GGML_CUDA_DISABLE_GRAPHS unset (graphs on)
+ok   MemAvailable 3307 MiB
+info cpu5=1728000 gpu=1020000000 2026-11-15 05:45:31
+PREFLIGHT PASS
+TARGETS PASS
+== step0-e7-ctrl-ctrl-1115-054506 (05:45:31)
+client_rc=0 client_ms=786
+server_rc=0
+no-leftovers
+shm-clean
+logs: /home/jetson/src/bpftime-gpu-work/runs/step0-e7-ctrl-ctrl-1115-054506
+final (lookup_failures=0) -> /home/jetson/src/bpftime-gpu-work/runs/step0-e7-ctrl-ctrl-1115-054506/e7.json
+kernel ctrl: launches=10 calls=1280 threads=30720 records_per_call=24.000 anom_self=0 anom_zero=0
+  lanes=16 calls=640 (50.0000%)
+  lanes=32 calls=640 (50.0000%)
+kernel ctrldiv: launches=10 calls=2560 threads=40960 records_per_call=16.000 anom_self=0 anom_zero=0
+  lanes=16 calls=2560 (100.0000%)
+kernel ctrlmerge: launches=10 calls=1280 threads=40960 records_per_call=32.000 anom_self=0 anom_zero=0
+  lanes=32 calls=1280 (100.0000%)
+[2026-11-15 05:45:36][info][1872447] nv_attach_impl: loaded the patched image of the fatbin at 0xaaaad13c2400 (92888 bytes; probes on e7ctrl_partial, e7ctrl_diverge, e7ctrl_merge)
+kept /tmp/bpftime-fatbin-work.3pQsgU -> /home/jetson/src/bpftime-gpu-work/runs/step0-e7-ctrl-ctrl-1115-054506/kept-ptx/
+kept /tmp/bpftime-fatbin-work.n1H5LP -> /home/jetson/src/bpftime-gpu-work/runs/step0-e7-ctrl-ctrl-1115-054506/kept-ptx/
+ptx check (partial) rc=0 (/home/jetson/src/bpftime-gpu-work/runs/step0-e7-ctrl-ctrl-1115-054506/ptxcheck.check.json)
+ "pass": true
+ptx check (diverge) rc=0 (/home/jetson/src/bpftime-gpu-work/runs/step0-e7-ctrl-ctrl-1115-054506/ptxcheck-div.check.json)
+ "pass": true
+ptx check (merge, reported) rc=0 (/home/jetson/src/bpftime-gpu-work/runs/step0-e7-ctrl-ctrl-1115-054506/ptxcheck-merge.check.json)
+ "pass": true
+e7_ctrl: launches=10 blocks=64 sync=no error bad_elements partial=0 diverge=0 merge=0 wait_cap_hits=0
+e7_ctrl: expected e7ctrl_partial: launches=10 calls_32=640 calls_16=640 threads=30720
+e7_ctrl: expected e7ctrl_diverge: launches=10 calls_16=2560 threads=40960
+e7_ctrl: e7ctrl_merge (reported): launches=10 threads=40960, calls between 1280 (merged) and 2560 (separate)
+ctrl   ctrl   ctrl    valid=True launches=10/10 threads=30720/30720 calls=1280 mean_records_per_call=24.000 share_32=0.50000 anomalies=0/0
+ctrl   ctrl   ctrldiv valid=True launches=10/10 threads=40960/40960 calls=2560 mean_records_per_call=16.000 share_32=0.00000 anomalies=0/0
+ctrl   ctrl   ctrlmerge valid=True launches=10/10 threads=40960/40960 calls=1280 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+overall: CONTROLS VALID; no llama run in this batch
+control_pass: True
+ptx_check_pass: True
+merge_observation: ['ctrl/ctrl/ctrlmerge: valid=True, share of warps whose two exit groups made one call of 32 = 1.0; ptx check pass = True']
+== step0-e7-rms-pp512-1115-054506 (05:45:53)
+client_rc=0 client_ms=15739
+server_rc=0
+no-leftovers
+shm-clean
+logs: /home/jetson/src/bpftime-gpu-work/runs/step0-e7-rms-pp512-1115-054506
+final (lookup_failures=0) -> /home/jetson/src/bpftime-gpu-work/runs/step0-e7-rms-pp512-1115-054506/e7.json
+kernel rms: launches=45 calls=352288 threads=11273216 records_per_call=32.000 anom_self=0 anom_zero=0
+  lanes=32 calls=352288 (100.0000%)
+[2026-11-15 05:45:59][info][1872597] nv_attach_impl: loaded the patched image of the fatbin at 0xffff8bec3200 (360384 bytes; probes on _Z12rms_norm_f32ILi512ELi1ELb1ELb1ELb0ELb0EEvPKfPfiiilllfS1_lll5uint3S3_S3_S3_S1_lllS3_S3_S3_S3_f)
+== step0-e7-mmq-pp512-1115-054506 (05:46:27)
+client_rc=0 client_ms=32427
+server_rc=0
+no-leftovers
+shm-clean
+logs: /home/jetson/src/bpftime-gpu-work/runs/step0-e7-mmq-pp512-1115-054506
+final (lookup_failures=0) -> /home/jetson/src/bpftime-gpu-work/runs/step0-e7-mmq-pp512-1115-054506/e7.json
+kernel mmq: launches=21 calls=59136 threads=1892352 records_per_call=32.000 anom_self=0 anom_zero=0
+  lanes=32 calls=59136 (100.0000%)
+[2026-11-15 05:46:52][info][1872807] nv_attach_impl: loaded the patched image of the fatbin at 0xffff7bb94100 (2362080 bytes; probes on _Z9mul_mat_qIL9ggml_type12ELi128ELb0EL9ggml_prec30ELb1EEvPKcS3_PKiS5_PK25ggml_cuda_mm_id_tile_specPfS9_PKf11ggml_glu_opfSB_SB_5uint3iiiiiSD_SD_iiiSD_SD_iiiSD_)
+== step0-e7-mmvq-pp512-1115-054506 (05:47:18)
+client_rc=0 client_ms=39931
+server_rc=0
+no-leftovers
+shm-clean
+logs: /home/jetson/src/bpftime-gpu-work/runs/step0-e7-mmvq-pp512-1115-054506
+final (lookup_failures=0) -> /home/jetson/src/bpftime-gpu-work/runs/step0-e7-mmvq-pp512-1115-054506/e7.json
+kernel mmvq: launches=2 calls=30720 threads=983040 records_per_call=32.000 anom_self=0 anom_zero=0
+  lanes=32 calls=30720 (100.0000%)
+[2026-11-15 05:48:02][info][1873054] nv_attach_impl: loaded the patched image of the fatbin at 0xffffa438eb00 (4744512 bytes; probes on _Z13mul_mat_vec_qIL9ggml_type12ELi1ELb1ELb0ELb0EEvPKvS2_PKi31ggml_cuda_mm_fusion_args_devicePfj5uint3jjjS7_jjjS7_jjjj)
+== step0-e7-ropek-pp512-1115-054506 (05:48:16)
+client_rc=0 client_ms=15657
+server_rc=0
+no-leftovers
+shm-clean
+logs: /home/jetson/src/bpftime-gpu-work/runs/step0-e7-ropek-pp512-1115-054506
+final (lookup_failures=0) -> /home/jetson/src/bpftime-gpu-work/runs/step0-e7-ropek-pp512-1115-054506/e7.json
+kernel ropek: launches=22 calls=360448 threads=11534336 records_per_call=32.000 anom_self=0 anom_zero=0
+  lanes=32 calls=360448 (100.0000%)
+[2026-11-15 05:48:25][info][1873301] nv_attach_impl: loaded the patched image of the fatbin at 0xffff981f9b00 (442304 bytes; probes on _Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiiiiiiiPKifff14rope_corr_dimsfPKfPKlib)
+== step0-e7-rms-tg128-1115-054506 (05:48:50)
+client_rc=0 client_ms=13112
+server_rc=0
+no-leftovers
+shm-clean
+logs: /home/jetson/src/bpftime-gpu-work/runs/step0-e7-rms-tg128-1115-054506
+final (lookup_failures=0) -> /home/jetson/src/bpftime-gpu-work/runs/step0-e7-rms-tg128-1115-054506/e7.json
+kernel rms: launches=5760 calls=92160 threads=2949120 records_per_call=32.000 anom_self=0 anom_zero=0
+  lanes=32 calls=92160 (100.0000%)
+[2026-11-15 05:48:56][info][1873515] nv_attach_impl: loaded the patched image of the fatbin at 0xffff94e13200 (360384 bytes; probes on _Z12rms_norm_f32ILi512ELi1ELb1ELb1ELb0ELb0EEvPKfPfiiilllfS1_lll5uint3S3_S3_S3_S1_lllS3_S3_S3_S3_f)
+== step0-e7-mmvq-tg128-1115-054506 (05:49:22)
+client_rc=0 client_ms=55783
+server_rc=0
+no-leftovers
+shm-clean
+logs: /home/jetson/src/bpftime-gpu-work/runs/step0-e7-mmvq-tg128-1115-054506
+final (lookup_failures=0) -> /home/jetson/src/bpftime-gpu-work/runs/step0-e7-mmvq-tg128-1115-054506/e7.json
+kernel mmvq: launches=7040 calls=98041856 threads=3137339392 records_per_call=32.000 anom_self=0 anom_zero=0
+  lanes=32 calls=98041856 (100.0000%)
+[2026-11-15 05:49:57][info][1873713] nv_attach_impl: loaded the patched image of the fatbin at 0xffff8578eb00 (4744512 bytes; probes on _Z13mul_mat_vec_qIL9ggml_type12ELi1ELb1ELb0ELb0EEvPKvS2_PKi31ggml_cuda_mm_fusion_args_devicePfj5uint3jjjS7_jjjS7_jjjj)
+== step0-e7-ropek-tg128-1115-054506 (05:50:36)
+client_rc=0 client_ms=13262
+server_rc=0
+no-leftovers
+shm-clean
+logs: /home/jetson/src/bpftime-gpu-work/runs/step0-e7-ropek-tg128-1115-054506
+final (lookup_failures=0) -> /home/jetson/src/bpftime-gpu-work/runs/step0-e7-ropek-tg128-1115-054506/e7.json
+kernel ropek: launches=2816 calls=90112 threads=2883584 records_per_call=32.000 anom_self=0 anom_zero=0
+  lanes=32 calls=90112 (100.0000%)
+[2026-11-15 05:50:47][info][1873995] nv_attach_impl: loaded the patched image of the fatbin at 0xffffac4e9b00 (442304 bytes; probes on _Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiiiiiiiPKifff14rope_corr_dimsfPKfPKlib)
+no leftover processes
+shm unchanged
+ctrl   ctrl   ctrl    valid=True launches=10/10 threads=30720/30720 calls=1280 mean_records_per_call=24.000 share_32=0.50000 anomalies=0/0
+        lanes:calls 16:640 32:640
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.250
+ctrl   ctrl   ctrldiv valid=True launches=10/10 threads=40960/40960 calls=2560 mean_records_per_call=16.000 share_32=0.00000 anomalies=0/0
+        lanes:calls 16:2560
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.500
+ctrl   ctrl   ctrlmerge valid=True launches=10/10 threads=40960/40960 calls=1280 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:1280
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+rms    pp512  rms     valid=True launches=45/45 threads=11273216/11273216 calls=352288 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:352288
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+mmq    pp512  mmq     valid=True launches=21/21 threads=1892352/1892352 calls=59136 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:59136
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+mmvq   pp512  mmvq    valid=True launches=2/2 threads=983040/983040 calls=30720 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:30720
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+ropek  pp512  ropek   valid=True launches=22/22 threads=11534336/11534336 calls=360448 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:360448
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+rms    tg128  rms     valid=True launches=5760/5760 threads=2949120/2949120 calls=92160 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:92160
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+mmvq   tg128  mmvq    valid=True launches=7040/7040 threads=3137339392/3137339392 calls=98041856 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:98041856
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+ropek  tg128  ropek   valid=True launches=2816/2816 threads=2883584/2883584 calls=90112 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:90112
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+
+overall: VALID
+control_pass: True
+controls_present: ['ctrl', 'ctrldiv']
+ptx_check_pass: True
+interpretation_allowed: True
+merge_observation: ['ctrl/ctrl/ctrlmerge: valid=True, share of warps whose two exit groups made one call of 32 = 1.0; ptx check pass = True']
+not_run: []
+chunk_rule: FULL WARPS: >= 99% of calls have 32 lanes on every valid kernel; per-warp chunks of 32 waste little (see waste table)
+full_warp_kernels: ['rms/pp512/rms', 'mmq/pp512/mmq', 'mmvq/pp512/mmvq', 'ropek/pp512/ropek', 'rms/tg128/rms', 'mmvq/tg128/mmvq', 'ropek/tg128/ropek']
+low_mean_kernels: []
+largest_C_with_unused_share_le_10pct_on_every_valid_kernel: 32
+results: /home/jetson/src/bpftime-gpu-work/step0/e7-llama/results/1115-054506

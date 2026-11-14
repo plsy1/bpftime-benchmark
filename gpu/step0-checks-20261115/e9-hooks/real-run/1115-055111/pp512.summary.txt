@@ -1,0 +1,32 @@
+label: pp512
+verdict: YES: every kernel's largest geometry was seen at a hook (graph kernels: their largest graph geometry at capture or a node hook)
+validity: V0_log_nonempty=ok V0_names_resolved=ok V0_capture_status_known=ok V1_runtime_lines_eq_nsys_hooked_calls=ok V2_capture_lines_eq_nsys_recorded_calls=ok V3_node_lines_eq_nsys_node_calls=ok V4_per_kernel_direct_counts=ok V5_hook_geometries_in_nsys=ok V6_instrument_controls=ok
+validity detail: {"depth0_runtime_lines": 444, "nsys_hooked_launch_calls": 444, "depth0_capture_lines": 0, "nsys_hooked_calls_without_kernel_row": 0, "depth0_node_lines": {"node_add": 0, "node_set": 0, "exec_set": 0}, "nsys_node_calls": {}, "kernels_direct_count_mismatch": [], "kernels_capture_lines_below_graph_nodes (reported)": [], "hook_geometries_not_in_nsys": []}
+instrument controls: /home/jetson/src/bpftime-gpu-work/step0/e9-hooks/results/1115-055111/run-cg-default/geometry.tsv pass=True classes={"direct": 1, "node_add": 1, "node_set": 1, "exec_set": 1} missing=[] wrong=[]; /home/jetson/src/bpftime-gpu-work/step0/e9-hooks/results/1115-055111/run-cg-legacy/geometry.tsv pass=True classes={"direct": 1, "node_add": 1, "node_set": 1, "exec_set": 1} missing=[] wrong=[]
+log lines 888 (processes 1, unresolved 0); nsys kernel rows 444
+hook line classes: {"cuLaunchKernel/direct/depth1": 444, "cudaLaunchKernel/direct/depth0": 444}
+nsys runtime API: {"cudaLaunchKernel_v7000": 444}
+nsys kernel rows launched by unhooked APIs: {}
+kernels only in nsys: 0, only at hooks: 0 (sets match: True)
+launch-hook lines at depth 0: 444
+all geometries seen at some hook: True; strict (every graph launch's own geometry before replay): True
+largest threads per launch: nsys 4194304, hooks 4194304, hooks before replay 0
+totals: {"nsys_launches": 444, "nsys_thread_execs": 192560640, "unseen_launches": 0, "unseen_thread_execs": 0, "nsys_graph_launches": 0, "nsys_direct_unhooked_api": 0, "graph_launches_unseen": 0, "graph_launches_direct_only": 0, "graph_thread_execs_unseen": 0, "graph_thread_execs_direct_only": 0}
+graphs (nsys): none
+
+k_verd launches  graph  geoms  hookgeom  largest(thr)   seen_by   graph_lg(thr)  g_seen_by unseen_l  counts  kernel
+YES    22        0      1      1         4194304        direct    0              -         0         ok      _Z9rope_normILb1ELb0EffEvPKT1_PT2_iiiiiiiiiiiPKifff14rope_corr_dimsfPKfPKlib
+YES    110       0      2      2         720896         direct    0              -         0         ok      _Z17quantize_mmq_q8_1IL18mmq_q8_1_ds_layout1ELb0EEvPKfPKiPvllllliii
+YES    43        0      2      2         524288         direct    0              -         0         ok      _Z11k_bin_bcastIXadL_ZN42_INTERNAL_92c0442c_11_binbcast_cu_6840010b6op_addEffEEfffJPKfEEvP
+YES    22        0      1      1         524288         direct    0              -         0         ok      _Z9rope_normILb1ELb0Ef6__halfEvPKT1_PT2_iiiiiiiiiiiPKifff14rope_corr_dimsfPKfPKlib
+YES    45        0      2      2         262144         direct    0              -         0         ok      _Z12rms_norm_f32ILi512ELi1ELb1ELb1ELb0ELb0EEvPKfPfiiilllfS1_lll5uint3S3_S3_S3_S1_lllS3_S3_
+YES    20        0      2      2         720896         direct    0              -         0         ok      _Z17quantize_mmq_q8_1IL18mmq_q8_1_ds_layout0ELb0EEvPKfPKiPvllllliii
+YES    1         0      1      1         4096000        direct    0              -         0         ok      _Z13mul_mat_vec_qIL9ggml_type14ELi1ELb0ELb0ELb0EEvPKvS2_PKi31ggml_cuda_mm_fusion_args_devi
+YES    22        0      1      1         131072         direct    0              -         0         ok      _Z10k_set_rowsIfl6__halfEvPKT_PKT0_PT1_llllllllllllll5uint3S9_S9_S9_S9_
+YES    21        0      1      1         90112          direct    0              -         0         ok      _Z9mul_mat_qIL9ggml_type12ELi128ELb0EL9ggml_prec30ELb1EEvPKcS3_PKiS5_PK25ggml_cuda_mm_id_t
+YES    2         0      2      2         720896         direct    0              -         0         ok      _Z13mul_mat_vec_qIL9ggml_type12ELi1ELb1ELb0ELb0EEvPKvS2_PKi31ggml_cuda_mm_fusion_args_devi
+YES    89        0      2      2         16384          direct    0              -         0         ok      _Z9mul_mat_qIL9ggml_type12ELi128ELb0EL9ggml_prec30ELb0EEvPKcS3_PKiS5_PK25ggml_cuda_mm_id_t
+YES    22        0      1      1         32768          direct    0              -         0         ok      _Z18flash_attn_ext_f16ILi64ELi64ELi8ELi8ELb0ELb0ELb0EEvPKcS1_S1_S1_S1_PKiS3_PfP6float2ffff
+YES    20        0      2      2         16384          direct    0              -         0         ok      _Z9mul_mat_qIL9ggml_type14ELi128ELb0EL9ggml_prec30ELb0EEvPKcS3_PKiS5_PK25ggml_cuda_mm_id_t
+YES    3         0      2      2         5632           direct    0              -         0         ok      _Z13quantize_q8_1PKfPvlllllj5uint3
+YES    2         0      1      1         2048           direct    0              -         0         ok      _Z16k_get_rows_floatIffEvPKT_PKiPT0_ll5uint3mmmmmmmmm

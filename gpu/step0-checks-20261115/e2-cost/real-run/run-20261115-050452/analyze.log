@@ -1,0 +1,35 @@
+# e2-cost summary (10 rounds; medians, [min-max] over rounds)
+
+Smoke or loaded-board numbers are not measurements; only a run on a quiet board counts.
+
+## (1) Reading of the 0.6 ns figure (shape anchor, R = 1, registered)
+
+- today's 1512 op: 0.433 ns per thread [0.432-0.434], 13.85 ns per warp; llama figure 0.621 ns per thread (ratio 0.70, gate ok)
+- loop form / exit form of the reference at R = 1: 1.01 (1.00 expected)
+- one 32-byte record per warp by lane 0, with membar.sys: 10.06 ns per warp (23.25x the per-thread op, 0.73x the per-warp op)
+- verdict: **reading 2 (a record per warp costs about one warp memory instruction of today's op)**
+  - secondary anchor, rec_lane0 reg f1 vs ref1512_loop: reading 2 (a record per warp costs about one warp memory instruction of today's op)
+  - secondary anchor, rec_lane0 reg f0 vs ref1512: in between
+  - secondary large, rec_lane0 reg f1 vs ref1512: reading 2 (a record per warp costs about one warp memory instruction of today's op)
+  - secondary large, rec_lane0 reg f0 vs ref1512: in between
+  - secondary full, rec_lane0 reg f1 vs ref1512: reading 2 (a record per warp costs about one warp memory instruction of today's op)
+  - secondary full, rec_lane0 reg f0 vs ref1512: in between
+
+## (2) [projection] one record per warp on every kernel of a pp512 (6.02M records, 204.6 ms)
+
+| shape | case | memory | fence | ns/record | overhead % [min-max] |
+|---|---|---|---|---:|---:|
+| anchor | rec_lane0 | reg | membar.sys | 10.06 | 29.6 [29.5-29.8] |
+| anchor | rec_lane0 | reg | none | 1.61 | 4.7 [4.7-4.8] |
+| anchor | rec_lane0 | dev | membar.sys | 7.98 | 23.5 [23.4-23.5] |
+| anchor | rec_lane0 | dev | none | 1.50 | 4.4 [4.4-4.4] |
+| anchor | rec_lane4 | reg | membar.sys | 7.41 | 21.8 [21.7-21.9] |
+| anchor | rec_lane4 | reg | none | 1.38 | 4.1 [4.0-4.1] |
+| anchor | rec_lane4 | dev | membar.sys | 7.63 | 22.4 [22.4-22.6] |
+| anchor | rec_lane4 | dev | none | 1.38 | 4.1 [4.0-4.1] |
+| anchor | comp_rec | reg | membar.sys | 211.83 | 623.3 [612.7-646.9] |
+| anchor | comp_rec | reg | none | 112.42 | 330.8 [316.5-337.3] |
+| anchor | comp_rec | dev | membar.sys | 9.22 | 27.1 [26.9-27.2] |
+| anchor | comp_rec | dev | none | 2.61 | 7.7 [7.7-7.7] |
+| anchor | ref1512 (one op per thread execution) | reg | membar.sys | 0.433 per thread | 40.7 |
+| large | rec_lane0 | reg | membar.sys | 9.72 | 28.6 [28.5-28.7] |

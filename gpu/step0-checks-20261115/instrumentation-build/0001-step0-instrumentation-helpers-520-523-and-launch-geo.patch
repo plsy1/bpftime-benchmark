@@ -1,0 +1,597 @@
+From 7e78a5d2cb0232060f2e7132a2275e8d21c99ee4 Mon Sep 17 00:00:00 2001
+From: jetson <jetson@orin-nano.tail52323b.ts.net>
+Date: Sun, 15 Nov 2026 04:00:59 +0900
+Subject: [PATCH] step0: instrumentation helpers 520-523 and launch geometry
+ log (experiment only)
+
+Throwaway build for the GPU map design study (step 0, checks 7 and 9).
+Never push; not for the dev branch.
+
+- trampoline: read-only helpers 520 (activemask as u64), 521 (%gridid),
+  522 (%nsmid), 523 (%nwarpid); trampoline_ptx.h regenerated with
+  clang++-16. Registered in ptxpass_core next to 509-511.
+- nv_attach_impl_frida_setup.cpp: with BPFTIME_EXP_GEOMETRY_LOG naming a
+  file, the cudaLaunchKernel(_ptsz), cuLaunchKernel and graph kernel-node
+  add/set-params hooks (v1, v2) append one tab-separated line at entry,
+  before any early return: CLOCK_MONOTONIC ns, tid, nesting depth, hook,
+  kernel name (cuFuncGetName; runtime pointers via cudaGetFuncBySymbol,
+  else cuKernelGetName for a CUDA 13 kernel handle; cached per pointer;
+  cudart's pending error left alone), pointer, grid, block, dynamic shared
+  memory, capture status, stream, graph and node handles. One O_APPEND fd,
+  write(2) under a mutex. Nothing changes without the variable.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../nv_attach_impl_frida_setup.cpp            | 324 ++++++++++++++++++
+ .../pass/ptxpass_core/src/core.cpp            |   6 +
+ .../trampoline/default_trampoline.cu          |  36 ++
+ attach/nv_attach_impl/trampoline_ptx.h        |  78 +++++
+ 4 files changed, 444 insertions(+)
+
+diff --git a/attach/nv_attach_impl/nv_attach_impl_frida_setup.cpp b/attach/nv_attach_impl/nv_attach_impl_frida_setup.cpp
+index ff2b04a9..4db68e4b 100644
+--- a/attach/nv_attach_impl/nv_attach_impl_frida_setup.cpp
++++ b/attach/nv_attach_impl/nv_attach_impl_frida_setup.cpp
+@@ -10,6 +10,14 @@
+ #include <cstdint>
+ #include <cstdlib>
+ #include <dlfcn.h>
++#include <cerrno>
++#include <ctime>
++#include <fcntl.h>
++#include <mutex>
++#include <string>
++#include <sys/syscall.h>
++#include <unistd.h>
++#include <unordered_map>
+ #include <frida-gum.h>
+ #include <iterator>
+ #include <memory>
+@@ -17,6 +25,7 @@
+ #include <vector>
+ #include <boost/core/demangle.hpp>
+ #include "nv_attach_impl.hpp"
++#include "nv_elf_introspect.hpp"
+ #include "bpftime_ratelimited_log.hpp"
+ #include <stdexcept>
+ using namespace bpftime;
+@@ -91,6 +100,287 @@ static bool cuda_graph_stream_is_capturing(cudaStream_t stream)
+ 	return status != cudaStreamCaptureStatusNone;
+ }
+ 
++// ---------------------------------------------------------------------------
++// step0 instrumentation (experiment only): launch geometry log.
++// With BPFTIME_EXP_GEOMETRY_LOG naming a file, every launch-related hook below
++// appends one tab-separated line at its entry, before any early return:
++//   ns tid depth hook name ptr gx gy gz bx by bz shmem capturing stream graph
++//   node
++// ns: CLOCK_MONOTONIC; depth: other logged hooks active on this thread (a
++// redirect from cudaLaunchKernel to cuLaunchKernel logs depth 1); name: the
++// mangled kernel name (cuFuncGetName; runtime pointers through
++// cudaGetFuncBySymbol, else cuKernelGetName for a CUDA 13 kernel handle),
++// "?" when unknown (not cached when the application had a cudart error
++// pending, which the lookup must not clear); capturing: 1/0, "-" without a
++// stream, "e<code>" when the query failed. Without the variable nothing
++// changes.
++namespace
++{
++struct exp_geometry_log {
++	int fd = -1;
++	std::mutex mutex; // the write and the name cache
++	std::unordered_map<const void *, std::string> names;
++};
++
++exp_geometry_log *exp_geometry_log_get()
++{
++	static exp_geometry_log *log = []() -> exp_geometry_log * {
++		const char *path = getenv("BPFTIME_EXP_GEOMETRY_LOG");
++		if (path == nullptr || path[0] == '\0')
++			return nullptr;
++		int fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC,
++			      0644);
++		if (fd < 0)
++			return nullptr;
++		auto *l = new exp_geometry_log;
++		l->fd = fd;
++		std::string header =
++			"# bpftime-exp-geometry v1 pid=" +
++			std::to_string((long)getpid()) +
++			"\n# ns\ttid\tdepth\thook\tname\tptr\tgx\tgy\tgz\tbx\tby\tbz\tshmem\tcapturing\tstream\tgraph\tnode\n";
++		(void)!write(fd, header.data(), header.size());
++		return l;
++	}();
++	return log;
++}
++
++thread_local int exp_geometry_depth = 0;
++
++std::string exp_hex(const void *p)
++{
++	char buf[32];
++	snprintf(buf, sizeof(buf), "%lx", (unsigned long)(uintptr_t)p);
++	return buf;
++}
++
++std::optional<std::string> exp_cached_name(exp_geometry_log &log,
++					   const void *key)
++{
++	std::lock_guard<std::mutex> guard(log.mutex);
++	if (auto it = log.names.find(key); it != log.names.end())
++		return it->second;
++	return std::nullopt;
++}
++
++void exp_cache_name(exp_geometry_log &log, const void *key,
++		    const std::string &name)
++{
++	std::lock_guard<std::mutex> guard(log.mutex);
++	log.names.emplace(key, name);
++}
++
++std::string exp_name_of_cufunction(exp_geometry_log &log, CUfunction f)
++{
++	if (f == nullptr)
++		return "?";
++	if (auto cached = exp_cached_name(log, f); cached)
++		return *cached;
++	using fn_t = CUresult (*)(const char **, CUfunction);
++	static fn_t get = (fn_t)dlsym(RTLD_DEFAULT, "cuFuncGetName");
++	const char *name = nullptr;
++	std::string out = "?";
++	if (get && get(&name, f) == CUDA_SUCCESS && name && name[0])
++		out = name;
++	// since CUDA 12 a CUkernel may stand where a CUfunction is expected
++	using kfn_t = CUresult (*)(const char **, CUkernel);
++	static kfn_t kget = (kfn_t)dlsym(RTLD_DEFAULT, "cuKernelGetName");
++	name = nullptr;
++	if (out == "?" && kget &&
++	    kget(&name, reinterpret_cast<CUkernel>(f)) == CUDA_SUCCESS && name &&
++	    name[0])
++		out = name;
++	exp_cache_name(log, f, out);
++	return out;
++}
++
++std::string exp_name_of_cukernel(exp_geometry_log &log, CUkernel k)
++{
++	if (k == nullptr)
++		return "?";
++	if (auto cached = exp_cached_name(log, k); cached)
++		return *cached;
++	using fn_t = CUresult (*)(const char **, CUkernel);
++	static fn_t get = (fn_t)dlsym(RTLD_DEFAULT, "cuKernelGetName");
++	const char *name = nullptr;
++	std::string out = "?";
++	if (get && get(&name, k) == CUDA_SUCCESS && name && name[0])
++		out = name;
++	exp_cache_name(log, k, out);
++	return out;
++}
++
++// A runtime-API function pointer: a host stub or a CUDA 13 kernel handle
++// (nvcc 13's default launch passes the handle through __cudaLaunchKernel,
++// which branches to cudaLaunchKernel).
++std::string exp_name_of_runtime_function(exp_geometry_log &log,
++					 const void *func)
++{
++	if (func == nullptr)
++		return "?";
++	if (auto cached = exp_cached_name(log, func); cached)
++		return *cached;
++	// as note_launch_if_probed: never clear an error of the application's
++	if (cudaPeekAtLastError() != cudaSuccess)
++		return "?";
++	std::string out = "?";
++	cudaFunction_t f = nullptr;
++	if (cudaGetFuncBySymbol(&f, func) == cudaSuccess && f != nullptr) {
++		out = exp_name_of_cufunction(log, reinterpret_cast<CUfunction>(f));
++	} else {
++		(void)cudaGetLastError();
++		if (!elf_introspect::module_containing((std::uintptr_t)func))
++			out = exp_name_of_cukernel(
++				log, reinterpret_cast<CUkernel>(
++					     const_cast<void *>(func)));
++	}
++	exp_cache_name(log, func, out);
++	return out;
++}
++
++std::string exp_capturing_of(CUstream stream)
++{
++	CUstreamCaptureStatus status = CU_STREAM_CAPTURE_STATUS_NONE;
++	CUresult err = cuStreamIsCapturing(stream, &status);
++	if (err != CUDA_SUCCESS)
++		return "e" + std::to_string((int)err);
++	return status == CU_STREAM_CAPTURE_STATUS_NONE ? "0" : "1";
++}
++
++// Logs at construction (when enabled) and marks this thread inside a logged
++// hook until destruction.
++struct exp_geometry_scope {
++	bool active = false;
++	exp_geometry_scope(const char *hook, const std::string &name,
++			   const void *ptr, unsigned gx, unsigned gy,
++			   unsigned gz, unsigned bx, unsigned by, unsigned bz,
++			   unsigned long long shmem,
++			   const std::string &capturing, const void *stream,
++			   const void *graph, const void *node)
++	{
++		auto *log = exp_geometry_log_get();
++		if (log == nullptr)
++			return;
++		active = true;
++		struct timespec ts;
++		clock_gettime(CLOCK_MONOTONIC, &ts);
++		static thread_local long tid = (long)syscall(SYS_gettid);
++		std::string line;
++		line.reserve(256 + name.size());
++		line += std::to_string((long long)ts.tv_sec * 1000000000LL +
++				       ts.tv_nsec);
++		line += '\t';
++		line += std::to_string(tid);
++		line += '\t';
++		line += std::to_string(exp_geometry_depth);
++		line += '\t';
++		line += hook;
++		line += '\t';
++		line += name;
++		line += '\t';
++		line += exp_hex(ptr);
++		for (unsigned v : { gx, gy, gz, bx, by, bz }) {
++			line += '\t';
++			line += std::to_string(v);
++		}
++		line += '\t';
++		line += std::to_string(shmem);
++		line += '\t';
++		line += capturing;
++		line += '\t';
++		line += stream == nullptr ? std::string("0") : exp_hex(stream);
++		line += '\t';
++		line += graph == nullptr ? std::string("-") : exp_hex(graph);
++		line += '\t';
++		line += node == nullptr ? std::string("-") : exp_hex(node);
++		line += '\n';
++		std::lock_guard<std::mutex> guard(log->mutex);
++		const char *p = line.data();
++		size_t left = line.size();
++		while (left > 0) {
++			ssize_t n = write(log->fd, p, left);
++			if (n < 0 && errno == EINTR)
++				continue;
++			if (n <= 0)
++				break;
++			p += n;
++			left -= (size_t)n;
++		}
++		exp_geometry_depth++;
++	}
++	~exp_geometry_scope()
++	{
++		if (active)
++			exp_geometry_depth--;
++	}
++	exp_geometry_scope(const exp_geometry_scope &) = delete;
++	exp_geometry_scope &operator=(const exp_geometry_scope &) = delete;
++};
++
++// The runtime launch hooks' entry line.
++#define EXP_LOG_RUNTIME_LAUNCH(hook, func, grid_dim, block_dim, shared_mem,     \
++			       stream)                                         \
++	std::optional<exp_geometry_scope> exp_scope;                           \
++	if (auto *exp_log = exp_geometry_log_get(); exp_log != nullptr)        \
++		exp_scope.emplace(                                             \
++			hook,                                                  \
++			exp_name_of_runtime_function(*exp_log, func),          \
++			func, grid_dim.x, grid_dim.y, grid_dim.z, block_dim.x, \
++			block_dim.y, block_dim.z,                              \
++			(unsigned long long)shared_mem,                        \
++			exp_capturing_of(reinterpret_cast<CUstream>(stream)),  \
++			(const void *)stream, nullptr, nullptr)
++
++template <class Params>
++void exp_log_graph_params_v1(std::optional<exp_geometry_scope> &scope,
++			     const char *hook, const Params *params,
++			     const void *graph, const void *node)
++{
++	auto *log = exp_geometry_log_get();
++	if (log == nullptr)
++		return;
++	if (params == nullptr) {
++		scope.emplace(hook, "?", nullptr, 0, 0, 0, 0, 0, 0, 0ULL, "-",
++			      nullptr, graph, node);
++		return;
++	}
++	scope.emplace(hook, exp_name_of_cufunction(*log, params->func),
++		      (const void *)params->func, params->gridDimX,
++		      params->gridDimY, params->gridDimZ, params->blockDimX,
++		      params->blockDimY, params->blockDimZ,
++		      (unsigned long long)params->sharedMemBytes, "-", nullptr,
++		      graph, node);
++}
++
++void exp_log_graph_params_v2(std::optional<exp_geometry_scope> &scope,
++			     const char *hook,
++			     const CUDA_KERNEL_NODE_PARAMS_v2 *params,
++			     const void *graph, const void *node)
++{
++	auto *log = exp_geometry_log_get();
++	if (log == nullptr)
++		return;
++	if (params == nullptr) {
++		scope.emplace(hook, "?", nullptr, 0, 0, 0, 0, 0, 0, 0ULL, "-",
++			      nullptr, graph, node);
++		return;
++	}
++	std::string name = "?";
++	const void *ptr = nullptr;
++	if (params->func != nullptr) {
++		name = exp_name_of_cufunction(*log, params->func);
++		ptr = params->func;
++	} else if (params->kern != nullptr) {
++		name = exp_name_of_cukernel(*log, params->kern);
++		ptr = params->kern;
++	}
++	scope.emplace(hook, name, ptr, params->gridDimX, params->gridDimY,
++		      params->gridDimZ, params->blockDimX, params->blockDimY,
++		      params->blockDimZ,
++		      (unsigned long long)params->sharedMemBytes, "-", nullptr,
++		      graph, node);
++}
++} // namespace
++
+ static cudaError_t
+ cuda_launch_kernel_common(nv_attach_impl *impl, void *original_fn_ptr,
+ 			  const void *func, dim3 grid_dim, dim3 block_dim,
+@@ -468,6 +758,8 @@ cuda_runtime_function__cudaLaunchKernel(const void *func, dim3 grid_dim,
+ 					dim3 block_dim, void **args,
+ 					size_t shared_mem, cudaStream_t stream)
+ {
++	EXP_LOG_RUNTIME_LAUNCH("cudaLaunchKernel", func, grid_dim, block_dim,
++			       shared_mem, stream);
+ 	auto gum_ctx = gum_interceptor_get_current_invocation();
+ 	auto *state = (nv_attach_hook_state *)
+ 		gum_invocation_context_get_replacement_data(gum_ctx);
+@@ -591,6 +883,15 @@ extern "C" CUresult cuda_driver_function__cuLaunchKernel(
+ 	unsigned int blockDimZ, unsigned int sharedMemBytes, CUstream hStream,
+ 	void **kernelParams, void **extra)
+ {
++	std::optional<exp_geometry_scope> exp_scope;
++	if (auto *exp_log = exp_geometry_log_get(); exp_log != nullptr)
++		exp_scope.emplace("cuLaunchKernel",
++				  exp_name_of_cufunction(*exp_log, func),
++				  (const void *)func, gridDimX, gridDimY, gridDimZ,
++				  blockDimX, blockDimY, blockDimZ,
++				  (unsigned long long)sharedMemBytes,
++				  exp_capturing_of(hStream), (const void *)hStream,
++				  nullptr, nullptr);
+ 	auto gum_ctx = gum_interceptor_get_current_invocation();
+ 	auto *state = (nv_attach_hook_state *)
+ 		gum_invocation_context_get_replacement_data(gum_ctx);
+@@ -610,6 +911,9 @@ extern "C" cudaError_t cuda_runtime_function__cudaLaunchKernel_ptsz(
+ 	const void *func, dim3 grid_dim, dim3 block_dim, void **args,
+ 	size_t shared_mem, cudaStream_t stream)
+ {
++	EXP_LOG_RUNTIME_LAUNCH("cudaLaunchKernel_ptsz", func, grid_dim, block_dim,
++			       shared_mem,
++			       (stream == nullptr ? cudaStreamPerThread : stream));
+ 	auto gum_ctx = gum_interceptor_get_current_invocation();
+ 	auto *state = (nv_attach_hook_state *)
+ 		gum_invocation_context_get_replacement_data(gum_ctx);
+@@ -691,6 +995,9 @@ extern "C" CUresult cuda_driver_function__cuGraphAddKernelNode_v1(
+ 	const CUgraphNode *dependencies, size_t numDependencies,
+ 	const CUDA_KERNEL_NODE_PARAMS_v1 *nodeParams)
+ {
++	std::optional<exp_geometry_scope> exp_scope;
++	exp_log_graph_params_v1(exp_scope, "cuGraphAddKernelNode", nodeParams,
++				(const void *)hGraph, nullptr);
+ 	auto gum_ctx = gum_interceptor_get_current_invocation();
+ 	auto *state = (nv_attach_hook_state *)
+ 		gum_invocation_context_get_replacement_data(gum_ctx);
+@@ -718,6 +1025,9 @@ extern "C" CUresult cuda_driver_function__cuGraphAddKernelNode_v2(
+ 	const CUgraphNode *dependencies, size_t numDependencies,
+ 	const CUDA_KERNEL_NODE_PARAMS_v2 *nodeParams)
+ {
++	std::optional<exp_geometry_scope> exp_scope;
++	exp_log_graph_params_v2(exp_scope, "cuGraphAddKernelNode_v2", nodeParams,
++				(const void *)hGraph, nullptr);
+ 	auto gum_ctx = gum_interceptor_get_current_invocation();
+ 	auto *state = (nv_attach_hook_state *)
+ 		gum_invocation_context_get_replacement_data(gum_ctx);
+@@ -744,6 +1054,10 @@ extern "C" CUresult cuda_driver_function__cuGraphExecKernelNodeSetParams_v1(
+ 	CUgraphExec hGraphExec, CUgraphNode hNode,
+ 	const CUDA_KERNEL_NODE_PARAMS_v1 *nodeParams)
+ {
++	std::optional<exp_geometry_scope> exp_scope;
++	exp_log_graph_params_v1(exp_scope, "cuGraphExecKernelNodeSetParams",
++				nodeParams, (const void *)hGraphExec,
++				(const void *)hNode);
+ 	auto gum_ctx = gum_interceptor_get_current_invocation();
+ 	auto *state = (nv_attach_hook_state *)
+ 		gum_invocation_context_get_replacement_data(gum_ctx);
+@@ -769,6 +1083,10 @@ extern "C" CUresult cuda_driver_function__cuGraphExecKernelNodeSetParams_v2(
+ 	CUgraphExec hGraphExec, CUgraphNode hNode,
+ 	const CUDA_KERNEL_NODE_PARAMS_v2 *nodeParams)
+ {
++	std::optional<exp_geometry_scope> exp_scope;
++	exp_log_graph_params_v2(exp_scope, "cuGraphExecKernelNodeSetParams_v2",
++				nodeParams, (const void *)hGraphExec,
++				(const void *)hNode);
+ 	auto gum_ctx = gum_interceptor_get_current_invocation();
+ 	auto *state = (nv_attach_hook_state *)
+ 		gum_invocation_context_get_replacement_data(gum_ctx);
+@@ -793,6 +1111,9 @@ extern "C" CUresult cuda_driver_function__cuGraphExecKernelNodeSetParams_v2(
+ extern "C" CUresult cuda_driver_function__cuGraphKernelNodeSetParams_v1(
+ 	CUgraphNode hNode, const CUDA_KERNEL_NODE_PARAMS_v1 *nodeParams)
+ {
++	std::optional<exp_geometry_scope> exp_scope;
++	exp_log_graph_params_v1(exp_scope, "cuGraphKernelNodeSetParams",
++				nodeParams, nullptr, (const void *)hNode);
+ 	auto gum_ctx = gum_interceptor_get_current_invocation();
+ 	auto *state = (nv_attach_hook_state *)
+ 		gum_invocation_context_get_replacement_data(gum_ctx);
+@@ -817,6 +1138,9 @@ extern "C" CUresult cuda_driver_function__cuGraphKernelNodeSetParams_v1(
+ extern "C" CUresult cuda_driver_function__cuGraphKernelNodeSetParams_v2(
+ 	CUgraphNode hNode, const CUDA_KERNEL_NODE_PARAMS_v2 *nodeParams)
+ {
++	std::optional<exp_geometry_scope> exp_scope;
++	exp_log_graph_params_v2(exp_scope, "cuGraphKernelNodeSetParams_v2",
++				nodeParams, nullptr, (const void *)hNode);
+ 	auto gum_ctx = gum_interceptor_get_current_invocation();
+ 	auto *state = (nv_attach_hook_state *)
+ 		gum_invocation_context_get_replacement_data(gum_ctx);
+diff --git a/attach/nv_attach_impl/pass/ptxpass_core/src/core.cpp b/attach/nv_attach_impl/pass/ptxpass_core/src/core.cpp
+index 54a40bfc..15246b55 100644
+--- a/attach/nv_attach_impl/pass/ptxpass_core/src/core.cpp
++++ b/attach/nv_attach_impl/pass/ptxpass_core/src/core.cpp
+@@ -251,6 +251,12 @@ std::string compile_ebpf_to_ptx_from_words(
+ 	vm.register_external_function(509, "get_sm_id", (void *)test_func);
+ 	vm.register_external_function(510, "get_warp_id", (void *)test_func);
+ 	vm.register_external_function(511, "get_lane_id", (void *)test_func);
++	// step0 instrumentation (experiment only)
++	vm.register_external_function(520, "get_active_mask",
++				      (void *)test_func);
++	vm.register_external_function(521, "get_grid_id", (void *)test_func);
++	vm.register_external_function(522, "get_nsmid", (void *)test_func);
++	vm.register_external_function(523, "get_nwarpid", (void *)test_func);
+ 
+ 	vm.load_code(insts, insts_count * sizeof(ebpf_inst));
+ 	bpftime::llvm_bpf_jit_context ctx(vm);
+diff --git a/attach/nv_attach_impl/trampoline/default_trampoline.cu b/attach/nv_attach_impl/trampoline/default_trampoline.cu
+index 853fd3b4..7e137d40 100644
+--- a/attach/nv_attach_impl/trampoline/default_trampoline.cu
++++ b/attach/nv_attach_impl/trampoline/default_trampoline.cu
+@@ -587,6 +587,42 @@ _bpf_helper_ext_0511(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
+     return (uint64_t)lane_id;
+ }
+ 
++// step0 instrumentation (experiment only): read-only ids for the GPU map
++// design study. 520: the lanes of the warp executing this call
++// (activemask); 521: %gridid (u64, per-context launch number); 522: %nsmid;
++// 523: %nwarpid.
++extern "C" __noinline__ __device__ uint64_t
++_bpf_helper_ext_0520(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
++{
++    uint32_t mask;
++    asm volatile("activemask.b32 %0;" : "=r"(mask));
++    return (uint64_t)mask;
++}
++
++extern "C" __noinline__ __device__ uint64_t
++_bpf_helper_ext_0521(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
++{
++    uint64_t grid_id;
++    asm volatile("mov.u64 %0, %%gridid;" : "=l"(grid_id));
++    return grid_id;
++}
++
++extern "C" __noinline__ __device__ uint64_t
++_bpf_helper_ext_0522(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
++{
++    uint32_t nsmid;
++    asm volatile("mov.u32 %0, %%nsmid;" : "=r"(nsmid));
++    return (uint64_t)nsmid;
++}
++
++extern "C" __noinline__ __device__ uint64_t
++_bpf_helper_ext_0523(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
++{
++    uint32_t nwarpid;
++    asm volatile("mov.u32 %0, %%nwarpid;" : "=r"(nwarpid));
++    return (uint64_t)nwarpid;
++}
++
+ #ifndef BPFTIME_TRAMPOLINE_DEVICE_ONLY
+ extern "C" __global__ void bpf_main(void *mem, size_t sz)
+ {
+diff --git a/attach/nv_attach_impl/trampoline_ptx.h b/attach/nv_attach_impl/trampoline_ptx.h
+index da703d26..2015c821 100644
+--- a/attach/nv_attach_impl/trampoline_ptx.h
++++ b/attach/nv_attach_impl/trampoline_ptx.h
+@@ -2298,5 +2298,83 @@ $L__BB8_16:
+ 	st.param.b64 	[func_retval0+0], %rd1;
+ 	ret;
+ 
++}
++	// .globl	_bpf_helper_ext_0520
++.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0520(
++	.param .b64 _bpf_helper_ext_0520_param_0,
++	.param .b64 _bpf_helper_ext_0520_param_1,
++	.param .b64 _bpf_helper_ext_0520_param_2,
++	.param .b64 _bpf_helper_ext_0520_param_3,
++	.param .b64 _bpf_helper_ext_0520_param_4
++)
++{
++	.reg .b32 	%r<2>;
++	.reg .b64 	%rd<2>;
++
++	// begin inline asm
++	activemask.b32 %r1;
++	// end inline asm
++	cvt.u64.u32 	%rd1, %r1;
++	st.param.b64 	[func_retval0+0], %rd1;
++	ret;
++
++}
++	// .globl	_bpf_helper_ext_0521
++.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0521(
++	.param .b64 _bpf_helper_ext_0521_param_0,
++	.param .b64 _bpf_helper_ext_0521_param_1,
++	.param .b64 _bpf_helper_ext_0521_param_2,
++	.param .b64 _bpf_helper_ext_0521_param_3,
++	.param .b64 _bpf_helper_ext_0521_param_4
++)
++{
++	.reg .b64 	%rd<2>;
++
++	// begin inline asm
++	mov.u64 %rd1, %gridid;
++	// end inline asm
++	st.param.b64 	[func_retval0+0], %rd1;
++	ret;
++
++}
++	// .globl	_bpf_helper_ext_0522
++.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0522(
++	.param .b64 _bpf_helper_ext_0522_param_0,
++	.param .b64 _bpf_helper_ext_0522_param_1,
++	.param .b64 _bpf_helper_ext_0522_param_2,
++	.param .b64 _bpf_helper_ext_0522_param_3,
++	.param .b64 _bpf_helper_ext_0522_param_4
++)
++{
++	.reg .b32 	%r<2>;
++	.reg .b64 	%rd<2>;
++
++	// begin inline asm
++	mov.u32 %r1, %nsmid;
++	// end inline asm
++	cvt.u64.u32 	%rd1, %r1;
++	st.param.b64 	[func_retval0+0], %rd1;
++	ret;
++
++}
++	// .globl	_bpf_helper_ext_0523
++.visible .func  (.param .b64 func_retval0) _bpf_helper_ext_0523(
++	.param .b64 _bpf_helper_ext_0523_param_0,
++	.param .b64 _bpf_helper_ext_0523_param_1,
++	.param .b64 _bpf_helper_ext_0523_param_2,
++	.param .b64 _bpf_helper_ext_0523_param_3,
++	.param .b64 _bpf_helper_ext_0523_param_4
++)
++{
++	.reg .b32 	%r<2>;
++	.reg .b64 	%rd<2>;
++
++	// begin inline asm
++	mov.u32 %r1, %nwarpid;
++	// end inline asm
++	cvt.u64.u32 	%rd1, %r1;
++	st.param.b64 	[func_retval0+0], %rd1;
++	ret;
++
+ }
+ )";
+-- 
+2.43.0
+

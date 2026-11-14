@@ -1,0 +1,72 @@
+atomics_cases.bpf.c:29:38: error: Unsupported atomic operations, please use 64 bit version
+u32 f(struct v32 *v, u32 o) { return __sync_val_compare_and_swap(&v->x, o, o + 1); }
+                                     ^
+fatal error: error in backend: Cannot select: 0xaaaaf75f0990: i64,ch = AtomicCmpSwap<(load store seq_cst seq_cst (s32) on %ir.0)> 0xaaaaf75a0cb0, 0xaaaaf75f0840, 0xaaaaf75f0920, 0xaaaaf75f0d80, atomics_cases.bpf.c:29:38
+  0xaaaaf75f0840: i64,ch = CopyFromReg 0xaaaaf75a0cb0, Register:i64 %0
+    0xaaaaf75f07d0: i64 = Register %0
+  0xaaaaf75f0920: i64,ch = CopyFromReg 0xaaaaf75a0cb0, Register:i64 %1
+    0xaaaaf75f08b0: i64 = Register %1
+  0xaaaaf75f0d80: i64 = add 0xaaaaf75f0920, Constant:i64<1>, atomics_cases.bpf.c:29:78
+    0xaaaaf75f0920: i64,ch = CopyFromReg 0xaaaaf75a0cb0, Register:i64 %1
+      0xaaaaf75f08b0: i64 = Register %1
+    0xaaaaf75f0d10: i64 = Constant<1>
+In function: f
+PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace, preprocessed source, and associated run script.
+Stack dump:
+0.	Program arguments: clang-16 -O2 -g -target bpf -mcpu=v2 -DCASE_cas32 -c atomics_cases.bpf.c -o /home/jetson/src/bpftime-gpu-work/step0/e5-atomics/results/compile-only/objdump/clang-16.v2.cas32.o
+1.	<eof> parser at end of file
+2.	Code generation
+3.	Running pass 'Function Pass Manager' on module 'atomics_cases.bpf.c'.
+4.	Running pass 'BPF DAG->DAG Pattern Instruction Selection' on function '@f'
+Stack dump without symbol names (ensure you have llvm-symbolizer in your PATH or set the environment var `LLVM_SYMBOLIZER_PATH` to point to it):
+0  libLLVM-16.so.1    0x0000ffffb16d335c llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) + 84
+1  libLLVM-16.so.1    0x0000ffffb16d1598 llvm::sys::RunSignalHandlers() + 116
+2  libLLVM-16.so.1    0x0000ffffb1612a94
+3  libLLVM-16.so.1    0x0000ffffb1612a40
+4  libLLVM-16.so.1    0x0000ffffb16ce0f4 llvm::sys::Process::Exit(int, bool) + 52
+5  clang-16           0x0000aaaac34c4b94
+6  libLLVM-16.so.1    0x0000ffffb162005c llvm::report_fatal_error(llvm::Twine const&, bool) + 252
+7  libLLVM-16.so.1    0x0000ffffb1e4f06c llvm::SelectionDAGISel::isOrEquivalentToAdd(llvm::SDNode const*) const + 0
+8  libLLVM-16.so.1    0x0000ffffb1e4e670 llvm::SelectionDAGISel::SelectCodeCommon(llvm::SDNode*, unsigned char const*, unsigned int) + 12716
+9  libLLVM-16.so.1    0x0000ffffb3744c2c
+10 libLLVM-16.so.1    0x0000ffffb1e47a48 llvm::SelectionDAGISel::DoInstructionSelection() + 344
+11 libLLVM-16.so.1    0x0000ffffb1e47258 llvm::SelectionDAGISel::CodeGenAndEmitDAG() + 900
+12 libLLVM-16.so.1    0x0000ffffb1e468d4 llvm::SelectionDAGISel::SelectAllBasicBlocks(llvm::Function const&) + 3888
+13 libLLVM-16.so.1    0x0000ffffb1e44edc llvm::SelectionDAGISel::runOnMachineFunction(llvm::MachineFunction&) + 1588
+14 libLLVM-16.so.1    0x0000ffffb1a52038 llvm::MachineFunctionPass::runOnFunction(llvm::Function&) + 564
+15 libLLVM-16.so.1    0x0000ffffb1815ad8 llvm::FPPassManager::runOnFunction(llvm::Function&) + 596
+16 libLLVM-16.so.1    0x0000ffffb181b4ac llvm::FPPassManager::runOnModule(llvm::Module&) + 64
+17 libLLVM-16.so.1    0x0000ffffb1816080 llvm::legacy::PassManagerImpl::run(llvm::Module&) + 808
+18 libclang-cpp.so.16 0x0000ffffb945e488 clang::EmitBackendOutput(clang::DiagnosticsEngine&, clang::HeaderSearchOptions const&, clang::CodeGenOptions const&, clang::TargetOptions const&, clang::LangOptions const&, llvm::StringRef, llvm::Module*, clang::BackendAction, std::unique_ptr<llvm::raw_pwrite_stream, std::default_delete<llvm::raw_pwrite_stream>>) + 2364
+19 libclang-cpp.so.16 0x0000ffffb9753138
+20 libclang-cpp.so.16 0x0000ffffb853b028 clang::ParseAST(clang::Sema&, bool, bool) + 748
+21 libclang-cpp.so.16 0x0000ffffba0cee64 clang::FrontendAction::Execute() + 116
+22 libclang-cpp.so.16 0x0000ffffba0611d4 clang::CompilerInstance::ExecuteAction(clang::FrontendAction&) + 780
+23 libclang-cpp.so.16 0x0000ffffba146f48 clang::ExecuteCompilerInvocation(clang::CompilerInstance*) + 528
+24 clang-16           0x0000aaaac34c463c cc1_main(llvm::ArrayRef<char const*>, char const*, void*) + 1944
+25 clang-16           0x0000aaaac34c1b84
+26 libclang-cpp.so.16 0x0000ffffb9d7b3f4
+27 libLLVM-16.so.1    0x0000ffffb1612a10 llvm::CrashRecoveryContext::RunSafely(llvm::function_ref<void ()>) + 168
+28 libclang-cpp.so.16 0x0000ffffb9d7a964 clang::driver::CC1Command::Execute(llvm::ArrayRef<std::optional<llvm::StringRef>>, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char>>*, bool*) const + 336
+29 libclang-cpp.so.16 0x0000ffffb9d4b5e8 clang::driver::Compilation::ExecuteCommand(clang::driver::Command const&, clang::driver::Command const*&, bool) const + 748
+30 libclang-cpp.so.16 0x0000ffffb9d4b7f8 clang::driver::Compilation::ExecuteJobs(clang::driver::JobList const&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*>>&, bool) const + 140
+31 libclang-cpp.so.16 0x0000ffffb9d62900 clang::driver::Driver::ExecuteCompilation(clang::driver::Compilation&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*>>&) + 340
+32 clang-16           0x0000aaaac34c11c0 clang_main(int, char**) + 10356
+33 libc.so.6          0x0000ffffb02c84c4
+34 libc.so.6          0x0000ffffb02c8598 __libc_start_main + 152
+35 clang-16           0x0000aaaac34be5b0 _start + 48
+clang: error: clang frontend command failed with exit code 70 (use -v to see invocation)
+Ubuntu clang version 16.0.6 (23ubuntu4)
+Target: bpf
+Thread model: posix
+InstalledDir: /usr/bin
+clang: note: diagnostic msg: 
+********************
+
+PLEASE ATTACH THE FOLLOWING FILES TO THE BUG REPORT:
+Preprocessed source(s) and associated run script(s) are located at:
+clang: note: diagnostic msg: /tmp/atomics_cases-274aea.c
+clang: note: diagnostic msg: /tmp/atomics_cases-274aea.sh
+clang: note: diagnostic msg: 
+
+********************
