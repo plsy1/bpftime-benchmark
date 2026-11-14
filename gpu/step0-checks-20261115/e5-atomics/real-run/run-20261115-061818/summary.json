@@ -1,0 +1,390 @@
+{
+ "results_dir": "/home/jetson/src/bpftime-gpu-work/step0/e5-atomics/results/run-20261115-061818",
+ "runs": {
+  "fadd": {
+   "label": "fadd",
+   "obj": "e5_fadd.bpf.o",
+   "timed_out": 0,
+   "threads": 12288,
+   "launches": 10,
+   "expected_calls": 122880,
+   "calls": 122880,
+   "threads_with_expected_firings": 12288,
+   "min_firings_per_thread": 10,
+   "max_firings_per_thread": 10,
+   "firings_beyond_threads": 0,
+   "counter": 122880,
+   "overflow": 0,
+   "cas_caphits": 0,
+   "cas_retries": 0,
+   "bad_gid": 0,
+   "null_lookup": 0,
+   "ctl6": 0,
+   "ctl7": 0,
+   "counter_equals_calls": 1,
+   "slots_written": 122880,
+   "gaps": 0,
+   "written_beyond_calls": 0,
+   "distinct_tags": 122880,
+   "duplicate_tags": 0,
+   "invalid_tags": 0,
+   "lost_writes": 0,
+   "lookup_failures": 0,
+   "pass": 1,
+   "duplicate_indices": 0
+  },
+  "plain": {
+   "label": "plain",
+   "obj": "e5_plain.bpf.o",
+   "timed_out": 0,
+   "threads": 12288,
+   "launches": 10,
+   "expected_calls": 122880,
+   "calls": 122880,
+   "threads_with_expected_firings": 12288,
+   "min_firings_per_thread": 10,
+   "max_firings_per_thread": 10,
+   "firings_beyond_threads": 0,
+   "counter": 99,
+   "overflow": 0,
+   "cas_caphits": 0,
+   "cas_retries": 0,
+   "bad_gid": 0,
+   "null_lookup": 0,
+   "ctl6": 0,
+   "ctl7": 0,
+   "counter_equals_calls": 0,
+   "slots_written": 100,
+   "gaps": 122780,
+   "written_beyond_calls": 0,
+   "distinct_tags": 100,
+   "duplicate_tags": 0,
+   "invalid_tags": 0,
+   "lost_writes": 122780,
+   "lookup_failures": 0,
+   "pass": 0,
+   "duplicate_indices": 122780
+  },
+  "cas": {
+   "label": "cas",
+   "obj": "e5_cas.bpf.o",
+   "timed_out": 0,
+   "threads": 12288,
+   "launches": 10,
+   "expected_calls": 122880,
+   "calls": 122880,
+   "threads_with_expected_firings": 12288,
+   "min_firings_per_thread": 10,
+   "max_firings_per_thread": 10,
+   "firings_beyond_threads": 0,
+   "counter": 94,
+   "overflow": 0,
+   "cas_caphits": 0,
+   "cas_retries": 0,
+   "bad_gid": 0,
+   "null_lookup": 0,
+   "ctl6": 0,
+   "ctl7": 0,
+   "counter_equals_calls": 0,
+   "slots_written": 94,
+   "gaps": 122786,
+   "written_beyond_calls": 0,
+   "distinct_tags": 94,
+   "duplicate_tags": 0,
+   "invalid_tags": 0,
+   "lost_writes": 122786,
+   "lookup_failures": 0,
+   "pass": 0,
+   "duplicate_indices": 122786
+  }
+ },
+ "ptx": {
+  "fadd": {
+   "atoms": [
+    {
+     "line": "atom.add.u64 \t%rd11, [%rd49], 1;",
+     "op": "add",
+     "state_space": "generic (none given)",
+     "sem": "none given",
+     "scope": "none given (ptxas: see SASS .STRONG.<scope>)",
+     "type": "u64"
+    },
+    {
+     "line": "atom.add.u64 \t%rd87, [%rd88], 1;",
+     "op": "add",
+     "state_space": "generic (none given)",
+     "sem": "none given",
+     "scope": "none given (ptxas: see SASS .STRONG.<scope>)",
+     "type": "u64"
+    }
+   ],
+   "fences_in_probe": [],
+   "cas_context": [],
+   "cas_result_used": [],
+   "add_result_used": [
+    true,
+    false
+   ]
+  },
+  "plain": {
+   "atoms": [
+    {
+     "line": "atom.add.u64 \t%rd90, [%rd91], 1;",
+     "op": "add",
+     "state_space": "generic (none given)",
+     "sem": "none given",
+     "scope": "none given (ptxas: see SASS .STRONG.<scope>)",
+     "type": "u64"
+    },
+    {
+     "line": "atom.add.u64 \t%rd70, [%rd69], 1;",
+     "op": "add",
+     "state_space": "generic (none given)",
+     "sem": "none given",
+     "scope": "none given (ptxas: see SASS .STRONG.<scope>)",
+     "type": "u64"
+    }
+   ],
+   "fences_in_probe": [],
+   "cas_context": [],
+   "cas_result_used": [],
+   "add_result_used": [
+    false,
+    false
+   ]
+  },
+  "cas": {
+   "atoms": [
+    {
+     "line": "atom.add.u64 \t%rd94, [%rd95], 1;",
+     "op": "add",
+     "state_space": "generic (none given)",
+     "sem": "none given",
+     "scope": "none given (ptxas: see SASS .STRONG.<scope>)",
+     "type": "u64"
+    },
+    {
+     "line": "atom.cas.b64 \t%rd64, [%rd48], %rd10, %rd63;",
+     "op": "cas",
+     "state_space": "generic (none given)",
+     "sem": "none given",
+     "scope": "none given (ptxas: see SASS .STRONG.<scope>)",
+     "type": "b64"
+    },
+    {
+     "line": "atom.add.u64 \t%rd71, [%rd70], 1;",
+     "op": "add",
+     "state_space": "generic (none given)",
+     "sem": "none given",
+     "scope": "none given (ptxas: see SASS .STRONG.<scope>)",
+     "type": "u64"
+    }
+   ],
+   "fences_in_probe": [],
+   "cas_context": [
+    {
+     "before": [
+      "st.u32 \t[%rd53], %rd58;",
+      "shr.u64 \t%rd59, %rd58, 32;",
+      "st.u32 \t[%rd53+4], %rd59;",
+      "ld.u32 \t%rd60, [%rd48];",
+      "ld.u32 \t%rd61, [%rd48+4];",
+      "shl.b64 \t%rd62, %rd61, 32;",
+      "or.b64  \t%rd10, %rd62, %rd60;",
+      "add.s64 \t%rd63, %rd10, 1;"
+     ],
+     "cas": "atom.cas.b64 \t%rd64, [%rd48], %rd10, %rd63;",
+     "after": [
+      "setp.lt.u64 \t%p6, %rd10, 131072;",
+      "@%p6 bra \t$L__BB0_9;",
+      "bra.uni \t$L__BB0_7;",
+      "$L__BB0_9:",
+      "st.local.u32 \t[%rd1+420], %rd10;"
+     ]
+    }
+   ],
+   "cas_result_used": [
+    false
+   ],
+   "add_result_used": [
+    false,
+    false
+   ]
+  }
+ },
+ "sass": {
+  "fadd": [
+   "ATOM.E.ADD.64.STRONG.GPU P0, R4, [R18.64], R4",
+   "ATOMS.CAST.SPIN.64 R6, [R19], R4, R6",
+   "ATOM.E.ADD.64.STRONG.GPU P0, RZ, [R2.64], R4",
+   "ATOMS.CAST.SPIN.64 R6, [R3], R4, R6",
+   "ATOMG.E.EXCH.STRONG.GPU PT, R20, [R20.64], R3",
+   "MEMBAR.SC.SYS",
+   "ATOMG.E.CAS.STRONG.GPU PT, R14, [R10], R14, R15",
+   "ATOM.E.CAS.STRONG.GPU PT, R20, [R6+-0x10], R20, R21",
+   "MEMBAR.SC.SYS",
+   "MEMBAR.SC.SYS",
+   "MEMBAR.SC.SYS",
+   "MEMBAR.SC.SYS",
+   "ATOM.E.EXCH.STRONG.GPU PT, RZ, [R6.64+-0x10], RZ",
+   "ATOMG.E.EXCH.STRONG.GPU PT, RZ, [R10.64], RZ",
+   "ATOMG.E.EXCH.STRONG.GPU PT, R8, [R8.64], R3",
+   "MEMBAR.SC.SYS",
+   "ATOMG.E.EXCH.STRONG.GPU PT, R20, [R20.64], R3",
+   "MEMBAR.SC.SYS",
+   "ATOMG.E.EXCH.STRONG.GPU PT, R8, [R8.64], R3"
+  ],
+  "plain": [
+   "ATOM.E.ADD.64.STRONG.GPU P0, RZ, [R4.64], R2",
+   "ATOMS.CAST.SPIN.64 R6, [R3], R4, R6",
+   "ATOM.E.ADD.64.STRONG.GPU P0, RZ, [R2.64], R4",
+   "ATOMS.CAST.SPIN.64 R6, [R3], R4, R6",
+   "ATOMG.E.EXCH.STRONG.GPU PT, R20, [R20.64], R3",
+   "MEMBAR.SC.SYS",
+   "ATOMG.E.CAS.STRONG.GPU PT, R14, [R8], R14, R15",
+   "ATOM.E.CAS.STRONG.GPU PT, R20, [R6+-0x10], R20, R21",
+   "MEMBAR.SC.SYS",
+   "MEMBAR.SC.SYS",
+   "MEMBAR.SC.SYS",
+   "MEMBAR.SC.SYS",
+   "ATOM.E.EXCH.STRONG.GPU PT, RZ, [R6.64+-0x10], RZ",
+   "ATOMG.E.EXCH.STRONG.GPU PT, RZ, [R8.64], RZ",
+   "ATOMG.E.EXCH.STRONG.GPU PT, R8, [R8.64], R3",
+   "MEMBAR.SC.SYS",
+   "ATOMG.E.EXCH.STRONG.GPU PT, R20, [R20.64], R3",
+   "MEMBAR.SC.SYS",
+   "ATOMG.E.EXCH.STRONG.GPU PT, R8, [R8.64], R3"
+  ],
+  "cas": [
+   "ATOM.E.CAS.64.STRONG.GPU P1, RZ, [R18], R8, R10",
+   "ATOM.E.ADD.64.STRONG.GPU P0, RZ, [R4.64], R2",
+   "ATOMS.CAST.SPIN.64 R6, [R3], R4, R6",
+   "ATOM.E.ADD.64.STRONG.GPU P0, RZ, [R2.64], R4",
+   "ATOMS.CAST.SPIN.64 R6, [R3], R4, R6",
+   "ATOMG.E.EXCH.STRONG.GPU PT, R8, [R8.64], R3",
+   "MEMBAR.SC.SYS",
+   "ATOMG.E.CAS.STRONG.GPU PT, R14, [R12], R14, R15",
+   "ATOM.E.CAS.STRONG.GPU PT, R9, [R6+-0x10], R20, R21",
+   "MEMBAR.SC.SYS",
+   "MEMBAR.SC.SYS",
+   "MEMBAR.SC.SYS",
+   "MEMBAR.SC.SYS",
+   "ATOM.E.EXCH.STRONG.GPU PT, RZ, [R6.64+-0x10], RZ",
+   "ATOMG.E.EXCH.STRONG.GPU PT, RZ, [R12.64], RZ",
+   "ATOMG.E.EXCH.STRONG.GPU PT, R12, [R12.64], R3",
+   "MEMBAR.SC.SYS",
+   "ATOMG.E.EXCH.STRONG.GPU PT, R8, [R8.64], R3",
+   "MEMBAR.SC.SYS",
+   "ATOMG.E.EXCH.STRONG.GPU PT, R12, [R12.64], R3"
+  ]
+ },
+ "validity": {
+  "fadd": {
+   "valid": true,
+   "why_not": ""
+  },
+  "plain": {
+   "valid": true,
+   "why_not": ""
+  },
+  "cas": {
+   "valid": true,
+   "why_not": ""
+  }
+ },
+ "sass_probe_specific": {
+  "fadd": [
+   "ATOM.E.ADD.64.STRONG.GPU P, R, [R.64], R"
+  ],
+  "plain": [],
+  "cas": [
+   "ATOM.E.CAS.64.STRONG.GPU P, RZ, [R], R, R"
+  ]
+ },
+ "compile": {
+  "clang-15/default/fadd64_used": "ok: add64+fetch(0x1)",
+  "clang-15/default/fadd64_unused": "ok: add64(0x0)",
+  "clang-15/default/fadd32_used": "FAIL",
+  "clang-15/default/fadd32_unused": "ok: add32(0x0)",
+  "clang-15/default/atomic_add_fetch64_used": "ok: add64+fetch(0x1)",
+  "clang-15/default/cas64": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-15/default/cas32": "FAIL",
+  "clang-15/default/cas64_loop": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-15/default/xchg64": "ok: xchg64+fetch(0xe1)",
+  "clang-15/v1/fadd64_used": "ok: add64+fetch(0x1)",
+  "clang-15/v1/fadd64_unused": "ok: add64(0x0)",
+  "clang-15/v1/fadd32_used": "FAIL",
+  "clang-15/v1/fadd32_unused": "ok: add32(0x0)",
+  "clang-15/v1/atomic_add_fetch64_used": "ok: add64+fetch(0x1)",
+  "clang-15/v1/cas64": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-15/v1/cas32": "FAIL",
+  "clang-15/v1/cas64_loop": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-15/v1/xchg64": "ok: xchg64+fetch(0xe1)",
+  "clang-15/v2/fadd64_used": "ok: add64+fetch(0x1)",
+  "clang-15/v2/fadd64_unused": "ok: add64(0x0)",
+  "clang-15/v2/fadd32_used": "FAIL",
+  "clang-15/v2/fadd32_unused": "ok: add32(0x0)",
+  "clang-15/v2/atomic_add_fetch64_used": "ok: add64+fetch(0x1)",
+  "clang-15/v2/cas64": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-15/v2/cas32": "FAIL",
+  "clang-15/v2/cas64_loop": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-15/v2/xchg64": "ok: xchg64+fetch(0xe1)",
+  "clang-15/v3/fadd64_used": "ok: add64+fetch(0x1)",
+  "clang-15/v3/fadd64_unused": "ok: add64(0x0)",
+  "clang-15/v3/fadd32_used": "ok: add32+fetch(0x1)",
+  "clang-15/v3/fadd32_unused": "ok: add32(0x0)",
+  "clang-15/v3/atomic_add_fetch64_used": "ok: add64+fetch(0x1)",
+  "clang-15/v3/cas64": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-15/v3/cas32": "ok: cmpxchg32+fetch(0xf1)",
+  "clang-15/v3/cas64_loop": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-15/v3/xchg64": "ok: xchg64+fetch(0xe1)",
+  "clang-16/default/fadd64_used": "ok: add64+fetch(0x1)",
+  "clang-16/default/fadd64_unused": "ok: add64(0x0)",
+  "clang-16/default/fadd32_used": "FAIL",
+  "clang-16/default/fadd32_unused": "ok: add32(0x0)",
+  "clang-16/default/atomic_add_fetch64_used": "ok: add64+fetch(0x1)",
+  "clang-16/default/cas64": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-16/default/cas32": "FAIL",
+  "clang-16/default/cas64_loop": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-16/default/xchg64": "ok: xchg64+fetch(0xe1)",
+  "clang-16/v1/fadd64_used": "ok: add64+fetch(0x1)",
+  "clang-16/v1/fadd64_unused": "ok: add64(0x0)",
+  "clang-16/v1/fadd32_used": "FAIL",
+  "clang-16/v1/fadd32_unused": "ok: add32(0x0)",
+  "clang-16/v1/atomic_add_fetch64_used": "ok: add64+fetch(0x1)",
+  "clang-16/v1/cas64": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-16/v1/cas32": "FAIL",
+  "clang-16/v1/cas64_loop": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-16/v1/xchg64": "ok: xchg64+fetch(0xe1)",
+  "clang-16/v2/fadd64_used": "ok: add64+fetch(0x1)",
+  "clang-16/v2/fadd64_unused": "ok: add64(0x0)",
+  "clang-16/v2/fadd32_used": "FAIL",
+  "clang-16/v2/fadd32_unused": "ok: add32(0x0)",
+  "clang-16/v2/atomic_add_fetch64_used": "ok: add64+fetch(0x1)",
+  "clang-16/v2/cas64": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-16/v2/cas32": "FAIL",
+  "clang-16/v2/cas64_loop": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-16/v2/xchg64": "ok: xchg64+fetch(0xe1)",
+  "clang-16/v3/fadd64_used": "ok: add64+fetch(0x1)",
+  "clang-16/v3/fadd64_unused": "ok: add64(0x0)",
+  "clang-16/v3/fadd32_used": "ok: add32+fetch(0x1)",
+  "clang-16/v3/fadd32_unused": "ok: add32(0x0)",
+  "clang-16/v3/atomic_add_fetch64_used": "ok: add64+fetch(0x1)",
+  "clang-16/v3/cas64": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-16/v3/cas32": "ok: cmpxchg32+fetch(0xf1)",
+  "clang-16/v3/cas64_loop": "ok: cmpxchg64+fetch(0xf1)",
+  "clang-16/v3/xchg64": "ok: xchg64+fetch(0xe1)"
+ },
+ "decisions": {
+  "fadd64_used_compiles_at_default_mcpu": true,
+  "fadd32_used_compiles_at_default_mcpu": false,
+  "control_plain_loses": true,
+  "fadd_run": "yes: counter == calls, 0 gaps, 0 duplicate indices",
+  "cas_run": "unusable: 122786 duplicate indices of 122880 calls (counter 94)",
+  "use_atomics_rule": "workable for 64-bit fetch-add at the default -mcpu",
+  "cmpxchg_bug_ptx": "confirmed: no atom.cas destination register is read afterwards",
+  "cmpxchg_sass_destination_RZ": true,
+  "fadd_result_used_ptx": true,
+  "fadd_sass_destination_not_RZ": true
+ }
+}

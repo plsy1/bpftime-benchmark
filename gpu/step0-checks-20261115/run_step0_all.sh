@@ -15,12 +15,22 @@ exec > >(tee -a "$LOG") 2>&1
 state() {
   echo "  time $(date '+%F %T') cpu5=$(cat /sys/devices/system/cpu/cpu5/cpufreq/scaling_cur_freq)/$(cat /sys/devices/system/cpu/cpu5/cpufreq/scaling_min_freq) gpu=$(cat /sys/devices/platform/bus@0/17000000.gpu/devfreq/17000000.gpu/cur_freq) load=$(cut -d' ' -f1-3 /proc/loadavg)"
   echo "  mem $(free -m | awk '/^Mem:/{print "used="$3" avail="$7}')  shm_entries=$(ls /dev/shm | wc -l) step0/bpftime_gpu shm: $(ls /dev/shm | grep -E '^(step0_|bpftime_gpu_)' | tr '\n' ' ')"
-  echo "  apt: $(pgrep -a -f 'apt|unattended-upgr|dpkg' | grep -v pgrep | cut -c1-120 | tr '\n' ';')"
+  echo "  apt: $(for u in apt-daily.service apt-daily-upgrade.service; do printf '%s=%s(since %s) ' $u "$(systemctl is-active $u)" "$(systemctl show -p ActiveEnterTimestamp --value $u | awk '{print $3}')"; done) procs: $(pgrep -l -x 'apt|apt-get|apt.systemd.dai|unattended-upgr|dpkg' | tr '\n' ' ')"
   echo "  busiest:"; ps -eo pid,pcpu,etime,args --sort=-pcpu | grep -v -e 'stream-json' -e 'ps -eo' | sed -n '2,5p' | cut -c1-150 | sed 's/^/    /'
+}
+
+# Timed steps wait (at most 40 min) until apt's daily services are inactive.
+apt_busy() { systemctl is-active -q apt-daily.service || systemctl is-active -q apt-daily-upgrade.service || pgrep -x 'apt|apt-get|unattended-upgr|dpkg' > /dev/null; }
+wait_apt() {
+  local i=0
+  while apt_busy && [ $i -lt 240 ]; do [ $i -eq 0 ] && echo "  waiting for apt to finish $(date +%T)"; sleep 10; i=$((i+1)); done
+  [ $i -gt 0 ] && echo "  apt wait ended $(date +%T) after $((i*10)) s (busy now: $(apt_busy && echo yes || echo no))"
+  return 0
 }
 
 run_step() {
   local name=$1 dir=$2; shift 2
+  case $name in e2|e6a|e6b|e6c|e3|e6llama) wait_apt ;; esac
   echo "===== STEP $name ($dir) start"
   state
   local t0=$(date +%s)

@@ -4,7 +4,7 @@ The nine checks of section 5 of `gpu/dir1-design-space-20261115/README.md`, run 
 Each check asks a question about the hardware or the runtime that the storage design depends on; none of them builds the design.
 
 - **Board:** Jetson Orin, sm_87, 8 SMs, CUDA 13.2, driver 595.78, Linux 6.8.12-1021-tegra-btf. cpu5 at 1,728,000 kHz and the GPU at 1,020 MHz before and after every step (`logs/main-20261115-050439.log`).
-- **Runs:** all 13 steps in one serial pass, 05:04-05:53 JST, every step rc 0, nothing else using the GPU (the busiest processes and the clocks are logged around each step). The daily timer was disabled; apt's timers fire at 06:24, after the pass. Driver: `run_step0_all.sh`.
+- **Runs:** all 13 steps in one serial pass, 05:04-05:53 JST, every step rc 0, nothing else using the GPU (the busiest processes and the clocks are logged around each step). The daily timer was disabled; apt's timers fire at 06:24, after the pass. A second pass, 06:04-06:54 JST, repeated everything (section "Second pass"); the numbers below are pass 1's. Driver: `run_step0_all.sh` (the pass-2 version, which also waits for apt before timed steps; pass 1's version is in this directory's first commit).
 - **bpftime:** dev 52126f33 (`build-cuda` of the dev worktree) for checks 5, 6 and 8. Checks 7 (llama part) and 9 used an instrumentation-only build of the same commit: four read-only helpers (520 activemask, 521 `%gridid`, 522 `%nsmid`, 523 `%nwarpid`) and a launch-geometry log in every launch hook. It is commit 7e78a5d2 on the local branch `exp/step0-instrumentation` (never pushed); the patch is in `instrumentation-build/`.
 - **Programs:** written and then adversarially reviewed by separate agents before the runs. Each check's README holds its question, method, the decision rules written before the real run, the commands and the known limits; the reviews' rule changes are listed there with their reasons. Smoke runs are not used anywhere below.
 - **Layout:** `eN-*/` = sources and scripts of one check, `eN-*/real-run/` = the output of the pass above (big text files gzipped, nsys reports left out).
@@ -79,7 +79,7 @@ Each check asks a question about the hardware or the runtime that the storage de
 ## 4. CPU/GPU publication in registered memory (`e4-publish`)
 
 - **Protocol A (lanes write, `__syncwarp`, one leader `membar.sys`, flag):** 0 violations in 1.0 x 10^9 rounds (normal) and 1.0 x 10^9 (stress: payload over several lines, readers backwards); 95% upper bound 3 x 10^-9 per round. B (every lane fences): 0 in 1-2 x 10^8. D1/D2 (release-store variants): 0. **Control C (no fence) fails:** 1,370 violating rounds in 2 x 10^8 (normal), 299,982 in 2 x 10^8 (stress).
-- **Not attributable to the fence's ordering:** under load a `membar.sys` lasted 28 us at the median (p99 41 us; normal 5-6 us), and a fenceless wait of the same length (Cd) also showed 0 violations in 2 x 10^8 stress rounds. A0 (the publishing lane wrote no payload) 0 in 2 x 10^8 against C0's 17,210 in 10^7, with the same caveat.
+- **Not attributable to the fence's ordering:** under load a `membar.sys` lasted 28 us at the median (p99 41 us; normal 5-6 us), and a fenceless wait of the same length (Cd) also showed 0 violations in 2 x 10^8 stress rounds. In normal mode pass 1 was undecided (Cd failed twice); in pass 2 Cd showed 0 in 2 x 10^8 against 1,776 expected, so both modes point to the fence's duration. A0 (the publishing lane wrote no payload) 0 in 2 x 10^8 against C0's 17,210 in 10^7, with the same caveat.
 - **Cost:** A and B ran at the same rate (16.3M rounds/s normal, 3.44M stress): fencing in every lane cost no more than one fence per warp here.
 - **CPU release-store, then GPU CAS:** 0 stale reads and 0 double winners in 10^7 rounds (3 x 10^6 with acquire and under stress); the wrong-order controls detect stale data (253,301 and 174 rounds).
 - Verdict: **one leader fence per warp is safe in practice on this GPU**; that the fence orders the other lanes' stores is not shown by the data (the PTX memory model's `bar.warp.sync` guarantee is the formal basis, see `e4-publish/README.md`).
@@ -112,6 +112,16 @@ Each check asks a question about the hardware or the runtime that the storage de
 - **tg128** (graphs on): 54,272 launches, 53,848 of them in 2 graphs (314 and 110 nodes, 127 replays each). Every node's geometry was seen at a hook during capture (424 capture lines) before any replay, the largest launch (4,096,000 threads) included; kernel sets equal nsys's. Instrumentation controls (direct, node add, node set, exec set) pass.
 - Not covered: geometries changed through `cudaGraphExecUpdate`, `cuLaunchKernelEx` and cooperative launches (unhooked, unused by llama.cpp).
 
+## Second pass (06:04-06:54 JST)
+
+The same 13 steps with the same scripts and builds, in a different order (timed steps first, before apt's 06:24 timers; checks 1, 7, 5, 8 and 4 next; the llama steps last). Every step rc 0, clocks fixed throughout. apt's daily services ran only during check 4 (06:24:18-06:24:49 and 06:28:21-06:29:07), which counts violations, not time. Full comparison: `compare-passes.md` (made by `compare_passes.py` in the work directory, from the `real-run/` directories kept here).
+
+- **Every verdict is the same.** Checks 1, 8, 9 and the llama part of 7 printed identical verdict lines; checks 5 and 7 (standalone) differ only in the counts of their deliberately racy controls.
+- **Check 2:** 508 timing rows, pass 2 / pass 1 median 0.998 (0.71-1.17); 14 rows moved by more than 10%, all contended atomics at the large shape or deltas of a few microseconds at full occupancy. Headline values moved by 0.0-1.9% (the unfenced per-warp record by 5.8%): today's op 0.433 -> 0.431 ns, record with fence 10.06 -> 9.91 ns, 8-B per-thread store in device memory 0.032 -> 0.032 ns, registered atomics on one word per SM 81.7 -> 81.9 ns.
+- **Check 6:** drain rates within 1.4%; GPU slowdowns 1.48 / 11.5 / 18.0 / 39.0-39.9% in both; 2,047 MiB registers and 2,048 MiB fails in both; llama pp512 under the 40-B drain 0.03% (pass 1: 0.09%).
+- **Check 3:** the same layouts violate (farafter, seppf) and pass; llama losses within 0.4 points (16 MiB per 1 ms: 3.6% / 8.3% against 3.5% / 7.9%); the relaxed-mode context-synchronize control crashed again (rc 139).
+- **Check 4:** A, B, D, Am and A0 0 violations again (A 10^9 rounds in each mode); C failed 1,776 (normal) and 465,548 (stress) times in 2 x 10^8; the attribution to the fence's duration now holds in both modes.
+
 ## What this means for a per-thread map model
 
 The model the user set on 11-15 keeps per-thread semantics and allocates storage by hardware concurrency (12,288 resident threads here), not by grid size. The checks bear on it as follows.
@@ -130,6 +140,7 @@ Not covered by step 0 and needed by that model: entry-to-exit state in a thread'
 
 ## Files
 
-- `run_step0_all.sh`, `logs/main-20261115-050439.log`: the pass and its board-state log.
+- `run_step0_all.sh`, `logs/main-20261115-050439.log` (pass 1), `logs/main-20261115-060428.log` (pass 2): the driver and the board-state logs.
+- `compare-passes.md`, `compare_passes.py`: pass 1 against pass 2.
 - `instrumentation-build/0001-*.patch`: the helper and geometry-log patch (7e78a5d2).
 - `e1-ids/` ... `e9-hooks/`, `common/`: one directory per check (README, sources, scripts, `real-run/`).

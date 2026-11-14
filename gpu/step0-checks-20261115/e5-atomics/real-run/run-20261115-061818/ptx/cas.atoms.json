@@ -1,0 +1,66 @@
+{
+ "ptx": "/home/jetson/src/bpftime-gpu-work/step0/e5-atomics/results/run-20261115-061818/ptx/cas.patched.ptx",
+ "function": "__retprobe_func__e5step0_atomics_kernel",
+ "found": true,
+ "atoms": [
+  {
+   "instr": "atom",
+   "op": "add",
+   "state_space": "generic (none given)",
+   "sem": "none given",
+   "scope": "none given (ptxas: see SASS .STRONG.<scope>)",
+   "type": "u64",
+   "line": "atom.add.u64 \t%rd94, [%rd95], 1;"
+  },
+  {
+   "instr": "atom",
+   "op": "cas",
+   "state_space": "generic (none given)",
+   "sem": "none given",
+   "scope": "none given (ptxas: see SASS .STRONG.<scope>)",
+   "type": "b64",
+   "line": "atom.cas.b64 \t%rd64, [%rd48], %rd10, %rd63;"
+  },
+  {
+   "instr": "atom",
+   "op": "add",
+   "state_space": "generic (none given)",
+   "sem": "none given",
+   "scope": "none given (ptxas: see SASS .STRONG.<scope>)",
+   "type": "u64",
+   "line": "atom.add.u64 \t%rd71, [%rd70], 1;"
+  }
+ ],
+ "fences": [],
+ "cas_context": [
+  {
+   "before": [
+    "st.u32 \t[%rd53], %rd58;",
+    "shr.u64 \t%rd59, %rd58, 32;",
+    "st.u32 \t[%rd53+4], %rd59;",
+    "ld.u32 \t%rd60, [%rd48];",
+    "ld.u32 \t%rd61, [%rd48+4];",
+    "shl.b64 \t%rd62, %rd61, 32;",
+    "or.b64  \t%rd10, %rd62, %rd60;",
+    "add.s64 \t%rd63, %rd10, 1;"
+   ],
+   "cas": "atom.cas.b64 \t%rd64, [%rd48], %rd10, %rd63;",
+   "after": [
+    "setp.lt.u64 \t%p6, %rd10, 131072;",
+    "@%p6 bra \t$L__BB0_9;",
+    "bra.uni \t$L__BB0_7;",
+    "$L__BB0_9:",
+    "st.local.u32 \t[%rd1+420], %rd10;"
+   ]
+  }
+ ],
+ "calls": [
+  "_bpf_helper_ext_0001",
+  "_bpf_helper_ext_0503",
+  "_bpf_helper_ext_0504",
+  "_bpf_helper_ext_0505",
+  "seq"
+ ],
+ "n_lines": 363,
+ "n_loads": 19
+}

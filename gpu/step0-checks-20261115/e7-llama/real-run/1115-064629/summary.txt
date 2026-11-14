@@ -1,0 +1,42 @@
+ctrl   ctrl   ctrl    valid=True launches=10/10 threads=30720/30720 calls=1280 mean_records_per_call=24.000 share_32=0.50000 anomalies=0/0
+        lanes:calls 16:640 32:640
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.250
+ctrl   ctrl   ctrldiv valid=True launches=10/10 threads=40960/40960 calls=2560 mean_records_per_call=16.000 share_32=0.00000 anomalies=0/0
+        lanes:calls 16:2560
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.500
+ctrl   ctrl   ctrlmerge valid=True launches=10/10 threads=40960/40960 calls=1280 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:1280
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+rms    pp512  rms     valid=True launches=45/45 threads=11273216/11273216 calls=352288 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:352288
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+mmq    pp512  mmq     valid=True launches=21/21 threads=1892352/1892352 calls=59136 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:59136
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+mmvq   pp512  mmvq    valid=True launches=2/2 threads=983040/983040 calls=30720 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:30720
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+ropek  pp512  ropek   valid=True launches=22/22 threads=11534336/11534336 calls=360448 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:360448
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+rms    tg128  rms     valid=True launches=5760/5760 threads=2949120/2949120 calls=92160 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:92160
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+mmvq   tg128  mmvq    valid=True launches=7040/7040 threads=3137339392/3137339392 calls=98041856 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:98041856
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+ropek  tg128  ropek   valid=True launches=2816/2816 threads=2883584/2883584 calls=90112 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:90112
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+
+overall: VALID
+control_pass: True
+controls_present: ['ctrl', 'ctrldiv']
+ptx_check_pass: True
+interpretation_allowed: True
+merge_observation: ['ctrl/ctrl/ctrlmerge: valid=True, share of warps whose two exit groups made one call of 32 = 1.0; ptx check pass = True']
+not_run: []
+chunk_rule: FULL WARPS: >= 99% of calls have 32 lanes on every valid kernel; per-warp chunks of 32 waste little (see waste table)
+full_warp_kernels: ['rms/pp512/rms', 'mmq/pp512/mmq', 'mmvq/pp512/mmvq', 'ropek/pp512/ropek', 'rms/tg128/rms', 'mmvq/tg128/mmvq', 'ropek/tg128/ropek']
+low_mean_kernels: []
+largest_C_with_unused_share_le_10pct_on_every_valid_kernel: 32

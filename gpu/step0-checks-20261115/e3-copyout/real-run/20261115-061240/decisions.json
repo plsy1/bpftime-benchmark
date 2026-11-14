@@ -1,0 +1,458 @@
+{
+ "overall": "yes",
+ "path1_copy_out": "pass",
+ "paths": [
+  "agent copy-out into the segment (two-step copy, flags first)",
+  "reader imports the fd and copies in its own CUDA context (needs CUDA in the reader; a copy concurrent with the writer, so ordering is part A's answer, here fixable; cost on a real application not measured: process 1 is a toy writer)"
+ ],
+ "A": {
+  "present": true,
+  "layouts": {
+   "after": {
+    "verdict": "consistent",
+    "viol_chunks": 0,
+    "flagged_valid": 5452968,
+    "mixed_valid": 439839,
+    "runs": 4
+   },
+   "before": {
+    "verdict": "consistent",
+    "viol_chunks": 0,
+    "flagged_valid": 5444916,
+    "mixed_valid": 439241,
+    "runs": 4
+   },
+   "farafter": {
+    "verdict": "violates",
+    "viol_chunks": 4417782,
+    "flagged_valid": 5698345,
+    "mixed_valid": 436877,
+    "runs": 4
+   },
+   "farbefore": {
+    "verdict": "consistent",
+    "viol_chunks": 0,
+    "flagged_valid": 5811299,
+    "mixed_valid": 447061,
+    "runs": 4
+   },
+   "sepff": {
+    "verdict": "consistent",
+    "viol_chunks": 0,
+    "flagged_valid": 5778005,
+    "mixed_valid": 439989,
+    "runs": 4
+   },
+   "seppf": {
+    "verdict": "violates",
+    "viol_chunks": 4624668,
+    "flagged_valid": 5642496,
+    "mixed_valid": 433446,
+    "runs": 4
+   }
+  },
+  "seppf_control_violates": true,
+  "answer": "fixable",
+  "single_copy_consistent": [
+   "after",
+   "before",
+   "farbefore"
+  ],
+  "flag_first_single_copy": "consistent",
+  "ok": true,
+  "seqcap_check": {
+   "relaunches": 389,
+   "exit_seqcap": 99584,
+   "viol": 0,
+   "quiet_flag_mismatch": 0
+  },
+  "bw": [
+   {
+    "test": "bw",
+    "writer": "none",
+    "bytes": 65536,
+    "lat_n": 200,
+    "lat_us_p50": 26.3,
+    "lat_us_p90": 28.45,
+    "lat_us_p99": 36.35,
+    "lat_us_min": 25.44,
+    "lat_us_max": 42.63,
+    "issue_us_p50": 6.72,
+    "event_us_p50": 7.58,
+    "event_us_p99": 10.05,
+    "tput_n": 1000,
+    "tput_s": 0.003188,
+    "tput_GBps": 20.555,
+    "bad_bytes": 0,
+    "writer_running_before": 0,
+    "writer_running_after": 0
+   },
+   {
+    "test": "bw",
+    "writer": "none",
+    "bytes": 1048576,
+    "lat_n": 200,
+    "lat_us_p50": 63.84,
+    "lat_us_p90": 64.77,
+    "lat_us_p99": 69.12,
+    "lat_us_min": 62.91,
+    "lat_us_max": 82.56,
+    "issue_us_p50": 6.88,
+    "event_us_p50": 44.77,
+    "event_us_p99": 46.59,
+    "tput_n": 200,
+    "tput_s": 0.008088,
+    "tput_GBps": 25.929,
+    "bad_bytes": 0,
+    "writer_running_before": 0,
+    "writer_running_after": 0
+   },
+   {
+    "test": "bw",
+    "writer": "none",
+    "bytes": 16777216,
+    "lat_n": 200,
+    "lat_us_p50": 616.41,
+    "lat_us_p90": 619.19,
+    "lat_us_p99": 629.62,
+    "lat_us_min": 614.68,
+    "lat_us_max": 633.69,
+    "issue_us_p50": 7.23,
+    "event_us_p50": 596.35,
+    "event_us_p99": 601.47,
+    "tput_n": 30,
+    "tput_s": 0.017779,
+    "tput_GBps": 28.31,
+    "bad_bytes": 0,
+    "writer_running_before": 0,
+    "writer_running_after": 0
+   },
+   {
+    "test": "bw",
+    "writer": "running",
+    "bytes": 65536,
+    "lat_n": 200,
+    "lat_us_p50": 82.15,
+    "lat_us_p90": 88.93,
+    "lat_us_p99": 93.54,
+    "lat_us_min": 55.17,
+    "lat_us_max": 94.79,
+    "issue_us_p50": 7.04,
+    "event_us_p50": 30.98,
+    "event_us_p99": 36.29,
+    "tput_n": 1000,
+    "tput_s": 0.019516,
+    "tput_GBps": 3.358,
+    "bad_bytes": 0,
+    "writer_running_before": 1,
+    "writer_running_after": 1
+   },
+   {
+    "test": "bw",
+    "writer": "running",
+    "bytes": 1048576,
+    "lat_n": 200,
+    "lat_us_p50": 232.04,
+    "lat_us_p90": 240.68,
+    "lat_us_p99": 248.07,
+    "lat_us_min": 209.83,
+    "lat_us_max": 251.85,
+    "issue_us_p50": 7.17,
+    "event_us_p50": 175.36,
+    "event_us_p99": 187.97,
+    "tput_n": 200,
+    "tput_s": 0.033135,
+    "tput_GBps": 6.329,
+    "bad_bytes": 0,
+    "writer_running_before": 1,
+    "writer_running_after": 1
+   },
+   {
+    "test": "bw",
+    "writer": "running",
+    "bytes": 16777216,
+    "lat_n": 200,
+    "lat_us_p50": 2525.12,
+    "lat_us_p90": 2552.45,
+    "lat_us_p99": 2592.26,
+    "lat_us_min": 2475.68,
+    "lat_us_max": 2597.89,
+    "issue_us_p50": 8.0,
+    "event_us_p50": 2466.18,
+    "event_us_p99": 2537.18,
+    "tput_n": 30,
+    "tput_s": 0.073642,
+    "tput_GBps": 6.835,
+    "bad_bytes": 0,
+    "writer_running_before": 1,
+    "writer_running_after": 1
+   }
+  ]
+ },
+ "B0": {
+  "present": true,
+  "cases": {
+   "noshim": {
+    "ran": true,
+    "errors": 0,
+    "end_errors": 0,
+    "copies": 0,
+    "copier_errors": 0,
+    "during_capture": null,
+    "shim_log": false,
+    "unsafe_errors": 0,
+    "match": null,
+    "iters": 4341,
+    "capture_open_share": 0.302
+   },
+   "idle-relaxed": {
+    "ran": true,
+    "errors": 0,
+    "end_errors": 0,
+    "copies": 0,
+    "copier_errors": 0,
+    "during_capture": 0,
+    "shim_log": true,
+    "unsafe_errors": 0,
+    "match": true,
+    "iters": 4297,
+    "capture_open_share": 0.303
+   },
+   "async-relaxed": {
+    "ran": true,
+    "errors": 0,
+    "end_errors": 0,
+    "copies": 57499,
+    "copier_errors": 0,
+    "during_capture": 19089,
+    "shim_log": true,
+    "unsafe_errors": 0,
+    "match": true,
+    "iters": 4226,
+    "capture_open_share": 0.309
+   },
+   "async-global": {
+    "ran": true,
+    "errors": 254586,
+    "end_errors": 1771,
+    "copies": 79796,
+    "copier_errors": 66180,
+    "during_capture": 68990,
+    "shim_log": true,
+    "unsafe_errors": 0,
+    "match": true,
+    "iters": 4889,
+    "capture_open_share": 0.478
+   },
+   "async-tlocal": {
+    "ran": true,
+    "errors": 0,
+    "end_errors": 0,
+    "copies": 58103,
+    "copier_errors": 0,
+    "during_capture": 19027,
+    "shim_log": true,
+    "unsafe_errors": 0,
+    "match": true,
+    "iters": 4263,
+    "capture_open_share": 0.304
+   },
+   "asyncevent-relaxed": {
+    "ran": true,
+    "errors": 0,
+    "end_errors": 0,
+    "copies": 43292,
+    "copier_errors": 0,
+    "during_capture": 15092,
+    "shim_log": true,
+    "unsafe_errors": 0,
+    "match": true,
+    "iters": 4274,
+    "capture_open_share": 0.302
+   },
+   "asyncevent-global": {
+    "ran": true,
+    "errors": 1520657,
+    "end_errors": 8569,
+    "copies": 82539,
+    "copier_errors": 76500,
+    "during_capture": 76501,
+    "shim_log": true,
+    "unsafe_errors": 0,
+    "match": true,
+    "iters": 8569,
+    "capture_open_share": 0.999
+   },
+   "legacysync-relaxed": {
+    "ran": true,
+    "errors": 0,
+    "end_errors": 0,
+    "copies": 55738,
+    "copier_errors": 0,
+    "during_capture": 15385,
+    "shim_log": true,
+    "unsafe_errors": 0,
+    "match": true,
+    "iters": 3687,
+    "capture_open_share": 0.322
+   },
+   "legacysync-relaxed-blk": {
+    "ran": true,
+    "errors": 168563,
+    "end_errors": 1209,
+    "copies": 10446,
+    "copier_errors": 100001,
+    "during_capture": 2417,
+    "shim_log": true,
+    "unsafe_errors": 0,
+    "match": true,
+    "iters": 4578,
+    "capture_open_share": 0.453
+   },
+   "legacysync-global": {
+    "ran": true,
+    "errors": 0,
+    "end_errors": 0,
+    "copies": 55198,
+    "copier_errors": 0,
+    "during_capture": 15679,
+    "shim_log": true,
+    "unsafe_errors": 0,
+    "match": true,
+    "iters": 3921,
+    "capture_open_share": 0.338
+   },
+   "memalloc-relaxed": {
+    "ran": true,
+    "errors": 0,
+    "end_errors": 0,
+    "copies": 24483,
+    "copier_errors": 0,
+    "during_capture": 17012,
+    "shim_log": true,
+    "unsafe_errors": 0,
+    "match": true,
+    "iters": 4256,
+    "capture_open_share": 0.304
+   },
+   "memalloc-global": {
+    "ran": true,
+    "errors": 360694,
+    "end_errors": 2374,
+    "copies": 72177,
+    "copier_errors": 62556,
+    "during_capture": 64671,
+    "shim_log": true,
+    "unsafe_errors": 62995,
+    "match": true,
+    "iters": 4113,
+    "capture_open_share": 0.657
+   },
+   "ctxsync-relaxed": {
+    "ran": false,
+    "rc": 139,
+    "timed_out": false
+   },
+   "ctxsync-global": {
+    "ran": true,
+    "errors": 294879,
+    "end_errors": 1678,
+    "copies": 70967,
+    "copier_errors": 60092,
+    "during_capture": 62745,
+    "shim_log": true,
+    "unsafe_errors": 61102,
+    "match": true,
+    "iters": 4955,
+    "capture_open_share": 0.455
+   }
+  },
+  "interposition_ok": true,
+  "positive_control_relaxed": true,
+  "positive_control_global": true,
+  "verdict": "pass",
+  "fail_why": [],
+  "inconclusive_why": [],
+  "global_safe": false,
+  "ok": true
+ },
+ "B": {
+  "present": true,
+  "nsys": {
+   "llama-idle": {
+    "kernels": 54696,
+    "kernels_in_graphs": 54272,
+    "nsys_graph_launch_calls": 256,
+    "shim_graph_launch_calls": 256,
+    "match": true,
+    "shim_copies_seen_by_cupti": 0,
+    "copy_overlap_share": null
+   },
+   "llama-cont": {
+    "kernels": 54696,
+    "kernels_in_graphs": 54272,
+    "nsys_graph_launch_calls": 256,
+    "shim_graph_launch_calls": 256,
+    "match": true,
+    "shim_copies_seen_by_cupti": 3798,
+    "copy_overlap_share": 0.825009434935517
+   }
+  },
+  "graphs": "yes",
+  "graphs_ok": true,
+  "graphs_off_control_ok": true,
+  "gate_failures": [],
+  "gate_gaps": [],
+  "noshim_failed": [],
+  "nsys_match": true,
+  "noise": {
+   "pp512": 0.0042322373380710415,
+   "tg128": 0.00483202112053209
+  },
+  "idle_ok": true,
+  "loss": {
+   "noshim/pp512": 0.0,
+   "noshim/tg128": 0.0,
+   "idle/pp512": -0.001734109968453097,
+   "idle/tg128": 0.001614224880585629,
+   "c1m1ms/pp512": 0.002403860006249487,
+   "c1m1ms/tg128": 0.004650803052199431,
+   "c16m1ms/pp512": 0.035981180388047124,
+   "c16m1ms/tg128": 0.08277117072557968,
+   "cont/pp512": 0.05172300518070767,
+   "cont/tg128": 0.12129392966688918
+  },
+  "c1m1ms_rate_ok": true,
+  "bounded": "yes",
+  "ok": true
+ },
+ "C": {
+  "present": true,
+  "variants": {
+   "fill-plain-rdma0": {
+    "tier1_cpu_mapping": false,
+    "tier2_import_and_copy": true,
+    "complete": true
+   },
+   "fill-wt-rdma0": {
+    "tier1_cpu_mapping": false,
+    "tier2_import_and_copy": true,
+    "complete": true
+   },
+   "fill-sysfence-rdma0": {
+    "tier1_cpu_mapping": false,
+    "tier2_import_and_copy": true,
+    "complete": true
+   },
+   "fill-plain-rdma1": {
+    "tier1_cpu_mapping": false,
+    "tier2_import_and_copy": false,
+    "complete": true
+   }
+  },
+  "tier1": false,
+  "tier2": true,
+  "verdict": "works",
+  "ok": true
+ }
+}

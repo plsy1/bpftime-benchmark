@@ -1,0 +1,20 @@
+base_ok=True negative_control_ok=True
+case                         mode     N           jit   load   found  size   rw     kernel / free drop MiB
+plain-294912                 plain    294912      False 0      True   True   True   - / 0.0
+visible-294912               visible  294912      False 0      True   True   True   - / 0.0
+kernel-294912                kernel   294912      False 0      True   True   True   True / 0.0
+plain-2936016                plain    2936016     False 0      True   True   True   - / 0.0
+visible-2936016              visible  2936016     False 0      True   True   True   - / 0.0
+kernel-2936016               kernel   2936016     False 0      True   True   True   True / 0.0
+plain-33554432               plain    33554432    False 0      True   True   True   - / 0.0
+visible-33554432             visible  33554432    False 0      True   True   True   - / 0.2
+kernel-33554432              kernel   33554432    False 0      True   True   True   True / 0.2
+plain-268435456              plain    268435456   False 0      True   True   True   - / 1.7
+visible-268435456            visible  268435456   False 0      True   True   True   - / 1.7
+kernel-268435456             kernel   268435456   False 0      True   True   True   True / 0.7
+plain-1073741824             plain    1073741824  False 0      True   True   True   - / 425.0
+visible-1073741824           visible  1073741824  False 0      True   True   True   - / 313.1
+kernel-1073741824            kernel   1073741824  False 0      True   True   True   True / 304.8
+jit-kernel-33554432          kernel   33554432    True  0      True   True   True   True / 1.0
+constant: {"module_gmem": 27055, "cmem3_used": 40968, "cmem4_used": 144, "cmem3_left_of_65536": 24568, "per_kernel_cmem0_max": 580, "per_kernel_cmem2_max": 24, "kernels_compiled": 40, "constpad_24568": "compiles", "constpad_24576": "fails: ptxas error   : File uses too much global constant data (0x10008 bytes, 0x10000 max)"}
+decision: {"valid": true, "per_N": {"294912": "yes", "2936016": "yes", "33554432": "yes", "268435456": "yes", "1073741824": "yes"}, "packaging_works_up_to_N": 1073741824, "constant_bank3_left_bytes": 24568, "constant_left_confirmed": true, "rule": "valid only if base loads, map_info is 40,960 B and a bogus name is not found (500); packaging works at N if plain, or visible and kernel, at N compile, load, are found with size N and read back what was written; constant left stands if a .const of exactly that size compiles and 8 B more fails"}

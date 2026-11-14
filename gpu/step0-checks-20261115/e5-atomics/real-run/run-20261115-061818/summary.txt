@@ -1,0 +1,24 @@
+e5 summary (/home/jetson/src/bpftime-gpu-work/step0/e5-atomics/results/run-20261115-061818)
+  fadd  calls=122880 counter=122880 gaps=0 duplicate_indices=0 cas_retries=0 cas_caphits=0 pass=1 valid=True
+        PTX  atom.add.u64 	%rd11, [%rd49], 1;  [space generic (none given), sem none given, scope none given (ptxas: see SASS .STRONG.<scope>)]
+        PTX  atom.add.u64 	%rd87, [%rd88], 1;  [space generic (none given), sem none given, scope none given (ptxas: see SASS .STRONG.<scope>)]
+        SASS ATOM.E.ADD.64.STRONG.GPU P, R, [R.64], R
+  plain calls=122880 counter=99 gaps=122780 duplicate_indices=122780 cas_retries=0 cas_caphits=0 pass=0 valid=True
+        PTX  atom.add.u64 	%rd90, [%rd91], 1;  [space generic (none given), sem none given, scope none given (ptxas: see SASS .STRONG.<scope>)]
+        PTX  atom.add.u64 	%rd70, [%rd69], 1;  [space generic (none given), sem none given, scope none given (ptxas: see SASS .STRONG.<scope>)]
+  cas   calls=122880 counter=94 gaps=122786 duplicate_indices=122786 cas_retries=0 cas_caphits=0 pass=0 valid=True
+        PTX  atom.add.u64 	%rd94, [%rd95], 1;  [space generic (none given), sem none given, scope none given (ptxas: see SASS .STRONG.<scope>)]
+        PTX  atom.cas.b64 	%rd64, [%rd48], %rd10, %rd63;  [space generic (none given), sem none given, scope none given (ptxas: see SASS .STRONG.<scope>)]
+        PTX  atom.add.u64 	%rd71, [%rd70], 1;  [space generic (none given), sem none given, scope none given (ptxas: see SASS .STRONG.<scope>)]
+        atom.cas result read afterwards: [False]
+        SASS ATOM.E.CAS.64.STRONG.GPU P, RZ, [R], R, R
+  fadd64_used_compiles_at_default_mcpu: True
+  fadd32_used_compiles_at_default_mcpu: False
+  control_plain_loses: True
+  fadd_run: yes: counter == calls, 0 gaps, 0 duplicate indices
+  cas_run: unusable: 122786 duplicate indices of 122880 calls (counter 94)
+  use_atomics_rule: workable for 64-bit fetch-add at the default -mcpu
+  cmpxchg_bug_ptx: confirmed: no atom.cas destination register is read afterwards
+  cmpxchg_sass_destination_RZ: True
+  fadd_result_used_ptx: True
+  fadd_sass_destination_not_RZ: True

@@ -1,0 +1,21 @@
+ctrl   ctrl   ctrl    valid=True launches=10/10 threads=30720/30720 calls=1280 mean_records_per_call=24.000 share_32=0.50000 anomalies=0/0
+        lanes:calls 16:640 32:640
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.250
+ctrl   ctrl   ctrldiv valid=True launches=10/10 threads=40960/40960 calls=2560 mean_records_per_call=16.000 share_32=0.00000 anomalies=0/0
+        lanes:calls 16:2560
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.500
+ctrl   ctrl   ctrlmerge valid=True launches=10/10 threads=40960/40960 calls=1280 mean_records_per_call=32.000 share_32=1.00000 anomalies=0/0
+        lanes:calls 32:1280
+        unused share of reserved slots: C=1:0.000 C=2:0.000 C=4:0.000 C=8:0.000 C=16:0.000 C=32:0.000
+
+overall: CONTROLS VALID; no llama run in this batch
+control_pass: True
+controls_present: ['ctrl', 'ctrldiv']
+ptx_check_pass: True
+interpretation_allowed: True
+merge_observation: ['ctrl/ctrl/ctrlmerge: valid=True, share of warps whose two exit groups made one call of 32 = 1.0; ptx check pass = True']
+not_run: []
+chunk_rule: no valid llama run
+full_warp_kernels: []
+low_mean_kernels: []
+largest_C_with_unused_share_le_10pct_on_every_valid_kernel: None
