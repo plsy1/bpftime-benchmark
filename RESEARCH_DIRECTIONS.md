@@ -8,7 +8,8 @@ started. Newest last.
 ## 1. GPU maps sized by thread index: per-thread arrays and the GPU ringbuf
 
 Decided 2026-11-11. Real-application evidence and the discussion of 11-14: "Real applications"
-at the end.
+at the end. Since the evening of 11-14 this direction is the candidate research focus, widened to
+a GPU map model: "Direction 2 folded into direction 1" at the end.
 
 ### The problem
 
@@ -196,7 +197,10 @@ per-thread state (privatization plus reduction, per-thread counters on GPUs) has
 
 Decided 2026-11-11. Larger than direction 1, so it is split into three layers: layer 1 is
 engineering and comes first, layer 2 is the research core, layer 3 waits for direction 1.
-Measured on a real application (11-13): "Real applications" at the end.
+Measured on a real application (11-13): "Real applications" at the end. Reassessed on the evening
+of 11-14: the original scheme (keep CPU maps, make host calls cheaper or defer them) is dropped as
+a research line; what is left moved into direction 1 ("Direction 2 folded into direction 1" at the
+end). Layers 2 and 3 and the paper framing below are kept as the record of that line.
 
 ### What goes through the host
 
@@ -482,7 +486,8 @@ graphs were off in every bpftime run.
     (`results/gpu/dir2-design-20261113`).
   - The protocol's cost still matters for calls made once per launch.
 - **Relation to gpu_ext.** The aim is the same as gpu_ext's: no host call per thread. gpu_ext reaches
-  it by rewriting tools by hand; here the runtime would do it for unmodified tools.
+  it by rewriting tools by hand; here the runtime would do it for unmodified tools. (Superseded on
+  the evening of 11-14: no CPU tool runs on the GPU unmodified; see the last section.)
 
 ### Direction 1: discussion (2026-11-14)
 
@@ -561,3 +566,278 @@ graphs were off in every bpftime run.
   - Which comes first: design direction 1, implement the direction-2 design's first step (slice 1:
     20 of the 59 host-call sites), or both at once.
   - How far direction 1 goes (the tiers above).
+
+Superseded on the evening of 11-14 (next section): "not usable on such applications without
+directions 1 and 2" assumed
+that CPU-written tools would run on the GPU; none does without being rewritten, so the order
+question became "direction 1, widened", and the direction-2 design is not built.
+
+## Direction 2 folded into direction 1 (discussion 2026-11-14, evening)
+
+Terms:
+- **Host call:** a GPU probe's helper call that the CPU serves while the GPU thread waits
+  (direction 2).
+- **CPU-style tool:** an eBPF tool written as for the CPU: CPU map types (HASH and the like),
+  printk, entry/exit state keyed by thread.
+- **GPU-native tool:** a tool written for GPU probes with bpftime's GPU map types (15xx) instead of
+  CPU-type maps.
+- **GPU map model:** what storage a GPU-side map has (how much, indexed by what, where in memory),
+  what happens when it is full, and what the CPU-side reader sees.
+
+### What makes a GPU call go to the host (read from the code)
+
+The 59 host-call sites of the 11-13 call-site survey were counted in bpftime's own 22 GPU programs,
+so they show what those programs use, not every operation that goes to the host. The complete list
+comes from the trampoline (dev 52126f33, `attach/nv_attach_impl/trampoline/default_trampoline.cu`):
+it has the only six `host_call()` sites in the tree (`attach/` and `runtime/`, the generated
+`trampoline_ptx.h` aside).
+
+| site | helper | goes to the host when |
+|---|---|---|
+| `:276` | 1 lookup | the map is not 1502, 1503/1504, 1512, 1513 or an ordinary ARRAY with a device address |
+| `:354` | 2 update | the same |
+| `:376` | 3 delete | the map is not an ordinary ARRAY with a device address (GPU arrays included) |
+| `:390` | 6 `bpf_trace_printk` | always |
+| `:418` | 14 `bpf_get_current_pid_tgid` | only in a module the agent did not write (otherwise a constant) |
+| `:490` | 501 `puts` | always |
+
+The host serves six of the seven request kinds of `gpu_helper_protocol.h:22-30` in
+`serve_cuda_request` (`MAP_GET_NEXT_KEY` has neither a GPU sender nor a host handler). So host
+calls come only from: any operation on a CPU-type map (HASH, `PERCPU_*`, LRU, LPM, 1501); deletes
+on any map but an ordinary ARRAY; printk and puts; pid in a module the agent did not write. The
+ordinary ARRAY and pid entries left this list with dev 1b3d9c99 and aa6eb973; on official 4708f409
+they are host calls.
+
+### No CPU eBPF tool runs on the GPU unchanged (read from code, not run)
+
+- **Attach points.** A GPU probe attaches at a CUDA kernel's entry or exit (`kprobe/`/`kretprobe/`
+  plus the mangled kernel name), or with `kprobe/__memcapture` before every PTX load and store,
+  where it gets only the PTX line's text. Program names start with `cuda__`. There is no register
+  or argument context and no access address. CPU tools attach to kernel functions, system calls and
+  user functions.
+- **Helpers.** The PTX path registers helpers 1, 2, 3, 6, 14, 25 and the 5xx GPU helpers
+  (`attach/nv_attach_impl/pass/ptxpass_core/src/core.cpp:235-253`); 25 accepts only the GPU ringbuf
+  1527. A program calling any other helper fails PTX generation, and llvmbpf's `generate_ptx`
+  hands the "Ext func not found" error to LLVM's `ExitOnError`, which ends the application process
+  (`vm/llvm-jit/src/llvm_jit_context.cpp:907, 938`; read from code, not run). In the 57
+  libbpf-tools of the 10-25 real-program runs, `.bpf.c` files naming each: `bpf_ktime_get_ns` 36,
+  `bpf_get_current_comm` 35, `bpf_probe_read*` 25, `bpf_perf_event_output` 22,
+  `bpf_current_task_under_cgroup` 13, `bpf_get_stackid` 7. Counting `compat.bpf.h` and
+  `BPF_CORE_READ` too: perf output 27, memory reads 43.
+- **Maps in those 57 tools** (`.bpf.c` plus `compat.bpf.h`): HASH in 48, `PERF_EVENT_ARRAY` 22,
+  `CGROUP_ARRAY` 13, `STACK_TRACE` 7, `PERCPU_ARRAY` 7, `RINGBUF` 5, `PERCPU_HASH` 1; no explicit
+  ARRAY (arrays are global variables, which dev serves on the GPU).
+- **Meaning.** pid is one constant for every GPU thread, there is no comm or stack, and per-thread
+  entry/exit keys become millions of keys.
+
+So "existing eBPF tools run unchanged" has no counterpart on the GPU: every GPU tool is written for
+it. What carries over is the programming model (eBPF, libbpf, standard map APIs, common idioms).
+
+### GPU map types on an integrated GPU, and where their memory is
+
+- **Mapping (dev 3823cac5, not in official).** Without CUDA IPC (`cuIpcGetMemHandle` returns 801 on
+  the Orin) the syscall server creates 1502 as 1512, 1503 as 1513 and 1501 as an ordinary HASH
+  (`gpu_map_type_without_cuda_ipc`, `runtime/include/bpftime_shm.hpp:137-154`); 1504 and 1527 are
+  unchanged. On official, creating 1501/1502/1503 fails on the Orin.
+- **1501 (`BPF_MAP_TYPE_GPU_HASH_MAP`).** Keys and the open-addressing index are in the shared
+  segment under one spin lock; values are in a GPU array exported through CUDA IPC
+  (`runtime/src/bpf_map/gpu/nv_gpu_shared_hash_map.cpp`). The trampoline has no device path for it,
+  so every GPU operation is a host call on any GPU. No bpftime map gives the GPU hash
+  (arbitrary-key) access without the host.
+- **Caching on the Orin** (NVIDIA, CUDA for Tegra application note, Table 1): the integrated GPU
+  caches device memory (`cuMemAlloc`) but not pinned host memory. Registered host memory is cached
+  only with full system-memory coherency (Thor onward, on the nearest NUMA node), which the Orin
+  lacks. The HOST variants (1512, 1513) and the segment are registered host memory, so their GPU
+  accesses bypass the GPU's caches, and the trampoline adds a `membar.sys`
+  to every 1512 lookup and update (`default_trampoline.cu:255, 322`). Same DRAM, different cost:
+  placement is part of the map model. The difference to device memory was not measured (1502 cannot
+  be created on the Orin).
+- **Why not device memory on the Orin:** the CPU tool must read the map from another process; the
+  CPU cannot read device memory on Tegra, and there is no CUDA IPC (801). The shareable-handle
+  export the Tegra note recommends instead (`cuMemExportToShareableHandle`) was not tried, and the
+  CPU would still need a copy to read the map.
+
+### gpu_ext, read again
+
+- **What it is.** "sched_ext for the GPU driver" (repository README: "eBPF extension in GPU driver").
+  - A fork of NVIDIA's open GPU kernel modules 575.57.08 (submodule
+    `eunomia-bpf/gpu_ext-kernel-modules`, not read) adds struct_ops hooks for UVM memory
+    (`gpu_block_access`, `gpu_block_activate`, `gpu_evict_prepare`, `gpu_page_prefetch`,
+    `gpu_page_prefetch_iter`, each implemented by 31-32 policies) and scheduling (`on_task_init`,
+    `on_bind`, `on_timeslice_control`, ...).
+  - Policies are eBPF programs, almost all host-kernel struct_ops (`extension/`, 83 top-level
+    `.bpf.c`), acting through a few kfuncs; call sites over those files, comments excluded:
+    `bpf_gpu_set_prefetch_region` 45, `bpf_gpu_request_reorder` 37, `bpf_gpu_migrate_range` 16.
+  - The device side is bpftime's CUDA attach ("the device-side runtime path ... is based on
+    bpftime").
+  - Its central case is memory oversubscription on a discrete GPU (pages moving between host and
+    device memory). The Orin's GPU runs on Tegra's `nvgpu` driver (the loaded `nvidia` module is for
+    display; no `nvidia_uvm`), so the driver part does not apply here.
+- **Venues.** Rejected at OSDI '26 (spring cycle); accepted at ASPLOS '27 as "gpu_ext: Safe and
+  Programmable OS-Level GPU Resource Management with eBPF" (camera-ready source in the paper
+  repository `yunwei37/gbpf-paper`; DOI 10.1145/3845814.3850045 from its metadata). arXiv 2512.12615
+  ("gpu_ext: Extensible OS Policies for GPUs via eBPF", v2 2025-12-20) is the OSDI-era text.
+- **OSDI-era framing (arXiv v2).** A cross-layer eBPF runtime making driver and device one
+  programmable OS subsystem, with three challenges:
+  - C1: a safe yet expressive driver-level policy interface;
+  - C2: CPU eBPF semantics against SIMT (per-thread scalar execution: divergence, serialization,
+    deadlock risk, no recovery on the GPU);
+  - C3: host-device shared state (host memory far slower for the GPU, small device memory, CPU and
+    GPU asynchronous, state goes stale).
+  - Solutions: a narrow interface (C1), a SIMT-aware verifier and warp-leader execution (C2),
+    hierarchical cross-layer maps with relaxed consistency (C3).
+- **ASPLOS framing** (resubmission summary and camera-ready text in the paper repository): AI
+  agents should optimize GPU
+  resource policies, which needs a safe, dynamic and full-stack interface. The first contribution is
+  an execution model in which callbacks only initiate predefined state transitions that the system
+  carries out asynchronously (against sched_ext, cache_ext, XDP). C1-C3 moved to the motivation; the
+  challenges became cross-device latency (page migration), memory-scheduling coupling and kernel
+  bypass. New: all 59 evaluated policies generated by an AI agent (974 runs, zero kernel panics).
+  The single- and multi-tenant experiments were kept.
+- **What is built.**
+  - C1: yes, the hooks, kfuncs and policies above; headline results come from it (throughput up to
+    4.8x over framework offloading and 1.76x over application-tuned baselines, tail latency up to 2x
+    lower, seven prior policies within 2%).
+  - C2: the SIMT verifier yes, but in bpftime only on unmerged branches (open PR #624;
+    resubmission summary: 18 programs, 5 unsafe ones rejected). Warp-leader aggregation no: the
+    paper text was reworded to future work (54e15e2), but the camera-ready was rebuilt on the
+    submitted text (11c744d) and keeps it.
+  - C3: hierarchical maps no. gpu_ext's own device-map audit (2026-09-04) found no map type in GPU
+    shared memory, and its cross-layer raw-map test left out on-chip shards and placement; the
+    camera-ready still describes shards as implemented (`results/gpu/overlap-survey-20261113`; we
+    did not run their code or check the authors' local bpftime trees).
+- **Its device-side tools** (`results/gpu/callsite-survey-20261113`): 15 programs, 43 map call
+  sites, all GPU types (1503 x21, 1513 x11, 1502 x5, 1527 x4) except 2 ordinary-ARRAY sites in a
+  microbenchmark's host-call arm; no HASH; every key a bounded index (thread, warp, bank, bin).
+- **What the hand rewrites cost** (gpu_ext's revision notes, RTX 5090, llama.cpp 512-token prefill;
+  of these numbers only the 5.57% is in the paper; `results/gpu/buffer-survey-20261111`):
+  - kernelretsnoop on bpftime's per-thread ring 1527: about 91% prefill throughput lost (about 99%
+    with full records);
+  - with a hand-written bounded buffer in GPU memory, read back once after the run: 5.4-5.6%. The
+    paper's 5.57% against NVBit is this hand-written version. The ring and buffer numbers come from
+    separate campaigns with their own baselines, and placement, layout, publication and drain
+    timing changed together;
+  - the per-thread ring needed 892 MiB for 22 MiB of records (about 40x); one configuration needed
+    11.0 GiB (a 12,301 MiB request) and hit the old 10 GiB shared-memory ceiling;
+  - capacities set by hand from offline thread counts (524,288 at 512 tokens); an earlier 512-token
+    run used a capped 8,192 and lost records, and a 32-token preflight dropped 450,560 events
+    (`results/gpu/overlap-survey-20261113`). The final runs did not lose: the evidence is that
+    capacity must be tuned by hand, not that results are lossy.
+- **The MoE case.** The paper's listing reads `bpf_map_lookup_elem(&expert_freq, &r->va)`, a map
+  keyed by address that looks like GPU-written state; its kfuncs (`bpf_gpu_move_tail/head`) are not the
+  repository's. No `expert_freq` exists at gpu_ext 50a51ad. The repository labels the paper's MoE
+  result `gpubpf_stride_lfu` (stride prefetch plus LFU eviction,
+  `workloads/llama.cpp/legacy_exp1_reference.json`): its source state "was not preserved", and the
+  README lists the numbers as "not yet exactly reproduced". The MoE-named policies that are in
+  `extension/` (e.g. `eviction_cycle_moe.bpf.c`: per-CPU direct-mapped counters, "No hash maps") are
+  host struct_ops programs, and no device-side program in the repository concerns experts or
+  prefetching (a sparse checkout of master). So the repository cannot show what the headline MoE
+  result used; nothing in it ties that result to GPU-to-CPU shared state.
+- **Activity (checked 11-14).** gpu_ext's last commit is 50a51ad (2026-09-24, camera-ready). Upstream
+  bpftime merged 49 commits since 09-01 up to 745443f6 (11-13), none touching
+  `runtime/src/bpf_map/gpu` or the trampoline (GPU-related: CI on their own GPU runners, #619
+  skipping PTX for missing kernels, #695 and #709 on attach, examples #720 and #740). The
+  thread-count and drop-count fixes stay on the unmerged `official/revision/*` branches (11-13
+  survey).
+
+### Decision: direction 2's original scheme is dropped (agreed in discussion; advisor not yet told)
+
+- **Why.** Host calls come from CPU-type maps, printk/puts and deletes. Tools written CPU-style use
+  them: all 59 surveyed sites are in bpftime's own GPU examples. The tools already run on real
+  kernels make none (gpu_ext's 15; bpftime's four examples on llama.cpp, PyTorch, FAISS, CUTLASS),
+  and no CPU tool runs on the GPU unchanged. A host call per thread is very expensive (307x
+  measured), but tools written for GPU probes avoid it.
+- **Kept:** layer 1 in dev (ordinary ARRAY on the GPU, pid as a constant, the watcher's waiting
+  rules). Not continued: layer 2 (the synchronous protocol), the per-call-site design
+  (`results/gpu/dir2-design-20261113`, never built), the 11-13 paper framing.
+- **Moved into direction 1:** hash (arbitrary-key) maps on the GPU (no bpftime map gives that
+  without the host). Not in focus: no evidence yet that GPU-native tools need them; gpu_ext's tools
+  use fixed-bin arrays instead.
+- **Why direction 1 stays:** its problem hits GPU-native tools too. The people who know bpftime best
+  had to hand-size capacities and hand-write bounded buffers to get from about 91% to about 5%
+  (separate campaigns; see the caveat above).
+
+### The new direction 1: a GPU map model
+
+- **The problem is ours, not gpu_ext's C3.** C3 is about where shared state lives and how stale it
+  gets. Direction 1 is about storage indexed by global thread id: its size is unknown when the map
+  is created (256 to 4.19M threads per launch on llama.cpp, set by the application's
+  configuration), losses go uncounted (99.6% with the default 1,024 slots: one warning line, no
+  count), and per-thread records blow up memory and time (above). Neither version of the paper says
+  how large a thread-indexed map must be, what happens when it is full, or what its storage costs
+  ("capacity" appears only as one input to shard placement; "grid" does not occur). Their C3
+  solution text (per-warp/per-SM
+  shards) does overlap our solution space, so the review risk is on the solution side: show it is
+  unimplemented and unevaluated, and that it does not address sizing.
+- **Not solved within GPU eBPF** (bpftime, gpu_ext). Other GPU instrumentation has its own answers
+  (Neutrino: per-launch allocation; NVBit: a channel that stalls writers; KPerfIR/Proton: overwrite
+  or drop; hip-analyzer: chunks). The new part is solving it inside eBPF map semantics.
+- **Requirements** (our proposal, drawn from the evidence so far):
+  1. storage bounded by the hardware (per SM, per warp slot: 8 and 384 on the Orin) or by an
+     explicit budget, never by the grid;
+  2. no silent loss: exact counters (aggregate in the warp, write per hardware slot, sum on read), or
+     drops counted and shown to the reader;
+  3. bounded record streams: a ring per SM or warp slot with warp-level reservation, drained while
+     running;
+  4. GPU cost close to the hand-written buffers (about 5%), without hand-writing;
+  5. a defined CPU-side view through the standard `bpf()` API, ideally matching per-CPU map
+     semantics;
+  6. hardware as cost parameters (uncached registered host memory on the Orin, device memory and
+     copy-back on a discrete GPU).
+- **Focus (our judgement).** Counters alone are tier 1. Sized by hand, threadhist on rms_norm counted
+  exactly at 3.3% of a 512-token prefill (262,144 slots, 2 MiB); every kernel would need 4.19M slots
+  (32 MiB), projected at about +58% probe cost [inferred]. A loss count and a start-up warning fix
+  the default. The research part is record streams and unknown scale (tier 2). GPU hash maps are
+  left out until a need shows.
+- **Ceiling.** With entry and exit probes, a thread makes at most one or two records per launch;
+  `__memcapture` fires at every load and store but gives no address. The scenarios that need new
+  attach points (correctness
+  checking, instruction mix, region timing, address traces) would add records; with them, record
+  volume and the weight of this direction would grow.
+- **Would overturn it:** hand-written bounded buffers turn out easy to package as a library with no
+  runtime support; GPU-native tools turn out to need counters only; the bpftime/gpu_ext team builds
+  the hierarchical maps first (no sign as of 11-14).
+
+### Publication expectations (as of 2026-11-14)
+
+| venue | deadline | fit |
+|---|---|---|
+| OSDI '27 | abstract 12-01, paper 12-08 (USENIX CFP) | too soon |
+| ATC '27 (now organized by ACM SIGOPS) | no CFP yet: January 2027 per secondary sources, SSLab extrapolates June 2027 | very tight if January |
+| SOSP '27 | about 2027-04-01 (expected) | possible in time; narrow for SOSP |
+| ASPLOS '28, April cycle | about 2027-04-15 (expected; carried forward from '27) | main target |
+| ASPLOS '28 September cycle, EuroSys '28, PPoPP '28 | 2027 (expected) | after a first rejection |
+
+ASPLOS '27, EuroSys '27, PPoPP '27 and CGO '27 have closed. ASPLOS values software designed around
+hardware properties (SM and warp slots, memory placement), which fits; gpu_ext itself went from an
+OSDI rejection to ASPLOS. Plan for one or two rounds.
+
+- **Raising the odds:** numbers for motivation, ours (99.6% uncounted loss on the Orin) and
+  gpu_ext's on an RTX 5090 (91% vs about 5%, 40x memory), the latter reproduced on our platforms
+  (next steps); two platforms (the Orin and a discrete GPU, to be found with the advisor);
+  breadth (three to five tools across llama.cpp, PyTorch, FAISS, Rodinia); explicit differences to Neutrino and
+  KPerfIR (both OSDI '25), gpu_ext and NVBit; upstream adoption in bpftime.
+- **Risks:** being read as "a better buffer" (frame it as the storage model and semantics of GPU
+  eBPF maps); reviewers citing gpu_ext's hierarchical maps; others working on GPU instrumentation
+  (scooping by gpu_ext's team looks unlikely now, see Activity).
+- **Rough schedule to April:** evidence 2-3 weeks, tier-2 design and implementation about two
+  months, evaluation including a discrete GPU about six weeks, writing 3-4 weeks.
+
+### Next steps (proposed; decision with the advisor)
+
+1. Tell the advisor: direction 2's original scheme dropped, direction 1 (a GPU map model) as the
+   candidate focus (the earlier email leaned to direction 2 first).
+2. Evidence before design:
+   - a map-usage survey of GPU-native tools (gpu_ext, Neutrino, NVBit tools, KPerfIR/Proton):
+     counters, per-thread state or record streams;
+   - reproduce per-thread ring vs bounded buffer on llama.cpp on the Orin (overhead, memory, loss).
+3. Then the tier-2 design (hardware-position storage, per-SM rings) and a discrete-GPU platform.
+
+Sources for this section: dev 52126f33; gpu_ext 50a51ad and its paper repository (read 11-13/14);
+arXiv 2512.12615 v2; [CUDA for Tegra](https://docs.nvidia.com/cuda/cuda-for-tegra-appnote/index.html);
+[OSDI '27 CFP](https://www.usenix.org/conference/osdi27/call-for-papers),
+[ASPLOS '27 CFP](https://www.asplos-conference.org/asplos2027/cfp/),
+[EuroSys '27 CFP](https://2027.eurosys.org/cfp.html),
+[SSLab deadline list](https://sslab.skku.edu/deadlines.html) (expected dates),
+[Neutrino](https://www.usenix.org/conference/osdi25/presentation/huang-songlin),
+[KPerfIR](https://www.usenix.org/conference/osdi25/presentation/guan).
