@@ -1,0 +1,54 @@
+# PTX (synchronization and publication instructions)
+30:	activemask.b32 %r6;
+42:	atom.global.add.u32 	%r19, [%rd2], %r10;
+46:	shfl.sync.idx.b32 	%r12|%p2, %r19, %r3, %r11, %r6;
+68:	activemask.b32 %r4;
+80:	atom.global.add.u32 	%r17, [%rd2], %r8;
+86:	shfl.sync.idx.b32 	%r13|%p2, %r17, %r11, %r12, %r4;
+97:	// .globl	pub_cxx_fence
+98:.visible .entry pub_cxx_fence(
+99:	.param .u64 pub_cxx_fence_param_0,
+100:	.param .u64 pub_cxx_fence_param_1,
+101:	.param .u64 pub_cxx_fence_param_2
+109:	ld.param.u64 	%rd3, [pub_cxx_fence_param_0];
+110:	ld.param.u64 	%rd1, [pub_cxx_fence_param_1];
+111:	ld.param.u64 	%rd2, [pub_cxx_fence_param_2];
+123:	bar.warp.sync 	-1;
+128:	fence.sc.sys;
+136:	st.relaxed.sys.b64 [%rd9],%rd2;
+169:	bar.warp.sync 	-1;
+179:	st.release.sys.b64 [%rd9],%rd2;
+186:	// .globl	pub_threadfence_system
+187:.visible .entry pub_threadfence_system(
+188:	.param .u64 pub_threadfence_system_param_0,
+189:	.param .u64 pub_threadfence_system_param_1,
+190:	.param .u64 pub_threadfence_system_param_2
+198:	ld.param.u64 	%rd3, [pub_threadfence_system_param_0];
+199:	ld.param.u64 	%rd1, [pub_threadfence_system_param_1];
+200:	ld.param.u64 	%rd2, [pub_threadfence_system_param_2];
+212:	bar.warp.sync 	-1;
+216:	membar.sys;
+223:	st.relaxed.sys.b64 [%rd9],%rd2;
+# SASS (per function)
+use_reserve :: /*02f0*/ WARPSYNC R4 ; 
+use_reserve :: /*0300*/ SHFL.IDX PT, R6, R7, R6, R8 ; 
+use_reserve :: /*0340*/ VOTE.ANY R4, PT, PT ; 
+use_reserve :: /*03d0*/ ATOMG.E.ADD.STRONG.GPU PT, R5, [R2.64], R5 ; 
+use_reserve :: /*0420*/ SHFL.IDX PT, R5, R5, R6, 0x1f ; 
+use_reserve :: /*0510*/ VOTE.ANY R4, PT, PT ; 
+use_reserve :: /*05e0*/ ATOMG.E.ADD.STRONG.GPU PT, R3, [R2.64], R7 ; 
+use_reserve :: /*0620*/ SHFL.IDX PT, R3, R3, R6, 0x1f ; 
+pub_threadfence_system :: /*0200*/ NOP ; 
+pub_threadfence_system :: /*0220*/ MEMBAR.SC.SYS ; 
+pub_threadfence_system :: /*0230*/ ERRBAR; 
+pub_threadfence_system :: /*0290*/ CCTL.IVALL ; 
+pub_threadfence_system :: /*02c0*/ ST.E.64.STRONG.SYS [R2.64], R4 ; 
+pub_cxx_release :: /*0200*/ NOP ; 
+pub_cxx_release :: /*0290*/ MEMBAR.ALL.SYS ; 
+pub_cxx_release :: /*02a0*/ ERRBAR; 
+pub_cxx_release :: /*02b0*/ ST.E.64.STRONG.SYS [R2.64], R4 ; 
+pub_cxx_fence :: /*0200*/ NOP ; 
+pub_cxx_fence :: /*0220*/ MEMBAR.SC.SYS ; 
+pub_cxx_fence :: /*0230*/ ERRBAR; 
+pub_cxx_fence :: /*0290*/ CCTL.IVALL ; 
+pub_cxx_fence :: /*02c0*/ ST.E.64.STRONG.SYS [R2.64], R4 ; 

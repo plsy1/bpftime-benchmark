@@ -1,0 +1,891 @@
+--- /home/jetson/src/bpftime-gpu-work/step0/e2-cost/src/bench2.cpp	2026-11-15 04:30:30.015049121 +0900
++++ src/bench3.cpp	2026-11-15 22:58:51.878716818 +0900
+@@ -1,18 +1,23 @@
+-// bench2: step 0, check 2 (placement and atomic cost) on the Orin.
++// bench3: step 0b, check C3 (cost parts of today's per-thread map op, slot
++// addressing, fence kinds) on the Orin.
+ //
+-// Driver API only. Two modules, both launched with cuLaunchKernel:
+-//   kernels.cubin  the cases (src/kernels.cu)
+-//   ref1512.cubin  today's 1512 lookup-and-increment, built from the dev
+-//                  build's kretprobe pass and trampoline (ref/build_ref.py)
+-// Memory: 128 MiB registered the way bpftime registers its segment
+-// (common/step0_regmem.h) and 128 MiB of cuMemAlloc memory.
++// A copy of step 0's e2-cost/src/bench2.cpp. Unchanged: the memory setup
++// (128 MiB registered as bpftime registers its segment, 128 MiB cuMemAlloc),
++// the launch path (cuLaunchKernel, driver API only), the timing gate k_hold,
++// calibration to about 4 ms per batch, rounds with a deterministic shuffle
++// (mt19937_64(seed + round)), CUDA events around N back-to-back launches.
++// Changed: the item list (C3's items only, plus step 0's anchors), several
++// reference modules instead of one, the validation of C3's cases, and the
++// output columns (module, fence kind).
+ //
+-// For every item (case x memory x fence x shape x R [x k]): one validation
+-// launch (results in items.json), then a calibrated batch size N; then
+-// ROUNDS rounds, each running every item once in a deterministic shuffled
+-// order: 1 untimed launch, then N launches between two CUDA events.
++// Modules, all launched with cuLaunchKernel:
++//   k  build/kernels.cubin   step 0's kernels + C3 (b), (d) cases
++//   F  build/ref/refF.cubin  today's 1512 op (byte-identical PTX to step 0's)
++//   N  build/ref/refN.cubin  the same, the 1512 branch's membar.sys removed
++//   X  build/ref/refX.cubin  E, I, IF, IC, K, M, M64 (ref/build_variants.py)
++// Each module has its own empty kernel; deltas are taken per module.
+ // Output: OUT/raw.csv (one row per round and item), OUT/items.json.
+-#include "../../common/step0_regmem.h"
++#include "step0b_regmem.h"
+ 
+ #include <algorithm>
+ #include <chrono>
+@@ -32,11 +37,10 @@
+ static constexpr size_t AUX_BYTES = 8ull << 20;
+ static constexpr uint64_t MAX_THREADS = 4194304; // largest shape
+ // kernels.cu
+-static constexpr int AUX_CAPHITS = 0, AUX_PART = 64, AUX_LOGN = 128,
+-		     AUX_LOG = 256;
+-static constexpr uint64_t RING_BASE_WORDS = 8192, RING_SLOTS = 4096,
+-			  RING_SLOT_WORDS = 8;
+-// ref/build_ref.py
++static constexpr int AUX_CAPHITS = 0, AUX_MISS = 2, AUX_OOR = 3, AUX_HITS = 4,
++		     AUX_CFAIL = 5;
++static constexpr uint64_t TIDW_SLOTS = 16384;
++// ref/build_variants.py (same fds as step 0's build_ref.py)
+ static constexpr int HOST_FD = 5, DEV_FD = 6;
+ 
+ // trampoline/default_trampoline.cu MapBasicInfo (40 B, same ABI on host)
+@@ -55,28 +59,28 @@
+ 	std::string name;
+ 	unsigned blocks, tpb;
+ 	uint32_t rbig;
+-	bool ksweep;
+ 	uint64_t threads() const { return (uint64_t)blocks * tpb; }
+ 	uint64_t warps() const { return threads() / 32; }
+ };
+ 
+ struct Item {
+-	std::string id, kase, mem; // mem: reg, dev, none
+-	int fence = 0;
++	std::string id, kase, mem, mod; // mem: reg, dev, none; mod: k F N X
++	int fk = 0; // fence kind: 0 none, 1 membar.sys, 2 membar.gl,
++		    // 3 fence.acq_rel.gpu, 4 fence.acq_rel.sys
++	std::string vkind; // validation: ref, st32, st1, slot_e, tid_e,
++			   // tidw_e, slot_ex, badtag, slot_cx, collide, none
+ 	const Shape *shape = nullptr;
+-	uint32_t R = 1, k = 0;
++	uint32_t R = 1, k = 0, mode_extra = 0;
++	bool validate_only = false;
+ 	CUfunction fn = nullptr;
+-	bool ref = false;
+ 	// filled in
+ 	unsigned n = 2;
+ 	double cal_ms = 0;
+ 	int occ_blocks = 0, regs = 0, local_bytes = 0;
+ 	std::string valid = "not-run";
+ 	std::string valid_detail;
+-	double part_total = 0; // participating warps (atom_sm/cas_sm)
+-	double kmax_conc = 0, kmean_conc = 0; // max/mean concurrency per SM
+-	int max_warpid = -1;
+-	uint64_t cap_hits = 0;
++	uint64_t cap_hits = 0, slot_miss = 0, slot_oor = 0, slot_hits = 0,
++		 claim_fail = 0, inline_miss = 0;
+ };
+ 
+ static std::string fmt(const char *f, ...)
+@@ -92,7 +96,9 @@
+ struct Ctx {
+ 	step0_regmem reg;
+ 	CUdeviceptr dbuf = 0, aux = 0;
+-	CUmodule mk = nullptr, mr = nullptr;
++	CUmodule mk = nullptr;
++	std::map<std::string, CUmodule> mref; // F, N, X
++	CUdeviceptr inline_miss = 0; // X: __c3_inline_miss
+ 	CUstream st = nullptr;
+ 	// timing gate (k_hold): [0] release word set by the host once the
+ 	// batch is queued, [1] cap hits counted by the kernel
+@@ -112,6 +118,7 @@
+ {
+ 	uint64_t buf = buf_of(c, it.mem), mask = BUF_WORDS - 1, aux = c.aux;
+ 	uint32_t R = it.R, k = it.k;
++	mode |= it.mode_extra;
+ 	void *args[] = { &buf, &mask, &R, &k, &aux, &mode };
+ 	STEP0_CU(cuLaunchKernel(it.fn, it.shape->blocks, 1, 1, it.shape->tpb,
+ 				1, 1, 0, c.st, args, nullptr));
+@@ -140,58 +147,62 @@
+ 	STEP0_CU(cuStreamSynchronize(c.st));
+ }
+ 
+-// Words of buf a case touches from a zeroed buffer (for the reset).
++// Words of buf an item touches from a zeroed buffer (for the reset).
+ static uint64_t footprint_words(const Item &it)
+ {
+-	const uint64_t T = it.shape->threads(), W = it.shape->warps(),
+-		       R = it.R;
+-	const std::string &k = it.kase;
+-	if (it.ref)
++	const uint64_t T = it.shape->threads(), R = it.R;
++	const std::string &v = it.vkind;
++	if (v == "ref")
+ 		return T;
+-	if (k == "st_lane32" || k == "st_lane1")
++	if (v == "st32" || v == "st1")
+ 		return R * T;
+-	if (k == "rec_lane0" || k == "rec_lane4")
+-		return R * W * 4;
+-	if (k == "rec_thread")
+-		return R * T * 4;
+-	if (k == "atom_lane")
+-		return T;
+-	if (k == "atom_warp_all" || k == "atom_warp_leader" ||
+-	    k == "atom_warp_leader_sys" || k == "red_warp_leader")
+-		return W * 4;
+-	if (k == "atom_sm" || k == "cas_sm")
+-		return 64 * 16;
+-	if (k == "comp_rec")
+-		return RING_BASE_WORDS + 64 * RING_SLOTS * RING_SLOT_WORDS;
++	if (v == "slot_e" || v == "slot_ex" || v == "badtag" || v == "tidw_e")
++		return 2 * TIDW_SLOTS;
++	if (v == "tid_e")
++		return 2 * T;
+ 	return 0;
+ }
+ 
+-static uint64_t sum_words(Ctx &c, const std::string &mem, uint64_t first,
+-			  uint64_t count, uint64_t stride = 1)
++// The claim table of slot_cx / slot_cxr: the top TIDW_SLOTS x 16 B of the
++// device buffer (kernels.cu scratch_claim), which no other item writes.
++static constexpr uint64_t CLAIM_FIRST_WORD = BUF_WORDS - 2 * TIDW_SLOTS;
++static void reset_claim_table(Ctx &c)
++{
++	STEP0_CU(cuMemsetD32Async(c.dbuf + CLAIM_FIRST_WORD * 8, 0,
++				  2 * TIDW_SLOTS * 2, c.st));
++	STEP0_CU(cuStreamSynchronize(c.st));
++}
++
++static uint64_t read_inline_miss(Ctx &c)
+ {
+-	std::vector<uint64_t> v;
+-	read_words(c, mem, first, count, v);
+-	uint64_t s = 0;
+-	for (uint64_t i = 0; i < count; i += stride)
+-		s += v[i];
+-	return s;
++	uint64_t v = 0;
++	if (c.inline_miss)
++		STEP0_CU(cuMemcpyDtoH(&v, c.inline_miss, 8));
++	return v;
+ }
+ 
+-// One launch in validation mode on zeroed memory, then checks that every
+-// operation ran (atomic sums) or that the last iteration's stores landed.
++// One launch in validation mode on zeroed memory, then the checks of the
++// item's kind (README "Validation").
+ static void validate(Ctx &c, Item &it)
+ {
+-	const uint64_t T = it.shape->threads(), W = it.shape->warps(),
+-		       R = it.R;
++	const uint64_t T = it.shape->threads(), R = it.R;
+ 	const std::string mem = it.mem;
+ 	reset_buffers(c, mem == "none" ? "dev" : mem,
+ 		      std::max<uint64_t>(footprint_words(it), 1024));
++	if (it.vkind == "slot_cx" || it.vkind == "collide")
++		reset_claim_table(c);
++	const uint64_t im0 = read_inline_miss(c);
+ 	launch(c, it, 1);
+ 	STEP0_CU(cuStreamSynchronize(c.st));
+-	std::vector<uint64_t> auxv(AUX_BYTES / 8);
+-	STEP0_CU(cuMemcpyDtoH(auxv.data(), c.aux, AUX_BYTES));
++	it.inline_miss = read_inline_miss(c) - im0;
++	std::vector<uint64_t> auxv(64);
++	STEP0_CU(cuMemcpyDtoH(auxv.data(), c.aux, auxv.size() * 8));
+ 	it.cap_hits = auxv[AUX_CAPHITS];
+-	const std::string &k = it.kase;
++	it.slot_miss = auxv[AUX_MISS];
++	it.slot_oor = auxv[AUX_OOR];
++	it.slot_hits = auxv[AUX_HITS];
++	it.claim_fail = auxv[AUX_CFAIL];
++	const std::string &v = it.vkind;
+ 	bool ok = true;
+ 	std::string d;
+ 	auto expect = [&](const char *what, uint64_t got, uint64_t want) {
+@@ -199,113 +210,117 @@
+ 		if (got != want)
+ 			ok = false;
+ 	};
+-	auto sample_stores = [&](uint64_t units, uint64_t stride_units,
+-				 uint64_t words_per_unit, bool lane0_only) {
+-		// last iteration r = R-1; unit index = r*units + u (no wrap)
++	auto sample_stores = [&](uint64_t units, bool lane0_only) {
++		// step 0's check: last iteration r = R-1, word r*units + u
+ 		const uint64_t r = R - 1;
+-		if ((r * units + units) * words_per_unit > BUF_WORDS) {
++		if (r * units + units > BUF_WORDS) {
+ 			d += "wrapped(not-checked) ";
+ 			return;
+ 		}
+ 		uint64_t bad = 0, n = 0;
+-		std::vector<uint64_t> v;
++		std::vector<uint64_t> w;
+ 		const uint64_t step = std::max<uint64_t>(1, units / 4096);
+ 		for (uint64_t u = 0; u < units; u += step) {
+ 			if (lane0_only && (u % 32) != 0)
+ 				continue;
+-			const uint64_t w = (r * units + u) * words_per_unit;
+-			read_words(c, mem, w, words_per_unit, v);
+-			for (uint64_t j = 0; j < words_per_unit; j++) {
+-				uint64_t want;
+-				if (words_per_unit == 1)
+-					want = u + r + 1;
+-				else
+-					want = ((u + r + 1) << 2) | j;
+-				n++;
+-				if (v[j] != want)
+-					bad++;
+-			}
++			read_words(c, mem, r * units + u, 1, w);
++			n++;
++			if (w[0] != u + r + 1)
++				bad++;
+ 		}
+-		(void)stride_units;
+ 		expect("sample_mismatch", bad, 0);
+ 		d += fmt("sampled=%" PRIu64 " ", n);
+ 	};
+-	if (it.ref) {
+-		expect("sum", sum_words(c, mem, 0, T), T * R);
+-	} else if (k == "empty" || k == "ref_empty") {
+-		d += "none ";
+-	} else if (k == "st_lane32") {
+-		sample_stores(T, 1, 1, false);
+-	} else if (k == "st_lane1") {
+-		sample_stores(T, 32, 1, true);
+-	} else if (k == "rec_lane0" || k == "rec_lane4") {
+-		sample_stores(W, 1, 4, false);
+-	} else if (k == "rec_thread") {
+-		sample_stores(T, 1, 4, false);
+-	} else if (k == "atom_lane") {
+-		expect("sum", sum_words(c, mem, 0, T), T * R);
+-	} else if (k == "atom_warp_all") {
+-		expect("sum", sum_words(c, mem, 0, W * 4), T * R);
+-	} else if (k == "atom_warp_leader" || k == "atom_warp_leader_sys" ||
+-		   k == "red_warp_leader") {
+-		expect("sum", sum_words(c, mem, 0, W * 4), W * R);
+-	} else if (k == "atom_sm" || k == "cas_sm") {
+-		uint64_t part = 0;
+-		for (int s = 0; s < 64; s++)
+-			part += auxv[AUX_PART + s];
+-		it.part_total = (double)part;
+-		expect("sum", sum_words(c, mem, 0, 64 * 16), part * R);
+-		expect("cap_hits", it.cap_hits, 0);
+-		// concurrency per SM from the participant log (t0, t1)
+-		const uint64_t n = std::min<uint64_t>(
+-			auxv[AUX_LOGN], (AUX_BYTES / 8 - AUX_LOG) / 4);
+-		std::map<unsigned, std::vector<std::pair<uint64_t, int>>> ev;
+-		std::map<unsigned, std::set<unsigned>> wids;
+-		int maxw = -1;
+-		for (uint64_t e = 0; e < n; e++) {
+-			const uint64_t *p = &auxv[AUX_LOG + e * 4];
+-			const unsigned sm = (unsigned)(p[0] >> 32),
+-				       wid = (unsigned)(p[0] & 0xffffffff);
+-			ev[sm].push_back({ p[1], +1 });
+-			ev[sm].push_back({ p[2] + 1, -1 });
+-			wids[sm].insert(wid);
+-			maxw = std::max(maxw, (int)wid);
+-		}
+-		double maxc = 0, sumc = 0;
+-		for (auto &[sm, v] : ev) {
+-			std::sort(v.begin(), v.end());
+-			int cur = 0, m = 0;
+-			for (auto &e : v) {
+-				cur += e.second;
+-				m = std::max(m, cur);
+-			}
+-			maxc = std::max<double>(maxc, m);
+-			sumc += m;
++	// slot tables: {tag, state}; tag = (k+1)<<48 | (r & 0xff)<<40 | tid
++	const uint64_t ktag = (uint64_t)(it.k + 1) << 48;
++	auto tag_of = [&](uint64_t tid) {
++		return ktag | ((uint64_t)((R - 1) & 0xff) << 40) | tid;
++	};
++	if (v == "ref") {
++		// every thread's own word must equal R (README "Validation"),
++		// not only their sum
++		std::vector<uint64_t> w;
++		read_words(c, mem, 0, T, w);
++		uint64_t s = 0, notR = 0;
++		for (uint64_t u = 0; u < T; u++) {
++			s += w[u];
++			notR += w[u] != R;
++		}
++		expect("sum", s, T * R);
++		expect("words_not_R", notR, 0);
++		expect("inline_miss", it.inline_miss, 0);
++	} else if (v == "st32") {
++		sample_stores(T, false);
++	} else if (v == "st1") {
++		sample_stores(T, true);
++	} else if (v == "slot_ex") {
++		expect("hits", it.slot_hits, T * R);
++		expect("miss", it.slot_miss, 0);
++		expect("oor", it.slot_oor, 0);
++	} else if (v == "badtag") { // control: every exit check must miss
++		expect("miss", it.slot_miss, T * R);
++		expect("hits", it.slot_hits, 0);
++		expect("oor", it.slot_oor, 0);
++	} else if (v == "slot_cx") { // claimed, checked and released
++		expect("hits", it.slot_hits, T * R);
++		expect("miss", it.slot_miss, 0);
++		expect("oor", it.slot_oor, 0);
++		expect("claim_fail", it.claim_fail, 0);
++		std::vector<uint64_t> w;
++		read_words(c, mem, CLAIM_FIRST_WORD, 2 * TIDW_SLOTS, w);
++		uint64_t held = 0;
++		for (uint64_t s = 0; s < TIDW_SLOTS; s++)
++			held += w[2 * s] != 0;
++		expect("slots_still_claimed", held, 0);
++	} else if (v == "collide") { // control: lanes 2j, 2j+1 share a slot
++		expect("hits+miss", it.slot_hits + it.slot_miss, T * R);
++		d += fmt("claim_fail=%" PRIu64 " ", it.claim_fail);
++		if (it.claim_fail == 0)
++			ok = false;
++	} else if (v == "slot_e" || v == "tidw_e") {
++		expect("oor", it.slot_oor, 0);
++		std::vector<uint64_t> w;
++		read_words(c, mem, 0, 2 * TIDW_SLOTS, w);
++		uint64_t used = 0, bad = 0;
++		for (uint64_t s = 0; s < TIDW_SLOTS; s++) {
++			const uint64_t tag = w[2 * s], st = w[2 * s + 1];
++			if (tag == 0 && st == 0)
++				continue;
++			used++;
++			const uint64_t tid = tag & 0xffffffffffull;
++			if (tag != tag_of(tid) || st != 0 || tid >= T ||
++			    (v == "tidw_e" && (tid & (TIDW_SLOTS - 1)) != s))
++				bad++;
++		}
++		expect("bad_slots", bad, 0);
++		const uint64_t want_used =
++			v == "tidw_e" ? std::min<uint64_t>(T, TIDW_SLOTS) : 0;
++		if (v == "tidw_e")
++			expect("used_slots", used, want_used);
++		else
++			d += fmt("used_slots=%" PRIu64 " ", used);
++		if (used == 0)
++			ok = false;
++	} else if (v == "tid_e") {
++		expect("oor", it.slot_oor, 0);
++		uint64_t bad = 0, n = 0;
++		std::vector<uint64_t> w;
++		const uint64_t step = std::max<uint64_t>(1, T / 4096);
++		for (uint64_t u = 0; u < T; u += step) {
++			read_words(c, mem, 2 * u, 2, w);
++			n++;
++			if (w[0] != tag_of(u) || w[1] != 0)
++				bad++;
+ 		}
+-		it.kmax_conc = maxc;
+-		it.kmean_conc = ev.empty() ? 0 : sumc / ev.size();
+-		it.max_warpid = maxw;
+-		d += fmt("logged=%" PRIu64 " sms=%zu ", n, ev.size());
+-	} else if (k == "comp_rec") {
+-		expect("cursor_sum", sum_words(c, mem, 0, 64 * 16), W * R);
++		expect("sample_mismatch", bad, 0);
++		d += fmt("sampled=%" PRIu64 " ", n);
++	} else {
++		d += "none ";
+ 	}
+ 	it.valid = ok ? "ok" : "FAIL";
+ 	it.valid_detail = d;
+ }
+ 
+-// Operations a batch performed on the per-SM words (atom_sm, cas_sm) or
+-// cursors (comp_rec): the words count them, so before/after sums give the
+-// exact number, whatever the scheduler did.
+-static bool counts_ops(const Item &it)
+-{
+-	return it.kase == "atom_sm" || it.kase == "cas_sm" ||
+-	       it.kase == "comp_rec";
+-}
+-static uint64_t ops_words_sum(Ctx &c, const Item &it)
+-{
+-	return sum_words(c, it.mem, 0, 64 * 16, 16);
+-}
+-
+ // N back-to-back launches between two events. With the gate (default), a
+ // k_hold launch in front keeps the stream waiting until all N launches and
+ // e1 are queued, so the events time GPU execution only; without it, kernels
+@@ -353,10 +368,8 @@
+ int main(int argc, char **argv)
+ {
+ 	std::string out = "out", kcubin = "build/kernels.cubin",
+-		    rcubin = "build/ref/ref1512.cubin", only = "",
+-		    shapes_arg = "tiny,full,anchor,large", ks_arg =
+-							       "1,2,4,8,16,32,48",
+-		    ksweep_arg = "full,large";
++		    refdir = "build/ref", only = "",
++		    shapes_arg = "full,anchor,large";
+ 	int rounds = 10;
+ 	double target_ms = 4.0, max_wall_s = 1e9;
+ 	unsigned nmax = 200;
+@@ -385,18 +398,14 @@
+ 			nmax = (unsigned)atoi(val().c_str());
+ 		else if (a == "--shapes")
+ 			shapes_arg = val();
+-		else if (a == "--ks")
+-			ks_arg = val();
+-		else if (a == "--ksweep-shapes")
+-			ksweep_arg = val();
+ 		else if (a == "--only")
+ 			only = val();
+ 		else if (a == "--seed")
+ 			seed = strtoull(val().c_str(), nullptr, 0);
+ 		else if (a == "--kernels")
+ 			kcubin = val();
+-		else if (a == "--ref")
+-			rcubin = val();
++		else if (a == "--refdir")
++			refdir = val();
+ 		else if (a == "--max-wall-s")
+ 			max_wall_s = atof(val().c_str());
+ 		else if (a == "--no-hold") // time without the k_hold gate
+@@ -430,34 +439,27 @@
+ 			.count();
+ 	};
+ 
+-	// shapes: 64 threads; full occupancy 8 SMs x 1,536 = 24 x 512;
+-	// the rms_norm shape behind the 0.6 ns figure (512 blocks of 512);
+-	// the largest llama.cpp launch (4,194,304 threads)
++	// step 0's shapes: full occupancy 8 SMs x 1,536 = 24 x 512; the
++	// rms_norm shape behind the 0.6 ns figure (512 blocks of 512); the
++	// largest llama.cpp launch (4,194,304 threads)
+ 	std::vector<Shape> all_shapes = {
+-		{ "tiny", 1, 64, 0, false },
+-		{ "full", 24, 512, 0, false },
+-		{ "anchor", 512, 512, 0, false },
+-		{ "large", 8192, 512, 0, false },
++		{ "tiny", 1, 64, 0 },
++		{ "full", 24, 512, 0 },
++		{ "anchor", 512, 512, 0 },
++		{ "large", 8192, 512, 0 },
+ 	};
+ 	std::vector<Shape> shapes;
+-	std::set<std::string> ksw;
+-	for (auto &s : split(ksweep_arg))
+-		ksw.insert(s);
+ 	for (auto &n : split(shapes_arg))
+ 		for (auto s : all_shapes)
+ 			if (s.name == n) {
+ 				s.rbig = rbig.count(n) ? rbig[n] : 4;
+-				s.ksweep = ksw.count(n) > 0;
+ 				shapes.push_back(s);
+ 			}
+-	std::vector<uint32_t> ks;
+-	for (auto &s : split(ks_arg))
+-		ks.push_back((uint32_t)atoi(s.c_str()));
+ 
+ 	Ctx c;
+ 	step0_primary_ctx(0);
+ 	STEP0_CU(cuStreamCreate(&c.st, CU_STREAM_NON_BLOCKING));
+-	const std::string shm_name = fmt("step0_e2_%d", (int)getpid());
++	const std::string shm_name = fmt("step0b_c3_%d", (int)getpid());
+ 	if (!step0_regmem_create(c.reg, shm_name, BUF_BYTES, false)) {
+ 		fprintf(stderr, "registered memory failed\n");
+ 		return 3;
+@@ -465,7 +467,18 @@
+ 	STEP0_CU(cuMemAlloc(&c.dbuf, BUF_BYTES));
+ 	STEP0_CU(cuMemAlloc(&c.aux, AUX_BYTES));
+ 	STEP0_CU(cuModuleLoad(&c.mk, kcubin.c_str()));
+-	STEP0_CU(cuModuleLoad(&c.mr, rcubin.c_str()));
++	for (const char *m : { "F", "N", "X" }) {
++		CUmodule mod;
++		const std::string p = refdir + "/ref" + m + ".cubin";
++		STEP0_CU(cuModuleLoad(&mod, p.c_str()));
++		c.mref[m] = mod;
++	}
++	{
++		size_t bytes = 0;
++		STEP0_CU(cuModuleGetGlobal(&c.inline_miss, &bytes, c.mref["X"],
++					   "__c3_inline_miss"));
++		STEP0_CU(cuMemsetD32(c.inline_miss, 0, 2));
++	}
+ 	c.use_hold = use_hold;
+ 	{ // timing gate: one pinned, device-mapped page (not shm)
+ 		void *h = nullptr;
+@@ -477,12 +490,15 @@
+ 		STEP0_CU(cuMemHostGetDevicePointer(&c.hold_dev, h, 0));
+ 		STEP0_CU(cuModuleGetFunction(&c.hold_fn, c.mk, "k_hold"));
+ 	}
+-	{ // map_info[HOST_FD] -> registered, map_info[DEV_FD] -> device
++	// map_info[HOST_FD] -> registered, map_info[DEV_FD] -> device, in
++	// every reference module (as step 0's bench2 did for its one module)
++	for (auto &[name, mod] : c.mref) {
+ 		CUdeviceptr mi;
+ 		size_t bytes;
+-		STEP0_CU(cuModuleGetGlobal(&mi, &bytes, c.mr, "map_info"));
++		STEP0_CU(cuModuleGetGlobal(&mi, &bytes, mod, "map_info"));
+ 		if (bytes != 1024 * sizeof(MapBasicInfo)) {
+-			fprintf(stderr, "map_info is %zu bytes\n", bytes);
++			fprintf(stderr, "map_info of %s is %zu bytes\n",
++				name.c_str(), bytes);
+ 			return 4;
+ 		}
+ 		MapBasicInfo m = {};
+@@ -505,12 +521,6 @@
+ 		STEP0_CU(cuModuleGetFunction(&f, m, name.c_str()));
+ 		return f;
+ 	};
+-	const std::vector<std::string> base_cases = {
+-		"st_lane32",	  "st_lane1",	     "rec_lane0",
+-		"rec_lane4",	  "rec_thread",	     "atom_lane",
+-		"atom_warp_all",  "atom_warp_leader", "atom_warp_leader_sys",
+-		"red_warp_leader", "comp_rec"
+-	};
+ 	std::vector<Item> items;
+ 	for (auto &s : shapes) {
+ 		const Shape *sp = nullptr;
+@@ -519,94 +529,110 @@
+ 				sp = &x;
+ 		auto add = [&](Item it) {
+ 			it.shape = sp;
+-			it.id = fmt("%s|%s|%s|f%d|R%u|k%u", sp->name.c_str(),
+-				    it.kase.c_str(), it.mem.c_str(), it.fence,
+-				    it.R, it.k);
++			it.id = fmt("%s|%s|%s|%s|fk%d|R%u|k%u", sp->name.c_str(),
++				    it.mod.c_str(), it.kase.c_str(),
++				    it.mem.c_str(), it.fk, it.R, it.k);
+ 			if (!only.empty() &&
+ 			    !std::regex_search(it.id, std::regex(only)))
+ 				return;
+ 			items.push_back(it);
+ 		};
+-		{
+-			Item e;
+-			e.kase = "empty";
+-			e.mem = "none";
+-			e.fn = fn(c.mk, "k_empty");
+-			add(e);
+-			Item re;
+-			re.kase = "ref_empty";
+-			re.mem = "none";
+-			re.fn = fn(c.mr, "ref_empty");
+-			add(re);
+-		}
+-		for (uint32_t R : { 1u, s.rbig }) {
++		auto mk = [&](const std::string &mod, const std::string &kase,
++			      const std::string &mem, const std::string &kname,
++			      const std::string &vkind, uint32_t R, int fk) {
++			Item it;
++			it.mod = mod;
++			it.kase = kase;
++			it.mem = mem;
++			it.vkind = vkind;
++			it.R = R;
++			it.fk = fk;
++			it.fn = fn(mod == "k" ? c.mk : c.mref[mod], kname);
++			return it;
++		};
++		// per-module empty kernels (the delta baselines)
++		add(mk("k", "empty", "none", "k_empty", "none", 1, 0));
++		for (const char *m : { "F", "N", "X" })
++			add(mk(m, "empty", "none", "ref_empty", "none", 1, 0));
++		std::vector<uint32_t> Rs = { 1u };
++		if (s.rbig != 1)
++			Rs.push_back(s.rbig);
++		for (uint32_t R : Rs) {
++			const bool r1 = R == 1;
++			const std::string form = r1 ? "_r1" : "_rn";
++			// (a) the cost ladder
++			add(mk("X", "E", "none", "E" + form, "none", R, 0));
+ 			for (const char *mem : { "reg", "dev" }) {
+ 				const std::string h =
+ 					std::string(mem) == "reg" ? "host" :
+ 								    "dev";
+-				Item r;
+-				r.kase = "ref1512";
+-				r.mem = mem;
+-				r.fence = 1;
+-				r.R = R;
+-				r.ref = true;
+-				r.fn = fn(c.mr, R == 1 ? "ref_" + h + "_r1" :
+-							 "ref_" + h + "_rn");
+-				add(r);
+-				if (R == 1) { // the loop form at R = 1
+-					Item l = r;
+-					l.kase = "ref1512_loop";
+-					l.fn = fn(c.mr, "ref_" + h + "_rn");
+-					add(l);
+-				}
+-				for (int f : { 0, 1 }) {
+-					for (auto &cs : base_cases) {
+-						Item it;
+-						it.kase = cs;
+-						it.mem = mem;
+-						it.fence = f;
+-						it.R = R;
+-						it.fn = fn(c.mk,
+-							   fmt("k_%s_f%d",
+-							       cs.c_str(), f));
+-						add(it);
+-					}
+-					if (!s.ksweep)
+-						continue;
+-					// With more warps than fit at once,
+-					// warps are replaced and %warpid < k
+-					// picks a scheduler-dependent subset
+-					// (smoke: 72-28,506 of 131,072 warps):
+-					// there, only k = 48 (every warp).
+-					const bool replaced =
+-						s.threads() > 8ull * 1536;
+-					for (const char *cs :
+-					     { "atom_sm", "cas_sm" })
+-						for (uint32_t k : ks) {
+-							if (replaced && k < 48)
+-								continue;
+-							Item it;
+-							it.kase = cs;
+-							it.mem = mem;
+-							it.fence = f;
+-							it.R = R;
+-							it.k = k;
+-							it.fn = fn(
+-								c.mk,
+-								fmt("k_%s_f%d",
+-								    cs, f));
+-							add(it);
+-						}
++				for (const char *m : { "F", "N" }) {
++					add(mk(m, m, mem, "ref_" + h + form,
++					       "ref", R, m[0] == 'F' ? 1 : 0));
++					if (r1) // the loop form at R = 1
++						add(mk(m, std::string(m) + "_loop",
++						       mem, "ref_" + h + "_rn",
++						       "ref", R,
++						       m[0] == 'F' ? 1 : 0));
+ 				}
++				for (const char *v : { "I", "IF", "IC", "K" })
++					add(mk("X", v, mem,
++					       std::string(v) + "_" + h + form,
++					       "ref", R,
++					       std::string(v) == "IF" ? 1 : 0));
++				add(mk("X", "M", mem, "M" + form, "ref", R, 0));
++				add(mk("X", "M64", mem, "M64" + form, "ref", R,
++				       0));
++				// (d) store + fence kind; step 0's kernels for
++				// none and membar.sys
++				add(mk("k", "st_lane32", mem, "k_st_lane32_f0",
++				       "st32", R, 0));
++				add(mk("k", "st_lane32", mem, "k_st_lane32_f1",
++				       "st32", R, 1));
++				for (int fk : { 2, 3, 4 })
++					add(mk("k", "st_lane32", mem,
++					       fmt("k_st32_fk%d", fk), "st32", R,
++					       fk));
++				add(mk("k", "st_lane1", mem, "k_st_lane1_f0",
++				       "st1", R, 0));
++				add(mk("k", "st_lane1", mem, "k_st_lane1_f1",
++				       "st1", R, 1));
++				add(mk("k", "st_lane1", mem, "k_st1_fk2", "st1",
++				       R, 2));
++			}
++			// (d) the fence alone (no memory: once per shape)
++			for (int fk : { 1, 2, 3, 4 }) {
++				add(mk("k", "fence_lane32", "none",
++				       fmt("k_fal32_fk%d", fk), "none", R, fk));
++				add(mk("k", "fence_lane1", "none",
++				       fmt("k_fal1_fk%d", fk), "none", R, fk));
++			}
++			// (b) slot addressing, device memory
++			add(mk("k", "slot_e", "dev", "k_slot_e", "slot_e", R, 0));
++			add(mk("k", "slot_ex", "dev", "k_slot_ex", "slot_ex", R,
++			       0));
++			add(mk("k", "slot_excg", "dev", "k_slot_excg", "slot_ex",
++			       R, 0));
++			add(mk("k", "tid_e", "dev", "k_tid_e", "tid_e", R, 0));
++			add(mk("k", "tid_ex", "dev", "k_tid_ex", "slot_ex", R, 0));
++			add(mk("k", "tidw_e", "dev", "k_tidw_e", "tidw_e", R, 0));
++			add(mk("k", "slot_cx", "dev", "k_slot_cx", "slot_cx", R, 0));
++			add(mk("k", "slot_cxr", "dev", "k_slot_cxr", "slot_cx", R,
++			       0));
++			if (r1) { // control, validated only: claims must collide
++				Item b = mk("k", "slot_cx_collide", "dev",
++					    "k_slot_cx", "collide", R, 0);
++				b.mode_extra = 4;
++				b.validate_only = true;
++				add(b);
++			}
++			if (r1) { // control, validated only: every check misses
++				Item b = mk("k", "slot_ex_badtag", "dev",
++					    "k_slot_ex", "badtag", R, 0);
++				b.mode_extra = 2;
++				b.validate_only = true;
++				add(b);
+ 			}
+-		}
+-		if (s.rbig == 1) { // R list had a duplicate
+-			std::set<std::string> seen;
+-			std::vector<Item> u;
+-			for (auto &it : items)
+-				if (seen.insert(it.id).second)
+-					u.push_back(it);
+-			items.swap(u);
+ 		}
+ 	}
+ 	fprintf(stderr, "items: %zu, rounds: %d, shm %s (unlinked)\n",
+@@ -629,6 +655,8 @@
+ 			fprintf(stderr, "VALIDATION FAIL %s: %s\n",
+ 				it.id.c_str(), it.valid_detail.c_str());
+ 		}
++		if (it.validate_only)
++			continue;
+ 		launch(c, it, 0); // warm
+ 		STEP0_CU(cuStreamSynchronize(c.st));
+ 		const double t1 = time_batch(c, it, 1, e0, e1);
+@@ -640,6 +668,11 @@
+ 	}
+ 	fprintf(stderr, "validation done (%d failures), calibration done, %.1f s\n",
+ 		nfail, wall());
++	// counters of the timed launches start from zero here, and the claim
++	// table is free again (the collide control leaves slots claimed)
++	reset_buffers(c, "none", 0);
++	reset_claim_table(c);
++	const uint64_t inline_miss0 = read_inline_miss(c);
+ 
+ 	// rounds
+ 	std::string csvp = out + "/raw.csv";
+@@ -648,19 +681,21 @@
+ 		perror(csvp.c_str());
+ 		return 5;
+ 	}
+-	fprintf(csv, "round,pos,id,case,mem,fence,shape,blocks,tpb,threads,R,k,"
+-		     "n_launch,batch_ms,per_launch_us,ops_batch,hold_capped\n");
++	fprintf(csv, "round,pos,id,module,case,mem,fk,shape,blocks,tpb,threads,"
++		     "R,k,n_launch,batch_ms,per_launch_us,hold_capped\n");
+ 	int done_rounds = 0;
+ 	uint64_t hold_capped_rows = 0;
++	std::vector<size_t> timed;
++	for (size_t i = 0; i < items.size(); i++)
++		if (!items[i].validate_only)
++			timed.push_back(i);
+ 	for (int r = 0; r < rounds; r++) {
+ 		if (wall() > max_wall_s) {
+ 			fprintf(stderr, "max wall time reached before round %d\n",
+ 				r);
+ 			break;
+ 		}
+-		std::vector<size_t> order(items.size());
+-		for (size_t i = 0; i < order.size(); i++)
+-			order[i] = i;
++		std::vector<size_t> order = timed;
+ 		std::mt19937_64 rng(seed + (uint64_t)r);
+ 		std::shuffle(order.begin(), order.end(), rng);
+ 		for (size_t pos = 0; pos < order.size(); pos++) {
+@@ -668,71 +703,77 @@
+ 			if (it.cal_ms < 20) {
+ 				launch(c, it, 0); // untimed
+ 			}
+-			uint64_t ops0 = 0, ops = 0;
+-			if (counts_ops(it)) {
+-				STEP0_CU(cuStreamSynchronize(c.st));
+-				ops0 = ops_words_sum(c, it);
+-			}
+ 			int capped = 0;
+ 			const double ms =
+ 				time_batch(c, it, it.n, e0, e1, &capped);
+-			if (counts_ops(it))
+-				ops = ops_words_sum(c, it) - ops0;
+ 			hold_capped_rows += capped;
+ 			fprintf(csv,
+-				"%d,%zu,%s,%s,%s,%d,%s,%u,%u,%" PRIu64
+-				",%u,%u,%u,%.6f,%.4f,%" PRIu64 ",%d\n",
+-				r, pos, it.id.c_str(), it.kase.c_str(),
+-				it.mem.c_str(), it.fence,
++				"%d,%zu,%s,%s,%s,%s,%d,%s,%u,%u,%" PRIu64
++				",%u,%u,%u,%.6f,%.4f,%d\n",
++				r, pos, it.id.c_str(), it.mod.c_str(),
++				it.kase.c_str(), it.mem.c_str(), it.fk,
+ 				it.shape->name.c_str(), it.shape->blocks,
+ 				it.shape->tpb, it.shape->threads(), it.R, it.k,
+-				it.n, ms, ms * 1000.0 / it.n, ops, capped);
++				it.n, ms, ms * 1000.0 / it.n, capped);
+ 		}
+ 		fflush(csv);
+ 		done_rounds++;
+ 		fprintf(stderr, "round %d done, %.1f s\n", r, wall());
+ 	}
+ 	fclose(csv);
++	// exit tag checks that missed, indices out of range and failed claims
++	// during every launch after validation (all expected 0)
++	std::vector<uint64_t> auxv(8);
++	STEP0_CU(cuStreamSynchronize(c.st));
++	STEP0_CU(cuMemcpyDtoH(auxv.data(), c.aux, auxv.size() * 8));
++	const uint64_t inline_miss_timed = read_inline_miss(c) - inline_miss0;
+ 
+ 	// items.json
+ 	std::string jp = out + "/items.json";
+ 	FILE *j = fopen(jp.c_str(), "w");
+-	int dev = 0, smc = 0;
++	int smc = 0;
+ 	CUdevice d;
+ 	cuDeviceGet(&d, 0);
+ 	cuDeviceGetAttribute(&smc, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, d);
+-	(void)dev;
+ 	fprintf(j, "{\n \"rounds_done\": %d,\n \"rounds_requested\": %d,\n"
+ 		   " \"target_ms\": %g,\n \"seed\": %" PRIu64 ",\n"
+ 		   " \"buf_bytes\": %zu,\n \"sm_count\": %d,\n"
+ 		   " \"wall_s\": %.2f,\n \"validation_failures\": %d,\n"
+ 		   " \"hold_gate\": %s,\n \"hold_capped_rows\": %" PRIu64 ",\n"
+ 		   " \"hold_cap_hits_total\": %" PRIu64 ",\n"
++		   " \"timed_slot_misses\": %" PRIu64 ",\n"
++		   " \"timed_slot_oor\": %" PRIu64 ",\n"
++		   " \"timed_inline_misses\": %" PRIu64 ",\n"
++		   " \"timed_claim_failures\": %" PRIu64 ",\n"
+ 		   " \"items\": [\n",
+ 		done_rounds, rounds, target_ms, seed, BUF_BYTES, smc, wall(),
+ 		nfail, c.use_hold ? "true" : "false", hold_capped_rows,
+-		c.hold_host[1]);
++		c.hold_host[1], auxv[AUX_MISS], auxv[AUX_OOR],
++		inline_miss_timed, auxv[AUX_CFAIL]);
+ 	for (size_t i = 0; i < items.size(); i++) {
+ 		auto &it = items[i];
+ 		fprintf(j,
+-			"  {\"id\": %s, \"case\": %s, \"mem\": %s, \"fence\": %d, "
++			"  {\"id\": %s, \"module\": %s, \"case\": %s, \"mem\": %s, "
++			"\"fk\": %d, \"vkind\": %s, \"validate_only\": %s, "
+ 			"\"shape\": %s, \"blocks\": %u, \"tpb\": %u, "
+ 			"\"threads\": %" PRIu64 ", \"warps\": %" PRIu64
+ 			", \"R\": %u, \"k\": %u, \"n\": %u, \"cal_ms\": %.6f, "
+ 			"\"regs\": %d, \"local_bytes\": %d, "
+ 			"\"occ_blocks_per_sm\": %d, \"valid\": %s, "
+-			"\"valid_detail\": %s, \"participants\": %.0f, "
+-			"\"k_max_concurrent\": %.0f, \"k_mean_max_concurrent\": "
+-			"%.2f, \"max_warpid\": %d, \"cap_hits\": %" PRIu64
+-			"}%s\n",
+-			json_str(it.id).c_str(), json_str(it.kase).c_str(),
+-			json_str(it.mem).c_str(), it.fence,
++			"\"valid_detail\": %s, \"slot_miss\": %" PRIu64
++			", \"slot_oor\": %" PRIu64 ", \"slot_hits\": %" PRIu64
++			", \"claim_fail\": %" PRIu64
++			", \"inline_miss\": %" PRIu64 "}%s\n",
++			json_str(it.id).c_str(), json_str(it.mod).c_str(),
++			json_str(it.kase).c_str(), json_str(it.mem).c_str(),
++			it.fk, json_str(it.vkind).c_str(),
++			it.validate_only ? "true" : "false",
+ 			json_str(it.shape->name).c_str(), it.shape->blocks,
+ 			it.shape->tpb, it.shape->threads(), it.shape->warps(),
+ 			it.R, it.k, it.n, it.cal_ms, it.regs, it.local_bytes,
+ 			it.occ_blocks, json_str(it.valid).c_str(),
+-			json_str(it.valid_detail).c_str(), it.part_total,
+-			it.kmax_conc, it.kmean_conc, it.max_warpid, it.cap_hits,
++			json_str(it.valid_detail).c_str(), it.slot_miss,
++			it.slot_oor, it.slot_hits, it.claim_fail, it.inline_miss,
+ 			i + 1 < items.size() ? "," : "");
+ 	}
+ 	fprintf(j, " ]\n}\n");
+@@ -740,7 +781,8 @@
+ 
+ 	STEP0_CU(cuStreamSynchronize(c.st));
+ 	cuModuleUnload(c.mk);
+-	cuModuleUnload(c.mr);
++	for (auto &[name, mod] : c.mref)
++		cuModuleUnload(mod);
+ 	cuMemFree(c.dbuf);
+ 	cuMemFree(c.aux);
+ 	cuMemFreeHost(c.hold_host);

@@ -1,0 +1,159 @@
+CUDA Programming Guide (docs.nvidia.com/cuda/cuda-programming-guide/, web version v13.5; the board's
+toolkit is 13.2), fetched 2026-11-15 by the C4 review, converted to text with a stdlib HTML parser.
+Excerpts used by C4's README (verbatim; one paragraph or list item per line).
+  05-appendices/cpp-language-extensions.html  md5 446ff2d6169ea8d8575c0bffab917623
+  05-appendices/cuda-cpp-memory-model.html    md5 b96685a1f0f368cfb78c7bb0babf3d7c
+  02-basics/understanding-memory.html         md5 b8efd5d3fc97ebdd582e4b40978c2aa6
+
+==================== cpp-language-extensions.html
+5.4.4.3. Memory Fence Functions
+The CUDA programming model assumes a weakly ordered memory model. In other words, the order in which a CUDA thread writes data to shared memory, global memory, page-locked host memory, or the memory of a peer device is not necessarily the order in which another CUDA or host thread observes the data being written. Reading from or writing to the same memory location without memory fences or synchronization results in undefined behavior.
+In the following example, thread 1 executes writeXY(), while thread 2 executes readXY().
+__device__ int X = 1, Y = 2;
+__device__ void writeXY() {
+ X = 10;
+ Y = 20;
+}
+__device__ void readXY() {
+ int B = Y;
+ int A = X;
+}
+The two threads simultaneously read and write to the same memory locations, X and Y. Any data race results in undefined behavior and has no defined semantics. Therefore, the resulting values for A and B can be anything.
+Memory fence and synchronization functions enforce a sequentially consistent ordering of memory accesses. These functions differ in the thread scope in which orderings are enforced, but are independent of the accessed memory space, including shared memory, global memory, page-locked host memory, and the memory of a peer device.
+Hint
+It is suggested to use cuda::atomic_thread_fence provided by libcu++ whenever possible for safety and portability reasons.
+Block-level memory fence
+CUDA C++
+// <cuda/atomic> header
+cuda::atomic_thread_fence(cuda::memory_order_seq_cst, cuda::thread_scope_block);
+ensures that:
+All writes to all memory made by the calling thread before the call to cuda::atomic_thread_fence() are observed by all threads in the calling thread’s block as occurring before all writes to all memory made by the calling thread after the call to cuda::atomic_thread_fence();
+All reads from all memory made by the calling thread before the call to cuda::atomic_thread_fence() are ordered before all reads from all memory made by the calling thread after the call to cuda::atomic_thread_fence().
+Intrinsics
+void __threadfence_block();
+ensures that:
+All writes to all memory made by the calling thread before the call to __threadfence_block() are observed by all threads in the calling thread’s block as occurring before all writes to all memory made by the calling thread after the call to __threadfence_block();
+All reads from all memory made by the calling thread before the call to __threadfence_block() are ordered before all reads from all memory made by the calling thread after the call to __threadfence_block().
+Device-level memory fence
+CUDA C++
+cuda::atomic_thread_fence(cuda::memory_order_seq_cst, cuda::thread_scope_device);
+ensures that:
+No writes to all memory made by the calling thread after the call to cuda::atomic_thread_fence() are observed by any thread in the device as occurring before any write to all memory made by the calling thread before the call to cuda::atomic_thread_fence().
+Intrinsics
+void __threadfence();
+ensures that:
+No writes to all memory made by the calling thread after the call to __threadfence() are observed by any thread in the device as occurring before any write to all memory made by the calling thread before the call to __threadfence().
+System-level memory fence
+CUDA C++
+cuda::atomic_thread_fence(cuda::memory_order_seq_cst, cuda::thread_scope_system);
+ensures that:
+All writes to all memory made by the calling thread before the call to cuda::atomic_thread_fence() are observed by all threads in the device, host threads, and all threads in peer devices as occurring before all writes to all memory made by the calling thread after the call to cuda::atomic_thread_fence().
+Intrinsics
+void __threadfence_system();
+ensures that:
+All writes to all memory made by the calling thread before the call to __threadfence_system() are observed by all threads in the device, host threads, and all threads in peer devices as occurring before all writes to all memory made by the calling thread after the call to __threadfence_system().
+In the previous code sample, we can insert memory fences in the code as follows:
+CUDA C++
+#include <cuda/atomic>
+__device__ int X = 1, Y = 2;
+__device__ void writeXY() {
+ X = 10;
+ cuda::atomic_thread_fence(cuda::memory_order_seq_cst, cuda::thread_scope_device);
+ Y = 20;
+}
+__device__ void readXY() {
+ int B = Y;
+ cuda::atomic_thread_fence(cuda::memory_order_seq_cst, cuda::thread_scope_device);
+ int A = X;
+
+==================== cuda-cpp-memory-model.html
+5.8. CUDA C++ Memory Model
+Standard C++ presents a view that the cost to synchronize threads is uniform and low.
+CUDA C++ is different: the cost to synchronize threads grows as threads are further apart. It is low across threads
+within a block, but high across arbitrary threads in the system running on multiple GPUs and CPUs.
+To account for non-uniform thread synchronization costs that are not always low, CUDA C++ extends the standard C++
+memory model and concurrency facilities in the cuda:: namespace with thread scopes, retaining the syntax and
+semantics of standard C++ by default.
+5.8.1. Thread Scopes
+A thread scope specifies the kind of threads that can synchronize with each other using a synchronization primitive such
+as cuda::atomic or cuda::barrier.
+namespace cuda {
+enum thread_scope {
+ thread_scope_system,
+ thread_scope_device,
+ thread_scope_block,
+ thread_scope_thread
+};
+} // namespace cuda
+5.8.1.1. Scope Relationships
+Each program thread is related to each other program thread by one or more thread scope relations:
+Each thread in the system is related to each other thread in the system by the system thread scope:
+cuda::thread_scope_system.
+Each GPU thread is related to each other GPU thread in the same CUDA device and within the same
+memory synchronization domain
+by the device thread scope: cuda::thread_scope_device.
+Each GPU thread is related to each other GPU thread in the same CUDA thread block by the block thread scope:
+cuda::thread_scope_block.
+Each thread is related to itself by the thread thread scope: cuda::thread_scope_thread.
+5.8.2. Synchronization primitives
+Types in namespaces std:: and cuda::std:: have the same behavior as corresponding types in namespace cuda::
+when instantiated with a scope of cuda::thread_scope_system.
+5.8.3. Atomicity
+An atomic operation is atomic at the scope it specifies if:
+it specifies a scope other than cuda::thread_scope_system, or
+the scope is cuda::thread_scope_system and:
+it affects an object in system allocated memory and pageableMemoryAccess is 1 [0,1], or
+it affects an object in managed memory and concurrentManagedAccess is 1 [1], or
+it affects an object in mapped memory and hostNativeAtomicSupported is 1, or
+it is a load or store that affects a naturally-aligned object of
+sizes 1, 2, 4, 8, or 16 bytes on mapped memory [2], or
+it affects an object in GPU memory, only GPU threads access it, and
+cudaDeviceGetP2PAttribute (&val, cudaDevP2PAttrNativeAtomicSupported, srcDev, dstDev)
+between each accessing srcDev and the GPU where the object resides, dstDev, is 1 [1], or
+only GPU threads from a single GPU concurrently access it.
+Note
+[0] If PageableMemoryAccessUsesHostPagetables is 0 then atomic operations to memory mapped file or hugetlbfs allocations are not atomic.
+[1] System-scope tensor reduction operations are only atomic at system-scope in these cases if hostNativeAtomicSupported is 1.
+System-scope tensor reduction operations include PTX {multimem.}cp.reduce.async.bulk.tensor.relaxed.sys instruction families and APIs that expose them like, e.g., cuda::ptx::cp_reduce_async_bulk_tensor.
+[2] If hostNativeAtomicSupported is 0, atomic load or store operations at system scope that affect a
+naturally-aligned 16-byte wide object in system allocated memory or mapped memory require system
+support. NVIDIA is not aware of any system that lacks this support and there is no CUDA API query available to
+detect such systems.
+For more information on system allocated memory, managed memory, mapped memory,
+CPU memory, and GPU memory, see the relevant sections of this guide.
+
+==================== understanding-memory.html
+2.6.3.1. Mapped Memory
+On systems with HMM or ATS, all host memory is directly accessible from the GPU using the host pointers. When ATS or HMM are not available, host allocations can be made accessible to the GPU by mapping the memory into the GPU’s memory space. Mapped memory is always page-locked.
+2.6.3.1.2. cudaHostRegister
+When ATS and HMM are not available, allocations made by system allocators can still be mapped for access directly from GPU kernels using cudaHostRegister. Unlike memory created with CUDA APIs, however, the memory cannot be accessed from the kernel using the host pointer. A pointer in the device’s memory region must be obtained using cudaHostGetDevicePointer(), and that pointer must be used for accesses in kernel code.
+void usingRegister() {
+ float* a = nullptr;
+ float* b = nullptr;
+ float* devA = nullptr;
+ float* devB = nullptr;
+ a = (float*)malloc(vLen*sizeof(float));
+ b = (float*)malloc(vLen*sizeof(float));
+ CUDA_CHECK(cudaHostRegister(a, vLen*sizeof(float), 0 ));
+ CUDA_CHECK(cudaHostRegister(b, vLen*sizeof(float), 0 ));
+ CUDA_CHECK(cudaHostGetDevicePointer((void**)&devA, (void*)a, 0));
+ CUDA_CHECK(cudaHostGetDevicePointer((void**)&devB, (void*)b, 0));
+ initVector(b, vLen);
+ memset(a, 0, vLen*sizeof(float));
+ int threads = 256;
+ int blocks = vLen/threads;
+ copyKernel<<<blocks, threads>>>(devA, devB);
+ CUDA_CHECK(cudaGetLastError());
+ CUDA_CHECK(cudaDeviceSynchronize());
+ printf("Using cudaHostRegister: ");
+ checkAnswer(a, b);
+}
+2.6.3.1.3. Comparing Unified Memory and Mapped Memory
+Mapped memory makes CPU memory accessible from the GPU, but does not guarantee that all types of access, for example atomics, are supported on all systems. Unified memory guarantees that all access types are supported.
+Mapped memory remains in CPU memory, which means all GPU accesses must go through the connection between the CPU and GPU: PCIe or NVLink. Latency of accesses made across these links are significantly higher than access to GPU memory, and total available bandwidth is lower. As such, using mapped memory for all kernel memory accesses is unlikely to fully utilize GPU computing resources.
+Unified memory is most often migrated to the physical memory of the processor accessing it. After the first migration, repeated access to the same memory page or cache line by a kernel can utilize the full GPU memory bandwidth.
+Note
+Mapped memory has also been referred to as zero-copy memory in previous documents.
+Prior to all CUDA applications using a unified virtual address space, additional APIs were needed to enable memory mapping (cudaSetDeviceFlags with cudaDeviceMapHost). These APIs are no longer needed.
+Atomic functions (see Atomic Functions) operating on mapped host memory are not atomic from the point of view of the host or other GPUs.
+CUDA runtime requires that 1-byte, 2-byte, 4-byte, 8-byte, and 16-byte naturally aligned loads and stores to host memory initiated from the device are preserved as single accesses from the point of view of the host and other devices. On some platforms, atomics to memory may be broken by the hardware into separate load and store operations. These component load and store operations have the same requirements on preservation of naturally aligned accesses. The CUDA runtime does not support a PCI Express bus topology where a PCI Express bridge splits 8-byte naturally aligned operations and NVIDIA is not aware of any topology that splits 16-byte naturally aligned operations.

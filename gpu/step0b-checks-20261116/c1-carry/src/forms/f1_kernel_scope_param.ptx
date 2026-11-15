@@ -1,0 +1,38 @@
+// (a) form 1: kernel-scope .local, its cvta.local address passed as a .reg call
+// argument to both probe functions (PTX ISA 7.1). The form the routing uses.
+.version 8.1
+.target sm_87
+.address_size 64
+.visible .func probe_in(.param .b64 probe_in_c)
+{
+	.reg .b64 %rd<4>;
+	ld.param.b64 %rd1, [probe_in_c];
+	mov.u64 %rd2, %globaltimer;
+	st.u64 [%rd1], %rd2;
+	ret;
+}
+.visible .func probe_out(.param .b64 probe_out_c)
+{
+	.reg .b64 %rd<4>;
+	ld.param.b64 %rd1, [probe_out_c];
+	ld.u64 %rd2, [%rd1];
+	st.global.u64 [%rd2], %rd2;
+	ret;
+}
+.visible .entry k(.param .u64 k_p0)
+{
+	.local .align 16 .b8 __c1_carry[16];
+	.reg .b64 %c1_carry;
+	.reg .pred %p<2>;
+	.reg .b32 %r<3>;
+	cvta.local.u64 %c1_carry, __c1_carry;
+	call probe_in, (%c1_carry);
+	mov.u32 %r1, %tid.x;
+	setp.eq.u32 %p1, %r1, 0;
+$L1: cvta.local.u64 %c1_carry, __c1_carry;
+	@%p1 call probe_out, (%c1_carry);
+	@%p1 ret;
+	cvta.local.u64 %c1_carry, __c1_carry;
+	call probe_out, (%c1_carry);
+	ret;
+}

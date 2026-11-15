@@ -1,0 +1,85 @@
+// kmr: hand-written PTX with every exit form the dev kretprobe pass handles
+// (pass/ptxpass_kretprobe/main.cpp:46-55): a predicated ret, a predicated
+// exit, a plain ret, a label and ret on one line, an exit, plus a call with
+// its own frame (c1_clobber) on one path. The exit form is chosen per thread
+// by in[gtid] & 7, so lanes of one warp leave through different exits.
+// Parameters: in (u32 per thread), kout (u64 per thread), spin_ns, caps (u32
+// counter of spin-cap hits: the spin path's iteration cap, counted, never silent).
+.visible .entry @K@(
+	.param .u64 @K@_param_0,
+	.param .u64 @K@_param_1,
+	.param .u64 @K@_param_2,
+	.param .u64 @K@_param_3
+)
+{
+	.reg .pred 	%p<10>;
+	.reg .b32 	%r<12>;
+	.reg .b64 	%rd<20>;
+
+	ld.param.u64 	%rd1, [@K@_param_0];
+	ld.param.u64 	%rd2, [@K@_param_1];
+	ld.param.u64 	%rd3, [@K@_param_2];
+	cvta.to.global.u64 	%rd4, %rd1;
+	cvta.to.global.u64 	%rd5, %rd2;
+	mov.u32 	%r1, %ctaid.x;
+	mov.u32 	%r2, %ntid.x;
+	mov.u32 	%r3, %tid.x;
+	mad.lo.s32 	%r4, %r1, %r2, %r3;
+	mul.wide.u32 	%rd6, %r4, 4;
+	add.s64 	%rd7, %rd4, %rd6;
+	ld.global.u32 	%r5, [%rd7];
+	mul.wide.u32 	%rd8, %r4, 8;
+	add.s64 	%rd9, %rd5, %rd8;
+	and.b32 	%r6, %r5, 7;
+	setp.eq.u32 	%p1, %r6, 0;
+	@%p1 ret;
+	setp.eq.u32 	%p2, %r6, 1;
+	@%p2 bra 	$L_kmr_b;
+	setp.eq.u32 	%p3, %r6, 2;
+	@%p3 bra 	$L_kmr_c;
+	setp.eq.u32 	%p4, %r6, 3;
+	@%p4 bra 	$L_kmr_d;
+	setp.eq.u32 	%p5, %r6, 4;
+	@%p5 exit;
+	setp.eq.u32 	%p6, %r6, 5;
+	@%p6 bra 	$L_kmr_e;
+	mov.u64 	%rd10, %globaltimer;
+	mov.u32 	%r7, 0;
+$L_kmr_spin:
+	mov.u64 	%rd11, %globaltimer;
+	sub.s64 	%rd12, %rd11, %rd10;
+	setp.ge.u64 	%p7, %rd12, %rd3;
+	@%p7 bra 	$L_kmr_spun;
+	add.s32 	%r7, %r7, 1;
+	setp.lt.u32 	%p8, %r7, 4194304;
+	@%p8 bra 	$L_kmr_spin;
+	ld.param.u64 	%rd16, [@K@_param_3];
+	cvta.to.global.u64 	%rd17, %rd16;
+	atom.global.add.u32 	%r8, [%rd17], 1;
+$L_kmr_spun:
+	st.global.u64 	[%rd9], %rd12;
+	exit;
+$L_kmr_b:
+	cvt.u64.u32 	%rd13, %r5;
+	st.global.u64 	[%rd9], %rd13;
+	ret;
+$L_kmr_c: ret;
+$L_kmr_d:
+	{
+	.param .b32 param0;
+	st.param.b32 	[param0+0], %r5;
+	.param .b64 retval0;
+	call.uni (retval0), 
+	c1_clobber, 
+	(
+	param0
+	);
+	ld.param.b64 	%rd14, [retval0+0];
+	}
+	st.global.u64 	[%rd9], %rd14;
+	ret;
+$L_kmr_e:
+	mov.u64 	%rd15, 5;
+	st.global.u64 	[%rd9], %rd15;
+	ret;
+}

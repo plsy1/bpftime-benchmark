@@ -1,0 +1,1002 @@
+PTX ISA 9.5 (docs.nvidia.com/cuda/parallel-thread-execution/index.html, fetched 2026-11-15,
+html md5 7957a8eb2fc8f5bfec742693531b1c42), converted to text with a stdlib HTML parser.
+Excerpts used by C4's README (verbatim; table cells are separated by ' | ').
+
+==================== lines 8109,8124 of the converted text
+8.1. Scope and applicability of the model
+
+The constraints specified under this model apply to PTX programs with any PTX ISA version number,
+running on sm_70 or later architectures.
+
+The memory consistency model does not apply to texture (including ld.global.nc) and surface
+accesses.
+
+### 
+8.1.1. Limitations on atomicity at system scope
+
+When communicating with the host CPU, certain strong operations with system scope may not be
+performed atomically on some systems. For more details on atomicity guarantees to host memory, see
+the CUDA Atomicity Requirements.
+
+## 
+
+==================== lines 8205,8301 of the converted text
+8.4. Operation types
+
+For simplicity, the rest of the document refers to the following operation types, instead of
+mentioning specific instructions that give rise to them.
+
+Table 20 Operation Types
+
+Operation Type
+ | 
+
+Instruction/Operation
+ | 
+
+atomic operation
+ | 
+
+atom or red instruction.
+ | 
+
+read operation
+ | 
+
+All variants of ld instruction and atom instruction (but not
+red instruction).
+ | 
+
+write operation
+ | 
+
+All variants of st instruction, and atomic operations if they result
+in a write.
+ | 
+
+memory operation
+ | 
+
+A read or write operation.
+ | 
+
+volatile operation
+ | 
+
+An instruction with .volatile qualifier.
+ | 
+
+acquire operation
+ | 
+
+A memory operation with .acquire or .acq_rel qualifier.
+ | 
+
+release operation
+ | 
+
+A memory operation with .release or .acq_rel qualifier.
+ | 
+
+mmio operation
+ | 
+
+An ld or st instruction with .mmio qualifier.
+ | 
+
+memory fence operation
+ | 
+
+A membar, fence.sc or fence.acq_rel instruction.
+ | 
+
+proxy fence operation
+ | 
+
+A fence.proxy or a membar.proxy instruction.
+ | 
+
+strong operation
+ | 
+
+A memory fence operation, or a memory operation with a .relaxed,
+.acquire, .release, .acq_rel, .volatile, or .mmio
+qualifier.
+ | 
+
+weak operation
+ | 
+
+An ld or st instruction with a .weak qualifier.
+ | 
+
+synchronizing operation
+ | 
+
+A barrier instruction, fence operation, release operation or
+acquire operation.
+ | 
+
+### 
+
+==================== lines 8324,8352 of the converted text
+8.4.2. volatile Operation
+
+A volatile operation is a memory operation with .volatile qualifier specified.
+The semantics of volatile operations are equivalent to a relaxed memory operation with system-scope
+but with the following extra implementation-specific constraints:
+
+The number of volatile instructions (not operations) executed by a program is preserved.
+Hardware may combine and merge volatile operations issued by multiple different volatile
+instructions, that is, the number of volatile operations in the program is not preserved.
+
+Volatile instructions are not re-ordered around other volatile instructions, but the memory
+operations performed by those instructions may be re-ordered around each other.
+
+Note
+
+PTX volatile operations are intended for compilers to lower volatile read and write operations from
+CUDA C++, and other programming languages sharing CUDA C++ volatile semantics, to PTX.
+
+Since volatile operations are relaxed at system-scope with extra constraints, prefer using other
+strong read or write operations (e.g. ld.relaxed.sys or st.relaxed.sys) for
+Inter-Thread Synchronization instead, which may deliver better performance.
+
+PTX volatile operations are not suited for Memory Mapped IO (MMIO) because volatile operations
+do not preserve the number of memory operations performed, and may perform more or less operations
+than requested in a non-deterministic way.
+Use .mmio operations instead, which strictly preserve the number of operations
+performed.
+
+## 
+
+==================== lines 8353,8398 of the converted text
+8.5. Scope
+
+Each strong operation must specify a scope, which is the set of threads that may interact
+directly with that operation and establish any of the relations described in the memory consistency
+model. There are four scopes:
+
+Table 21 Scopes
+
+Scope
+ | 
+
+Description
+ | 
+
+.cta
+ | 
+
+The set of all threads executing in the same CTA as the current thread.
+ | 
+
+.cluster
+ | 
+
+The set of all threads executing in the same cluster as the current thread.
+ | 
+
+.gpu
+ | 
+
+The set of all threads in the current program executing on the same compute
+device as the current thread. This also includes other kernel grids invoked by
+the host program on the same compute device.
+ | 
+
+.sys
+ | 
+
+The set of all threads in the current program, including all kernel grids
+invoked by the host program on all compute devices, and all threads
+constituting the host program itself.
+ | 
+
+Note that the warp is not a scope; the CTA is the smallest collection of threads that qualifies as
+a scope in the memory consistency model.
+
+## 
+
+==================== lines 8450,8474 of the converted text
+8.7. Morally strong operations
+
+Two operations are said to be morally strong relative to each other if they satisfy all of the
+following conditions:
+
+The operations are related in program order (i.e, they are both executed by the same thread),
+or each operation is strong and specifies a scope that includes the thread executing the
+other operation.
+
+Both operations are performed via the same proxy.
+
+If both are memory operations, then they overlap completely.
+
+Most (but not all) of the axioms in the memory consistency model depend on relations between
+morally strong operations.
+
+### 
+8.7.1. Conflict and Data-races
+
+Two overlapping memory operations are said to conflict when at least one of them is a write.
+
+Two conflicting memory operations are said to be in a data-race if they are not related in
+causality order and they are not morally strong.
+
+### 
+
+==================== lines 8493,8562 of the converted text
+8.8. Release and Acquire Patterns
+
+Some sequences of instructions give rise to patterns that participate in memory synchronization as
+described later. The release pattern makes prior operations from the current thread1
+visible to some operations from other threads. The acquire pattern makes some operations from
+other threads visible to later operations from the current thread.
+
+A release pattern on a location M consists of one of the following:
+
+A release operation on M
+
+E.g.: st.release [M]; or atom.release [M]; or mbarrier.arrive.release [M];
+
+Or a release or acquire-release operation on M followed by a strong write on M in program order
+
+E.g.: st.release [M]; st.relaxed [M];
+
+Or a release or acquire-release memory fence followed by a strong
+write on M in program order
+
+E.g.: fence.release; st.relaxed [M]; or fence.release; atom.relaxed [M];
+
+Or a release or acquire-release memory fence followed in program order by an asynchronous operation
+that performs a strong write on M
+
+E.g.: fence.release; cp.async.bulk.global.shared.relaxed.sys.b128 [M];
+
+Or a release asynchronous operation that performs a strong write on M
+
+E.g.: st.async.release.sys [M];
+
+Any memory synchronization established by a release pattern only affects operations occurring in
+program order before the first instruction in that pattern.
+
+An acquire pattern on a location M consists of one of the following:
+
+An acquire operation on M
+
+E.g.: ld.acquire [M]; or atom.acquire [M]; or mbarrier.test_wait.acquire [M];
+
+Or a strong read on M followed by an acquire operation on M in program order
+
+E.g.: ld.relaxed [M]; ld.acquire [M];
+
+Or a strong read on M followed by an acquire memory fence in program order
+
+E.g.: ld.relaxed [M]; fence.acquire; or atom.relaxed [M]; fence.acquire;
+
+Or first observing completion of an asynchronous operation that performs a strong read on M
+and then this observation is followed by an acquire memory fence in program order
+
+E.g.:
+cp.async.bulk.mbarrier::complete_tx::bytes.relaxed.sys.b128 [dst], [M], size, [barrier]; // strong read on M
+
+mbarrier.try_wait.relaxed p, [barrier]; // observes completion of async op that performs strong read on M
+
+@p fence.acquire; // acquire fence in program order after observing completion
+
+Any memory synchronization established by an acquire pattern only affects operations occurring
+in program order after the last instruction in that pattern.
+
+Note that while atomic reductions conceptually perform a strong read as part of its
+read-modify-write sequence, this strong read does not form an acquire pattern.
+
+E.g.: red.add [M], 1; fence.acquire; is not an acquire pattern.
+
+1 For both release and acquire patterns, this effect is further extended to operations in
+other threads through the transitive nature of causality order.
+
+## 
+
+==================== lines 8563,8755 of the converted text
+8.9. Ordering of memory operations
+
+The sequence of operations performed by each thread is captured as program order while memory
+synchronization across threads is captured as causality order. The visibility of the side-effects
+of memory operations to other memory operations is captured as communication order. The memory
+consistency model defines contradictions that are disallowed between communication order on the one
+hand, and causality order and program order on the other.
+
+### 
+8.9.1. Program Order
+
+The program order relates all operations performed by a thread to the order in which a sequential
+processor will execute instructions in the corresponding PTX source. It is a transitive relation
+that forms a total order over the operations performed by the thread, but does not relate operations
+from different threads.
+
+#### 
+8.9.1.1. Asynchronous Operations
+
+Some PTX instructions (all variants of cp.async, cp.async.bulk, cp.reduce.async.bulk,
+wgmma.mma_async) perform operations that are asynchronous to the thread that executed the
+instruction. These asynchronous operations are ordered after prior instructions in the same thread
+(except in the case of wgmma.mma_async), but they are not part of the program order for that
+thread. Instead, they provide weaker ordering guarantees as documented in the instruction
+description.
+
+For example, the loads and stores performed as part of a cp.async are ordered with respect to
+each other, but not to those of any other cp.async instructions initiated by the same thread,
+nor any other instruction subsequently issued by the thread with the exception of
+cp.async.commit_group or cp.async.mbarrier.arrive. The asynchronous mbarrier arrive-on operation
+performed by a cp.async.mbarrier.arrive instruction is ordered with respect to the memory
+operations performed by all prior cp.async operations initiated by the same thread, but not to
+those of any other instruction issued by the thread. The implicit mbarrier complete-tx
+operation that is part of all variants of cp.async.bulk and cp.reduce.async.bulk
+instructions is ordered only with respect to the memory operations performed by the same
+asynchronous instruction, and in particular it does not transitively establish ordering with respect
+to prior instructions from the issuing thread.
+
+### 
+8.9.2. Observation Order
+
+Observation order relates a write W to a read R through an optional sequence of atomic
+read-modify-write operations.
+
+A write W precedes a read R in observation order if:
+
+R and W are morally strong and R reads the value written by W, or
+
+For some atomic operation Z, W precedes Z and Z precedes R in observation order.
+
+### 
+8.9.3. Fence-SC Order
+
+The Fence-SC order is an acyclic partial order, determined at runtime, that relates every pair of
+morally strong fence.sc operations.
+
+### 
+8.9.4. Memory synchronization
+
+Synchronizing operations performed by different threads synchronize with each other at runtime as
+described here. The effect of such synchronization is to establish causality order across threads.
+
+A fence.sc operation X synchronizes with a fence.sc operation Y if X precedes Y in the
+Fence-SC order.
+
+A bar{.cta}.sync or bar{.cta}.red or bar{.cta}.arrive operation synchronizes with a
+bar{.cta}.sync or bar{.cta}.red operation executed on the same barrier.
+
+A barrier.cluster.arrive operation synchronizes with a barrier.cluster.wait operation.
+
+A release pattern X synchronizes with an acquire pattern Y, if a write operation in X
+precedes a read operation in Y in observation order, and the first operation in X and the
+last operation in Y are morally strong.
+
+API synchronization
+
+A synchronizes relation can also be established by certain CUDA APIs.
+
+Completion of a task enqueued in a CUDA stream synchronizes with the start of the following
+task in the same stream, if any.
+
+For purposes of the above, recording or waiting on a CUDA event in a stream, or causing a
+cross-stream barrier to be inserted due to cudaStreamLegacy, enqueues tasks in the associated
+streams even if there are no direct side effects. An event record task synchronizes with
+matching event wait tasks, and a barrier arrival task synchronizes with matching barrier wait
+tasks.
+
+Start of a CUDA kernel synchronizes with start of all threads in the kernel. End of all threads
+in a kernel synchronize with end of the kernel.
+
+Start of a CUDA graph synchronizes with start of all source nodes in the graph. Completion of
+all sink nodes in a CUDA graph synchronizes with completion of the graph. Completion of a graph
+node synchronizes with start of all nodes with a direct dependency.
+
+Start of a CUDA API call to enqueue a task synchronizes with start of the task.
+
+Completion of the last task queued to a stream, if any, synchronizes with return from
+cudaStreamSynchronize. Completion of the most recently queued matching event record task, if
+any, synchronizes with return from cudaEventSynchronize. Synchronizing a CUDA device or
+context behaves as if synchronizing all streams in the context, including ones that have been
+destroyed.
+
+Returning cudaSuccess from an API to query a CUDA handle, such as a stream or event, behaves
+the same as return from the matching synchronization API.
+
+In addition to establishing a synchronizes relation, the CUDA API synchronization mechanisms above
+also participate in proxy-preserved base causality order except for the tensormap-proxy which is not
+acquired from generic-proxy at CUDA Kernel start and must therefore be acquired explicitly
+using fence.proxy.tensormap::generic.acquire when needed.
+
+### 
+8.9.5. Causality Order
+
+Causality order captures how memory operations become visible across threads through synchronizing
+operations. The axiom “Causality” uses this order to constrain the set of write operations from
+which a read operation may read a value.
+
+Relations in the causality order primarily consist of relations in Base causality order1 , which is a transitive order, determined at runtime.
+
+Base causality order
+
+An operation X precedes an operation Y in base causality order if:
+
+X precedes Y in program order, or
+
+X synchronizes with Y, or
+
+For some operation Z,
+
+X precedes Z in program order and Z precedes Y in base causality order, or
+
+X precedes Z in base causality order and Z precedes Y in program order, or
+
+X precedes Z in base causality order and Z precedes Y in base causality order.
+
+Proxy-preserved base causality order
+
+A memory operation X precedes a memory operation Y in proxy-preserved base causality order if X
+precedes Y in base causality order, and:
+
+X and Y are performed to the same address, using the generic proxy, or
+
+X and Y are performed to the same address, using the same proxy, and by the same thread block,
+or
+
+X and Y are aliases and there is an alias proxy fence along the base causality path from X
+to Y.
+
+Causality order
+
+Causality order combines base causality order with some non-transitive relations as follows:
+
+An operation X precedes an operation Y in causality order if:
+
+X precedes Y in proxy-preserved base causality order, or
+
+For some operation Z, X precedes Z in observation order, and Z precedes Y in proxy-preserved
+base causality order.
+
+1 The transitivity of base causality order accounts for the “cumulativity” of synchronizing
+operations.
+
+### 
+8.9.6. Coherence Order
+
+There exists a partial transitive order that relates overlapping write operations, determined at
+runtime, called the coherence order1. Two overlapping write operations are related in
+coherence order if they are morally strong or if they are related in causality order. Two
+overlapping writes are unrelated in coherence order if they are in a data-race, which gives
+rise to the partial nature of coherence order.
+
+1 Coherence order cannot be observed directly since it consists entirely of write
+operations. It may be observed indirectly by its use in constraining the set of candidate
+writes that a read operation may read from.
+
+### 
+8.9.7. Communication Order
+
+The communication order is a non-transitive order, determined at runtime, that relates write
+operations to other overlapping memory operations.
+
+A write W precedes an overlapping read R in communication order if R returns the value of any
+byte that was written by W.
+
+A write W precedes a write W’ in communication order if W precedes W’ in coherence order.
+
+A read R precedes an overlapping write W in communication order if, for any byte accessed by
+both R and W, R returns the value written by a write W’ that precedes W in coherence order.
+
+Communication order captures the visibility of memory operations — when a memory operation X1
+precedes a memory operation X2 in communication order, X1 is said to be visible to X2.
+
+## 
+
+==================== lines 8765,8771 of the converted text
+8.10.2. Fence-SC
+
+Fence-SC order cannot contradict causality order. For a pair of morally strong fence.sc
+operations F1 and F2, if F1 precedes F2 in causality order, then F1 must precede F2 in Fence-SC
+order.
+
+### 
+
+==================== lines 8974,9095 of the converted text
+8.10.6. Causality
+
+Relations in communication order cannot contradict causality order. This constrains the set of
+candidate write operations that a read operation may read from:
+
+If a read R precedes an overlapping write W in causality order, then R cannot read from W.
+
+If a write W precedes an overlapping read R in causality order, then for any byte accessed by
+both R and W, R cannot read from any write W’ that precedes W in coherence order.
+
+Litmus Test: Message Passing
+
+.global .u32 data = 0;
+.global .u32 flag = 0;
+
+ | 
+
+T1
+ | 
+
+T2
+ | 
+
+W1: st.global.u32 [data], 1;
+F1: fence.sys;
+W2: st.global.relaxed.sys.u32 [flag], 1;
+
+ | 
+
+R1: ld.global.relaxed.sys.u32 %r0, [flag];
+F2: fence.sys;
+R2: ld.global.u32 %r1, [data];
+
+ | 
+
+IF %r0 == 1 THEN %r1 == 1
+
+ | 
+
+The litmus test known as “MP” (Message Passing) represents the essence of typical synchronization
+algorithms. A vast majority of useful programs can be reduced to sequenced applications of this
+pattern.
+
+Thread T1 first writes to a data variable and then to a flag variable while a second thread T2 first
+reads from the flag variable and then from the data variable. The operations on the flag are
+morally strong and the memory operations in each thread are separated by a fence, and these
+fences are morally strong.
+
+If R1 observes W2, then the release pattern “F1; W2” synchronizes with the acquire pattern “R1;
+F2”. This establishes the causality order W1 -> F1 -> W2 -> R1 -> F2 -> R2. Then axiom causality
+guarantees that R2 cannot read from any write that precedes W1 in coherence order. In the absence
+of any other writes in this example, R2 must read from W1.
+
+Litmus Test: CoWR
+
+// These addresses are aliases
+.global .u32 data_alias_1;
+.global .u32 data_alias_2;
+
+ | 
+
+T1
+ | 
+
+W1: st.global.u32 [data_alias_1], 1;
+F1: fence.proxy.alias;
+R1: ld.global.u32 %r1, [data_alias_2];
+
+ | 
+
+%r1 == 1
+
+ | 
+
+Virtual aliases require an alias proxy fence along the synchronization path.
+
+Litmus Test: Store Buffering
+
+The litmus test known as “SB” (Store Buffering) demonstrates the sequential consistency enforced
+by the fence.sc. A thread T1 writes to a first variable, and then reads the value of a second
+variable, while a second thread T2 writes to the second variable and then reads the value of the
+first variable. The memory operations in each thread are separated by fence.sc instructions,
+and these fences are morally strong.
+
+.global .u32 x = 0;
+.global .u32 y = 0;
+
+ | 
+
+T1
+ | 
+
+T2
+ | 
+
+W1: st.global.u32 [x], 1;
+F1: fence.sc.sys;
+R1: ld.global.u32 %r0, [y];
+
+ | 
+
+W2: st.global.u32 [y], 1;
+F2: fence.sc.sys;
+R2: ld.global.u32 %r1, [x];
+
+ | 
+
+%r0 == 1 OR %r1 == 1
+
+ | 
+
+In any execution, either F1 precedes F2 in Fence-SC order, or vice versa. If F1 precedes F2 in
+Fence-SC order, then F1 synchronizes with F2. This establishes the causality order in W1 -> F1
+-> F2 -> R2. Axiom causality ensures that R2 cannot read from any write that precedes W1 in
+coherence order. In the absence of any other write to that variable, R2 must read from
+W1. Similarly, in the case where F2 precedes F1 in Fence-SC order, R1 must read from W2. If each
+fence.sc in this example were replaced by a fence.acq_rel instruction, then this outcome is
+not guaranteed. There may be an execution where the write from each thread remains unobserved from
+the other thread, i.e., an execution is possible, where both R1 and R2 return the initial value “0”
+for variables y and x respectively.
+
+## 
+
+==================== lines 9096,9139 of the converted text
+8.11. Special Cases
+
+### 
+8.11.1. Reductions do not form Acquire Patterns
+
+Atomic reduction operations like red do not form acquire patterns with acquire fences.
+
+Litmus Test: Message Passing with a Red Instruction
+
+.global .u32 x = 0;
+.global .u32 flag = 0;
+
+ | 
+
+T1
+ | 
+
+T2
+ | 
+
+W1: st.u32 [x], 42;
+W2: st.release.gpu.u32 [flag], 1;
+
+ | 
+
+RMW1: red.sys.global.add.u32 [flag], 1;
+F2: fence.acquire.gpu;
+R2: ld.weak.u32 %r1, [x];
+
+ | 
+
+%r1 == 0 AND flag == 2
+
+ | 
+
+The litmus test known as “MP” (Message Passing) demonstrates the consequence
+of reductions being excluded from acquire patterns.
+It is possible to observe the outcome where R2 reads the value 0
+from x and flag has the final value of 2.
+This outcome is possible since the release pattern in T1 does not synchronize
+with any acquire pattern in T2.
+Using the atom instruction instead of red forbids this outcome.
+
+# 
+
+==================== lines 30241,30287 of the converted text
+9.7.15.2. Parallel Synchronization and Communication Instructions: bar.warp.sync
+
+bar.warp.sync
+
+Barrier synchronization for threads in a warp.
+
+Syntax
+
+bar.warp.sync membermask;
+
+Description
+
+bar.warp.sync will cause executing thread to wait until all threads corresponding to
+membermask have executed a bar.warp.sync with the same membermask value before resuming
+execution.
+
+Operand membermask specifies a 32-bit integer which is a mask indicating threads participating
+in barrier where the bit position corresponds to thread’s laneid.
+
+The behavior of bar.warp.sync is undefined if the executing thread is not in the membermask.
+
+bar.warp.sync also guarantee memory ordering among threads participating in barrier. Thus,
+threads within warp that wish to communicate via memory can store to memory, execute
+bar.warp.sync, and then safely read values stored by other threads in warp.
+
+Note
+
+For .target sm_6x or below, all threads in membermask must execute the same
+bar.warp.sync instruction in convergence, and only threads belonging to some membermask
+can be active when the bar.warp.sync instruction is executed. Otherwise, the behavior is
+undefined.
+
+PTX ISA Notes
+
+Introduced in PTX ISA version 6.0.
+
+Target ISA Notes
+
+Requires sm_30 or higher.
+
+Examples
+
+st.shared.u32 [r0],r1; // write my result to shared memory
+bar.warp.sync 0xffffffff; // arrive, wait for others to arrive
+ld.shared.u32 r2,[r3]; // read results written by other threads
+
+#### 
+
+==================== lines 30373,30520 of the converted text
+9.7.15.4. Parallel Synchronization and Communication Instructions: membar / fence
+
+membar, fence
+
+Enforce an ordering of memory operations.
+
+Syntax
+
+// Thread fence:
+fence{.sem}.scope;
+
+// Thread fence:
+fence.acquire.sync_restrict::shared::cluster.cluster;
+fence.release.sync_restrict::shared::cta.cluster;
+
+// Operation fence:
+fence.op_restrict.release.cluster;
+
+// Proxy fence (bi-directional):
+fence.proxy.proxykind;
+fence.proxy.proxykind{.sem}.scope;
+
+// Proxy fence (uni-directional):
+fence.proxy.to_proxykind::from_proxykind.release.scope;
+fence.proxy.to_proxykind::from_proxykind.acquire.scope [addr], size;
+fence.proxy.async::generic.acquire.sync_restrict::shared::cluster.cluster;
+fence.proxy.async::generic.release.sync_restrict::shared::cta.cluster;
+fence.proxy.async::generic.release.sync_restrict::shared::cluster::read.cluster;
+fence.proxy.to_proxykind::from_proxykind_fabric.alias.sem_fabric.sys;
+
+// Generic-proxy to generic-proxy alias fence:
+fence.alias.sync_restrict::read.release.sys;
+
+// Old style membar:
+membar.level;
+membar.proxy.proxykind;
+
+.sem = { .sc, .acq_rel, .acquire, .release };
+.scope = { .cta, .cluster, .gpu, .sys };
+.level = { .cta, .gl, .sys };
+.proxykind = { .alias, .async, .async.global, .async.shared::{cta, cluster} };
+.op_restrict = { .mbarrier_init };
+.to_proxykind::from_proxykind = {.tensormap::generic};
+.to_proxykind::from_proxykind_fabric = {.generic::fabric, .fabric::generic, .fabric::fabric };
+.sem_fabric = { .acquire, .release };
+
+Description
+
+The membar instruction guarantees that prior memory accesses requested by this thread (ld,
+st, atom and red instructions) are performed at the specified level, before later
+memory operations requested by this thread following the membar instruction. The level
+qualifier specifies the set of threads that may observe the ordering effect of this operation.
+
+A memory read (e.g., by ld or atom) has been performed when the value read has been
+transmitted from memory and cannot be modified by another thread at the indicated level. A memory
+write (e.g., by st, red or atom) has been performed when the value written has become
+visible to other threads at the specified level, that is, when the previous value can no longer be
+read.
+
+The fence instruction establishes an ordering between memory accesses requested by this thread
+(ld, st, atom and red instructions) as described in the
+Memory Consistency Model. The scope qualifier specifies the set of threads that may
+observe the ordering effect of this operation.
+
+fence.acq_rel is a light-weight fence that is sufficient for memory synchronization in most
+programs. Instances of fence.acq_rel synchronize when combined with additional memory operations
+as described in acquire and release patterns in the Memory Consistency Model.
+If the optional .sem qualifier is absent, .acq_rel
+is assumed by default.
+
+fence.sc is a slower fence that can restore sequential consistency when used in sufficient
+places, at the cost of performance. Instances of fence.sc with sufficient scope always
+synchronize by forming a total order per scope, determined at runtime. This total order can be
+constrained further by other synchronization in the program.
+
+Qualifiers .op_restrict and .sync_restrict restrict the class of memory operations
+for which the fence instruction provides the memory ordering guarantees. When .op_restrict
+is .mbarrier_init, the synchronizing effect of the fence only applies to the prior
+mbarrier.init operations executed by the same thread on mbarrier objects in .shared::cta
+state space. When .sync_restrict is .sync_restrict::shared::cta, .sem must be
+.release, and the effect of the fence only applies to operations performed on objects in
+.shared::cta state space. Likewise, when .sync_restrict is .sync_restrict::shared::cluster,
+.sem must be .acquire, and the effect of the fence only applies to operations performed on
+objects in .shared::cluster state space. When either .sync_restrict::shared::cta or
+.sync_restrict::shared::cluster is present, the .scope must be specified as .cluster.
+
+When .sync_restrict is .sync_restrict::shared::cluster::read, .sem must be
+.release, and the effect of the fence only applies to read operations performed on objects in
+.shared::cluster state space. When this synchronization restriction is present, the .scope
+must be specified as .cluster.
+
+Caution
+
+fence.proxy.async::generic.release.sync_restrict::shared::cluster::read.cluster is
+a non-cumulative fence operation: it does not transitively establish ordering with respect to
+Causality Order.
+
+The address operand addr and the operand size together specify the memory range
+[addr, addr+size-1] on which the ordering guarantees on the memory accesses across the proxies is to be
+provided. The only supported value for the size operand is 128, which must be a constant integer literal.
+Generic Addressing is used unconditionally, and the address specified by
+the operand addr must fall within the .global state space. Otherwise, the behavior is undefined.
+
+On sm_70 and higher membar is a synonym for fence.sc1, and the membar
+levels cta, gl and sys are synonymous with the fence scopes cta, gpu and
+sys respectively.
+
+membar.proxy and fence.proxy instructions establish an ordering between memory accesses that
+may happen through different proxies.
+
+A uni-directional proxy ordering from the from-proxykind to the to-proxykind establishes
+ordering between a prior memory access performed via the from-proxykind and a subsequent memory access
+performed via the to-proxykind.
+
+A bi-directional proxy ordering between two proxykinds establishes two uni-directional proxy orderings
+: one from the first proxykind to the second proxykind and the other from the second proxykind to the first
+proxykind.
+
+The .proxykind qualifier indicates the bi-directional proxy ordering that is established between the memory
+accesses done between the generic proxy and the proxy specified by .proxykind.
+
+Bi-directional proxy fences do not directly synchronize with other fences in the sense that
+fences with .release or .acquire semantics do. Instead, bi-directional proxy fences
+take effect within a single thread and therefore do not have a .scope qualifier. Their
+cross-proxy synchronizing effect composes with other forms of synchronization according to
+the rules of the Memory Consistency Model.
+
+Value .alias of the .proxykind qualifier refers to memory accesses performed using virtually
+aliased addresses to the same memory location. Value .async of the .proxykind qualifier specifies
+that the memory ordering is established between the async proxy and the generic proxy. The memory
+ordering is limited only to operations performed on objects in the state space specified. If no state space
+is specified, then the memory ordering applies on all state spaces.
+
+A .release proxy fence can form a release sequence that synchronizes with an acquire
+sequence that contains a .acquire proxy fence. The .to_proxykind and
+.from_proxykind qualifiers indicate the uni-directional proxy ordering that is established.
+
+The qualifier sync_restrict::read builds a release pattern
+that only releases prior reads.
+
+On sm_70 and higher, membar.proxy is a synonym for fence.proxy.
+
+1 The semantics of fence.sc introduced with sm_70 is a superset of the semantics of
+membar and the two are compatible; when executing on sm_70 or later architectures,
+membar acquires the full semantics of fence.sc.
+
+PTX ISA Notes
+
+
+==================== lines 30700,30712 of the converted text
+of which is equal to the size of vector qualifier.
+
+If no sub-qualifier is specified with .shared state space, then ::cta is assumed by default.
+
+The optional .sem qualifier specifies a memory synchronizing effect as described in the
+Memory Consistency Model. If the .sem qualifier is absent,
+.relaxed is assumed by default.
+
+The optional .scope qualifier specifies the set of threads that can directly observe the memory
+synchronizing effect of this operation, as described in the Memory Consistency Model.
+If the .scope qualifier is absent, .gpu scope is
+assumed by default.
+
+
+==================== lines 8772,8793 of the converted text
+8.10.3. Atomicity
+
+Single-Copy Atomicity
+
+Conflicting morally strong operations are performed with single-copy atomicity. When a read R
+and a write W are morally strong, then the following two communications cannot both exist in the
+same execution, for the set of bytes accessed by both R and W:
+
+R reads any byte from W.
+
+R reads any byte from any write W’ which precedes W in coherence order.
+
+Atomicity of read-modify-write (RMW) operations
+
+When an atomic operation A and a write W overlap and are morally strong, then the following
+two communications cannot both exist in the same execution, for the set of bytes accessed by both A
+and W:
+
+A reads any byte from a write W’ that precedes W in coherence order.
+
+A follows W in coherence order.
+
+
+
+==================== added by the C4 review (2026-11-15): sections 8.2, 8.2.1, 8.2.2, 8.6, 8.6.1
+and the Target ISA Notes of 9.7.15.4, from a re-fetch of the same page (html md5
+7957a8eb2fc8f5bfec742693531b1c42, identical to the one above), converted with a separate stdlib
+HTML parser (one heading per section; list items one per line).
+
+==================== review re-fetch
+8.2. Memory operations
+
+The fundamental storage unit in the PTX memory model is a byte, consisting of 8 bits. Each state
+space available to a PTX program is a sequence of contiguous bytes in memory. Every byte in a PTX
+state space has a unique address relative to all threads that have access to the same state space.
+Each PTX memory instruction specifies an address operand and a data type. The address operand
+contains a virtual address that gets converted to a physical address during memory access. The
+physical address and the size of the data type together define a physical memory location, which is
+the range of bytes starting from the physical address and extending up to the size of the data type
+in bytes. Analogously, the address operand together with the size of the data type define the range of
+virtual memory addresses accessed by the memory operation. For fabric instructions, the address
+operand instead contains a CFT Handle that is accessed via the fabric-proxy; refer to
+Fabric Instructions for details.
+The memory consistency model specification uses the terms “address” or “memory address” to indicate
+a virtual address, and the term “memory location” to indicate a physical memory location.
+Each PTX memory instruction also specifies the operation — either a read, a write or an atomic
+read-modify-write — to be performed on all the bytes in the corresponding memory location.
+
+==================== review re-fetch
+8.2.1. Overlap
+
+Two memory locations are said to overlap when the starting address of one location is within the
+range of bytes constituting the other location. Two memory operations are said to overlap when the
+range of virtual addresses accessed by the two operations intersect. The overlap is said to be complete
+when both memory locations are identical, and it is said to be partial otherwise.
+
+==================== review re-fetch
+8.2.2. Aliases
+
+Two distinct virtual addresses are said to be aliases if they map to the same memory location.
+
+==================== review re-fetch
+8.6. Proxies
+
+A memory proxy, or a proxy is an abstract label applied to a method of memory access. When two
+memory operations use distinct methods of memory access, they are said to be different proxies.
+A proxy fence is required to synchronize memory operations across different proxies. Although
+virtual aliases use the generic method of memory access, since using distinct virtual addresses
+behaves as if using different proxies, they require a proxy fence to establish memory ordering.
+Unless otherwise specified, memory operations as defined in Operation types use generic
+method of memory access, i.e. a generic proxy. Operations using methods of access distinct from
+the generic method include:
+textures and surface accesses,
+accesses to the same location via the same proxy using distinct virtual memory addresses,
+async-proxy and tensormap-proxy accesses by .async.bulk operations,
+fabric-proxy accesses by fabric operations,
+readonly-proxy accesses by ld.proxy::readonly operations.
+The readonly proxy may be used to load read-only data. Refer to
+Data Movement and Conversion Instructions: ld for details.
+
+==================== review re-fetch
+8.6.1. Strong Proxy Accesses
+
+Strong modifications through
+generic-proxy,
+async-proxy,
+tensormap-proxy,
+fabric-proxy,
+eventually become observable by strong accesses to the same location
+performed via a different proxy in that list, if modification and access are:
+system-scope - even if these used distinct memory addresses - or
+gpu-scope if the different proxies involved are in the following list:
+async-proxy,
+generic-proxy.
+
+==================== review re-fetch (9.7.15.4, its Target ISA Notes only)
+9.7.15.4. Parallel Synchronization and Communication Instructions: membar / fence
+
+Target ISA Notes
+membar.{cta,gl} supported on all target architectures.
+membar.sys requires sm_20 or higher.
+fence requires sm_70 or higher.
+membar.proxy requires sm_60 or higher.
+fence.proxy requires sm_70 or higher.
+.cluster scope qualifier requires sm_90 or higher.
+.op_restrict qualifier requires sm_90 or higher.
+fence.proxy.async requires sm_90 or higher.
+.to_proxykind::from_proxykind qualifier requires sm_90 or higher.
+.acquire and .release qualifiers for fence instruction require sm_90 or higher.
+.sync_restrict qualifier requires sm_90 or higher.
+.to_proxykind::from_proxykind_fabric qualifier requires sm_100 or higher.
+.sync_restrict::shared::cluster::read qualifier requires sm_90 or higher.
+.acquire and .release qualifiers with .alias qualifier require sm_90 or higher.
+fence.alias.sync_restrict::read.release.sys requires sm_90 or higher.

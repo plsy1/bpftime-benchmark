@@ -1,0 +1,90 @@
+== board before 2026-11-16 00:15:46
+cpu5 cur freq: 1728000
+gpu cur freq: 1020000000
+gpu load (permille): 0
+loadavg: 0.59 2.00 1.89 1/742 76096
+    PID %CPU     ELAPSED COMMAND
+   6087  2.5    07:29:04 /home/jetson/.claude/remote/ccd-cli/2.1.325-697a82e23a44 --output-format stream-json --verbose --input-format stream-json --effort=xhig
+   6089  0.3    07:29:04 /home/jetson/.claude/remote/ccd-cli/2.1.325-697a82e23a44 --output-format stream-json --verbose --input-format stream-json --effort=high
+   6088  0.3    07:29:04 /home/jetson/.claude/remote/ccd-cli/2.1.325-697a82e23a44 --output-format stream-json --verbose --input-format stream-json --effort=high
+   6077  0.3    07:29:04 /home/jetson/.claude/remote/ccd-cli/2.1.325-697a82e23a44 --output-format stream-json --verbose --input-format stream-json --effort=high
+   6078  0.3    07:29:04 /home/jetson/.claude/remote/ccd-cli/2.1.325-697a82e23a44 --output-format stream-json --verbose --input-format stream-json --effort=high
+   2572  0.3    07:33:38 (udev-worker)
+   2030  0.1    07:33:40 /usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --port=41641
+== step build (00:15:46, timeout 600 s): ./build.sh
+RESULT PASS
+built: /home/jetson/src/bpftime-gpu-work/step0b/c2-claim/build
+== step build rc=0 (00:16:41)
+== step selftest (00:16:41, timeout 60 s): python3 -I analyze_chk.py --selftest
+selftest ok
+== step selftest rc=0 (00:16:41)
+== step bench (00:16:41, timeout 900 s): ./build/c2bench --out /home/jetson/src/bpftime-gpu-work/step0b/c2-claim/runs/20261116-001546/bench --rounds 10 --target-ms 4 --max-wall-s 780
+round 7 done, 20.7 s
+round 8 done, 22.5 s
+round 9 done, 24.2 s
+done: 10 rounds, 24.2 s, out /home/jetson/src/bpftime-gpu-work/step0b/c2-claim/runs/20261116-001546/bench
+== step bench rc=0 (00:17:06)
+== step native (00:17:06, timeout 1500 s): ./build/c2chk --module build/kernels.cubin --path native --out /home/jetson/src/bpftime-gpu-work/step0b/c2-claim/runs/20261116-001546/native --min-claims 100000 --ctl-min-claims 20000 --aba-min-claims 1000000 --max-launches 600 --full-reps 3 --stream-launches 30 --graph-replays 200 --mask-launches 20
+full     x_full_lfglob_r_lane     native f=1    launches=1     claims=12288     misses=0        split=0        viol=0        caps=0/0/0 end=clean 0.00s
+full     x_full_lfglob_r_lane     native f=1    launches=1     claims=8192      misses=0        split=0        viol=0        caps=0/0/0 end=clean 0.00s
+streams  x_div_lfglob_r_lane      native f=1    launches=60    claims=1474560   misses=0        split=0        viol=0        caps=0/0/0 end=clean 0.02s
+graph    x_div_lfglob_r_lane      native f=1    launches=600   claims=14745600  misses=0        split=0        viol=0        caps=0/0/0 end=clean 0.30s
+== step native rc=0 (00:18:49)
+== step jit (00:18:49, timeout 400 s): ./build/c2chk --module build/kernels_jit.ptx --path jit --out /home/jetson/src/bpftime-gpu-work/step0b/c2-claim/runs/20261116-001546/jit --cases mask,div --pools bmsm,stkglob,lnsm,lfsm --exits o_lane,oc_lane,o_first,oc_first --min-claims 100000 --ctl-min-claims 20000 --aba-min-claims 1000000 --max-launches 600 --full-reps 3 --stream-launches 30 --graph-replays 200 --mask-launches 20
+split    x_div_lfsm_o_first       jit    f=1    launches=1     claims=49152     misses=0        split=0        viol=824443   caps=0/0/0 end=clean 0.00s
+entrydiv x_div_lfsm_o_first       jit    f=1    launches=1     claims=49152     misses=0        split=0        viol=828840   caps=0/0/0 end=clean 0.00s
+churn    x_div_lfsm_o_first       jit    f=1    launches=1     claims=786432    misses=0        split=0        viol=4726979  caps=0/0/0 end=clean 0.00s
+churnsync x_div_lfsm_o_first       jit    f=1    launches=1     claims=786432    misses=0        split=0        viol=4725042  caps=0/0/0 end=clean 0.00s
+== step jit rc=0 (00:19:10)
+== step hold_ctl (00:19:10, timeout 150 s): ./build/c2chk --module build/kernels.cubin --path native --out /home/jetson/src/bpftime-gpu-work/step0b/c2-claim/runs/20261116-001546/hold_ctl --cases hold --exits o_lane,r_lane,oc_lane --hold-ms 8 --hold-launches 3
+hold     x_hold_lfsm_o_lane       native f=1    launches=3     claims=73728     misses=0        split=0        viol=0        caps=0/0/0 end=clean 0.13s
+hold     x_hold_lfsm_r_lane       native f=1    launches=3     claims=73728     misses=0        split=0        viol=0        caps=0/0/0 end=clean 0.13s
+hold     x_hold_lfglob_o_lane     native f=1    launches=3     claims=73728     misses=0        split=0        viol=0        caps=0/0/0 end=clean 0.13s
+hold     x_hold_lfglob_r_lane     native f=1    launches=3     claims=73728     misses=0        split=0        viol=0        caps=0/0/0 end=clean 0.13s
+== step hold_ctl rc=0 (00:19:13)
+== step hold_hog (00:19:14, timeout 150 s): ./build/c2chk --module build/kernels.cubin --path native --out /home/jetson/src/bpftime-gpu-work/step0b/c2-claim/runs/20261116-001546/hold_hog --cases hold --exits o_lane,r_lane,oc_lane --hold-ms 8 --hold-launches 3
+hold     x_hold_lfsm_o_lane       native f=1    launches=3     claims=73728     misses=0        split=0        viol=0        caps=0/0/0 end=clean 0.14s
+hold     x_hold_lfsm_r_lane       native f=1    launches=3     claims=73728     misses=0        split=0        viol=0        caps=0/0/0 end=clean 0.14s
+hold     x_hold_lfglob_o_lane     native f=1    launches=3     claims=73728     misses=0        split=0        viol=0        caps=0/0/0 end=clean 0.14s
+hold     x_hold_lfglob_r_lane     native f=1    launches=3     claims=73728     misses=0        split=0        viol=0        caps=0/0/0 end=clean 0.14s
+== step hold_hog rc=0 (00:19:17)
+hog_alive_at_end=1
+# C2 correctness summary
+
+| group | verdict | per pool |
+|---|---|---|
+| warp_activemask | incorrect | bmsm: incorrect, bmglob: incorrect, stksm: incorrect, stkglob: incorrect |
+| warp_constructed_mask | correct (every pool) | bmsm: correct, bmglob: correct, stksm: correct, stkglob: correct |
+| lane | correct (every pool) | lnsm: correct, lnglob: correct, lfsm: correct, lfglob: correct |
+
+## Variants (decision rows)
+
+- **bmsm o_lane (warp_activemask): incorrect**. arbitration at factor 0.5 (retries + claims away from the hint): 1225150; claims 3641439, misses 312146232 (cap 0, empty pool 312146232), violations 41735854
+  - incorrect: native/churn f=0.5: 10413712 violations (dbl_claim=135, foreign=8718294, freed_live=1872, lanetag_bad=1306982, bad_rel=135, tag_bad=386294)
+# C2 cost summary
+
+rounds 10, hold-capped rows dropped 0, validation failures 0, unclean rows 0
+
+## Decision (anchor; increment over the %warpid-addressed slot; small <= 0.053 ns = 5%, moderate <= 0.106 ns = 10%)
+
+- warp_activemask: **large** (anchor|c_bmsm_o_lane|f1, chk incorrect): +0.5577 ns per thread execution over c_wid [projection 52.5%]; whole mechanism 0.6546 ns [projection 61.6%]; chosen from all variants (none chk-correct or no chk summary)
+  - rows that could not carry the decision: c_stkglob_o_lane: miss rate 0.016 > 0.01; 2x row: miss rate 0.015 > 0.01
+- warp_constructed_mask: **large** (anchor|c_bmsm_oc_lane|f1, chk correct): +0.5849 ns per thread execution over c_wid [projection 55.0%]; whole mechanism 0.6818 ns [projection 64.2%]; chosen from chk-correct variants
+  - rows that could not carry the decision: c_stkglob_oc_lane: miss rate 0.015 > 0.01; no 2x row
+- lane: **large** (anchor|c_lfsm_o_lane|f1, chk correct): +0.1172 ns per thread execution over c_wid [projection 11.0%]; whole mechanism 0.2141 ns [projection 20.2%]; chosen from chk-correct variants
+
+== board after 2026-11-16 00:19:44
+cpu5 cur freq: 1728000
+gpu cur freq: 1020000000
+gpu load (permille): 0
+loadavg: 0.08 1.04 1.53 1/743 76565
+    PID %CPU     ELAPSED COMMAND
+  76566  100       00:00 ps -eo pid,pcpu,etime,args --sort=-pcpu
+   6087  2.5    07:33:02 /home/jetson/.claude/remote/ccd-cli/2.1.325-697a82e23a44 --output-format stream-json --verbose --input-format stream-json --effort=xhig
+   6089  0.3    07:33:02 /home/jetson/.claude/remote/ccd-cli/2.1.325-697a82e23a44 --output-format stream-json --verbose --input-format stream-json --effort=high
+   6088  0.3    07:33:02 /home/jetson/.claude/remote/ccd-cli/2.1.325-697a82e23a44 --output-format stream-json --verbose --input-format stream-json --effort=high
+   6077  0.3    07:33:02 /home/jetson/.claude/remote/ccd-cli/2.1.325-697a82e23a44 --output-format stream-json --verbose --input-format stream-json --effort=high
+   6078  0.3    07:33:02 /home/jetson/.claude/remote/ccd-cli/2.1.325-697a82e23a44 --output-format stream-json --verbose --input-format stream-json --effort=high
+   2572  0.3    07:37:36 (udev-worker)
+shm: unchanged
+run_all rc=0, out /home/jetson/src/bpftime-gpu-work/step0b/c2-claim/runs/20261116-001546

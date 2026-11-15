@@ -3,6 +3,14 @@
 The nine checks of section 5 of `gpu/dir1-design-space-20261115/README.md`, run on the Orin before any design work.
 Each check asks a question about the hardware or the runtime that the storage design depends on; none of them builds the design.
 
+**Revised by `gpu/step0b-checks-20261116`** (a follow-up that checked every conclusion against the documents and tested the mechanisms that avoid undocumented behaviour):
+- Checks 1's slot exclusivity and id stability are measured behaviour of this board, not documented: the PTX ISA promises `%warpid` unique only within a CTA and says ids may change during execution. A design takes exclusivity from an atomic claim and carries the slot from entry to exit.
+- Check 3's "two-step copy, flags first" is **not** documented while the writer runs; only a copy ordered after the writer's completion is. Its global-capture problem has a documented remedy that held (the copier switches its own thread to relaxed mode).
+- Check 7's "correct under partial masks" holds for a single atomic in the leader's region; a warp claim with retries and an `__activemask()` mask is wrong. Use a mask known by construction, or per-lane paths.
+- Check 4 and the publication protocols rest on an undocumented assumption when the reader is another process (the CPU's mapping and the GPU's device pointer are aliases).
+- Check 2's "single digit only with batched publication": batching 384-1,536 warps behind one system fence was measured at 3.3-3.8 ns per warp record, about 10% [projection] at anchor, so batching alone does not reach single digit.
+- Check 5's fetch-add is `.gpu` scope; a CPU read of the same word while the kernel runs is outside the memory model (GPU-CPU atomicity needs `.sys` scope).
+
 - **Board:** Jetson Orin, sm_87, 8 SMs, CUDA 13.2, driver 595.78, Linux 6.8.12-1021-tegra-btf. cpu5 at 1,728,000 kHz and the GPU at 1,020 MHz before and after every step (`logs/main-20261115-050439.log`).
 - **Runs:** all 13 steps in one serial pass, 05:04-05:53 JST, every step rc 0, nothing else using the GPU (the busiest processes and the clocks are logged around each step). The daily timer was disabled; apt's timers fire at 06:24, after the pass. A second pass, 06:04-06:54 JST, repeated everything (section "Second pass"); the numbers below are pass 1's. Driver: `run_step0_all.sh` (the pass-2 version, which also waits for apt before timed steps; pass 1's version is in this directory's first commit).
 - **bpftime:** dev 52126f33 (`build-cuda` of the dev worktree) for checks 5, 6 and 8. Checks 7 (llama part) and 9 used an instrumentation-only build of the same commit: four read-only helpers (520 activemask, 521 `%gridid`, 522 `%nsmid`, 523 `%nwarpid`) and a launch-geometry log in every launch hook. It is commit 7e78a5d2 on the local branch `exp/step0-instrumentation` (never pushed); the patch is in `instrumentation-build/`.

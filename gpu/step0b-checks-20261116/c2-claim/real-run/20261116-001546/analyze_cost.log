@@ -1,0 +1,20 @@
+# C2 cost summary
+
+rounds 10, hold-capped rows dropped 0, validation failures 0, unclean rows 0
+
+## Decision (anchor; increment over the %warpid-addressed slot; small <= 0.053 ns = 5%, moderate <= 0.106 ns = 10%)
+
+- warp_activemask: **large** (anchor|c_bmsm_o_lane|f1, chk incorrect): +0.5577 ns per thread execution over c_wid [projection 52.5%]; whole mechanism 0.6546 ns [projection 61.6%]; chosen from all variants (none chk-correct or no chk summary)
+  - rows that could not carry the decision: c_stkglob_o_lane: miss rate 0.016 > 0.01; 2x row: miss rate 0.015 > 0.01
+- warp_constructed_mask: **large** (anchor|c_bmsm_oc_lane|f1, chk correct): +0.5849 ns per thread execution over c_wid [projection 55.0%]; whole mechanism 0.6818 ns [projection 64.2%]; chosen from chk-correct variants
+  - rows that could not carry the decision: c_stkglob_oc_lane: miss rate 0.015 > 0.01; no 2x row
+- lane: **large** (anchor|c_lfsm_o_lane|f1, chk correct): +0.1172 ns per thread execution over c_wid [projection 11.0%]; whole mechanism 0.2141 ns [projection 20.2%]; chosen from chk-correct variants
+
+Reference: today's 1512 op 0.433 ns per thread execution at anchor (step 0, check 2).
+
+## anchor
+
+| item | ns/thread [min-max] | ns/warp | [projection] | incr over c_wid | incr over c_probe | miss rate | caps | valid |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| c_bmglob_o_agg f1 | 0.6228 [0.6215-0.6243] | 19.93 | 58.6% | 0.5260 | 0.5976 | 0.0000 | 0/0 | ok |
+| c_bmglob_o_lane f1 | 0.7244 [0.7225-0.7266] | 23.18 | 68.2% | 0.6274 | 0.6991 | 0.0000 | 0/0 | ok |

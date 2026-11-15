@@ -1,0 +1,321 @@
+--- /home/jetson/src/bpftime-gpu-work/step0/e2-cost/src/kernels.cu	2026-11-15 04:30:15.462521824 +0900
++++ src/kernels.cu	2026-11-15 22:58:27.333708481 +0900
+@@ -1,3 +1,7 @@
++// c3-costparts kernels (step 0b, check C3): a copy of step 0's
++// e2-cost/src/kernels.cu, unchanged above the line "C3 additions", plus the
++// cases of C3 (b) slot addressing and (d) fence kinds at the end.
++//
+ // e2-cost kernels: placement and atomic cost (step 0, check 2).
+ // Built with nvcc -cubin for sm_87 and launched with cuLaunchKernel, the same
+ // launch path as the 1512 reference module (ref/build_ref.py).
+@@ -426,3 +430,310 @@
+ INST(atom_sm)
+ INST(cas_sm)
+ INST(comp_rec)
++
++// ============================================================================
++// C3 additions (step 0b). Everything above is step 0's e2-cost kernels.cu.
++// ============================================================================
++#define AUX_MISS 2 // C3 (b): exit tag checks that did not match
++#define AUX_OOR 3 // C3 (b): slot index out of range (fallback taken)
++#define AUX_HITS 4 // C3 (b): exit tag checks that matched (validation only)
++#define TIDW_SLOTS 16384u // C3 (b): tid-folded table, power of two >= 12,288
++
++__device__ __forceinline__ unsigned hw_nsmid()
++{
++	unsigned r;
++	asm volatile("mov.u32 %0, %%nsmid;" : "=r"(r));
++	return r;
++}
++__device__ __forceinline__ unsigned hw_nwarpid()
++{
++	unsigned r;
++	asm volatile("mov.u32 %0, %%nwarpid;" : "=r"(r));
++	return r;
++}
++__device__ __forceinline__ void st_v2(uint64_t *p, uint64_t a, uint64_t b)
++{
++	asm volatile("st.global.v2.u64 [%0], {%1, %2};" ::"l"(p), "l"(a),
++		     "l"(b)
++		     : "memory");
++}
++template <int CG>
++__device__ __forceinline__ void ld_v2(const uint64_t *p, uint64_t &a,
++				      uint64_t &b)
++{
++	if (CG)
++		asm volatile("ld.global.cg.v2.u64 {%0, %1}, [%2];"
++			     : "=l"(a), "=l"(b)
++			     : "l"(p)
++			     : "memory");
++	else
++		asm volatile("ld.global.v2.u64 {%0, %1}, [%2];"
++			     : "=l"(a), "=l"(b)
++			     : "l"(p)
++			     : "memory");
++}
++
++// ---- (b) slot addressing ----------------------------------------------------
++// A 16-byte slot {owner tag, state} per thread. ADDR selects the index:
++//   0  hardware position: (%smid x %nwarpid + %warpid) x 32 + %laneid, out of
++//      (%nsmid x %nwarpid x 32) slots (12,288 here, 192 KiB); an index out of
++//      range is counted (AUX_OOR) and the slot is not used
++//   1  the global 1-D thread id (T slots; control without special registers)
++//   2  the thread id folded to TIDW_SLOTS (256 KiB, about the hardware table's
++//      footprint; control without special registers)
++// EXIT: 0 entry only (index + 16-B store {tag, 0}); 1 entry, then the exit
++// side as a separate probe would do it: index recomputed from the ids, 16-B
++// load, tag compared, mismatch counted (AUX_MISS); 2 the same with
++// ld.global.cg (L2, not L1) at exit. The exit side's instructions are all
++// there (SASS-checked), but ptxas schedules its %smid/%warpid reads before
++// the entry store, so the ids are not re-read after the entry: this times
++// the instructions and cannot observe an id change between entry and exit.
++// mode bit 1 (validation only): the exit side expects tag ^ 1, so every check
++// must miss (the control that shows the check can fail).
++template <int ADDR>
++__device__ __forceinline__ bool slot_index(const Ids &i, uint64_t mask,
++					   uint32_t &idx)
++{
++	uint32_t cap;
++	if (ADDR == 0) {
++		const unsigned sm = hw_smid(), wid = hw_warpid(),
++			       lane = hw_laneid();
++		const unsigned nw = hw_nwarpid(), ns = hw_nsmid();
++		idx = (sm * nw + wid) * 32u + lane;
++		cap = ns * nw * 32u;
++	} else if (ADDR == 1) {
++		idx = (uint32_t)i.tid;
++		cap = (uint32_t)((mask + 1) >> 1);
++	} else {
++		idx = (uint32_t)i.tid & (TIDW_SLOTS - 1);
++		cap = TIDW_SLOTS;
++	}
++	return idx < cap;
++}
++template <int ADDR, int EXIT> __device__ __forceinline__ void scratch SIG
++{
++	const Ids i = ids();
++	const uint64_t ktag = (uint64_t)(k + 1) << 48;
++	uint64_t acc = 0, miss = 0, oor = 0, hits = 0;
++#pragma unroll 1
++	for (uint32_t r = 0; r < R; r++) {
++		const uint64_t tag = ktag | ((uint64_t)(r & 0xff) << 40) |
++				     (i.tid & 0xffffffffffull);
++		uint32_t idx;
++		if (slot_index<ADDR>(i, mask, idx))
++			st_v2(buf + 2ull * idx, tag, 0);
++		else
++			oor++;
++		if (EXIT) {
++			uint32_t idx2;
++			const uint64_t want = (mode & 2) ? (tag ^ 1) : tag;
++			if (slot_index<ADDR>(i, mask, idx2)) {
++				uint64_t t, v;
++				ld_v2<EXIT == 2>(buf + 2ull * idx2, t, v);
++				if (t != want) {
++					miss++;
++				} else {
++					hits++;
++					acc += v + 1;
++				}
++			} else {
++				oor++;
++			}
++		}
++	}
++	if (miss)
++		atom_add(aux + AUX_MISS, miss);
++	if (oor)
++		atom_add(aux + AUX_OOR, oor);
++	if (mode & 1)
++		atom_add(aux + AUX_HITS, hits);
++	keep(acc, aux);
++}
++
++// Claim-based form, built from documented primitives instead of the measured
++// exclusivity of hardware slots (the PTX ISA promises %warpid unique within a
++// CTA only, and %smid/%warpid may change after preemption); whether the
++// protocol is sufficient under the memory model is not argued here, this is
++// its cost: entry claims the slot with a
++// CAS from 0 (free) to the tag and clears the state; a failed claim is
++// counted (AUX_CFAIL) and the thread runs without a slot; exit recomputes the
++// index, checks the tag (strong 8-B load) and releases the slot with a store
++// of 0. ptxas schedules the exit side's %smid/%warpid reads before the
++// entry CAS (SASS), so this times the instructions, not an entry-to-exit gap.
++// ACQREL = 1: atom.acquire.gpu.cas and st.release.gpu (PTX ISA 8.8 acquire and
++// release patterns, so a later owner cannot see this owner's state writes
++// land after its own); ACQREL = 0: relaxed claim and release (cost probe).
++// mode bit 2 (validation only): the index is halved, so lanes 2j and 2j+1
++// collide and one claim of each pair must fail (the control that shows a
++// conflict is detected and counted).
++// The claim table is the top TIDW_SLOTS x 16 B of buf, which no other item
++// writes (they all start at word 0 and stay below 64 MiB), so a slot left
++// claimed by another case cannot make the timed claims fail; an index at or
++// above TIDW_SLOTS is counted as out of range.
++#define AUX_CFAIL 5
++template <int ACQREL>
++__device__ __forceinline__ uint64_t cas_claim(uint64_t *p, uint64_t tag)
++{
++	uint64_t r;
++	if (ACQREL)
++		asm volatile("atom.acquire.gpu.global.cas.b64 %0, [%1], %2, %3;"
++			     : "=l"(r)
++			     : "l"(p), "l"(0ull), "l"(tag)
++			     : "memory");
++	else
++		asm volatile("atom.relaxed.gpu.global.cas.b64 %0, [%1], %2, %3;"
++			     : "=l"(r)
++			     : "l"(p), "l"(0ull), "l"(tag)
++			     : "memory");
++	return r;
++}
++template <int ACQREL> __device__ __forceinline__ void st_release(uint64_t *p)
++{
++	if (ACQREL)
++		asm volatile("st.release.gpu.global.u64 [%0], %1;" ::"l"(p),
++			     "l"(0ull)
++			     : "memory");
++	else
++		asm volatile("st.relaxed.gpu.global.u64 [%0], %1;" ::"l"(p),
++			     "l"(0ull)
++			     : "memory");
++}
++__device__ __forceinline__ uint64_t ld_relaxed_gpu(const uint64_t *p)
++{
++	uint64_t r;
++	asm volatile("ld.relaxed.gpu.global.u64 %0, [%1];"
++		     : "=l"(r)
++		     : "l"(p)
++		     : "memory");
++	return r;
++}
++template <int ACQREL> __device__ __forceinline__ void scratch_claim SIG
++{
++	const Ids i = ids();
++	const uint64_t ktag = (uint64_t)(k + 1) << 48;
++	uint64_t *tab = buf + (mask + 1) - 2ull * TIDW_SLOTS;
++	uint64_t acc = 0, miss = 0, oor = 0, hits = 0, cfail = 0;
++#pragma unroll 1
++	for (uint32_t r = 0; r < R; r++) {
++		const uint64_t tag = ktag | ((uint64_t)(r & 0xff) << 40) |
++				     (i.tid & 0xffffffffffull);
++		uint32_t idx;
++		if (slot_index<0>(i, mask, idx) && idx < TIDW_SLOTS) {
++			if (mode & 4)
++				idx >>= 1;
++			if (cas_claim<ACQREL>(tab + 2ull * idx, tag) == 0)
++				st_u64(tab + 2ull * idx + 1, 0);
++			else
++				cfail++;
++		} else {
++			oor++;
++		}
++		uint32_t idx2;
++		if (slot_index<0>(i, mask, idx2) && idx2 < TIDW_SLOTS) {
++			if (mode & 4)
++				idx2 >>= 1;
++			// The tag is read with a strong 8-B load (ld.relaxed.gpu), so
++			// it is morally strong with the other threads' CAS and
++			// release stores on the same 8 B and single-copy atomic
++			// (PTX ISA 8.7, 8.10.3); a weak load racing with them has no
++			// such guarantee. The state word is this thread's own (weak).
++			const uint64_t t = ld_relaxed_gpu(tab + 2ull * idx2);
++			uint64_t v;
++			asm volatile("ld.global.u64 %0, [%1];"
++				     : "=l"(v)
++				     : "l"(tab + 2ull * idx2 + 1)
++				     : "memory");
++			if (t == tag) {
++				hits++;
++				acc += v + 1;
++				st_release<ACQREL>(tab + 2ull * idx2);
++			} else {
++				miss++;
++			}
++		} else {
++			oor++;
++		}
++	}
++	if (miss)
++		atom_add(aux + AUX_MISS, miss);
++	if (oor)
++		atom_add(aux + AUX_OOR, oor);
++	if (cfail)
++		atom_add(aux + AUX_CFAIL, cfail);
++	if (mode & 1)
++		atom_add(aux + AUX_HITS, hits);
++	keep(acc, aux);
++}
++
++// ---- (d) fence kinds ----------------------------------------------------------
++// FK: 1 membar.sys (= fence.sc.sys, __threadfence_system), 2 membar.gl
++// (= fence.sc.gpu, __threadfence), 3 fence.acq_rel.gpu, 4 fence.acq_rel.sys.
++template <int FK> __device__ __forceinline__ void fence_k()
++{
++	if (FK == 1)
++		asm volatile("membar.sys;" ::: "memory");
++	else if (FK == 2)
++		asm volatile("membar.gl;" ::: "memory");
++	else if (FK == 3)
++		asm volatile("fence.acq_rel.gpu;" ::: "memory");
++	else if (FK == 4)
++		asm volatile("fence.acq_rel.sys;" ::: "memory");
++}
++// the fence alone, executed by every lane (ALL = 1, one warp instruction when
++// converged) or by lane 0 only
++template <int FK, int ALL> __device__ __forceinline__ void fence_alone SIG
++{
++	const Ids i = ids();
++	if (!ALL && i.lane != 0)
++		return;
++#pragma unroll 1
++	for (uint32_t r = 0; r < R; r++)
++		fence_k<FK>();
++}
++// st_lane32 / st_lane1 of step 0 with the fence kind FK
++template <int FK> __device__ __forceinline__ void st32_fk SIG
++{
++	const Ids i = ids();
++#pragma unroll 1
++	for (uint32_t r = 0; r < R; r++) {
++		st_u64(buf + ((r * i.nthreads + i.tid) & mask), i.tid + r + 1);
++		fence_k<FK>();
++	}
++}
++template <int FK> __device__ __forceinline__ void st1_fk SIG
++{
++	const Ids i = ids();
++	if (i.lane != 0)
++		return;
++#pragma unroll 1
++	for (uint32_t r = 0; r < R; r++) {
++		st_u64(buf + ((r * i.nthreads + i.tid) & mask), i.tid + r + 1);
++		fence_k<FK>();
++	}
++}
++
++#define INST_T(kname, call)                                                    \
++	extern "C" __global__ void kname SIG                                   \
++	{                                                                      \
++		call(buf, mask, R, k, aux, mode);                              \
++	}
++INST_T(k_slot_e, (scratch<0, 0>))
++INST_T(k_slot_ex, (scratch<0, 1>))
++INST_T(k_slot_excg, (scratch<0, 2>))
++INST_T(k_tid_e, (scratch<1, 0>))
++INST_T(k_tid_ex, (scratch<1, 1>))
++INST_T(k_tidw_e, (scratch<2, 0>))
++INST_T(k_slot_cx, (scratch_claim<1>))
++INST_T(k_slot_cxr, (scratch_claim<0>))
++INST_T(k_fal32_fk1, (fence_alone<1, 1>))
++INST_T(k_fal32_fk2, (fence_alone<2, 1>))
++INST_T(k_fal32_fk3, (fence_alone<3, 1>))
++INST_T(k_fal32_fk4, (fence_alone<4, 1>))
++INST_T(k_fal1_fk1, (fence_alone<1, 0>))
++INST_T(k_fal1_fk2, (fence_alone<2, 0>))
++INST_T(k_fal1_fk3, (fence_alone<3, 0>))
++INST_T(k_fal1_fk4, (fence_alone<4, 0>))
++INST_T(k_st32_fk2, (st32_fk<2>))
++INST_T(k_st32_fk3, (st32_fk<3>))
++INST_T(k_st32_fk4, (st32_fk<4>))
++INST_T(k_st1_fk2, (st1_fk<2>))

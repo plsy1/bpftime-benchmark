@@ -1,0 +1,54 @@
+Verbatim extracts (whitespace collapsed), fetched 2026-11-15 with curl; HTML tags and header anchors stripped.
+PTX ISA: https://docs.nvidia.com/cuda/parallel-thread-execution/index.html
+CUDA Programming Guide: https://docs.nvidia.com/cuda/cuda-programming-guide/02-basics/writing-cuda-kernels.html
+CUDA Driver API types: https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TYPES.html
+Re-checked by the adversarial review, 2026-11-15 (fresh curl of the first two pages): every PTX ISA and Programming Guide extract below occurs verbatim (whitespace-insensitive) in the live text, under the section number given; the PTX ISA page was the document for PTX ISA version 9.5. The two driver API lines were re-fetched too and match.
+
+== PTX ISA 5.1.5
+5.1.5. Local State Space The local state space (.local) is private memory for each thread to keep its own data. It is typically standard memory with cache. The size is limited, as it must be allocated on a per-thread basis. Use ld.local and st.local to access local variables. When compiling to use the Application Binary Interface (ABI), .local state-space variables must be declared within function scope and are allocated on the stack. In implementations that do not support a stack, all local memory variables are stored at fixed addresses, recursive function calls are not supported, and .local variables may be declared at module scope. When compiling legacy PTX code (ISA versions prior to 3.0) containing module-scoped .local variables, the compiler silently disables use of the ABI.
+
+== PTX ISA 6.4.1.1
+6.4.1.1. Generic Addressing If a memory instruction does not specify a state space, the operation is performed using generic addressing. The state spaces .const, Kernel Function Parameters (.param), .local and .shared are modeled as windows within the generic address space. Each window is defined by a window base and a window size that is equal to the size of the corresponding state space. A generic address maps to global memory unless it falls within the window for const, local, or shared memory. The Kernel Function Parameters (.param) window is contained within the .global window. Within each window, a generic address maps to an address in the underlying state space by subtracting the window base from the generic address.
+
+== PTX ISA 7.1 (call arguments)
+At the call, arguments may be register variables or constants, and return values may be placed directly into register variables. The arguments and return variables at the call must have type and size that match the callee’s corresponding formal parameters.
+
+== PTX ISA 7.1 (caller restrictions)
+For a caller, Arguments may be .param variables, .reg variables, or constants.
+
+== PTX ISA 8.3
+8.3. State spaces The relations defined in the memory consistency model are independent of state spaces. In particular, causality order closes over all memory operations across all the state spaces. But the side-effect of a memory operation in one state space can be observed directly only by operations that also have access to the same state space. This further constrains the synchronizing effect of a memory operation in addition to scope. For example, the synchronizing effect of the PTX instruction ld.relaxed.shared.sys is identical to that of ld.relaxed.shared.cluster, since no thread outside the same cluster can execute an operation that accesses the same memory location.
+
+== PTX ISA 8.6
+8.6. Proxies A memory proxy, or a proxy is an abstract label applied to a method of memory access. When two memory operations use distinct methods of memory access, they are said to be different proxies. A proxy fence is required to synchronize memory operations across different proxies. Although virtual aliases use the generic method of memory access, since using distinct virtual addresses behaves as if using different proxies, they require a proxy fence to establish memory ordering. Unless otherwise specified, memory operations as defined in Operation types use generic method of memory access, i.e. a generic proxy. Operations using methods of access distinct from the generic method include: textures and surface accesses, accesses to the same location via the same proxy using distinct virtual memory addresses, async-proxy and tensormap-proxy accesses by .async.bulk operations, fabric-proxy accesses by fabric operations, readonly-proxy accesses by ld.proxy::readonly operations. The readonly proxy may be used to load read-only data. Refer to Data Movement and Conversion Instructions: ld for details.
+
+== PTX ISA 8.7
+8.7. Morally strong operations Two operations are said to be morally strong relative to each other if they satisfy all of the following conditions: The operations are related in program order (i.e, they are both executed by the same thread), or each operation is strong and specifies a scope that includes the thread executing the other operation. Both operations are performed via the same proxy. If both are memory operations, then they overlap completely.
+
+== PTX ISA 8.9.1
+8.9.1. Program Order The program order relates all operations performed by a thread to the order in which a sequential processor will execute instructions in the corresponding PTX source. It is a transitive relation that forms a total order over the operations performed by the thread, but does not relate operations from different threads.
+
+== PTX ISA 8.10.5
+8.10.5. Sequential Consistency Per Location Within any set of overlapping memory operations that are pairwise morally strong, communication order cannot contradict program order, i.e., a concatenation of program order between overlapping operations and morally strong relations in communication order cannot result in a cycle. This ensures that each program slice of overlapping pairwise morally strong operations is strictly sequentially-consistent.
+
+== PTX ISA 9.7.10.23 cvta
+9.7.10.23. Data Movement and Conversion Instructions: cvta cvta Convert address from .const, Kernel Function Parameters (.param), .global, .local, or .shared state space to generic, or vice-versa. Take the generic address of a variable declared in .const, Kernel Function Parameters (.param), .global, .local, or .shared state space.
+
+== PTX ISA 10.4 %warpid
+10.4. Special Registers: %warpid %warpid Warp identifier. Syntax (predefined) .sreg .u32 %warpid; Description A predefined, read-only special register that returns the thread’s warp identifier. The warp identifier provides a unique warp number within a CTA but not across CTAs within a grid. The warp identifier will be the same for all threads within a single warp. Note that %warpid returns the location of a thread at the moment when read, but its value may change during execution, e.g., due to rescheduling of threads following preemption. For this reason, %ctaid and %tid should be used to compute a virtual warp index if such a value is needed in kernel code; %warpid is intended mainly to enable profiling and diagnostic code to sample and log information such as work place mapping and load distribution.
+
+== PTX ISA 10.8 %smid
+10.8. Special Registers: %smid %smid SM identifier. Syntax (predefined) .sreg .u32 %smid; Description A predefined, read-only special register that returns the processor (SM) identifier on which a particular thread is executing. The SM identifier ranges from 0 to %nsmid-1. The SM identifier numbering is not guaranteed to be contiguous. Notes Note that %smid returns the location of a thread at the moment when read, but its value may change during execution, e.g. due to rescheduling of threads following preemption. %smid is intended mainly to enable profiling and diagnostic code to sample and log information such as work place mapping and load distribution.
+
+== CUDA Programming Guide 2.3.3 Table 1
+Table 1 Memory Types, Scopes and Lifetimes Memory Type Scope Lifetime Location Global Grid Application Device Constant Grid Application Device Shared Block Kernel SM Local Thread Kernel Device Register Thread Kernel SM
+
+== CUDA Programming Guide 2.3.3.4
+2.3.3.4. Local Memory Local memory is thread local storage similar to registers and managed by NVCC, but the physical location of local memory is in the global memory space. The ‘local’ label refers to its logical scope, not its physical location. Local memory is used for thread local storage during the execution of a kernel. Automatic variables that the compiler is likely to place in local memory are: Arrays for which it cannot determine that they are indexed with constant quantities, Large structures or arrays that would consume too much register space, Any variable if the kernel uses more registers than available, that is register spilling.
+
+== CUDA Driver API CUdevice_attribute
+CU_DEVICE_ATTRIBUTE_COMPUTE_PREEMPTION_SUPPORTED = 90 Device supports compute preemption.
+
+== CUDA Driver API CUlimit
+enumerator CU_LIMIT_STACK_SIZE = 0x00 GPU thread stack size.
+

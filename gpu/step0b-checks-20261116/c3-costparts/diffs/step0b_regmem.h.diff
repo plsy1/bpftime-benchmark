@@ -1,0 +1,32 @@
+--- /home/jetson/src/bpftime-gpu-work/step0/common/step0_regmem.h	2026-11-15 03:28:33.871442265 +0900
++++ src/step0b_regmem.h	2026-11-15 22:18:32.453360843 +0900
+@@ -1,8 +1,11 @@
++// step0b_regmem.h: a copy of step 0's common/step0_regmem.h for step 0b (C3);
++// the only change: shm names must start with "step0b_".
++//
+ // step0_regmem.h: registered host memory made the way bpftime makes it
+ // (runtime/src/bpftime_shm_internal.cpp:1414-1469 in dev 52126f33), for the
+ // step-0 measurement programs (e2-cost, e4-publish).
+ //
+-//   shm_open(step0_...) -> ftruncate -> mmap MAP_SHARED -> read-prefault every
++//   shm_open(step0b_...) -> ftruncate -> mmap MAP_SHARED -> read-prefault every
+ //   page (as bpftime's prefault_range) -> cuMemHostRegister(DEVICEMAP |
+ //   PORTABLE) -> cuMemHostGetDevicePointer.
+ //
+@@ -63,13 +66,13 @@
+ 	return ctx;
+ }
+ 
+-// name must start with "step0_". Returns false (with a message) on failure;
++// name must start with "step0b_". Returns false (with a message) on failure;
+ // nothing is left in /dev/shm in either case.
+ static inline bool step0_regmem_create(step0_regmem &m, const std::string &name,
+ 				       size_t size, bool second_mapping)
+ {
+-	if (name.rfind("step0_", 0) != 0) {
+-		fprintf(stderr, "shm name must start with step0_: %s\n",
++	if (name.rfind("step0b_", 0) != 0) {
++		fprintf(stderr, "shm name must start with step0b_: %s\n",
+ 			name.c_str());
+ 		return false;
+ 	}

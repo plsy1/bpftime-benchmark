@@ -1,0 +1,40 @@
+# C3: pass 1 (results/run-20261115-235255) vs pass 2 (results/run-20261116-001331)
+
+- 306 items, pass 2 / pass 1 median 0.995 (0.89-1.31); 4 moved by more than 10%
+  - anchor|k|st_lane1|reg|fk0|R8|k0: 0.0339 -> 0.0391 ns (1.15)
+  - full|X|E|none|fk0|R1|k0: 0.0080 -> 0.0071 ns (0.89)
+  - full|k|st_lane32|dev|fk0|R16|k0: 0.0464 -> 0.0511 ns (1.10)
+  - large|k|st_lane1|reg|fk0|R2|k0: 0.0215 -> 0.0281 ns (1.31)
+- run status: pass 1 valid; pass 2 valid
+- gate: pass 1 True, pass 2 True
+- decision (a) primary:
+  - pass 1: raw-store band reachable only with the op reduced to its memory access: no probe call, no probe switch, eBPF-stack key, 3-D thread id or bounds checks (M 5.2%, K 8.1%)
+  - pass 2: raw-store band reachable only with the op reduced to its memory access: no probe call, no probe switch, eBPF-stack key, 3-D thread id or bounds checks (M 5.2%, K 7.9%)
+  - N_pct: 12.83 / 12.74
+  - IC_pct: 8.62 / 8.52
+  - I_pct: 8.68 / 8.58
+  - K_pct: 8.07 / 7.93
+  - M_pct: 5.23 / 5.23
+  - F_pct: 34.54 / 34.42
+  - store_pct: 2.98 / 3.19
+  - E_pct: 0.97 / 0.94
+- decision (b): pass 1 {"control_badtag_detected_every_mismatch": true, "control_collide_counted_claim_failures": true, "special_register_addressing": "negligible (< 1%: 0.0020 ns, 0.19%)", "entry_plus_exit_protocol": ">= 10% (0.1067 ns, 10.0%)", "claim_protocol_cost": ">= 10% (0.4198 ns, 39.5%)", "timed_claim_failures": 0, "validation_misses": 0, "timed_misses": 0, "timed_out_of_range": 0, "finding_B5": "none counted"}
+  pass 2 {"control_badtag_detected_every_mismatch": true, "control_collide_counted_claim_failures": true, "special_register_addressing": "negligible (< 1%: 0.0013 ns, 0.12%)", "entry_plus_exit_protocol": "single digit (< 10%) (0.1049 ns, 9.9%)", "claim_protocol_cost": ">= 10% (0.4167 ns, 39.2%)", "timed_claim_failures": 0, "validation_misses": 0, "timed_misses": 0, "timed_out_of_range": 0, "finding_B5": "none counted"}
+- (d) anchor after store, dev: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) anchor after store, reg: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) anchor lane 0 after store, dev: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) anchor lane 0 after store, reg: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) anchor alone, all lanes: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) anchor alone, lane 0: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) large after store, dev: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) large after store, reg: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) large lane 0 after store, dev: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) large lane 0 after store, reg: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) large alone, all lanes: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) large alone, lane 0: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) full after store, dev: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) full after store, reg: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) full lane 0 after store, dev: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) full lane 0 after store, reg: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) full alone, all lanes: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
+- (d) full alone, lane 0: membar.gl materially cheaper (>= 25%) / membar.gl materially cheaper (>= 25%)
