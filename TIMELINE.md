@@ -336,7 +336,29 @@ documents up to 2026-10-30. Commits are on the dev branch
     drains about 7M records/s. Segments register up to 2,047 MiB. llama.cpp's exit probes see whole
     warps; the launch hooks see every geometry before graph replays.
 
-## Where it stands (11-15)
+## 11-15 – 11-16: step 0's follow-up, held to documented guarantees
+
+Step 0 measured how the Orin behaves; several of its conclusions are behaviour of that one GPU. The
+rule for this round: correctness may rest only on documented guarantees, measured behaviour only on
+performance (`results/gpu/step0b-checks-20261116`, two passes, the same correctness verdicts).
+
+- **The documents** (verbatim audit of PTX ISA, the CUDA programming guide and the driver API):
+  `%warpid` is promised unique only within a CTA, and `%smid`/`%warpid` "may change during
+  execution"; a copy that runs while its writer runs is not ordered by any text; publication to a
+  reader in another process rests on an undocumented alias assumption (the CPU's mapping and the
+  GPU's device pointer differ), which today's bpftime loader shares.
+- **What works within them:** state carried from the entry probe to the exit probe in the thread's
+  own local memory (0 mismatches, time-slicing included; accepted on a real llama.cpp module;
+  0.104 ns per thread execution with both probes); slots claimed per lane with atomics (correct,
+  +0.12 ns over a `%warpid` slot). Warp claims with an `__activemask()` mask are wrong.
+- **Costs:** today's per-thread map operation is 63% system fence; without the fence 0.135 ns, the
+  memory access alone 0.056 ns. Batching 384-1,536 warps behind one system fence brings a record
+  from 10.6 to 3.3-3.8 ns, still about 10% of a prefill [projection]. The pieces were not measured
+  together.
+- The copier's global-capture problem has a documented remedy that held (the copier switches its
+  own thread to relaxed capture mode).
+
+## Where it stands (11-16)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
   (10-26 figures in [reports/bpftime-research-overview.md](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/reports/bpftime-research-overview.md),
@@ -348,9 +370,10 @@ documents up to 2026-10-30. Commits are on the dev branch
 - GPU on a real application (llama.cpp on the Orin, graphs off): probes on four kernels counted
   every thread exactly; the default per-thread capacity loses 99.6% of the counts. Start-up is
   14.4-14.8 s longer with the agent.
-- GPU map model (the one research direction now): step 0's checks are done; follow-up checks
-  (state carried from entry to exit, thread-end merge and write-out, one fence for many warps,
-  slot reuse, slots claimed by the threads themselves) come before a minimal prototype.
+- GPU map model (the one research direction now): step 0 and its follow-up are done. Within
+  documented guarantees, per-thread state can be carried in the thread's local memory and slots
+  claimed per lane; the open costs are publication to the CPU and the combination. Next: a minimal
+  prototype.
 - Open: Gum's per-function usage counter under many threads; the agent's own load time (about
   9 ms); the CUDA late path (`bpftime attach` to a running GPU process; 5–9 µs per launch slower
   than official's); fixes not yet offered upstream.
