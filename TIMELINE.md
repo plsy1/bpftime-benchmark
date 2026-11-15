@@ -305,7 +305,38 @@ documents up to 2026-10-30. Commits are on the dev branch
   judge direction 1 the harder one: it has to give up per-thread semantics, simplicity or
   completeness. Tiers and a per-CPU-like map model are in `RESEARCH_DIRECTIONS.md`.
 
-## Where it stands (11-14)
+## 11-14 – 11-15: one direction, a GPU map model; step 0 on the board
+
+- **Direction 2's research scheme dropped (11-14, evening).** Read from the code, the trampoline has
+  only six host-call sites, and no CPU eBPF tool runs on the GPU unchanged (attach points, missing
+  helpers; an unregistered helper makes `generate_ptx` end the application). "Keep CPU-style
+  programs, make fewer host calls" has no target. Layer 1 stays in dev. This replaces the
+  "both directions are needed" conclusion above.
+- **Direction 1 widened into a GPU map model:** how device-side map storage is allocated, what
+  happens when it is full, how the CPU reads it. The goal set on 11-15: little memory, and every
+  thread keeps its own copy. Per-thread semantics stay; storage follows the threads resident on the
+  hardware (12,288 on the Orin), not the grid (up to 4.19M in llama.cpp).
+- **Design space** (`results/gpu/dir1-design-space-20261115`, paper designs only): four approaches
+  (a library over existing maps, per-launch storage, a shared chunk pool, storage by hardware
+  position), and the facts that rule out host-side per-launch allocation, per-thread rings and
+  keeping every record.
+- **Step 0: nine on-board checks, run twice with identical verdicts**
+  (`results/gpu/step0-checks-20261115`):
+  - `%warpid` is an SM-wide hardware slot: (SM, slot) is unique among resident warps, also across
+    two kernels, and did not change across 198 rounds of time-slicing; `%gridid` repeats across
+    CUDA graph replays. Both are measured, not documented guarantees.
+  - The system fence dominates: a record per warp costs 10 ns with `membar.sys`, 1.6 ns without.
+    An unfenced 8-B store per thread execution in device memory projects 3-6% of a pp512, against
+    35-41% for today's per-thread map operation; atomics in registered memory serialize at about
+    80 ns, against about 1 ns in device memory.
+  - One leader fence per warp showed no violation in 10^9 rounds while the no-fence control failed,
+    but the result is not separable from the fence's duration.
+  - Device memory can reach the CPU (two-step copy, flags first; under 1% at 1 MiB per ms in
+    llama.cpp). CAS in eBPF is unusable (the JIT drops the cmpxchg result). One `bpf()` reader
+    drains about 7M records/s. Segments register up to 2,047 MiB. llama.cpp's exit probes see whole
+    warps; the launch hooks see every geometry before graph replays.
+
+## Where it stands (11-15)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
   (10-26 figures in [reports/bpftime-research-overview.md](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/reports/bpftime-research-overview.md),
@@ -315,8 +346,11 @@ documents up to 2026-10-30. Commits are on the dev branch
   done but for several CUDA processes on one segment and lookup address translation, the watcher
   sleeps and parks by measured rules (checked with and without `jetson_clocks`).
 - GPU on a real application (llama.cpp on the Orin, graphs off): probes on four kernels counted
-  every thread exactly. Per-thread host calls and per-thread storage keep CPU-style eBPF tools from
-  being usable there (directions 1 and 2). Start-up is 14.4-14.8 s longer with the agent.
+  every thread exactly; the default per-thread capacity loses 99.6% of the counts. Start-up is
+  14.4-14.8 s longer with the agent.
+- GPU map model (the one research direction now): step 0's checks are done; follow-up checks
+  (state carried from entry to exit, thread-end merge and write-out, one fence for many warps,
+  slot reuse, slots claimed by the threads themselves) come before a minimal prototype.
 - Open: Gum's per-function usage counter under many threads; the agent's own load time (about
   9 ms); the CUDA late path (`bpftime attach` to a running GPU process; 5–9 µs per launch slower
   than official's); fixes not yet offered upstream.
