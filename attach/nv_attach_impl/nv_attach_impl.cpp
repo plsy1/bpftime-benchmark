@@ -1438,7 +1438,12 @@ int nv_attach_impl::run_attach_entry_on_gpu(int attach_id, int run_count,
 				kernel, grid_dim_x, grid_dim_y, grid_dim_z,
 				block_dim_x, block_dim_y, block_dim_z, 0,
 				nullptr, nullptr, 0));
-			CUDA_SAFE_CALL(cuCtxSynchronize());
+			{
+				// the agent's own run: not an application
+				// synchronization
+				probed_launch_activity::agent_sync_scope agent_call;
+				CUDA_SAFE_CALL(cuCtxSynchronize());
+			}
 		}
 	}
 	return 0;

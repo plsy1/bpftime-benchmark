@@ -1,3 +1,4 @@
+#include "probed_launch_activity.hpp"
 #include "nv_gpu_shared_array_map.hpp"
 #include "bpftime_shm.hpp"
 #include "bpftime_shm_internal.hpp"
@@ -106,7 +107,12 @@ void *nv_gpu_shared_array_map_impl::elem_lookup(const void *key)
 			value_buffer.data(),
 			(CUdeviceptr)base + (uint64_t)key_val * value_size,
 			value_size, agent_stream);
-		err = cuStreamSynchronize(agent_stream);
+		{
+			// the agent's own synchronization
+			attach::probed_launch_activity::agent_sync_scope
+				agent_call;
+			err = cuStreamSynchronize(agent_stream);
+		}
 	} else {
 		err = cuMemcpyDtoH(value_buffer.data(),
 				   (CUdeviceptr)base +
@@ -165,7 +171,12 @@ long nv_gpu_shared_array_map_impl::elem_update(const void *key,
 		cuMemcpyHtoDAsync_v2((CUdeviceptr)base +
 					     (uint64_t)key_val * value_size,
 				     value, value_size, agent_stream);
-		err = cuStreamSynchronize(agent_stream);
+		{
+			// the agent's own synchronization
+			attach::probed_launch_activity::agent_sync_scope
+				agent_call;
+			err = cuStreamSynchronize(agent_stream);
+		}
 	} else {
 		err = cuMemcpyHtoD((CUdeviceptr)base +
 					   (uint64_t)key_val * value_size,
