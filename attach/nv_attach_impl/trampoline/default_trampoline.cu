@@ -81,6 +81,12 @@ const int BPF_MAP_TYPE_GPU_KERNEL_SHARED_ARRAY_MAP = 1504;
 const int BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP = 1512;
 const int BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP = 1513;
 
+// Per-thread map model (prototype, proto/map-model; runtime
+// bpf_map/gpu/nv_gpu_model_maps.hpp)
+const int BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP = 1530;
+const int BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP = 1531;
+const int BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP = 1532;
+
 struct MapBasicInfo {
 	bool enabled;
 	int key_size;
@@ -228,12 +234,70 @@ static __device__ void *shared_array_offset(uint64_t idx,
 	return (char *)info.extra_buffer + idx * info.value_size;
 }
 
+static __device__ __forceinline__ unsigned int current_smid()
+{
+	unsigned int sm;
+	asm volatile("mov.u32 %0, %%smid;" : "=r"(sm));
+	return sm;
+}
+
+// 1530: the calling thread's own copy of entry idx, in its thread-local area
+// (a kernel-scope .local the agent's routing adds to every probed kernel and
+// zeroes when the kernel starts), whose generic address the routing passes as
+// the helper's last argument. Probe functions the routing did not reach pass
+// 0 there: NULL. extra_buffer holds the map's offset in the area.
+static __device__ void *thread_local_offset(uint64_t idx,
+					    const MapBasicInfo &info,
+					    uint64_t area)
+{
+	if (area == 0 || idx >= (uint64_t)info.max_entries)
+		return nullptr;
+	return (char *)(uintptr_t)area + (uintptr_t)info.extra_buffer +
+	       idx * info.value_size;
+}
+
+// 1531: the calling thread's shard of entry idx. max_thread_count holds the
+// shards per entry, (a power of two of SMs) x 32: the shard is
+// (%smid mod that power) x 32 + %laneid. Any shard is correct (programs only
+// add with atomics, the delivery sums the shards); %smid and %laneid only
+// spread the adds over words.
+static __device__ void *sum_array_offset(uint64_t idx, const MapBasicInfo &info)
+{
+	if (info.extra_buffer == nullptr || info.max_thread_count < 32 ||
+	    idx >= (uint64_t)info.max_entries)
+		return nullptr;
+	const uint64_t sm_slots = info.max_thread_count >> 5;
+	const uint64_t shard =
+		((uint64_t)(current_smid() & (sm_slots - 1)) << 5) |
+		current_lane();
+	return (char *)info.extra_buffer +
+	       (idx * info.max_thread_count + shard) * info.value_size;
+}
+
 static constexpr uint64_t E2BIG_RESULT = (uint64_t)-7;
 
 extern "C" __noinline__ __device__ uint64_t _bpf_helper_ext_0001(
 	uint64_t map, uint64_t key, uint64_t a, uint64_t b, uint64_t c)
 {
 	const auto &map_info = ::map_info[map];
+	if (map_info.map_type == BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP) {
+		auto real_key = *(uint32_t *)(uintptr_t)key;
+		return (uint64_t)(uintptr_t)thread_local_offset(real_key,
+								map_info, c);
+	}
+	if (map_info.map_type == BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP) {
+		auto real_key = *(uint32_t *)(uintptr_t)key;
+		return (uint64_t)(uintptr_t)sum_array_offset(real_key,
+							     map_info);
+	}
+	if (map_info.map_type == BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP) {
+		// device memory, no fence: the CPU sees the delivered copy
+		if (map_info.extra_buffer == nullptr)
+			return 0;
+		auto real_key = *(uint32_t *)(uintptr_t)key;
+		return (uint64_t)(uintptr_t)array_map_offset(real_key, map_info,
+							     map);
+	}
 	// IPC-based per-thread array map
 	if (map_info.map_type == BPF_MAP_TYPE_PERGPUTD_ARRAY_MAP) {
 		auto real_key = *(uint32_t *)(uintptr_t)key;
@@ -288,6 +352,22 @@ extern "C" __noinline__ __device__ uint64_t _bpf_helper_ext_0002(
 	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t a)
 {
 	const auto &map_info = ::map_info[map];
+	if (map_info.map_type == BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP) {
+		auto real_key = *(uint32_t *)(uintptr_t)key;
+		const uint64_t base_flags = flags & 0xffffffffULL;
+		auto dst = thread_local_offset(real_key, map_info, a);
+		if (base_flags > 2 /*BPF_EXIST*/ || flags == 1 /*BPF_NOEXIST*/ ||
+		    !dst)
+			return (uint64_t)-1;
+		simple_memcpy(dst, (void *)(uintptr_t)value,
+			      map_info.value_size);
+		return 0;
+	}
+	// changed with atomic adds only (a plain store would race with the
+	// delivery's reads)
+	if (map_info.map_type == BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP ||
+	    map_info.map_type == BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP)
+		return (uint64_t)-1;
 	// IPC-based per-thread array map
 	if (map_info.map_type == BPF_MAP_TYPE_PERGPUTD_ARRAY_MAP) {
 		auto real_key = *(uint32_t *)(uintptr_t)key;
@@ -372,6 +452,10 @@ extern "C" __noinline__ __device__ uint64_t _bpf_helper_ext_0003(
 	// Elements of an array map cannot be deleted (array_map_impl::
 	// elem_delete): -1 without asking the host.
 	if (map_info.map_type == BPF_MAP_TYPE_ARRAY && map_info.extra_buffer)
+		return (uint64_t)-1;
+	if (map_info.map_type == BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP ||
+	    map_info.map_type == BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP ||
+	    map_info.map_type == BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP)
 		return (uint64_t)-1;
 	HelperCallResponse resp = host_call(
 		(long)map, HelperOperation::MAP_DELETE,

@@ -40,6 +40,7 @@
 #include <mutex>
 #include <set>
 #include <regex>
+#include "nv_thread_local_routing.hpp"
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -959,6 +960,44 @@ nv_attach_impl::extract_ptxs(std::vector<uint8_t> &&data_vec)
 	SPDLOG_INFO("Got {} PTX files", all_ptx.size());
 	return all_ptx;
 }
+// Thread-local maps (1530): route every probed kernel of the module (see
+// nv_thread_local_routing.hpp). Throws on an unexpected PTX shape: the
+// module is then loaded without probes.
+std::string
+nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
+						  const std::string &file_name)
+{
+	std::vector<thread_local_map_desc> descs;
+	uint64_t area = 0;
+	const auto &info = *this->map_basic_info;
+	for (size_t i = 0; i < info.size(); i++) {
+		const auto &m = info[i];
+		if (!m.enabled || m.map_type != 1530 /* thread-local array */)
+			continue;
+		thread_local_map_desc d;
+		d.fd = (int)i;
+		d.offset = (uint64_t)(uintptr_t)m.extra_buffer;
+		d.value_size = (uint64_t)m.value_size;
+		d.max_entries = (uint64_t)m.max_entries;
+		area = std::max(area, d.offset + d.value_size * d.max_entries);
+		descs.push_back(d);
+	}
+	if (descs.empty())
+		return ptx;
+	std::vector<std::string> kernels;
+	for (const auto &[_, entry] : this->hook_entries)
+		for (const auto &k : entry.kernels)
+			kernels.push_back(k);
+	thread_local_routing_stats st;
+	auto out = route_thread_local_maps(ptx, kernels, descs, area, &st);
+	SPDLOG_INFO(
+		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0)",
+		file_name, area, st.kernels, st.call_sites, st.routed_functions,
+		st.direct_lookups, st.helper_calls_given_area,
+		st.unrouted_functions, st.helper_calls_given_zero);
+	return out;
+}
+
 std::optional<std::map<std::string, std::tuple<std::string, bool>>>
 nv_attach_impl::hack_fatbin(std::map<std::string, std::string> all_ptx)
 {
@@ -1112,6 +1151,9 @@ nv_attach_impl::hack_fatbin(std::map<std::string, std::string> all_ptx)
 						resp.modified;
 				}
 			}
+			if (should_add_trampoline && this->map_basic_info)
+				current_ptx = route_thread_local_maps_of_module(
+					current_ptx, file_name);
 			if (should_add_trampoline) {
 				current_ptx =
 					ptxpass::filter_out_version_headers_ptx(

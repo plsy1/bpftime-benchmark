@@ -26,6 +26,7 @@
 #include "bpf_map/gpu/nv_gpu_shared_hash_map.hpp"
 #include "bpf_map/gpu/nv_gpu_array_host_map.hpp"
 #include "bpf_map/gpu/nv_gpu_shared_array_host_map.hpp"
+#include "bpf_map/gpu/nv_gpu_model_maps.hpp"
 #endif
 #include "bpf_map/userspace/lpm_trie_map.hpp"
 #include <bpf_map/userspace/perf_event_array_map.hpp>
@@ -92,7 +93,8 @@ uint32_t bpf_map_handler::get_userspace_value_size() const
 	}
 #endif
 	if (type == bpf_map_type::BPF_MAP_TYPE_PERGPUTD_ARRAY_MAP ||
-	    type == bpf_map_type::BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP) {
+	    type == bpf_map_type::BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP ||
+	    type == bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP) {
 		result *= this->attr.gpu_thread_count;
 		SPDLOG_DEBUG(
 			"Value size of BPF_MAP_TYPE_PERGPUTD_ARRAY_MAP/HOST is {}",
@@ -282,6 +284,17 @@ const void *bpf_map_handler::BPFTIME_UNCOUNTED(map_lookup_elem)(
 	}
 	case bpf_map_type::BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP: {
 		auto impl = static_cast<nv_gpu_shared_array_host_map_impl *>(
+			map_impl_ptr.get());
+		return do_lookup(impl);
+	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP: {
+		auto impl = static_cast<nv_gpu_thread_local_map_impl *>(
+			map_impl_ptr.get());
+		return do_lookup(impl);
+	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP:
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP: {
+		auto impl = static_cast<nv_gpu_device_array_map_impl *>(
 			map_impl_ptr.get());
 		return do_lookup(impl);
 	}
@@ -594,6 +607,17 @@ long bpf_map_handler::BPFTIME_UNCOUNTED(map_update_elem)(
 			map_impl_ptr.get());
 		return do_update(impl);
 	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP: {
+		auto impl = static_cast<nv_gpu_thread_local_map_impl *>(
+			map_impl_ptr.get());
+		return do_update(impl);
+	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP:
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP: {
+		auto impl = static_cast<nv_gpu_device_array_map_impl *>(
+			map_impl_ptr.get());
+		return do_update(impl);
+	}
 #endif
 	case bpf_map_type::BPF_MAP_TYPE_LPM_TRIE: {
 		auto impl =
@@ -746,6 +770,17 @@ int bpf_map_handler::bpf_map_get_next_key(const void *key, void *next_key,
 	}
 	case bpf_map_type::BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP: {
 		auto impl = static_cast<nv_gpu_shared_array_host_map_impl *>(
+			map_impl_ptr.get());
+		return do_get_next_key(impl);
+	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP: {
+		auto impl = static_cast<nv_gpu_thread_local_map_impl *>(
+			map_impl_ptr.get());
+		return do_get_next_key(impl);
+	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP:
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP: {
+		auto impl = static_cast<nv_gpu_device_array_map_impl *>(
 			map_impl_ptr.get());
 		return do_get_next_key(impl);
 	}
@@ -921,6 +956,17 @@ long bpf_map_handler::BPFTIME_UNCOUNTED(map_delete_elem)(
 	}
 	case bpf_map_type::BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP: {
 		auto impl = static_cast<nv_gpu_shared_array_host_map_impl *>(
+			map_impl_ptr.get());
+		return do_delete(impl);
+	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP: {
+		auto impl = static_cast<nv_gpu_thread_local_map_impl *>(
+			map_impl_ptr.get());
+		return do_delete(impl);
+	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP:
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP: {
+		auto impl = static_cast<nv_gpu_device_array_map_impl *>(
 			map_impl_ptr.get());
 		return do_delete(impl);
 	}
@@ -1444,6 +1490,31 @@ int bpf_map_handler::map_init_checked(managed_shared_memory &memory)
 		init_refcnt();
 		return 0;
 	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP: {
+		map_impl_ptr = memory.construct<nv_gpu_thread_local_map_impl>(
+			boost::interprocess::anonymous_instance)(
+			memory, value_size, max_entries);
+		init_refcnt();
+		return 0;
+	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP: {
+		map_impl_ptr = memory.construct<nv_gpu_device_array_map_impl>(
+			boost::interprocess::anonymous_instance)(
+			memory, value_size, max_entries, 1, false);
+		init_refcnt();
+		return 0;
+	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP: {
+		// thread indices per key as 1502/1512, kept in attr (it sizes
+		// the values bpf() returns)
+		attr.gpu_thread_count = get_thread_count(attr);
+		map_impl_ptr = memory.construct<nv_gpu_device_array_map_impl>(
+			boost::interprocess::anonymous_instance)(
+			memory, value_size, max_entries, attr.gpu_thread_count,
+			true);
+		init_refcnt();
+		return 0;
+	}
 #endif
 	case bpf_map_type::BPF_MAP_TYPE_LPM_TRIE: {
 		map_impl_ptr = memory.construct<lpm_trie_map_impl>(
@@ -1586,6 +1657,15 @@ void bpf_map_handler::map_free(managed_shared_memory &memory) const
 		memory.destroy_ptr(
 			static_cast<nv_gpu_shared_array_host_map_impl *>(impl));
 		break;
+	case bpf_map_type::BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP:
+		memory.destroy_ptr(
+			static_cast<nv_gpu_thread_local_map_impl *>(impl));
+		break;
+	case bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP:
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP:
+		memory.destroy_ptr(
+			static_cast<nv_gpu_device_array_map_impl *>(impl));
+		break;
 #endif
 	default:
 		auto func_ptr = global_map_ops_table[(int)type].map_free;
@@ -1658,6 +1738,13 @@ uint64_t bpf_map_handler::get_gpu_map_max_thread_count() const
 	if (this->type == bpf_map_type::BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP) {
 		return 1;
 	}
+	if (this->type == bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP ||
+	    this->type ==
+		    bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP) {
+		return static_cast<nv_gpu_device_array_map_impl *>(
+			       map_impl_ptr.get())
+			->get_max_thread_count();
+	}
 #endif
 
 	SPDLOG_DEBUG("Not a GPU map!");
@@ -1703,6 +1790,13 @@ void *bpf_map_handler::get_gpu_map_extra_buffer() const
 	}
 	if (this->type == bpf_map_type::BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP) {
 		return (void *)static_cast<nv_gpu_shared_array_host_map_impl *>(
+			       map_impl_ptr.get())
+			->get_gpu_mem_buffer();
+	}
+	if (this->type == bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP ||
+	    this->type ==
+		    bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP) {
+		return (void *)static_cast<nv_gpu_device_array_map_impl *>(
 			       map_impl_ptr.get())
 			->get_gpu_mem_buffer();
 	}

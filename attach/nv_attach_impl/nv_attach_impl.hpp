@@ -212,6 +212,9 @@ class nv_attach_impl final : public base_attach_impl {
 	static bool keeps_ptx_work_dirs();
 	std::optional<std::map<std::string, std::tuple<std::string, bool>>>
 		hack_fatbin(std::map<std::string, std::string>);
+	// thread-local maps (1530): see nv_thread_local_routing.hpp
+	std::string route_thread_local_maps_of_module(const std::string &ptx,
+						      const std::string &file_name);
 	std::map<std::string, std::string>
 	extract_ptxs(std::vector<uint8_t> &&);
 	void mirror_cuda_memcpy_to_symbol(const void *symbol, const void *src,
