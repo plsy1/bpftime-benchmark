@@ -107,6 +107,7 @@ if(${BPFTIME_ENABLE_CUDA_ATTACH})
   # HOST-based GPU maps (for Tegra/platforms without CUDA IPC)
   list(APPEND sources src/bpf_map/gpu/nv_gpu_array_host_map.cpp)
   list(APPEND sources src/bpf_map/gpu/nv_gpu_shared_array_host_map.cpp)
+  list(APPEND sources src/bpf_map/gpu/nv_gpu_model_maps.cpp)
 endif()
 
 if(UNIX AND NOT APPLE AND BPFTIME_BUILD_WITH_LIBBPF)

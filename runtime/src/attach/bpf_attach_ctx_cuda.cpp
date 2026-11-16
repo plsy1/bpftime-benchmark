@@ -519,6 +519,7 @@ bpf_attach_ctx::create_map_basic_info(int filled_size)
 		entry.extra_buffer = nullptr;
 		entry.max_thread_count = 0;
 	}
+	uint64_t thread_local_bytes = 0;
 	const auto &handler_manager =
 		*shm_holder.global_shared_memory.get_manager();
 	for (size_t i = 0; i < handler_manager.size(); i++) {
@@ -551,8 +552,25 @@ bpf_attach_ctx::create_map_basic_info(int filled_size)
 			local.extra_buffer = gpu_buffer;
 			local.max_thread_count =
 				map.get_gpu_map_max_thread_count();
+			if (map.type == bpf_map_type::
+					    BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP) {
+				// its place in every probed kernel's
+				// thread-local area (the routing reads it
+				// back): 8-byte aligned, in fd order
+				local.extra_buffer =
+					(void *)(uintptr_t)thread_local_bytes;
+				thread_local_bytes +=
+					((uint64_t)map.get_value_size() *
+						 map.get_max_entries() +
+					 7) &
+					~7ull;
+			}
 		}
 	}
+	if (thread_local_bytes > 0)
+		SPDLOG_INFO(
+			"GPU thread-local maps need {} bytes of local memory per thread",
+			thread_local_bytes);
 
 	return local_basic_info;
 }

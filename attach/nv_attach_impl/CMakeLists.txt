@@ -30,6 +30,7 @@ add_library(
     nv_attach_fatbin_record.cpp
     nv_elf_introspect.cpp
     probed_launch_activity.cpp
+    nv_thread_local_routing.cpp
 )
 
 add_dependencies(

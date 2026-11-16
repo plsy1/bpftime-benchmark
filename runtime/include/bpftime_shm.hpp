@@ -132,6 +132,23 @@ enum class bpf_map_type {
 	BPF_MAP_TYPE_PERGPUTD_ARRAY_HOST_MAP = GPU_MAP_OFFSET + BPF_MAP_TYPE_ARRAY + 10,
 	BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP = GPU_MAP_OFFSET + BPF_MAP_TYPE_ARRAY + 11,
 
+	// Per-thread map model (prototype, proto/map-model). Correctness rests
+	// on documented guarantees only: local memory is the thread's own for
+	// the kernel's run, atomics are atomic, a kernel's writes are visible
+	// after its completion.
+	// 1530: each GPU thread's own copy, in its local memory, zeroed when the
+	// kernel starts and gone when the thread ends. The CPU sees nothing.
+	BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP =
+		GPU_MAP_OFFSET + BPF_MAP_TYPE_ARRAY + 28,
+	// 1531: u64 counters in device memory, changed by GPU programs with
+	// atomic adds only, spread over (SM, lane) shards; the CPU sees each
+	// word summed over the shards, delivered by the agent.
+	BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP = GPU_MAP_OFFSET + BPF_MAP_TYPE_ARRAY + 29,
+	// 1532: a value per key and thread index (as 1502) in device memory,
+	// changed with atomic adds only; the CPU sees the agent's copy.
+	BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP =
+		GPU_MAP_OFFSET + BPF_MAP_TYPE_ARRAY + 30,
+
 	BPF_MAP_TYPE_MAX = 2048,
 };
 
