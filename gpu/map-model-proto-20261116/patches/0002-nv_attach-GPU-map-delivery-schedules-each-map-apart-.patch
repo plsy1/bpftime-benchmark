@@ -1,0 +1,181 @@
+From c2826dbc7a57772c84243f90ff8bdf01d57fd9c1 Mon Sep 17 00:00:00 2001
+From: jetson <jetson@orin-nano.tail52323b.ts.net>
+Date: Mon, 16 Nov 2026 22:47:27 +0900
+Subject: [PATCH 2/4] nv_attach: GPU map delivery schedules each map apart (sum
+ maps 20 ms, per-thread maps 1 s)
+
+A per-thread device array is the size of the grid (32 MB for four keys at
+1M threads): copying it every 20 ms would take memory bandwidth from the
+application. Each registered map now has its own periods: sum maps every
+20 ms while their values change, else 200 ms; per-thread maps every 1 s,
+else 2 s (BPFTIME_GPU_DELIVERY_[PERTHREAD_]{BUSY,IDLE}_MS). The snapshot
+kernel's first launch (lazy loading compiles its PTX, about 240 ms) runs in
+the set-up. The final delivery logs every map's deliveries and times.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp | 78 +++++++++++++------
+ 1 file changed, 56 insertions(+), 22 deletions(-)
+
+diff --git a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
+index 9113a7ea..a1ef83a1 100644
+--- a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
++++ b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
+@@ -195,6 +195,9 @@ struct registered_map {
+ 	uint64_t entries, shards, words_per_entry;
+ 	uint64_t *staging = nullptr; // pinned host memory, snapshot output
+ 	CUdeviceptr staging_device = 0;
++	// schedule: every busy_ns while its values change, else idle_ns
++	uint64_t busy_ns = 0, idle_ns = 0, next_due_ns = 0;
++	uint64_t deliveries = 0, ns_total = 0, ns_max = 0;
+ };
+ 
+ struct delivery_state {
+@@ -263,8 +266,9 @@ bool prepare_locked(delivery_state &s)
+ 	return true;
+ }
+ 
+-// one delivery of every map; returns whether any word changed
+-bool deliver_locked(delivery_state &s, bool final, int *delivered)
++// one delivery of every map that is due (all of them when final); returns
++// the time the next one is due
++uint64_t deliver_locked(delivery_state &s, bool final, int *delivered)
+ {
+ 	std::vector<registered_map> maps;
+ 	{
+@@ -272,17 +276,24 @@ bool deliver_locked(delivery_state &s, bool final, int *delivered)
+ 		maps = s.maps;
+ 	}
+ 	if (maps.empty())
+-		return false;
++		return now_ns() + 200000000ull;
+ 	if (!s.fn) {
+ 		const uint64_t t = now_ns();
+ 		if (!prepare_locked(s))
+-			return false;
++			return UINT64_MAX;
+ 		s.setup_ns = now_ns() - t;
+ 	}
+-	bool changed = false;
+ 	const uint64_t t0 = now_ns();
+ 	uint64_t t_launch = 0, t_sync = 0, t_copy = 0;
+-	for (auto &m : maps) {
++	uint64_t next_due = UINT64_MAX;
++	for (size_t mi = 0; mi < maps.size(); mi++) {
++		auto &m = maps[mi];
++		if (!final && m.next_due_ns > t0) {
++			next_due = std::min(next_due, m.next_due_ns);
++			continue;
++		}
++		const uint64_t m0 = now_ns();
++		bool changed = false;
+ 		uint64_t n = m.entries * m.words_per_entry;
+ 		void *args[] = { &m.device, &m.staging_device, &n,
+ 				 &m.words_per_entry, &m.shards };
+@@ -300,7 +311,7 @@ bool deliver_locked(delivery_state &s, bool final, int *delivered)
+ 			SPDLOG_ERROR("GPU map delivery: snapshot failed ({})",
+ 				     (int)r);
+ 			s.broken = true;
+-			return changed;
++			return UINT64_MAX;
+ 		}
+ 		uint64_t *dst = m.map->host_words();
+ 		uint64_t c0 = now_ns();
+@@ -322,6 +333,17 @@ bool deliver_locked(delivery_state &s, bool final, int *delivered)
+ 					 __ATOMIC_RELEASE);
+ 		if (delivered)
+ 			(*delivered)++;
++		const uint64_t m1 = now_ns();
++		{
++			std::lock_guard<std::mutex> g(s.reg_mutex);
++			auto &sm = s.maps[mi];
++			sm.next_due_ns =
++				m1 + (changed ? sm.busy_ns : sm.idle_ns);
++			sm.deliveries++;
++			sm.ns_total += m1 - m0;
++			sm.ns_max = std::max(sm.ns_max, m1 - m0);
++			next_due = std::min(next_due, sm.next_due_ns);
++		}
+ 	}
+ 	s.deliveries++;
+ 	const uint64_t took = now_ns() - t0;
+@@ -331,7 +353,7 @@ bool deliver_locked(delivery_state &s, bool final, int *delivered)
+ 			"GPU map delivery {}{}: {} us (launch {}, wait {}, copy {})",
+ 			s.deliveries, final ? " (final)" : "", took / 1000,
+ 			t_launch / 1000, t_sync / 1000, t_copy / 1000);
+-	return changed;
++	return next_due;
+ }
+ 
+ struct context_scope {
+@@ -365,27 +387,21 @@ void drain_loop()
+ {
+ 	auto &s = state();
+ 	context_scope scope(s.ctx);
+-	// while values change: every BUSY ms; otherwise every IDLE ms (graph
+-	// replays and launches the hooks miss are found within that)
+-	const uint64_t busy_ms = env_ms("BPFTIME_GPU_DELIVERY_BUSY_MS", 20);
+-	const uint64_t idle_ms = env_ms("BPFTIME_GPU_DELIVERY_IDLE_MS", 200);
+-	uint64_t wait_ms = busy_ms;
++	uint64_t due = now_ns() + 20000000ull;
+ 	for (;;) {
+ 		{
++			const uint64_t now = now_ns();
++			const uint64_t wait_ns = due > now ? due - now : 0;
+ 			std::unique_lock<std::mutex> lk(s.wake_mutex);
+-			s.wake.wait_for(lk, std::chrono::milliseconds(wait_ms),
++			s.wake.wait_for(lk, std::chrono::nanoseconds(wait_ns),
+ 					[&] { return s.stop; });
+ 			if (s.stop)
+ 				return;
+ 		}
+-		bool changed;
+-		{
+-			std::lock_guard<std::mutex> g(s.run_mutex);
+-			if (s.final_done)
+-				return;
+-			changed = deliver_locked(s, false, nullptr);
+-		}
+-		wait_ms = changed ? busy_ms : idle_ms;
++		std::lock_guard<std::mutex> g(s.run_mutex);
++		if (s.final_done || s.broken)
++			return;
++		due = deliver_locked(s, false, nullptr);
+ 	}
+ }
+ 
+@@ -403,6 +419,12 @@ void final_delivery_at_exit()
+ 	SPDLOG_INFO(
+ 		"GPU map delivery: final delivery of {} maps; {} deliveries in all, {} us of snapshots, {} us of set-up",
+ 		n, s.deliveries, s.snapshot_ns_total / 1000, s.setup_ns / 1000);
++	std::lock_guard<std::mutex> g(s.reg_mutex);
++	for (auto &m : s.maps)
++		SPDLOG_INFO(
++			"GPU map delivery: map ({} words, {} shards): {} deliveries, {} us in all, longest {} us",
++			m.entries * m.words_per_entry, m.shards, m.deliveries,
++			m.ns_total / 1000, m.ns_max / 1000);
+ }
+ } // namespace
+ 
+@@ -414,6 +436,18 @@ void register_device_array(nv_gpu_device_array_map_impl *map,
+ {
+ 	auto &s = state();
+ 	registered_map m{ map, device, entries, shards, words_per_entry };
++	// a sum map is small: every 20 ms while it changes, else 200 ms; a
++	// per-thread map is the size of the grid: every 1 s, else 2 s
++	const bool big = map->is_per_thread();
++	m.busy_ns = 1000000ull *
++		    env_ms(big ? "BPFTIME_GPU_DELIVERY_PERTHREAD_BUSY_MS" :
++				 "BPFTIME_GPU_DELIVERY_BUSY_MS",
++			   big ? 1000 : 20);
++	m.idle_ns = 1000000ull *
++		    env_ms(big ? "BPFTIME_GPU_DELIVERY_PERTHREAD_IDLE_MS" :
++				 "BPFTIME_GPU_DELIVERY_IDLE_MS",
++			   big ? 2000 : 200);
++	m.next_due_ns = now_ns() + m.busy_ns;
+ 	uint64_t bytes = entries * words_per_entry * 8;
+ 	if (cuMemAllocHost((void **)&m.staging, bytes) != CUDA_SUCCESS ||
+ 	    cuMemHostGetDevicePointer(&m.staging_device, m.staging, 0) !=
+-- 
+2.43.0
+

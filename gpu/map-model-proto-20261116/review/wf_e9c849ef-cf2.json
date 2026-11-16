@@ -1,0 +1,492 @@
+[
+ {
+  "discrepancies": [
+   {
+    "readme_text": "Delivery cost: \"235 ms when the driver compiled the snapshot's PTX (first victim runs)\"",
+    "data": "runs/*/client.log 'us of set-up': proto-f1-carry, the first victim run (00:45:36), 1,056 us; f1-lat 242,903; f1-latmix 227,626; f1-hist 173,169; f1-tlatomic 320,061; s1-carry 364,686; s1-lat 241,921; s1-tlatomic 317,187; s1-hist 172,760; d1-lat 240,417; d1-hist 173,449; capture-stress 259,435 / 259,921 us. No run logs 235 ms (the closest is the mean of f1-lat and f1-latmix, 235.3 ms). No log line says the snapshot's PTX was compiled. The only 'Compiling ... not found in cache' lines are for the patched probe module (patched.temp.1.sm_87.ptx).",
+    "correction": "\"1 ms in the first victim run (f1-carry), 173-365 ms in the later victim and stress runs (cause not logged), 134-143 ms when the GPU was full (pt_exitfast)\"",
+    "severity": "wrong"
+   },
+   {
+    "readme_text": "What this means 4: \"delivering them costs three copies and, in-call, most of the application's time\"",
+    "data": "analysis-p5p6.txt: hist+sync pp512 35.95% / 35.82%, tg128 87.44% / 87.41%. Only tg128 is most of the time.",
+    "correction": "\"... and, in-call, 36% of pp512's throughput and 87% of tg128's\"",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "What this means 2: \"On tg128 it is still 33%, because every thread of a very fine-grained kernel pays about 0.28 ns of probe work\"",
+    "data": "0.28 ns comes from p3/p4 lat (31.85% / 32.00%): (128/46.20 - 128/67.79) / 3,143,172,096 = 0.281 ns, and 0.282 ns for p4. The 33% is the final build's p5/p6 lat (33.24% / 33.28%), which gives (128/45.38 - 128/67.97) / 3,143,172,096 = 0.298 ns and 0.299 ns for p6.",
+    "correction": "\"On tg128 it is still 33%, because every thread ... pays about 0.30 ns of probe work (0.28 ns at 32% before the review fixes)\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "Delivery cost: \"a sum-map delivery 0.3-0.6 ms of the delivery thread (longest 4-16 ms), a 32 MB per-thread delivery about 8 ms (longest 21 ms)\"",
+    "data": "analysis-*.txt, us/n and max_us. Default-mode lat on the final build (p5/p6): 0.31-0.65 ms, longest 3.9-16.3 ms, which matches. In-call lat+sync: 0.14-0.43 ms, longest 0.76-4.2 ms. p1-p4 lat, latmix and carryonly: 0.43-0.82 ms, longest 0.7-16.6 ms. 32 MB deliveries: default hist 7.86-8.02 ms, in-call hist+sync 6.87-7.15 ms, longest 19.3-21.1 ms.",
+    "correction": "\"a sum-map delivery 0.3-0.65 ms in default mode (longest 4-16 ms), 0.14-0.43 ms in-call (longest 0.8-4.2 ms); a 32 MB per-thread delivery about 8 ms, 7 ms in-call (longest 21 ms)\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "Merge placement: \"(merge-cost/, empty kernels with the carry, two quiet passes, ...)\"",
+    "data": "merge-cost/q1 and q2 hold only items.txt and raw.csv. Nothing records the board state (load, clocks, other processes) for these passes. The word 'quiet' appears in no file except README.md.",
+    "correction": "\"two passes (board state not recorded)\", or add the state log",
+    "severity": "unsupported"
+   },
+   {
+    "readme_text": "\"Every item's correctness check passed (meas/analysis-*.txt).\"",
+    "data": "In meas/analyze.py, check() returns an empty list for base and agent. empty1, empty2 and carryonly match none of the 'lat*' / 'hist*' branches, so they get no checks either, and 'checks ok' is vacuous for them. carryonly has a 1531 map, yet its final delivery (status word 1), which DECISION-RULES rule 1 requires for new maps, is not checked.",
+    "correction": "\"Every lat, latmix, latold, hist and histold item's correctness check passed; base, agent, empty1, empty2 and carryonly have no count checks\"",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "What this means 3: \"one word per bucket would cost more than today's per-thread map operation (1.09 ns against 0.37 ns per thread in device memory, step0b C3)\"",
+    "data": "merge_cost.cu measures the case where '(nearly) every thread lands in the same bucket' (validate m_glob nonzero_words=5-6), on empty kernels. m_glob includes the carry (0.094-0.101 ns). The worst contention case was not measured on llama.cpp. step0b C3: 0.366 ns.",
+    "correction": "\"with nearly every thread in one bucket (empty kernels), one word per bucket costs 1.09-1.10 ns per thread with the carry, against today's 0.37 ns ...\"",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "\"lat and hist moved by 0.2-1.4 points with the review fixes (the guarded atomic and the synchronization-driven deliveries), within the 2-point rule.\"",
+    "data": "Mean to mean, p1-p4 against p5/p6: pp lat +0.29, tg lat +1.36, pp hist +0.27, tg hist +0.20, so the 0.2-1.4 range holds. Pass to pass the moves span 0.05 (pp hist p2 5.02 vs p6 5.07) to 1.44. The causes were not isolated. DECISION-RULES addendum 2 says the isspacep.local guard is added only in modules with thread-local maps; hist has none (1532 only), so the guarded atomic cannot explain hist's move.",
+    "correction": "\"lat and hist moved by 0.2-1.4 points (pass means) with the review fixes, within the 2-point rule; the causes were not separated\"",
+    "severity": "unsupported"
+   },
+   {
+    "readme_text": "Where the cost goes: \"the carry about 0.15 ns ...; step0b C1 priced the carry at 0.104 ns and a timer read at 0.044 ns on empty kernels\"",
+    "data": "The README's 0.15 ns is carryonly - empty2, which excludes the probe calls (0.145-0.146 ns). step0b C1's 0.104 ns includes both probe calls (empty probes 0.026 ns, step0b README line 31). Like for like: llama carryonly - base 0.167-0.169 ns vs C1's 0.104 ns, or above the probe floor 0.146 vs 0.078 ns.",
+    "correction": "\"... step0b C1 priced the carry with both probe calls at 0.104 ns (0.078 ns above its empty probes) ...\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "Memory table: \"8 B area (frame 640 B)\" for lat; \"frame 632 B\" for latold",
+    "data": "ptx/ptxas_check.txt: rms, mmvq and ropek frames are 640 / 632 B; mmq's are 704 / 696 B (64 B of its own). The +8 B holds for all four kernels.",
+    "correction": "\"8 B area (frame 640 B; mul_mat_q 704 B)\" and \"frame 632 B (mul_mat_q 696 B)\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "Memory table: shared segment \"2,080 B\" (lat), \"33,554,432 B\" (hist)",
+    "data": "meas/analyze.py memory() computes shm and staging from maps.json as bytes_per_key x max_entries, values only. The 1531/1532 maps also hold a status_buffer of GPU_MODEL_STATUS_WORDS = 8 slots in the shared segment (patches 0001 line 3581, 0003 line 514). That is not counted.",
+    "correction": "Add \"(values; plus 8 status slots)\" to the shared-segment column",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "(outside slice, Summary) \"empty entry and exit probes 3.4-3.8%, the carry (start stored, read back, bucket computed) 22%, the merge ... the remaining 10 points\"",
+    "data": "22% is carryonly's whole overhead (21.75 / 21.98), which includes the 3.42 / 3.79 floor. The carry's own increment is 18.33 / 18.19 points, and lat - carryonly = 10.10 / 10.02.",
+    "correction": "\"empty probes 3.4-3.8%, the carry 18 more points (22% with the probes), the merge the remaining 10 points\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "(outside slice, Summary) \"The same tool on today's maps: pp512 98.7% (78x slower)\"",
+    "data": "base/latold: p1 2500.62/32.108 = 77.9x, p2 2510.43/31.629 = 79.4x.",
+    "correction": "\"(78-79x slower)\"",
+    "severity": "minor"
+   }
+  ],
+  "verified": [
+   "Final-build table, every cell recomputed from the samples_ts medians in the client.log files (scratch script med.py). pp base 2516.45 / 2512.01 and tg base 67.974 / 67.951. lat 4.27 / 4.07 and 33.24 / 33.28. lat+sync 5.23 / 4.79 and 37.91 / 37.86. hist 5.26 / 5.07 and 28.59 / 28.58. hist+sync 35.95 / 35.82 and 87.44 / 87.41. VIC_ENV has BPFTIME_GPU_DELIVERY_AT_SYNC=1 only on the +sync items.",
+   "Last-sync column, decoded from the *.status u64 words. lat: (1072|882, 1, pid, 859, 859, 0) on pp and (1842|1845, 1, pid, 9749, 9749, 0) on tg, reported yes. +sync items: covered == at exit (859 and 9749), judged per addendum 2. hist: covered 829 / 857 of 859 (pp) and 9271 / 9341 of 9749 (tg). launches_after_last_sync = 0 in all.",
+   "Against-today table, all 14 rows match the recomputed medians and overheads: agent 0.35 / -0.39 and 0.41 / 0.65; lat 3.60 / 3.95 and 31.91 / 31.84; latmix 39.13 / 38.07 and 70.39 / 70.39; latold 98.72 / 98.74; dev-latold 98.71 / 98.74; hist 4.66 / 5.02 and 28.40 / 28.44; histold 26.96 / 27.53 and 52.58 / 52.65; dev-histold 27.84 / 27.99 and 52.87 / 52.89.",
+   "Dev controls 'within 0.9 points': the largest gap is pp histold p1, 26.96 vs 27.84 = 0.88. The dev build path (worktrees/4708f4092d1e/candidate) has HEAD 52126f33 now.",
+   "latold tg128 'over 30 min per run': pp latold runs at 512/32.1 t/s = 15.95 s for 25,682,944 threads (0.62 us each). 0.6 us x 3.14e9 = about 31 min, as DECISION-RULES says.",
+   "Where-the-cost-goes table (p3/p4), all 10 cells match: empty2 0.89 / 0.49 and 3.42 / 3.79; carryonly 2.61 / 2.24 and 21.75 / 21.98; lat 4.30 / 3.69 and 31.85 / 32.00; empty1 1.03 / 0.52 and 2.23 / 2.54; hist 5.09 / 4.83 and 28.21 / 28.48.",
+   "Per-thread ns on tg128, with N = 3,143,172,096 per run (128/ts, p3 / p4): empty2 0.0213 / 0.0236 (README about 0.02); carry, i.e. carryonly - empty2, 0.1458 / 0.1451 (about 0.15); merge, i.e. lat - carryonly, 0.1137 / 0.1133 (about 0.11); lat - base 0.2807 / 0.2820 (about 0.28).",
+   "mmvq work per thread: 128/67.79 x 0.647 / N = 0.389 ns (README about 0.39). The census gpu_ns gives 0.405 ns. 0.28 / 0.39 = 72%, the '+70%' of the Summary.",
+   "64.7% is census/tg128-graph.csv time_share 0.6469 for the largest mul_mat_vec_q with graphs on, which matches the measurement. The census README text says 62.7% (graphs off).",
+   "tg128 counts per run: 15,711,207,424 / 641 x 128 = 3,137,339,392 for mmvq; rms 2,949,120; rope 2,883,584. Every tg item counts exactly 5 runs + 1 warmup token. analyze.py's check is a bound [5c, 5c + c/64]. pp512 counts are exactly 6c in every item. So 'exact counts' holds in the data.",
+   "step0b C1 0.104 ns and the 0.044 ns timer read, and C3's 0.366 ns device-memory op (README 0.37), all found in step0b-checks-20261116/README.md.",
+   "Method paragraph: -r 5 -o json, -p 512 -n 0 and -p 0 -n 128 in every meta.txt. GGML_CUDA_DISABLE_GRAPHS is unset, so graphs are on. Six passes, each order shuffled (driver.log order lines). Clocks were checked before every item: 76 of 76 item starts show cpu5=1728000/1728000 gpu=1020000000. DECISION-RULES has two addenda.",
+   "Build labels: no run records a commit hash. They are consistent with the timing: c2826dbc committed 22:47 before p1 started 22:54; p4 done 00:38 before 606e74a5 at 00:54; p5 started 01:01. They also match the log format: 'final delivery' in p1-p4, 'exit delivery' in p5/p6.",
+   "Merge-placement table, recomputed with merge-cost/analyze.py on q1 and q2. 512x512: carry 0.098 / 0.101, glob 1.090 / 1.103, sm 0.363 / 0.366, lane 0.297 / 0.287, smlane 0.163 / 0.159. 8192x512: 0.094 / 0.097, 1.086 / 1.099, 0.353 / 0.356, 0.292 / 0.281, 0.159 / 0.154. Shapes are anchor = 262,144 threads (512x512), large = 4,194,304 (8192x512), full = 12,288 (24x512).",
+   "24x512 dropped: all 20 capped batches (10 per pass) are m_none full, so every reference batch was capped.",
+   "Memory: lat device 532,480 B = 260 x 256 x 8 (agent log 'GPU device array map (1531): 532480 bytes ..., 256 shards'), staging and shared 2,080 = 260 x 8, 8 B local per thread (agent log). latmix and latold shm 8,390,688 = 8,388,608 + 2,080. hist device 33,554,432 (agent log, 1532), staging and shm 33,554,432 = 4 x 1,048,576 x 8. histold shm 33,554,432. 3 x 32 MiB = 96 MiB.",
+   "Set-up about 1 ms in the llama runs (944-1054 us); pt_exitfast set-up 134,223 / 143,061 us.",
+   "What this means 1: 8 B area, 532 KB histogram, 8 MB for 1M thread indices. No fences on the 1530/1531/1532 helper paths (default_trampoline.cu diff: the 1532 path is commented 'no fence'; the membar.sys sites are on other map types).",
+   "What this means 2: 98.7 -> 38.6 (latmix mean of 39.13 and 38.07) -> about 4 (lat 3.60-4.27). Probe calls alone 3.6% (empty2 mean 3.605).",
+   "What this means 5: +0.7 to +1.0 points on pp (0.96, 0.72) and +4.6 to +4.7 on tg (4.67, 4.58) for lat's histogram.",
+   "Summary cross-checks: pp512 4.1-4.3% and tg128 33.2-33.3%; latmix 38-39% / 70%; hist 5.1-5.3% / 28.6% against histold 27-28% / 52.6%; glob 1.09-1.10 and smlane 0.15-0.16 ns.",
+   "Not done, limits: the direct thread-local lookup still does 'ld.u32 [key]' from the eBPF stack (routing patch 0001 lines 362-381). The 1531 lookup goes through _bpf_helper_ext_0001. The timer is bpf_get_globaltimer (tools/pt_lat.bpf.c). Graph launches are not noted (patch 0003 comments); unresolved launches likewise (dev CLAUDE.md watcher section). 'Atomic adds only' contract, cudaDeviceReset and several processes per segment match REVIEW.md. Sized for 1,048,576 (SRV_ENV). No calls.bin files are kept (find: 0)."
+  ]
+ },
+ {
+  "discrepancies": [
+   {
+    "readme_text": "README Correctness table header: \"check (build 606e74a5 unless noted)\". No row is marked as an exception.",
+    "data": "Builds in /home/jetson/src/bpftime-gpu-work/proto/logs: build7.log finished 00:44:28, build8.log 00:48:46, build9.log 00:52:20. build8 recompiled nv_gpu_model_maps.cpp and the map sources; build9 recompiled nv_attach_impl.cpp, probed_launch_activity.cpp, bpf_attach_ctx_cuda.cpp and nv_gpu_model_maps.cpp. patches/0003 (606e74a5) is dated 2026-11-17 00:54:12. Run start times in runs/*/meta.txt: f1-carry, f1-tlatomic, f1-lat, f1-latmix, f1-latold, f1-hist and f1-histold ran 00:45:32-00:46:18, after build7. s1-* and d1-* ran 00:48:56-00:49:38, after build8. exitfast ran 00:52:29-00:53:14 and capture stress 00:54:23-00:54:38, both after build9. The f1, s1 and d1 .status files have 5 words; the exitfast and capture-stress ones have 6.",
+    "correction": "Say which build each row used. The carry, tlatomic and \"lat, latmix, latold, hist, histold\" rows ran on the working tree of 00:44, before the final delivery and launch-noting changes. The \"last synchronization covered\" row ran on the build of 00:48. Only the exitfast and capture-stress rows ran on the final code (build of 00:52, committed as 606e74a5 at 00:54). The other option is to rerun those checks on 606e74a5.",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "README ptxas row: \"registers 32/255/56/32 with the model, 38/255/56/34 today, 32/255/56/17 unpatched; ... local frame 640 B (today 632, the 8 B area)\". The row falls under the table header \"build 606e74a5 unless noted\".",
+    "data": "ptx/ptxas_check.txt is identical to /home/jetson/src/bpftime-gpu-work/proto/ptx/ptxas_check.txt, written 2026-11-16 22:43. It compiles the PTX kept in proto/ptx/lat4 (patched files 22:31-22:33) and latold4 (22:35-22:37), which comes from runs/proto-llama-lat4-pp-2 (start 22:31) and proto-llama-latold4-pp-1 (22:35). Those runs used the pre-review build: their status uses the old 'final=1 pid=' layout. Every kept patched PTX has 0 isspacep instructions. On the final build, meas/out p5/p6 client logs show '1 generic atomics guarded' for lat, so the probe code differs.",
+    "correction": "\"ptxas on the four llama kernels, pre-review build (2026-11-16 22:31, without the isspacep.local guard added in 606e74a5): registers 32/255/56/32 with the model ...\". Also state that registers and frame have not been re-measured on 606e74a5.",
+    "severity": "wrong"
+   },
+   {
+    "readme_text": "README kmr row: \"C1's kmr (seven exit forms: `@p ret`, `@p exit`, `exit`, `ret`, `$L: ret`)\"",
+    "data": "The list names five forms. /home/jetson/src/bpftime-gpu-work/proto/kmr/routed.ptx, kernel kmr, has 7 exit-probe calls: @p ret x1, @p exit x1, exit x1, ret x3 ($L_kmr_b, $L_kmr_d, $L_kmr_e) and `$L_kmr_c:` ret x1. step0b c1-carry/README.md: '7 exit-probe call sites, one per exit form' over the same five forms.",
+    "correction": "\"C1's kmr (seven exit sites in five forms: `@p ret`, `@p exit`, `exit`, `ret`, `$L: ret`)\"",
+    "severity": "wrong"
+   },
+   {
+    "readme_text": "README kmr row: \"through the C++ routing (`kmr/`) | 8 call sites routed (1 entry, 7 exits), the address formed after each label, ptxas accepts the module\"",
+    "data": "The results kmr/ folder holds only tl_route_check.cpp: no routed PTX, no stats line, no ptxas output. The evidence exists only in the work dir /home/jetson/src/bpftime-gpu-work/proto/kmr/. There, routed.ptx shows kmr with 1 __probe_func__kmr call plus 7 __retprobe_func__kmr calls, and `$L_kmr_c: cvta.local.u64 %bpftime_tl, __bpftime_tl;` before its call. module.cubin (00:55:45) exists, but no ptxas log or saved stats line exists anywhere.",
+    "correction": "Copy routed.ptx, the tool's stats line and the ptxas output into kmr/. Otherwise mark the row as checked in the work dir only.",
+    "severity": "unsupported"
+   },
+   {
+    "readme_text": "README: \"last synchronization covered on the victim ... default mode: no (2 of 3, 0 of 3)\"",
+    "data": "Status word 3 / word 4 in each run. d1-lat 2/3 and d1-hist 0/3: only these two match the parenthesis. The other default-mode runs are f1-carry 2/3, f1-lat 1/3, f1-latmix 1/3, f1-tlatomic 1/3 and f1-hist 0/3. Every default-mode run has exit_delivery=1 and exact counts.",
+    "correction": "\"default mode: no in every run (0 to 2 of 3 synchronizations covered: carry 2, lat 1-2, latmix 1, tlatomic 1, hist 0); the counts came from the exit delivery\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "README ptxas row: \"local frame 640 B (today 632, the 8 B area)\"",
+    "data": "ptx/ptxas_check.txt. lat4 frames: rms 640, mmq 704, mmvq 640, ropek 640. latold4 frames: 632, 696, 632, 632. mmq's original frame is 64 B.",
+    "correction": "\"local frame 640 B on rms, mul_mat_vec_q and rope and 704 B on mul_mat_q (today 632 / 696): +8 B, the area\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "README carry row: \"entries, exits, ... | 1,000,960 and 2,880,000\"",
+    "data": "runs/proto-f1-carry/chk.bin and proto-s1-carry/chk.bin: words [0] entries = [1] exits = 1,000,960 for pt_kdiv; words [8] = [9] = 2,880,000 for pt_kflat. The text reads as if entries were 1,000,960 and exits 2,880,000.",
+    "correction": "\"entries = exits: 1,000,960 (pt_kdiv) and 2,880,000 (pt_kflat, graph replays); 0 mismatches, 0 without entry, 0 NULL\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "README: \"lat, latmix, latold, hist, histold: thread executions counted | exact\"",
+    "data": "For lat, latmix and latold, hist.bin shows exact per-kernel totals: 1,000,960 / 2,880,000, with 0 exits without a start. For hist and histold, calls.bin is not kept. Only maps.json can be checked: sum 3,880,960 and 114,496 nonzero words (100,096 + 14,400), in f1-hist, f1-histold, s1-hist and d1-hist. check_test_set.py checks that each index equals the launch count, but its output is not saved.",
+    "correction": "\"exact (lat, latmix, latold: per-kernel histogram totals; hist, histold: total 3,880,960 over 114,496 thread indices; the per-index check output is not kept)\"",
+    "severity": "unsupported"
+   },
+   {
+    "readme_text": "README Correctness: \"Tools (`tools/`), one eBPF source per pair, only the map types differ\"",
+    "data": "tools/pt_lat.bpf.c: PT_OLD and PT_MIX also clear the start slot at exit (`*s = 0`). tools/pt_hist.bpf.c: PT_OLD uses `*c += 1` where the model uses `__sync_fetch_and_add`.",
+    "correction": "\"one eBPF source per pair; the map types differ, and today's variants also clear the start slot at exit (lat) or use a plain `*cnt += 1` (hist)\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "README exitfast row: \"the status did not flag it (these launches are not noted by today's hooks)\"",
+    "data": "The status word LAUNCHES_AFTER_LAST_SYNC is 0 in both runs (server.log: launches_after_last_sync=0, syncs_at_exit=1). No log shows why the launches were not noted. The patch 0003 message says only that 'the hooks do not note every launch'.",
+    "correction": "\"the status did not flag it (LAUNCHES_AFTER_LAST_SYNC = 0: these launches were not noted)\". Give the cause only if it is shown.",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "README unit-tests row: \"`bpftime_nv_attach_tests`; runtime `[cuda-host-call]`, ... `[map-create]` | all pass\"",
+    "data": "The results directory holds no test logs. The claim is supported only by /home/jetson/src/bpftime-gpu-work/proto/logs/nv_attach_tests.log and runtime_tests.log (01:00-01:01, after the 606e74a5 commit). Every count passes; the counts are under verified.",
+    "correction": "Copy nv_attach_tests.log and runtime_tests.log into the results directory, or cite their path.",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "README: \"A read-only review ... found 26 issues, all confirmed\"",
+    "data": "REVIEW.md has 26 rows, but several report the same issue from different reviewers: lines 7/12 (use-after-free), 8/23/30 (atomic on .local), 9/19/24 (atomic-adds contract), 10/18 (several processes), 13/25 (reset), 17/26 (fork) and 21/28 (zeroing order). That leaves about 17 distinct issues. Outcomes: 18 rows fixed, 2 changed (lines 14, 15), 6 not fixed (lines 9, 13, 19, 24, 25, 27).",
+    "correction": "\"found 26 findings (about 17 distinct issues, several found by more than one reviewer), all confirmed: 18 fixed, 2 changed, 6 not fixed\"",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "README: \"The main ones were fixed in 606e74a5: ... the exit delivery after main (now best effort, completeness from in-process deliveries)\"",
+    "data": "REVIEW.md line 15 marks this finding \"changed\", not fixed. Line 14 adds: \"not fixed: unsynchronized exits lose the last launches\".",
+    "correction": "\"The main ones were fixed or changed in 606e74a5: ...\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "README \"four reviewers, each finding checked by a second\"; REVIEW.md line 3 \"Four reviewers ..., each finding checked by a second, adversarial reviewer ... Every finding was confirmed\"",
+    "data": "No reviewer or verifier output is kept in the results directory. The only other source is the patch 0003 message ('every finding confirmed by a second reviewer').",
+    "correction": "Keep the review outputs, or state that the process is recorded only in REVIEW.md.",
+    "severity": "unsupported"
+   },
+   {
+    "readme_text": "REVIEW.md line 31 (thread-local area size has no bound), outcome: \"fixed: generic atom/red in probe functions get an isspacep.local test; local addresses take a plain read-modify-write (check: tlatomic, 0 mismatches)\"",
+    "data": "That outcome is the text of the atomic-guard fix, copied in. patches/0003 adds `constexpr uint64_t THREAD_LOCAL_AREA_MAX = 1024`, `if (area_bytes > THREAD_LOCAL_AREA_MAX) fail(...)` in route_thread_local_maps, and a creation check on 1530 (value_size * max_entries > 1024). Commit message: '1530 at most 1 KiB, the area at most 1 KiB, else the module loads without probes'.",
+    "correction": "\"fixed: a 1530 map is at most 1 KiB at creation and the area at most 1 KiB (THREAD_LOCAL_AREA_MAX); a larger area loads the module without probes\"",
+    "severity": "wrong"
+   },
+   {
+    "readme_text": "REVIEW.md line 27 (memory synchronization domains), outcome: \"not fixed (documented): Orin (sm_87) has no memory synchronization domains\"",
+    "data": "'domain' appears nowhere else in the results directory: not in README.md, the patches, the tools or step0b/step0. Nothing documents this limit or the sm_87 claim.",
+    "correction": "Add the limit to README \"Not done, limits\" with its source, or change the outcome to \"not fixed (not documented)\".",
+    "severity": "unsupported"
+   },
+   {
+    "readme_text": "REVIEW.md \"as above\" outcomes: line 12 \"fixed: as above\", line 18 \"fixed (refused): as above\", line 26 \"fixed: as above\", line 21 \"fixed: as above\"",
+    "data": "Line 12 (map freed on close, use-after-free): the row above is line 11 (creation checks); the fix is line 7's map reference. Line 18 (several agent processes): the row above is line 17 (fork); the fix is line 10's one-owner CAS. Line 26 (forked child hangs at exit): the row above is line 25, which is \"not fixed (documented limit): a reset frees the device copies\"; the fix is line 17's owner-pid check. Line 21 (zeroing not ordered): the row above is line 20 (relaxed capture mode); the ordering fix is stated on line 28 (\"zeroed on a stream of its own, waited for before the address is published\").",
+    "correction": "Replace each \"as above\" with the fix itself. Line 12: \"fixed: the first device copy takes a map reference\". Line 18: \"fixed (refused): one owner process per map (CAS)\". Line 26: \"fixed: owner pid check before any lock, thread or CUDA call\". Line 21: \"fixed: zeroed on a stream of its own, waited for before the address is published\".",
+    "severity": "wrong"
+   }
+  ],
+  "verified": [
+   "Victim size: 391 blocks x 256 = 100,096 threads x 10 launches = 1,000,960 (pt_kdiv). The graph has 2 launches of 300 blocks x 48 = 14,400 threads, replayed 100 times: 200 launches, 2,880,000 executions. Total 3,880,960 (client.log JSON line, tools/pt_victim.cu). The last block is partial (100,000 of 100,096).",
+   "Victim \"four probe call sites\": consistent with the routing stats \"2 kernels, 6 probe calls\" (pt_kdiv 1 entry + 3 exits, pt_kflat 1 + 1). Inferred; the PTX is not kept.",
+   "Carry (runs/proto-f1-carry and proto-s1-carry chk.bin): entries = exits = 1,000,960 (pt_kdiv) and 2,880,000 (pt_kflat). Mismatches, exits without entry and NULL lookups are 0. maps.json lookup_failures 0.",
+   "tlatomic (f1 and s1 chk.bin): exits 1,000,960 + 2,880,000 = 3,880,960 (3.88M). Mismatch, NULL and fetch-add-nonzero words are 0.",
+   "lat, latmix, latold (f1-lat, s1-lat, d1-lat, f1-latmix, f1-latold hist.bin): per-kernel totals 1,000,960 / 2,880,000; exits-without-start words 0.",
+   "hist, histold (maps.json): sum 3,880,960, nonzero words 114,496.",
+   "Map types from server.log: latmix start 1502 created as 1512; latold 1502 -> 1512 and 1503 -> 1513; histold 1502 -> 1512.",
+   "Capture stress: client.log '3000 loops, 0 invalidated, 0 other errors' in both runs. Status deliveries 2,350 (BUSY_MS=IDLE_MS=1, SYNC_GAP_MS=0) and 3,004 (BPFTIME_GPU_DELIVERY_AT_SYNC=1). hist.bin sum 90,280,960 = 1,000,960 + 6,200 x 14,400, exact per kernel. syncs_covered = syncs_at_exit = 3,003; launches_after_last_sync 0.",
+   "In-call mode (s1-carry, s1-lat, s1-hist, s1-tlatomic): syncs_covered 3 = syncs_at_exit 3 for all four tools. Default mode is short of 3 in every run; exit_delivery = 1 with exact counts.",
+   "pt_exitfast: 96 x 256 = 24,576 threads per launch, 3 launches = 73,728, spin 200,000 us. hist.bin has bucket 27 = 24,576 in both default-2 and atsync-2. Status word 5 (launches_after_last_sync) = 0 in both.",
+   "kmr, checked in the work dir only (proto/kmr/routed.ptx): kmr has 8 call sites (1 entry + 7 exits), the address formed after the label `$L_kmr_c:`, and module.cubin was produced.",
+   "ptxas (ptx/ptxas_check.txt): registers 32/255/56/32 with the model, 38/255/56/34 today, 32/255/56/17 unpatched. Warps per SM by registers 48/8/36/48 in every case (unchanged). Frames 640 vs 632 on rms, mmvq and ropek.",
+   "Unit tests, read in /home/jetson/src/bpftime-gpu-work/proto/logs (outside the results dir). nv_attach_tests.log: 'All tests passed (148 assertions in 32 test cases)' plus the [.sm-arch-without-device] run, 2 assertions in 1 test case. runtime_tests.log, all passed: [cuda-host-call] 955/13, [cuda-no-device] 15/1, [cuda-ringbuf] 684/2, [cuda-watcher-policy] 1093/3, [gpu-map-host] 13/2, [map-create] 1705/6. All ran at 01:00-01:01, after the 606e74a5 commit.",
+   "REVIEW.md has 26 rows; header 'on e3f4e18f..c2826dbc' and 'Fixes: 606e74a5 (patches/0003-*)' match the patches.",
+   "REVIEW.md outcomes match patch 0003 for lines 7, 8/23/30, 10, 11, 14, 15, 16, 17, 20, 22, 28, 29 and 32: map reference; isspacep.local guard; owner CAS; creation checks; SYNCS_COVERED; best-effort exit delivery; cuStreamQuery with a deadline; owner pid; relaxed capture mode; zeroing on its own stream; one slot per status word; acquire load of DELIVERIES in elem_lookup; bpf_main passes 0. The \"not fixed\" contract and reset outcomes (lines 9, 13, 19, 24, 25) match the README limits.",
+   "REVIEW.md line references match the reviewed source at c2826dbc (git show, read-only) at the lines spot-checked: nv_gpu_model_maps.cpp 99/100 acquire fence and status return, 177 ld.relaxed.gpu, 193 registered_map, 331 FINAL store, 416 thread join, 477 atexit, 505 one device copy per map, 526 shards, 531 cuMemAlloc/cuMemsetD8; default_trampoline.cu 250, 288, 366; nv_thread_local_routing.cpp 206, 220, 330 (zeroing loop).",
+   "README review paragraph: the fixes it lists (guarded atomic, map reference, best-effort exit delivery, bounded waits, fork children, ordered zeroing) are all present in patch 0003. '64-bit atomic adds only' on 1531/1532 is left as an unchecked contract, as stated."
+  ]
+ },
+ {
+  "discrepancies": [
+   {
+    "readme_text": "Where tg128's cost goes (two more passes): empty entry and exit probes 3.4-3.8%, the carry (start stored, read back, bucket computed) 22%, the merge (one sharded atomic add) the remaining 10 points.",
+    "data": "meas/analysis-p3p4.txt (raw client.log medians reproduce it): tg empty2 3.42/3.79%, carryonly 21.75/21.98%, lat 31.85/32.00%. 21.75-21.98% is the carryonly item's total, which already includes the 3.4-3.8% probe floor. DECISION-RULES addendum 1 defines the carry as carryonly - empty2, which is 18.33/18.19 points. Read as listed, the parts add up to about 3.6 + 22 + 10 = 36%, against lat's 32%.",
+    "correction": "empty entry and exit probes 3.4-3.8%, the carry (start stored, read back, bucket computed) about 18 more points (carryonly 21.8-22.0% in all), the merge (one sharded atomic add) the remaining 10 points (lat 31.9-32.0%).",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "Hooks on `cuStreamSynchronize(_ptsz)`, `cuCtxSynchronize(_v2)` and `cuEventSynchronize` count the application's synchronizations (also the status words: 'synchronizations covered ...', 'synchronizations at exit')",
+    "data": "The Frida replace hooks count every successful call in the process, including the agent's own. Agent-side calls: nv_gpu_model_maps.cpp:747 calls cuStreamSynchronize(zs) when it zeroes each 1531/1532 device copy; the direct-run path calls cuCtxSynchronize; nv_gpu_shared_array_map.cpp calls cuStreamSynchronize. The data match this. pt_exitfast.cu calls no synchronize, yet runs/proto-exitfast-{default,atsync}-2/hist.status = [2,1,pid,1,1,0] and its log says '1 application syncs covered'. pt_victim with loops=0 calls cudaStreamSynchronize twice (lines 72 and 83), yet SYNCS_AT_EXIT = 3 in runs/proto-f1-carry and proto-s1-carry. In exitfast the count makes SYNCS_COVERED == SYNCS_AT_EXIT although the application never synchronized.",
+    "correction": "Hooks on ... count every successful synchronize call in the process: the application's, plus the agent's own (one cuStreamSynchronize per 1531/1532 device copy it zeroes). SYNCS_COVERED == SYNCS_AT_EXIT therefore does not prove that the application's last synchronization was covered.",
+    "severity": "wrong"
+   },
+   {
+    "readme_text": "Deliveries follow the application's synchronizations and are documented-complete for every kernel those synchronizations waited for.",
+    "data": "step0b c5-guarantees/README.md claim 8: kernel writes being visible after synchronization is 'D for the synchronizing thread; P for bpftime's reader process ... that hop rests on the CPU's memory model, not on a fetched text'. Here the values are read by another process (pt_loader) from the shared segment. Also, only the five hooked calls are counted (synchronous copies and the like are not), and the count includes the agent's own synchronizations (see the hooks entry).",
+    "correction": "Deliveries follow the application's stream, event and context synchronize calls. The agent's copy is documented-complete for every kernel those calls waited for; a reader in another process relies on the CPU's memory model (step0b claim 8: partly documented).",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "The same tool on today's maps: pp512 98.7% (78x slower).",
+    "data": "meas/out p1/p2 client.log medians: base 2500.62/2510.43, latold 32.11/31.63, lat 2410.61/2411.29. base/latold = 77.9x / 79.4x. lat/latold = 75.1x / 76.2x (75.0x / 76.2x against p5/p6 lat).",
+    "correction": "The same tool on today's maps: pp512 98.7% (78-79x below base throughput, 75-76x below the model's lat).",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "Cost ... lat ... pp512 4.1-4.3%, tg128 33.2-33.3% (two passes, build 606e74a5). The same tool on today's maps: pp512 98.7% ... With only the start moved to today's per-thread array: pp512 38-39%, tg128 70%.",
+    "data": "latold 98.72/98.74 and latmix 39.13/38.07 (pp) and 70.39/70.39 (tg) come from passes p1/p2 on builds e3f4e18f + c2826dbc, where lat was 3.60/3.95% and 31.91/31.84%. They do not come from p5/p6 on 606e74a5, which the parenthesis names.",
+    "correction": "Add '(passes p1/p2, builds e3f4e18f + c2826dbc, where lat was 3.6-4.0% / 31.8-31.9%)' after the latold and latmix figures.",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "3.14 x 10^9 threads per run doing about 0.39 ns of work each, so about 0.28 ns of probe work per thread is about +70% on that kernel.",
+    "data": "0.28 ns comes from p3/p4 on the pre-review build: (128/46.20 - 128/67.79) / 3,143,172,096 = 0.281 ns, and 0.282 ns for p4. On 606e74a5 (p5/p6, the 33.2-33.3% quoted in the bullet above) it is 0.298/0.299 ns, so about 0.30 ns and +77%. The 0.39 ns is derived as 128/67.97 x 0.6469 / 3,137,339,392 = 0.388 ns. The census's own figure, llama-census-20261113/census/tg128-graph.csv mmvq gpu_ns 1,270,278,369 / 3,137,339,392 threads, gives 0.405 ns.",
+    "correction": "... doing about 0.39-0.40 ns of work each, so about 0.28 ns (p3/p4; 0.30 ns on 606e74a5) of probe work per thread is about +70-77% on that kernel.",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "The merge needs shards. One device word per bucket: 1.09-1.10 ns per thread on empty kernels; spread over (SM, lane): 0.15-0.16 ns (two quiet passes).",
+    "data": "merge-cost/result-q1q2.txt (reproduced from q1/q2 raw.csv with analyze.py): glob 1.086-1.103, smlane 0.154-0.163, carry 0.094-0.101. In merge_cost.cu, m_glob and m_smlane are body<1> and body<4>, which include the entry/exit carry; all values are measured over m_none. The merge alone is therefore about 0.99-1.00 ns against about 0.06 ns. The microbenchmark also uses red.global.add, not the prototype's generic atom.add behind the isspacep.local guard.",
+    "correction": "One device word per bucket: 1.09-1.10 ns per thread on empty kernels with the carry (about 1.0 ns for the add alone); spread over (SM, lane): 0.15-0.16 ns with the carry (about 0.06 ns for the add).",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "Per-thread-index output is not where the model helps.",
+    "data": "Same bullet, and analysis-p1p2/p5p6: hist overhead is 5.07-5.26% against histold's 26.96-27.53% on pp512 (about 5x less), and 28.58-28.59% against 52.58-52.65% on tg128. Only the memory (3 x 33,554,432 B against 1x) and the in-call delivery (35.8-36.0% and 87.4%) are worse.",
+    "correction": "Per-thread-index output gets cheaper in time but not in memory: ...",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "in-call delivery ... +0.7 to +1.0 points (pp512) and +4.6 to +4.7 points (tg128) for the histogram; 87% on tg128 for the 32 MB per-thread map.",
+    "data": "The increments are lat's (the latency histogram): lat+sync - lat = 0.96/0.72 (pp) and 4.67/4.58 (tg) in p5/p6. For the `hist` tool (threadhist), in-call costs +30.69/+30.75 points on pp512 (35.95/35.82%) and +58.85/+58.83 on tg128. 'the histogram' can be read as `hist`.",
+    "correction": "+0.7 to +1.0 points (pp512) and +4.6 to +4.7 points (tg128) for lat's latency histogram; for the 32 MB per-thread map (hist) 35.8-36.0% on pp512 and 87% on tg128.",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "A program that exits without synchronizing after its last launch loses those launches' adds.",
+    "data": "runs/proto-exitfast-{default,atsync}-2/hist.bin sums to 24,576 of 73,728 exits. The best-effort exit delivery got one launch's adds; 49,152 were lost.",
+    "correction": "A program that exits without synchronizing after its last launch can lose those launches' adds (pt_exitfast: 49,152 of 73,728 lost; the best-effort exit delivery still got 24,576).",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "The exit delivery (atexit) is best effort ... and bounded to about a second.",
+    "data": "final_delivery_at_exit allows up to 500 ms for the drain thread to stop, up to 200 ms to take run_mutex, then deliver_locked with a 1 s deadline on the cuStreamQuery polls: about 1.7 s in all. cuLaunchKernel, and cuModuleLoadData if set-up has not run yet, are not bounded. The measured exit deliveries took 399 ms (pt_exitfast).",
+    "correction": "bounded to about 1.7 s (500 ms for the drain thread, 200 ms for the lock, a 1 s deadline on the snapshot waits).",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "Every generic `atom`/`red` in a probe function gets an `isspacep.local` test ... Any unexpected shape loads the original module.",
+    "data": "route_thread_local_maps_of_module returns the PTX unchanged when the process has no 1530 map, so the guard applies only then. guard_generic_atomics throws on a predicated atomic or an unsupported op rather than guarding it. On a throw in the load-hook path (nv_attach_impl.cpp ~2513), the whole fatbin loads unpatched, with no probes in any of its kernels. The direct-run path (bpf_main) returns -1 instead. The nv_attach_fatbin_record.cpp:219 path throws 'PTX passes failed', and I did not trace its handling.",
+    "correction": "In modules of a process with thread-local maps, every generic atom/red (add, and, or, xor, exch, cas; 32/64-bit, unpredicated) in a probe function gets an isspacep.local test ... Any other shape leaves the whole fatbin unpatched (load hook) or fails the direct run.",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "1531 sum array: ... changed with 64-bit atomic adds only; 1532 ...: 64-bit atomic adds only",
+    "data": "The code does not enforce this. The GPU update/delete helpers return -1 for 1531/1532 (default_trampoline.cu), but the lookup returns a writable device pointer, and plain stores or 32-bit atomics are not rejected. README line 54, line 127 and REVIEW.md ('not fixed (documented contract)') say so.",
+    "correction": "programs must change it with 64-bit atomic adds only (a contract, not checked)",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "every probed thread's exit was counted, in every run",
+    "data": "The checks compare one total per item (warmup + 5 timed runs) with 6c or 5c + c/128, not each run. mmq has 0 exits on tg128. For the hist items, calls.bin is not kept, so their counts appear only in meas/analysis-*.txt and cannot be rechecked from raw files. The lat-family counts do recompute exactly from hist.bin.",
+    "correction": "every probed thread's exit was counted in every item (totals over the warmup and five runs) ...",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "(PTX ISA 8.7: no data race, single-copy atomicity); local ... generic atomic on local memory is undefined (PTX ISA 9.7.15.5); CUDA calls after `main` are undefined (programming guide); PTX ISA 8.9.4 for the cuCtxSynchronize hook",
+    "data": "step0b c5-guarantees/README.md puts the data-race definition at \u00a78.7.1 and single-copy atomicity at \u00a78.10.3 (line 373). It quotes \u00a79.7.15.5 only for 'If the .scope qualifier is absent, .gpu scope is assumed by default'. The rule that atom is only for .global/.shared, and the 'after main ... undefined' quote, appear only in the patch comments, not in any saved quote. No saved \u00a78.9.4 quote names context or device synchronize: only cudaStreamSynchronize, cudaEventSynchronize and query.",
+    "correction": "Cite \u00a78.7/\u00a78.7.1 (data race) and \u00a78.10.3 (single-copy atomicity). Note that the 9.7.15.5 local-atomic rule, the after-main rule and a context-synchronize edge are not among the saved verbatim quotes.",
+    "severity": "unsupported"
+   }
+  ],
+  "verified": [
+   "Patches and branch: the patches' From lines are e3f4e18f, c2826dbc and 606e74a5. `git log proto/map-model` in /home/jetson/src/bpftime-proto shows them on top of 52126f33, which is also their merge base.",
+   "Raw recomputation of every item in p1-p6 from meas/out/*/run-*/client.log (median samples_ts, overhead against the same pass's base) matches meas/analysis-*.txt to 0.01 point. Values used: lat 4.27/4.07 and 33.24/33.28; latold 98.72/98.74; latmix 39.13/38.07 and 70.39/70.39; hist 5.26/5.07 and 28.59/28.58; histold 26.96/27.53 and 52.58/52.65; empty2 3.42/3.79; carryonly 21.75/21.98; lat+sync 5.23/4.79 and 37.91/37.86; hist+sync 87.44/87.41.",
+   "The pp512 lat-family counts from hist.bin (lat, latmix, latold, dev-latold, lat+sync, all passes) equal exactly 6 x E7: 67,639,296, 11,354,112, 5,898,240 and 69,206,016. Exits without a start are 0. E7 per-run counts match step0-checks-20261115/e7-llama/real-run/1115-064629/summary.txt.",
+   "tg128 counts are exactly 5c + c/128 for rms, mmvq and ropek (for example mmvq 15,711,207,424 = 5 x 3,137,339,392 + 24,510,464). This is stronger than 'within the warmup's bounds'. c in all = 3,143,172,096 = 3.14 x 10^9 exits per run; mmvq alone is 3,137,339,392.",
+   "Victim carry: runs/proto-f1-carry and proto-s1-carry chk.bin show 1,000,960 entries = exits (pt_kdiv) and 2,880,000 = exits (pt_kflat), with 0 mismatches, 0 exits without an entry and 0 NULL. pt_victim.cu does have predicated `@p exit`, a partial last block (100,000 threads in 391 x 256), 48-thread blocks (partial warps) and graph replays.",
+   "The merge-cost figures 1.086-1.103 and 0.154-0.163 ns reproduce from q1/q2 raw.csv with merge-cost/analyze.py.",
+   "The 64.7% share is mmvq's time_share 0.6469 in llama-census-20261113/census/tg128-graph.csv. 0.39 ns = 128/67.97 x 0.6469 / 3,137,339,392 = 0.388 ns. 0.28 ns = p3/p4 lat (0.281/0.282 ns), and the attribution 0.021 + 0.146 + 0.114 ns sums to it. lat - carryonly = 10.10/10.02 points.",
+   "Memory: 3 x 33,554,432 B = 96 MiB. In the code, device = max_entries x 1 x thread_count x value_size, staging = cuMemAllocHost of entries x words x 8, and shm data_buffer is the same size. histold shm is 33,554,432 B. lat device is 532,480 B = 260 words x 256 shards x 8 (shards = pow2(8 SMs) x 32).",
+   "Status words in p5/p6 (hist.status/calls.status): +sync items show SYNCS_COVERED == SYNCS_AT_EXIT (859/859, 9,749/9,749). In default mode, hist shows 829 and 857 of 859, and 9,271 and 9,341 of 9,749; lat shows 859/859 and 9,749/9,749. In-call increments for lat are 0.96/0.72 and 4.67/4.58 points.",
+   "Types 1530/1531/1532 = GPU_MAP_OFFSET + ARRAY + 28/29/30 (bpftime_shm.hpp). 1530 CPU lookups return ENOENT. 1531 shard = (smid & (pow2-1)) x 32 + lane, and the snapshot sums the shards. 1532 uses array_map_offset, an [key][tid] layout as in 1502.",
+   "Routing (patch 0001 + 0003, nv_thread_local_routing.cpp): it is called in hack_fatbin after the PTX passes and before wrap_ptx_with_trampoline. It adds a `.local .align 16` area with st.u64 zeroing at the kernel's opening brace. Each probe call site gets cvta.local after the label and before the predicate. Routed probe functions get exactly one .param. Constant-fd lookups become ld.u32 key, bounds check, then selp NULL. Other helper calls 1-3 get the area (or 0 when unrouted) in param4 (r5). guard_generic_atomics inserts isspacep.local and a plain ld/op/st. THREAD_LOCAL_AREA_MAX = 1024, also checked at map creation (E2BIG).",
+   "Delivery code (nv_gpu_model_maps.cpp after 0003): drain thread with context_scope (relaxed capture mode); CU_STREAM_NON_BLOCKING stream; snapshot PTX uses ld.relaxed.gpu.u64; pinned staging via cuMemAllocHost; wait_stream polls cuStreamQuery before copying into shm. Five sync hooks (frida_setup) count after the original returns CUDA_SUCCESS. app_sync_count() is read before the snapshot launch. Defaults: sync gap 2 ms / 1000 ms, busy 20 / 1000 ms, idle 200 / 2000 ms. BPFTIME_GPU_DELIVERY_AT_SYNC runs deliver_in_sync_call from the sync listener. The atexit handler is best effort.",
+   "'Within 2 ms of an uncovered synchronization' holds: due = min(next_due, last_ns + 2 ms), so a delivery starts at once when the previous one is more than 2 ms old, and otherwise less than 2 ms after the sync.",
+   "Status enum: DELIVERIES 0, EXIT_DELIVERY 1, OWNER_PID 2, SYNCS_COVERED 3 (written by non-exit deliveries), SYNCS_AT_EXIT 4, LAUNCHES_AFTER_LAST_SYNC 5. Lookup of key max_entries + i returns slot i.",
+   "Lifetime and processes: get_gpu_map_extra_buffer calls inc_map_refcount once per map per process, never returned (patch 0003 map_handler.cpp). OWNER_PID is taken by CAS with a kill(pid, 0) liveness check; a second live agent gets device 0, so its lookups return NULL. final_delivery_at_exit returns at once when owner != getpid() (fork children).",
+   "pt_exitfast's 24,576 of 73,728 exits delivered matches hist.bin in both modes. The 8.9.4 edges quoted in 'What was built' (stream completion to synchronize return; start of the enqueue call to start of the task) match step0b c5's verbatim quotes. PTX 5.1.5 and CPG 2.3.3 for local memory also match."
+  ]
+ },
+ {
+  "discrepancies": [
+   {
+    "readme_text": "Summary: \"Cost, per-thread latency histogram (`lat`), overhead on llama-bench throughput: pp512 4.1-4.3%, tg128 33.2-33.3% (two passes, build 606e74a5).\" The README does not mention the 5% target anywhere.",
+    "data": "DECISION-RULES rule 3: `lat` overhead at most 5% on pp512 and on tg128, in both passes. lat pp512: 3.60/3.95 (p1/p2), 4.30/3.69 (p3/p4), 4.27/4.07 (p5/p6), so it is met in all six passes. lat tg128: 31.91/31.84, 31.85/32.00, 33.24/33.28, so it is missed in all six. Addendum 1 itself records \"met ... rule 3 on pp512 only\".",
+    "correction": "Add the rule-3 verdict: \"Rule 3 (lat at most 5% on both workloads): met on pp512 (3.6-4.3% in all six passes), not met on tg128 (31.8-33.3%, about 6.5x the target).\"",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "\"Covering the last synchronization before the process ends is documented only when the delivery runs inside the synchronize call (`BPFTIME_GPU_DELIVERY_AT_SYNC=1`): +0.7 to +1.0 points (pp512)...\" The Summary gives the headline cost as \"pp512 4.1-4.3%\" for a design \"whose correctness rests on documented guarantees only\".",
+    "data": "analysis-p5p6.txt, pp lat+sync: 5.23% (p5) and 4.79% (p6). tg lat+sync: 37.91% / 37.86%. Default-mode lat (4.07-4.27%) covers the last synchronization only by timing (\"reported: yes\"), not by construction.",
+    "correction": "State that the configuration whose completeness is documented (in-call) costs 4.8-5.2% on pp512, at the 5% target and above it in p5, and 37.9% on tg128. The 4.1-4.3% headline is the default mode, whose last-sync coverage is measured, not guaranteed.",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "Summary: \"threadhist in device memory: pp512 5.1-5.3% (today's 27-28%), tg128 28.6% (today's 52.6%)\". What this means 4: \"delivering them costs three copies and, in-call, most of the application's time.\"",
+    "data": "hist+sync: pp512 35.95/35.82%, tg128 87.44/87.41% (p5/p6). histold: pp512 26.96/27.53%, tg128 52.58/52.65% (p1/p2). dev-histold: 27.84/27.99% and 52.87/52.89%. In the documented-complete mode, hist is above today's on both workloads, which fails rule 4's \"hist below histold\". On pp512 in-call costs 36%, not \"most\" of the application's time.",
+    "correction": "\"With in-call delivery (the only mode whose completeness is documented) hist costs more than today's histold on both workloads: pp512 35.8-36.0% against 27.0-28.0%, tg128 87.4% against 52.6-52.9% (different passes and builds). In-call delivery takes most of the application's time on tg128 (87%) and 36% on pp512.\"",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "Summary: \"The same tool on today's maps: pp512 98.7% (78x slower).\" The rule-4 verdict (cheaper than today) is not stated anywhere.",
+    "data": "Rule 4 was judged only in p1/p2, on builds e3f4e18f+c2826dbc. lat 3.60/3.95 is below latold 98.72/98.74 and latmix 39.13/38.07 (pp) and 70.39/70.39 (tg). hist 4.66/5.02 and 28.40/28.44 is below histold 26.96/27.53 and 52.58/52.65. So rule 4 is met, but p5/p6 (606e74a5) ran no latold, latmix or histold. 78x = base/latold (2500.62/32.11 = 77.9). lat/latold in the same pass is 75.1x (p1) and 76.2x (p2).",
+    "correction": "\"Rule 4 (cheaper than today): met in p1 and p2 on e3f4e18f+c2826dbc. lat 3.6-4.0% against latold 98.7% and latmix 38-39% (pp512) / 70.4% (tg128); hist 4.7-5.0% / 28.4% against histold 27.0-27.5% / 52.6-52.7%. Not re-run on 606e74a5. latold runs at 1/78 of base throughput (75-76x slower than lat in the same pass).\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "Summary: \"Where tg128's cost goes (two more passes): empty entry and exit probes 3.4-3.8%, the carry (start stored, read back, bucket computed) 22%, the merge (one sharded atomic add) the remaining 10 points.\"",
+    "data": "Addendum 1 defines carry = carryonly - empty2: 21.75 - 3.42 = 18.33 (p3) and 21.98 - 3.79 = 18.19 (p4). merge = lat - carryonly = 10.10 / 10.02. The README's parts add up to 3.4-3.8 + 22 + 10 = 35.4-35.8, more than lat. The split is of p3/p4's lat (31.85/32.00%, pre-fix builds), not of the 33.2-33.3% printed just before it. The ns figures in the same README (carry about 0.15 ns) do use carryonly - empty2.",
+    "correction": "\"Where tg128's cost goes (p3/p4, builds e3f4e18f+c2826dbc, lat 31.9-32.0%): empty entry and exit probes 3.4-3.8 points, the carry 18.2-18.3 points (carryonly 21.8-22.0% minus the floor), the merge 10.0-10.1 points. The review fixes added another 1.2-1.4 points (lat 33.2-33.3% in p5/p6), not attributed.\"",
+    "severity": "wrong"
+   },
+   {
+    "readme_text": "Table \"Where the cost goes (passes p3 and p4...)\". The README gives only the raw item overheads and states the attribution for tg128 lat only.",
+    "data": "Addendum 1 requires reporting hist's add = hist - empty1 and the lat parts for both workloads. hist's add: pp512 5.09-1.03 = 4.06 (p3) and 4.83-0.52 = 4.31 (p4); tg128 28.21-2.23 = 25.98 and 28.48-2.54 = 25.94. pp512 lat: floor 0.89/0.49, carry 1.72/1.75, merge 1.69/1.45. All p3/p4 spreads are at most 0.61 (stable).",
+    "correction": "Add: \"hist's add (hist - empty1): pp512 4.1-4.3 points, tg128 25.9-26.0 points. pp512 lat: floor 0.5-0.9, carry 1.7, merge 1.5-1.7 points.\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "What this means 2: \"on pp512 the same tool goes from 98.7% to 4%, the merge accounting for 98.7 -> 38.6 points and the carry for 38.6 -> 4. On tg128 it is still 33%...\"",
+    "data": "Rule 5 on tg128: latmix - lat = 70.39 - 31.91 = 38.48 (p1) and 70.39 - 31.84 = 38.55 (p2). The merge share cannot be measured on tg128 (latold not run). On pp512 rule 5 gives carry 35.53/34.12 and merge 59.59/60.67. Rule 5's 'carry share' is the saving against 1512, but the Summary uses 'the carry' for the model's own carry cost (carryonly - empty2).",
+    "correction": "Add: \"On tg128, moving the start from 1512 to the thread-local map saves 38.5 points (latmix 70.4% -> lat 31.9%). The merge share is not measured there because latold was not run.\" Distinguish rule 5's carry share (saving against 1512) from the model's own carry cost (addendum 1).",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "Measurement section. The README never mentions the agent's start-up; DECISION-RULES 'Limits known in advance' says it is \"reported, not judged\".",
+    "data": "client_ms per llama-bench invocation (the 'start' field in analysis-*.txt). pp512: base 1.76-1.80 s, agent (patches nothing) 27.6 s, lat 152-155 s, lat+sync 152 s, latmix 149-150 s, latold 240-242 s, hist 98-99 s, hist+sync 104 s, empty2 104 s. tg128: base 10.0 s, agent 27.8 s, lat 113-114 s, latmix 129 s, hist 76.5-76.8 s, hist+sync 144 s. The timed runs are a small part of each total (pp512 lat: 6 runs of about 0.2 s each).",
+    "correction": "Add: \"Start-up (reported, not judged): a llama-bench invocation takes 152-155 s with lat on pp512, against 1.8 s without the agent and 27.6 s with an agent that patches nothing; hist 98 s; tg128 lat 113 s against 10 s. Almost all of it is the agent's patching and compiling of the modules.\"",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "\"Delivery cost: a sum-map delivery 0.3-0.6 ms of the delivery thread (longest 4-16 ms), a 32 MB per-thread delivery about 8 ms (longest 21 ms)\". Rule 6's 'delivery count' is not reported.",
+    "data": "Per-item us/n from analysis-*.txt. Sum maps average 0.14-0.82 ms: lat+sync tg128 0.153/0.144 ms, latmix pp512 0.818/0.760 ms, lat pp512 p1 0.655 ms. The longest per item is 0.7 ms (carryonly tg128 706/749 us; lat+sync tg128 756/767 us) up to 16.6 ms (p3 tg lat). 32 MB deliveries average 6.9-8.0 ms, longest 19.3-21.1 ms. Delivery counts: lat 806-1,072 (pp512) and 1,173-1,845 (tg128); lat+sync 1,618-1,624 and 10,244-10,245; hist 46-52; hist+sync 908 and 9,781, with 6.4-6.5 s and 67.2-67.4 s of delivery time per item.",
+    "correction": "\"A sum-map delivery takes 0.3-0.8 ms of the delivery thread (0.14-0.15 ms in-call on tg128; the longest per item 0.7-16.6 ms), a 32 MB delivery 6.9-8.0 ms (longest 21 ms). Deliveries per item: lat 806-1,072 (pp512) and 1,173-1,845 (tg128); in-call 1,618-1,624 and 10,244-10,245; hist 46-52; hist in-call 908 and 9,781, which is 6.4-6.5 s and 67.2-67.4 s of copying per item.\"",
+    "severity": "wrong"
+   },
+   {
+    "readme_text": "\"Every item's correctness check passed (`meas/analysis-*.txt`).\"",
+    "data": "check() in analyze.py returns no checks for base and agent, and has no branch for empty1, empty2 or carryonly. Those 12 items in p3/p4 print 'checks ok' with zero checks, although their client.log shows patched images with probes. For p5/p6 default lat and hist, the script replaced rule 1's 'final delivery done (status word 1)' with an unjudged 'last sync covered' (word 1 was 1 in the data anyway).",
+    "correction": "\"Every item with a correctness check passed (lat, latmix, latold, hist, histold and the +sync items). base, agent, empty1, empty2 and carryonly have no count check.\"",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "Summary: \"Correct on a real application ... every probed thread's exit was counted, in every run.\" What this means 1: \"Types 1 and 2 with documented-only correctness work on a real application: exact counts\".",
+    "data": "p1-p4 status files have 3 words (deliveries, FINAL, pid), and FINAL was set by the atexit delivery, which REVIEW.md calls undefined (driver API after main). Every p1-p4 count therefore came through that delivery. In p5/p6 default hist, the in-process deliveries covered only 829/857 of 859 and 9,271/9,341 of 9,749 syncs, so its counts came from the exit delivery. EXIT_DELIVERY = 1 in every item, including the +sync ones, and the exit delivery writes the same shared values after the last in-process delivery. The checked values are thus always the exit delivery's; the in-process (documented) values were never captured on their own. On the victim, f1-hist and d1-hist had 1 delivery (the exit one) with 0 of 3 syncs covered, and f1-latmix covered 1 of 3. 'In every run' is not measured: the checks are on totals per llama-bench invocation (warmup + 5 runs).",
+    "correction": "\"The counts were exact in every item. They were read after exit, from values the best-effort exit delivery (CUDA calls after main) wrote last. For in-call items, and default lat in p5/p6, an in-process delivery had covered the last synchronization, so the same values were documented-complete before exit, but they were not captured separately. In p1-p4 and for default hist, exactness rests on the exit delivery. The checks are on totals per llama-bench invocation (warmup + 5 runs).\"",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "\"The minimal prototype of the design whose correctness rests on documented guarantees only\". Type 1530 row: \"local memory is the thread's own storage for the kernel's run (PTX ISA 5.1.5; programming guide 2.3.3)\".",
+    "data": "step0b README claim 6, 'local memory survives preemption', is class P (\"preemption not named\"); C1 adds \"no warp moved, so migration itself was not exercised\". Claim 10, relaxed capture mode not invalidating captures, is class P; the delivery runs in relaxed capture mode and is backed by the measured capture stress (0 of 3,000 invalidated). c5-guarantees claim 8: D for the synchronizing thread, P for a reader in another process (\"that hop rests on the CPU's memory model, not on a fetched text\"); the tool reads the shared values from another process.",
+    "correction": "\"...rests on documented guarantees, except three parts that step0b classed as partly documented: local memory across preemption (preemption is not named), relaxed capture mode not invalidating the application's captures (shown by measurement: the capture stress), and the hand-over from the agent to the reader process (the CPU's memory model).\"",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "Table \"lat, in-call delivery ... yes (judged)\" / \"hist, in-call delivery ... yes (judged)\". Summary: \"Deliveries follow the application's synchronizations and are documented-complete for every kernel those synchronizations waited for.\"",
+    "data": "LAUNCHES_AFTER_LAST_SYNC = 0 in every p5/p6 status file. But tg128 launches its probed kernels inside CUDA graphs, which the hooks do not note (README limits). In pt_exitfast the status read syncs_covered 1 = syncs_at_exit 1 and launches_after_last_sync 0, while 49,152 of 73,728 exits (two thirds) were lost. On tg128, completeness is therefore shown by the count match (exactly 5c + c/128), not by the status.",
+    "correction": "Add to the Summary or the table note: \"'Last sync covered' shows only that the last synchronization was covered. It does not show that every probed launch came before it: graph launches are not noted, and pt_exitfast lost 2/3 of its exits with the status reading covered and 0 launches after the last sync. On tg128 completeness rests on the measured counts.\"",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "Correctness: \"The main ones were fixed in 606e74a5: ... the exit delivery after main (now best effort, completeness from in-process deliveries) ... Contracts not checked: '64-bit atomic adds only' on 1531/1532.\"",
+    "data": "REVIEW.md marks both delivery findings 'changed', not 'fixed'. In p5/p6 default hist, in-process deliveries did not cover the last sync (829-857 of 859, 9,271-9,341 of 9,749), so completeness still came from the exit delivery. REVIEW.md also lists, not fixed, 'Device scope covers only one memory synchronization domain, so the morally strong claims lack a run-time check' (documented: Orin has no domains); the README never mentions it.",
+    "correction": "\"Changed, not fixed: the exit delivery is now best effort. Completeness comes from in-process deliveries only in in-call mode, or when one happens to cover the last synchronization (default hist did not). Not fixed: 'atomic adds only' (a contract), cudaDeviceReset, and the 'morally strong' snapshot reads assume a single memory synchronization domain (true on the Orin, not checked at run time).\"",
+    "severity": "overstated"
+   },
+   {
+    "readme_text": "Victim table header: \"check (build 606e74a5 unless noted)\".",
+    "data": "The f1/s1/d1 runs (carry, tlatomic, lat, latmix, latold, hist, histold, in-call and default) ran at 00:45-00:49 on 11-17. Their .status files hold 5 words, and the loader output has no launches_after_last_sync. Patch 0003 (606e74a5) is dated 00:54:12 and introduces the 6-word layout. The capture-stress and exitfast '-2' runs (00:52-00:54) have 6 words.",
+    "correction": "\"The carry, tlatomic and lat/latmix/latold/hist/histold victim checks ran on a working tree of the review fixes before 606e74a5 was committed (status without LAUNCHES_AFTER_LAST_SYNC). Capture stress and pt_exitfast used the final status layout.\"",
+    "severity": "unsupported"
+   },
+   {
+    "readme_text": "\"C1's kmr (seven exit forms: `@p ret`, `@p exit`, `exit`, `ret`, `$L: ret`) through the C++ routing (`kmr/`) | 8 call sites routed (1 entry, 7 exits), the address formed after each label, ptxas accepts the module\". Also \"`bpftime_nv_attach_tests`; runtime `[cuda-host-call]`, ... | all pass\".",
+    "data": "kmr/ contains only tl_route_check.cpp, and check/ only the scripts: no routing output, ptxas log or test log is kept. The list names five exit forms; step0b c1-carry says kmr has 7 exit-probe call sites.",
+    "correction": "\"seven exit sites (five forms: ...)\". Keep the routing and test outputs, or mark both claims as from runs whose output was not kept.",
+    "severity": "unsupported"
+   },
+   {
+    "readme_text": "\"A read-only review ... found 26 issues, all confirmed; `REVIEW.md` lists them with their outcome.\"",
+    "data": "REVIEW.md has 26 rows, all confirmed, but they are findings with duplicates: use-after-free x2, atomic on a local value x3, atomic-adds-only x3, several processes x2, cudaDeviceReset x2, fork x2, zeroing order x2. That is 17 distinct issues. The row 'Size of the thread-local area has no bound' has the atomics fix copied as its outcome ('fixed: generic atom/red ... tlatomic, 0 mismatches'). Patch 0003 actually caps it: '1530 at most 1 KiB, the area at most 1 KiB, else the module loads without probes', which matches the README's \"The area is at most 1 KiB\".",
+    "correction": "README: \"found 26 findings (17 distinct issues), all confirmed\". REVIEW.md, area-size row outcome: \"fixed: 1530 values and the area at most 1 KiB, else the module loads without probes\".",
+    "severity": "wrong"
+   },
+   {
+    "readme_text": "Summary: \"tg128 within the warmup's bounds (3.14 x 10^9 exits per run)\"; \"probes on four kernels at once\".",
+    "data": "Every tg128 item counts exactly 5c + c/128, i.e. five runs plus one warmup token. rms: 14,768,640 = 5 x 2,949,120 + 23,040. mmvq: 15,711,207,424 = 5 x 3,137,339,392 + 24,510,464. ropek: 14,440,448 = 5 x 2,883,584 + 22,528. mul_mat_q has 0 exits on tg128 (not launched in decode), so only three of the four probed kernels run there.",
+    "correction": "\"tg128: exactly five runs plus the one warmup token (5c + c/128) for each of the three probed kernels decode launches (mul_mat_q does not run in tg128).\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "\"lat and hist moved by 0.2-1.4 points with the review fixes (the guarded atomic and the synchronization-driven deliveries), within the 2-point rule.\"",
+    "data": "No item isolates the isspacep.local guard or the delivery change. lat tg128 rose from 31.84-32.00% (p1-p4) to 33.24-33.28% (p5/p6) while its deliveries rose from 1,173-1,176 to 1,842-1,845. The within-2-point check holds (largest difference 1.44).",
+    "correction": "\"lat and hist moved by 0.2-1.4 points with the review fixes (cause not isolated), within the 2-point rule.\"",
+    "severity": "unsupported"
+   },
+   {
+    "readme_text": "Summary: \"One device word per bucket: 1.09-1.10 ns per thread on empty kernels; spread over (SM, lane): 0.15-0.16 ns\". What this means 3: \"1.09 ns against 0.37 ns\".",
+    "data": "merge_cost.cu: m_glob and m_smlane include the carry (entry and exit probes, timer store and read-back) plus the merge, and m_carry alone is 0.094-0.101 ns (result-q1q2.txt). The add alone is about 0.99-1.00 ns (one word) and about 0.06 ns ((SM, lane)).",
+    "correction": "\"Carry plus add: 1.09-1.10 ns per thread with one word per bucket (the add alone about 1.0 ns), 0.15-0.16 ns with (SM, lane) shards (the add alone about 0.06 ns).\"",
+    "severity": "minor"
+   },
+   {
+    "readme_text": "DECISION-RULES.md (cited by the README for the sizing): \"the largest launch has 445,644 threads (mul_mat_vec_q, tg128)\".",
+    "data": "llama-census-20261113 README table and census/tg128-graph.csv: the largest mul_mat_vec_q launch in decode has 720,896 threads (5,632 x 128). 445,644 is not a multiple of the 128-thread block.",
+    "correction": "\"the largest launch has 720,896 threads (mul_mat_vec_q, tg128)\". The 1,048,576 sizing still covers it.",
+    "severity": "minor"
+   }
+  ],
+  "verified": [
+   "Rule 1 counts: pp512 = exactly 6c for rms 67,639,296, mmq 11,354,112, mmvq 5,898,240 and ropek 69,206,016 in every lat/latmix/latold/hist/histold/dev/+sync item of p1-p6, with c matching the census (11,273,216; 1,892,352; 983,040; 11,534,336). tg128 lies within [5c, 5c+c/64] (exactly 5c+c/128). No exits without a start.",
+   "Rule 2: every pass pair agrees within 2 points (largest spread 1.07, pp latmix p1/p2; at most 0.61 in p3/p4 and 0.43 in p5/p6); no item is unstable.",
+   "Addendum 1: lat and hist in p3/p4 agree with p1/p2 within 2 points (largest difference 0.70, pp lat).",
+   "Addendum 2: the +sync items show SYNCS_COVERED == SYNCS_AT_EXIT (pp 859/859, tg 9,749/9,749) in p5 and p6. Default lat is covered (reported yes) and default hist is not (829/857 of 859; 9,271/9,341 of 9,749), as the README table says. lat and hist agree with p1-p4 within 2 points (largest 1.44, tg lat).",
+   "In-call increments for lat: +0.96/+0.72 points (pp512) and +4.67/+4.58 points (tg128), as stated. hist in-call tg128 is 87.44/87.41%.",
+   "Final-build table values (base 2,516/2,512 and 67.97/67.95 t/s; lat, lat+sync, hist and hist+sync overheads) match analysis-p5p6.txt.",
+   "Against-today table values and the dev-build controls match analysis-p1p2.txt; the dev controls agree within 0.88 points.",
+   "p3/p4 table values match analysis-p3p4.txt. The tg128 ns figures (empty probes about 0.02, carry about 0.15, merge about 0.11, lat about 0.28 ns per thread) recompute from p3 throughput and 3.14e9 thread executions.",
+   "The 64.7% mul_mat_vec_q share matches llama-census-20261113/census/tg128-graph.csv time_share 0.6469 (the census README's 62.7% is the no-graph decode run); about 0.39 ns per thread recomputes.",
+   "Memory: lat 532,480 B device, 2,080 B staging and shared; latold 8,390,688 B; hist 33,554,432 B x 3; histold 33,554,432 B. ptxas registers 32/255/56/32 (model), 38/255/56/34 (today) and 32/255/56/17 (unpatched); frame 640 against 632; warps per SM unchanged.",
+   "Victim: carry 1,000,960 and 2,880,000 entries and exits, with 0 mismatches, 0 without entry and 0 NULL in both f1 and s1. tlatomic: 0 mismatches over 3,880,960. Every tool's count is 3,880,960. In-call covered 3 of 3 for carry, lat, hist and tlatomic; default d1 covered 2 of 3 and 0 of 3.",
+   "Capture stress: 2,350 and 3,004 deliveries, '0 invalidated', sum 90,280,960 exact, 3,003 of 3,003 syncs covered. pt_exitfast: 24,576 of 73,728 delivered in both modes, with the status showing 1/1 covered and 0 launches after the last sync.",
+   "Merge-cost table values match result-q1q2.txt. The 24x512 shape was dropped because every reference batch was capped.",
+   "A successful cuStreamQuery counts as synchronization (PTX 8.9.4, quoted in step0b c5-guarantees), so copying after a successful query is documented.",
+   "REVIEW.md has 26 rows, every one confirmed, with severities 3 high, 10 medium and 13 low."
+  ]
+ }
+]

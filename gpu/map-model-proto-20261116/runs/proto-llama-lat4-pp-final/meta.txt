@@ -1,0 +1,8 @@
+name=proto-llama-lat4-pp-final exdir=proto/tools
+server: SRV_ENV='BPFTIME_MAP_GPU_THREAD_COUNT=1048576' ./pt_loader bpf/lat_llama4.bpf.o /home/jetson/src/bpftime-gpu-work/runs/proto-llama-lat4-pp-final
+victim: VIC_ENV='BPFTIME_CUDA_KEEP_PTX=1' NO_AGENT='' /home/jetson/src/workloads/llama.cpp/build-ptx87/bin/llama-bench -m /home/jetson/src/workloads/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf -r 1 -o json -p 512 -n 0
+start 2026-11-17 02:17:43.787956840
+server ready 02:17:44.997578931
+client_rc=0 client_ms=154111
+server_rc=0
+end 2026-11-17 02:20:27.158882202

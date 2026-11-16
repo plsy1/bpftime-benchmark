@@ -1,0 +1,1258 @@
+From 606e74a5885e953edb8bdbe59deb2131f9fc510e Mon Sep 17 00:00:00 2001
+From: jetson <jetson@orin-nano.tail52323b.ts.net>
+Date: Tue, 17 Nov 2026 00:54:12 +0900
+Subject: [PATCH 3/4] nv_attach: map-model prototype fixes after review
+ (atomics on local values, lifetime, delivery semantics)
+
+Fixes from a read-only adversarial review of e3f4e18f..c2826dbc (every
+finding confirmed by a second reviewer):
+
+- A generic atom/red on a thread-local value is undefined (scalar atom only
+  on .global/.shared or generic addresses pointing there, PTX ISA 9.7.15):
+  every generic atom/red of a probe function now tests its address with
+  isspacep.local; local addresses take a plain load, the operation and a
+  store (the memory is the thread's own), others keep the atomic. add, and,
+  or, xor, exch and cas, 32 and 64 bits; anything else, or a predicated
+  atomic, loads the original module. Check: 64-bit fetch-add, 32-bit add and
+  exchange on 1530 values, 0 mismatches over 3.88M thread executions.
+- Lifetime: the first device copy of a 1531/1532 map in a process takes a
+  reference on the map (never returned, as the array bindings at abrupt
+  exit), so a tool's close no longer frees it under the delivery.
+- One delivering process per map (status OWNER_PID, taken with a CAS; a
+  second live agent gets no device copy, its lookups return NULL).
+- The device copy is zeroed on a stream of its own and waited for before
+  its address is published (relaxed capture mode).
+- Delivery follows the application's synchronizations: hooks on
+  cuStreamSynchronize(_ptsz), cuCtxSynchronize(_v2) and cuEventSynchronize
+  count them and wake the delivery thread; each delivery reads the count
+  before enqueueing its snapshot, so its values hold every add of the
+  kernels those synchronizations waited for (PTX ISA 8.9.4, API
+  synchronization). Status words: DELIVERIES, EXIT_DELIVERY, OWNER_PID,
+  SYNCS_COVERED, SYNCS_AT_EXIT, LAUNCHES_AFTER_LAST_SYNC (one slot per word).
+  BPFTIME_GPU_DELIVERY_AT_SYNC=1 delivers inside the synchronize call, so
+  the last synchronization is covered before main ends.
+- The exit delivery is best effort (CUDA calls after main are undefined by
+  the programming guide) and bounded: waits poll cuStreamQuery with a
+  deadline (1 s), the delivery thread is never joined while it may be in
+  the driver, and a fork child does nothing (owner pid).
+- Creation checks for the three types (4-byte keys, entries > 0; 1531/1532
+  values in u64 words; 1530 at most 1 KiB, the area at most 1 KiB, else the
+  module loads without probes); the direct-run path's bpf_main passes 0 as
+  the area; max_entries read as unsigned.
+
+Known, documented: a program that exits without synchronizing after its last
+launch loses those launches' adds (the hooks do not note every launch, so
+LAUNCHES_AFTER_LAST_SYNC cannot always tell); "atomic adds only" on
+1531/1532 is a contract, not checked; several GPU processes per segment
+deliver only the first one's values.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ attach/nv_attach_impl/nv_attach_impl.cpp      |  41 +-
+ attach/nv_attach_impl/nv_attach_impl.hpp      |   6 +
+ .../nv_attach_impl_frida_setup.cpp            |  64 +++
+ .../nv_thread_local_routing.cpp               | 143 +++++-
+ .../nv_thread_local_routing.hpp               |   5 +
+ .../nv_attach_impl/probed_launch_activity.hpp |  33 ++
+ runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp | 407 ++++++++++++++----
+ runtime/src/bpf_map/gpu/nv_gpu_model_maps.hpp |  46 +-
+ runtime/src/handler/map_handler.cpp           |  39 +-
+ 9 files changed, 672 insertions(+), 112 deletions(-)
+
+diff --git a/attach/nv_attach_impl/nv_attach_impl.cpp b/attach/nv_attach_impl/nv_attach_impl.cpp
+index c1cb4fbf..74823587 100644
+--- a/attach/nv_attach_impl/nv_attach_impl.cpp
++++ b/attach/nv_attach_impl/nv_attach_impl.cpp
+@@ -328,6 +328,11 @@ CUresult cuda_driver_function__cuLibraryLoadData(
+ 	void **jitOptionsValues, unsigned int numJitOptions,
+ 	CUlibraryOption *libraryOptions, void **libraryOptionValues,
+ 	unsigned int numLibraryOptions);
++CUresult cuda_driver_function__cuStreamSynchronize(CUstream s);
++CUresult cuda_driver_function__cuStreamSynchronize_ptsz(CUstream s);
++CUresult cuda_driver_function__cuCtxSynchronize();
++CUresult cuda_driver_function__cuCtxSynchronize_v2(CUcontext c);
++CUresult cuda_driver_function__cuEventSynchronize(CUevent e);
+ }
+ 
+ nv_attach_impl::nv_attach_impl(bool substitute_at_load)
+@@ -533,6 +538,23 @@ nv_attach_impl::nv_attach_impl(bool substitute_at_load)
+ 	replace_hook_once("cuLibraryLoadData",
+ 			  (gpointer)&cuda_driver_function__cuLibraryLoadData,
+ 			  hook_state.orig_cu_library_load_data);
++	// the application's synchronizations, for the GPU map delivery
++	replace_hook_once("cuStreamSynchronize",
++			  (gpointer)&cuda_driver_function__cuStreamSynchronize,
++			  hook_state.orig_cu_stream_synchronize);
++	replace_hook_once(
++		"cuStreamSynchronize_ptsz",
++		(gpointer)&cuda_driver_function__cuStreamSynchronize_ptsz,
++		hook_state.orig_cu_stream_synchronize_ptsz);
++	replace_hook_once("cuCtxSynchronize",
++			  (gpointer)&cuda_driver_function__cuCtxSynchronize,
++			  hook_state.orig_cu_ctx_synchronize);
++	replace_hook_once("cuCtxSynchronize_v2",
++			  (gpointer)&cuda_driver_function__cuCtxSynchronize_v2,
++			  hook_state.orig_cu_ctx_synchronize_v2);
++	replace_hook_once("cuEventSynchronize",
++			  (gpointer)&cuda_driver_function__cuEventSynchronize,
++			  hook_state.orig_cu_event_synchronize);
+ 	gum_interceptor_end_transaction(interceptor);
+ 
+ 	nv_attach_set_active_impl(this);
+@@ -978,7 +1000,7 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
+ 		d.fd = (int)i;
+ 		d.offset = (uint64_t)(uintptr_t)m.extra_buffer;
+ 		d.value_size = (uint64_t)m.value_size;
+-		d.max_entries = (uint64_t)m.max_entries;
++		d.max_entries = (uint64_t)(uint32_t)m.max_entries;
+ 		area = std::max(area, d.offset + d.value_size * d.max_entries);
+ 		descs.push_back(d);
+ 	}
+@@ -991,10 +1013,11 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
+ 	thread_local_routing_stats st;
+ 	auto out = route_thread_local_maps(ptx, kernels, descs, area, &st);
+ 	SPDLOG_INFO(
+-		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0)",
++		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0), {} generic atomics guarded",
+ 		file_name, area, st.kernels, st.call_sites, st.routed_functions,
+ 		st.direct_lookups, st.helper_calls_given_area,
+-		st.unrouted_functions, st.helper_calls_given_zero);
++		st.unrouted_functions, st.helper_calls_given_zero,
++		st.guarded_atomics);
+ 	return out;
+ }
+ 
+@@ -1278,6 +1301,18 @@ int nv_attach_impl::run_attach_entry_on_gpu(int attach_id, int run_count,
+ 					false, false),
+ 				"bpf_main"),
+ 			sm_arch));
++	// thread-local maps: bpf_main is called by no routed kernel, so its
++	// map helper calls get 0 as the area (NULL for thread-local lookups)
++	if (this->map_basic_info) {
++		try {
++			ptx = route_thread_local_maps_of_module(ptx,
++								"direct run");
++		} catch (const std::exception &e) {
++			SPDLOG_ERROR("Thread-local routing of bpf_main: {}",
++				     e.what());
++			return -1;
++		}
++	}
+ 	{
+ 		const std::string to_replace = ".func bpf_main";
+ 
+diff --git a/attach/nv_attach_impl/nv_attach_impl.hpp b/attach/nv_attach_impl/nv_attach_impl.hpp
+index b9627dc0..bd2cf769 100644
+--- a/attach/nv_attach_impl/nv_attach_impl.hpp
++++ b/attach/nv_attach_impl/nv_attach_impl.hpp
+@@ -134,6 +134,12 @@ struct nv_attach_hook_state {
+ 	std::atomic<void *> orig_cuda_memcpy_from_symbol{ nullptr };
+ 	std::atomic<void *> orig_cuda_memcpy_from_symbol_async{ nullptr };
+ 	std::atomic<void *> orig_cu_library_load_data{ nullptr };
++	// the application's synchronizations (GPU map delivery)
++	std::atomic<void *> orig_cu_stream_synchronize{ nullptr };
++	std::atomic<void *> orig_cu_stream_synchronize_ptsz{ nullptr };
++	std::atomic<void *> orig_cu_ctx_synchronize{ nullptr };
++	std::atomic<void *> orig_cu_ctx_synchronize_v2{ nullptr };
++	std::atomic<void *> orig_cu_event_synchronize{ nullptr };
+ 
+ 	// Whether Frida replace hooks have been installed in this process.
+ 	std::atomic<bool> replacements_installed{ false };
+diff --git a/attach/nv_attach_impl/nv_attach_impl_frida_setup.cpp b/attach/nv_attach_impl/nv_attach_impl_frida_setup.cpp
+index ff2b04a9..c0748b44 100644
+--- a/attach/nv_attach_impl/nv_attach_impl_frida_setup.cpp
++++ b/attach/nv_attach_impl/nv_attach_impl_frida_setup.cpp
+@@ -17,6 +17,7 @@
+ #include <vector>
+ #include <boost/core/demangle.hpp>
+ #include "nv_attach_impl.hpp"
++#include "probed_launch_activity.hpp"
+ #include "bpftime_ratelimited_log.hpp"
+ #include <stdexcept>
+ using namespace bpftime;
+@@ -585,6 +586,69 @@ static CUresult cu_launch_kernel_common(
+ 			kernel_params, extra);
+ }
+ 
++// The application's synchronizations: counted for the GPU map delivery
++// (probed_launch_activity::note_app_sync) after the original returned
++// success.
++static nv_attach_hook_state *sync_hook_state()
++{
++	auto gum_ctx = gum_interceptor_get_current_invocation();
++	auto *state = gum_ctx ? (nv_attach_hook_state *)
++					gum_invocation_context_get_replacement_data(
++						gum_ctx) :
++				nullptr;
++	return state ? state : &nv_attach_get_hook_state();
++}
++extern "C" CUresult cuda_driver_function__cuStreamSynchronize(CUstream s)
++{
++	auto fn = (CUresult(*)(CUstream))sync_hook_state()
++			  ->orig_cu_stream_synchronize.load(
++				  std::memory_order_acquire);
++	CUresult r = fn ? fn(s) : CUDA_ERROR_NOT_INITIALIZED;
++	if (r == CUDA_SUCCESS)
++		launch_activity().note_app_sync();
++	return r;
++}
++extern "C" CUresult cuda_driver_function__cuStreamSynchronize_ptsz(CUstream s)
++{
++	auto fn = (CUresult(*)(CUstream))sync_hook_state()
++			  ->orig_cu_stream_synchronize_ptsz.load(
++				  std::memory_order_acquire);
++	CUresult r = fn ? fn(s) : CUDA_ERROR_NOT_INITIALIZED;
++	if (r == CUDA_SUCCESS)
++		launch_activity().note_app_sync();
++	return r;
++}
++extern "C" CUresult cuda_driver_function__cuCtxSynchronize()
++{
++	auto fn = (CUresult(*)())sync_hook_state()
++			  ->orig_cu_ctx_synchronize.load(
++				  std::memory_order_acquire);
++	CUresult r = fn ? fn() : CUDA_ERROR_NOT_INITIALIZED;
++	if (r == CUDA_SUCCESS)
++		launch_activity().note_app_sync();
++	return r;
++}
++extern "C" CUresult cuda_driver_function__cuCtxSynchronize_v2(CUcontext c)
++{
++	auto fn = (CUresult(*)(CUcontext))sync_hook_state()
++			  ->orig_cu_ctx_synchronize_v2.load(
++				  std::memory_order_acquire);
++	CUresult r = fn ? fn(c) : CUDA_ERROR_NOT_INITIALIZED;
++	if (r == CUDA_SUCCESS)
++		launch_activity().note_app_sync();
++	return r;
++}
++extern "C" CUresult cuda_driver_function__cuEventSynchronize(CUevent e)
++{
++	auto fn = (CUresult(*)(CUevent))sync_hook_state()
++			  ->orig_cu_event_synchronize.load(
++				  std::memory_order_acquire);
++	CUresult r = fn ? fn(e) : CUDA_ERROR_NOT_INITIALIZED;
++	if (r == CUDA_SUCCESS)
++		launch_activity().note_app_sync();
++	return r;
++}
++
+ extern "C" CUresult cuda_driver_function__cuLaunchKernel(
+ 	CUfunction func, unsigned int gridDimX, unsigned int gridDimY,
+ 	unsigned int gridDimZ, unsigned int blockDimX, unsigned int blockDimY,
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.cpp b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+index bc705151..77ff2af2 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.cpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+@@ -4,6 +4,7 @@
+ #include <regex>
+ #include <set>
+ #include <sstream>
++#include <cstring>
+ 
+ namespace bpftime
+ {
+@@ -48,7 +49,7 @@ bool is_probe_function_name(const std::string &n)
+ {
+ 	return n.rfind("__probe_func__", 0) == 0 ||
+ 	       n.rfind("__retprobe_func__", 0) == 0 ||
+-	       n.rfind("__memcapture__", 0) == 0;
++	       n.rfind("__memcapture__", 0) == 0 || n == "bpf_main";
+ }
+ 
+ // every probe function definition (not declarations)
+@@ -155,6 +156,140 @@ bool constant_fd(const std::string &fbody, const std::string &block,
+ 	return true;
+ }
+ 
++// A generic atom/red whose address lies in the local window is undefined
++// (PTX ISA 9.7.15.5: scalar atom only on .global/.shared, or generic
++// addresses pointing there); a thread-local map's value is such an address.
++// Every generic atom/red of a probe function gets an isspacep.local test
++// (PTX ISA 9.7.10.22): local addresses take a plain load, the operation and
++// a store (exact: the memory is the thread's own), others keep the atomic.
++std::string guard_generic_atomics(const std::string &fbody,
++				  const std::string &fname, int *count)
++{
++	static const std::regex atom_line(
++		R"(^(\s*)(@!?%[\w$]+\s+)?(atom|red)((?:\.[a-zA-Z0-9_:]+)+)\s+([^;]*);(.*)$)");
++	std::istringstream in(fbody);
++	std::string line, out;
++	int n = 0;
++	bool first = true;
++	while (std::getline(in, line)) {
++		if (!first)
++			out += "\n";
++		first = false;
++		std::smatch m;
++		if (!std::regex_match(line, m, atom_line)) {
++			out += line;
++			continue;
++		}
++		std::string mods = m[4];
++		// explicit state spaces are not generic
++		if (mods.find(".global") != std::string::npos ||
++		    mods.find(".shared") != std::string::npos) {
++			out += line;
++			continue;
++		}
++		if (m[2].length())
++			fail("predicated generic atomic in " + fname);
++		const bool is_red = m[3] == "red";
++		std::vector<std::string> parts;
++		{
++			std::string ops = m[5];
++			std::string cur;
++			int depth = 0;
++			for (char c : ops) {
++				if (c == '[')
++					depth++;
++				if (c == ']')
++					depth--;
++				if (c == ',' && depth == 0) {
++					parts.push_back(trim(cur));
++					cur.clear();
++				} else
++					cur += c;
++			}
++			parts.push_back(trim(cur));
++		}
++		// op and width from the modifiers
++		std::string op, ty;
++		for (const char *o :
++		     { ".add.", ".and.", ".or.", ".xor.", ".exch.", ".cas." })
++			if ((mods + ".").find(o) != std::string::npos)
++				op = std::string(o).substr(1,
++							 strlen(o) - 2);
++		for (const char *t : { ".u64", ".s64", ".b64", ".u32",
++				       ".s32", ".b32" })
++			if (mods.size() >= strlen(t) &&
++			    mods.compare(mods.size() - strlen(t),
++					 strlen(t), t) == 0)
++				ty = t + 1;
++		if (op.empty() || ty.empty())
++			fail("unsupported generic atomic '" + line + "' in " +
++			     fname);
++		const std::string bits = ty.substr(1);
++		size_t ai = is_red ? 0 : 1;
++		const size_t want = (is_red ? 2 : 3) + (op == "cas" ? 1 : 0);
++		if (parts.size() != want || parts[ai].size() < 3 ||
++		    parts[ai].front() != '[' || parts[ai].back() != ']')
++			fail("unexpected operands of '" + line + "' in " +
++			     fname);
++		std::string addr = trim(parts[ai].substr(1, parts[ai].size() - 2));
++		std::string base = addr, off = "0";
++		size_t plus = addr.find('+');
++		if (plus != std::string::npos) {
++			base = trim(addr.substr(0, plus));
++			off = trim(addr.substr(plus + 1));
++		}
++		const std::string id = std::to_string(n++);
++		const std::string ws = m[1];
++		std::ostringstream o;
++		o << ws << "{ // bpftime: atomic on a possibly local address\n"
++		  << ws << ".reg .pred %bpat_l" << id << ", %bpat_q" << id
++		  << ";\n"
++		  << ws << ".reg .b64 %bpat_a" << id << ";\n"
++		  << ws << ".reg .b" << bits << " %bpat_o" << id
++		  << ", %bpat_n" << id << ";\n"
++		  << ws << "add.u64 %bpat_a" << id << ", " << base << ", "
++		  << off << ";\n"
++		  << ws << "isspacep.local %bpat_l" << id << ", %bpat_a" << id
++		  << ";\n"
++		  << ws << "@!%bpat_l" << id << " " << m[3].str() << mods << " "
++		  << m[5].str() << ";\n"
++		  << ws << "@%bpat_l" << id << " ld.b" << bits << " %bpat_o"
++		  << id << ", [%bpat_a" << id << "];\n";
++		const std::string b = parts[ai + 1];
++		if (op == "add")
++			o << ws << "@%bpat_l" << id << " add.u" << bits
++			  << " %bpat_n" << id << ", %bpat_o" << id << ", " << b
++			  << ";\n";
++		else if (op == "and" || op == "or" || op == "xor")
++			o << ws << "@%bpat_l" << id << " " << op << ".b"
++			  << bits << " %bpat_n" << id << ", %bpat_o" << id
++			  << ", " << b << ";\n";
++		else if (op == "exch")
++			o << ws << "@%bpat_l" << id << " mov.b" << bits
++			  << " %bpat_n" << id << ", " << b << ";\n";
++		else { // cas: store c when the old value equals b
++			o << ws << "@%bpat_l" << id << " setp.eq.b" << bits
++			  << " %bpat_q" << id << ", %bpat_o" << id << ", " << b
++			  << ";\n"
++			  << ws << "@%bpat_l" << id << " selp.b" << bits
++			  << " %bpat_n" << id << ", " << parts[ai + 2]
++			  << ", %bpat_o" << id << ", %bpat_q" << id << ";\n";
++		}
++		o << ws << "@%bpat_l" << id << " st.b" << bits << " [%bpat_a"
++		  << id << "], %bpat_n" << id << ";\n";
++		if (!is_red)
++			o << ws << "@%bpat_l" << id << " mov.b" << bits << " "
++			  << parts[0] << ", %bpat_o" << id << ";\n";
++		o << ws << "}" << m[6].str();
++		out += o.str();
++	}
++	if (!fbody.empty() && fbody.back() == '\n')
++		out += "\n";
++	if (count)
++		*count += n;
++	return out;
++}
++
+ std::string route_function_body(
+ 	const std::string &fbody, bool routed,
+ 	const std::map<long long, thread_local_map_desc> &maps,
+@@ -243,7 +378,7 @@ std::string route_function_body(
+ 			st.helper_calls_given_zero++;
+ 	}
+ 	out.append(fbody, pos, std::string::npos);
+-	return out;
++	return guard_generic_atomics(out, fname, &st.guarded_atomics);
+ }
+ } // namespace
+ 
+@@ -254,6 +389,10 @@ std::string route_thread_local_maps(const std::string &ptx_in,
+ 				    thread_local_routing_stats *stats_out)
+ {
+ 	thread_local_routing_stats st;
++	if (area_bytes > THREAD_LOCAL_AREA_MAX)
++		fail("thread-local maps need " + std::to_string(area_bytes) +
++		     " bytes per thread, more than " +
++		     std::to_string(THREAD_LOCAL_AREA_MAX));
+ 	area_bytes = std::max<uint64_t>(8, (area_bytes + 7) & ~7ull);
+ 	std::map<long long, thread_local_map_desc> maps;
+ 	for (auto &d : descs)
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.hpp b/attach/nv_attach_impl/nv_thread_local_routing.hpp
+index ad29a600..8c96f789 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.hpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.hpp
+@@ -23,6 +23,10 @@ namespace bpftime
+ {
+ namespace attach
+ {
++// The area holds every thread-local map of the process and lives in every
++// probed kernel's frame: at most this many bytes (one zeroing store per 8).
++constexpr uint64_t THREAD_LOCAL_AREA_MAX = 1024;
++
+ struct thread_local_map_desc {
+ 	int fd;
+ 	uint64_t offset; // in the area
+@@ -38,6 +42,7 @@ struct thread_local_routing_stats {
+ 	int direct_lookups = 0;
+ 	int helper_calls_given_area = 0;
+ 	int helper_calls_given_zero = 0;
++	int guarded_atomics = 0;
+ };
+ 
+ // Throws std::runtime_error when the PTX does not have the expected shape;
+diff --git a/attach/nv_attach_impl/probed_launch_activity.hpp b/attach/nv_attach_impl/probed_launch_activity.hpp
+index ae20f88b..d88629d3 100644
+--- a/attach/nv_attach_impl/probed_launch_activity.hpp
++++ b/attach/nv_attach_impl/probed_launch_activity.hpp
+@@ -41,7 +41,40 @@ class probed_launch_activity {
+ 	// seen (a launch was noted meanwhile).
+ 	void wait_for_note(uint64_t seen, std::chrono::microseconds timeout);
+ 
++	// The application's synchronizations (stream, event and context
++	// synchronize returning success), counted by the agent's hooks: the
++	// GPU map delivery orders its snapshots after them (PTX ISA 8.9.4, API
++	// synchronization: completion of the last task of a stream
++	// synchronizes with the return of its synchronize). The listener (one,
++	// set by the delivery) is called after every counted one.
++	void note_app_sync() noexcept
++	{
++		notes_at_last_sync.store(notes.load(std::memory_order_seq_cst),
++					 std::memory_order_seq_cst);
++		app_syncs.fetch_add(1, std::memory_order_seq_cst);
++		if (auto fn = sync_listener.load(std::memory_order_acquire))
++			fn();
++	}
++	uint64_t app_sync_count() const noexcept
++	{
++		return app_syncs.load(std::memory_order_seq_cst);
++	}
++	// probed launches noted after the application's last synchronization
++	// started (graph launches are not noted)
++	uint64_t notes_since_last_sync() const noexcept
++	{
++		return notes.load(std::memory_order_seq_cst) -
++		       notes_at_last_sync.load(std::memory_order_seq_cst);
++	}
++	void set_sync_listener(void (*fn)()) noexcept
++	{
++		sync_listener.store(fn, std::memory_order_release);
++	}
++
+     private:
++	std::atomic<uint64_t> app_syncs{ 0 };
++	std::atomic<uint64_t> notes_at_last_sync{ 0 };
++	std::atomic<void (*)()> sync_listener{ nullptr };
+ 	std::atomic<uint64_t> notes{ 0 };
+ 	std::atomic<int> waiters{ 0 };
+ 	std::mutex wait_mutex;
+diff --git a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
+index a1ef83a1..af51ac7d 100644
+--- a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
++++ b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
+@@ -2,6 +2,9 @@
+ #include "bpftime_shm.hpp"
+ #include "bpftime_shm_internal.hpp"
+ #include "spdlog/spdlog.h"
++#include "probed_launch_activity.hpp"
++#include <signal.h>
++#include <time.h>
+ #include <atomic>
+ #include <cerrno>
+ #include <chrono>
+@@ -82,8 +85,8 @@ nv_gpu_device_array_map_impl::nv_gpu_device_array_map_impl(
+ 			"GPU device array maps take u64 words: value size must be a multiple of 8");
+ 	data_buffer.resize(max_entries * this->thread_count * value_size);
+ 	std::memset(data_buffer.data(), 0, data_buffer.size());
+-	status_buffer.resize(GPU_MODEL_STATUS_WORDS * 8 +
+-			     this->thread_count * value_size);
++	// one slot per status word, each a whole value as bpf() returns it
++	status_buffer.resize(GPU_MODEL_STATUS_WORDS * status_slot_bytes());
+ 	std::memset(status_buffer.data(), 0, status_buffer.size());
+ 	SPDLOG_INFO(
+ 		"GPU device array map ({}): value_size={}, max_entries={}, threads per key={}, host copy {} bytes",
+@@ -94,18 +97,17 @@ nv_gpu_device_array_map_impl::nv_gpu_device_array_map_impl(
+ void *nv_gpu_device_array_map_impl::elem_lookup(const void *key)
+ {
+ 	auto k = *(const uint32_t *)key;
+-	if (k >= max_entries && k < max_entries + GPU_MODEL_STATUS_WORDS) {
++	// pairs with the delivery's release increment of the status
++	(void)__atomic_load_n(status_word(GPU_MODEL_STATUS_DELIVERIES),
++			      __ATOMIC_ACQUIRE);
++	if (k >= max_entries && k < max_entries + GPU_MODEL_STATUS_WORDS)
+ 		// status word k - max_entries, then zeros up to a value
+-		std::atomic_thread_fence(std::memory_order_acquire);
+-		return status_buffer.data() + 8 * (k - max_entries);
+-	}
++		return status_buffer.data() +
++		       (k - max_entries) * status_slot_bytes();
+ 	if (k >= max_entries) {
+ 		errno = ENOENT;
+ 		return nullptr;
+ 	}
+-	// pairs with the delivery's release increment of the status
+-	(void)__atomic_load_n(&status_words()[GPU_MODEL_STATUS_DELIVERIES],
+-			      __ATOMIC_ACQUIRE);
+ 	return data_buffer.data() + (uint64_t)k * thread_count * value_size;
+ }
+ 
+@@ -189,21 +191,41 @@ $L_done:
+ }
+ )PTX";
+ 
++uint64_t now_ns()
++{
++	return std::chrono::duration_cast<std::chrono::nanoseconds>(
++		       std::chrono::steady_clock::now().time_since_epoch())
++		.count();
++}
++
++uint64_t env_ms(const char *name, uint64_t dflt)
++{
++	const char *v = getenv(name);
++	if (!v || !*v)
++		return dflt;
++	return strtoull(v, nullptr, 10);
++}
++
+ struct registered_map {
+ 	nv_gpu_device_array_map_impl *map;
+ 	CUdeviceptr device;
+ 	uint64_t entries, shards, words_per_entry;
+ 	uint64_t *staging = nullptr; // pinned host memory, snapshot output
+ 	CUdeviceptr staging_device = 0;
+-	// schedule: every busy_ns while its values change, else idle_ns
+-	uint64_t busy_ns = 0, idle_ns = 0, next_due_ns = 0;
++	// schedule: every busy_ns while its values change, else idle_ns; an
++	// application synchronization not yet covered makes it due busy_ns
++	// after its last delivery
++	uint64_t busy_ns = 0, idle_ns = 0, next_due_ns = 0, last_ns = 0;
++	uint64_t sync_gap_ns = 0;
++	uint64_t covered_syncs = 0;
+ 	uint64_t deliveries = 0, ns_total = 0, ns_max = 0;
+ };
+ 
+ struct delivery_state {
+ 	std::mutex reg_mutex; // the list
+-	std::mutex run_mutex; // one delivery at a time
++	std::timed_mutex run_mutex; // one delivery at a time
+ 	std::vector<registered_map> maps;
++	pid_t owner = 0; // the process that registered (fork children skip)
+ 	CUcontext ctx = nullptr;
+ 	CUmodule module = nullptr;
+ 	CUfunction fn = nullptr;
+@@ -212,11 +234,14 @@ struct delivery_state {
+ 	std::thread thread;
+ 	std::mutex wake_mutex;
+ 	std::condition_variable wake;
+-	bool stop = false;
++	std::atomic<bool> stop{ false };
++	std::atomic<bool> sync_pending{ false };
++	std::atomic<bool> drain_running{ false };
+ 	bool final_done = false;
+ 	uint64_t deliveries = 0;
+ 	uint64_t snapshot_ns_total = 0;
+ 	uint64_t setup_ns = 0;
++	uint64_t wait_timeouts = 0;
+ };
+ 
+ delivery_state &state()
+@@ -227,15 +252,58 @@ delivery_state &state()
+ 	return *s;
+ }
+ 
+-uint64_t now_ns()
++bool owned_here()
+ {
+-	return std::chrono::duration_cast<std::chrono::nanoseconds>(
+-		       std::chrono::steady_clock::now().time_since_epoch())
+-		.count();
++	auto &s = state();
++	return s.owner != 0 && s.owner == getpid();
++}
++
++// The application's synchronizations (agent hooks): wake the drain thread
++// so that a delivery covers them. One wake per batch of syncs.
++int deliver_in_sync_call();
++bool deliver_at_sync()
++{
++	static const bool on = [] {
++		const char *v = getenv("BPFTIME_GPU_DELIVERY_AT_SYNC");
++		return v && *v && strcmp(v, "0") != 0;
++	}();
++	return on;
++}
++
++void on_app_sync()
++{
++	auto &s = state();
++	if (deliver_at_sync()) {
++		deliver_in_sync_call();
++		return;
++	}
++	if (!s.sync_pending.exchange(true, std::memory_order_acq_rel)) {
++		std::lock_guard<std::mutex> lk(s.wake_mutex);
++		s.wake.notify_all();
++	}
++}
++
++// Waits for the delivery stream without blocking in the driver: polls
++// cuStreamQuery (a successful query behaves as the synchronize, PTX ISA
++// 8.9.4), gives up at the deadline or when told to stop.
++CUresult wait_stream(delivery_state &s, uint64_t deadline_ns, bool stoppable)
++{
++	for (;;) {
++		CUresult r = cuStreamQuery(s.stream);
++		if (r != CUDA_ERROR_NOT_READY)
++			return r;
++		if ((stoppable && s.stop.load(std::memory_order_acquire)) ||
++		    now_ns() > deadline_ns) {
++			s.wait_timeouts++;
++			return CUDA_ERROR_NOT_READY;
++		}
++		struct timespec ts = { 0, 50000 };
++		nanosleep(&ts, nullptr);
++	}
+ }
+ 
+ // with run_mutex held, the context current and relaxed capture mode
+-bool prepare_locked(delivery_state &s)
++bool prepare_locked(delivery_state &s, uint64_t deadline_ns, bool stoppable)
+ {
+ 	if (s.broken)
+ 		return false;
+@@ -256,20 +324,36 @@ bool prepare_locked(delivery_state &s)
+ 		r = cuLaunchKernel(s.fn, 1, 1, 1, 32, 1, 1, 0, s.stream, args,
+ 				   nullptr);
+ 		if (r == CUDA_SUCCESS)
+-			r = cuStreamSynchronize(s.stream);
++			r = wait_stream(s, deadline_ns, stoppable);
+ 	}
+ 	if (r != CUDA_SUCCESS) {
+ 		SPDLOG_ERROR("GPU map delivery: cannot set up ({})", (int)r);
+-		s.broken = true;
++		if (r != CUDA_ERROR_NOT_READY)
++			s.broken = true;
++		s.fn = r == CUDA_ERROR_NOT_READY ? s.fn : nullptr;
+ 		return false;
+ 	}
+ 	return true;
+ }
+ 
+-// one delivery of every map that is due (all of them when final); returns
+-// the time the next one is due
+-uint64_t deliver_locked(delivery_state &s, bool final, int *delivered)
++// drain: the delivery thread; at_sync: in the application's thread, inside
++// its synchronize call (BPFTIME_GPU_DELIVERY_AT_SYNC=1), every map whose
++// last delivery does not cover the application's latest synchronization;
++// exit: the exit handler, every map
++enum class delivery_kind { drain, at_sync, exit };
++
++// One delivery of every map that is due (all of them at exit); returns the
++// time the next one is due. The application's synchronization count is
++// read before each snapshot is enqueued: everything of the kernels those
++// synchronizations waited for happens before the snapshot's reads (PTX ISA
++// 8.9.4: completion of a stream's last task synchronizes with the return of
++// its synchronize; the hook's count increment follows that return; the
++// drain thread reads the count before the call that enqueues the snapshot,
++// whose start synchronizes with the snapshot's start).
++uint64_t deliver_locked(delivery_state &s, delivery_kind kind,
++			uint64_t deadline_ns, int *delivered)
+ {
++	const bool at_exit = kind == delivery_kind::exit;
+ 	std::vector<registered_map> maps;
+ 	{
+ 		std::lock_guard<std::mutex> g(s.reg_mutex);
+@@ -279,17 +363,27 @@ uint64_t deliver_locked(delivery_state &s, bool final, int *delivered)
+ 		return now_ns() + 200000000ull;
+ 	if (!s.fn) {
+ 		const uint64_t t = now_ns();
+-		if (!prepare_locked(s))
+-			return UINT64_MAX;
++		if (!prepare_locked(s, deadline_ns,
++				    kind == delivery_kind::drain))
++			return s.broken ? UINT64_MAX : now_ns() + 20000000ull;
+ 		s.setup_ns = now_ns() - t;
+ 	}
+ 	const uint64_t t0 = now_ns();
+-	uint64_t t_launch = 0, t_sync = 0, t_copy = 0;
++	const uint64_t syncs = attach::launch_activity().app_sync_count();
++	uint64_t t_launch = 0, t_wait = 0, t_copy = 0;
+ 	uint64_t next_due = UINT64_MAX;
+ 	for (size_t mi = 0; mi < maps.size(); mi++) {
+ 		auto &m = maps[mi];
+-		if (!final && m.next_due_ns > t0) {
+-			next_due = std::min(next_due, m.next_due_ns);
++		uint64_t due = m.next_due_ns;
++		if (syncs != m.covered_syncs)
++			due = std::min(due, kind == delivery_kind::at_sync ?
++						    0 :
++						    m.last_ns + m.sync_gap_ns);
++		if (kind == delivery_kind::at_sync &&
++		    syncs == m.covered_syncs)
++			due = UINT64_MAX;
++		if (!at_exit && due > t0) {
++			next_due = std::min(next_due, due);
+ 			continue;
+ 		}
+ 		const uint64_t m0 = now_ns();
+@@ -304,9 +398,14 @@ uint64_t deliver_locked(delivery_state &s, bool final, int *delivered)
+ 					    s.stream, args, nullptr);
+ 		uint64_t b = now_ns();
+ 		if (r == CUDA_SUCCESS)
+-			r = cuStreamSynchronize(s.stream);
++			r = wait_stream(s, deadline_ns,
++					kind == delivery_kind::drain);
+ 		t_launch += b - a;
+-		t_sync += now_ns() - b;
++		t_wait += now_ns() - b;
++		if (r == CUDA_ERROR_NOT_READY) {
++			// stopped or late: no copy of this map now
++			return UINT64_MAX;
++		}
+ 		if (r != CUDA_SUCCESS) {
+ 			SPDLOG_ERROR("GPU map delivery: snapshot failed ({})",
+ 				     (int)r);
+@@ -323,20 +422,25 @@ uint64_t deliver_locked(delivery_state &s, bool final, int *delivered)
+ 			}
+ 		}
+ 		t_copy += now_ns() - c0;
+-		uint64_t *st = m.map->status_words();
+-		__atomic_store_n(&st[GPU_MODEL_STATUS_PID], (uint64_t)getpid(),
+-				 __ATOMIC_RELAXED);
+-		__atomic_fetch_add(&st[GPU_MODEL_STATUS_DELIVERIES], 1,
+-				   __ATOMIC_RELEASE);
+-		if (final)
+-			__atomic_store_n(&st[GPU_MODEL_STATUS_FINAL], 1,
+-					 __ATOMIC_RELEASE);
++		auto *map = m.map;
++		if (!at_exit)
++			__atomic_store_n(
++				map->status_word(GPU_MODEL_STATUS_SYNCS_COVERED),
++				syncs, __ATOMIC_RELAXED);
++		if (at_exit)
++			__atomic_store_n(
++				map->status_word(GPU_MODEL_STATUS_EXIT_DELIVERY),
++				1, __ATOMIC_RELAXED);
++		__atomic_fetch_add(map->status_word(GPU_MODEL_STATUS_DELIVERIES),
++				   1, __ATOMIC_RELEASE);
+ 		if (delivered)
+ 			(*delivered)++;
+ 		const uint64_t m1 = now_ns();
+ 		{
+ 			std::lock_guard<std::mutex> g(s.reg_mutex);
+ 			auto &sm = s.maps[mi];
++			sm.last_ns = m1;
++			sm.covered_syncs = syncs;
+ 			sm.next_due_ns =
+ 				m1 + (changed ? sm.busy_ns : sm.idle_ns);
+ 			sm.deliveries++;
+@@ -348,11 +452,11 @@ uint64_t deliver_locked(delivery_state &s, bool final, int *delivered)
+ 	s.deliveries++;
+ 	const uint64_t took = now_ns() - t0;
+ 	s.snapshot_ns_total += took;
+-	if (s.deliveries <= 3 || final || took > 20000000)
++	if (s.deliveries <= 3 || at_exit || took > 20000000)
+ 		SPDLOG_INFO(
+-			"GPU map delivery {}{}: {} us (launch {}, wait {}, copy {})",
+-			s.deliveries, final ? " (final)" : "", took / 1000,
+-			t_launch / 1000, t_sync / 1000, t_copy / 1000);
++			"GPU map delivery {}{}: {} us (launch {}, wait {}, copy {}), {} application syncs covered",
++			s.deliveries, at_exit ? " (exit)" : "", took / 1000,
++			t_launch / 1000, t_wait / 1000, t_copy / 1000, syncs);
+ 	return next_due;
+ }
+ 
+@@ -375,56 +479,124 @@ struct context_scope {
+ 	}
+ };
+ 
+-uint64_t env_ms(const char *name, uint64_t dflt)
+-{
+-	const char *v = getenv(name);
+-	if (!v || !*v)
+-		return dflt;
+-	return strtoull(v, nullptr, 10);
+-}
+-
+ void drain_loop()
+ {
+ 	auto &s = state();
+-	context_scope scope(s.ctx);
+-	uint64_t due = now_ns() + 20000000ull;
+-	for (;;) {
+-		{
+-			const uint64_t now = now_ns();
+-			const uint64_t wait_ns = due > now ? due - now : 0;
+-			std::unique_lock<std::mutex> lk(s.wake_mutex);
+-			s.wake.wait_for(lk, std::chrono::nanoseconds(wait_ns),
+-					[&] { return s.stop; });
+-			if (s.stop)
+-				return;
++	s.drain_running.store(true, std::memory_order_release);
++	{
++		context_scope scope(s.ctx);
++		uint64_t due = now_ns() + 20000000ull;
++		// with deliveries in the synchronize calls the thread only
++		// keeps the periodic ones
++		while (!s.stop.load(std::memory_order_acquire)) {
++			{
++				const uint64_t now = now_ns();
++				const uint64_t wait_ns =
++					due > now ? std::min<uint64_t>(
++							    due - now,
++							    1000000000ull) :
++						    0;
++				std::unique_lock<std::mutex> lk(s.wake_mutex);
++				s.wake.wait_for(
++					lk, std::chrono::nanoseconds(wait_ns),
++					[&] {
++						return s.stop.load() ||
++						       s.sync_pending.load();
++					});
++			}
++			if (s.stop.load(std::memory_order_acquire))
++				break;
++			s.sync_pending.store(false, std::memory_order_release);
++			std::unique_lock<std::timed_mutex> g(s.run_mutex);
++			if (s.final_done || s.broken)
++				break;
++			due = deliver_locked(s, delivery_kind::drain,
++					     UINT64_MAX, nullptr);
+ 		}
+-		std::lock_guard<std::mutex> g(s.run_mutex);
+-		if (s.final_done || s.broken)
+-			return;
+-		due = deliver_locked(s, false, nullptr);
++	}
++	s.drain_running.store(false, std::memory_order_release);
++	{
++		std::lock_guard<std::mutex> lk(s.wake_mutex);
++		s.wake.notify_all();
+ 	}
+ }
+ 
++// At exit (atexit): best effort only. CUDA calls after main are undefined
++// by the programming guide ("using any of these interfaces ... during
++// program initiation or termination after main will result in undefined
++// behavior"), so the documented content of a map is that of the last
++// in-process delivery (status SYNCS_COVERED); this one sets EXIT_DELIVERY.
++// Bounded: at most about a second, and nothing at all in a fork child.
+ void final_delivery_at_exit()
+ {
+ 	auto &s = state();
++	if (!owned_here())
++		return;
++	const uint64_t syncs = attach::launch_activity().app_sync_count();
++	const uint64_t after = attach::launch_activity().notes_since_last_sync();
+ 	{
+-		std::lock_guard<std::mutex> lk(s.wake_mutex);
+-		s.stop = true;
++		std::lock_guard<std::mutex> g(s.reg_mutex);
++		for (auto &m : s.maps) {
++			__atomic_store_n(
++				m.map->status_word(GPU_MODEL_STATUS_SYNCS_AT_EXIT),
++				syncs, __ATOMIC_RELEASE);
++			__atomic_store_n(
++				m.map->status_word(
++					GPU_MODEL_STATUS_LAUNCHES_AFTER_LAST_SYNC),
++				after, __ATOMIC_RELEASE);
++		}
+ 	}
+-	s.wake.notify_all();
+-	if (s.thread.joinable())
++	s.stop.store(true, std::memory_order_release);
++	{
++		std::unique_lock<std::mutex> lk(s.wake_mutex);
++		s.wake.notify_all();
++		s.wake.wait_for(lk, std::chrono::milliseconds(500), [&] {
++			return !s.drain_running.load(std::memory_order_acquire);
++		});
++	}
++	// never join: a thread stuck in the driver would hold the exit
++	if (!s.drain_running.load(std::memory_order_acquire) &&
++	    s.thread.joinable())
+ 		s.thread.join();
+-	int n = gpu_model::deliver_now(true);
++	int n = 0;
++	{
++		std::unique_lock<std::timed_mutex> g(s.run_mutex,
++						     std::defer_lock);
++		if (s.ctx && g.try_lock_for(std::chrono::milliseconds(200))) {
++			context_scope scope(s.ctx);
++			if (!s.final_done && !s.broken)
++				deliver_locked(s, delivery_kind::exit,
++					       now_ns() + 1000000000ull, &n);
++			s.final_done = true;
++		}
++	}
+ 	SPDLOG_INFO(
+-		"GPU map delivery: final delivery of {} maps; {} deliveries in all, {} us of snapshots, {} us of set-up",
+-		n, s.deliveries, s.snapshot_ns_total / 1000, s.setup_ns / 1000);
++		"GPU map delivery: exit delivery of {} maps; {} deliveries in all, {} us of snapshots, {} us of set-up, {} waits given up, {} application syncs",
++		n, s.deliveries, s.snapshot_ns_total / 1000, s.setup_ns / 1000,
++		s.wait_timeouts, syncs);
+ 	std::lock_guard<std::mutex> g(s.reg_mutex);
+ 	for (auto &m : s.maps)
+ 		SPDLOG_INFO(
+-			"GPU map delivery: map ({} words, {} shards): {} deliveries, {} us in all, longest {} us",
++			"GPU map delivery: map ({} words, {} shards): {} deliveries, {} us in all, longest {} us, syncs covered {}",
+ 			m.entries * m.words_per_entry, m.shards, m.deliveries,
+-			m.ns_total / 1000, m.ns_max / 1000);
++			m.ns_total / 1000, m.ns_max / 1000, m.covered_syncs);
++}
++// In the application's synchronize call (opt-in): the delivery completes
++// inside it, so the latest synchronization is covered before the call
++// returns to the application (inside main).
++int deliver_in_sync_call()
++{
++	auto &s = state();
++	if (!s.ctx || !owned_here() || s.final_done || s.broken)
++		return 0;
++	context_scope scope(s.ctx);
++	std::unique_lock<std::timed_mutex> g(s.run_mutex);
++	if (s.final_done)
++		return 0;
++	int n = 0;
++	deliver_locked(s, delivery_kind::at_sync, now_ns() + 1000000000ull,
++		       &n);
++	return n;
+ }
+ } // namespace
+ 
+@@ -447,7 +619,12 @@ void register_device_array(nv_gpu_device_array_map_impl *map,
+ 		    env_ms(big ? "BPFTIME_GPU_DELIVERY_PERTHREAD_IDLE_MS" :
+ 				 "BPFTIME_GPU_DELIVERY_IDLE_MS",
+ 			   big ? 2000 : 200);
++	// a synchronization not yet covered: a delivery at most this long
++	// after the previous one
++	m.sync_gap_ns = 1000000ull *
++			env_ms("BPFTIME_GPU_DELIVERY_SYNC_GAP_MS", big ? 1000 : 2);
+ 	m.next_due_ns = now_ns() + m.busy_ns;
++	m.last_ns = now_ns();
+ 	uint64_t bytes = entries * words_per_entry * 8;
+ 	if (cuMemAllocHost((void **)&m.staging, bytes) != CUDA_SUCCESS ||
+ 	    cuMemHostGetDevicePointer(&m.staging_device, m.staging, 0) !=
+@@ -461,8 +638,11 @@ void register_device_array(nv_gpu_device_array_map_impl *map,
+ 	{
+ 		std::lock_guard<std::mutex> g(s.reg_mutex);
+ 		first = s.maps.empty();
+-		if (first && cuCtxGetCurrent(&s.ctx) != CUDA_SUCCESS)
+-			s.ctx = nullptr;
++		if (first) {
++			s.owner = getpid();
++			if (cuCtxGetCurrent(&s.ctx) != CUDA_SUCCESS)
++				s.ctx = nullptr;
++		}
+ 		s.maps.push_back(m);
+ 	}
+ 	if (first) {
+@@ -471,9 +651,7 @@ void register_device_array(nv_gpu_device_array_map_impl *map,
+ 				"GPU map delivery: no current context at registration");
+ 			return;
+ 		}
+-		// after the application's cudart registered its own exit
+-		// handler? Not guaranteed; the final delivery uses the driver
+-		// API and the agent's retained primary context only.
++		attach::launch_activity().set_sync_listener(on_app_sync);
+ 		atexit(final_delivery_at_exit);
+ 		s.thread = std::thread(drain_loop);
+ 	}
+@@ -482,14 +660,15 @@ void register_device_array(nv_gpu_device_array_map_impl *map,
+ int deliver_now(bool final)
+ {
+ 	auto &s = state();
+-	if (!s.ctx)
++	if (!s.ctx || !owned_here())
+ 		return 0;
+ 	context_scope scope(s.ctx);
+-	std::lock_guard<std::mutex> g(s.run_mutex);
++	std::unique_lock<std::timed_mutex> g(s.run_mutex);
+ 	if (s.final_done)
+ 		return 0;
+ 	int n = 0;
+-	deliver_locked(s, final, &n);
++	deliver_locked(s, final ? delivery_kind::exit : delivery_kind::drain,
++		       now_ns() + 1000000000ull, &n);
+ 	if (final)
+ 		s.final_done = true;
+ 	return n;
+@@ -501,14 +680,40 @@ CUdeviceptr nv_gpu_device_array_map_impl::get_gpu_mem_buffer()
+ 	if (shm_holder.global_shared_memory.get_open_type() !=
+ 	    shm_open_type::SHM_OPEN_ONLY)
+ 		return 0; // the server never runs GPU code
+-	// one device copy per map per process
++	// one device copy per map per process; the handler holds a reference
++	// on the map for this process (bpf_map_handler::
++	// get_gpu_map_extra_buffer), so the object is never freed under the
++	// delivery and its address is never reused meanwhile
+ 	static std::mutex mu;
+-	static std::vector<std::pair<nv_gpu_device_array_map_impl *,
+-				     CUdeviceptr> > made;
++	struct made_copy {
++		nv_gpu_device_array_map_impl *map;
++		CUdeviceptr device;
++		uint64_t shards;
++	};
++	static std::vector<made_copy> made;
+ 	std::lock_guard<std::mutex> g(mu);
+-	for (auto &[m, d] : made)
+-		if (m == this)
+-			return d;
++	for (auto &mc : made)
++		if (mc.map == this)
++			return mc.device;
++	// one delivering process per map: the first agent owns it; another
++	// one's programs get NULL (its adds would never be delivered)
++	{
++		uint64_t mine = (uint64_t)getpid();
++		uint64_t *owner = status_word(GPU_MODEL_STATUS_OWNER_PID);
++		uint64_t cur = __atomic_load_n(owner, __ATOMIC_ACQUIRE);
++		while (cur != mine) {
++			if (cur != 0 && kill((pid_t)cur, 0) == 0) {
++				SPDLOG_ERROR(
++					"GPU device array map: delivered by process {}; this process ({}) gets no device copy (its lookups return NULL)",
++					cur, mine);
++				return 0;
++			}
++			if (__atomic_compare_exchange_n(owner, &cur, mine,
++							false, __ATOMIC_ACQ_REL,
++							__ATOMIC_ACQUIRE))
++				break;
++		}
++	}
+ 	uint64_t s = 1;
+ 	if (!per_thread) {
+ 		CUdevice dev = 0;
+@@ -527,10 +732,26 @@ CUdeviceptr nv_gpu_device_array_map_impl::get_gpu_mem_buffer()
+ 	}
+ 	uint64_t bytes = max_entries * s * thread_count * value_size;
+ 	CUdeviceptr d = 0;
+-	if (cuMemAlloc(&d, bytes) != CUDA_SUCCESS ||
+-	    cuMemsetD8(d, 0, bytes) != CUDA_SUCCESS) {
+-		SPDLOG_ERROR("GPU device array map: cannot allocate {} bytes",
+-			     bytes);
++	CUstream zs = nullptr;
++	// zeroed on a stream of our own, waited for before the address is
++	// published: no later work can see the allocation's old contents
++	// (relaxed capture mode: this may run on an application thread)
++	CUstreamCaptureMode mode = CU_STREAM_CAPTURE_MODE_RELAXED;
++	cuThreadExchangeStreamCaptureMode(&mode);
++	CUresult r = cuMemAlloc(&d, bytes);
++	if (r == CUDA_SUCCESS)
++		r = cuStreamCreate(&zs, CU_STREAM_NON_BLOCKING);
++	if (r == CUDA_SUCCESS)
++		r = cuMemsetD8Async(d, 0, bytes, zs);
++	if (r == CUDA_SUCCESS)
++		r = cuStreamSynchronize(zs);
++	if (zs)
++		cuStreamDestroy(zs);
++	cuThreadExchangeStreamCaptureMode(&mode);
++	if (r != CUDA_SUCCESS) {
++		SPDLOG_ERROR(
++			"GPU device array map: cannot allocate and zero {} bytes ({})",
++			bytes, (int)r);
+ 		if (d)
+ 			cuMemFree(d);
+ 		return 0;
+@@ -538,7 +759,7 @@ CUdeviceptr nv_gpu_device_array_map_impl::get_gpu_mem_buffer()
+ 	SPDLOG_INFO(
+ 		"GPU device array map ({}): {} bytes of device memory at {:x}, {} shards",
+ 		per_thread ? "1532" : "1531", bytes, (uintptr_t)d, s);
+-	made.emplace_back(this, d);
++	made.push_back({ this, d, s });
+ 	gpu_model::register_device_array(this, d, max_entries, s,
+ 					 thread_count * value_size / 8);
+ 	return d;
+diff --git a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.hpp b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.hpp
+index 20cb1e48..526d0244 100644
+--- a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.hpp
++++ b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.hpp
+@@ -13,9 +13,7 @@
+ //   1531: max_entries values, each word summed over the (SM, lane) shards
+ //         the GPU spread its adds over;
+ //   1532: as 1502/1512, a value per key and thread index ([key][tid]).
+-// A lookup of key max_entries + i returns status word i (then zeros up to a
+-// value): 0 deliveries made, 1 1 once the final delivery at process exit
+-// completed, 2 pid of the delivering process.
++// A lookup of key max_entries + i returns status word i (below).
+ #include "bpf_map/map_common_def.hpp"
+ #include "cuda.h"
+ #include <cstdint>
+@@ -45,10 +43,29 @@ class nv_gpu_thread_local_map_impl {
+ 	}
+ };
+ 
++// Status words of 1531/1532 (key max_entries + i returns word i, then zeros
++// up to a value):
++//   DELIVERIES     deliveries made
++//   EXIT_DELIVERY  1 when the exit delivery (atexit) ran; best effort: CUDA
++//                  calls after main are undefined by the programming guide
++//   OWNER_PID      the process whose agent owns the device copy
++//   SYNCS_COVERED  application synchronizations the latest in-process
++//                  delivery covered: the values contain every add of the
++//                  kernels those synchronizations waited for
++//   SYNCS_AT_EXIT  application synchronizations counted when the exit
++//                  handler started; SYNCS_COVERED == SYNCS_AT_EXIT means a
++//                  delivery covered the last one
++//   LAUNCHES_AFTER_LAST_SYNC  probed launches the hooks noted after the
++//                  application's last synchronization (at exit; graph
++//                  launches are not noted): with 0 and the two above equal,
++//                  the values hold every add of the noted launches
+ enum : uint64_t {
+ 	GPU_MODEL_STATUS_DELIVERIES = 0,
+-	GPU_MODEL_STATUS_FINAL = 1,
+-	GPU_MODEL_STATUS_PID = 2,
++	GPU_MODEL_STATUS_EXIT_DELIVERY = 1,
++	GPU_MODEL_STATUS_OWNER_PID = 2,
++	GPU_MODEL_STATUS_SYNCS_COVERED = 3,
++	GPU_MODEL_STATUS_SYNCS_AT_EXIT = 4,
++	GPU_MODEL_STATUS_LAUNCHES_AFTER_LAST_SYNC = 5,
+ 	GPU_MODEL_STATUS_WORDS = 8,
+ };
+ 
+@@ -106,9 +123,14 @@ class nv_gpu_device_array_map_impl {
+ 	{
+ 		return (uint64_t *)data_buffer.data();
+ 	}
+-	uint64_t *status_words()
++	uint64_t status_slot_bytes() const
+ 	{
+-		return (uint64_t *)status_buffer.data();
++		return thread_count * value_size;
++	}
++	uint64_t *status_word(uint64_t i)
++	{
++		return (uint64_t *)(status_buffer.data() +
++				    i * status_slot_bytes());
+ 	}
+ 	void set_shards(uint64_t s)
+ 	{
+@@ -122,10 +144,12 @@ namespace gpu_model
+ // values, from a thread of its own (relaxed capture mode, own non-blocking
+ // stream): a snapshot kernel reads each word with ld.relaxed.gpu (morally
+ // strong with the programs' gpu-scope atomic adds: no data race, PTX ISA
+-// 8.7) and sums the shards into a staging buffer that only it writes; after
+-// that kernel completed (stream synchronize) the staging buffer is copied
+-// to the host, then into the shared values. A final delivery runs at
+-// process exit (atexit), after the application synchronized.
++// 8.7) and sums the shards into pinned staging memory that only it writes;
++// after a successful query of its stream the thread copies the staging
++// buffer into the shared values. Deliveries follow the application's
++// synchronizations (agent hooks), so the latest one covers every kernel
++// they waited for (status SYNCS_COVERED). An exit delivery (atexit) is
++// best effort (status EXIT_DELIVERY).
+ void register_device_array(nv_gpu_device_array_map_impl *map,
+ 			   CUdeviceptr device, uint64_t entries,
+ 			   uint64_t shards, uint64_t words_per_entry);
+diff --git a/runtime/src/handler/map_handler.cpp b/runtime/src/handler/map_handler.cpp
+index 69553401..b7ddefc4 100644
+--- a/runtime/src/handler/map_handler.cpp
++++ b/runtime/src/handler/map_handler.cpp
+@@ -15,6 +15,7 @@
+ #include "bpf_map/userspace/stack_trace_map.hpp"
+ #include "bpftime_shm_internal.hpp"
+ #include <algorithm>
++#include <mutex>
+ #include <cstdlib>
+ #include <string>
+ #if defined(BPFTIME_ENABLE_CUDA_ATTACH)
+@@ -1043,6 +1044,23 @@ int bpf_map_handler::check_map_attr(const managed_shared_memory &memory) const
+ 		if (value_size > kmalloc_max_size)
+ 			return E2BIG;
+ 		break;
++	// the per-thread map model's types (prototype): arrays of 4-byte keys
++	case bpf_map_type::BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP:
++		if (max_entries == 0 || key_size != 4 || value_size == 0)
++			return EINVAL;
++		// every thread-local map of the process lives in every probed
++		// kernel's frame (the routing's area, at most 1 KiB)
++		if ((uint64_t)value_size * max_entries > 1024)
++			return E2BIG;
++		return 0;
++	case bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP:
++	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP:
++		if (max_entries == 0 || key_size != 4 || value_size == 0 ||
++		    value_size % 8 != 0)
++			return EINVAL;
++		if (max_entries > (1u << 30))
++			return E2BIG;
++		break;
+ 	default:
+ 		return 0;
+ 	}
+@@ -1796,9 +1814,24 @@ void *bpf_map_handler::get_gpu_map_extra_buffer() const
+ 	if (this->type == bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP ||
+ 	    this->type ==
+ 		    bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP) {
+-		return (void *)static_cast<nv_gpu_device_array_map_impl *>(
+-			       map_impl_ptr.get())
+-			->get_gpu_mem_buffer();
++		auto *impl = static_cast<nv_gpu_device_array_map_impl *>(
++			map_impl_ptr.get());
++		auto device = impl->get_gpu_mem_buffer();
++		// The agent delivers into this map for the rest of the
++		// process: one reference per process, taken with the first
++		// device copy, never returned (as the array bindings' at
++		// abrupt exit), so a tool's close cannot free it meanwhile.
++		static std::mutex pinned_mutex;
++		static std::vector<const void *> pinned;
++		if (device != 0) {
++			std::lock_guard<std::mutex> g(pinned_mutex);
++			if (std::find(pinned.begin(), pinned.end(), impl) ==
++			    pinned.end()) {
++				inc_map_refcount();
++				pinned.push_back(impl);
++			}
++		}
++		return (void *)device;
+ 	}
+ #endif
+ 
+-- 
+2.43.0
+

@@ -1,0 +1,131 @@
+From c940870ba5e17961c2ab4f4031a0b84f47b1834f Mon Sep 17 00:00:00 2001
+From: jetson <jetson@orin-nano.tail52323b.ts.net>
+Date: Tue, 17 Nov 2026 02:14:15 +0900
+Subject: [PATCH 4/4] nv_attach: the agent's own synchronizations do not count
+ as the application's
+
+The synchronize hooks counted every successful call in the process,
+including the agent's: the zeroing of each 1531/1532 device copy
+(cuStreamSynchronize), the direct run (cuCtxSynchronize) and the IPC shared
+array map. A program that never synchronized (pt_exitfast) then showed
+SYNCS_COVERED == SYNCS_AT_EXIT == 1 while two thirds of its exits were
+lost. Agent code that synchronizes now holds an agent_sync_scope (a
+thread-local depth the hooks check).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ attach/nv_attach_impl/nv_attach_impl.cpp      |  7 ++++++-
+ .../nv_attach_impl/probed_launch_activity.hpp | 20 +++++++++++++++++++
+ runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp |  6 +++++-
+ .../bpf_map/gpu/nv_gpu_shared_array_map.cpp   | 15 ++++++++++++--
+ 4 files changed, 44 insertions(+), 4 deletions(-)
+
+diff --git a/attach/nv_attach_impl/nv_attach_impl.cpp b/attach/nv_attach_impl/nv_attach_impl.cpp
+index 74823587..ed777d1e 100644
+--- a/attach/nv_attach_impl/nv_attach_impl.cpp
++++ b/attach/nv_attach_impl/nv_attach_impl.cpp
+@@ -1438,7 +1438,12 @@ int nv_attach_impl::run_attach_entry_on_gpu(int attach_id, int run_count,
+ 				kernel, grid_dim_x, grid_dim_y, grid_dim_z,
+ 				block_dim_x, block_dim_y, block_dim_z, 0,
+ 				nullptr, nullptr, 0));
+-			CUDA_SAFE_CALL(cuCtxSynchronize());
++			{
++				// the agent's own run: not an application
++				// synchronization
++				probed_launch_activity::agent_sync_scope agent_call;
++				CUDA_SAFE_CALL(cuCtxSynchronize());
++			}
+ 		}
+ 	}
+ 	return 0;
+diff --git a/attach/nv_attach_impl/probed_launch_activity.hpp b/attach/nv_attach_impl/probed_launch_activity.hpp
+index d88629d3..e8d4bead 100644
+--- a/attach/nv_attach_impl/probed_launch_activity.hpp
++++ b/attach/nv_attach_impl/probed_launch_activity.hpp
+@@ -47,8 +47,28 @@ class probed_launch_activity {
+ 	// synchronization: completion of the last task of a stream
+ 	// synchronizes with the return of its synchronize). The listener (one,
+ 	// set by the delivery) is called after every counted one.
++	// The agent's own synchronizations are not the application's: code of
++	// the agent that synchronizes holds an agent_sync_scope, and the hooks
++	// do not count calls made under it.
++	static int &agent_sync_depth() noexcept
++	{
++		static thread_local int depth = 0;
++		return depth;
++	}
++	struct agent_sync_scope {
++		agent_sync_scope() noexcept
++		{
++			agent_sync_depth()++;
++		}
++		~agent_sync_scope()
++		{
++			agent_sync_depth()--;
++		}
++	};
+ 	void note_app_sync() noexcept
+ 	{
++		if (agent_sync_depth() != 0)
++			return;
+ 		notes_at_last_sync.store(notes.load(std::memory_order_seq_cst),
+ 					 std::memory_order_seq_cst);
+ 		app_syncs.fetch_add(1, std::memory_order_seq_cst);
+diff --git a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
+index af51ac7d..51742876 100644
+--- a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
++++ b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
+@@ -743,8 +743,12 @@ CUdeviceptr nv_gpu_device_array_map_impl::get_gpu_mem_buffer()
+ 		r = cuStreamCreate(&zs, CU_STREAM_NON_BLOCKING);
+ 	if (r == CUDA_SUCCESS)
+ 		r = cuMemsetD8Async(d, 0, bytes, zs);
+-	if (r == CUDA_SUCCESS)
++	if (r == CUDA_SUCCESS) {
++		// the agent's own synchronization: not counted as the
++		// application's (agent_sync_scope)
++		attach::probed_launch_activity::agent_sync_scope agent_call;
+ 		r = cuStreamSynchronize(zs);
++	}
+ 	if (zs)
+ 		cuStreamDestroy(zs);
+ 	cuThreadExchangeStreamCaptureMode(&mode);
+diff --git a/runtime/src/bpf_map/gpu/nv_gpu_shared_array_map.cpp b/runtime/src/bpf_map/gpu/nv_gpu_shared_array_map.cpp
+index e37d586d..03958570 100644
+--- a/runtime/src/bpf_map/gpu/nv_gpu_shared_array_map.cpp
++++ b/runtime/src/bpf_map/gpu/nv_gpu_shared_array_map.cpp
+@@ -1,3 +1,4 @@
++#include "probed_launch_activity.hpp"
+ #include "nv_gpu_shared_array_map.hpp"
+ #include "bpftime_shm.hpp"
+ #include "bpftime_shm_internal.hpp"
+@@ -106,7 +107,12 @@ void *nv_gpu_shared_array_map_impl::elem_lookup(const void *key)
+ 			value_buffer.data(),
+ 			(CUdeviceptr)base + (uint64_t)key_val * value_size,
+ 			value_size, agent_stream);
+-		err = cuStreamSynchronize(agent_stream);
++		{
++			// the agent's own synchronization
++			attach::probed_launch_activity::agent_sync_scope
++				agent_call;
++			err = cuStreamSynchronize(agent_stream);
++		}
+ 	} else {
+ 		err = cuMemcpyDtoH(value_buffer.data(),
+ 				   (CUdeviceptr)base +
+@@ -165,7 +171,12 @@ long nv_gpu_shared_array_map_impl::elem_update(const void *key,
+ 		cuMemcpyHtoDAsync_v2((CUdeviceptr)base +
+ 					     (uint64_t)key_val * value_size,
+ 				     value, value_size, agent_stream);
+-		err = cuStreamSynchronize(agent_stream);
++		{
++			// the agent's own synchronization
++			attach::probed_launch_activity::agent_sync_scope
++				agent_call;
++			err = cuStreamSynchronize(agent_stream);
++		}
+ 	} else {
+ 		err = cuMemcpyHtoD((CUdeviceptr)base +
+ 					   (uint64_t)key_val * value_size,
+-- 
+2.43.0
+
