@@ -13,9 +13,7 @@
 //   1531: max_entries values, each word summed over the (SM, lane) shards
 //         the GPU spread its adds over;
 //   1532: as 1502/1512, a value per key and thread index ([key][tid]).
-// A lookup of key max_entries + i returns status word i (then zeros up to a
-// value): 0 deliveries made, 1 1 once the final delivery at process exit
-// completed, 2 pid of the delivering process.
+// A lookup of key max_entries + i returns status word i (below).
 #include "bpf_map/map_common_def.hpp"
 #include "cuda.h"
 #include <cstdint>
@@ -45,10 +43,29 @@ class nv_gpu_thread_local_map_impl {
 	}
 };
 
+// Status words of 1531/1532 (key max_entries + i returns word i, then zeros
+// up to a value):
+//   DELIVERIES     deliveries made
+//   EXIT_DELIVERY  1 when the exit delivery (atexit) ran; best effort: CUDA
+//                  calls after main are undefined by the programming guide
+//   OWNER_PID      the process whose agent owns the device copy
+//   SYNCS_COVERED  application synchronizations the latest in-process
+//                  delivery covered: the values contain every add of the
+//                  kernels those synchronizations waited for
+//   SYNCS_AT_EXIT  application synchronizations counted when the exit
+//                  handler started; SYNCS_COVERED == SYNCS_AT_EXIT means a
+//                  delivery covered the last one
+//   LAUNCHES_AFTER_LAST_SYNC  probed launches the hooks noted after the
+//                  application's last synchronization (at exit; graph
+//                  launches are not noted): with 0 and the two above equal,
+//                  the values hold every add of the noted launches
 enum : uint64_t {
 	GPU_MODEL_STATUS_DELIVERIES = 0,
-	GPU_MODEL_STATUS_FINAL = 1,
-	GPU_MODEL_STATUS_PID = 2,
+	GPU_MODEL_STATUS_EXIT_DELIVERY = 1,
+	GPU_MODEL_STATUS_OWNER_PID = 2,
+	GPU_MODEL_STATUS_SYNCS_COVERED = 3,
+	GPU_MODEL_STATUS_SYNCS_AT_EXIT = 4,
+	GPU_MODEL_STATUS_LAUNCHES_AFTER_LAST_SYNC = 5,
 	GPU_MODEL_STATUS_WORDS = 8,
 };
 
@@ -106,9 +123,14 @@ class nv_gpu_device_array_map_impl {
 	{
 		return (uint64_t *)data_buffer.data();
 	}
-	uint64_t *status_words()
+	uint64_t status_slot_bytes() const
 	{
-		return (uint64_t *)status_buffer.data();
+		return thread_count * value_size;
+	}
+	uint64_t *status_word(uint64_t i)
+	{
+		return (uint64_t *)(status_buffer.data() +
+				    i * status_slot_bytes());
 	}
 	void set_shards(uint64_t s)
 	{
@@ -122,10 +144,12 @@ namespace gpu_model
 // values, from a thread of its own (relaxed capture mode, own non-blocking
 // stream): a snapshot kernel reads each word with ld.relaxed.gpu (morally
 // strong with the programs' gpu-scope atomic adds: no data race, PTX ISA
-// 8.7) and sums the shards into a staging buffer that only it writes; after
-// that kernel completed (stream synchronize) the staging buffer is copied
-// to the host, then into the shared values. A final delivery runs at
-// process exit (atexit), after the application synchronized.
+// 8.7) and sums the shards into pinned staging memory that only it writes;
+// after a successful query of its stream the thread copies the staging
+// buffer into the shared values. Deliveries follow the application's
+// synchronizations (agent hooks), so the latest one covers every kernel
+// they waited for (status SYNCS_COVERED). An exit delivery (atexit) is
+// best effort (status EXIT_DELIVERY).
 void register_device_array(nv_gpu_device_array_map_impl *map,
 			   CUdeviceptr device, uint64_t entries,
 			   uint64_t shards, uint64_t words_per_entry);

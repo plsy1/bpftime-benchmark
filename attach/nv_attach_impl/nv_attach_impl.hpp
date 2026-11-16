@@ -134,6 +134,12 @@ struct nv_attach_hook_state {
 	std::atomic<void *> orig_cuda_memcpy_from_symbol{ nullptr };
 	std::atomic<void *> orig_cuda_memcpy_from_symbol_async{ nullptr };
 	std::atomic<void *> orig_cu_library_load_data{ nullptr };
+	// the application's synchronizations (GPU map delivery)
+	std::atomic<void *> orig_cu_stream_synchronize{ nullptr };
+	std::atomic<void *> orig_cu_stream_synchronize_ptsz{ nullptr };
+	std::atomic<void *> orig_cu_ctx_synchronize{ nullptr };
+	std::atomic<void *> orig_cu_ctx_synchronize_v2{ nullptr };
+	std::atomic<void *> orig_cu_event_synchronize{ nullptr };
 
 	// Whether Frida replace hooks have been installed in this process.
 	std::atomic<bool> replacements_installed{ false };

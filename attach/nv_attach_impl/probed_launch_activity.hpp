@@ -41,7 +41,40 @@ class probed_launch_activity {
 	// seen (a launch was noted meanwhile).
 	void wait_for_note(uint64_t seen, std::chrono::microseconds timeout);
 
+	// The application's synchronizations (stream, event and context
+	// synchronize returning success), counted by the agent's hooks: the
+	// GPU map delivery orders its snapshots after them (PTX ISA 8.9.4, API
+	// synchronization: completion of the last task of a stream
+	// synchronizes with the return of its synchronize). The listener (one,
+	// set by the delivery) is called after every counted one.
+	void note_app_sync() noexcept
+	{
+		notes_at_last_sync.store(notes.load(std::memory_order_seq_cst),
+					 std::memory_order_seq_cst);
+		app_syncs.fetch_add(1, std::memory_order_seq_cst);
+		if (auto fn = sync_listener.load(std::memory_order_acquire))
+			fn();
+	}
+	uint64_t app_sync_count() const noexcept
+	{
+		return app_syncs.load(std::memory_order_seq_cst);
+	}
+	// probed launches noted after the application's last synchronization
+	// started (graph launches are not noted)
+	uint64_t notes_since_last_sync() const noexcept
+	{
+		return notes.load(std::memory_order_seq_cst) -
+		       notes_at_last_sync.load(std::memory_order_seq_cst);
+	}
+	void set_sync_listener(void (*fn)()) noexcept
+	{
+		sync_listener.store(fn, std::memory_order_release);
+	}
+
     private:
+	std::atomic<uint64_t> app_syncs{ 0 };
+	std::atomic<uint64_t> notes_at_last_sync{ 0 };
+	std::atomic<void (*)()> sync_listener{ nullptr };
 	std::atomic<uint64_t> notes{ 0 };
 	std::atomic<int> waiters{ 0 };
 	std::mutex wait_mutex;

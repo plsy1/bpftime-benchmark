@@ -328,6 +328,11 @@ CUresult cuda_driver_function__cuLibraryLoadData(
 	void **jitOptionsValues, unsigned int numJitOptions,
 	CUlibraryOption *libraryOptions, void **libraryOptionValues,
 	unsigned int numLibraryOptions);
+CUresult cuda_driver_function__cuStreamSynchronize(CUstream s);
+CUresult cuda_driver_function__cuStreamSynchronize_ptsz(CUstream s);
+CUresult cuda_driver_function__cuCtxSynchronize();
+CUresult cuda_driver_function__cuCtxSynchronize_v2(CUcontext c);
+CUresult cuda_driver_function__cuEventSynchronize(CUevent e);
 }
 
 nv_attach_impl::nv_attach_impl(bool substitute_at_load)
@@ -533,6 +538,23 @@ nv_attach_impl::nv_attach_impl(bool substitute_at_load)
 	replace_hook_once("cuLibraryLoadData",
 			  (gpointer)&cuda_driver_function__cuLibraryLoadData,
 			  hook_state.orig_cu_library_load_data);
+	// the application's synchronizations, for the GPU map delivery
+	replace_hook_once("cuStreamSynchronize",
+			  (gpointer)&cuda_driver_function__cuStreamSynchronize,
+			  hook_state.orig_cu_stream_synchronize);
+	replace_hook_once(
+		"cuStreamSynchronize_ptsz",
+		(gpointer)&cuda_driver_function__cuStreamSynchronize_ptsz,
+		hook_state.orig_cu_stream_synchronize_ptsz);
+	replace_hook_once("cuCtxSynchronize",
+			  (gpointer)&cuda_driver_function__cuCtxSynchronize,
+			  hook_state.orig_cu_ctx_synchronize);
+	replace_hook_once("cuCtxSynchronize_v2",
+			  (gpointer)&cuda_driver_function__cuCtxSynchronize_v2,
+			  hook_state.orig_cu_ctx_synchronize_v2);
+	replace_hook_once("cuEventSynchronize",
+			  (gpointer)&cuda_driver_function__cuEventSynchronize,
+			  hook_state.orig_cu_event_synchronize);
 	gum_interceptor_end_transaction(interceptor);
 
 	nv_attach_set_active_impl(this);
@@ -978,7 +1000,7 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
 		d.fd = (int)i;
 		d.offset = (uint64_t)(uintptr_t)m.extra_buffer;
 		d.value_size = (uint64_t)m.value_size;
-		d.max_entries = (uint64_t)m.max_entries;
+		d.max_entries = (uint64_t)(uint32_t)m.max_entries;
 		area = std::max(area, d.offset + d.value_size * d.max_entries);
 		descs.push_back(d);
 	}
@@ -991,10 +1013,11 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
 	thread_local_routing_stats st;
 	auto out = route_thread_local_maps(ptx, kernels, descs, area, &st);
 	SPDLOG_INFO(
-		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0)",
+		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0), {} generic atomics guarded",
 		file_name, area, st.kernels, st.call_sites, st.routed_functions,
 		st.direct_lookups, st.helper_calls_given_area,
-		st.unrouted_functions, st.helper_calls_given_zero);
+		st.unrouted_functions, st.helper_calls_given_zero,
+		st.guarded_atomics);
 	return out;
 }
 
@@ -1278,6 +1301,18 @@ int nv_attach_impl::run_attach_entry_on_gpu(int attach_id, int run_count,
 					false, false),
 				"bpf_main"),
 			sm_arch));
+	// thread-local maps: bpf_main is called by no routed kernel, so its
+	// map helper calls get 0 as the area (NULL for thread-local lookups)
+	if (this->map_basic_info) {
+		try {
+			ptx = route_thread_local_maps_of_module(ptx,
+								"direct run");
+		} catch (const std::exception &e) {
+			SPDLOG_ERROR("Thread-local routing of bpf_main: {}",
+				     e.what());
+			return -1;
+		}
+	}
 	{
 		const std::string to_replace = ".func bpf_main";
 
