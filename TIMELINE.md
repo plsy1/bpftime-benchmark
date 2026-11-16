@@ -358,7 +358,33 @@ performance (`results/gpu/step0b-checks-20261116`, two passes, the same correctn
 - The copier's global-capture problem has a documented remedy that held (the copier switches its
   own thread to relaxed capture mode).
 
-## Where it stands (11-16)
+## 11-16 – 11-17: the minimal prototype of the GPU map model
+
+The design that rests on documented guarantees, built (`results/gpu/map-model-proto-20261116`;
+bpftime branch `proto/map-model`, local, as patches there): a thread's state in its own local
+memory, mergeable results added into device memory, delivery ordered by the application's
+synchronizations.
+
+- **New maps:** a thread-local array (a `.local` area in every probed kernel, its address passed
+  to the probes), a sum array in device memory spread over (SM, lane) shards (any shard gives the
+  same sum, so the hardware ids only decide speed), a per-thread array in device memory. A delivery
+  thread reads them with a snapshot kernel after counting the application's synchronize calls.
+- **Correct:** every probed thread's exit counted on llama.cpp (four kernels, every measured
+  item), 0 mismatches for an entry-to-exit carry on a victim with predicated exits and graphs,
+  3,000 global-mode captures left valid.
+- **Cost of a per-thread latency histogram:** pp512 4.1-4.3%, tg128 33.2-33.3%; the same tool on
+  today's maps 98.7% on pp512. tg128's cost is per-thread memory work on mul_mat_vec_q (3.14 x
+  10^9 threads doing about 0.4 ns each): empty probes 3.6 points, the carry 18, the merge 10. One
+  word per histogram bucket instead of shards would cost about 1.0 ns per thread.
+- **Delivery:** complete for the kernels the application's synchronizations waited for; covering
+  the last one by construction needs the delivery inside the synchronize call (+0.7 to +4.7
+  points); a grid-sized per-thread array costs three 32 MB copies and, delivered at every
+  synchronization, 36-87%.
+- Two reviews (the code; the results against their data) found 26 code findings and a counting
+  bug in the synchronization hooks (the agent's own calls counted); all fixed or stated as limits,
+  and the correctness checks run again on the final build.
+
+## Where it stands (11-17)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
   (10-26 figures in [reports/bpftime-research-overview.md](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/reports/bpftime-research-overview.md),
@@ -370,10 +396,10 @@ performance (`results/gpu/step0b-checks-20261116`, two passes, the same correctn
 - GPU on a real application (llama.cpp on the Orin, graphs off): probes on four kernels counted
   every thread exactly; the default per-thread capacity loses 99.6% of the counts. Start-up is
   14.4-14.8 s longer with the agent.
-- GPU map model (the one research direction now): step 0 and its follow-up are done. Within
-  documented guarantees, per-thread state can be carried in the thread's local memory and slots
-  claimed per lane; the open costs are publication to the CPU and the combination. Next: a minimal
-  prototype.
+- GPU map model (the one research direction now): the minimal prototype works within documented
+  guarantees (thread-local state, sharded sums, synchronization-ordered delivery): exact counts on
+  llama.cpp, about 4% on pp512, 33% on tg128 where every thread of a very fine kernel pays about
+  0.3 ns. Not built: per-record output; open: a cheaper carry and merge.
 - Open: Gum's per-function usage counter under many threads; the agent's own load time (about
   9 ms); the CUDA late path (`bpftime attach` to a running GPU process; 5–9 µs per launch slower
   than official's); fixes not yet offered upstream.
