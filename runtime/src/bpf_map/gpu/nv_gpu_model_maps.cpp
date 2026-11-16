@@ -743,8 +743,12 @@ CUdeviceptr nv_gpu_device_array_map_impl::get_gpu_mem_buffer()
 		r = cuStreamCreate(&zs, CU_STREAM_NON_BLOCKING);
 	if (r == CUDA_SUCCESS)
 		r = cuMemsetD8Async(d, 0, bytes, zs);
-	if (r == CUDA_SUCCESS)
+	if (r == CUDA_SUCCESS) {
+		// the agent's own synchronization: not counted as the
+		// application's (agent_sync_scope)
+		attach::probed_launch_activity::agent_sync_scope agent_call;
 		r = cuStreamSynchronize(zs);
+	}
 	if (zs)
 		cuStreamDestroy(zs);
 	cuThreadExchangeStreamCaptureMode(&mode);

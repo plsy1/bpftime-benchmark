@@ -47,8 +47,28 @@ class probed_launch_activity {
 	// synchronization: completion of the last task of a stream
 	// synchronizes with the return of its synchronize). The listener (one,
 	// set by the delivery) is called after every counted one.
+	// The agent's own synchronizations are not the application's: code of
+	// the agent that synchronizes holds an agent_sync_scope, and the hooks
+	// do not count calls made under it.
+	static int &agent_sync_depth() noexcept
+	{
+		static thread_local int depth = 0;
+		return depth;
+	}
+	struct agent_sync_scope {
+		agent_sync_scope() noexcept
+		{
+			agent_sync_depth()++;
+		}
+		~agent_sync_scope()
+		{
+			agent_sync_depth()--;
+		}
+	};
 	void note_app_sync() noexcept
 	{
+		if (agent_sync_depth() != 0)
+			return;
 		notes_at_last_sync.store(notes.load(std::memory_order_seq_cst),
 					 std::memory_order_seq_cst);
 		app_syncs.fetch_add(1, std::memory_order_seq_cst);
