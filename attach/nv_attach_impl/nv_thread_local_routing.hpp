@@ -23,6 +23,10 @@ namespace bpftime
 {
 namespace attach
 {
+// The area holds every thread-local map of the process and lives in every
+// probed kernel's frame: at most this many bytes (one zeroing store per 8).
+constexpr uint64_t THREAD_LOCAL_AREA_MAX = 1024;
+
 struct thread_local_map_desc {
 	int fd;
 	uint64_t offset; // in the area
@@ -38,6 +42,7 @@ struct thread_local_routing_stats {
 	int direct_lookups = 0;
 	int helper_calls_given_area = 0;
 	int helper_calls_given_zero = 0;
+	int guarded_atomics = 0;
 };
 
 // Throws std::runtime_error when the PTX does not have the expected shape;

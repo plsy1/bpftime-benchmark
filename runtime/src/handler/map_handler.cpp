@@ -15,6 +15,7 @@
 #include "bpf_map/userspace/stack_trace_map.hpp"
 #include "bpftime_shm_internal.hpp"
 #include <algorithm>
+#include <mutex>
 #include <cstdlib>
 #include <string>
 #if defined(BPFTIME_ENABLE_CUDA_ATTACH)
@@ -1135,6 +1136,23 @@ int bpf_map_handler::check_map_attr(const managed_shared_memory &memory) const
 		if (value_size > kmalloc_max_size)
 			return E2BIG;
 		break;
+	// the per-thread map model's types (prototype): arrays of 4-byte keys
+	case bpf_map_type::BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP:
+		if (max_entries == 0 || key_size != 4 || value_size == 0)
+			return EINVAL;
+		// every thread-local map of the process lives in every probed
+		// kernel's frame (the routing's area, at most 1 KiB)
+		if ((uint64_t)value_size * max_entries > 1024)
+			return E2BIG;
+		return 0;
+	case bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP:
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP:
+		if (max_entries == 0 || key_size != 4 || value_size == 0 ||
+		    value_size % 8 != 0)
+			return EINVAL;
+		if (max_entries > (1u << 30))
+			return E2BIG;
+		break;
 	default:
 		return 0;
 	}
@@ -1903,9 +1921,24 @@ void *bpf_map_handler::get_gpu_map_extra_buffer() const
 	if (this->type == bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP ||
 	    this->type ==
 		    bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP) {
-		return (void *)static_cast<nv_gpu_device_array_map_impl *>(
-			       map_impl_ptr.get())
-			->get_gpu_mem_buffer();
+		auto *impl = static_cast<nv_gpu_device_array_map_impl *>(
+			map_impl_ptr.get());
+		auto device = impl->get_gpu_mem_buffer();
+		// The agent delivers into this map for the rest of the
+		// process: one reference per process, taken with the first
+		// device copy, never returned (as the array bindings' at
+		// abrupt exit), so a tool's close cannot free it meanwhile.
+		static std::mutex pinned_mutex;
+		static std::vector<const void *> pinned;
+		if (device != 0) {
+			std::lock_guard<std::mutex> g(pinned_mutex);
+			if (std::find(pinned.begin(), pinned.end(), impl) ==
+			    pinned.end()) {
+				inc_map_refcount();
+				pinned.push_back(impl);
+			}
+		}
+		return (void *)device;
 	}
 #endif
 

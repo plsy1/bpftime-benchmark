@@ -4,6 +4,7 @@
 #include <regex>
 #include <set>
 #include <sstream>
+#include <cstring>
 
 namespace bpftime
 {
@@ -48,7 +49,7 @@ bool is_probe_function_name(const std::string &n)
 {
 	return n.rfind("__probe_func__", 0) == 0 ||
 	       n.rfind("__retprobe_func__", 0) == 0 ||
-	       n.rfind("__memcapture__", 0) == 0;
+	       n.rfind("__memcapture__", 0) == 0 || n == "bpf_main";
 }
 
 // every probe function definition (not declarations)
@@ -155,6 +156,140 @@ bool constant_fd(const std::string &fbody, const std::string &block,
 	return true;
 }
 
+// A generic atom/red whose address lies in the local window is undefined
+// (PTX ISA 9.7.15.5: scalar atom only on .global/.shared, or generic
+// addresses pointing there); a thread-local map's value is such an address.
+// Every generic atom/red of a probe function gets an isspacep.local test
+// (PTX ISA 9.7.10.22): local addresses take a plain load, the operation and
+// a store (exact: the memory is the thread's own), others keep the atomic.
+std::string guard_generic_atomics(const std::string &fbody,
+				  const std::string &fname, int *count)
+{
+	static const std::regex atom_line(
+		R"(^(\s*)(@!?%[\w$]+\s+)?(atom|red)((?:\.[a-zA-Z0-9_:]+)+)\s+([^;]*);(.*)$)");
+	std::istringstream in(fbody);
+	std::string line, out;
+	int n = 0;
+	bool first = true;
+	while (std::getline(in, line)) {
+		if (!first)
+			out += "\n";
+		first = false;
+		std::smatch m;
+		if (!std::regex_match(line, m, atom_line)) {
+			out += line;
+			continue;
+		}
+		std::string mods = m[4];
+		// explicit state spaces are not generic
+		if (mods.find(".global") != std::string::npos ||
+		    mods.find(".shared") != std::string::npos) {
+			out += line;
+			continue;
+		}
+		if (m[2].length())
+			fail("predicated generic atomic in " + fname);
+		const bool is_red = m[3] == "red";
+		std::vector<std::string> parts;
+		{
+			std::string ops = m[5];
+			std::string cur;
+			int depth = 0;
+			for (char c : ops) {
+				if (c == '[')
+					depth++;
+				if (c == ']')
+					depth--;
+				if (c == ',' && depth == 0) {
+					parts.push_back(trim(cur));
+					cur.clear();
+				} else
+					cur += c;
+			}
+			parts.push_back(trim(cur));
+		}
+		// op and width from the modifiers
+		std::string op, ty;
+		for (const char *o :
+		     { ".add.", ".and.", ".or.", ".xor.", ".exch.", ".cas." })
+			if ((mods + ".").find(o) != std::string::npos)
+				op = std::string(o).substr(1,
+							 strlen(o) - 2);
+		for (const char *t : { ".u64", ".s64", ".b64", ".u32",
+				       ".s32", ".b32" })
+			if (mods.size() >= strlen(t) &&
+			    mods.compare(mods.size() - strlen(t),
+					 strlen(t), t) == 0)
+				ty = t + 1;
+		if (op.empty() || ty.empty())
+			fail("unsupported generic atomic '" + line + "' in " +
+			     fname);
+		const std::string bits = ty.substr(1);
+		size_t ai = is_red ? 0 : 1;
+		const size_t want = (is_red ? 2 : 3) + (op == "cas" ? 1 : 0);
+		if (parts.size() != want || parts[ai].size() < 3 ||
+		    parts[ai].front() != '[' || parts[ai].back() != ']')
+			fail("unexpected operands of '" + line + "' in " +
+			     fname);
+		std::string addr = trim(parts[ai].substr(1, parts[ai].size() - 2));
+		std::string base = addr, off = "0";
+		size_t plus = addr.find('+');
+		if (plus != std::string::npos) {
+			base = trim(addr.substr(0, plus));
+			off = trim(addr.substr(plus + 1));
+		}
+		const std::string id = std::to_string(n++);
+		const std::string ws = m[1];
+		std::ostringstream o;
+		o << ws << "{ // bpftime: atomic on a possibly local address\n"
+		  << ws << ".reg .pred %bpat_l" << id << ", %bpat_q" << id
+		  << ";\n"
+		  << ws << ".reg .b64 %bpat_a" << id << ";\n"
+		  << ws << ".reg .b" << bits << " %bpat_o" << id
+		  << ", %bpat_n" << id << ";\n"
+		  << ws << "add.u64 %bpat_a" << id << ", " << base << ", "
+		  << off << ";\n"
+		  << ws << "isspacep.local %bpat_l" << id << ", %bpat_a" << id
+		  << ";\n"
+		  << ws << "@!%bpat_l" << id << " " << m[3].str() << mods << " "
+		  << m[5].str() << ";\n"
+		  << ws << "@%bpat_l" << id << " ld.b" << bits << " %bpat_o"
+		  << id << ", [%bpat_a" << id << "];\n";
+		const std::string b = parts[ai + 1];
+		if (op == "add")
+			o << ws << "@%bpat_l" << id << " add.u" << bits
+			  << " %bpat_n" << id << ", %bpat_o" << id << ", " << b
+			  << ";\n";
+		else if (op == "and" || op == "or" || op == "xor")
+			o << ws << "@%bpat_l" << id << " " << op << ".b"
+			  << bits << " %bpat_n" << id << ", %bpat_o" << id
+			  << ", " << b << ";\n";
+		else if (op == "exch")
+			o << ws << "@%bpat_l" << id << " mov.b" << bits
+			  << " %bpat_n" << id << ", " << b << ";\n";
+		else { // cas: store c when the old value equals b
+			o << ws << "@%bpat_l" << id << " setp.eq.b" << bits
+			  << " %bpat_q" << id << ", %bpat_o" << id << ", " << b
+			  << ";\n"
+			  << ws << "@%bpat_l" << id << " selp.b" << bits
+			  << " %bpat_n" << id << ", " << parts[ai + 2]
+			  << ", %bpat_o" << id << ", %bpat_q" << id << ";\n";
+		}
+		o << ws << "@%bpat_l" << id << " st.b" << bits << " [%bpat_a"
+		  << id << "], %bpat_n" << id << ";\n";
+		if (!is_red)
+			o << ws << "@%bpat_l" << id << " mov.b" << bits << " "
+			  << parts[0] << ", %bpat_o" << id << ";\n";
+		o << ws << "}" << m[6].str();
+		out += o.str();
+	}
+	if (!fbody.empty() && fbody.back() == '\n')
+		out += "\n";
+	if (count)
+		*count += n;
+	return out;
+}
+
 std::string route_function_body(
 	const std::string &fbody, bool routed,
 	const std::map<long long, thread_local_map_desc> &maps,
@@ -243,7 +378,7 @@ std::string route_function_body(
 			st.helper_calls_given_zero++;
 	}
 	out.append(fbody, pos, std::string::npos);
-	return out;
+	return guard_generic_atomics(out, fname, &st.guarded_atomics);
 }
 } // namespace
 
@@ -254,6 +389,10 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 				    thread_local_routing_stats *stats_out)
 {
 	thread_local_routing_stats st;
+	if (area_bytes > THREAD_LOCAL_AREA_MAX)
+		fail("thread-local maps need " + std::to_string(area_bytes) +
+		     " bytes per thread, more than " +
+		     std::to_string(THREAD_LOCAL_AREA_MAX));
 	area_bytes = std::max<uint64_t>(8, (area_bytes + 7) & ~7ull);
 	std::map<long long, thread_local_map_desc> maps;
 	for (auto &d : descs)

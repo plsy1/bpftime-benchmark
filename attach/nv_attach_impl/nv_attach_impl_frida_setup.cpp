@@ -17,6 +17,7 @@
 #include <vector>
 #include <boost/core/demangle.hpp>
 #include "nv_attach_impl.hpp"
+#include "probed_launch_activity.hpp"
 #include "bpftime_ratelimited_log.hpp"
 #include <stdexcept>
 using namespace bpftime;
@@ -608,6 +609,69 @@ static CUresult cu_launch_kernel_common(
 	return original(func, grid_dim_x, grid_dim_y, grid_dim_z, block_dim_x,
 			block_dim_y, block_dim_z, shared_mem_bytes, stream,
 			kernel_params, extra);
+}
+
+// The application's synchronizations: counted for the GPU map delivery
+// (probed_launch_activity::note_app_sync) after the original returned
+// success.
+static nv_attach_hook_state *sync_hook_state()
+{
+	auto gum_ctx = gum_interceptor_get_current_invocation();
+	auto *state = gum_ctx ? (nv_attach_hook_state *)
+					gum_invocation_context_get_replacement_data(
+						gum_ctx) :
+				nullptr;
+	return state ? state : &nv_attach_get_hook_state();
+}
+extern "C" CUresult cuda_driver_function__cuStreamSynchronize(CUstream s)
+{
+	auto fn = (CUresult(*)(CUstream))sync_hook_state()
+			  ->orig_cu_stream_synchronize.load(
+				  std::memory_order_acquire);
+	CUresult r = fn ? fn(s) : CUDA_ERROR_NOT_INITIALIZED;
+	if (r == CUDA_SUCCESS)
+		launch_activity().note_app_sync();
+	return r;
+}
+extern "C" CUresult cuda_driver_function__cuStreamSynchronize_ptsz(CUstream s)
+{
+	auto fn = (CUresult(*)(CUstream))sync_hook_state()
+			  ->orig_cu_stream_synchronize_ptsz.load(
+				  std::memory_order_acquire);
+	CUresult r = fn ? fn(s) : CUDA_ERROR_NOT_INITIALIZED;
+	if (r == CUDA_SUCCESS)
+		launch_activity().note_app_sync();
+	return r;
+}
+extern "C" CUresult cuda_driver_function__cuCtxSynchronize()
+{
+	auto fn = (CUresult(*)())sync_hook_state()
+			  ->orig_cu_ctx_synchronize.load(
+				  std::memory_order_acquire);
+	CUresult r = fn ? fn() : CUDA_ERROR_NOT_INITIALIZED;
+	if (r == CUDA_SUCCESS)
+		launch_activity().note_app_sync();
+	return r;
+}
+extern "C" CUresult cuda_driver_function__cuCtxSynchronize_v2(CUcontext c)
+{
+	auto fn = (CUresult(*)(CUcontext))sync_hook_state()
+			  ->orig_cu_ctx_synchronize_v2.load(
+				  std::memory_order_acquire);
+	CUresult r = fn ? fn(c) : CUDA_ERROR_NOT_INITIALIZED;
+	if (r == CUDA_SUCCESS)
+		launch_activity().note_app_sync();
+	return r;
+}
+extern "C" CUresult cuda_driver_function__cuEventSynchronize(CUevent e)
+{
+	auto fn = (CUresult(*)(CUevent))sync_hook_state()
+			  ->orig_cu_event_synchronize.load(
+				  std::memory_order_acquire);
+	CUresult r = fn ? fn(e) : CUDA_ERROR_NOT_INITIALIZED;
+	if (r == CUDA_SUCCESS)
+		launch_activity().note_app_sync();
+	return r;
 }
 
 extern "C" CUresult cuda_driver_function__cuLaunchKernel(
