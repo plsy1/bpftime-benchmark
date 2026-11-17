@@ -384,6 +384,27 @@ synchronizations.
   bug in the synchronization hooks (the agent's own calls counted); all fixed or stated as limits,
   and the correctness checks run again on the final build.
 
+## 11-17: where the per-thread probe cost goes; the end shapes on the real kernel
+
+Why the latency tool costs 0.28 ns per thread on mul_mat_vec_q, and how far a design held to
+documented guarantees can bring it down (`results/gpu/probe-cost-20261117`; a debug-only PTX
+override on `proto/map-model`, local).
+
+- **Where it goes** (tg128, mul_mat_vec_q probed alone, four passes): empty probe calls 0.02 ns,
+  the two timer helper calls 0.035 (the `%globaltimer` read itself costs nothing measurable), the
+  carry 0.07, the log2 chain 0.035, the sum-map lookup through the generic helper with the add
+  0.135. Instructions and calls cost on this kernel too; the prototype's "memory work, not calls"
+  was wrong, and its merge-cost "carry only" column had lost the exit's timer to ptxas.
+- **Design:** documentation and code-path checks, three independent designs, a refutation pass,
+  one ladder: timer inline, the probe switch read once per kernel, the sum-map address computed
+  inline, the start carried by value, `clz` for the bucket. Warp-level combining stays out (the
+  documents do not say lanes agree on `activemask`, and it saved little).
+- **End shapes measured** by compiling hand-edited PTX on the real kernel (counts exact in every
+  variant): from 0.28 to about 0.11-0.12 ns per thread with calls kept (46 to about 57 t/s), 0.083
+  spliced into the kernel; the target for 5% is 0.029. This tool shape cannot reach 5% on this
+  kernel, spliced or not. Register count moves the result as much as the instructions do; capping
+  registers alone made mul_mat_vec_q itself 3% faster.
+
 ## Where it stands (11-17)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
@@ -399,7 +420,9 @@ synchronizations.
 - GPU map model (the one research direction now): the minimal prototype works within documented
   guarantees (thread-local state, sharded sums, synchronization-ordered delivery): exact counts on
   llama.cpp, about 4% on pp512, 33% on tg128 where every thread of a very fine kernel pays about
-  0.3 ns. Not built: per-record output; open: a cheaper carry and merge.
+  0.3 ns. Hand-written end shapes of the documented design bring that to about 0.11 ns (about 16%),
+  0.08 spliced: 5% on such kernels needs another tool shape or budget. Not built: the design
+  itself, per-record output.
 - Open: Gum's per-function usage counter under many threads; the agent's own load time (about
   9 ms); the CUDA late path (`bpftime attach` to a running GPU process; 5–9 µs per launch slower
   than official's); fixes not yet offered upstream.
