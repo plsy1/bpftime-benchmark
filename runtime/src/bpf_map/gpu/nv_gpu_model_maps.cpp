@@ -139,8 +139,7 @@ namespace
 // ld.relaxed.gpu.global on the cvta.to.global address, the form of the
 // programs' adds into the copy (atom/red .global, nv_thread_local_routing):
 // the same address in the same state space, so the load and the adds are
-// morally strong (PTX ISA 8.7; generic adds are too, 8.7 has no state-space
-// condition).
+// morally strong (PTX ISA 8.7).
 const char *snapshot_ptx = R"PTX(
 .version 7.0
 .target sm_70

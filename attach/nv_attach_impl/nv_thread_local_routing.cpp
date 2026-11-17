@@ -116,24 +116,68 @@ bool parse_int(const std::string &s, long long *v)
 	return true;
 }
 
-// lines whose first operand is reg: its definitions (an instruction's
-// destination is its first operand; stores, reductions and branches have
-// none that is a register)
+// The statements of a function body: comments removed, split on ';',
+// leading braces, labels and a guard predicate stripped.
+std::vector<std::string> statements(const std::string &body)
+{
+	static const std::regex comment(R"(//[^\n]*)");
+	static const std::regex lead(
+		R"(^(?:\s|[{}]|[$A-Za-z_][\w$]*\s*:(?!:)|@\s*!?\s*%[\w$]+)+)");
+	std::string text = std::regex_replace(body, comment, "");
+	std::vector<std::string> out;
+	size_t start = 0;
+	for (;;) {
+		size_t semi = text.find(';', start);
+		std::string st = text.substr(
+			start, semi == std::string::npos ? std::string::npos :
+							   semi - start);
+		st = std::regex_replace(st, lead, "");
+		out.push_back(trim(st));
+		if (semi == std::string::npos)
+			break;
+		start = semi + 1;
+	}
+	return out;
+}
+
+// How many statements may write reg. Fail-closed: a statement counts when
+// reg appears in its destination position, everything before the first
+// operand comma outside [], {} and () (a plain register, a {..} vector, a
+// p|q pair, call's (..) return list), except instructions that write no
+// register (stores, reductions, branches). An unknown form counts, so a
+// register is never taken for written once when it may not be.
 int count_defs(const std::string &body, const std::string &reg)
 {
-	static const std::regex first(
-		R"(^\s*(?:@!?%[\w$]+\s+)?([a-z][\w.:]*)\s+(%[\w$]+)\s*[,;])");
-	std::istringstream in(body);
-	std::string line;
+	const std::regex word("(^|[^\\w$%])" +
+			      std::regex_replace(reg, std::regex(R"([$%.])"),
+						 R"(\$&)") +
+			      "($|[^\\w$])");
 	int n = 0;
-	while (std::getline(in, line)) {
-		std::smatch m;
-		if (!std::regex_search(line, m, first))
+	for (const auto &st : statements(body)) {
+		if (st.empty() || st[0] == '.')
+			continue; // empty, or a directive (.reg, .param, ...)
+		size_t sp = st.find_first_of(" \t\n");
+		std::string op = st.substr(0, sp);
+		if (op.rfind("st.", 0) == 0 || op == "st" ||
+		    op.rfind("red.", 0) == 0 || op == "red" ||
+		    op.rfind("bra", 0) == 0 || op == "ret" || op == "exit" ||
+		    op == "trap")
 			continue;
-		const std::string op = m[1];
-		if (op.rfind("st.", 0) == 0 || op.rfind("red", 0) == 0)
-			continue;
-		if (m[2] == reg)
+		std::string rest = sp == std::string::npos ? "" : st.substr(sp);
+		int depth = 0;
+		size_t end = rest.size();
+		for (size_t i = 0; i < rest.size(); i++) {
+			char c = rest[i];
+			if (c == '[' || c == '{' || c == '(')
+				depth++;
+			else if (c == ']' || c == '}' || c == ')')
+				depth--;
+			else if (c == ',' && depth == 0) {
+				end = i;
+				break;
+			}
+		}
+		if (std::regex_search(rest.substr(0, end), word))
 			n++;
 	}
 	return n;
@@ -164,28 +208,17 @@ bool constant_fd(const std::string &fbody, const std::string &block,
 		return true;
 	if (arg.empty() || arg[0] != '%')
 		return false;
-	// a register set exactly once, to a constant, in the function
-	std::regex def(R"(mov\.[ub]64\s+)" + std::regex_replace(
+	// a register written by one statement only, a mov of an integer
+	if (count_defs(fbody, arg) != 1)
+		return false;
+	std::regex def(R"(mov\.[ubs]64\s+)" + std::regex_replace(
 						   arg, std::regex(R"([$%.])"),
 						   R"(\$&)") +
-		       R"(,\s*(-?\d+)\s*;)");
-	std::regex any_def(R"((?:mov|ld|add|sub|cvt|selp|mul|and|or|shl|shr)\S*\s+)" +
-			   std::regex_replace(arg, std::regex(R"([$%.])"),
-					      R"(\$&)") +
-			   R"(\s*,)");
-	auto b = std::sregex_iterator(fbody.begin(), fbody.end(), def);
-	auto e = std::sregex_iterator();
-	int defs = 0;
-	long long val = 0;
-	for (auto it = b; it != e; ++it) {
-		defs++;
-		val = std::stoll((*it)[1]);
-	}
-	int all = std::distance(std::sregex_iterator(fbody.begin(),
-						     fbody.end(), any_def),
-				e);
-	if (defs != 1 || all != 1)
+		       R"(\s*,\s*(-?\d+)\s*;)");
+	std::smatch dm;
+	if (!std::regex_search(fbody, dm, def))
 		return false;
+	long long val = std::stoll(dm[1]);
 	*fd = val;
 	return true;
 }
@@ -284,16 +317,18 @@ std::string guard_generic_atomics(const std::string &fbody,
 			return r;
 		};
 		const std::string gmods = with_space(mods, op, ".global");
-		if (global_regs.count(base)) {
+		if (global_regs.count(base) && op == "add" && bits == "64") {
 			// a sum map's value: global memory (see the header)
 			const std::string id = std::to_string((*global_count)++);
 			std::ostringstream o;
 			o << ws << "{ // bpftime: atomic on a sum map's value\n"
 			  << ws << ".reg .b64 %bpag_a" << id << ";\n"
-			  << ws << "cvta.to.global.u64 %bpag_a" << id << ", "
-			  << base << ";\n"
+			  << ws << "add.u64 %bpag_a" << id << ", " << base << ", "
+			  << off << ";\n"
+			  << ws << "cvta.to.global.u64 %bpag_a" << id
+			  << ", %bpag_a" << id << ";\n"
 			  << ws << m[3].str() << gmods << " "
-			  << ops_at("%bpag_a" + id + "+" + off) << ";\n"
+			  << ops_at("%bpag_a" + id) << ";\n"
 			  << ws << "}" << m[6].str();
 			out += o.str();
 			continue;
@@ -367,20 +402,15 @@ bool sum_has_copy(const sum_map_desc &d)
 	       d.max_entries != 0 && d.value_size != 0;
 }
 
-// a constant-fd lookup of a sum map: the shard address of the key, as the
-// trampoline's sum_array_offset ((SM mod slots) x 32 + lane), or NULL
+// a constant-fd lookup of a sum map with a device copy: the shard address
+// of the key, as the trampoline's sum_array_offset ((SM mod slots) x 32 +
+// lane), or NULL for a key out of range
 std::string sum_lookup(const sum_map_desc &d, long long fd, int n,
 		       const std::string &key_ptr, const std::string &ret)
 {
 	std::ostringstream o;
 	const std::string N = std::to_string(n);
 	o << "{ // bpftime sum-map lookup, map " << fd << "\n";
-	if (!sum_has_copy(d)) {
-		// no device copy in this process: NULL, as the trampoline
-		o << "\tmov.b64 \t" << ret << ", 0;\n"
-		  << "} // bpftime sum-map lookup\n";
-		return o.str();
-	}
 	o << "\t.reg .pred \t%bpsm_p" << N << ";\n"
 	  << "\t.reg .b32 \t%bpsm_k" << N << ", %bpsm_s" << N << ", %bpsm_l"
 	  << N << ";\n"
@@ -464,15 +494,17 @@ std::string route_function_body(
 		bool is_const = constant_fd(fbody, block, &fd);
 		auto tl = is_const ? maps.find(fd) : maps.end();
 		auto sm = is_const ? sums.find(fd) : sums.end();
-		if (id == 1 && sm != sums.end()) {
+		// with a device copy only: without one the trampoline answers
+		// from the run-time map_info (a copy made later, after a cached
+		// image was patched, is then still found)
+		if (id == 1 && sm != sums.end() && sum_has_copy(sm->second)) {
 			std::smatch km, rm;
 			if (!std::regex_search(block, km, p1) ||
 			    !std::regex_search(block, rm, ret))
 				fail("unexpected lookup shape in " + fname);
 			out += sum_lookup(sm->second, fd, sum_seq++,
 					  trim(km[1]), rm[1].str());
-			if (sum_has_copy(sm->second))
-				sum_defs[rm[1].str()]++;
+			sum_defs[rm[1].str()]++;
 			st.sum_lookups++;
 			continue;
 		}

@@ -82,18 +82,35 @@ TEST_CASE("A constant-fd sum-map lookup becomes the shard address, its add a glo
 	REQUIRE(st.global_atomics == 1);
 	REQUIRE(st.guarded_atomics == 0);
 	REQUIRE_FALSE(has(out, "_bpf_helper_ext_0001"));
-	REQUIRE(has(out, "ld.u32 \t%bpsm_k0, [%rd51];"));
-	REQUIRE(has(out, "setp.lt.u32 \t%bpsm_p0, %bpsm_k0, 260;"));
-	REQUIRE(has(out, "mov.u32 \t%bpsm_s0, %smid;"));
-	REQUIRE(has(out, "and.b32 \t%bpsm_s0, %bpsm_s0, 7;"));
-	REQUIRE(has(out, "mov.u32 \t%bpsm_l0, %laneid;"));
-	REQUIRE(has(out, "mad.lo.u32 \t%bpsm_k0, %bpsm_k0, 256, %bpsm_s0;"));
-	REQUIRE(has(out, "mul.wide.u32 \t%bpsm_a0, %bpsm_k0, 8;"));
-	REQUIRE(has(out, "add.u64 \t%bpsm_a0, %bpsm_a0, " +
-				 std::to_string(0x203400000ull) + ";"));
-	REQUIRE(has(out, "selp.b64 \t%rd55, %bpsm_a0, 0, %bpsm_p0;"));
-	REQUIRE(has(out, "cvta.to.global.u64 %bpag_a0, %rd55;"));
-	REQUIRE(has(out, "atom.global.add.u64 %rd56, [%bpag_a0+0], 1;"));
+	// the whole lookup, in order: key, bound, shard, index, address
+	const std::string lookup =
+		"{ // bpftime sum-map lookup, map 14\n"
+		"\t.reg .pred \t%bpsm_p0;\n"
+		"\t.reg .b32 \t%bpsm_k0, %bpsm_s0, %bpsm_l0;\n"
+		"\t.reg .b64 \t%bpsm_a0, %bpsm_w0;\n"
+		"\tld.u32 \t%bpsm_k0, [%rd51];\n"
+		"\tsetp.lt.u32 \t%bpsm_p0, %bpsm_k0, 260;\n"
+		"\tmov.u32 \t%bpsm_s0, %smid;\n"
+		"\tand.b32 \t%bpsm_s0, %bpsm_s0, 7;\n"
+		"\tshl.b32 \t%bpsm_s0, %bpsm_s0, 5;\n"
+		"\tmov.u32 \t%bpsm_l0, %laneid;\n"
+		"\tor.b32 \t%bpsm_s0, %bpsm_s0, %bpsm_l0;\n"
+		"\tmad.lo.u32 \t%bpsm_k0, %bpsm_k0, 256, %bpsm_s0;\n"
+		"\tmul.wide.u32 \t%bpsm_a0, %bpsm_k0, 8;\n"
+		"\tadd.u64 \t%bpsm_a0, %bpsm_a0, " +
+		std::to_string(0x203400000ull) +
+		";\n"
+		"\tselp.b64 \t%rd55, %bpsm_a0, 0, %bpsm_p0;\n"
+		"} // bpftime sum-map lookup\n";
+	REQUIRE(has(out, lookup));
+	const std::string add = "{ // bpftime: atomic on a sum map's value\n"
+				"\t.reg .b64 %bpag_a0;\n"
+				"\tadd.u64 %bpag_a0, %rd55, 0;\n"
+				"\tcvta.to.global.u64 %bpag_a0, %bpag_a0;\n"
+				"\tatom.global.add.u64 %rd56, [%bpag_a0], 1;\n"
+				"\t}";
+	REQUIRE(has(out, add));
+	REQUIRE(out.find(lookup) < out.find(add));
 	REQUIRE_FALSE(has(out, "isspacep"));
 	// the program's null check stays
 	REQUIRE(has(out, "setp.eq.s64 \t%p10, %rd55, 0;"));
@@ -108,22 +125,25 @@ TEST_CASE("An immediate map fd, offsets and reductions keep their form on the gl
 			 { sum14() }, st);
 	REQUIRE(st.sum_lookups == 1);
 	REQUIRE(st.global_atomics == 1);
-	REQUIRE(has(out, "red.global.add.u64 [%bpag_a0+8], %rd9;"));
+	REQUIRE(has(out, "add.u64 %bpag_a0, %rd55, 8;\n"
+			 "\tcvta.to.global.u64 %bpag_a0, %bpag_a0;\n"
+			 "\tred.global.add.u64 [%bpag_a0], %rd9;"));
 	REQUIRE_FALSE(has(out, "isspacep"));
 }
 
-TEST_CASE("A sum map without a device copy gives NULL lookups",
+TEST_CASE("A sum map without a device copy keeps the trampoline's lookup",
 	  "[sum-map-routing]")
 {
+	// a copy made later (after an owner exits) is then still found: the
+	// trampoline reads the run-time map_info, a cached patched image would
+	// keep an inlined NULL
 	thread_local_routing_stats st;
 	auto out = route(probe("\tmov.u64 \t%rd52, 14;\n", "%rd52"),
 			 { sum14(0) }, st);
-	REQUIRE(st.sum_lookups == 1);
+	REQUIRE(st.sum_lookups == 0);
 	REQUIRE(st.global_atomics == 0);
-	REQUIRE(has(out, "mov.b64 \t%rd55, 0;"));
-	REQUIRE_FALSE(has(out, "_bpf_helper_ext_0001"));
+	REQUIRE(has(out, "_bpf_helper_ext_0001"));
 	REQUIRE_FALSE(has(out, "%smid"));
-	// the (never reached) add keeps the guarded generic form
 	REQUIRE(st.guarded_atomics == 1);
 	REQUIRE(has(out, "isspacep.local"));
 }
@@ -194,7 +214,7 @@ TEST_CASE("Sum-map lookups joined into one register keep the global atomic",
 	std::string third = second;
 	third.replace(third.find("[param0+0], 14;"), 15, "[param0+0], 16;");
 	auto out2 = route(probe("", "14", third), { sum14(), other }, st2);
-	REQUIRE(st2.sum_lookups == 2);
+	REQUIRE(st2.sum_lookups == 1);
 	REQUIRE(st2.global_atomics == 0);
 	REQUIRE(st2.guarded_atomics == 1);
 }
@@ -216,4 +236,95 @@ TEST_CASE("Atomics of unknown origin get a global branch before the generic form
 	REQUIRE(has(out, "@!%bpat_x0 atom.add.u64 %rd56, [%rd55], 1;"));
 	REQUIRE(has(out, "@%bpat_l0 ld.b64 %bpat_o0, [%bpat_a0];"));
 	REQUIRE(has(out, "@%bpat_l0 mov.b64 %rd56, %bpat_o0;"));
+}
+
+TEST_CASE("Any other write of the lookup register keeps the guarded atomic",
+	  "[sum-map-routing]")
+{
+	// forms a line-based definition test missed (review of 026f490f)
+	const char *other[] = {
+		"\tld.local.v2.u64 \t{%rd55, %rd70}, [%rd1+16];\n",
+		"\tcall.uni (%rd55), f, (%rd9);\n",
+		"\tmov.u64 \t%rd1, 0; mov.u64 \t%rd55, %rd9;\n",
+		"$L__BB0_6: add.u64 \t%rd55, %SP, 8;\n",
+		"\t@ %p1 add.u64 \t%rd55, %SP, 8;\n",
+		"\t@!%p1 cvt.u64.u32 \t%rd55, %r9;\n",
+		"\tsetp.ne.s64 \t%p3|%p4, %rd9, %rd55;\n", // a read: still fine
+	};
+	for (size_t i = 0; i < sizeof(other) / sizeof(other[0]); i++) {
+		thread_local_routing_stats st;
+		auto out = route(probe("", "14", other[i]), { sum14() }, st);
+		INFO(other[i]);
+		REQUIRE(st.sum_lookups == 1);
+		if (i + 1 == sizeof(other) / sizeof(other[0])) {
+			REQUIRE(st.global_atomics == 1);
+		} else {
+			REQUIRE(st.global_atomics == 0);
+			REQUIRE(st.guarded_atomics == 1);
+		}
+	}
+}
+
+TEST_CASE("A map fd register written twice is not a constant fd",
+	  "[sum-map-routing]")
+{
+	for (const char *second : { "\tneg.s64 \t%rd52, %rd9;\n",
+				    "\tnot.b64 \t%rd52, %rd9;\n",
+				    "\trem.u64 \t%rd52, %rd9, 16;\n",
+				    "\tld.local.v2.u64 \t{%rd52, %rd70}, [%rd1];\n" }) {
+		thread_local_routing_stats st;
+		auto out = route(probe(std::string("\tmov.u64 \t%rd52, 14;\n") +
+					       second,
+				       "%rd52"),
+				 { sum14() }, st);
+		INFO(second);
+		REQUIRE(st.sum_lookups == 0);
+		REQUIRE(has(out, "_bpf_helper_ext_0001"));
+	}
+}
+
+TEST_CASE("Only 64-bit adds on a sum map's value take the global fast path",
+	  "[sum-map-routing]")
+{
+	for (const char *atom : { "atom.add.u32 \t%r56, [%rd55], 1;",
+				  "atom.exch.b64 \t%rd56, [%rd55], %rd9;",
+				  "atom.or.b64 \t%rd56, [%rd55], %rd9;" }) {
+		thread_local_routing_stats st;
+		auto out = route(probe("", "14", "", atom), { sum14() }, st);
+		INFO(atom);
+		REQUIRE(st.sum_lookups == 1);
+		REQUIRE(st.global_atomics == 0);
+		REQUIRE(st.guarded_atomics == 1);
+	}
+}
+
+TEST_CASE("Without a thread-local map kernels are not routed and helpers get 0",
+	  "[sum-map-routing]")
+{
+	const std::string kernel = ".visible .entry kern()\n{\n"
+				   "\tcall __retprobe_func__kern;\n\tret;\n}\n";
+	thread_local_routing_stats st;
+	auto out = route(probe("", "15") + kernel, { sum14() }, st);
+	REQUIRE(has(out, kernel));
+	REQUIRE(has(out, ".visible .func __retprobe_func__kern()"));
+	REQUIRE(st.kernels == 0);
+	REQUIRE(st.routed_functions == 0);
+	REQUIRE(st.helper_calls_given_zero == 1);
+	REQUIRE(has(out, "st.param.b64 \t[param4+0], 0;"));
+	REQUIRE_FALSE(has(out, "[param4+0], %rd12;"));
+	REQUIRE_FALSE(has(out, "__bpftime_tl"));
+	// with one, the kernel gets the area and the probe its parameter
+	thread_local_map_desc tl;
+	tl.fd = 4;
+	tl.offset = 0;
+	tl.value_size = 8;
+	tl.max_entries = 1;
+	thread_local_routing_stats st2;
+	auto out2 = route_thread_local_maps(probe("", "14") + kernel, { K },
+					    { tl }, 8, &st2, { sum14() });
+	REQUIRE(st2.kernels == 1);
+	REQUIRE(st2.routed_functions == 1);
+	REQUIRE(has(out2, "__bpftime_tl"));
+	REQUIRE(st2.sum_lookups == 1);
+	REQUIRE(st2.global_atomics == 1);
 }
