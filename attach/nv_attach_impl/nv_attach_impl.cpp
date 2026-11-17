@@ -990,10 +990,21 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
 						  const std::string &file_name)
 {
 	std::vector<thread_local_map_desc> descs;
+	std::vector<sum_map_desc> sums;
 	uint64_t area = 0;
 	const auto &info = *this->map_basic_info;
 	for (size_t i = 0; i < info.size(); i++) {
 		const auto &m = info[i];
+		if (m.enabled && m.map_type == 1531 /* sum array */) {
+			sum_map_desc d;
+			d.fd = (int)i;
+			d.base = (uint64_t)(uintptr_t)m.extra_buffer;
+			d.value_size = (uint64_t)(uint32_t)m.value_size;
+			d.max_entries = (uint64_t)(uint32_t)m.max_entries;
+			d.shards = m.max_thread_count;
+			sums.push_back(d);
+			continue;
+		}
 		if (!m.enabled || m.map_type != 1530 /* thread-local array */)
 			continue;
 		thread_local_map_desc d;
@@ -1004,20 +1015,21 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
 		area = std::max(area, d.offset + d.value_size * d.max_entries);
 		descs.push_back(d);
 	}
-	if (descs.empty())
+	if (descs.empty() && sums.empty())
 		return ptx;
 	std::vector<std::string> kernels;
 	for (const auto &[_, entry] : this->hook_entries)
 		for (const auto &k : entry.kernels)
 			kernels.push_back(k);
 	thread_local_routing_stats st;
-	auto out = route_thread_local_maps(ptx, kernels, descs, area, &st);
+	auto out =
+		route_thread_local_maps(ptx, kernels, descs, area, &st, sums);
 	SPDLOG_INFO(
-		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0), {} generic atomics guarded",
+		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0), {} generic atomics guarded; sum maps: {} lookups inline, {} atomics on their values made global",
 		file_name, area, st.kernels, st.call_sites, st.routed_functions,
 		st.direct_lookups, st.helper_calls_given_area,
 		st.unrouted_functions, st.helper_calls_given_zero,
-		st.guarded_atomics);
+		st.guarded_atomics, st.sum_lookups, st.global_atomics);
 	return out;
 }
 
