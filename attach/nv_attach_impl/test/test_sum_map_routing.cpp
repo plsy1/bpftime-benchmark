@@ -249,6 +249,8 @@ TEST_CASE("Any other write of the lookup register keeps the guarded atomic",
 		"$L__BB0_6: add.u64 \t%rd55, %SP, 8;\n",
 		"\t@ %p1 add.u64 \t%rd55, %SP, 8;\n",
 		"\t@!%p1 cvt.u64.u32 \t%rd55, %r9;\n",
+		"\t.loc 1 5 3\n\tadd.u64 \t%rd55, %SP, 8;\n",
+		"\t/* x, y */ add.u64 \t%rd55, %SP, 8;\n",
 		"\tsetp.ne.s64 \t%p3|%p4, %rd9, %rd55;\n", // a read: still fine
 	};
 	for (size_t i = 0; i < sizeof(other) / sizeof(other[0]); i++) {
@@ -327,4 +329,83 @@ TEST_CASE("Without a thread-local map kernels are not routed and helpers get 0",
 	REQUIRE(has(out2, "__bpftime_tl"));
 	REQUIRE(st2.sum_lookups == 1);
 	REQUIRE(st2.global_atomics == 1);
+}
+
+namespace
+{
+// llvmbpf's frame and the key stored into slot SP+504 just before the call
+const std::string FRAME = "\tmov.u64 \t%SPL, __local_depot0;\n"
+			  "\tcvta.local.u64 \t%SP, %SPL;\n"
+			  "\tadd.u64 \t%rd9, %SP, 0;\n"
+			  "\tadd.u64 \t%rd1, %SPL, 0;\n"
+			  "\tadd.s64 \t%rd2, %rd9, 512;\n";
+const std::string STORE = "\tst.local.u32 \t[%rd1+504], %r7;\n";
+} // namespace
+
+TEST_CASE("A lookup takes its key from the store into its stack slot",
+	  "[sum-map-routing]")
+{
+	thread_local_routing_stats st;
+	auto out = route(probe(FRAME + STORE, "14"), { sum14() }, st);
+	REQUIRE(st.sum_lookups == 1);
+	REQUIRE(st.keys_forwarded == 1);
+	REQUIRE(has(out, "\tmov.u32 \t%bpsm_k0, %r7;\n"));
+	REQUIRE_FALSE(has(out, "ld.u32 \t%bpsm_k0"));
+	// a 64-bit register stored with st.u32 (the low half), generic store
+	thread_local_routing_stats st2;
+	auto out2 = route(probe(FRAME + "\tst.u32 \t[%rd2+-8], %rd30;\n", "14"),
+			  { sum14() }, st2);
+	REQUIRE(st2.keys_forwarded == 1);
+	REQUIRE(has(out2, "\tcvt.u32.u64 \t%bpsm_k0, %rd30;\n"));
+	// an immediate
+	thread_local_routing_stats st3;
+	auto out3 = route(probe(FRAME + "\tst.local.u32 \t[%rd1+504], 3;\n", "14"),
+			  { sum14() }, st3);
+	REQUIRE(st3.keys_forwarded == 1);
+	REQUIRE(has(out3, "\tmov.u32 \t%bpsm_k0, 3;\n"));
+}
+
+TEST_CASE("A key that may have changed since its store is loaded again",
+	  "[sum-map-routing]")
+{
+	const std::string cases[] = {
+		// another path joins in between
+		FRAME + STORE + "$L__BB0_4:\n",
+		// a call in between (a helper may write the stack)
+		FRAME + STORE +
+			"\t{ // callseq 3, 0\n\tcall.uni f, ();\n\t} // callseq 3\n",
+		// a store the pass cannot place in the frame
+		FRAME + STORE + "\tst.u32 \t[%rd77], %r2;\n",
+		// a store into part of the key
+		FRAME + STORE + "\tst.local.u8 \t[%rd1+505], %rs1;\n",
+		// a wider store over the key
+		FRAME + STORE + "\tst.local.u64 \t[%rd1+504], %rd5;\n",
+		// the stored register changes
+		FRAME + STORE + "\tadd.s32 \t%r7, %r7, 1;\n",
+		// an atomic in between
+		FRAME + STORE + "\tatom.add.u32 \t%r9, [%rd77], 1;\n",
+		// no store at all
+		FRAME,
+		// a frame that is not llvmbpf's
+		"\tmov.u64 \t%SPL, __local_depot0;\n\tmov.u64 \t%SP, %rd77;\n"
+		"\tadd.u64 \t%rd9, %SP, 0;\n\tadd.u64 \t%rd1, %SPL, 0;\n"
+		"\tadd.s64 \t%rd2, %rd9, 512;\n" +
+			STORE,
+		// the slot register written twice
+		FRAME + STORE + "\tmov.u64 \t%rd2, %rd77;\n",
+	};
+	for (const auto &c : cases) {
+		thread_local_routing_stats st;
+		auto out = route(probe(c, "14"), { sum14() }, st);
+		INFO(c);
+		REQUIRE(st.sum_lookups == 1);
+		REQUIRE(st.keys_forwarded == 0);
+		REQUIRE(has(out, "ld.u32 \t%bpsm_k0, [%rd51];"));
+	}
+	// a store to another slot in between does not matter
+	thread_local_routing_stats st;
+	auto out = route(probe(FRAME + STORE + "\tst.local.u32 \t[%rd1+500], %r2;\n",
+			       "14"),
+			 { sum14() }, st);
+	REQUIRE(st.keys_forwarded == 1);
 }

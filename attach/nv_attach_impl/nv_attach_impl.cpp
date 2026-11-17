@@ -1044,11 +1044,12 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
 	auto out =
 		route_thread_local_maps(ptx, kernels, descs, area, &st, sums);
 	SPDLOG_INFO(
-		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0), {} generic atomics guarded; sum maps: {} lookups inline, {} atomics on their values made global",
+		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0), {} generic atomics guarded; sum maps: {} lookups inline, {} atomics on their values made global; {} lookup keys forwarded",
 		file_name, area, st.kernels, st.call_sites, st.routed_functions,
 		st.direct_lookups, st.helper_calls_given_area,
 		st.unrouted_functions, st.helper_calls_given_zero,
-		st.guarded_atomics, st.sum_lookups, st.global_atomics);
+		st.guarded_atomics, st.sum_lookups, st.global_atomics,
+		st.keys_forwarded);
 	return out;
 }
 
