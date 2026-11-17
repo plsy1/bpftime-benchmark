@@ -1,0 +1,417 @@
+From 0890dbdd78c2db369d26971cb5f1f3eddf8ac78e Mon Sep 17 00:00:00 2001
+From: jetson <jetson@orin-nano.tail52323b.ts.net>
+Date: Wed, 18 Nov 2026 07:42:20 +0900
+Subject: [PATCH 3/4] nv_attach: map lookups take the key the program stored;
+ definitions after .loc fail closed
+
+An inline lookup (thread-local or sum map) whose key the program stored
+into a stack slot just before, in the same basic block with nothing in
+between that could write the slot or the stored register (a store the pass
+cannot place in llvmbpf's frame, a call, an atomic, a label), takes the
+stored register instead of loading the key back through the slot's generic
+address. [%SP + o] and [%SPL + o] are the same bytes: %SP is cvta.local of
+the depot (PTX ISA 6.4.1.1, cvta). Measured as a hand-written form on
+lat_mmvq (proto/meas RULES-sum-map-build.md, passes h1/h2): 0.028-0.030 ns
+per thread for its three lookups; the 1530 value through ld.local/st.local
+(0.004) and 64-bit accesses (-0.002) did not show and are not built.
+
+Review of 00f12354: a .loc directive (no ';') glued to the next statement
+hid that statement's definitions, and /* */ comments were kept; both now
+count (fail closed).
+
+Tests [sum-map-routing]: forwarded forms (32/64-bit register, immediate),
+and every case that must load again. pt_victim's five tools exact.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ attach/nv_attach_impl/nv_attach_impl.cpp      |   5 +-
+ .../nv_thread_local_routing.cpp               | 167 ++++++++++++++++--
+ .../nv_thread_local_routing.hpp               |   8 +
+ .../test/test_sum_map_routing.cpp             |  81 +++++++++
+ 4 files changed, 248 insertions(+), 13 deletions(-)
+
+diff --git a/attach/nv_attach_impl/nv_attach_impl.cpp b/attach/nv_attach_impl/nv_attach_impl.cpp
+index 2316af3b..b4804e57 100644
+--- a/attach/nv_attach_impl/nv_attach_impl.cpp
++++ b/attach/nv_attach_impl/nv_attach_impl.cpp
+@@ -1025,11 +1025,12 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
+ 	auto out =
+ 		route_thread_local_maps(ptx, kernels, descs, area, &st, sums);
+ 	SPDLOG_INFO(
+-		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0), {} generic atomics guarded; sum maps: {} lookups inline, {} atomics on their values made global",
++		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0), {} generic atomics guarded; sum maps: {} lookups inline, {} atomics on their values made global; {} lookup keys forwarded",
+ 		file_name, area, st.kernels, st.call_sites, st.routed_functions,
+ 		st.direct_lookups, st.helper_calls_given_area,
+ 		st.unrouted_functions, st.helper_calls_given_zero,
+-		st.guarded_atomics, st.sum_lookups, st.global_atomics);
++		st.guarded_atomics, st.sum_lookups, st.global_atomics,
++		st.keys_forwarded);
+ 	return out;
+ }
+ 
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.cpp b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+index f441a15a..c0631afb 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.cpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+@@ -117,10 +117,12 @@ bool parse_int(const std::string &s, long long *v)
+ }
+ 
+ // The statements of a function body: comments removed, split on ';',
+-// leading braces, labels and a guard predicate stripped.
++// leading braces, labels and a guard predicate stripped. Directives without
++// a ';' (.loc, .file) stay glued to the statement after them; count_defs
++// then counts that statement if it mentions the register at all.
+ std::vector<std::string> statements(const std::string &body)
+ {
+-	static const std::regex comment(R"(//[^\n]*)");
++	static const std::regex comment(R"(//[^\n]*|/\*[\s\S]*?\*/)");
+ 	static const std::regex lead(
+ 		R"(^(?:\s|[{}]|[$A-Za-z_][\w$]*\s*:(?!:)|@\s*!?\s*%[\w$]+)+)");
+ 	std::string text = std::regex_replace(body, comment, "");
+@@ -146,16 +148,33 @@ std::vector<std::string> statements(const std::string &body)
+ // p|q pair, call's (..) return list), except instructions that write no
+ // register (stores, reductions, branches). An unknown form counts, so a
+ // register is never taken for written once when it may not be.
+-int count_defs(const std::string &body, const std::string &reg)
++int count_defs(const std::string &body, const std::string &reg,
++	       std::string *def = nullptr)
+ {
+ 	const std::regex word("(^|[^\\w$%])" +
+ 			      std::regex_replace(reg, std::regex(R"([$%.])"),
+ 						 R"(\$&)") +
+ 			      "($|[^\\w$])");
++	static const std::set<std::string> decls = {
++		".reg", ".local", ".shared", ".param", ".const", ".global",
++		".pragma"
++	};
+ 	int n = 0;
+ 	for (const auto &st : statements(body)) {
+-		if (st.empty() || st[0] == '.')
+-			continue; // empty, or a directive (.reg, .param, ...)
++		if (st.empty())
++			continue;
++		if (st[0] == '.') {
++			// a declaration writes nothing; anything else starting
++			// with a directive (a .loc glued to an instruction)
++			// counts if it mentions the register
++			std::string d = st.substr(0, st.find_first_of(" \t\n"));
++			if (!decls.count(d) && std::regex_search(st, word)) {
++				n++;
++				if (def)
++					*def = st;
++			}
++			continue;
++		}
+ 		size_t sp = st.find_first_of(" \t\n");
+ 		std::string op = st.substr(0, sp);
+ 		if (op.rfind("st.", 0) == 0 || op == "st" ||
+@@ -177,12 +196,131 @@ int count_defs(const std::string &body, const std::string &reg)
+ 				break;
+ 			}
+ 		}
+-		if (std::regex_search(rest.substr(0, end), word))
++		if (std::regex_search(rest.substr(0, end), word)) {
+ 			n++;
++			if (def)
++				*def = st;
++		}
+ 	}
+ 	return n;
+ }
+ 
++// The stack slot a register addresses: base %SP (the frame's generic
++// address) or %SPL (its local address) plus a constant, through registers
++// each written by one statement, an add of an integer or a mov (llvmbpf's
++// frame addressing). The caller checks that %SP is cvta.local of %SPL.
++bool stack_slot(const std::string &body, const std::string &reg,
++		std::string *base, long long *off, int depth = 0)
++{
++	if (reg == "%SP" || reg == "%SPL") {
++		*base = reg;
++		*off = 0;
++		return true;
++	}
++	if (depth > 8 || reg.empty() || reg[0] != '%')
++		return false;
++	std::string def;
++	if (count_defs(body, reg, &def) != 1)
++		return false;
++	static const std::regex addr(
++		R"(^(add\.[us]64|mov\.[ub]64)\s+(%[\w$]+)\s*,\s*(%[\w$]+)\s*(?:,\s*(-?\d+))?\s*$)");
++	std::smatch m;
++	if (!std::regex_match(def, m, addr) || m[2] != reg)
++		return false;
++	const bool is_add = m[1].str()[0] == 'a';
++	if (is_add != m[4].matched)
++		return false;
++	if (!stack_slot(body, m[3], base, off, depth + 1))
++		return false;
++	if (is_add)
++		*off += std::stoll(m[4]);
++	return true;
++}
++
++// llvmbpf's frame: %SPL the depot, %SP its generic address (cvta.local), so
++// [%SP + o] and [%SPL + o] are the same bytes (PTX ISA 6.4.1.1, cvta)
++bool has_frame(const std::string &body)
++{
++	std::string a, b;
++	static const std::regex spl(R"(^mov\.u64\s+%SPL\s*,\s*__local_depot\d+$)");
++	static const std::regex sp(R"(^cvta\.local\.u64\s+%SP\s*,\s*%SPL$)");
++	return count_defs(body, "%SPL", &a) == 1 &&
++	       std::regex_match(a, spl) && count_defs(body, "%SP", &b) == 1 &&
++	       std::regex_match(b, sp);
++}
++
++// The value a map lookup's key holds, taken from the store that put it in
++// its stack slot: the last store to the slot in the same basic block before
++// the call, with nothing in between that could write the slot (a store the
++// pass cannot place in the frame, a call, an atomic) or the stored register.
++// Empty when that is not shown; the lookup then loads the key as before.
++std::string forwarded_key(const std::string &fbody, size_t call_at,
++			  const std::string &kp)
++{
++	std::string kb;
++	long long ko = 0;
++	if (!has_frame(fbody) || !stack_slot(fbody, kp, &kb, &ko))
++		return "";
++	const std::string before = fbody.substr(0, call_at);
++	static const std::regex label(
++		R"((^|\n)[ \t]*[$A-Za-z_][\w$]*[ \t]*:(?!:))");
++	size_t from = 0;
++	for (auto it = std::sregex_iterator(before.begin(), before.end(),
++					    label);
++	     it != std::sregex_iterator(); ++it)
++		from = it->position(0) + it->length(0);
++	const auto sts = statements(before.substr(from));
++	static const std::regex store(
++		R"(^st(\.local)?\.[ubs](8|16|32|64)\s+\[\s*(%[\w$]+)\s*(?:\+\s*(-?\d+))?\s*\]\s*,\s*(%[\w$]+|-?\d+)\s*$)");
++	for (int i = (int)sts.size() - 1; i >= 0; i--) {
++		const std::string &st = sts[i];
++		if (st.empty() || st[0] == '.')
++			continue;
++		const std::string op = st.substr(0, st.find_first_of(" \t\n"));
++		if (op.rfind("call", 0) == 0 || op.rfind("atom", 0) == 0 ||
++		    op.rfind("red", 0) == 0)
++			return "";
++		if (op.rfind("st", 0) != 0 || op.rfind("st.param", 0) == 0)
++			continue;
++		std::smatch m;
++		if (!std::regex_match(st, m, store))
++			return ""; // a store the pass cannot read
++		std::string sb;
++		long long so = 0;
++		if (!stack_slot(fbody, m[3], &sb, &so))
++			return ""; // it may write the slot
++		so += m[4].matched ? std::stoll(m[4]) : 0;
++		const long long w = std::stoll(m[2]) / 8;
++		if (so + w <= ko || so >= ko + 4)
++			continue; // another slot
++		if (so != ko || w != 4)
++			return ""; // part of the key
++		const std::string v = m[5];
++		if (v[0] == '%') {
++			std::string rest;
++			for (size_t j = i + 1; j < sts.size(); j++)
++				rest += sts[j] + ";";
++			if (count_defs(rest, v) != 0)
++				return "";
++			if (v.rfind("%rd", 0) != 0 && v.rfind("%r", 0) != 0)
++				return "";
++		}
++		return v;
++	}
++	return "";
++}
++
++// the key into a 32-bit register: forwarded, or loaded from the slot
++std::string key_into(const std::string &dst, const std::string &key_ptr,
++		     const std::string &fwd)
++{
++	if (fwd.empty())
++		return "\tld.u32 \t" + dst + ", [" + key_ptr + "];\n";
++	if (fwd.rfind("%rd", 0) == 0)
++		return "\tcvt.u32.u64 \t" + dst + ", " + fwd + ";\n";
++	return "\tmov.u32 \t" + dst + ", " + fwd + ";\n";
++}
++
+ // insert a state space before the operation of atom/red modifiers
+ // (atom{.sem}{.scope}{.space}.op.type)
+ std::string with_space(const std::string &mods, const std::string &op,
+@@ -406,7 +544,8 @@ bool sum_has_copy(const sum_map_desc &d)
+ // of the key, as the trampoline's sum_array_offset ((SM mod slots) x 32 +
+ // lane), or NULL for a key out of range
+ std::string sum_lookup(const sum_map_desc &d, long long fd, int n,
+-		       const std::string &key_ptr, const std::string &ret)
++		       const std::string &key_ptr, const std::string &ret,
++		       const std::string &fwd)
+ {
+ 	std::ostringstream o;
+ 	const std::string N = std::to_string(n);
+@@ -415,7 +554,7 @@ std::string sum_lookup(const sum_map_desc &d, long long fd, int n,
+ 	  << "\t.reg .b32 \t%bpsm_k" << N << ", %bpsm_s" << N << ", %bpsm_l"
+ 	  << N << ";\n"
+ 	  << "\t.reg .b64 \t%bpsm_a" << N << ", %bpsm_w" << N << ";\n"
+-	  << "\tld.u32 \t%bpsm_k" << N << ", [" << key_ptr << "];\n"
++	  << key_into("%bpsm_k" + N, key_ptr, fwd)
+ 	  << "\tsetp.lt.u32 \t%bpsm_p" << N << ", %bpsm_k" << N << ", "
+ 	  << d.max_entries << ";\n"
+ 	  << "\tmov.u32 \t%bpsm_s" << N << ", %smid;\n"
+@@ -502,8 +641,11 @@ std::string route_function_body(
+ 			if (!std::regex_search(block, km, p1) ||
+ 			    !std::regex_search(block, rm, ret))
+ 				fail("unexpected lookup shape in " + fname);
++			std::string fwd = forwarded_key(fbody, b, trim(km[1]));
++			if (!fwd.empty())
++				st.keys_forwarded++;
+ 			out += sum_lookup(sm->second, fd, sum_seq++,
+-					  trim(km[1]), rm[1].str());
++					  trim(km[1]), rm[1].str(), fwd);
+ 			sum_defs[rm[1].str()]++;
+ 			st.sum_lookups++;
+ 			continue;
+@@ -514,14 +656,17 @@ std::string route_function_body(
+ 			    !std::regex_search(block, rm, ret))
+ 				fail("unexpected lookup shape in " + fname);
+ 			const auto &d = tl->second;
++			std::string fwd = forwarded_key(fbody, b, trim(km[1]));
++			if (!fwd.empty())
++				st.keys_forwarded++;
+ 			std::ostringstream o;
+ 			int n = direct_seq++;
+ 			o << "{ // bpftime thread-local lookup, map " << fd
+ 			  << "\n\t.reg .pred \t%bptl_p" << n
+ 			  << ";\n\t.reg .b32 \t%bptl_k" << n
+ 			  << ";\n\t.reg .b64 \t%bptl_a" << n << ";\n"
+-			  << "\tld.u32 \t%bptl_k" << n << ", ["
+-			  << trim(km[1]) << "];\n"
++			  << key_into("%bptl_k" + std::to_string(n),
++				      trim(km[1]), fwd)
+ 			  << "\tsetp.lt.u32 \t%bptl_p" << n << ", %bptl_k"
+ 			  << n << ", " << d.max_entries << ";\n"
+ 			  << "\tmul.wide.u32 \t%bptl_a" << n << ", %bptl_k"
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.hpp b/attach/nv_attach_impl/nv_thread_local_routing.hpp
+index 559a5072..3629ea97 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.hpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.hpp
+@@ -34,6 +34,13 @@ struct thread_local_map_desc {
+ 	uint64_t max_entries;
+ };
+ 
++// An inline lookup (either kind) whose key the program stored into a stack
++// slot just before, in the same basic block with nothing in between that
++// could write the slot, takes the stored register instead of loading the
++// key back through the slot's generic address (one store and one load per
++// lookup otherwise; measured 0.028 ns per thread on mul_mat_vec_q, the
++// three lookups of `lat`).
++//
+ // Sum maps (1531): a lookup with a constant map fd, in any probe function,
+ // becomes the calling thread's shard address of the key (as the
+ // trampoline's sum_array_offset computes it), with the map's geometry and
+@@ -66,6 +73,7 @@ struct thread_local_routing_stats {
+ 	int guarded_atomics = 0;
+ 	int sum_lookups = 0;	   // constant-fd 1531 lookups made inline
+ 	int global_atomics = 0;	   // atomics on such a lookup's address
++	int keys_forwarded = 0;	   // inline lookups given the stored key
+ };
+ 
+ // Throws std::runtime_error when the PTX does not have the expected shape;
+diff --git a/attach/nv_attach_impl/test/test_sum_map_routing.cpp b/attach/nv_attach_impl/test/test_sum_map_routing.cpp
+index 9c603aec..086cbefa 100644
+--- a/attach/nv_attach_impl/test/test_sum_map_routing.cpp
++++ b/attach/nv_attach_impl/test/test_sum_map_routing.cpp
+@@ -249,6 +249,8 @@ TEST_CASE("Any other write of the lookup register keeps the guarded atomic",
+ 		"$L__BB0_6: add.u64 \t%rd55, %SP, 8;\n",
+ 		"\t@ %p1 add.u64 \t%rd55, %SP, 8;\n",
+ 		"\t@!%p1 cvt.u64.u32 \t%rd55, %r9;\n",
++		"\t.loc 1 5 3\n\tadd.u64 \t%rd55, %SP, 8;\n",
++		"\t/* x, y */ add.u64 \t%rd55, %SP, 8;\n",
+ 		"\tsetp.ne.s64 \t%p3|%p4, %rd9, %rd55;\n", // a read: still fine
+ 	};
+ 	for (size_t i = 0; i < sizeof(other) / sizeof(other[0]); i++) {
+@@ -328,3 +330,82 @@ TEST_CASE("Without a thread-local map kernels are not routed and helpers get 0",
+ 	REQUIRE(st2.sum_lookups == 1);
+ 	REQUIRE(st2.global_atomics == 1);
+ }
++
++namespace
++{
++// llvmbpf's frame and the key stored into slot SP+504 just before the call
++const std::string FRAME = "\tmov.u64 \t%SPL, __local_depot0;\n"
++			  "\tcvta.local.u64 \t%SP, %SPL;\n"
++			  "\tadd.u64 \t%rd9, %SP, 0;\n"
++			  "\tadd.u64 \t%rd1, %SPL, 0;\n"
++			  "\tadd.s64 \t%rd2, %rd9, 512;\n";
++const std::string STORE = "\tst.local.u32 \t[%rd1+504], %r7;\n";
++} // namespace
++
++TEST_CASE("A lookup takes its key from the store into its stack slot",
++	  "[sum-map-routing]")
++{
++	thread_local_routing_stats st;
++	auto out = route(probe(FRAME + STORE, "14"), { sum14() }, st);
++	REQUIRE(st.sum_lookups == 1);
++	REQUIRE(st.keys_forwarded == 1);
++	REQUIRE(has(out, "\tmov.u32 \t%bpsm_k0, %r7;\n"));
++	REQUIRE_FALSE(has(out, "ld.u32 \t%bpsm_k0"));
++	// a 64-bit register stored with st.u32 (the low half), generic store
++	thread_local_routing_stats st2;
++	auto out2 = route(probe(FRAME + "\tst.u32 \t[%rd2+-8], %rd30;\n", "14"),
++			  { sum14() }, st2);
++	REQUIRE(st2.keys_forwarded == 1);
++	REQUIRE(has(out2, "\tcvt.u32.u64 \t%bpsm_k0, %rd30;\n"));
++	// an immediate
++	thread_local_routing_stats st3;
++	auto out3 = route(probe(FRAME + "\tst.local.u32 \t[%rd1+504], 3;\n", "14"),
++			  { sum14() }, st3);
++	REQUIRE(st3.keys_forwarded == 1);
++	REQUIRE(has(out3, "\tmov.u32 \t%bpsm_k0, 3;\n"));
++}
++
++TEST_CASE("A key that may have changed since its store is loaded again",
++	  "[sum-map-routing]")
++{
++	const std::string cases[] = {
++		// another path joins in between
++		FRAME + STORE + "$L__BB0_4:\n",
++		// a call in between (a helper may write the stack)
++		FRAME + STORE +
++			"\t{ // callseq 3, 0\n\tcall.uni f, ();\n\t} // callseq 3\n",
++		// a store the pass cannot place in the frame
++		FRAME + STORE + "\tst.u32 \t[%rd77], %r2;\n",
++		// a store into part of the key
++		FRAME + STORE + "\tst.local.u8 \t[%rd1+505], %rs1;\n",
++		// a wider store over the key
++		FRAME + STORE + "\tst.local.u64 \t[%rd1+504], %rd5;\n",
++		// the stored register changes
++		FRAME + STORE + "\tadd.s32 \t%r7, %r7, 1;\n",
++		// an atomic in between
++		FRAME + STORE + "\tatom.add.u32 \t%r9, [%rd77], 1;\n",
++		// no store at all
++		FRAME,
++		// a frame that is not llvmbpf's
++		"\tmov.u64 \t%SPL, __local_depot0;\n\tmov.u64 \t%SP, %rd77;\n"
++		"\tadd.u64 \t%rd9, %SP, 0;\n\tadd.u64 \t%rd1, %SPL, 0;\n"
++		"\tadd.s64 \t%rd2, %rd9, 512;\n" +
++			STORE,
++		// the slot register written twice
++		FRAME + STORE + "\tmov.u64 \t%rd2, %rd77;\n",
++	};
++	for (const auto &c : cases) {
++		thread_local_routing_stats st;
++		auto out = route(probe(c, "14"), { sum14() }, st);
++		INFO(c);
++		REQUIRE(st.sum_lookups == 1);
++		REQUIRE(st.keys_forwarded == 0);
++		REQUIRE(has(out, "ld.u32 \t%bpsm_k0, [%rd51];"));
++	}
++	// a store to another slot in between does not matter
++	thread_local_routing_stats st;
++	auto out = route(probe(FRAME + STORE + "\tst.local.u32 \t[%rd1+500], %r2;\n",
++			       "14"),
++			 { sum14() }, st);
++	REQUIRE(st.keys_forwarded == 1);
++}
+-- 
+2.43.0
+

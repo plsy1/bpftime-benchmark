@@ -1,0 +1,48 @@
+== out/h1-20261118-070404
+  tg base               68.05 t/s  1.881 s/run  overhead   0.0%  ok
+  tg new-lat            51.98 t/s  2.462 s/run  overhead  23.6%  ok
+  tg new-lat_mmvq       52.48 t/s  2.439 s/run  overhead  22.9%  +0.1779 ns/thread  ok
+  tg new-lat_mmvq@tl0   52.54 t/s  2.436 s/run  overhead  22.8%  +0.1770 ns/thread  ok
+  tg new-lat_mmvq@tlK   54.52 t/s  2.348 s/run  overhead  19.9%  +0.1488 ns/thread  ok
+  tg new-lat_mmvq@tlKL   54.83 t/s  2.334 s/run  overhead  19.4%  +0.1445 ns/thread  ok
+  tg new-lat_mmvq@tlKLW   54.72 t/s  2.339 s/run  overhead  19.6%  +0.1461 ns/thread  ok
+  tg old-lat            45.39 t/s  2.820 s/run  overhead  33.3%  ok
+  tg old-lat_mmvq       46.07 t/s  2.779 s/run  overhead  32.3%  +0.2861 ns/thread  ok
+  pp base             2499.24 t/s  0.205 s/run  overhead   0.0%  ok
+  pp new-lat          2442.76 t/s  0.210 s/run  overhead   2.3%  ok
+  pp old-lat          2407.79 t/s  0.213 s/run  overhead   3.7%  ok
+  tg lat_mmvq  old-46.07 -> new-52.48 t/s, overhead 32.3% -> 22.9%; ns 0.2861 -> 0.1779, saved 0.1082; counts same
+  tg lat       old-45.39 -> new-51.98 t/s, overhead 33.3% -> 23.6%; counts same
+  pp lat       old-2407.79 -> new-2442.76 t/s, overhead 3.7% -> 2.3%; counts same
+  thread-local steps (ns/thread saved; control: difference): control tl0 - new -0.0010  K keys forwarded +0.0282  L local accesses +0.0042  W 64-bit accesses -0.0016
+  link: old-lat_mmvq - base 0.2861 (0.283 +- 0.007: True)
+== out/h2-20261118-072116
+  tg base               67.79 t/s  1.888 s/run  overhead   0.0%  ok
+  tg new-lat            51.95 t/s  2.464 s/run  overhead  23.4%  ok
+  tg new-lat_mmvq       52.50 t/s  2.438 s/run  overhead  22.6%  +0.1754 ns/thread  ok
+  tg new-lat_mmvq@tl0   52.48 t/s  2.439 s/run  overhead  22.6%  +0.1756 ns/thread  ok
+  tg new-lat_mmvq@tlK   54.56 t/s  2.346 s/run  overhead  19.5%  +0.1460 ns/thread  ok
+  tg new-lat_mmvq@tlKL   54.82 t/s  2.335 s/run  overhead  19.1%  +0.1425 ns/thread  ok
+  tg new-lat_mmvq@tlKLW   54.72 t/s  2.339 s/run  overhead  19.3%  +0.1438 ns/thread  ok
+  tg old-lat            45.38 t/s  2.821 s/run  overhead  33.1%  ok
+  tg old-lat_mmvq       46.10 t/s  2.777 s/run  overhead  32.0%  +0.2832 ns/thread  ok
+  pp base             2505.08 t/s  0.204 s/run  overhead   0.0%  ok
+  pp new-lat          2447.59 t/s  0.209 s/run  overhead   2.3%  ok
+  pp old-lat          2406.68 t/s  0.213 s/run  overhead   3.9%  ok
+  tg lat_mmvq  old-46.10 -> new-52.50 t/s, overhead 32.0% -> 22.6%; ns 0.2832 -> 0.1754, saved 0.1079; counts same
+  tg lat       old-45.38 -> new-51.95 t/s, overhead 33.1% -> 23.4%; counts same
+  pp lat       old-2406.68 -> new-2447.59 t/s, overhead 3.9% -> 2.3%; counts same
+  thread-local steps (ns/thread saved; control: difference): control tl0 - new +0.0003  K keys forwarded +0.0297  L local accesses +0.0035  W 64-bit accesses -0.0013
+  link: old-lat_mmvq - base 0.2832 (0.283 +- 0.007: True)
+== across passes
+  thread-local ctl -0.0010 +0.0003 spread 0.0012
+  thread-local K   +0.0282 +0.0297 spread 0.0014  helps (>= 0.006 in every pass)
+  thread-local L   +0.0042 +0.0035 spread 0.0008  not shown
+  thread-local W   -0.0016 -0.0013 spread 0.0003  not shown
+  tg lat_mmvq saved ns 0.1082 0.1079 spread 0.0003
+  tg lat_mmvq old overhead 32.3% 32.0% spread 0.3
+  tg lat_mmvq new overhead 22.9% 22.6% spread 0.3
+  tg lat old overhead 33.3% 33.1% spread 0.2
+  tg lat new overhead 23.6% 23.4% spread 0.2
+  pp lat old overhead 3.7% 3.9% spread 0.3
+  pp lat new overhead 2.3% 2.3% spread 0.0

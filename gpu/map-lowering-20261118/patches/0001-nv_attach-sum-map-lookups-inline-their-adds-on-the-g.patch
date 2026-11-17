@@ -1,0 +1,678 @@
+From 026f490f343fb026f3ac3f971e0ec45c00ac264c Mon Sep 17 00:00:00 2001
+From: jetson <jetson@orin-nano.tail52323b.ts.net>
+Date: Wed, 18 Nov 2026 06:34:39 +0900
+Subject: [PATCH 1/4] nv_attach: sum-map lookups inline, their adds on the
+ global state space
+
+A lookup of a sum map (1531) with a constant map fd becomes the calling
+thread's shard address in the probe function (the trampoline's
+sum_array_offset with the map's geometry and device copy as constants;
+NULL without a copy), and a generic atomic whose address register only such
+lookups define becomes atom/red .global on cvta.to.global of it. The copy is
+device memory from cuMemAlloc, global memory by the programming guide, and a
+generic address outside the const, local and shared windows maps to global
+memory (PTX ISA 6.4.1.1). ptxas emits RED for such an add with its old value
+unused; the generic atom was an ATOM.E whose returned predicate the thread
+waited for. Hand-written shapes of this path on mul_mat_vec_q (results
+gpu/probe-cost-20261117, section 7): the add from 0.061-0.069 to
+0.010-0.015 ns per thread.
+
+Other generic atomics keep the isspacep.local wrapper, now with an
+isspacep.global branch before the generic form. The pass also runs without
+thread-local maps (kernels are then not routed). The delivery's snapshot
+kernel reads the copy through cvta.to.global + ld.relaxed.gpu.global, the
+programs' form. Tests [sum-map-routing]; pt_victim's five tools exact.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ attach/nv_attach_impl/nv_attach_impl.cpp      |  20 +-
+ .../nv_thread_local_routing.cpp               | 177 +++++++++++++-
+ .../nv_thread_local_routing.hpp               |  30 ++-
+ attach/nv_attach_impl/test/CMakeLists.txt     |   1 +
+ .../test/test_sum_map_routing.cpp             | 219 ++++++++++++++++++
+ runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp |   9 +-
+ 6 files changed, 440 insertions(+), 16 deletions(-)
+ create mode 100644 attach/nv_attach_impl/test/test_sum_map_routing.cpp
+
+diff --git a/attach/nv_attach_impl/nv_attach_impl.cpp b/attach/nv_attach_impl/nv_attach_impl.cpp
+index ed777d1e..2316af3b 100644
+--- a/attach/nv_attach_impl/nv_attach_impl.cpp
++++ b/attach/nv_attach_impl/nv_attach_impl.cpp
+@@ -990,10 +990,21 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
+ 						  const std::string &file_name)
+ {
+ 	std::vector<thread_local_map_desc> descs;
++	std::vector<sum_map_desc> sums;
+ 	uint64_t area = 0;
+ 	const auto &info = *this->map_basic_info;
+ 	for (size_t i = 0; i < info.size(); i++) {
+ 		const auto &m = info[i];
++		if (m.enabled && m.map_type == 1531 /* sum array */) {
++			sum_map_desc d;
++			d.fd = (int)i;
++			d.base = (uint64_t)(uintptr_t)m.extra_buffer;
++			d.value_size = (uint64_t)(uint32_t)m.value_size;
++			d.max_entries = (uint64_t)(uint32_t)m.max_entries;
++			d.shards = m.max_thread_count;
++			sums.push_back(d);
++			continue;
++		}
+ 		if (!m.enabled || m.map_type != 1530 /* thread-local array */)
+ 			continue;
+ 		thread_local_map_desc d;
+@@ -1004,20 +1015,21 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
+ 		area = std::max(area, d.offset + d.value_size * d.max_entries);
+ 		descs.push_back(d);
+ 	}
+-	if (descs.empty())
++	if (descs.empty() && sums.empty())
+ 		return ptx;
+ 	std::vector<std::string> kernels;
+ 	for (const auto &[_, entry] : this->hook_entries)
+ 		for (const auto &k : entry.kernels)
+ 			kernels.push_back(k);
+ 	thread_local_routing_stats st;
+-	auto out = route_thread_local_maps(ptx, kernels, descs, area, &st);
++	auto out =
++		route_thread_local_maps(ptx, kernels, descs, area, &st, sums);
+ 	SPDLOG_INFO(
+-		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0), {} generic atomics guarded",
++		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0), {} generic atomics guarded; sum maps: {} lookups inline, {} atomics on their values made global",
+ 		file_name, area, st.kernels, st.call_sites, st.routed_functions,
+ 		st.direct_lookups, st.helper_calls_given_area,
+ 		st.unrouted_functions, st.helper_calls_given_zero,
+-		st.guarded_atomics);
++		st.guarded_atomics, st.sum_lookups, st.global_atomics);
+ 	return out;
+ }
+ 
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.cpp b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+index 77ff2af2..b75ab407 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.cpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+@@ -116,6 +116,40 @@ bool parse_int(const std::string &s, long long *v)
+ 	return true;
+ }
+ 
++// lines whose first operand is reg: its definitions (an instruction's
++// destination is its first operand; stores, reductions and branches have
++// none that is a register)
++int count_defs(const std::string &body, const std::string &reg)
++{
++	static const std::regex first(
++		R"(^\s*(?:@!?%[\w$]+\s+)?([a-z][\w.:]*)\s+(%[\w$]+)\s*[,;])");
++	std::istringstream in(body);
++	std::string line;
++	int n = 0;
++	while (std::getline(in, line)) {
++		std::smatch m;
++		if (!std::regex_search(line, m, first))
++			continue;
++		const std::string op = m[1];
++		if (op.rfind("st.", 0) == 0 || op.rfind("red", 0) == 0)
++			continue;
++		if (m[2] == reg)
++			n++;
++	}
++	return n;
++}
++
++// insert a state space before the operation of atom/red modifiers
++// (atom{.sem}{.scope}{.space}.op.type)
++std::string with_space(const std::string &mods, const std::string &op,
++		       const char *space)
++{
++	size_t at = (mods + ".").find("." + op + ".");
++	if (at == std::string::npos)
++		fail("no operation in modifiers " + mods);
++	return mods.substr(0, at) + space + mods.substr(at);
++}
++
+ // the constant a callseq passes as its map argument, if it is one
+ bool constant_fd(const std::string &fbody, const std::string &block,
+ 		 long long *fd)
+@@ -163,7 +197,9 @@ bool constant_fd(const std::string &fbody, const std::string &block,
+ // (PTX ISA 9.7.10.22): local addresses take a plain load, the operation and
+ // a store (exact: the memory is the thread's own), others keep the atomic.
+ std::string guard_generic_atomics(const std::string &fbody,
+-				  const std::string &fname, int *count)
++				  const std::string &fname, int *count,
++				  const std::set<std::string> &global_regs,
++				  int *global_count)
+ {
+ 	static const std::regex atom_line(
+ 		R"(^(\s*)(@!?%[\w$]+\s+)?(atom|red)((?:\.[a-zA-Z0-9_:]+)+)\s+([^;]*);(.*)$)");
+@@ -238,20 +274,55 @@ std::string guard_generic_atomics(const std::string &fbody,
+ 			base = trim(addr.substr(0, plus));
+ 			off = trim(addr.substr(plus + 1));
+ 		}
+-		const std::string id = std::to_string(n++);
+ 		const std::string ws = m[1];
++		// the operands with the address replaced
++		auto ops_at = [&](const std::string &a) {
++			std::string r;
++			for (size_t i = 0; i < parts.size(); i++)
++				r += (i ? ", " : "") +
++				     (i == ai ? "[" + a + "]" : parts[i]);
++			return r;
++		};
++		const std::string gmods = with_space(mods, op, ".global");
++		if (global_regs.count(base)) {
++			// a sum map's value: global memory (see the header)
++			const std::string id = std::to_string((*global_count)++);
++			std::ostringstream o;
++			o << ws << "{ // bpftime: atomic on a sum map's value\n"
++			  << ws << ".reg .b64 %bpag_a" << id << ";\n"
++			  << ws << "cvta.to.global.u64 %bpag_a" << id << ", "
++			  << base << ";\n"
++			  << ws << m[3].str() << gmods << " "
++			  << ops_at("%bpag_a" + id + "+" + off) << ";\n"
++			  << ws << "}" << m[6].str();
++			out += o.str();
++			continue;
++		}
++		const std::string id = std::to_string(n++);
+ 		std::ostringstream o;
++		// global addresses take the .global form (no wait for a
++		// generic atomic's reply), local ones the plain operation,
++		// anything else the generic atomic as written
+ 		o << ws << "{ // bpftime: atomic on a possibly local address\n"
+ 		  << ws << ".reg .pred %bpat_l" << id << ", %bpat_q" << id
++		  << ", %bpat_g" << id << ", %bpat_x" << id << ";\n"
++		  << ws << ".reg .b64 %bpat_a" << id << ", %bpat_ga" << id
+ 		  << ";\n"
+-		  << ws << ".reg .b64 %bpat_a" << id << ";\n"
+ 		  << ws << ".reg .b" << bits << " %bpat_o" << id
+ 		  << ", %bpat_n" << id << ";\n"
+ 		  << ws << "add.u64 %bpat_a" << id << ", " << base << ", "
+ 		  << off << ";\n"
+ 		  << ws << "isspacep.local %bpat_l" << id << ", %bpat_a" << id
+ 		  << ";\n"
+-		  << ws << "@!%bpat_l" << id << " " << m[3].str() << mods << " "
++		  << ws << "isspacep.global %bpat_g" << id << ", %bpat_a" << id
++		  << ";\n"
++		  << ws << "or.pred %bpat_x" << id << ", %bpat_l" << id
++		  << ", %bpat_g" << id << ";\n"
++		  << ws << "@%bpat_g" << id << " cvta.to.global.u64 %bpat_ga"
++		  << id << ", %bpat_a" << id << ";\n"
++		  << ws << "@%bpat_g" << id << " " << m[3].str() << gmods << " "
++		  << ops_at("%bpat_ga" + id) << ";\n"
++		  << ws << "@!%bpat_x" << id << " " << m[3].str() << mods << " "
+ 		  << m[5].str() << ";\n"
+ 		  << ws << "@%bpat_l" << id << " ld.b" << bits << " %bpat_o"
+ 		  << id << ", [%bpat_a" << id << "];\n";
+@@ -290,9 +361,68 @@ std::string guard_generic_atomics(const std::string &fbody,
+ 	return out;
+ }
+ 
++bool sum_has_copy(const sum_map_desc &d)
++{
++	return d.base != 0 && d.shards >= 32 && !(d.shards & (d.shards - 1)) &&
++	       d.max_entries != 0 && d.value_size != 0;
++}
++
++// a constant-fd lookup of a sum map: the shard address of the key, as the
++// trampoline's sum_array_offset ((SM mod slots) x 32 + lane), or NULL
++std::string sum_lookup(const sum_map_desc &d, long long fd, int n,
++		       const std::string &key_ptr, const std::string &ret)
++{
++	std::ostringstream o;
++	const std::string N = std::to_string(n);
++	o << "{ // bpftime sum-map lookup, map " << fd << "\n";
++	if (!sum_has_copy(d)) {
++		// no device copy in this process: NULL, as the trampoline
++		o << "\tmov.b64 \t" << ret << ", 0;\n"
++		  << "} // bpftime sum-map lookup\n";
++		return o.str();
++	}
++	o << "\t.reg .pred \t%bpsm_p" << N << ";\n"
++	  << "\t.reg .b32 \t%bpsm_k" << N << ", %bpsm_s" << N << ", %bpsm_l"
++	  << N << ";\n"
++	  << "\t.reg .b64 \t%bpsm_a" << N << ", %bpsm_w" << N << ";\n"
++	  << "\tld.u32 \t%bpsm_k" << N << ", [" << key_ptr << "];\n"
++	  << "\tsetp.lt.u32 \t%bpsm_p" << N << ", %bpsm_k" << N << ", "
++	  << d.max_entries << ";\n"
++	  << "\tmov.u32 \t%bpsm_s" << N << ", %smid;\n"
++	  << "\tand.b32 \t%bpsm_s" << N << ", %bpsm_s" << N << ", "
++	  << ((d.shards >> 5) - 1) << ";\n"
++	  << "\tshl.b32 \t%bpsm_s" << N << ", %bpsm_s" << N << ", 5;\n"
++	  << "\tmov.u32 \t%bpsm_l" << N << ", %laneid;\n"
++	  << "\tor.b32 \t%bpsm_s" << N << ", %bpsm_s" << N << ", %bpsm_l"
++	  << N << ";\n";
++	if (d.max_entries * d.shards <= (1ull << 32)) {
++		// the index (key x shards + shard) fits in 32 bits
++		o << "\tmad.lo.u32 \t%bpsm_k" << N << ", %bpsm_k" << N << ", "
++		  << d.shards << ", %bpsm_s" << N << ";\n"
++		  << "\tmul.wide.u32 \t%bpsm_a" << N << ", %bpsm_k" << N
++		  << ", " << d.value_size << ";\n";
++	} else {
++		o << "\tmul.wide.u32 \t%bpsm_a" << N << ", %bpsm_k" << N << ", "
++		  << d.shards << ";\n"
++		  << "\tcvt.u64.u32 \t%bpsm_w" << N << ", %bpsm_s" << N
++		  << ";\n"
++		  << "\tadd.u64 \t%bpsm_a" << N << ", %bpsm_a" << N
++		  << ", %bpsm_w" << N << ";\n"
++		  << "\tmul.lo.u64 \t%bpsm_a" << N << ", %bpsm_a" << N << ", "
++		  << d.value_size << ";\n";
++	}
++	o << "\tadd.u64 \t%bpsm_a" << N << ", %bpsm_a" << N << ", " << d.base
++	  << ";\n"
++	  << "\tselp.b64 \t" << ret << ", %bpsm_a" << N << ", 0, %bpsm_p" << N
++	  << ";\n"
++	  << "} // bpftime sum-map lookup\n";
++	return o.str();
++}
++
+ std::string route_function_body(
+ 	const std::string &fbody, bool routed,
+ 	const std::map<long long, thread_local_map_desc> &maps,
++	const std::map<long long, sum_map_desc> &sums,
+ 	thread_local_routing_stats &st, const std::string &fname)
+ {
+ 	static const std::regex p1(
+@@ -305,6 +435,9 @@ std::string route_function_body(
+ 	std::string out;
+ 	size_t pos = 0;
+ 	int direct_seq = 0;
++	int sum_seq = 0;
++	// registers sum lookups define, with the number of such definitions
++	std::map<std::string, int> sum_defs;
+ 	for (;;) {
+ 		size_t b = fbody.find("{ // callseq ", pos);
+ 		if (b == std::string::npos)
+@@ -330,6 +463,19 @@ std::string route_function_body(
+ 		long long fd = -1;
+ 		bool is_const = constant_fd(fbody, block, &fd);
+ 		auto tl = is_const ? maps.find(fd) : maps.end();
++		auto sm = is_const ? sums.find(fd) : sums.end();
++		if (id == 1 && sm != sums.end()) {
++			std::smatch km, rm;
++			if (!std::regex_search(block, km, p1) ||
++			    !std::regex_search(block, rm, ret))
++				fail("unexpected lookup shape in " + fname);
++			out += sum_lookup(sm->second, fd, sum_seq++,
++					  trim(km[1]), rm[1].str());
++			if (sum_has_copy(sm->second))
++				sum_defs[rm[1].str()]++;
++			st.sum_lookups++;
++			continue;
++		}
+ 		if (routed && id == 1 && tl != maps.end()) {
+ 			std::smatch km, rm;
+ 			if (!std::regex_search(block, km, p1) ||
+@@ -378,7 +524,15 @@ std::string route_function_body(
+ 			st.helper_calls_given_zero++;
+ 	}
+ 	out.append(fbody, pos, std::string::npos);
+-	return guard_generic_atomics(out, fname, &st.guarded_atomics);
++	// a register every definition of which is such a lookup (llvmbpf
++	// joins the lookups of several branches into one register) holds a
++	// sum map's address wherever it is used
++	std::set<std::string> sum_ptrs;
++	for (const auto &[reg, n] : sum_defs)
++		if (count_defs(out, reg) == n)
++			sum_ptrs.insert(reg);
++	return guard_generic_atomics(out, fname, &st.guarded_atomics, sum_ptrs,
++				     &st.global_atomics);
+ }
+ } // namespace
+ 
+@@ -386,9 +540,13 @@ std::string route_thread_local_maps(const std::string &ptx_in,
+ 				    const std::vector<std::string> &kernels_in,
+ 				    const std::vector<thread_local_map_desc> &descs,
+ 				    uint64_t area_bytes,
+-				    thread_local_routing_stats *stats_out)
++				    thread_local_routing_stats *stats_out,
++				    const std::vector<sum_map_desc> &sum_descs)
+ {
+ 	thread_local_routing_stats st;
++	std::map<long long, sum_map_desc> sums;
++	for (auto &d : sum_descs)
++		sums[d.fd] = d;
+ 	if (area_bytes > THREAD_LOCAL_AREA_MAX)
+ 		fail("thread-local maps need " + std::to_string(area_bytes) +
+ 		     " bytes per thread, more than " +
+@@ -401,7 +559,10 @@ std::string route_thread_local_maps(const std::string &ptx_in,
+ 	std::set<std::string> kernels(kernels_in.begin(), kernels_in.end());
+ 
+ 	// 1. kernels: the area, its zeroing, the address at every probe call
++	// (only with a thread-local map)
+ 	std::set<std::string> routed_functions;
++	if (descs.empty())
++		kernels.clear();
+ 	for (const auto &k : kernels) {
+ 		auto [kb, ke] = ptxpass::find_kernel_body(ptx, k);
+ 		if (kb == std::string::npos)
+@@ -508,8 +669,8 @@ std::string route_thread_local_maps(const std::string &ptx_in,
+ 		bool routed = routed_functions.count(f.name) > 0;
+ 		std::string fbody = ptx.substr(f.body_open + 1,
+ 					       f.body_end - 1 - f.body_open - 1);
+-		std::string nbody =
+-			route_function_body(fbody, routed, maps, st, f.name);
++		std::string nbody = route_function_body(fbody, routed, maps,
++							sums, st, f.name);
+ 		std::string params = trim(ptx.substr(
+ 			f.params_open + 1, f.params_close - f.params_open - 1));
+ 		std::string head;
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.hpp b/attach/nv_attach_impl/nv_thread_local_routing.hpp
+index 8c96f789..45918a45 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.hpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.hpp
+@@ -34,6 +34,27 @@ struct thread_local_map_desc {
+ 	uint64_t max_entries;
+ };
+ 
++// Sum maps (1531): a lookup with a constant map fd, in any probe function,
++// becomes the calling thread's shard address of the key (as the
++// trampoline's sum_array_offset computes it), with the map's geometry and
++// device copy as constants: base 0 (no device copy in this process) makes
++// every such lookup NULL. A generic atomic whose address register only such
++// a lookup defines is emitted on the global state space (cvta.to.global,
++// atom/red .global): the copy is device memory from cuMemAlloc ("Allocates
++// device memory"), which the CUDA programming guide calls global memory, and
++// a generic address outside the const, local and shared windows maps to
++// global memory (PTX ISA 6.4.1.1). ptxas then emits RED for an add whose
++// old value is unused, where the generic atom became an ATOM.E whose
++// returned predicate the thread waited for (results
++// gpu/probe-cost-20261117, section 7).
++struct sum_map_desc {
++	int fd;
++	uint64_t base; // device copy, 0 if none
++	uint64_t value_size;
++	uint64_t max_entries;
++	uint64_t shards; // (SM slots, a power of two) x 32 lanes
++};
++
+ struct thread_local_routing_stats {
+ 	int kernels = 0;
+ 	int call_sites = 0;
+@@ -43,15 +64,20 @@ struct thread_local_routing_stats {
+ 	int helper_calls_given_area = 0;
+ 	int helper_calls_given_zero = 0;
+ 	int guarded_atomics = 0;
++	int sum_lookups = 0;	   // constant-fd 1531 lookups made inline
++	int global_atomics = 0;	   // atomics on such a lookup's address
+ };
+ 
+ // Throws std::runtime_error when the PTX does not have the expected shape;
+-// the caller then loads the original image.
++// the caller then loads the original image. With no thread-local map the
++// kernels are left as they are (no area) and every probe function counts
++// as not routed.
+ std::string route_thread_local_maps(const std::string &ptx,
+ 				    const std::vector<std::string> &kernels,
+ 				    const std::vector<thread_local_map_desc> &maps,
+ 				    uint64_t area_bytes,
+-				    thread_local_routing_stats *stats);
++				    thread_local_routing_stats *stats,
++				    const std::vector<sum_map_desc> &sum_maps = {});
+ } // namespace attach
+ } // namespace bpftime
+ #endif
+diff --git a/attach/nv_attach_impl/test/CMakeLists.txt b/attach/nv_attach_impl/test/CMakeLists.txt
+index a63e9353..a71b27e4 100644
+--- a/attach/nv_attach_impl/test/CMakeLists.txt
++++ b/attach/nv_attach_impl/test/CMakeLists.txt
+@@ -6,6 +6,7 @@ set(TEST_SOURCES
+     test_load_substitution.cpp
+     test_late_path.cpp
+     test_robustness.cpp
++    test_sum_map_routing.cpp
+     # test_kernel_finder.cpp
+ )
+ add_executable(bpftime_nv_attach_tests ${TEST_SOURCES})
+diff --git a/attach/nv_attach_impl/test/test_sum_map_routing.cpp b/attach/nv_attach_impl/test/test_sum_map_routing.cpp
+new file mode 100644
+index 00000000..218b6e2a
+--- /dev/null
++++ b/attach/nv_attach_impl/test/test_sum_map_routing.cpp
+@@ -0,0 +1,219 @@
++#include "catch2/catch_test_macros.hpp"
++#include "nv_thread_local_routing.hpp"
++#include <string>
++
++using namespace bpftime::attach;
++
++// Sum maps (1531) in the routing pass: a constant-fd lookup becomes the
++// shard address inline, and an atomic on that address takes the global
++// state space (results gpu/probe-cost-20261117, section 7). Atomics whose
++// address the pass cannot attribute keep the generic form behind
++// isspacep tests, now with a global branch.
++namespace
++{
++const char *K = "kern";
++
++// a probe function as llvmbpf emits it: the lookup of map `fd_arg` (an
++// immediate or a register) and an add of 1 at the result, null-checked
++std::string probe(const std::string &fd_def, const std::string &fd_arg,
++		  const std::string &extra = "",
++		  const std::string &atom = "atom.add.u64 \t%rd56, [%rd55], 1;")
++{
++	return std::string(".version 8.1\n.target sm_87\n.address_size 64\n"
++			   ".visible .func __retprobe_func__kern()\n{\n"
++			   "\t.reg .pred \t%p<20>;\n\t.reg .b64 \t%rd<80>;\n") +
++	       fd_def + "\tadd.s64 \t%rd51, %rd2, -8;\n" +
++	       "\t{ // callseq 20, 0\n"
++	       "\t.reg .b32 temp_param_reg;\n"
++	       "\t.param .b64 param0;\n"
++	       "\tst.param.b64 \t[param0+0], " +
++	       fd_arg +
++	       ";\n"
++	       "\t.param .b64 param1;\n"
++	       "\tst.param.b64 \t[param1+0], %rd51;\n"
++	       "\t.param .b64 param2;\n"
++	       "\tst.param.b64 \t[param2+0], %rd57;\n"
++	       "\t.param .b64 param3;\n"
++	       "\tst.param.b64 \t[param3+0], %rd11;\n"
++	       "\t.param .b64 param4;\n"
++	       "\tst.param.b64 \t[param4+0], %rd12;\n"
++	       "\t.param .b64 retval0;\n"
++	       "\tcall.uni (retval0), \n\t_bpf_helper_ext_0001, \n\t(\n"
++	       "\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n"
++	       "\tld.param.b64 \t%rd55, [retval0+0];\n"
++	       "\t} // callseq 20\n" +
++	       extra +
++	       "\tsetp.eq.s64 \t%p10, %rd55, 0;\n"
++	       "\t@%p10 bra \t$L__BB0_5;\n\t" +
++	       atom + "\n$L__BB0_5:\n\tret;\n\n}\n";
++}
++
++sum_map_desc sum14(uint64_t base = 0x203400000ull, uint64_t entries = 260,
++		   uint64_t shards = 256)
++{
++	sum_map_desc d;
++	d.fd = 14;
++	d.base = base;
++	d.value_size = 8;
++	d.max_entries = entries;
++	d.shards = shards;
++	return d;
++}
++
++bool has(const std::string &s, const std::string &x)
++{
++	return s.find(x) != std::string::npos;
++}
++
++std::string route(const std::string &ptx, const std::vector<sum_map_desc> &s,
++		  thread_local_routing_stats &st)
++{
++	return route_thread_local_maps(ptx, { K }, {}, 0, &st, s);
++}
++} // namespace
++
++TEST_CASE("A constant-fd sum-map lookup becomes the shard address, its add a global atomic",
++	  "[sum-map-routing]")
++{
++	thread_local_routing_stats st;
++	auto out = route(probe("\tmov.u64 \t%rd52, 14;\n", "%rd52"), { sum14() },
++			 st);
++	REQUIRE(st.sum_lookups == 1);
++	REQUIRE(st.global_atomics == 1);
++	REQUIRE(st.guarded_atomics == 0);
++	REQUIRE_FALSE(has(out, "_bpf_helper_ext_0001"));
++	REQUIRE(has(out, "ld.u32 \t%bpsm_k0, [%rd51];"));
++	REQUIRE(has(out, "setp.lt.u32 \t%bpsm_p0, %bpsm_k0, 260;"));
++	REQUIRE(has(out, "mov.u32 \t%bpsm_s0, %smid;"));
++	REQUIRE(has(out, "and.b32 \t%bpsm_s0, %bpsm_s0, 7;"));
++	REQUIRE(has(out, "mov.u32 \t%bpsm_l0, %laneid;"));
++	REQUIRE(has(out, "mad.lo.u32 \t%bpsm_k0, %bpsm_k0, 256, %bpsm_s0;"));
++	REQUIRE(has(out, "mul.wide.u32 \t%bpsm_a0, %bpsm_k0, 8;"));
++	REQUIRE(has(out, "add.u64 \t%bpsm_a0, %bpsm_a0, " +
++				 std::to_string(0x203400000ull) + ";"));
++	REQUIRE(has(out, "selp.b64 \t%rd55, %bpsm_a0, 0, %bpsm_p0;"));
++	REQUIRE(has(out, "cvta.to.global.u64 %bpag_a0, %rd55;"));
++	REQUIRE(has(out, "atom.global.add.u64 %rd56, [%bpag_a0+0], 1;"));
++	REQUIRE_FALSE(has(out, "isspacep"));
++	// the program's null check stays
++	REQUIRE(has(out, "setp.eq.s64 \t%p10, %rd55, 0;"));
++}
++
++TEST_CASE("An immediate map fd, offsets and reductions keep their form on the global address",
++	  "[sum-map-routing]")
++{
++	thread_local_routing_stats st;
++	auto out = route(probe("", "14", "",
++			       "red.add.u64 \t[%rd55+8], %rd9;"),
++			 { sum14() }, st);
++	REQUIRE(st.sum_lookups == 1);
++	REQUIRE(st.global_atomics == 1);
++	REQUIRE(has(out, "red.global.add.u64 [%bpag_a0+8], %rd9;"));
++	REQUIRE_FALSE(has(out, "isspacep"));
++}
++
++TEST_CASE("A sum map without a device copy gives NULL lookups",
++	  "[sum-map-routing]")
++{
++	thread_local_routing_stats st;
++	auto out = route(probe("\tmov.u64 \t%rd52, 14;\n", "%rd52"),
++			 { sum14(0) }, st);
++	REQUIRE(st.sum_lookups == 1);
++	REQUIRE(st.global_atomics == 0);
++	REQUIRE(has(out, "mov.b64 \t%rd55, 0;"));
++	REQUIRE_FALSE(has(out, "_bpf_helper_ext_0001"));
++	REQUIRE_FALSE(has(out, "%smid"));
++	// the (never reached) add keeps the guarded generic form
++	REQUIRE(st.guarded_atomics == 1);
++	REQUIRE(has(out, "isspacep.local"));
++}
++
++TEST_CASE("A large sum map's index is computed in 64 bits",
++	  "[sum-map-routing]")
++{
++	thread_local_routing_stats st;
++	// 2^25 entries x 256 shards: the index passes 2^32
++	auto out = route(probe("", "14"), { sum14(0x203400000ull, 1ull << 25) },
++			 st);
++	REQUIRE(st.sum_lookups == 1);
++	REQUIRE_FALSE(has(out, "mad.lo.u32"));
++	REQUIRE(has(out, "mul.wide.u32 \t%bpsm_a0, %bpsm_k0, 256;"));
++	REQUIRE(has(out, "cvt.u64.u32 \t%bpsm_w0, %bpsm_s0;"));
++	REQUIRE(has(out, "mul.lo.u64 \t%bpsm_a0, %bpsm_a0, 8;"));
++	// at exactly 2^32 it still fits
++	thread_local_routing_stats st2;
++	auto out2 = route(probe("", "14"), { sum14(0x203400000ull, 1ull << 24) },
++			  st2);
++	REQUIRE(has(out2, "mad.lo.u32"));
++}
++
++TEST_CASE("A sum-map address register written elsewhere keeps the guarded atomic",
++	  "[sum-map-routing]")
++{
++	thread_local_routing_stats st;
++	// %rd55 also comes from somewhere else (a join llvmbpf did not make
++	// here, but the pass must not assume the lookup is its only source)
++	auto out = route(probe("", "14", "\tmov.b64 \t%rd55, %rd9;\n"),
++			 { sum14() }, st);
++	REQUIRE(st.sum_lookups == 1);
++	REQUIRE(st.global_atomics == 0);
++	REQUIRE(st.guarded_atomics == 1);
++	REQUIRE(has(out, "isspacep.local"));
++}
++
++TEST_CASE("Sum-map lookups joined into one register keep the global atomic",
++	  "[sum-map-routing]")
++{
++	thread_local_routing_stats st;
++	// a second lookup (another key, another branch) writes the same
++	// register, as llvmbpf emits for count(k) called on several paths
++	std::string second =
++		"\t{ // callseq 21, 0\n"
++		"\t.reg .b32 temp_param_reg;\n"
++		"\t.param .b64 param0;\n"
++		"\tst.param.b64 \t[param0+0], 14;\n"
++		"\t.param .b64 param1;\n"
++		"\tst.param.b64 \t[param1+0], %rd60;\n"
++		"\t.param .b64 param4;\n"
++		"\tst.param.b64 \t[param4+0], %rd12;\n"
++		"\t.param .b64 retval0;\n"
++		"\tcall.uni (retval0), \n\t_bpf_helper_ext_0001, \n\t(\n"
++		"\tparam0, \n\tparam1, \n\tparam4\n\t);\n"
++		"\tld.param.b64 \t%rd55, [retval0+0];\n"
++		"\t} // callseq 21\n";
++	auto out = route(probe("", "14", second), { sum14() }, st);
++	REQUIRE(st.sum_lookups == 2);
++	REQUIRE(st.global_atomics == 1);
++	REQUIRE(st.guarded_atomics == 0);
++	REQUIRE(has(out, "selp.b64 \t%rd55, %bpsm_a1, 0, %bpsm_p1;"));
++	// one of them from a map without a device copy: no longer only
++	// sum-map addresses
++	thread_local_routing_stats st2;
++	sum_map_desc other = sum14(0);
++	other.fd = 16;
++	std::string third = second;
++	third.replace(third.find("[param0+0], 14;"), 15, "[param0+0], 16;");
++	auto out2 = route(probe("", "14", third), { sum14(), other }, st2);
++	REQUIRE(st2.sum_lookups == 2);
++	REQUIRE(st2.global_atomics == 0);
++	REQUIRE(st2.guarded_atomics == 1);
++}
++
++TEST_CASE("Atomics of unknown origin get a global branch before the generic form",
++	  "[sum-map-routing]")
++{
++	thread_local_routing_stats st;
++	// fd 15 is not a sum map: the trampoline answers the lookup
++	auto out = route(probe("", "15"), { sum14() }, st);
++	REQUIRE(st.sum_lookups == 0);
++	REQUIRE(has(out, "_bpf_helper_ext_0001"));
++	REQUIRE(st.guarded_atomics == 1);
++	REQUIRE(has(out, "isspacep.local %bpat_l0, %bpat_a0;"));
++	REQUIRE(has(out, "isspacep.global %bpat_g0, %bpat_a0;"));
++	REQUIRE(has(out, "or.pred %bpat_x0, %bpat_l0, %bpat_g0;"));
++	REQUIRE(has(out, "@%bpat_g0 cvta.to.global.u64 %bpat_ga0, %bpat_a0;"));
++	REQUIRE(has(out, "@%bpat_g0 atom.global.add.u64 %rd56, [%bpat_ga0], 1;"));
++	REQUIRE(has(out, "@!%bpat_x0 atom.add.u64 %rd56, [%rd55], 1;"));
++	REQUIRE(has(out, "@%bpat_l0 ld.b64 %bpat_o0, [%bpat_a0];"));
++	REQUIRE(has(out, "@%bpat_l0 mov.b64 %rd56, %bpat_o0;"));
++}
+diff --git a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
+index 51742876..3662cedf 100644
+--- a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
++++ b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
+@@ -136,7 +136,11 @@ int nv_gpu_device_array_map_impl::map_get_next_key(const void *key,
+ namespace
+ {
+ // dst[e * W + w] = sum over s < S of src[(e * S + s) * W + w], read with
+-// ld.relaxed.gpu (generic addressing, as the programs' atom.add.u64).
++// ld.relaxed.gpu.global on the cvta.to.global address, the form of the
++// programs' adds into the copy (atom/red .global, nv_thread_local_routing):
++// the same address in the same state space, so the load and the adds are
++// morally strong (PTX ISA 8.7; generic adds are too, 8.7 has no state-space
++// condition).
+ const char *snapshot_ptx = R"PTX(
+ .version 7.0
+ .target sm_70
+@@ -176,7 +180,8 @@ $L_shard:
+ 	mad.lo.u64 %rd14, %rd14, %rd4, %rd10;
+ 	shl.b64 %rd14, %rd14, 3;
+ 	add.u64 %rd14, %rd1, %rd14;
+-	ld.relaxed.gpu.u64 %rd15, [%rd14];
++	cvta.to.global.u64 %rd17, %rd14;
++	ld.relaxed.gpu.global.u64 %rd15, [%rd17];
+ 	add.u64 %rd12, %rd12, %rd15;
+ 	add.u64 %rd13, %rd13, 1;
+ 	bra.uni $L_shard;
+-- 
+2.43.0
+

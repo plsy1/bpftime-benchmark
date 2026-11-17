@@ -1,0 +1,448 @@
+From 00f12354cf295a6dc3728872b114ba62840440cc Mon Sep 17 00:00:00 2001
+From: jetson <jetson@orin-nano.tail52323b.ts.net>
+Date: Wed, 18 Nov 2026 06:58:45 +0900
+Subject: [PATCH 2/4] nv_attach: sum-map routing fixes after review
+ (fail-closed definitions, no-copy maps, 64-bit adds)
+
+- Register definitions are counted per statement and fail closed: any
+  register in an instruction's destination position (a {..} vector, a call's
+  (..) return, a p|q pair, after a label or a spaced guard, several
+  statements on a line) counts, stores, reductions and branches excepted.
+  The line-based test missed those forms, so a register also written there
+  could be taken for a sum map's address and its atomic made .global.
+- A constant map fd is a register written by one statement, a mov of an
+  integer (the opcode list let neg, not, rem, vector loads through).
+- A sum map without a device copy keeps the trampoline's lookup: a copy made
+  later is found through the run-time map_info, where a cached patched image
+  would have kept an inlined NULL.
+- Only 64-bit adds take the global fast path (the map's documented use);
+  the address offset is added before cvta.to.global.
+- Tests: whole-block order of the lookup and the add, the missed definition
+  forms, non-constant fds, 32-bit and non-add atomics, kernels left alone and
+  helpers given 0 without a thread-local map, routed with one.
+pt_victim's five tools exact.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../nv_thread_local_routing.cpp               | 128 +++++++++------
+ .../nv_thread_local_routing.hpp               |   8 +-
+ .../test/test_sum_map_routing.cpp             | 149 +++++++++++++++---
+ runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp |   3 +-
+ 4 files changed, 215 insertions(+), 73 deletions(-)
+
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.cpp b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+index b75ab407..f441a15a 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.cpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+@@ -116,24 +116,68 @@ bool parse_int(const std::string &s, long long *v)
+ 	return true;
+ }
+ 
+-// lines whose first operand is reg: its definitions (an instruction's
+-// destination is its first operand; stores, reductions and branches have
+-// none that is a register)
++// The statements of a function body: comments removed, split on ';',
++// leading braces, labels and a guard predicate stripped.
++std::vector<std::string> statements(const std::string &body)
++{
++	static const std::regex comment(R"(//[^\n]*)");
++	static const std::regex lead(
++		R"(^(?:\s|[{}]|[$A-Za-z_][\w$]*\s*:(?!:)|@\s*!?\s*%[\w$]+)+)");
++	std::string text = std::regex_replace(body, comment, "");
++	std::vector<std::string> out;
++	size_t start = 0;
++	for (;;) {
++		size_t semi = text.find(';', start);
++		std::string st = text.substr(
++			start, semi == std::string::npos ? std::string::npos :
++							   semi - start);
++		st = std::regex_replace(st, lead, "");
++		out.push_back(trim(st));
++		if (semi == std::string::npos)
++			break;
++		start = semi + 1;
++	}
++	return out;
++}
++
++// How many statements may write reg. Fail-closed: a statement counts when
++// reg appears in its destination position, everything before the first
++// operand comma outside [], {} and () (a plain register, a {..} vector, a
++// p|q pair, call's (..) return list), except instructions that write no
++// register (stores, reductions, branches). An unknown form counts, so a
++// register is never taken for written once when it may not be.
+ int count_defs(const std::string &body, const std::string &reg)
+ {
+-	static const std::regex first(
+-		R"(^\s*(?:@!?%[\w$]+\s+)?([a-z][\w.:]*)\s+(%[\w$]+)\s*[,;])");
+-	std::istringstream in(body);
+-	std::string line;
++	const std::regex word("(^|[^\\w$%])" +
++			      std::regex_replace(reg, std::regex(R"([$%.])"),
++						 R"(\$&)") +
++			      "($|[^\\w$])");
+ 	int n = 0;
+-	while (std::getline(in, line)) {
+-		std::smatch m;
+-		if (!std::regex_search(line, m, first))
+-			continue;
+-		const std::string op = m[1];
+-		if (op.rfind("st.", 0) == 0 || op.rfind("red", 0) == 0)
++	for (const auto &st : statements(body)) {
++		if (st.empty() || st[0] == '.')
++			continue; // empty, or a directive (.reg, .param, ...)
++		size_t sp = st.find_first_of(" \t\n");
++		std::string op = st.substr(0, sp);
++		if (op.rfind("st.", 0) == 0 || op == "st" ||
++		    op.rfind("red.", 0) == 0 || op == "red" ||
++		    op.rfind("bra", 0) == 0 || op == "ret" || op == "exit" ||
++		    op == "trap")
+ 			continue;
+-		if (m[2] == reg)
++		std::string rest = sp == std::string::npos ? "" : st.substr(sp);
++		int depth = 0;
++		size_t end = rest.size();
++		for (size_t i = 0; i < rest.size(); i++) {
++			char c = rest[i];
++			if (c == '[' || c == '{' || c == '(')
++				depth++;
++			else if (c == ']' || c == '}' || c == ')')
++				depth--;
++			else if (c == ',' && depth == 0) {
++				end = i;
++				break;
++			}
++		}
++		if (std::regex_search(rest.substr(0, end), word))
+ 			n++;
+ 	}
+ 	return n;
+@@ -164,28 +208,17 @@ bool constant_fd(const std::string &fbody, const std::string &block,
+ 		return true;
+ 	if (arg.empty() || arg[0] != '%')
+ 		return false;
+-	// a register set exactly once, to a constant, in the function
+-	std::regex def(R"(mov\.[ub]64\s+)" + std::regex_replace(
++	// a register written by one statement only, a mov of an integer
++	if (count_defs(fbody, arg) != 1)
++		return false;
++	std::regex def(R"(mov\.[ubs]64\s+)" + std::regex_replace(
+ 						   arg, std::regex(R"([$%.])"),
+ 						   R"(\$&)") +
+-		       R"(,\s*(-?\d+)\s*;)");
+-	std::regex any_def(R"((?:mov|ld|add|sub|cvt|selp|mul|and|or|shl|shr)\S*\s+)" +
+-			   std::regex_replace(arg, std::regex(R"([$%.])"),
+-					      R"(\$&)") +
+-			   R"(\s*,)");
+-	auto b = std::sregex_iterator(fbody.begin(), fbody.end(), def);
+-	auto e = std::sregex_iterator();
+-	int defs = 0;
+-	long long val = 0;
+-	for (auto it = b; it != e; ++it) {
+-		defs++;
+-		val = std::stoll((*it)[1]);
+-	}
+-	int all = std::distance(std::sregex_iterator(fbody.begin(),
+-						     fbody.end(), any_def),
+-				e);
+-	if (defs != 1 || all != 1)
++		       R"(\s*,\s*(-?\d+)\s*;)");
++	std::smatch dm;
++	if (!std::regex_search(fbody, dm, def))
+ 		return false;
++	long long val = std::stoll(dm[1]);
+ 	*fd = val;
+ 	return true;
+ }
+@@ -284,16 +317,18 @@ std::string guard_generic_atomics(const std::string &fbody,
+ 			return r;
+ 		};
+ 		const std::string gmods = with_space(mods, op, ".global");
+-		if (global_regs.count(base)) {
++		if (global_regs.count(base) && op == "add" && bits == "64") {
+ 			// a sum map's value: global memory (see the header)
+ 			const std::string id = std::to_string((*global_count)++);
+ 			std::ostringstream o;
+ 			o << ws << "{ // bpftime: atomic on a sum map's value\n"
+ 			  << ws << ".reg .b64 %bpag_a" << id << ";\n"
+-			  << ws << "cvta.to.global.u64 %bpag_a" << id << ", "
+-			  << base << ";\n"
++			  << ws << "add.u64 %bpag_a" << id << ", " << base << ", "
++			  << off << ";\n"
++			  << ws << "cvta.to.global.u64 %bpag_a" << id
++			  << ", %bpag_a" << id << ";\n"
+ 			  << ws << m[3].str() << gmods << " "
+-			  << ops_at("%bpag_a" + id + "+" + off) << ";\n"
++			  << ops_at("%bpag_a" + id) << ";\n"
+ 			  << ws << "}" << m[6].str();
+ 			out += o.str();
+ 			continue;
+@@ -367,20 +402,15 @@ bool sum_has_copy(const sum_map_desc &d)
+ 	       d.max_entries != 0 && d.value_size != 0;
+ }
+ 
+-// a constant-fd lookup of a sum map: the shard address of the key, as the
+-// trampoline's sum_array_offset ((SM mod slots) x 32 + lane), or NULL
++// a constant-fd lookup of a sum map with a device copy: the shard address
++// of the key, as the trampoline's sum_array_offset ((SM mod slots) x 32 +
++// lane), or NULL for a key out of range
+ std::string sum_lookup(const sum_map_desc &d, long long fd, int n,
+ 		       const std::string &key_ptr, const std::string &ret)
+ {
+ 	std::ostringstream o;
+ 	const std::string N = std::to_string(n);
+ 	o << "{ // bpftime sum-map lookup, map " << fd << "\n";
+-	if (!sum_has_copy(d)) {
+-		// no device copy in this process: NULL, as the trampoline
+-		o << "\tmov.b64 \t" << ret << ", 0;\n"
+-		  << "} // bpftime sum-map lookup\n";
+-		return o.str();
+-	}
+ 	o << "\t.reg .pred \t%bpsm_p" << N << ";\n"
+ 	  << "\t.reg .b32 \t%bpsm_k" << N << ", %bpsm_s" << N << ", %bpsm_l"
+ 	  << N << ";\n"
+@@ -464,15 +494,17 @@ std::string route_function_body(
+ 		bool is_const = constant_fd(fbody, block, &fd);
+ 		auto tl = is_const ? maps.find(fd) : maps.end();
+ 		auto sm = is_const ? sums.find(fd) : sums.end();
+-		if (id == 1 && sm != sums.end()) {
++		// with a device copy only: without one the trampoline answers
++		// from the run-time map_info (a copy made later, after a cached
++		// image was patched, is then still found)
++		if (id == 1 && sm != sums.end() && sum_has_copy(sm->second)) {
+ 			std::smatch km, rm;
+ 			if (!std::regex_search(block, km, p1) ||
+ 			    !std::regex_search(block, rm, ret))
+ 				fail("unexpected lookup shape in " + fname);
+ 			out += sum_lookup(sm->second, fd, sum_seq++,
+ 					  trim(km[1]), rm[1].str());
+-			if (sum_has_copy(sm->second))
+-				sum_defs[rm[1].str()]++;
++			sum_defs[rm[1].str()]++;
+ 			st.sum_lookups++;
+ 			continue;
+ 		}
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.hpp b/attach/nv_attach_impl/nv_thread_local_routing.hpp
+index 45918a45..559a5072 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.hpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.hpp
+@@ -37,10 +37,10 @@ struct thread_local_map_desc {
+ // Sum maps (1531): a lookup with a constant map fd, in any probe function,
+ // becomes the calling thread's shard address of the key (as the
+ // trampoline's sum_array_offset computes it), with the map's geometry and
+-// device copy as constants: base 0 (no device copy in this process) makes
+-// every such lookup NULL. A generic atomic whose address register only such
+-// a lookup defines is emitted on the global state space (cvta.to.global,
+-// atom/red .global): the copy is device memory from cuMemAlloc ("Allocates
++// device copy as constants (a map without a device copy in this process
++// keeps the trampoline's lookup). A 64-bit generic add whose address
++// register only such lookups define is emitted on the global state space
++// (cvta.to.global, atom/red .global): the copy is device memory from cuMemAlloc ("Allocates
+ // device memory"), which the CUDA programming guide calls global memory, and
+ // a generic address outside the const, local and shared windows maps to
+ // global memory (PTX ISA 6.4.1.1). ptxas then emits RED for an add whose
+diff --git a/attach/nv_attach_impl/test/test_sum_map_routing.cpp b/attach/nv_attach_impl/test/test_sum_map_routing.cpp
+index 218b6e2a..9c603aec 100644
+--- a/attach/nv_attach_impl/test/test_sum_map_routing.cpp
++++ b/attach/nv_attach_impl/test/test_sum_map_routing.cpp
+@@ -82,18 +82,35 @@ TEST_CASE("A constant-fd sum-map lookup becomes the shard address, its add a glo
+ 	REQUIRE(st.global_atomics == 1);
+ 	REQUIRE(st.guarded_atomics == 0);
+ 	REQUIRE_FALSE(has(out, "_bpf_helper_ext_0001"));
+-	REQUIRE(has(out, "ld.u32 \t%bpsm_k0, [%rd51];"));
+-	REQUIRE(has(out, "setp.lt.u32 \t%bpsm_p0, %bpsm_k0, 260;"));
+-	REQUIRE(has(out, "mov.u32 \t%bpsm_s0, %smid;"));
+-	REQUIRE(has(out, "and.b32 \t%bpsm_s0, %bpsm_s0, 7;"));
+-	REQUIRE(has(out, "mov.u32 \t%bpsm_l0, %laneid;"));
+-	REQUIRE(has(out, "mad.lo.u32 \t%bpsm_k0, %bpsm_k0, 256, %bpsm_s0;"));
+-	REQUIRE(has(out, "mul.wide.u32 \t%bpsm_a0, %bpsm_k0, 8;"));
+-	REQUIRE(has(out, "add.u64 \t%bpsm_a0, %bpsm_a0, " +
+-				 std::to_string(0x203400000ull) + ";"));
+-	REQUIRE(has(out, "selp.b64 \t%rd55, %bpsm_a0, 0, %bpsm_p0;"));
+-	REQUIRE(has(out, "cvta.to.global.u64 %bpag_a0, %rd55;"));
+-	REQUIRE(has(out, "atom.global.add.u64 %rd56, [%bpag_a0+0], 1;"));
++	// the whole lookup, in order: key, bound, shard, index, address
++	const std::string lookup =
++		"{ // bpftime sum-map lookup, map 14\n"
++		"\t.reg .pred \t%bpsm_p0;\n"
++		"\t.reg .b32 \t%bpsm_k0, %bpsm_s0, %bpsm_l0;\n"
++		"\t.reg .b64 \t%bpsm_a0, %bpsm_w0;\n"
++		"\tld.u32 \t%bpsm_k0, [%rd51];\n"
++		"\tsetp.lt.u32 \t%bpsm_p0, %bpsm_k0, 260;\n"
++		"\tmov.u32 \t%bpsm_s0, %smid;\n"
++		"\tand.b32 \t%bpsm_s0, %bpsm_s0, 7;\n"
++		"\tshl.b32 \t%bpsm_s0, %bpsm_s0, 5;\n"
++		"\tmov.u32 \t%bpsm_l0, %laneid;\n"
++		"\tor.b32 \t%bpsm_s0, %bpsm_s0, %bpsm_l0;\n"
++		"\tmad.lo.u32 \t%bpsm_k0, %bpsm_k0, 256, %bpsm_s0;\n"
++		"\tmul.wide.u32 \t%bpsm_a0, %bpsm_k0, 8;\n"
++		"\tadd.u64 \t%bpsm_a0, %bpsm_a0, " +
++		std::to_string(0x203400000ull) +
++		";\n"
++		"\tselp.b64 \t%rd55, %bpsm_a0, 0, %bpsm_p0;\n"
++		"} // bpftime sum-map lookup\n";
++	REQUIRE(has(out, lookup));
++	const std::string add = "{ // bpftime: atomic on a sum map's value\n"
++				"\t.reg .b64 %bpag_a0;\n"
++				"\tadd.u64 %bpag_a0, %rd55, 0;\n"
++				"\tcvta.to.global.u64 %bpag_a0, %bpag_a0;\n"
++				"\tatom.global.add.u64 %rd56, [%bpag_a0], 1;\n"
++				"\t}";
++	REQUIRE(has(out, add));
++	REQUIRE(out.find(lookup) < out.find(add));
+ 	REQUIRE_FALSE(has(out, "isspacep"));
+ 	// the program's null check stays
+ 	REQUIRE(has(out, "setp.eq.s64 \t%p10, %rd55, 0;"));
+@@ -108,22 +125,25 @@ TEST_CASE("An immediate map fd, offsets and reductions keep their form on the gl
+ 			 { sum14() }, st);
+ 	REQUIRE(st.sum_lookups == 1);
+ 	REQUIRE(st.global_atomics == 1);
+-	REQUIRE(has(out, "red.global.add.u64 [%bpag_a0+8], %rd9;"));
++	REQUIRE(has(out, "add.u64 %bpag_a0, %rd55, 8;\n"
++			 "\tcvta.to.global.u64 %bpag_a0, %bpag_a0;\n"
++			 "\tred.global.add.u64 [%bpag_a0], %rd9;"));
+ 	REQUIRE_FALSE(has(out, "isspacep"));
+ }
+ 
+-TEST_CASE("A sum map without a device copy gives NULL lookups",
++TEST_CASE("A sum map without a device copy keeps the trampoline's lookup",
+ 	  "[sum-map-routing]")
+ {
++	// a copy made later (after an owner exits) is then still found: the
++	// trampoline reads the run-time map_info, a cached patched image would
++	// keep an inlined NULL
+ 	thread_local_routing_stats st;
+ 	auto out = route(probe("\tmov.u64 \t%rd52, 14;\n", "%rd52"),
+ 			 { sum14(0) }, st);
+-	REQUIRE(st.sum_lookups == 1);
++	REQUIRE(st.sum_lookups == 0);
+ 	REQUIRE(st.global_atomics == 0);
+-	REQUIRE(has(out, "mov.b64 \t%rd55, 0;"));
+-	REQUIRE_FALSE(has(out, "_bpf_helper_ext_0001"));
++	REQUIRE(has(out, "_bpf_helper_ext_0001"));
+ 	REQUIRE_FALSE(has(out, "%smid"));
+-	// the (never reached) add keeps the guarded generic form
+ 	REQUIRE(st.guarded_atomics == 1);
+ 	REQUIRE(has(out, "isspacep.local"));
+ }
+@@ -194,7 +214,7 @@ TEST_CASE("Sum-map lookups joined into one register keep the global atomic",
+ 	std::string third = second;
+ 	third.replace(third.find("[param0+0], 14;"), 15, "[param0+0], 16;");
+ 	auto out2 = route(probe("", "14", third), { sum14(), other }, st2);
+-	REQUIRE(st2.sum_lookups == 2);
++	REQUIRE(st2.sum_lookups == 1);
+ 	REQUIRE(st2.global_atomics == 0);
+ 	REQUIRE(st2.guarded_atomics == 1);
+ }
+@@ -217,3 +237,94 @@ TEST_CASE("Atomics of unknown origin get a global branch before the generic form
+ 	REQUIRE(has(out, "@%bpat_l0 ld.b64 %bpat_o0, [%bpat_a0];"));
+ 	REQUIRE(has(out, "@%bpat_l0 mov.b64 %rd56, %bpat_o0;"));
+ }
++
++TEST_CASE("Any other write of the lookup register keeps the guarded atomic",
++	  "[sum-map-routing]")
++{
++	// forms a line-based definition test missed (review of 026f490f)
++	const char *other[] = {
++		"\tld.local.v2.u64 \t{%rd55, %rd70}, [%rd1+16];\n",
++		"\tcall.uni (%rd55), f, (%rd9);\n",
++		"\tmov.u64 \t%rd1, 0; mov.u64 \t%rd55, %rd9;\n",
++		"$L__BB0_6: add.u64 \t%rd55, %SP, 8;\n",
++		"\t@ %p1 add.u64 \t%rd55, %SP, 8;\n",
++		"\t@!%p1 cvt.u64.u32 \t%rd55, %r9;\n",
++		"\tsetp.ne.s64 \t%p3|%p4, %rd9, %rd55;\n", // a read: still fine
++	};
++	for (size_t i = 0; i < sizeof(other) / sizeof(other[0]); i++) {
++		thread_local_routing_stats st;
++		auto out = route(probe("", "14", other[i]), { sum14() }, st);
++		INFO(other[i]);
++		REQUIRE(st.sum_lookups == 1);
++		if (i + 1 == sizeof(other) / sizeof(other[0])) {
++			REQUIRE(st.global_atomics == 1);
++		} else {
++			REQUIRE(st.global_atomics == 0);
++			REQUIRE(st.guarded_atomics == 1);
++		}
++	}
++}
++
++TEST_CASE("A map fd register written twice is not a constant fd",
++	  "[sum-map-routing]")
++{
++	for (const char *second : { "\tneg.s64 \t%rd52, %rd9;\n",
++				    "\tnot.b64 \t%rd52, %rd9;\n",
++				    "\trem.u64 \t%rd52, %rd9, 16;\n",
++				    "\tld.local.v2.u64 \t{%rd52, %rd70}, [%rd1];\n" }) {
++		thread_local_routing_stats st;
++		auto out = route(probe(std::string("\tmov.u64 \t%rd52, 14;\n") +
++					       second,
++				       "%rd52"),
++				 { sum14() }, st);
++		INFO(second);
++		REQUIRE(st.sum_lookups == 0);
++		REQUIRE(has(out, "_bpf_helper_ext_0001"));
++	}
++}
++
++TEST_CASE("Only 64-bit adds on a sum map's value take the global fast path",
++	  "[sum-map-routing]")
++{
++	for (const char *atom : { "atom.add.u32 \t%r56, [%rd55], 1;",
++				  "atom.exch.b64 \t%rd56, [%rd55], %rd9;",
++				  "atom.or.b64 \t%rd56, [%rd55], %rd9;" }) {
++		thread_local_routing_stats st;
++		auto out = route(probe("", "14", "", atom), { sum14() }, st);
++		INFO(atom);
++		REQUIRE(st.sum_lookups == 1);
++		REQUIRE(st.global_atomics == 0);
++		REQUIRE(st.guarded_atomics == 1);
++	}
++}
++
++TEST_CASE("Without a thread-local map kernels are not routed and helpers get 0",
++	  "[sum-map-routing]")
++{
++	const std::string kernel = ".visible .entry kern()\n{\n"
++				   "\tcall __retprobe_func__kern;\n\tret;\n}\n";
++	thread_local_routing_stats st;
++	auto out = route(probe("", "15") + kernel, { sum14() }, st);
++	REQUIRE(has(out, kernel));
++	REQUIRE(has(out, ".visible .func __retprobe_func__kern()"));
++	REQUIRE(st.kernels == 0);
++	REQUIRE(st.routed_functions == 0);
++	REQUIRE(st.helper_calls_given_zero == 1);
++	REQUIRE(has(out, "st.param.b64 \t[param4+0], 0;"));
++	REQUIRE_FALSE(has(out, "[param4+0], %rd12;"));
++	REQUIRE_FALSE(has(out, "__bpftime_tl"));
++	// with one, the kernel gets the area and the probe its parameter
++	thread_local_map_desc tl;
++	tl.fd = 4;
++	tl.offset = 0;
++	tl.value_size = 8;
++	tl.max_entries = 1;
++	thread_local_routing_stats st2;
++	auto out2 = route_thread_local_maps(probe("", "14") + kernel, { K },
++					    { tl }, 8, &st2, { sum14() });
++	REQUIRE(st2.kernels == 1);
++	REQUIRE(st2.routed_functions == 1);
++	REQUIRE(has(out2, "__bpftime_tl"));
++	REQUIRE(st2.sum_lookups == 1);
++	REQUIRE(st2.global_atomics == 1);
++}
+diff --git a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
+index 3662cedf..888ac769 100644
+--- a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
++++ b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
+@@ -139,8 +139,7 @@ namespace
+ // ld.relaxed.gpu.global on the cvta.to.global address, the form of the
+ // programs' adds into the copy (atom/red .global, nv_thread_local_routing):
+ // the same address in the same state space, so the load and the adds are
+-// morally strong (PTX ISA 8.7; generic adds are too, 8.7 has no state-space
+-// condition).
++// morally strong (PTX ISA 8.7).
+ const char *snapshot_ptx = R"PTX(
+ .version 7.0
+ .target sm_70
+-- 
+2.43.0
+
