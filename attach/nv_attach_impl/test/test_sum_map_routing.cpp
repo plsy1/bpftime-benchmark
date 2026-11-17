@@ -398,6 +398,24 @@ TEST_CASE("A key that may have changed since its store is loaded again",
 			STORE,
 		// the slot register written twice
 		FRAME + STORE + "\tmov.u64 \t%rd2, %rd77;\n",
+		// a .loc glued to what follows the store (review of 1fee25d1)
+		FRAME + STORE + "\t.loc 1 5 3\n\tst.local.u32 \t[%rd60+504], %r8;\n",
+		FRAME + STORE + "\t.loc 1 5 3\n\tcall.uni f, ();\n",
+		FRAME + STORE + "\t.loc 1 5 3\n\tred.add.u32 \t[%rd77], 1;\n",
+		// labels the line regex missed
+		FRAME + "\tst.local.u32 \t[%rd1+504], %r8; @%p1 bra $L__BB0_4; " +
+			STORE.substr(1, STORE.size() - 2) + " $L__BB0_4:\n",
+		FRAME + STORE + "\t/* join */ $L__BB0_4:\n",
+		FRAME + STORE + "\t{\n\tmov.u32 \t%r9, 1;\n\t} $L__BB0_4:\n",
+		FRAME + STORE + "%L4:\n",
+		// the store in a scope that closed before the call
+		FRAME + "\t{\n\t.reg .b32 \t%r7;\n\tmov.u32 \t%r7, 5;\n" + STORE +
+			"\t}\n",
+		// a literal that is not plain decimal (PTX: octal 0770 = 504)
+		FRAME + STORE + "\tst.local.u32 \t[%rd1+0770], %r8;\n",
+		// a store whose state space does not match its base
+		FRAME + "\tst.local.u32 \t[%rd9+504], %r7;\n",
+		FRAME + "\tst.u32 \t[%rd1+504], %r7;\n",
 	};
 	for (const auto &c : cases) {
 		thread_local_routing_stats st;
@@ -407,10 +425,136 @@ TEST_CASE("A key that may have changed since its store is loaded again",
 		REQUIRE(st.keys_forwarded == 0);
 		REQUIRE(has(out, "ld.u32 \t%bpsm_k0, [%rd51];"));
 	}
+	// a key pointer on the depot's local address (the original load is
+	// generic): no forwarding
+	{
+		thread_local_routing_stats stl;
+		std::string ptx = probe(FRAME + STORE, "14");
+		const std::string kp = "\tadd.s64 \t%rd51, %rd2, -8;\n";
+		ptx.replace(ptx.find(kp), kp.size(),
+			    "\tadd.s64 \t%rd51, %rd1, 504;\n");
+		auto o = route(ptx, { sum14() }, stl);
+		REQUIRE(stl.sum_lookups == 1);
+		REQUIRE(stl.keys_forwarded == 0);
+	}
 	// a store to another slot in between does not matter
 	thread_local_routing_stats st;
 	auto out = route(probe(FRAME + STORE + "\tst.local.u32 \t[%rd1+500], %r2;\n",
 			       "14"),
 			 { sum14() }, st);
 	REQUIRE(st.keys_forwarded == 1);
+}
+
+namespace
+{
+const std::string KERNEL = ".visible .entry kern()\n{\n"
+			   "\tcall __retprobe_func__kern;\n\tret;\n}\n";
+thread_local_map_desc tl4()
+{
+	thread_local_map_desc d;
+	d.fd = 4;
+	d.offset = 16;
+	d.value_size = 8;
+	d.max_entries = 2;
+	return d;
+}
+std::string tl_block(const std::string &key_line)
+{
+	return "{ // bpftime thread-local lookup, map 4\n"
+	       "\t.reg .pred \t%bptl_p0;\n"
+	       "\t.reg .b32 \t%bptl_k0;\n"
+	       "\t.reg .b64 \t%bptl_a0;\n" +
+	       key_line +
+	       "\tsetp.lt.u32 \t%bptl_p0, %bptl_k0, 2;\n"
+	       "\tmul.wide.u32 \t%bptl_a0, %bptl_k0, 8;\n"
+	       "\tadd.u64 \t%bptl_a0, %bptl_a0, %bpftime_tl_in;\n"
+	       "\tadd.u64 \t%bptl_a0, %bptl_a0, 16;\n"
+	       "\tselp.b64 \t%rd55, %bptl_a0, 0, %bptl_p0;\n"
+	       "} // bpftime thread-local lookup\n";
+}
+} // namespace
+
+TEST_CASE("A thread-local lookup becomes the area address, with its key forwarded",
+	  "[sum-map-routing]")
+{
+	thread_local_routing_stats st;
+	auto out = route_thread_local_maps(probe(FRAME + STORE, "4") + KERNEL,
+					   { K }, { tl4() }, 24, &st, {});
+	REQUIRE(st.direct_lookups == 1);
+	REQUIRE(st.keys_forwarded == 1);
+	REQUIRE(has(out, tl_block("\tmov.u32 \t%bptl_k0, %r7;\n")));
+	// without the store: the key is loaded
+	thread_local_routing_stats st2;
+	auto out2 = route_thread_local_maps(probe(FRAME, "4") + KERNEL, { K },
+					    { tl4() }, 24, &st2, {});
+	REQUIRE(st2.direct_lookups == 1);
+	REQUIRE(st2.keys_forwarded == 0);
+	REQUIRE(has(out2, tl_block("\tld.u32 \t%bptl_k0, [%rd51];\n")));
+	// a function no kernel routes (bpf_main): the helper answers, given 0
+	std::string bm = probe(FRAME + STORE, "4");
+	const std::string name = "__retprobe_func__kern";
+	bm.replace(bm.find(name), name.size(), "bpf_main");
+	thread_local_routing_stats st3;
+	auto out3 = route_thread_local_maps(bm, { K }, { tl4() }, 24, &st3, {});
+	REQUIRE(st3.direct_lookups == 0);
+	REQUIRE(st3.keys_forwarded == 0);
+	REQUIRE(has(out3, "_bpf_helper_ext_0001"));
+	REQUIRE(has(out3, "st.param.b64 \t[param4+0], 0;"));
+}
+
+TEST_CASE("Updates and deletes of a sum map keep the trampoline's helpers",
+	  "[sum-map-routing]")
+{
+	for (const char *h : { "0002", "0003" }) {
+		std::string ptx = probe("", "14");
+		ptx.replace(ptx.find("_bpf_helper_ext_0001"), 20,
+			    std::string("_bpf_helper_ext_") + h);
+		thread_local_routing_stats st;
+		auto out = route(ptx, { sum14() }, st);
+		INFO(h);
+		REQUIRE(st.sum_lookups == 0);
+		REQUIRE(has(out, std::string("_bpf_helper_ext_") + h));
+		REQUIRE(has(out, "st.param.b64 \t[param4+0], 0;"));
+	}
+}
+
+TEST_CASE("More barriers between a key's store and its lookup",
+	  "[sum-map-routing]")
+{
+	for (const std::string &between :
+	     { std::string("\t@%p3 atom.global.add.u32 \t%r9, [%rd77], 1;\n"),
+	       std::string("\t@%p3 red.global.add.u32 \t[%rd77], 1;\n"),
+	       std::string("\t@%p3 call.uni f, ();\n"),
+	       std::string("\tred.global.add.u32 \t[%rd77], 1;\n"),
+	       std::string("\tmov.b64 \t{%r6, %r7}, %rd5;\n") }) {
+		thread_local_routing_stats st;
+		auto out = route(probe(FRAME + STORE + between, "14"),
+				 { sum14() }, st);
+		INFO(between);
+		REQUIRE(st.sum_lookups == 1);
+		REQUIRE(st.keys_forwarded == 0);
+	}
+	// the lookup register in a vector's second place counts as written
+	thread_local_routing_stats st;
+	route(probe("", "14", "\tld.local.v2.u64 \t{%rd70, %rd55}, [%rd1+16];\n"),
+	      { sum14() }, st);
+	REQUIRE(st.global_atomics == 0);
+	REQUIRE(st.guarded_atomics == 1);
+}
+
+TEST_CASE("A large sum map's 64-bit lookup, whole", "[sum-map-routing]")
+{
+	thread_local_routing_stats st;
+	auto out = route(probe("", "14"), { sum14(0x203400000ull, 1ull << 25) },
+			 st);
+	const std::string lookup =
+		"\tmul.wide.u32 \t%bpsm_a0, %bpsm_k0, 256;\n"
+		"\tcvt.u64.u32 \t%bpsm_w0, %bpsm_s0;\n"
+		"\tadd.u64 \t%bpsm_a0, %bpsm_a0, %bpsm_w0;\n"
+		"\tmul.lo.u64 \t%bpsm_a0, %bpsm_a0, 8;\n"
+		"\tadd.u64 \t%bpsm_a0, %bpsm_a0, " +
+		std::to_string(0x203400000ull) +
+		";\n"
+		"\tselp.b64 \t%rd55, %bpsm_a0, 0, %bpsm_p0;\n";
+	REQUIRE(has(out, lookup));
 }
