@@ -238,7 +238,9 @@ Interpretation (fixed now):
 
 An independent check of the SASS found a BSSY/BSYNC pair around the exit
 call in the kernel bodies of locc, addminnored, addq and addmingen (not in
-locc-noadd, addg, addone, addmin); the rest of every body is identical. Per
+locc-noadd, addg, addone, addmin). The rest of every body has the same
+instruction count block for block (479; main loop 138) but differs in
+scheduling and instruction choice (1-5 main-loop instructions per variant). Per
 thread: locc 92, addminnored 55, addq 70, addmingen 60. So guard = 16 SASS,
 locc - addg = 19, gen = 6, and addminnored runs one instruction more than
 addmin. R7's statement "the SASS count (14 instructions) stands" would read

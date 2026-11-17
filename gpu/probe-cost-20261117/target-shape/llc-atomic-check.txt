@@ -1,0 +1,21 @@
+What LLVM's NVPTX backend emits for a 64-bit atomic add with the result unused (2026-11-18)
+== input a.ll
+target triple = "nvptx64-nvidia-cuda"
+define void @f(ptr addrspace(1) %p) {
+  %old = atomicrmw add ptr addrspace(1) %p, i64 1 monotonic
+  ret void
+}
+define void @g(ptr %p) {
+  %old = atomicrmw add ptr %p, i64 1 monotonic
+  ret void
+}
+== /usr/lib/llvm-15/bin/llc -march=nvptx64 -mcpu=sm_60 (the prototype builds with LLVM 15 for sm_60)
+.visible .func f(
+	atom.global.add.u64 	%rd2, [%rd1], 1;
+.visible .func g(
+	atom.add.u64 	%rd2, [%rd1], 1;
+== /usr/lib/llvm-16/bin/llc -march=nvptx64 -mcpu=sm_87
+.visible .func f(
+	atom.global.add.u64 	%rd2, [%rd1], 1;
+.visible .func g(
+	atom.add.u64 	%rd2, [%rd1], 1;
