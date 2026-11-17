@@ -1,0 +1,349 @@
+GPU probe code path in proto/map-model (/home/jetson/src/bpftime-proto, HEAD c940870b): map and costing of R1-R10
+
+CONVENTIONS
+- Paths are relative to /home/jetson/src/bpftime-proto unless absolute.
+- llvmbpf: the build does not compile vm/llvm-jit/src/compiler.cpp or llvm_jit_context.cpp as they are. It compiles patched copies generated in build-cuda/vm/compat/llvm-vm/: vm/compat/llvm-vm/CMakeLists.txt:16-73 swaps them into llvmbpf_vm's SOURCES. ptxpass_core links llvmbpf_vm (attach/nv_attach_impl/pass/ptxpass_core/CMakeLists.txt:4).
+  - "gen-compiler" = build-cuda/vm/compat/llvm-vm/compiler_local_call.cpp.
+  - "gen-ctx" = build-cuda/vm/compat/llvm-vm/llvm_jit_context_array_inline.cpp.
+  - gen-compiler equals upstream up to about line 228, is +10 up to about 480, and the offset grows to about +26 later. Cites marked "compiler.cpp" use upstream numbering.
+- LLVM is 15: build-cuda/CMakeCache.txt:689 `LLVM_DIR:UNINITIALIZED=/usr/lib/llvm-15/lib/cmake/llvm`.
+- PTX ISA source: the public page, fetched today. Its sha256 3a4fe2a0… equals the copy recorded in /home/jetson/src/results/gpu/step0b-checks-20261116/c5-guarantees/docs/MANIFEST.tsv:63 ("PTX ISA 9.5 … Nov 02, 2026"). Section numbers are given; the line numbers refer to my text dump /tmp/claude-2002/-home-jetson-src/548cc3e6-4b28-4a87-b830-6e00c1ee829e/scratchpad/docs/ptx-isa.txt (the scratchpad may be cleared).
+- Shape evidence: /home/jetson/src/results/gpu/map-model-proto-20261116/kmr/routed.ptx. This is routed PTX of a test victim (kmr, kdiv, kspin…) with a different tool, which calls helpers 503/504/505/508. It is not the llama probe; no patched llama PTX is kept. I use it for instruction shapes only.
+- GUESS = inference, not verified. Sizes are estimates.
+
+==================================================================
+1. PIPELINE: eBPF -> PTX probe function -> patched module
+==================================================================
+1.1 Orchestration
+- At attach: runtime/src/attach/bpf_attach_ctx.cpp:639-644 stores the instructions and `map_basic_info = this->create_map_basic_info(1024)`.
+- At cudart's fatbin load, load_library_with_probes calls patched_image_for_fatbin (attach/nv_attach_impl/nv_attach_impl.cpp:2351), which calls hack_fatbin (:2370; defined :1024-1222).
+- For each hook entry and kernel, hack_fatbin sends a JSON request to the pass's process_input (:1056-1125). Passes are dlopen'd .so files (:625-648).
+- Request fields (pass/ptxpass_core/include/ptxpass/core.hpp:71-75, 111-129): full_ptx, to_patch_kernel, map_info and constData symbol names, the eBPF words.
+- No map types, sizes or addresses are passed.
+- Responses are cached by the sha256 of the request JSON (nv_attach_impl.cpp:1073-1088, 1168-1169).
+
+1.2 eBPF -> LLVM IR -> PTX (llvmbpf, inside the pass)
+- Every pass calls `compile_ebpf_to_ptx_from_words(words, "sm_61", fname, …)`. LLVM's target CPU is hard-coded to sm_61:
+  - kprobe_entry/main.cpp:53-55
+  - kretprobe/main.cpp:40-43
+  - kprobe_memcapture/main.cpp:141
+- compile_ebpf_to_ptx_from_words (ptxpass_core/src/core.cpp:226-274):
+  - Creates a fresh llvmbpf_vm.
+  - Registers helpers 1, 2, 3, 6, 14, 25, 501-505 and 507-511 as a dummy test_func (:234-253). 506 and 500 are not registered.
+  - Calls `ctx.generate_ptx(with_arguments=false, func_name, target_sm)` (:258-259).
+  - filter_compiled_ptx_for_ebpf_program (:275-316) strips .version/.target/.address_size and the `.extern .func … _bpf_helper_ext_NNNN` declarations (regex :280-283).
+  - The register guard is added only for save_strategy "full"; the default is "minimal" (kprobe_entry/main.cpp:36, 119).
+  - gate_probe_function (:273).
+- generate_ptx (gen-ctx:1131-1201; upstream llvm_jit_context.cpp:902-972):
+  - createNVPTXTargetMachine (gen-ctx:1111-1129): triple "nvptx64-nvidia-cuda", `createTargetMachine(triple.str(), target_cpu, "", options, llvm::Reloc::Static)`. No CodeGenOpt level is passed (GUESS: LLVM's default argument, CodeGenOpt::Default).
+  - generateModule(…, /*is_gpu*/true) (gen-ctx:1160-1161).
+  - `M.setDataLayout(targetMachine->createDataLayout())` comes after the IR is built (gen-ctx:1175).
+  - optimizeModule(M, vm.optimization_level…) (gen-ctx:1176). `int optimization_level = 3;` (vm/llvm-jit/include/llvmbpf.hpp:157).
+  - Under LLVM 15 this takes the legacy branch: gen-ctx:302-312, `llvm::PassManagerBuilder PMB; PMB.OptLevel = opt_level; PMB.populateModulePassManager(PM);`. The new pass manager is `#if LLVM_VERSION_MAJOR >= 17` (gen-ctx:235).
+  - No TargetMachine or TTI is given to the IR pipeline.
+  - Codegen via addPassesToEmitFile (gen-ctx:1179-1196).
+- generateModule:
+  - The module is created without a DataLayout: `auto jitModule = std::make_unique<Module>("bpf-jit", *context);` (gen-compiler:220).
+  - eBPF registers become allocas (compiler.cpp:376-380).
+  - The GPU stack is an alloca of [STACK_SIZE*stack_frames+10 x i64] (gen-compiler:406-409). STACK_SIZE=(512+7)/8 (compiler.cpp:42; EBPF_STACK_SIZE 512 at vm/llvm-jit/src/llvm_jit_context.hpp:33). stack_frames=1 without bpf-to-bpf calls (gen-compiler:229-238). So 74*8 = 592 bytes.
+  - CLAUDE.md:928-932: "On the GPU every thread holds the whole stack array in local memory … The same patch gives a GPU program without bpf-to-bpf calls one frame (`stack_frames`; 592 bytes)".
+- Helper calls:
+  - The name comes from `sprintf(buf, "_bpf_helper_ext_%04" PRIu32, idx)` (vm/llvm-jit/src/compiler_utils.hpp:39-42).
+  - Each helper is declared i64(i64,i64,i64,i64,i64) with no attributes (compiler.cpp:263-277). emitExtFuncCall (compiler_utils.cpp:312-371) passes r1..r5.
+  - allow_implicit_external = kernel_compatible_mode = false (compiler.cpp:1471-1474). An unregistered helper is a compile error, "Ext func not found" (compiler_utils.cpp:366-369).
+- Map fds: LDDW src=1 stores vm.map_by_fd(imm), or the raw imm when map_by_fd is unset (compiler.cpp:1098-1127). ptxpass's vm has none, so r1 holds the constant fd.
+- Memory ops:
+  - Loads: `builder.CreateLoad(srcTy, addr)` (compiler_utils.cpp:285-293). Stores: `builder.CreateStore(result, GEP)` (:146-154). No alignment is given.
+  - Atomics: `llvm::MaybeAlign(is64 ? 8 : 4), llvm::AtomicOrdering::Monotonic` (:372-388).
+
+1.3 Call sites and gate
+- kprobe_entry (main.cpp:45-97):
+  - Rewrites calls to the stub `__bpftime_cuda__kernel_trace`, which can sit in any function, into `call __probe_func__<k>` (:58-81).
+  - Otherwise it inserts `call __probe_func__<k>;` after the kernel's `{` (:83-93).
+  - It prepends the function (:77, :94).
+- kretprobe (main.cpp:36-65):
+  - Regex `R"((\s*)((?:[\w$\.]+:\s*)?)(@[^\s]+\s+)?((?:ret|exit);))"` (:56-60) inserts `call __retprobe_func__<k>;` before every ret/exit in the kernel and keeps label and predicate.
+  - So there is one call site per ret/exit, some of them predicated.
+- gate_probe_function (core.cpp:196-224) inserts after the function's `{` line: `ld.global.u32 %bpftime_on, [__bpftime_probes_enabled]; setp.eq.s32 …; @%bpftime_off ret;`. Comment at :196-199: "A plain load: kernels launched after the write see it."
+- The switch is declared as `.visible .global .align 4 .u32 __bpftime_probes_enabled = 1;` beside the trampoline (nv_attach_utils.cpp:21-29).
+- The last detach writes 0 into every substituted library (turn_off_substituted_probes, nv_attach_impl.cpp:2473-2490; symbol at :2483).
+
+1.4 Routing, trampoline linking, final compile
+- hack_fatbin (nv_attach_impl.cpp:1177-1185) runs route_thread_local_maps_of_module, then `filter_out_version_headers_ptx(wrap_ptx_with_trampoline(…))`.
+- wrap_ptx_with_trampoline (nv_attach_utils.cpp:26-29) is `return get_default_trampoline_ptx() + PROBE_SWITCH_PTX + input;`.
+  - The trampoline is textually prepended: one PTX module, no link step. Probe functions call `_bpf_helper_ext_NNNN` defined in the same module.
+- filter_out_version_headers_ptx (core.cpp:165-190) keeps the first .version/.target, which are the trampoline's (trampoline_ptx.h:6-7, `.version 8.1`, `.target sm_61`).
+- trampoline_ptx.h is built from trampoline/default_trampoline.cu by trampoline/Makefile:18-26: clang `-x cuda --cuda-device-only -nocudainc -nocudalib … --cuda-gpu-arch=sm_61 -O2 -S`.
+  - CLAUDE.md:2168-2174: header layout changes need the PTX regenerated.
+  - Helpers are `extern "C" __noinline__ __device__`. trampoline_ptx.h has no `.noinline` marker.
+- compile_ptxs (attach/nv_attach_impl/nv_attach_fatbin_record.cpp:103-170):
+  - rewrite_ptx_target sets .target to the device SM (:135; nv_attach_utils.cpp:31-67).
+  - nvPTXCompiler options `--gpu-name=<sm>`, `--verbose`, `-O3` (:157-160).
+  - The ptx_pool cache is in memory, keyed by the PTX's sha256 (nv_attach_impl.hpp:286; nv_attach_fatbin_record.cpp:139). It is not persistent.
+- Direct run (bpf_main): nv_attach_impl.cpp:1296-1315. bpf_main "is called by no routed kernel, so its map helper calls get 0 as the area".
+
+==================================================================
+2. ROUTING PASS (attach/nv_attach_impl/nv_thread_local_routing.cpp)
+==================================================================
+When it runs
+- route_thread_local_maps_of_module (nv_attach_impl.cpp:985-1022) builds descriptors only for enabled 1530 maps: `if (!m.enabled || m.map_type != 1530 …) continue;` (:997).
+  - fd = index, offset = (uintptr_t)extra_buffer, value_size, max_entries.
+- It returns unchanged when there are none: `if (descs.empty()) return ptx;` (:1007-1008).
+  - So the direct lookups, the r5 rewrite and the atomic guard exist only in a process with a 1530 map. Anything placed in route_function_body or guard_generic_atomics inherits this, and sees only 1530 descriptors.
+- The kernel list is every kernel of every hook entry (:1009-1012).
+- Area offsets (runtime/src/attach/bpf_attach_ctx_cuda.cpp:551-562): `local.extra_buffer = (void *)(uintptr_t)thread_local_bytes; thread_local_bytes += ((uint64_t)map.get_value_size() * map.get_max_entries() + 7) & ~7ull;`. Each map starts 8-aligned; entries are value_size apart.
+- Size limit: THREAD_LOCAL_AREA_MAX = 1024 (nv_thread_local_routing.hpp:28; enforced in .cpp:392-396; the area is rounded to 8).
+
+Step 1, kernels (.cpp:403-484)
+- Each `…call… __probe_func__K;` or `__retprobe_func__K;` line becomes `<label>cvta.local.u64 %bpftime_tl, __bpftime_tl;` followed by `<pred>call …, (%bpftime_tl);` (:431-453). That is one cvta per site.
+- Kernel prologue (:464-471): `.local .align 16 .b8 __bpftime_tl[N]; .reg .b64 %bpftime_tl; cvta.local.u64 …;`, then one generic `st.u64 [%bpftime_tl+off], 0;` per 8 bytes.
+- It throws if any call of a routed function was not rewritten, e.g. a stub-replaced call in a device function (:486-501).
+- A throw loads the module without probes: nv_thread_local_routing.hpp:48-49; hack_fatbin catches at :1189-1197 and returns nullopt at :1201-1204.
+
+Step 2, probe functions (.cpp:503-533)
+- Found by name prefix: `__probe_func__`, `__retprobe_func__`, `__memcapture__`, or `bpf_main` (:48-53).
+- Routed functions (those called by a routed kernel) get `.param .b64 <name>_bpftime_tl` and `ld.param.b64 %bpftime_tl_in, […]` at body start, before the gate (:516-523; routed.ptx:7206-7218).
+- Unrouted functions (memcapture, bpf_main) pass 0.
+
+route_function_body (.cpp:293-382), per `{ // callseq … } // callseq` block
+- Only helpers 1-3 are touched: `if (id < 1 || id > 3) { out += block; continue; }` (:325-329). 502 and all other helpers pass through.
+- Direct lookup (:333-361): when the function is routed, id==1, and constant_fd() gives a 1530 fd, the callseq becomes
+  `ld.u32 %bptl_k,[<param1 reg>]; setp.lt.u32 p,k,max_entries; mul.wide.u32 a,k,value_size; add a,a,%bpftime_tl_in; add a,a,offset; selp.b64 <retval reg>,a,0,p`
+  - The key is loaded at run time through a generic pointer. That load is the "LD.E key" in the SASS.
+  - The fd must be a constant; the key need not be.
+- Other helper 1/2/3 calls: `st.param.b64 [param4+0], X` is replaced by %bpftime_tl_in (routed) or 0 (unrouted) (:362-378). It fails if param4 is missing or duplicated.
+- Then guard_generic_atomics runs (:381).
+
+Constant fd detection: constant_fd(), :119-157
+- The operand of `st.param.b64 [param0+0], X` counts as constant if it is a decimal literal.
+- Or if it is a register with exactly one definition `mov.[ub]64 X, <int>` and exactly one definition matching `(mov|ld|add|sub|cvt|selp|mul|and|or|shl|shr)\S* X,`.
+- Gap: definitions by xor, neg, mad, min/max, rem, bfe, prmt and similar are not counted.
+
+guard_generic_atomics (:159-291)
+- Rewrites every `atom`/`red` without `.global`/`.shared` in a probe function:
+  `add a,base,off; isspacep.local l,a; @!l <original>; @l ld.bN o,[a]; @l <op>; @l st.bN [a],n; @l mov dst,o`.
+- Supported: add, and, or, xor, exch, cas at 32 and 64 bits. Others throw (:211-226), and so does a predicated atomic (:190-191).
+- Applied regardless of where the address comes from. This is the QSPC in the SASS.
+- Comment :159-164 cites PTX ISA 9.7.15.5. Its text (ptx-isa.txt:16801-16803): "atom with scalar type may be used only with .global and .shared spaces and with generic addressing, where the address points to .global or .shared space."
+
+Shape evidence (kmr/routed.ptx; not llama)
+- Key: `mov.u32 %r1, 0; st.local.u32 [%rd1+496], %r1;` (LLVM, via %SPL), then `ld.u32 %bptl_k0, [%rd3];` (routing). %rd3 = %SP+496 (`add.s64 %rd3,%rd14,496`, `add.u64 %rd14,%SP,0`, `cvta.local.u64 %SP,%SPL`).
+- A u64 through a lookup pointer: `ld.u32 %rd60,[%rd59+32]; ld.u32 %rd61,[%rd59+36]; shl.b64; or.b64; … st.u32 [%rd59+32]; shr.u64; st.u32 [%rd59+36]`.
+- Guarded atomic: `@!%bpat_l0 atom.add.u64 %rd134,[%rd133],1;`. %rd133 is a helper-1 retval, after `setp.eq.s64 %p10,%rd133,0; @%p10 bra`.
+
+==================================================================
+3. CANDIDATE CHANGES
+==================================================================
+Shared facts
+- F1. No map information reaches llvmbpf on the GPU path (core.hpp:71-75; core.cpp:226-229).
+  - An IR-level specialization needs (1) a new request field, which automatically joins the patch_cache key (sha256 of the request JSON, nv_attach_impl.cpp:1073), and (2) a new overlay patch in the vm/compat/llvm-vm/*.patch scheme. generate_ptx has no hook between generateModule and optimizeModule (gen-ctx:1160-1176).
+  - Precedent: the CPU-only `inline_array_map_lookup_helpers(llvm::Module&)` with `vm.array_maps` (vm/compat/llvm-vm/array-map-inline.patch:50-140). It runs optimize, then inline, then optimize again (gen-ctx:722-726, 754-758).
+  - CLAUDE.md:196-198: "Programs with … CUDA, MPK or indirect helper calls remain on the original path."
+- F2. Routing is the one place that has map_basic_info and the whole module, but it runs only with a 1530 map (F above). R1, R2, R8, R9 and R10 placed there need it to run unconditionally, with descriptors for all map types.
+- F3. MapBasicInfo (default_trampoline.cu:90-98): `bool enabled; int key_size; int value_size; int max_entries; int map_type; void *extra_buffer; uint64_t max_thread_count;`.
+  - Device copy `__constant__ MapBasicInfo map_info[1024]` (:107). trampoline_ptx.h:18: `.visible .const .align 8 .b8 map_info[40960];`, i.e. 40 bytes per entry.
+  - Field offsets 24 (extra_buffer) and 32 (max_thread_count) are computed from the layout, not read.
+  - Written per library by write_trampoline_globals (nv_attach_impl.cpp:2448-2466); on the late path by nv_attach_fatbin_record.cpp:263-291.
+
+R1. Inline the 1531 lookup when the fd is constant
+- Today, in helper 1:
+  - Dispatch on map_info[map].map_type, 1530 then 1531 (default_trampoline.cu:279-292). The key is read through a generic pointer (:289).
+  - sum_array_offset (:264-275) returns NULL if `extra_buffer==nullptr || max_thread_count<32 || idx>=max_entries`. Otherwise `extra_buffer + (idx*max_thread_count + ((smid & ((max_thread_count>>5)-1))<<5 | laneid)) * value_size`.
+- Inputs at rewrite time: create_map_basic_info (bpf_attach_ctx_cuda.cpp:505-572) runs at attach, before any module is patched.
+  - It calls get_gpu_map_extra_buffer first (:527). For 1531: map_handler.cpp:1814-1830 calls nv_gpu_device_array_map_impl::get_gpu_mem_buffer (runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp:678-770), which:
+    - cuMemAllocs and zeroes the copy;
+    - sets shards (`s = pow2 * 32; // (SM & (pow2 - 1)) * 32 + lane`, :717-731);
+    - returns 0 if another live process owns the map (:698-716) or on failure (:755-762).
+  - Then get_gpu_map_max_thread_count (:549-550) returns shards for 1531 (map_handler.cpp:1759-1765).
+  - value_size is a multiple of 8 (nv_gpu_model_maps.cpp:83).
+  - So base, value_size, max_entries and shards are in nv_attach_impl::map_basic_info and in map_info[].
+- (a) PTX level, in route_function_body. A branch beside the 1530 one for id==1, constant fd, type 1531. It works in routed and unrouted functions.
+  - Emits: `ld.u32 k,[p1]; setp.lt.u32; mov.u32 s,%smid; and.b32 s,s,<pow2-1>; shl.b32 s,s,5; mov.u32 l,%laneid; or.b32 s,s,l; mad.wide…; add base; selp`.
+  - The constants are immediates, base included (the PTX becomes process-specific; ptx_pool is per process anyway), or `ld.const` from map_info.
+  - extra_buffer==0 gives NULL.
+  - Plumbing: drop the 1530-only filter and the early return (nv_attach_impl.cpp:997, 1007-1008); extend thread_local_map_desc (nv_thread_local_routing.hpp:30-35) with type, base and shards.
+  - Size estimate: 80-120 lines in routing, about 20 in nv_attach_impl.
+- (b) IR level: needs F1. Worth it only together with R3 and R4.
+- Note on the task wording: pt_lat's sum-map key is computed. `key = k * 65 + log2_u64(bpf_get_globaltimer() - *s);` then `bpf_map_lookup_elem(&hist, &key)` (results/gpu/map-model-proto-20261116/tools/pt_lat.bpf.c:39, 50). R1 must be constant fd, run-time key, bounds check. Only the 1530 lookup has a constant key (`u32 z = 0`, :26-27, :34-35).
+- Risks:
+  - The base address is baked into the PTX. Several GPUs are already not covered (CLAUDE.md:2146-2148).
+  - The %smid read is the same instruction as today (doc-quotes: "%smid … may change during execution"). Any shard is correct (default_trampoline.cu:261-263).
+  - The key load stays generic without R3.
+  - Unexpected PTX shapes throw, and the module loads unprobed.
+
+R2. Inline helper 502
+- Today: `return read_globaltimer();` = `mov.u64 %0, %%globaltimer;` (default_trampoline.cu:99-104, 588-592; trampoline_ptx.h:2300-2316). A real CALL with 5 st.param.
+- (a) PTX level, in route_function_body: replace a 0502 callseq with `mov.u64 <retval reg>, %globaltimer;`. The retval register comes from the existing regex (:302-303). The branch must go before the 1-3 filter (:326).
+  - Size estimate: about 15 lines plus F2.
+- (b) IR level, overlay patch: replace calls to `_bpf_helper_ext_0502` with inline asm. LLVM 15 has no globaltimer intrinsic: /usr/lib/llvm-15/include/llvm/IR/IntrinsicsNVPTX.h has nvvm_read_ptx_sreg_smid and laneid, no globaltimer.
+  - Extra gain (GUESS): helper declarations have no memory attributes (compiler.cpp:263-277), so LLVM must assume the call writes memory. pt_lat's exit (`if (!s || *s == 0) … log2_u64(bpf_get_globaltimer() - *s)`, pt_lat.bpf.c:36-39) therefore reloads *s after the call, which is the two extra 32-bit LD.E.
+  - Removing the call at IR level, or declaring it inaccessiblememonly, lets GVN reuse the first load. At PTX level the reload stays unless ptxas removes it (unknown).
+- PTX ISA 10.28 (ptx-isa.txt:29249-29260): "%globaltimer A predefined, 64-bit global nanosecond timer. … Special registers intended for use by NVIDIA tools. The behavior is target-specific and may change or be removed in future GPUs." The helper already depends on this.
+- Risk: ptxas reordering of an inlined timer read relative to the probe's memory ops is not stated. Today the CALL fixes the order.
+
+R3. The key's stack round trip
+- The store is LLVM's (`st.local`; &key escapes into the 592-byte alloca).
+- The reload is the routing's generic `ld.u32` (nv_thread_local_routing.cpp:345-346) or the trampoline's `*(uint32_t *)(uintptr_t)key` (default_trampoline.cu:284, 289).
+- In PTX the store addresses through %SPL and the load through %SP = cvta.local(%SPL) at the same offset.
+- eBPF bytecode level: only via a new by-value pseudo-helper plus constant tracking of stack slots. GUESS: the STL would stay while other helpers receive stack pointers. Not recommended.
+- LLVM IR level: lower the constant-fd 1530/1531 lookups before optimization (F1), with the area as an IR parameter instead of the PTX-added one.
+  - Store-to-load forwarding removes the reload and folds the bounds check when the key is constant.
+  - GUESS (SROA): the [74 x i64] stack can disappear only if no stack address escapes. Pointers given to 503/504/505, or a remaining helper-1 key pointer, keep it.
+  - Size estimate: 200-400 lines (overlay patch, request field, routing changes).
+- PTX level (routing, small): when the key register's single definition is `add.s64 R, <%SP alias>, imm`, emit `ld.local.u32 k, [%SPL+imm]`.
+  - Needs alias tracking of `add.u64 X,%SP,0` and `cvta.local.u64 %SP,%SPL`.
+  - GUESS: ptxas forwards STL to LDL of the same address.
+  - Forwarding the stored value itself needs reaching-store analysis, which is fragile.
+  - Size estimate: 40-80 lines.
+
+R4. A u64 accessed as two 32-bit generic loads or stores
+- Mechanism (GUESS, consistent with evidence):
+  - LLVM 15's IRBuilder takes the alignment from the module's DataLayout at creation time when none is given. /usr/lib/llvm-15/include/llvm/IR/IRBuilder.h:1676-1691: `if (!Align) { const DataLayout &DL = BB->getModule()->getDataLayout(); Align = DL.getABITypeAlign(Ty); }`.
+  - The module has no DataLayout at that point (gen-compiler:220); it is set later (gen-ctx:1175).
+  - Not verified: that LLVM 15's default layout gives i64 an ABI alignment of 4. The headers do not show the defaults.
+- Evidence in routed.ptx (probe-function part, lines 1-7594):
+  - LLVM's generic accesses are all 32-bit: 546 `ld/st.u32` lines.
+  - Every one of the 40 generic 64-bit `ld/st.b64` lines is the routing's own atomic-guard code (%bpat). None comes from LLVM.
+  - Stack slots are `ld/st.local.u64`.
+  - The explicitly aligned atomic (compiler_utils.cpp:388) is a single `atom.add.u64`.
+- Alignment facts:
+  - The area is `.local .align 16` (routing .cpp:465), map offsets in it are 8-aligned (bpf_attach_ctx_cuda.cpp:556-562), and an entry sits at key*value_size.
+  - 1531/1532 values are multiples of 8 (nv_gpu_model_maps.cpp:83) on cuMemAlloc bases.
+  - Pointers from host-call lookups (default_trampoline.cu:340-348): alignment not stated anywhere I read.
+- (a) Set the NVPTX DataLayout before IR generation in GPU mode: one line near gen-compiler:220, as an overlay patch. Every i64 access then claims 8-byte alignment.
+  - PTX ISA 6.4.1 (ptx-isa.txt:3245-3248): "The address must be naturally aligned to a multiple of the access size. If an address is not properly aligned, the resulting behavior is undefined. … the instruction may fault."
+  - Risk: packed data, 1530 maps with value_size % 8 != 0 (entry 1 and later), and CPU map values become undefined or fault the application's context.
+- (b) Per site at IR level (needs F1): known 8-alignment (an `align` attribute or llvm.assume) on constant-fd 1530/1531/1532 lookups. LLVM then widens accesses at offsets that are multiples of 8.
+- (c) A PTX peephole merging the 32-bit pairs: fragile.
+
+R5. log2 / clz
+- The tool's chain is in pt_common.h:21-31 (results/.../tools/pt_common.h). eBPF has no clz, and the bytecode arrives already expanded.
+- PTX ISA 9.7.1.16 (ptx-isa.txt:5915-5925): `clz.type d, a; .type = { .b32, .b64 }` "Count the number of leading zeros in a … place the result in 32-bit destination register d".
+- GPU helpers in default_trampoline.cu today:
+  - 501 puts, a host call (:571-586)
+  - 502 globaltimer (:588-592)
+  - 503 blockIdx, 504 blockDim, 505 threadIdx, each storing x/y/z through 3 pointers (:594-623)
+  - 506 `membar.sys` (:624-629), defined but not registered in core.cpp:234-253, so it cannot compile in a program
+  - 507 asm `exit;` (:630-635)
+  - 508 gridDim through pointers (:636-645)
+  - 509 %smid (:647-654)
+  - 510 %warpid (:656-663)
+  - 511 %laneid (:665-672)
+  - 500 does not exist.
+- (a) A new helper, e.g. 512 clz64/log2: trampoline definition, registration in core.cpp:234-253, trampoline_ptx.h regeneration (trampoline/Makefile:18-26), and tools changed to call it. As a CALL it still pays a call, so inline it at its callseq like R2 (`clz.b64` + `sub`).
+  - Size estimate: about 20 lines in the trampoline and core, plus about 15 for the inline rewrite.
+  - Risks: tool source changes; a new helper ABI to keep; an undefined input at v=0 must match the tool's (log2_u64(0)=0 today); the trampoline must be regenerated (header offsets compiled in, CLAUDE.md:2168-2174).
+- (b) LLVM recognizing the branchy chain as llvm.ctlz: GUESS, it does not; not verified. Lowering of generic llvm.ctlz on NVPTX: also not verified.
+- (c) An IR pattern-matcher for the chain: fragile.
+
+R6. Inline the probe bodies into the kernel
+- The PTX ISA has no inline/noinline directive: the performance-tuning directives are .maxnreg, .maxntid, .reqntid, .minnctapersm, .maxnctapersm, .noreturn, .pragma, .abi_preserve(_control), .minperctamemory (ISA 11.5, ptx-isa.txt:673-683). Observed: real CALLs remain at -O3. There is no documented way to make ptxas inline.
+- A PTX-text inliner (in or after routing) must handle:
+  - One body copy per exit site, some predicated or labeled (kretprobe :56-60). The predicate becomes `@!p bra skip`, and the label stays on the first instruction.
+  - `ret` inside the body (the gate's `@%bpftime_off ret;` and LLVM's exit) must become `bra <end>`, or it would return from the kernel. This is how the gate survives, unless R9 hoists it.
+  - Labels: ISA 9.7.14.4 (brx.idx) says branch targets "must refer to labels within the current function" (ptx-isa.txt:16185-16186). Label scope across nested `{}` blocks is not stated, so rename per copy.
+  - Registers: the body declares `%rd<98>`, `%r<3>`, `%p<4>`, `%SP`, `%SPL` (routed.ptx). ISA 9.7.14.1 (ptx-isa.txt:16120-16122): "any variable declared within a scope is not available outside the scope". Shadowing an outer name is not stated, so rename per copy.
+  - Depot: ISA 5.1.5 (c1-carry/docs/doc-quotes.txt:8): ".local state-space variables must be declared within function scope and are allocated on the stack". Whether ptxas overlaps the depots of several copies is not stated; worst case is +592 B of frame per copy.
+  - Functions called from outside kernels (stub-replaced calls, kprobe_entry :58-81; memcapture) keep the .func.
+  - Register pressure: patched mmq is 255 regs with 60 B spills, mmvq 56 regs (results/gpu/map-model-proto-20261116/ptx/ptxas_check-final.txt:3-4).
+- Size estimate: 300-600 lines. High risk.
+
+R7. Keep the thread-local map in registers
+- (a) After R6: kernel `.reg .b64` words instead of the area.
+  - In PTX text, every use of a direct-lookup result register must be a plain ld/st at a constant offset, rewritten into moves, including the 32-bit halves from R4.
+  - Fall back to memory on any escape: r5 to a helper, a value pointer to a helper, a store or copy of the pointer, or atomics on it.
+  - GUESS: ptxas will not register-promote a `.local` whose cvta.local generic address feeds generic loads.
+- (b) Without inlining, words passed as call params and returned.
+  - ISA 7.1.1 (ptx-isa.txt:3888-3890): "For targets sm_20 or higher, PTX restricts functions to a single return value, and a .param byte array should be used to return objects that do not fit into a register." So the return is one `.param .align 8 .b8 retval[8*W]`.
+  - Calls can be predicated: ISA 9.7.14.5 example `@p call (d), h, (a, b);` (ptx-isa.txt:16266). Retval loads must then be predicated too.
+  - Inside the probe it helps only if done at IR level: lookups become GEPs into an alloca initialized from the args, and the words are returned at exit. GUESS: SROA promotes it only with constant keys and no escapes. A PTX-level function-local copy just moves the memory.
+  - Routing changes: call-site rewrite (:431-453), prologue (:464-471), probe signature (:513-533).
+- What breaks or forces the fallback:
+  - non-constant fds (they get r5);
+  - helpers 2/3 on 1530 (default_trampoline.cu:351-366);
+  - dynamic keys;
+  - atomics on 1530 values: pt_tlatomic.bpf.c:23-26 has a fetch-add with result, a u32 add on half a u64, and an exchange;
+  - value addresses passed to helpers;
+  - areas larger than a few words (register pressure, mmq at 255).
+  - pt_lat (one u64, key 0, plain access) and pt_carry (two u64, plain; tools/pt_carry.bpf.c:61-84) fit.
+- Size estimate: large (IR overlay, plumbing, routing).
+
+R8. Drop the isspacep guard for sum-map addresses
+- Where: guard_generic_atomics (.cpp:159-291), given the set of registers known to be global.
+- Rule: the atom's base register has a single definition, which is either the retval of a helper-1 callseq with a constant fd of type 1531/1532 (device memory, cuMemAlloc at nv_gpu_model_maps.cpp:741), or R1's selp.
+- routed.ptx uses the retval register directly in the atom, after the null check.
+- Needs F2.
+- Optional (GUESS on benefit): `cvta.to.global` + `red.global.add.u64` when the result is unused.
+- Risk: a wrong claim makes a local-address atom undefined (ISA 9.7.15.5 above).
+- Size estimate: 30-50 lines.
+
+R9. Hoist the gate to kernel start
+- Today: one `ld.global.u32` per probe call (core.cpp:200-209). CLAUDE.md:2160-2161: "Cost: one cached global load per probe call."
+- Contract (CLAUDE.md:2153-2159): "every probe function starts by loading `__bpftime_probes_enabled` … and returns at once when it is 0 … Kernels launched afterwards run unprobed; kernels already running finish with their probes."
+- Where: the routing's kernel rewrite (.cpp:403-484), which owns the prologue and parses each call line's label and predicate (:438-446).
+  - Load and setp once in the prologue.
+  - Guard each probe call with `and.pred` against an existing predicate, or with `@!on bra`.
+  - Remove the in-function gate only from functions called solely by rewritten kernels. Stub-called and memcapture functions and bpf_main keep it.
+- Behaviour:
+  - A kernel launched after the write reads 0 and calls nothing.
+  - Running threads that already loaded 1 keep probing, which the contract allows.
+  - A thread's entry and exit always agree (today a thread can see 1 at entry and 0 at exit).
+- Needs F2.
+- Size estimate: 40-60 lines.
+
+R10. Warp combine of sum-map adds
+- The shard includes %laneid (default_trampoline.cu:269-274), so lanes of a warp never share a word today and match.any on the word address finds no partners.
+  - Match on (fd, key, offset) instead, and let the leader add popc(peers)×operand to its own shard. :261-263 allows that: "Any shard is correct (programs only add with atomics, the delivery sums the shards); %smid and %laneid only spread the adds over words."
+- redux.sync is .u32/.s32 only and needs sm_80 (ISA 9.7.15.13, ptx-isa.txt:17559-17595). A non-constant 64-bit operand needs shuffles.
+- Correctness obstacle, from the project's own record:
+  - The membermask would come from activemask. step0b c5 claim 9 (/home/jetson/src/results/gpu/step0b-checks-20261116/c5-guarantees/README.md:409-430): "Not found: that the lanes named in one lane's `__activemask()` result obtained the same result."
+  - "C2 measured that the reading is false on this board. With a loop in the leader-only region, 39,143 (noinline) and 116,089 (inlined) of about 4.46M helper calls had a lane that was not in its own leader's mask … With a single atomic in that region, 0."
+  - :454 says `__match_any_sync(__activemask(), s)` has "the same uncovered mask".
+  - :447 says a mask known by construction "is not valid in exit probes or in `__memcapture`".
+  - Commit e3f4e18f: "Correctness rests on documented guarantees only (step0b)."
+- Where:
+  - (a) Routing at the atomic, using R8's provenance, with the null-check branch between lookup and atomic (routed.ptx `setp.eq.s64 %p10,%rd133,0; @%p10 bra`), plus a constant or register operand and an unused or reconstructible result.
+  - (b) A new trampoline helper sum_add(fd,key,delta), which needs tool changes. The trampoline is clang sm_61 (Makefile:3), so match needs inline asm. GUESS per /home/jetson/src/results/gpu/dir1-design-space-20261115/readers/mech.md:122: clang at sm_61 will not emit sm_70 builtins. Pre-sm_70 devices must not get it.
+- Size estimate: 80-150 lines. Blocked by the mask question under the project's rule.
+
+DOCUMENT CLAIMS, SEPARATED (PTX ISA 9.5 unless noted)
+(a) Guaranteed by the text
+- match.sync waits for "all non-exited threads from membermask" with "the same qualifiers and same membermask value" (9.7.15.11, ptx-isa.txt:17511-17513); it requires sm_70.
+- sm_20+ functions have a single return value, with a .param byte array for larger objects (7.1.1, :3888-3890).
+- A variable declared in a `{}` scope is not available outside it (9.7.14.1, :16120-16122).
+- `.local` must be declared within function scope under the ABI (5.1.5, doc-quotes.txt:8).
+- clz.b64 exists (9.7.1.16). %globaltimer is a 64-bit ns timer "intended for use by NVIDIA tools" (10.28).
+(b) Explicitly undefined by the text
+- match.sync when "the executing thread is not in the membermask" (9.7.15.11).
+- Scalar atom through a generic address that does not point to .global/.shared (9.7.15.5, ":16801-16803", stated as a restriction).
+- Misaligned access (6.4.1, :3245-3248).
+- %globaltimer value when JIT-compiled to other targets (10.28).
+(c) Not mentioned in the texts read
+- That activemask results agree across the lanes they name (c5 README:409-430: searched, "Not found").
+- Label scope across nested `{}` blocks.
+- Whether an inner block may shadow an outer register name.
+- Whether ptxas inlines .func calls, or how to request it.
+- Whether ptxas overlaps several `.local` depots.
+- Whether ptxas may move an inlined %globaltimer read across memory ops.
+- Alignment of host-call map-lookup results (bpftime code).
+
+==================================================================
+4. TESTS THAT PIN TODAY'S PROBE SHAPE
+==================================================================
+- No in-tree test covers nv_thread_local_routing.cpp or the 1530/1531/1532 maps. `git grep` for route_thread_local_maps, guard_generic_atomics, bpftime_tl, isspacep, 1530, 1531, THREAD_LOCAL_ARRAY, GPU_SUM_ARRAY and nv_gpu_model_maps over runtime/unit-test, attach/nv_attach_impl/test and vm found nothing.
+- In-tree tests that touch the shape:
+  - attach/nv_attach_impl/test/test_load_substitution.cpp:66-91 "Probe functions start with the probe switch": the gate is in the compiled probe function before any `ret;`, `@%bpftime_off ret;` is present, and the switch is declared before the function after wrap_ptx_with_trampoline. R9 still passes if the gate is still inserted at compile time and only removed by routing. R6 is affected.
+  - attach/nv_attach_impl/test/test_ptxpass.cpp:286-296 (compile).
+  - test_ptxpass.cpp:298-352 "A GPU program without bpf-to-bpf calls gets one stack frame": CHECK one_frame >= 512 and < 1024; all_frames >= 32*512; the program passes a stack pointer to helper 1 with fd 7. It breaks only if an IR-level R3/R7 removes the stack for that program.
+  - test_ptxpass.cpp:445-470 (one .version/.target).
+  - attach/nv_attach_impl/test/nv_attach_impl_tests.cpp:73-84 "Test string replace": the filter removes `.extern .func _bpf_helper_ext_` declarations.
+  - attach/nv_attach_impl/test/test_register_guard.cpp:58 "Test register guard".
+  - runtime/unit-test/cuda/test_cuda_host_call.cpp:100, 239, 317: hand-written PTX calling `_bpf_helper_ext_0001` with 5 params against the trampoline (`[cuda-host-call]`, `[cuda-ringbuf]`). Pins helper 1's ABI and host-call path.
+  - test_kernel_finder.cpp is not built (commented out in attach/nv_attach_impl/test/CMakeLists.txt:8).
+- Out of tree (/home/jetson/src/results/gpu/map-model-proto-20261116/):
+  - kmr/tl_route_check.cpp runs route_thread_local_maps on a PTX file. Outputs: kmr/routed.ptx, kmr/route-stats.txt ("kernels 3 call_sites 12 routed 6 unrouted 14 direct 6 area_args 15 zero_args 49 guarded_atomics 20"), kmr/call-sites.txt.
+  - ptx/ptxas_check.py and ptxas_check-final.txt: registers and frames of the four llama kernels, original vs patched.
+  - check/run_test_set.sh and check_test_set.py: end-to-end correctness of the tools on pt_victim.
+  - tests/nv_attach_tests-final.log: "All tests passed (148 assertions in 32 test cases)".
+
+Nothing in the repository was modified. Only scratchpad files were written: the PTX ISA page, its text dump, and a draft.

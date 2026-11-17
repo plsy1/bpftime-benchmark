@@ -2,6 +2,8 @@
 
 Follow-up to `gpu/step0b-checks-20261116`. The minimal prototype of the design built on the rule of that round: correctness on documented guarantees, measured behaviour only for speed. It covers a thread's state carried in its own local memory (type 1), mergeable results added into device memory (type 2), and delivery to the CPU ordered by documented synchronization. Per-record output (type 3) is not in it.
 
+**Corrections (2026-11-17, `gpu/probe-cost-20261117`).** `merge-cost/`'s "carry only" column lost its exit timer read and bucket to ptxas (the bucket was compared with 99, which it cannot reach); the merge columns stand. "It is the per-thread memory work that costs, not the probe calls" is superseded: on mul_mat_vec_q the timer helper calls cost about 0.035 ns per thread, the log2 chain (ALU only) about 0.035 ns, the 1531 lookup through helper 1 with the add about 0.135 ns.
+
 ## Summary
 
 - **Counts on a real application.** llama.cpp (TinyLlama Q4_K_M, llama-bench), probes on rms_norm, the largest mul_mat_q, the largest mul_mat_vec_q and rope at once. Every probed thread's exit was counted in every measured item (each item is the warmup plus five runs):
@@ -193,7 +195,7 @@ step0b C1 priced the carry with both probe calls at 0.104 ns on empty kernels, 0
 
 **Merge placement** (`merge-cost/`): empty kernels with the carry and nearly every thread in one bucket; two passes with clocks fixed (the board state was not logged); ns per thread execution over an empty kernel:
 
-| shape | carry only | + add to one word per bucket | per SM | per lane | per (SM, lane) |
+| shape | carry only (exit timer and bucket removed by ptxas, see Corrections) | + add to one word per bucket | per SM | per lane | per (SM, lane) |
 |---|---:|---:|---:|---:|---:|
 | 512 x 512 | 0.098 / 0.101 | 1.090 / 1.103 | 0.363 / 0.366 | 0.297 / 0.287 | 0.163 / 0.159 |
 | 8,192 x 512 | 0.094 / 0.097 | 1.086 / 1.099 | 0.353 / 0.356 | 0.292 / 0.281 | 0.159 / 0.154 |

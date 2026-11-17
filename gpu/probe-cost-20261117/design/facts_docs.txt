@@ -1,0 +1,306 @@
+NVIDIA documentation check: GPU probe design (bpftime, sm_87). I only read files. Nothing was built or run.
+
+SOURCES AND ABBREVIATIONS (paths are under /home/jetson/src/bpftime-gpu-work/step0b/c5-guarantees/docs/)
+- P92 = v13.2.2/text/ptx-isa.txt. PTX ISA 9.2, "Last updated on Apr 02, 2026" per v13.2.2/MANIFEST.tsv.
+- P95 = text/ptx-isa.txt. Correction to the task: this is NOT an older copy. MANIFEST.tsv lists it as "PTX ISA 9.5 documentation; Last updated on Nov 02, 2026".
+  - In P95 I checked the key sentences and they are worded the same as in P92: shfl.sync 17953, bar.warp.sync 26225, vote.sync 27682, match.sync 27740, activemask 27791, redux.sync 27829, %warpid 46150, %smid 46310, %clock64 46807, %globaltimer 46947.
+  - The P95 change lists for 9.3, 9.4 and 9.5 (P95:51531-51700) list no semantic change to any instruction asked about here.
+- G132-x = v13.2.2/text/cpg-x.txt. CUDA Programming Guide v13.2.
+- G135-x = text/cpg-x.txt. CUDA Programming Guide v13.5 ("Last updated on Oct 31, 2026").
+- L129 = text/cpg-legacy-12.9.txt. Legacy CUDA C++ Programming Guide 12.9.
+- Note: clock()/clock64() text exists only in G135-cpp-language-support and L129. The v13.2.2 set has no cpp-language-support file.
+
+======================================================================
+Q1. Warp ".sync" instructions with a membermask (sm_70 and later)
+
+(a) What the text guarantees
+
+PTX ISA 9.2, one sentence per instruction:
+- P92:16841: "shfl.sync will cause executing thread to wait until all non-exited threads corresponding to membermask have executed shfl.sync with the same qualifiers and same membermask value before resuming execution."
+- P92:24044 (vote.sync), P92:24102 (match.sync, "all non-exited threads from membermask") and P92:24191 (redux.sync) use the same wording.
+- P92:23065, bar.warp.sync: "bar.warp.sync will cause executing thread to wait until all threads corresponding to membermask have executed a bar.warp.sync with the same membermask value before resuming execution."
+  - This sentence says "all threads". It does NOT say "non-exited".
+  - P92:22856 (exit): "Barriers exclusively waiting on arrivals from exited threads are always released." Whether this sentence covers bar.warp.sync is not stated.
+
+Exited lanes are excluded from the results:
+- P92:24048: vote.sync "performs a reduction of the source predicate across all non-exited threads in membermask."
+- P92:24120: match.any: "d is set to mask of non-exited threads in membermask that have same value of operand a."
+- P92:24195: redux.sync reduces "across all non-exited threads in the membermask."
+
+Memory ordering:
+- P92:23071: "bar.warp.sync also guarantee memory ordering among threads participating in barrier."
+- shfl, vote, match and reduce give no memory ordering. G132-cpp-language-extensions:2399/2426/2458: "These intrinsics do not provide any memory ordering."
+
+"Same instruction" appears only for sm_6x:
+- P92:16861: "For .target sm_6x or below, all threads in membermask must execute the same shfl.sync instruction in convergence, and only threads belonging to some membermask can be active when the shfl.sync instruction is executed. Otherwise, the behavior is undefined."
+- The same note is at 23075 (bar.warp.sync) and 24072 (vote.sync).
+- For sm_70 and later, the only stated matching criterion is "same qualifiers and same membermask value".
+
+(b) What the text explicitly leaves undefined
+- P92:16857: "The behavior of shfl.sync is undefined if the executing thread is not in the membermask." The same sentence is at 23069, 24068, 24122 and 24209.
+- P92:16851: "Note that results are undefined if a thread sources a register from an inactive thread or a thread that is not in membermask."
+
+CUDA guide 13.x (C++ intrinsics). G132-cpp-language-extensions:2722-2742, identical in G135-cpp-language-extensions:2957-2977:
+- 2724: "The intrinsic waits until all non-exited warp threads specified in the mask reach the call."
+- 2728: "Each calling thread must have its corresponding bit set in the mask."
+- 2730: "Each non-calling thread must have its corresponding bit set to zero in the mask. Exited threads are ignored."
+- 2732: "All non-exited threads specified in the mask must execute the intrinsic with the same mask value."
+- 2734: "Warp threads may call the intrinsic concurrently with different mask values, provided the masks are disjoint. Such condition is valid even in divergent control flow."
+- 2736: "The behavior of warp __sync functions is invalid, such as kernel hang, or undefined if:"
+  - 2738: "A calling thread is not specified in the mask."
+  - 2740: "A non-exited thread specified in the mask fails to either eventually exit or call the intrinsic at the same program point with the same mask value."
+  - 2742: "In conditional code, all conditions must evaluate identically across all non-exited threads specified in the mask."
+
+Legacy guide 12.9:
+- L129:9721 (shfl; also 9600 vote, 9629 match, 9664 reduce): "Each calling thread must have its own bit set in the mask and all non-exited threads named in mask must execute the same intrinsic with the same mask, or the result is undefined."
+- L129:23764: "The following code pattern is valid on NVIDIA Volta GPU Architecture, but not on Pascal or earlier architectures."
+  - The code that follows (L129:23766-23774) calls `__shfl_xor_sync(0xffffffff, val, 16)` in both arms of an if/else (23768 and 23772). That is two program points with one mask, and 12.9 calls it valid.
+  - I did not find this example in the 13.x files (grep of G135-compute-capabilities, G135/G132-advanced-kernel-programming and G135-cpp-language-extensions: no hit).
+
+The three wordings, side by side. I do not reconcile them.
+- PTX 9.2: "same qualifiers and same membermask value".
+- Legacy 12.9: "same intrinsic" (plus the valid if/else example above).
+- CUDA 13.x: "same program point".
+
+(c) What the text does not mention
+- PTX ISA: whether different instances of the instruction (different program addresses) with the same qualifiers and mask pair up on sm_70 and later. It neither affirms nor forbids this.
+- What happens if a named, non-exited thread never arrives. PTX says only "wait until". Only the 13.x guide names an outcome: "invalid, such as kernel hang, or undefined".
+- How "program point" (13.x) maps to PTX. Also whether ptxas inlines a .func, which would turn one PTX instruction into several SASS addresses. PTX ISA says nothing on ptxas inlining.
+- How repeated arrivals are matched, for example one lane arriving twice before another lane arrives once.
+
+Applied to our exit probe:
+- Lanes that have already exited are excluded by the text (shfl, vote, match, redux; 13.x: "Exited threads are ignored").
+- A live lane that sits at another exit site, or reaches this site later, must not be named in the mask. Under PTX the caller waits for it. Under 13.x the call is invalid or undefined unless that lane eventually calls "at the same program point with the same mask value".
+- Different call sites into one .func: in PTX this is one instruction, so both the PTX rule and (reading program point as PTX instruction) the 13.x rule are met. That reading is mine; it is not stated.
+
+======================================================================
+Q2. activemask / __activemask() and the opportunistic pattern
+
+(a) What the text guarantees
+- P92:24153: "activemask queries predicated-on active threads from the executing warp and sets the destination d with 32-bit integer mask where bit position in the mask corresponds to the thread’s laneid."
+- P92:24157: "An active thread will contribute 1 for its entry in the result and exited or inactive or predicated-off thread will contribute 0 for its entry in the result."
+- Introduced in PTX ISA 6.2 (P92:24161). "Requires sm_30 or higher." (P92:24165)
+- G132-cpp-language-extensions:2354: "The function returns a 32-bit integer mask representing all currently active threads in the calling warp. ... Threads that have exited the program are always marked as inactive."
+- Definition of "active", G132-advanced-kernel-programming:184: "The threads of a warp that are participating in the current instruction are called the active threads, whereas threads not on the current instruction are inactive (disabled)."
+- Cooperative groups, G132-device-callable-apis:518 (same text at L129:13568): "Constructing the group handle via coalesced_threads() is opportunistic. It returns the set of active threads at that point in time, and makes no guarantee about which threads are returned (as long as they are active) or that they will stay coalesced throughout execution (they will be brought back together for the execution of a collective but can diverge again afterwards)." G132-cooperative-groups:221 is similar.
+- Legacy discovery pattern:
+  - L129:23801: "Discovery Pattern demonstrates a valid use case for __activemask()."
+  - L129:13634: "Commonly developers need to work with the current active set of threads. No assumption is made about the threads that are present..."
+  - Code at 13637-13646: `writemask = __activemask(); total = __popc(writemask); ... if (prefix == 0) base_offset = atomicAdd(p, total); base_offset = __shfl_sync(writemask, base_offset, elected_lane);`
+  - So 12.9 shows the activemask result used directly as the mask of a later __shfl_sync and calls it valid.
+- CG documents a group-by-key and reduce-then-atomic path at the C++ level:
+  - G132-device-callable-apis:729 labeled_partition "assign[s] threads that have the same value for label into the same group".
+  - 731: "Label can be any integral type."
+  - 735: "Note: This functionality is still being evaluated and may slightly change in the future."
+  - 737: "Compute Capability 7.0 minimum".
+  - 831, reduce: "Only 4B types are accelerated by hardware."
+  - 860, reduce_update_async: "Result of the reduction is used to atomically update the atomic ... Atomic update is performed with relaxed memory ordering."
+
+(b) What the text explicitly calls invalid or non-deterministic
+- G132-cpp-language-extensions:2358: "__activemask() cannot be used to determine which warp lanes execute a given branch. This function is intended for opportunistic warp-level programming and only provides an instantaneous snapshot of the active threads within a warp."
+- 2362-2364: `at_least_one = __activemask() > 0;` is marked "Invalid: the value of 'at_least_one' is non-deterministic".
+- L129:23776: "threads within a warp can diverge even within a single code path. As a result, __activemask() and __ballot(1) may return only a subset of the threads on the current code path."
+- L129:23789: a loop that uses `__ballot_sync(__activemask(), ...)` is "invalid because CUDA does not guarantee that the warp will diverge ONLY at the loop condition."
+
+(c) What the text does not state
+- That the lanes in the result execute the next instruction together. This is explicitly NOT guaranteed:
+  - G132-cpp-language-extensions:2367: "threads convergent at an __activemask() call are not guaranteed to remain convergent at subsequent instructions unless those instructions are warp synchronizing intrinsics (__sync)."
+  - L129:9598 says the same.
+- 2369-2373 shows `mask = __activemask(); ... __any_sync(mask, predicate); // Active threads might not be preserved`. The guide does not label this invalid or undefined.
+- That every lane named in an activemask result receives the identical value. This is not stated. It is my inference from the "active" definition (G132-advanced-kernel-programming:184).
+- PTX ISA says nothing about using activemask as a later membermask. The discovery pattern exists only in the 12.9 guide; I did not find it in the captured 13.x files.
+
+======================================================================
+Q3. redux.sync and match.sync
+
+match.sync
+- Syntax: `match.any.sync.type d, a, membermask; match.all.sync.type d[|p], a, membermask;` with ".type = { .b32, .b64 };" (P92:24095-24098). 64-bit is supported.
+- Wait rule: P92:24102.
+- .all (P92:24116): "d is set to mask corresponding to non-exited threads in membermask if all non-exited threads in membermask have same value of operand a; otherwise d is set to 0."
+- .any: P92:24120 (quoted in Q1).
+- Undefined if the executing thread is not in membermask: P92:24122.
+- "Requires sm_70 or higher." (P92:24130). Introduced in PTX ISA 6.0.
+- Guide: G132-cpp-language-extensions:2420: "T can be int, unsigned, long, unsigned long, long long, unsigned long long, float or double." L129:9608: "Supported by devices of compute capability 7.x or higher."
+
+redux.sync
+- Syntax (P92:24179-24186):
+  - .add/.min/.max with ".type = {.u32, .s32}"
+  - .and/.or/.xor with .b32
+  - .f32 min/max only
+- P92:24195: "redux.sync performs a reduction operation .op of the 32 bit source register src ... The result ... is written to the 32 bit destination register dst."
+- P92:24199: "For the .add operation result is truncated to 32 bits."
+- Undefined if the executing thread is not in membermask: P92:24209.
+- "Requires sm_80 or higher." (P92:24221). ".f32 type requires sm_100a".
+- No 64-bit form.
+- Guide: G132-cpp-language-extensions:2434: "Supported by devices of compute capability 8.x or higher." 2448: "T can be an unsigned or signed integer."
+
+Is sm_87 covered?
+- P92:42351: "In general, generations of SM architectures follow an onion layer model, where each generation adds new features and retains all features of previous generations."
+- The target table (P92:42554-42557) has "sm_87 | Baseline feature set for sm_87 architecture."
+- So sm_87 meets "sm_70 or higher" and "sm_80 or higher".
+- elect.sync is NOT available: "Requires sm_90 or higher." (P92:24302).
+
+======================================================================
+Q4. %globaltimer, %clock, %clock64
+
+(a) What the text guarantees
+- P92:42056: "%globaltimer: A predefined, 64-bit global nanosecond timer."
+- P92:42073: "Special registers intended for use by NVIDIA tools. The behavior is target-specific and may change or be removed in future GPUs. When JIT-compiled to other targets, the value of these registers is unspecified."
+- %globaltimer_lo/hi are "The lower/upper 32-bits of %globaltimer."
+- P92:41902: "Special register %clock and %clock_hi are unsigned 32-bit read-only cycle counters that wrap silently."
+- P92:41933: "Special register %clock64 is an unsigned 64-bit read-only cycle counter that wraps silently."
+- P92:41937: "The lower 32-bits of %clock64 are identical to %clock."
+- Guide, G135-cpp-language-support:2322: "When executed in device code, it returns the value of a per-multiprocessor counter that increments every clock cycle. Sampling this counter at the beginning and end of a kernel, subtracting the two values, and recording the result for each thread provides an estimate of the number of clock cycles the device spends executing the thread. However, this value does not represent the actual number of clock cycles the device spends executing the thread’s instructions. The former number is greater than the latter because threads are time-sliced."
+- L129:8816 has the same content but says "a measure". The CUDA guides do not document %globaltimer at all (no hit in any guide file).
+
+(c) Not stated, for both timers:
+- Resolution, and update granularity.
+- Monotonicity.
+- Whether two reads by the same thread are non-decreasing.
+- Relation to memory ordering. The memory-model chapter (P92:6819-7550) never mentions special registers.
+- Whether %clock64 values agree across SMs.
+- Whether %globaltimer reads agree across SMs. Only the word "global" in its title suggests this.
+- Whether reading the _lo and _hi halves separately is consistent.
+
+======================================================================
+Q5. call / call.uni, inlining, parameter passing
+
+(a) What the text guarantees
+- P92:22753: "A call is assumed to be divergent unless the .uni suffix is present. The .uni suffix indicates that the call is guaranteed to be non-divergent, i.e. all active threads in a warp that are currently executing this instruction have identical values for the guard predicate and call target." bra.uni uses the same wording (P92:22650).
+- P92:22755: "Arguments may be registers, immediate constants, or variables in .param space. Arguments are pass-by-value."
+- P92:6694: "execution of the call instruction transfers control to foo, implicitly saving the return address. Execution of the ret instruction within foo transfers control to the instruction following the call."
+- P92:22821 (ret): "A divergent return suspends threads until all threads are ready to return to the caller. This allows multiple divergent ret instructions." The text does not say "all threads" of what, and this wording predates independent thread scheduling.
+- Parameters:
+  - P92:6696: "return values may be placed directly into register variables."
+  - P92:6787: "the choice of .reg or .param state space for parameter passing has no impact on whether the parameter is ultimately passed in physical registers or on the stack."
+  - P92:43030: "The PTX syntax hides all details of the underlying calling convention and ABI."
+  - P92:43032: "The implementation of parameter passing is left to the optimizing translator, which may use a combination of registers and stack locations to pass parameters."
+  - So passing in registers without memory is NOT guaranteed. It is unspecified.
+- .abi_preserve (P92:43600-43626, sm_80 or higher, PTX ISA 9.0) is a performance-tuning directive that bounds caller live values held in callee-save registers.
+- Inlining is a compiler choice:
+  - L129:7776: "The compiler inlines any __device__ function when deemed appropriate."
+  - L129:7778: "__noinline__ ... as a hint for the compiler not to inline the function if possible."
+  - G132-cpp-language-extensions:474: "__noinline__: Instructs nvcc not to inline the function."
+  - PTX ISA has no inlining directive. "inlin" appears only in .loc inlined_at debug info (P92:43865).
+
+(b) Explicitly undefined: none found for call.uni. The consequence of a false .uni assertion is not stated.
+
+(c) Not stated
+- That an unpredicated direct call.uni is always valid in a diverged warp. My derivation, not a quote: the definition only requires identical guard predicate and target among the active threads executing it. With no guard and a fixed symbol, that holds by construction.
+- Any semantic difference between calling a .func and inlining its body.
+
+======================================================================
+Q6. atom vs red, generic addresses into .local, isspacep, default scope, performance
+
+(a) What the text guarantees
+- atom: P92:23363: "Atomically loads the original value at location a into destination register d, performs a reduction operation ... If no state space is given, perform the memory accesses using Generic Addressing. atom with scalar type may be used only with .global and .shared spaces and with generic addressing, where the address points to .global or .shared space."
+- red: P92:23623 has the same restriction and no destination.
+- P92:23463: "Simple reductions may be specified by using the bit bucket destination operand _."
+- Defaults (atom 23369/23371, red 23629/23631):
+  - "If the .sem qualifier is absent, .relaxed is assumed by default."
+  - "If the .scope qualifier is absent, .gpu scope is assumed by default."
+- P92:23426/23686: "Two atomic operations (atom or red) are performed atomically with respect to each other only if each operation specifies a scope that includes the other."
+- P92:7511: "Atomic reduction operations like red do not form acquire patterns with acquire fences."
+- P92:7541: "Using the atom instruction instead of red forbids this outcome."
+- isspacep, P92:18711: "Write predicate register p with 1 if generic address a falls within the specified state space window and with 0 otherwise."
+- P92:18715: "isspacep.global returns 1 for Kernel Function Parameters".
+- Same-address atomics: G132-advanced-kernel-programming:188 (also L129:6811): "If an atomic instruction executed by a warp reads, modifies, and writes to the same location in global memory for more than one of the threads of the warp, each read/modify/write to that location occurs and they are all serialized, but the order in which they occur is undefined."
+
+(b) Explicitly undefined
+- Atomic order among lanes ("order ... is undefined").
+- atom/red on a generic address that points to .local falls outside "may be used only with". The word "undefined" is not used, and the consequence is not stated.
+
+(c) Not stated: any throughput statement for atom vs red, or for contention.
+
+======================================================================
+Q7. Generic ld/st into the local window vs ld.local/st.local, and alignment
+
+(a) What the text guarantees
+- P92:5476: "If a memory instruction does not specify a state space, the operation is performed using generic addressing. The state spaces .const, Kernel Function Parameters (.param), .local and .shared are modeled as windows within the generic address space. ... Within each window, a generic address maps to an address in the underlying state space by subtracting the window base from the generic address."
+- P92:17479 (ld): "If no state space is given, perform the load using Generic Addressing."
+- The only stated difference is which qualifiers are allowed:
+  - P92:17505: .relaxed/.acquire "May be used with .global, .shared spaces, or with generic addressing where the address points to .global or .shared space."
+  - P92:17511: .volatile "May be used with .global, .shared, .local spaces, or with generic addressing where the address points to .global, .shared, or .local space."
+- P92:3023: "The local state space (.local) is private memory for each thread to keep its own data."
+- Alignment:
+  - P92:5451: "The address must be naturally aligned to a multiple of the access size. If an address is not properly aligned, the resulting behavior is undefined. For example, among other things, the access may proceed by silently masking off low-order address bits to achieve proper rounding, or the instruction may fault."
+  - P92:4074: ".align byte-count ... The variable will be aligned to an address which is an integer multiple of byte-count."
+  - P92:4076: "The default alignment for scalar and array variables is to a multiple of the base-type size."
+
+(b) Explicitly undefined
+- A misaligned 8-byte access (P92:5451).
+- P92:18780 (cvta): "When converting a generic address into a const, Kernel Function Parameters (.param), global, local, or shared address, the resulting address is undefined in cases where the generic address does not fall within the address window of the specified state space."
+
+(c) Not stated
+- The alignment of the local window base. So an 8-aligned .local offset is not stated to give an 8-aligned generic address.
+- Whether a generic address and its .local equivalent count as "aliases":
+  - P92:6851: "Two distinct virtual addresses are said to be aliases if they map to the same memory location."
+  - P92:7037: "virtual aliases ... require a proxy fence to establish memory ordering".
+- Any performance difference between generic and .local accesses.
+
+======================================================================
+Q8. %laneid, %lanemask_*, %warpid, %smid, %nsmid
+
+(a) What the text guarantees
+- P92:41248: %laneid "returns the thread’s lane within the warp. The lane identifier ranges from zero to WARP_SZ-1."
+- %lanemask_eq/le/lt (P92:41765/41791/41817): "A predefined, read-only special register initialized with a 32-bit mask with bits set in positions less than the thread’s lane number in the warp." (wording shown is lt)
+- P92:41276: "Note that %warpid returns the location of a thread at the moment when read, but its value may change during execution, e.g., due to rescheduling of threads following preemption. For this reason, %ctaid and %tid should be used to compute a virtual warp index..."
+- P92:41436: "Note that %smid returns the location of a thread at the moment when read, but its value may change during execution, e.g. due to rescheduling of threads following preemption."
+- P92:41462 (%nsmid): "The SM identifier numbering is not guaranteed to be contiguous, so %nsmid may be larger than the physical number of SMs in the device."
+- G132-advanced-kernel-programming:192: "The way a block is partitioned into warps is always the same; each warp contains threads of consecutive, increasing thread IDs with the first warp containing thread 0."
+- G132-cpp-language-extensions:2724: "lane ID (threadIdx.x % warpSize)".
+
+(c) Not stated: %laneid stability. Unlike %warpid and %smid, it has no "may change" note, but stability is not affirmed. That it is stable is my inference from the fixed warp partition and the lane ID = threadIdx.x % warpSize equation.
+
+======================================================================
+Q9. Register state across compute preemption
+
+Not stated explicitly. Closest quotes:
+- P92:1545: "each scalar thread executes independently with its own instruction address and register state".
+- P92:1563, and G132-advanced-kernel-programming:178: "the GPU maintains execution state per thread, including a program counter and call stack, and can yield execution at a per-thread granularity".
+- L129:6763: "Compute Preemption. This allows compute tasks to be preempted at instruction-level granularity". It says nothing about state save or restore.
+- P92:2980: "When the limit is exceeded, register variables will be spilled to memory, causing changes in performance."
+- The only state documented to change after preemption is %warpid and %smid (P92:41276/41436). No document lists .reg values as changing.
+
+======================================================================
+Summary table
+
+T1. Keep the probe start time in a register (inlined, or passed as a call parameter / return value)
+- Documented basis: per-thread register state (P92:1545); pass-by-value arguments and return values (P92:22755, 6696); spilling affects only performance (P92:2980).
+- Physical register vs stack is UNSPECIFIED (P92:43032, 6787). That is a performance matter only.
+- Survival across preemption: not stated explicitly. It is the same basis every kernel relies on.
+- Condition: carry the value through PTX data flow, i.e. a kernel-scope .reg that the entry-probe return writes and every exit-probe call receives as an argument. Do not rely on any ABI register.
+
+T2. Read %globaltimer directly instead of through a helper
+- Same register, same documented basis, which is weak: "64-bit global nanosecond timer"; "intended for use by NVIDIA tools ... target-specific ... may change or be removed" (P92:42056/42073). This holds if the helper itself reads %globaltimer.
+- No documented difference between inline and call.
+- Monotonicity and resolution: not stated.
+- Condition: use one 64-bit mov of %globaltimer, not separate _lo/_hi reads (their consistency is not stated).
+
+T3. Warp combine: activemask, then match.any.sync on the key, then one lane does atom.add(popc)
+- Instruction semantics are documented: match .b64 on sm_70+ (P92:24098/24130), d identical within a key group (P92:24120), atom/red relaxed with gpu scope (P92:23369/23371).
+- The whole pattern is documented only in legacy 12.9 (L129:13634-13646, 23801). It is absent from the 13.x files; at C++ level 13.x documents CG labeled_partition + reduce_update_async (G132-device-callable-apis:729-737, 860).
+- Conditions:
+  1. Every lane named in the mask holds the identical mask value. NOT stated; my inference.
+  2. Straight-line code from activemask to match.sync, with no branch that a named lane could skip (P92:24102; G132-cpp-language-extensions:2740/2742).
+  3. The executing lane is in the mask (P92:24122 makes the opposite undefined).
+- 64-bit value sums need a second step; see T4.
+
+T4. The same combine using redux.sync
+- Documented on sm_87: sm_80+ (P92:24221) plus the onion model (P92:42351).
+- 32-bit only: .u32/.s32 add/min/max, .b32 and/or/xor. "For the .add operation result is truncated to 32 bits" (P92:24199). A 64-bit sum is NOT available from one redux.
+- Same conditions as T3.
+- Using per-key masks (disjoint masks): PTX does not forbid it; G132-cpp-language-extensions:2734 explicitly allows disjoint masks.
+- elect.sync is not available on sm_87 (P92:24302).
+
+T5. One 8-byte generic load of an 8-byte-aligned local value
+- Documented: generic addresses map into the .local window (P92:5476); natural alignment is required, and misalignment is UNDEFINED (P92:5451).
+- Conditions:
+  1. The generic address itself must be a multiple of 8. Window-base alignment is not stated, so check the generic address, not only the .local offset.
+  2. Generic vs .local "alias" status is not stated (P92:6851/7037). The safe choice is to use the same addressing form for the store and the load.
+
+T6. Use %clock64 instead of %globaltimer for entry-to-exit durations of the same thread
+- Documented only as an estimate in cycles: "per-multiprocessor counter that increments every clock cycle", sampled at begin and end per thread (G135-cpp-language-support:2322; L129:8816); it "wraps silently" (P92:41933).
+- NOT documented: conversion to nanoseconds, and agreement across SMs.
+- %smid "may change during execution ... following preemption" (P92:41436). So the two samples may come from two different per-SM counters. That consequence is my inference; it is not stated.
+- Valid as a cycle count only under that caveat; not valid as a duration in ns.
