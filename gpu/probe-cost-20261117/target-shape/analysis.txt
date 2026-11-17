@@ -1,0 +1,36 @@
+tg128, probes on the largest mul_mat_vec_q only; ns per thread = (time per run - base) / 3137339392; median of 5 runs
+variant items: lat_mmvq with its patched PTX replaced (BPFTIME_CUDA_PTX_OVERRIDE_DIR); checks: override logged, sum map exact (15711207424), bucket 194 = 0
+== out/c1-20261117-110636
+  base                  67.80 t/s  1.888 s/run  +0.0000 ns/thread  override=0
+  empty2_mmvq           65.85 t/s  1.944 s/run  +0.0178 ns/thread  override=0
+  lat_mmvq@regcap       58.69 t/s  2.181 s/run  +0.0934 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq@inline       57.10 t/s  2.242 s/run  +0.1127 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq@loc          56.72 t/s  2.257 s/run  +0.1175 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq@reg          54.41 t/s  2.353 s/run  +0.1481 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq@chain        53.52 t/s  2.392 s/run  +0.1606 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq@area         50.57 t/s  2.531 s/run  +0.2049 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq@t0           46.07 t/s  2.778 s/run  +0.2838 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq              46.06 t/s  2.779 s/run  +0.2840 ns/thread  override=0 sum 15711207424 exact b194=0
+== out/c2-20261117-111704
+  base                  67.65 t/s  1.892 s/run  +0.0000 ns/thread  override=0
+  empty2_mmvq           65.86 t/s  1.943 s/run  +0.0163 ns/thread  override=0
+  lat_mmvq@regcap       58.68 t/s  2.181 s/run  +0.0921 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq@inline       57.12 t/s  2.241 s/run  +0.1112 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq@loc          56.70 t/s  2.258 s/run  +0.1164 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq@reg          54.33 t/s  2.356 s/run  +0.1478 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq@chain        53.58 t/s  2.389 s/run  +0.1584 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq@area         50.57 t/s  2.531 s/run  +0.2036 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq              46.12 t/s  2.776 s/run  +0.2816 ns/thread  override=0 sum 15711207424 exact b194=0
+  lat_mmvq@t0           46.10 t/s  2.777 s/run  +0.2819 ns/thread  override=1 sum 15711207424 exact b194=0
+== out/d1-20261117-112913
+  lat_mmvq@nonecap      70.11 t/s  1.826 s/run  -0.0210 ns/thread  override=1 sum 0 0 (no probes) b194=0
+  lat_mmvq@none         67.90 t/s  1.885 s/run  -0.0020 ns/thread  override=1 sum 0 0 (no probes) b194=0
+  base                  67.67 t/s  1.891 s/run  +0.0000 ns/thread  override=0
+  lat_mmvq@regcap       58.66 t/s  2.182 s/run  +0.0927 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq@loc          56.71 t/s  2.257 s/run  +0.1166 ns/thread  override=1 sum 15711207424 exact b194=0
+== out/d2-20261117-113358
+  lat_mmvq@nonecap      70.07 t/s  1.827 s/run  -0.0182 ns/thread  override=1 sum 0 0 (no probes) b194=0
+  base                  67.94 t/s  1.884 s/run  +0.0000 ns/thread  override=0
+  lat_mmvq@none         67.39 t/s  1.900 s/run  +0.0049 ns/thread  override=1 sum 0 0 (no probes) b194=0
+  lat_mmvq@regcap       58.67 t/s  2.182 s/run  +0.0948 ns/thread  override=1 sum 15711207424 exact b194=0
+  lat_mmvq@loc          56.76 t/s  2.255 s/run  +0.1182 ns/thread  override=1 sum 15711207424 exact b194=0

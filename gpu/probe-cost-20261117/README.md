@@ -2,7 +2,7 @@
 
 Follow-up to `gpu/map-model-proto-20261116`. There a latency histogram (`lat`: the entry stores `%globaltimer` in the thread-local map 1530, the exit adds 1 to a log2 bucket in the sum map 1531) cost 33% of llama.cpp's tg128 throughput, about 0.28-0.30 ns per thread on mul_mat_vec_q, whose own work is about 0.41 ns per thread. At most 5% on tg128 allows about 0.031 ns per thread.
 
-This round finds where the 0.28 ns goes, prices probe shapes, checks the documents for each way of cutting it, and writes one design. Nothing in bpftime was changed.
+This round finds where the 0.28 ns goes, prices probe shapes, checks the documents for each way of cutting it, writes one design, and measures its end shapes on the real kernel. The only bpftime change is a debug-only hook for that measurement.
 
 Board and settings as before: Orin Nano 8 GB (sm_87, 8 SMs), clocks fixed and checked before every item, prototype build c940870b, llama-bench TinyLlama Q4_K_M `-r 5` with warmup.
 
@@ -77,18 +77,39 @@ Three independent designs, one review that tried to refute every step, and one s
 - Not on the main path: splicing the probe body into the kernel (no document covers the equivalence), warp combine (above), `.global` conversions of the shard address (window membership not stated), `call.uni`.
 - Open for the user: whether to accept splicing as a derivation if the budget needs it; the one-line tool change for clz; threadhist (1532) needs its own design, since its cost is bytes per thread.
 
-**Measure first.** Before any product code, a debug override that compiles a hand-edited patched PTX in place of the generated one, for the real kernel:
-- T0: unchanged (must equal `lat`);
-- the end shape with the start in today's area;
-- the end shape with the start in registers, calls kept;
-- the same with `.local` words;
-- the same with the log2 chain instead of clz;
-- the same with the probe spliced into the kernel (measurement only).
+The expected ends above were estimates; section 5 measured the end shapes on the real kernel, and they replace them.
 
-Rules fixed now (both passes, mul_mat_vec_q target 0.029 ns):
-- calls kept at or below 0.029: the documented path meets the budget; build it;
-- only the spliced form at or below 0.029: build the documented path, and the budget needs the user's decision on splicing;
-- spliced above 0.029: build the documented path for its gain and reopen the tool shape or the budget.
+## 5. The end shapes on the real kernel (`target-shape/`)
+
+A debug-only hook (`patches/0001`, local commit c27412f4 on proto/map-model) compiles a hand-edited patched PTX in place of the generated one (`BPFTIME_CUDA_PTX_OVERRIDE_DIR`, keyed by the generated PTX's sha256). `make_variants.py` edits only mul_mat_vec_q's call sites and adds new probe functions. Every variant keeps the probe switch (read once per kernel), the no-start bucket, the sum map's NULL conditions and the add; the end shape reads `%globaltimer` inline, takes `63 - clz(delta | 1)`, computes the (SM, lane) shard address from `map_info` and checks `isspacep.global` before the generic `atom.add`. Rules were fixed before the runs (`target-shape/DECISION-RULES.md`, with an addendum before d1/d2).
+
+tg128, mul_mat_vec_q only, passes c1/c2 (`target-shape/analysis.txt`):
+
+| variant | registers | t/s | s per run | added per thread |
+|---|---:|---:|---:|---:|
+| base (no agent) | 56 | 67.7-67.8 | 1.89 | - |
+| empty probes | | 65.9 | 1.94 | 0.016-0.018 ns |
+| lat, generated | 56 | 46.1 | 2.78 | 0.282-0.284 ns |
+| t0: lat through the hook, unchanged | 56 | 46.1 | 2.78 | 0.282-0.284 ns |
+| area: end shape, start in today's area | 64 | 50.6 | 2.53 | 0.204-0.205 ns |
+| chain: start by value, 30-instruction log2 | 64 | 53.5-53.6 | 2.39 | 0.158-0.161 ns |
+| reg: start by value (register) | 64 | 54.3-54.4 | 2.35 | 0.148 ns |
+| loc: start in a kernel `.local` word | 56 | 56.7 | 2.26 | 0.116-0.118 ns |
+| inline: probe bodies spliced, no calls | 64 | 57.1 | 2.24 | 0.111-0.113 ns |
+| regcap: reg with `.maxnreg 56` | 48 | 58.7 | 2.18 | 0.092-0.093 ns |
+
+Every variant counted every exit (15,711,207,424) with 0 in the no-start bucket, and logged the override.
+
+Passes d1/d2 explain regcap: the kernel without probe calls, compiled in the same module, runs at 67.4-67.9 t/s with 56 registers (`none`) and at 70.1 t/s with the cap (`nonecap`, 48 registers): the cap alone makes mul_mat_vec_q 0.019-0.023 ns per thread faster. Against `nonecap` regcap's probes cost 0.113-0.114 ns per thread (d1/d2: regcap 0.093-0.095, loc 0.117-0.118). So at equal registers the three best shapes cost the same, about 0.11-0.12 ns per thread.
+
+Verdicts (rules fixed before the runs, both passes):
+- D1, calls kept at or below 0.029 ns: **not met** (best 0.092; 0.113 at equal registers).
+- D2/D3: spliced 0.111-0.113 > 0.029: **D3**. This tool shape (two timer reads, a bucket and one add per thread) cannot reach 5% on mul_mat_vec_q on this board, spliced or not. The documented path is still worth building for its gain (0.284 -> about 0.11-0.12 ns, 46 -> about 57 t/s, -32% -> about -16%); the 5% target needs another tool shape or another budget.
+- D4, clz: chain - reg = 0.011-0.013 >= 0.01: build it.
+- D5, register vs `.local`: reg (64 registers) is slower than loc; regcap beats loc only through the register cap, which speeds up the kernel itself. Carry the start in a `.local` word unless the registers stay at the kernel's own count.
+- D6: area - reg = 0.056 >= 0.03: carrying the start by value comes before inlining the lookup.
+- Splicing gains nothing over the call forms at equal cost, so the undocumented step is not needed.
+- Register count moves the result as much as the probe's instructions do (reg 0.148 against loc 0.117 and regcap 0.093). A product must check registers per kernel (as the design's mode rule said); mul_mat_vec_q sits at the 36-warp boundary.
 
 ## Corrections to gpu/map-model-proto-20261116
 
@@ -102,3 +123,4 @@ Rules fixed now (both passes, mul_mat_vec_q target 0.029 ns):
 - `tools/`: `pt_timer`, `pt_sreg`, `pt_count`, `pt_carrynolog` (new), with `pt_lat`, `pt_empty`, `pt_common.h` and the Makefile.
 - `probe-shape/`: source, SASS, two passes, `analysis.txt`.
 - `design/`: inputs (`measurements.md` as given to the panel, before section 1's b-passes; SASS; `facts_docs.txt`, `facts_code.txt`), the three designs, `refutation.md`, `synthesis.md`.
+- `target-shape/`: `make_variants.py` (the variants, from the dumped PTX whose sha256 is in `dump-sha256.txt`; the 11.6 MB PTX files are not kept), `DECISION-RULES.md`, `analysis.txt`, `variants-info/` (registers, ptxas logs, SASS of mul_mat_vec_q per variant); `meas/run_meas3.sh` (items `tool@variant`), `meas/out/{c1,c2,d1,d2}-*`; `patches/0001` (the hook).
