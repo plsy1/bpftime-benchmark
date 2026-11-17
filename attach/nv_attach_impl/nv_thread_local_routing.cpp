@@ -120,15 +120,11 @@ bool parse_int(const std::string &s, long long *v)
 // leading braces, labels and a guard predicate stripped. Directives without
 // a ';' (.loc, .file) stay glued to the statement after them; count_defs
 // then counts that statement if it mentions the register at all.
-std::vector<std::string> statements(const std::string &body,
-				    bool keep_guards = false)
+std::vector<std::string> statements(const std::string &body)
 {
 	static const std::regex comment(R"(//[^\n]*|/\*[\s\S]*?\*/)");
 	static const std::regex lead(
-		R"(^(?:\s|[{}]|[$A-Za-z_][\w$]*\s*:(?!:)|@\s*!?\s*%[\w$]+)+)");
-	// labels and braces only: a guard stays at the front
-	static const std::regex lead_kept(
-		R"(^(?:\s|[{}]|[$A-Za-z_][\w$]*\s*:(?!:))+)");
+		R"(^(?:\s|[{}]|[%$A-Za-z_][\w$]*\s*:(?!:)|@\s*!?\s*%[\w$]+)+)");
 	std::string text = std::regex_replace(body, comment, "");
 	std::vector<std::string> out;
 	size_t start = 0;
@@ -137,7 +133,7 @@ std::vector<std::string> statements(const std::string &body,
 		std::string st = text.substr(
 			start, semi == std::string::npos ? std::string::npos :
 							   semi - start);
-		st = std::regex_replace(st, keep_guards ? lead_kept : lead, "");
+		st = std::regex_replace(st, lead, "");
 		out.push_back(trim(st));
 		if (semi == std::string::npos)
 			break;
@@ -227,7 +223,7 @@ bool stack_slot(const std::string &body, const std::string &reg,
 	if (count_defs(body, reg, &def) != 1)
 		return false;
 	static const std::regex addr(
-		R"(^(add\.[us]64|mov\.[ub]64)\s+(%[\w$]+)\s*,\s*(%[\w$]+)\s*(?:,\s*(-?\d+))?\s*$)");
+		R"(^(add\.[us]64|mov\.[ub]64)\s+(%[\w$]+)\s*,\s*(%[\w$]+)\s*(?:,\s*(-?(?:0|[1-9]\d{0,17})))?\s*$)");
 	std::smatch m;
 	if (!std::regex_match(def, m, addr) || m[2] != reg)
 		return false;
@@ -253,73 +249,121 @@ bool has_frame(const std::string &body)
 	       std::regex_match(b, sp);
 }
 
+// One statement of the text before a lookup (comments removed), with what
+// its leading text held: a label (a basic block starts there) or a brace
+// (a scope opens or closes). Guards stay in the text.
+struct piece {
+	std::string text;
+	bool label = false;
+	bool brace = false;
+};
+
+std::vector<piece> pieces(const std::string &text)
+{
+	static const std::regex comment(R"(//[^\n]*|/\*[\s\S]*?\*/)");
+	static const std::regex lead(
+		R"(^(?:\s|[{}]|[%$A-Za-z_][\w$]*\s*:(?!:))+)");
+	static const std::regex lab(R"([%$A-Za-z_][\w$]*\s*:(?!:))");
+	const std::string t = std::regex_replace(text, comment, " ");
+	std::vector<piece> out;
+	size_t start = 0;
+	for (;;) {
+		size_t semi = t.find(';', start);
+		std::string s = t.substr(start, semi == std::string::npos ?
+							std::string::npos :
+							semi - start);
+		piece p;
+		std::smatch m;
+		if (std::regex_search(s, m, lead)) {
+			const std::string l = m.str(0);
+			p.brace = l.find_first_of("{}") != std::string::npos;
+			p.label = std::regex_search(l, lab);
+			s = s.substr(m.length(0));
+		}
+		p.text = trim(s);
+		out.push_back(p);
+		if (semi == std::string::npos)
+			break;
+		start = semi + 1;
+	}
+	return out;
+}
+
 // The value a map lookup's key holds, taken from the store that put it in
-// its stack slot: the last store to the slot in the same basic block before
-// the call, with nothing in between that could write the slot (a store the
-// pass cannot place in the frame, a call, an atomic) or the stored register.
-// Empty when that is not shown; the lookup then loads the key as before.
+// its stack slot: the last store to the slot before the call, in the same
+// basic block and scope, unguarded, with nothing in between that could write
+// the slot or the stored register. Fail closed: a label, a brace, a
+// directive, a guarded store, a call, an atomic or reduction, a store the
+// pass cannot place in the frame, a literal that is not plain decimal, a
+// store whose state space does not match its base (st.local through the
+// depot's local address, st through its generic one) or a key pointer not
+// on the generic frame each give up, and the lookup loads the key as before.
 std::string forwarded_key(const std::string &fbody, size_t call_at,
 			  const std::string &kp)
 {
 	std::string kb;
 	long long ko = 0;
-	if (!has_frame(fbody) || !stack_slot(fbody, kp, &kb, &ko))
+	if (!has_frame(fbody) || !stack_slot(fbody, kp, &kb, &ko) ||
+	    kb != "%SP")
 		return "";
-	const std::string before = fbody.substr(0, call_at);
-	static const std::regex label(
-		R"((^|\n)[ \t]*[$A-Za-z_][\w$]*[ \t]*:(?!:))");
-	size_t from = 0;
-	for (auto it = std::sregex_iterator(before.begin(), before.end(),
-					    label);
-	     it != std::sregex_iterator(); ++it)
-		from = it->position(0) + it->length(0);
-	// guards kept: a store under a predicate may not have run
-	const auto sts = statements(before.substr(from), true);
+	const auto ps = pieces(fbody.substr(0, call_at));
 	static const std::regex store(
-		R"(^st(\.local)?\.[ubs](8|16|32|64)\s+\[\s*(%[\w$]+)\s*(?:\+\s*(-?\d+))?\s*\]\s*,\s*(%[\w$]+|-?\d+)\s*$)");
-	for (int i = (int)sts.size() - 1; i >= 0; i--) {
-		const std::string &st = sts[i];
-		if (st.empty() || st[0] == '.')
+		R"(^st(\.local)?\.[ubs](8|16|32|64)\s+\[\s*(%[\w$]+)\s*(?:\+\s*(-?(?:0|[1-9]\d{0,17})))?\s*\]\s*,\s*(%[\w$]+|-?(?:0|[1-9]\d{0,9}))\s*$)");
+	static const std::regex guarded(
+		R"(^@\s*!?\s*%[\w$]+\s+(st|call|atom|red)\b)");
+	for (int i = (int)ps.size() - 1; i >= 0; i--) {
+		const piece &p = ps[i];
+		const std::string &st = p.text;
+		const std::string op =
+			st.substr(0, st.find_first_of(" \t\n"));
+		const bool is_store = op.rfind("st", 0) == 0 &&
+				      op.rfind("st.param", 0) != 0;
+		if (is_store) {
+			std::smatch m;
+			if (!std::regex_match(st, m, store))
+				return ""; // a store the pass cannot read
+			std::string sb;
+			long long so = 0;
+			if (!stack_slot(fbody, m[3], &sb, &so))
+				return ""; // it may write the slot
+			so += m[4].matched ? std::stoll(m[4]) : 0;
+			const long long w = std::stoll(m[2]) / 8;
+			const bool overlaps = !(so + w <= ko || so >= ko + 4);
+			if (overlaps) {
+				if (so != ko || w != 4)
+					return ""; // part of the key
+				const bool local = m[1].matched;
+				if (local != (sb == "%SPL"))
+					return ""; // not the depot's bytes
+				const std::string v = m[5];
+				if (v[0] == '%') {
+					if (v.rfind("%rd", 0) != 0 &&
+					    v.rfind("%r", 0) != 0)
+						return "";
+					std::string rest;
+					for (size_t j = i + 1; j < ps.size(); j++)
+						rest += ps[j].text + ";";
+					if (count_defs(rest, v) != 0)
+						return "";
+				}
+				return v;
+			}
+		}
+		// between the slot's store and the call
+		if (p.label || p.brace)
+			return ""; // another path or scope
+		if (st.empty() || is_store)
 			continue;
+		if (st[0] == '.')
+			return ""; // a directive, possibly glued to an instruction
 		if (st[0] == '@') {
-			// a guarded instruction: a store under it may or may not
-			// have written the slot
-			static const std::regex guarded_store(
-				R"(^@\s*!?\s*%[\w$]+\s+(st|call|atom|red)\b)");
-			if (std::regex_search(st, guarded_store))
+			if (std::regex_search(st, guarded))
 				return "";
 			continue;
 		}
-		const std::string op = st.substr(0, st.find_first_of(" \t\n"));
 		if (op.rfind("call", 0) == 0 || op.rfind("atom", 0) == 0 ||
 		    op.rfind("red", 0) == 0)
 			return "";
-		if (op.rfind("st", 0) != 0 || op.rfind("st.param", 0) == 0)
-			continue;
-		std::smatch m;
-		if (!std::regex_match(st, m, store))
-			return ""; // a store the pass cannot read
-		std::string sb;
-		long long so = 0;
-		if (!stack_slot(fbody, m[3], &sb, &so))
-			return ""; // it may write the slot
-		so += m[4].matched ? std::stoll(m[4]) : 0;
-		const long long w = std::stoll(m[2]) / 8;
-		if (so + w <= ko || so >= ko + 4)
-			continue; // another slot
-		if (so != ko || w != 4)
-			return ""; // part of the key
-		const std::string v = m[5];
-		if (v[0] == '%') {
-			std::string rest;
-			for (size_t j = i + 1; j < sts.size(); j++)
-				rest += sts[j] + ";";
-			if (count_defs(rest, v) != 0)
-				return "";
-			if (v.rfind("%rd", 0) != 0 && v.rfind("%r", 0) != 0)
-				return "";
-		}
-		return v;
 	}
 	return "";
 }

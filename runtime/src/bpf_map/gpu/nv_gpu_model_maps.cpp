@@ -137,8 +137,9 @@ namespace
 {
 // dst[e * W + w] = sum over s < S of src[(e * S + s) * W + w], read with
 // ld.relaxed.gpu.global on the cvta.to.global address, the form of the
-// programs' adds into the copy (atom/red .global, nv_thread_local_routing):
-// the same address in the same state space, so the load and the adds are
+// programs' adds into the copy (atom/red .global, nv_thread_local_routing,
+// which runs for every module of a process with a 1531 or 1532 map): the
+// same address in the same state space, so the load and the adds are
 // morally strong (PTX ISA 8.7).
 const char *snapshot_ptx = R"PTX(
 .version 7.0

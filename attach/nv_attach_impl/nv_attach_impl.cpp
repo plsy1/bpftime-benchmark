@@ -991,10 +991,15 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
 {
 	std::vector<thread_local_map_desc> descs;
 	std::vector<sum_map_desc> sums;
+	// 1532's adds must take the .global form the delivery reads with too
+	// (the wrapper's isspacep.global branch), so its maps run the pass
+	bool device_arrays = false;
 	uint64_t area = 0;
 	const auto &info = *this->map_basic_info;
 	for (size_t i = 0; i < info.size(); i++) {
 		const auto &m = info[i];
+		if (m.enabled && m.map_type == 1532 /* device per-thread */)
+			device_arrays = true;
 		if (m.enabled && m.map_type == 1531 /* sum array */) {
 			sum_map_desc d;
 			d.fd = (int)i;
@@ -1015,7 +1020,7 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
 		area = std::max(area, d.offset + d.value_size * d.max_entries);
 		descs.push_back(d);
 	}
-	if (descs.empty() && sums.empty())
+	if (descs.empty() && sums.empty() && !device_arrays)
 		return ptx;
 	std::vector<std::string> kernels;
 	for (const auto &[_, entry] : this->hook_entries)
