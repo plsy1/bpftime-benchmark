@@ -120,11 +120,15 @@ bool parse_int(const std::string &s, long long *v)
 // leading braces, labels and a guard predicate stripped. Directives without
 // a ';' (.loc, .file) stay glued to the statement after them; count_defs
 // then counts that statement if it mentions the register at all.
-std::vector<std::string> statements(const std::string &body)
+std::vector<std::string> statements(const std::string &body,
+				    bool keep_guards = false)
 {
 	static const std::regex comment(R"(//[^\n]*|/\*[\s\S]*?\*/)");
 	static const std::regex lead(
 		R"(^(?:\s|[{}]|[$A-Za-z_][\w$]*\s*:(?!:)|@\s*!?\s*%[\w$]+)+)");
+	// labels and braces only: a guard stays at the front
+	static const std::regex lead_kept(
+		R"(^(?:\s|[{}]|[$A-Za-z_][\w$]*\s*:(?!:))+)");
 	std::string text = std::regex_replace(body, comment, "");
 	std::vector<std::string> out;
 	size_t start = 0;
@@ -133,7 +137,7 @@ std::vector<std::string> statements(const std::string &body)
 		std::string st = text.substr(
 			start, semi == std::string::npos ? std::string::npos :
 							   semi - start);
-		st = std::regex_replace(st, lead, "");
+		st = std::regex_replace(st, keep_guards ? lead_kept : lead, "");
 		out.push_back(trim(st));
 		if (semi == std::string::npos)
 			break;
@@ -269,13 +273,23 @@ std::string forwarded_key(const std::string &fbody, size_t call_at,
 					    label);
 	     it != std::sregex_iterator(); ++it)
 		from = it->position(0) + it->length(0);
-	const auto sts = statements(before.substr(from));
+	// guards kept: a store under a predicate may not have run
+	const auto sts = statements(before.substr(from), true);
 	static const std::regex store(
 		R"(^st(\.local)?\.[ubs](8|16|32|64)\s+\[\s*(%[\w$]+)\s*(?:\+\s*(-?\d+))?\s*\]\s*,\s*(%[\w$]+|-?\d+)\s*$)");
 	for (int i = (int)sts.size() - 1; i >= 0; i--) {
 		const std::string &st = sts[i];
 		if (st.empty() || st[0] == '.')
 			continue;
+		if (st[0] == '@') {
+			// a guarded instruction: a store under it may or may not
+			// have written the slot
+			static const std::regex guarded_store(
+				R"(^@\s*!?\s*%[\w$]+\s+(st|call|atom|red)\b)");
+			if (std::regex_search(st, guarded_store))
+				return "";
+			continue;
+		}
 		const std::string op = st.substr(0, st.find_first_of(" \t\n"));
 		if (op.rfind("call", 0) == 0 || op.rfind("atom", 0) == 0 ||
 		    op.rfind("red", 0) == 0)

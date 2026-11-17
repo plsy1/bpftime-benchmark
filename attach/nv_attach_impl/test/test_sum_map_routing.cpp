@@ -384,6 +384,11 @@ TEST_CASE("A key that may have changed since its store is loaded again",
 		FRAME + STORE + "\tadd.s32 \t%r7, %r7, 1;\n",
 		// an atomic in between
 		FRAME + STORE + "\tatom.add.u32 \t%r9, [%rd77], 1;\n",
+		// the store under a predicate (it may not have run)
+		FRAME + "\t@%p3 st.local.u32 \t[%rd1+504], %r7;\n",
+		FRAME + "\t@!%p3 st.local.u32 \t[%rd1+504], %r7;\n",
+		// a guarded store after the key's store
+		FRAME + STORE + "\t@%p3 st.local.u32 \t[%rd1+504], %r8;\n",
 		// no store at all
 		FRAME,
 		// a frame that is not llvmbpf's
