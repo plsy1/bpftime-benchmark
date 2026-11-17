@@ -1,0 +1,463 @@
+From dd99d1ac822ba2473cab7efe685569034d209736 Mon Sep 17 00:00:00 2001
+From: jetson <jetson@orin-nano.tail52323b.ts.net>
+Date: Wed, 18 Nov 2026 08:57:48 +0900
+Subject: [PATCH 5/5] nv_attach: map lowering fixes after the final review
+ (forwarding fails closed, 1532 adds global)
+
+Review of c27412f4..1fee25d1 (three lenses, each finding reproduced or
+refuted; none reachable from llvmbpf's output today):
+- forwarded_key read statements with every '.' line skipped and found block
+  starts with a line-anchored label regex. It now reads the text before the
+  call as statements with their leading labels and braces noted, and gives
+  up at a label or brace between the store and the call (another path or
+  scope), at any directive (a .loc glues to the next instruction), at a
+  literal that is not plain decimal (PTX reads 0770 as octal), and when a
+  store's state space does not match its base or the key pointer is not on
+  the generic frame. Labels may start with '%'.
+- A process whose model maps are 1532 only did not run the pass, so its adds
+  stayed generic while the delivery reads through .global: the pass now
+  runs for 1532 maps too (the wrapper's isspacep.global branch).
+- Tests: the 1530 lookup block forwarded and loaded, bpf_main left to the
+  helper, sum-map updates and deletes kept, guarded .global atomics and
+  reductions, an unguarded reduction and a vector write as barriers, the
+  register in a vector's second place, the whole 64-bit lookup; 17 cases.
+Known cost: the pass rescans the body per query (lat_mmvq's module about
+15 ms against 5 ms; quadratic in very large probes), at load only.
+lat_mmvq's generated PTX is unchanged (41b5bf76...); pt_victim's five tools
+exact.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ attach/nv_attach_impl/nv_attach_impl.cpp      |   7 +-
+ .../nv_thread_local_routing.cpp               | 162 +++++++++++-------
+ .../test/test_sum_map_routing.cpp             | 144 ++++++++++++++++
+ runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp |   5 +-
+ 4 files changed, 256 insertions(+), 62 deletions(-)
+
+diff --git a/attach/nv_attach_impl/nv_attach_impl.cpp b/attach/nv_attach_impl/nv_attach_impl.cpp
+index b4804e57..bc472766 100644
+--- a/attach/nv_attach_impl/nv_attach_impl.cpp
++++ b/attach/nv_attach_impl/nv_attach_impl.cpp
+@@ -991,10 +991,15 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
+ {
+ 	std::vector<thread_local_map_desc> descs;
+ 	std::vector<sum_map_desc> sums;
++	// 1532's adds must take the .global form the delivery reads with too
++	// (the wrapper's isspacep.global branch), so its maps run the pass
++	bool device_arrays = false;
+ 	uint64_t area = 0;
+ 	const auto &info = *this->map_basic_info;
+ 	for (size_t i = 0; i < info.size(); i++) {
+ 		const auto &m = info[i];
++		if (m.enabled && m.map_type == 1532 /* device per-thread */)
++			device_arrays = true;
+ 		if (m.enabled && m.map_type == 1531 /* sum array */) {
+ 			sum_map_desc d;
+ 			d.fd = (int)i;
+@@ -1015,7 +1020,7 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
+ 		area = std::max(area, d.offset + d.value_size * d.max_entries);
+ 		descs.push_back(d);
+ 	}
+-	if (descs.empty() && sums.empty())
++	if (descs.empty() && sums.empty() && !device_arrays)
+ 		return ptx;
+ 	std::vector<std::string> kernels;
+ 	for (const auto &[_, entry] : this->hook_entries)
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.cpp b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+index fc0a29e5..66904085 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.cpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+@@ -120,15 +120,11 @@ bool parse_int(const std::string &s, long long *v)
+ // leading braces, labels and a guard predicate stripped. Directives without
+ // a ';' (.loc, .file) stay glued to the statement after them; count_defs
+ // then counts that statement if it mentions the register at all.
+-std::vector<std::string> statements(const std::string &body,
+-				    bool keep_guards = false)
++std::vector<std::string> statements(const std::string &body)
+ {
+ 	static const std::regex comment(R"(//[^\n]*|/\*[\s\S]*?\*/)");
+ 	static const std::regex lead(
+-		R"(^(?:\s|[{}]|[$A-Za-z_][\w$]*\s*:(?!:)|@\s*!?\s*%[\w$]+)+)");
+-	// labels and braces only: a guard stays at the front
+-	static const std::regex lead_kept(
+-		R"(^(?:\s|[{}]|[$A-Za-z_][\w$]*\s*:(?!:))+)");
++		R"(^(?:\s|[{}]|[%$A-Za-z_][\w$]*\s*:(?!:)|@\s*!?\s*%[\w$]+)+)");
+ 	std::string text = std::regex_replace(body, comment, "");
+ 	std::vector<std::string> out;
+ 	size_t start = 0;
+@@ -137,7 +133,7 @@ std::vector<std::string> statements(const std::string &body,
+ 		std::string st = text.substr(
+ 			start, semi == std::string::npos ? std::string::npos :
+ 							   semi - start);
+-		st = std::regex_replace(st, keep_guards ? lead_kept : lead, "");
++		st = std::regex_replace(st, lead, "");
+ 		out.push_back(trim(st));
+ 		if (semi == std::string::npos)
+ 			break;
+@@ -227,7 +223,7 @@ bool stack_slot(const std::string &body, const std::string &reg,
+ 	if (count_defs(body, reg, &def) != 1)
+ 		return false;
+ 	static const std::regex addr(
+-		R"(^(add\.[us]64|mov\.[ub]64)\s+(%[\w$]+)\s*,\s*(%[\w$]+)\s*(?:,\s*(-?\d+))?\s*$)");
++		R"(^(add\.[us]64|mov\.[ub]64)\s+(%[\w$]+)\s*,\s*(%[\w$]+)\s*(?:,\s*(-?(?:0|[1-9]\d{0,17})))?\s*$)");
+ 	std::smatch m;
+ 	if (!std::regex_match(def, m, addr) || m[2] != reg)
+ 		return false;
+@@ -253,73 +249,121 @@ bool has_frame(const std::string &body)
+ 	       std::regex_match(b, sp);
+ }
+ 
++// One statement of the text before a lookup (comments removed), with what
++// its leading text held: a label (a basic block starts there) or a brace
++// (a scope opens or closes). Guards stay in the text.
++struct piece {
++	std::string text;
++	bool label = false;
++	bool brace = false;
++};
++
++std::vector<piece> pieces(const std::string &text)
++{
++	static const std::regex comment(R"(//[^\n]*|/\*[\s\S]*?\*/)");
++	static const std::regex lead(
++		R"(^(?:\s|[{}]|[%$A-Za-z_][\w$]*\s*:(?!:))+)");
++	static const std::regex lab(R"([%$A-Za-z_][\w$]*\s*:(?!:))");
++	const std::string t = std::regex_replace(text, comment, " ");
++	std::vector<piece> out;
++	size_t start = 0;
++	for (;;) {
++		size_t semi = t.find(';', start);
++		std::string s = t.substr(start, semi == std::string::npos ?
++							std::string::npos :
++							semi - start);
++		piece p;
++		std::smatch m;
++		if (std::regex_search(s, m, lead)) {
++			const std::string l = m.str(0);
++			p.brace = l.find_first_of("{}") != std::string::npos;
++			p.label = std::regex_search(l, lab);
++			s = s.substr(m.length(0));
++		}
++		p.text = trim(s);
++		out.push_back(p);
++		if (semi == std::string::npos)
++			break;
++		start = semi + 1;
++	}
++	return out;
++}
++
+ // The value a map lookup's key holds, taken from the store that put it in
+-// its stack slot: the last store to the slot in the same basic block before
+-// the call, with nothing in between that could write the slot (a store the
+-// pass cannot place in the frame, a call, an atomic) or the stored register.
+-// Empty when that is not shown; the lookup then loads the key as before.
++// its stack slot: the last store to the slot before the call, in the same
++// basic block and scope, unguarded, with nothing in between that could write
++// the slot or the stored register. Fail closed: a label, a brace, a
++// directive, a guarded store, a call, an atomic or reduction, a store the
++// pass cannot place in the frame, a literal that is not plain decimal, a
++// store whose state space does not match its base (st.local through the
++// depot's local address, st through its generic one) or a key pointer not
++// on the generic frame each give up, and the lookup loads the key as before.
+ std::string forwarded_key(const std::string &fbody, size_t call_at,
+ 			  const std::string &kp)
+ {
+ 	std::string kb;
+ 	long long ko = 0;
+-	if (!has_frame(fbody) || !stack_slot(fbody, kp, &kb, &ko))
++	if (!has_frame(fbody) || !stack_slot(fbody, kp, &kb, &ko) ||
++	    kb != "%SP")
+ 		return "";
+-	const std::string before = fbody.substr(0, call_at);
+-	static const std::regex label(
+-		R"((^|\n)[ \t]*[$A-Za-z_][\w$]*[ \t]*:(?!:))");
+-	size_t from = 0;
+-	for (auto it = std::sregex_iterator(before.begin(), before.end(),
+-					    label);
+-	     it != std::sregex_iterator(); ++it)
+-		from = it->position(0) + it->length(0);
+-	// guards kept: a store under a predicate may not have run
+-	const auto sts = statements(before.substr(from), true);
++	const auto ps = pieces(fbody.substr(0, call_at));
+ 	static const std::regex store(
+-		R"(^st(\.local)?\.[ubs](8|16|32|64)\s+\[\s*(%[\w$]+)\s*(?:\+\s*(-?\d+))?\s*\]\s*,\s*(%[\w$]+|-?\d+)\s*$)");
+-	for (int i = (int)sts.size() - 1; i >= 0; i--) {
+-		const std::string &st = sts[i];
+-		if (st.empty() || st[0] == '.')
++		R"(^st(\.local)?\.[ubs](8|16|32|64)\s+\[\s*(%[\w$]+)\s*(?:\+\s*(-?(?:0|[1-9]\d{0,17})))?\s*\]\s*,\s*(%[\w$]+|-?(?:0|[1-9]\d{0,9}))\s*$)");
++	static const std::regex guarded(
++		R"(^@\s*!?\s*%[\w$]+\s+(st|call|atom|red)\b)");
++	for (int i = (int)ps.size() - 1; i >= 0; i--) {
++		const piece &p = ps[i];
++		const std::string &st = p.text;
++		const std::string op =
++			st.substr(0, st.find_first_of(" \t\n"));
++		const bool is_store = op.rfind("st", 0) == 0 &&
++				      op.rfind("st.param", 0) != 0;
++		if (is_store) {
++			std::smatch m;
++			if (!std::regex_match(st, m, store))
++				return ""; // a store the pass cannot read
++			std::string sb;
++			long long so = 0;
++			if (!stack_slot(fbody, m[3], &sb, &so))
++				return ""; // it may write the slot
++			so += m[4].matched ? std::stoll(m[4]) : 0;
++			const long long w = std::stoll(m[2]) / 8;
++			const bool overlaps = !(so + w <= ko || so >= ko + 4);
++			if (overlaps) {
++				if (so != ko || w != 4)
++					return ""; // part of the key
++				const bool local = m[1].matched;
++				if (local != (sb == "%SPL"))
++					return ""; // not the depot's bytes
++				const std::string v = m[5];
++				if (v[0] == '%') {
++					if (v.rfind("%rd", 0) != 0 &&
++					    v.rfind("%r", 0) != 0)
++						return "";
++					std::string rest;
++					for (size_t j = i + 1; j < ps.size(); j++)
++						rest += ps[j].text + ";";
++					if (count_defs(rest, v) != 0)
++						return "";
++				}
++				return v;
++			}
++		}
++		// between the slot's store and the call
++		if (p.label || p.brace)
++			return ""; // another path or scope
++		if (st.empty() || is_store)
+ 			continue;
++		if (st[0] == '.')
++			return ""; // a directive, possibly glued to an instruction
+ 		if (st[0] == '@') {
+-			// a guarded instruction: a store under it may or may not
+-			// have written the slot
+-			static const std::regex guarded_store(
+-				R"(^@\s*!?\s*%[\w$]+\s+(st|call|atom|red)\b)");
+-			if (std::regex_search(st, guarded_store))
++			if (std::regex_search(st, guarded))
+ 				return "";
+ 			continue;
+ 		}
+-		const std::string op = st.substr(0, st.find_first_of(" \t\n"));
+ 		if (op.rfind("call", 0) == 0 || op.rfind("atom", 0) == 0 ||
+ 		    op.rfind("red", 0) == 0)
+ 			return "";
+-		if (op.rfind("st", 0) != 0 || op.rfind("st.param", 0) == 0)
+-			continue;
+-		std::smatch m;
+-		if (!std::regex_match(st, m, store))
+-			return ""; // a store the pass cannot read
+-		std::string sb;
+-		long long so = 0;
+-		if (!stack_slot(fbody, m[3], &sb, &so))
+-			return ""; // it may write the slot
+-		so += m[4].matched ? std::stoll(m[4]) : 0;
+-		const long long w = std::stoll(m[2]) / 8;
+-		if (so + w <= ko || so >= ko + 4)
+-			continue; // another slot
+-		if (so != ko || w != 4)
+-			return ""; // part of the key
+-		const std::string v = m[5];
+-		if (v[0] == '%') {
+-			std::string rest;
+-			for (size_t j = i + 1; j < sts.size(); j++)
+-				rest += sts[j] + ";";
+-			if (count_defs(rest, v) != 0)
+-				return "";
+-			if (v.rfind("%rd", 0) != 0 && v.rfind("%r", 0) != 0)
+-				return "";
+-		}
+-		return v;
+ 	}
+ 	return "";
+ }
+diff --git a/attach/nv_attach_impl/test/test_sum_map_routing.cpp b/attach/nv_attach_impl/test/test_sum_map_routing.cpp
+index 062988da..42aea13e 100644
+--- a/attach/nv_attach_impl/test/test_sum_map_routing.cpp
++++ b/attach/nv_attach_impl/test/test_sum_map_routing.cpp
+@@ -398,6 +398,24 @@ TEST_CASE("A key that may have changed since its store is loaded again",
+ 			STORE,
+ 		// the slot register written twice
+ 		FRAME + STORE + "\tmov.u64 \t%rd2, %rd77;\n",
++		// a .loc glued to what follows the store (review of 1fee25d1)
++		FRAME + STORE + "\t.loc 1 5 3\n\tst.local.u32 \t[%rd60+504], %r8;\n",
++		FRAME + STORE + "\t.loc 1 5 3\n\tcall.uni f, ();\n",
++		FRAME + STORE + "\t.loc 1 5 3\n\tred.add.u32 \t[%rd77], 1;\n",
++		// labels the line regex missed
++		FRAME + "\tst.local.u32 \t[%rd1+504], %r8; @%p1 bra $L__BB0_4; " +
++			STORE.substr(1, STORE.size() - 2) + " $L__BB0_4:\n",
++		FRAME + STORE + "\t/* join */ $L__BB0_4:\n",
++		FRAME + STORE + "\t{\n\tmov.u32 \t%r9, 1;\n\t} $L__BB0_4:\n",
++		FRAME + STORE + "%L4:\n",
++		// the store in a scope that closed before the call
++		FRAME + "\t{\n\t.reg .b32 \t%r7;\n\tmov.u32 \t%r7, 5;\n" + STORE +
++			"\t}\n",
++		// a literal that is not plain decimal (PTX: octal 0770 = 504)
++		FRAME + STORE + "\tst.local.u32 \t[%rd1+0770], %r8;\n",
++		// a store whose state space does not match its base
++		FRAME + "\tst.local.u32 \t[%rd9+504], %r7;\n",
++		FRAME + "\tst.u32 \t[%rd1+504], %r7;\n",
+ 	};
+ 	for (const auto &c : cases) {
+ 		thread_local_routing_stats st;
+@@ -407,6 +425,18 @@ TEST_CASE("A key that may have changed since its store is loaded again",
+ 		REQUIRE(st.keys_forwarded == 0);
+ 		REQUIRE(has(out, "ld.u32 \t%bpsm_k0, [%rd51];"));
+ 	}
++	// a key pointer on the depot's local address (the original load is
++	// generic): no forwarding
++	{
++		thread_local_routing_stats stl;
++		std::string ptx = probe(FRAME + STORE, "14");
++		const std::string kp = "\tadd.s64 \t%rd51, %rd2, -8;\n";
++		ptx.replace(ptx.find(kp), kp.size(),
++			    "\tadd.s64 \t%rd51, %rd1, 504;\n");
++		auto o = route(ptx, { sum14() }, stl);
++		REQUIRE(stl.sum_lookups == 1);
++		REQUIRE(stl.keys_forwarded == 0);
++	}
+ 	// a store to another slot in between does not matter
+ 	thread_local_routing_stats st;
+ 	auto out = route(probe(FRAME + STORE + "\tst.local.u32 \t[%rd1+500], %r2;\n",
+@@ -414,3 +444,117 @@ TEST_CASE("A key that may have changed since its store is loaded again",
+ 			 { sum14() }, st);
+ 	REQUIRE(st.keys_forwarded == 1);
+ }
++
++namespace
++{
++const std::string KERNEL = ".visible .entry kern()\n{\n"
++			   "\tcall __retprobe_func__kern;\n\tret;\n}\n";
++thread_local_map_desc tl4()
++{
++	thread_local_map_desc d;
++	d.fd = 4;
++	d.offset = 16;
++	d.value_size = 8;
++	d.max_entries = 2;
++	return d;
++}
++std::string tl_block(const std::string &key_line)
++{
++	return "{ // bpftime thread-local lookup, map 4\n"
++	       "\t.reg .pred \t%bptl_p0;\n"
++	       "\t.reg .b32 \t%bptl_k0;\n"
++	       "\t.reg .b64 \t%bptl_a0;\n" +
++	       key_line +
++	       "\tsetp.lt.u32 \t%bptl_p0, %bptl_k0, 2;\n"
++	       "\tmul.wide.u32 \t%bptl_a0, %bptl_k0, 8;\n"
++	       "\tadd.u64 \t%bptl_a0, %bptl_a0, %bpftime_tl_in;\n"
++	       "\tadd.u64 \t%bptl_a0, %bptl_a0, 16;\n"
++	       "\tselp.b64 \t%rd55, %bptl_a0, 0, %bptl_p0;\n"
++	       "} // bpftime thread-local lookup\n";
++}
++} // namespace
++
++TEST_CASE("A thread-local lookup becomes the area address, with its key forwarded",
++	  "[sum-map-routing]")
++{
++	thread_local_routing_stats st;
++	auto out = route_thread_local_maps(probe(FRAME + STORE, "4") + KERNEL,
++					   { K }, { tl4() }, 24, &st, {});
++	REQUIRE(st.direct_lookups == 1);
++	REQUIRE(st.keys_forwarded == 1);
++	REQUIRE(has(out, tl_block("\tmov.u32 \t%bptl_k0, %r7;\n")));
++	// without the store: the key is loaded
++	thread_local_routing_stats st2;
++	auto out2 = route_thread_local_maps(probe(FRAME, "4") + KERNEL, { K },
++					    { tl4() }, 24, &st2, {});
++	REQUIRE(st2.direct_lookups == 1);
++	REQUIRE(st2.keys_forwarded == 0);
++	REQUIRE(has(out2, tl_block("\tld.u32 \t%bptl_k0, [%rd51];\n")));
++	// a function no kernel routes (bpf_main): the helper answers, given 0
++	std::string bm = probe(FRAME + STORE, "4");
++	const std::string name = "__retprobe_func__kern";
++	bm.replace(bm.find(name), name.size(), "bpf_main");
++	thread_local_routing_stats st3;
++	auto out3 = route_thread_local_maps(bm, { K }, { tl4() }, 24, &st3, {});
++	REQUIRE(st3.direct_lookups == 0);
++	REQUIRE(st3.keys_forwarded == 0);
++	REQUIRE(has(out3, "_bpf_helper_ext_0001"));
++	REQUIRE(has(out3, "st.param.b64 \t[param4+0], 0;"));
++}
++
++TEST_CASE("Updates and deletes of a sum map keep the trampoline's helpers",
++	  "[sum-map-routing]")
++{
++	for (const char *h : { "0002", "0003" }) {
++		std::string ptx = probe("", "14");
++		ptx.replace(ptx.find("_bpf_helper_ext_0001"), 20,
++			    std::string("_bpf_helper_ext_") + h);
++		thread_local_routing_stats st;
++		auto out = route(ptx, { sum14() }, st);
++		INFO(h);
++		REQUIRE(st.sum_lookups == 0);
++		REQUIRE(has(out, std::string("_bpf_helper_ext_") + h));
++		REQUIRE(has(out, "st.param.b64 \t[param4+0], 0;"));
++	}
++}
++
++TEST_CASE("More barriers between a key's store and its lookup",
++	  "[sum-map-routing]")
++{
++	for (const std::string &between :
++	     { std::string("\t@%p3 atom.global.add.u32 \t%r9, [%rd77], 1;\n"),
++	       std::string("\t@%p3 red.global.add.u32 \t[%rd77], 1;\n"),
++	       std::string("\t@%p3 call.uni f, ();\n"),
++	       std::string("\tred.global.add.u32 \t[%rd77], 1;\n"),
++	       std::string("\tmov.b64 \t{%r6, %r7}, %rd5;\n") }) {
++		thread_local_routing_stats st;
++		auto out = route(probe(FRAME + STORE + between, "14"),
++				 { sum14() }, st);
++		INFO(between);
++		REQUIRE(st.sum_lookups == 1);
++		REQUIRE(st.keys_forwarded == 0);
++	}
++	// the lookup register in a vector's second place counts as written
++	thread_local_routing_stats st;
++	route(probe("", "14", "\tld.local.v2.u64 \t{%rd70, %rd55}, [%rd1+16];\n"),
++	      { sum14() }, st);
++	REQUIRE(st.global_atomics == 0);
++	REQUIRE(st.guarded_atomics == 1);
++}
++
++TEST_CASE("A large sum map's 64-bit lookup, whole", "[sum-map-routing]")
++{
++	thread_local_routing_stats st;
++	auto out = route(probe("", "14"), { sum14(0x203400000ull, 1ull << 25) },
++			 st);
++	const std::string lookup =
++		"\tmul.wide.u32 \t%bpsm_a0, %bpsm_k0, 256;\n"
++		"\tcvt.u64.u32 \t%bpsm_w0, %bpsm_s0;\n"
++		"\tadd.u64 \t%bpsm_a0, %bpsm_a0, %bpsm_w0;\n"
++		"\tmul.lo.u64 \t%bpsm_a0, %bpsm_a0, 8;\n"
++		"\tadd.u64 \t%bpsm_a0, %bpsm_a0, " +
++		std::to_string(0x203400000ull) +
++		";\n"
++		"\tselp.b64 \t%rd55, %bpsm_a0, 0, %bpsm_p0;\n";
++	REQUIRE(has(out, lookup));
++}
+diff --git a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
+index 888ac769..a84ca20e 100644
+--- a/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
++++ b/runtime/src/bpf_map/gpu/nv_gpu_model_maps.cpp
+@@ -137,8 +137,9 @@ namespace
+ {
+ // dst[e * W + w] = sum over s < S of src[(e * S + s) * W + w], read with
+ // ld.relaxed.gpu.global on the cvta.to.global address, the form of the
+-// programs' adds into the copy (atom/red .global, nv_thread_local_routing):
+-// the same address in the same state space, so the load and the adds are
++// programs' adds into the copy (atom/red .global, nv_thread_local_routing,
++// which runs for every module of a process with a 1531 or 1532 map): the
++// same address in the same state space, so the load and the adds are
+ // morally strong (PTX ISA 8.7).
+ const char *snapshot_ptx = R"PTX(
+ .version 7.0
+-- 
+2.43.0
+

@@ -1,6 +1,6 @@
 # The map model's lowering, built: sum-map adds and lookup keys (2026-11-18)
 
-Follow-up to `gpu/probe-cost-20261117`, section 7. There, hand-written shapes showed that the sum map's (1531) add path could be made much cheaper on documented guarantees. Here the map side of that design is built into the prototype (branch `proto/map-model`, four commits on c27412f4, `patches/`), and the thread-local map's (1530) side is measured and built where it pays. The tool (`lat`: entry stores `%globaltimer` in 1530, exit adds 1 to a log2 bucket in 1531) is unchanged. What is left outside the map (probe calls, the switch read in every probe, the timer helper calls, the log2) belongs to the tool and the framework, and is not touched (user, 11-18).
+Follow-up to `gpu/probe-cost-20261117`, section 7. There, hand-written shapes showed that the sum map's (1531) add path could be made much cheaper on documented guarantees. Here the map side of that design is built into the prototype (branch `proto/map-model`, five commits on c27412f4, `patches/`), and the thread-local map's (1530) side is measured and built where it pays. The tool (`lat`: entry stores `%globaltimer` in 1530, exit adds 1 to a log2 bucket in 1531) is unchanged. What is left outside the map (probe calls, the switch read in every probe, the timer helper calls, the log2) belongs to the tool and the framework, and is not touched (user, 11-18).
 
 Board and settings as before: Orin Nano 8 GB (sm_87, 8 SMs), clocks fixed and checked before every item, llama-bench TinyLlama Q4_K_M `-r 5` with warmup, items shuffled per pass. Rules written before each set of passes: `meas/RULES-sum-map-build.md`.
 
@@ -22,10 +22,19 @@ Board and settings as before: Orin Nano 8 GB (sm_87, 8 SMs), clocks fixed and ch
    - This applies to the thread-local and the sum-map lookups.
    - It also closes a remaining fail-open in the definition count: a `.loc` glued to the next statement, and `/* */` comments.
 4. **No forwarding across a guarded store, call, atomic or reduction** (1fee25d1). Found in self-review. llvmbpf emits none today, and `lat_mmvq`'s generated PTX is byte-identical before and after (sha256 41b5bf76…), so passes k1-k3 stand.
+5. **Fixes after the final review** (dd99d1ac). An independent review of c27412f4..1fee25d1 ran from three lenses, and each finding was then reproduced or refuted by another agent. None of its findings is reachable from llvmbpf's output today. Changes:
+   - **Key forwarding fails closed** where it failed open. It now gives up at:
+     - a label or brace between the store and the call (another path or scope);
+     - any directive (a `.loc` glues to the next instruction);
+     - a literal that is not plain decimal (PTX reads `0770` as octal);
+     - a store whose state space does not match its base.
+   - **Processes with only device per-thread maps (1532)** now run the pass too. Their adds take the `.global` form the delivery reads with; before, they stayed generic against a `.global` load.
+   - **Tests** for the 1530 lookup block, helpers 2 and 3, more barriers and the whole 64-bit lookup.
+   - `lat_mmvq`'s generated PTX is still 41b5bf76….
 
 Correctness:
-- **Unit tests:** 13 cases, 151 assertions (`[sum-map-routing]`, `check/unit-tests.txt`). They pin down the whole emitted lookup in order, the global add, and every form that must fall back.
-- **End to end:** after every commit, pt_victim's five tools counted exactly (`check/addpath1-5.txt`: carry, lat, latold, hist, histold).
+- **Unit tests:** 17 cases, 215 assertions (`[sum-map-routing]`, `check/unit-tests.txt`). They pin down the whole emitted lookups in order (thread-local and sum map, 32- and 64-bit index), the global add, and every form that must fall back or must not be forwarded.
+- **End to end:** after every commit, pt_victim's five tools counted exactly (`check/addpath1-6.txt`: carry, lat, latold, hist, histold).
 - **llama.cpp:** every measured item kept its exact counts, the same before and after.
   - `lat_mmvq`: 1531 sum 15,711,207,424, bucket 194 = 0.
   - `lat` on four kernels: every kernel's exits against step 0's counts, none without a start.
@@ -81,7 +90,7 @@ On tg128 with mul_mat_vec_q probed, the built shape costs 0.147-0.149 ns per thr
 Not done:
 - The 1530 value through local accesses: it showed 0.0035-0.0042.
 - Splitting the remaining cost of the built code into map and non-map parts.
-- An independent review of the full diff c27412f4..1fee25d1 is under way at the time of writing; see the commit history for its outcome.
+- The pass's load time: it rescans a probe function's body per query. The final review measured lat_mmvq's module at about 15 ms against about 5 ms before, and it grows quadratically with very large probes. This is paid at module load only, not on the GPU. Caching the definitions per function would remove it.
 
 ## Files
 
