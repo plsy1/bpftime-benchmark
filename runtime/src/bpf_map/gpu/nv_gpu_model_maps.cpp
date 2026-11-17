@@ -136,7 +136,11 @@ int nv_gpu_device_array_map_impl::map_get_next_key(const void *key,
 namespace
 {
 // dst[e * W + w] = sum over s < S of src[(e * S + s) * W + w], read with
-// ld.relaxed.gpu (generic addressing, as the programs' atom.add.u64).
+// ld.relaxed.gpu.global on the cvta.to.global address, the form of the
+// programs' adds into the copy (atom/red .global, nv_thread_local_routing):
+// the same address in the same state space, so the load and the adds are
+// morally strong (PTX ISA 8.7; generic adds are too, 8.7 has no state-space
+// condition).
 const char *snapshot_ptx = R"PTX(
 .version 7.0
 .target sm_70
@@ -176,7 +180,8 @@ $L_shard:
 	mad.lo.u64 %rd14, %rd14, %rd4, %rd10;
 	shl.b64 %rd14, %rd14, 3;
 	add.u64 %rd14, %rd1, %rd14;
-	ld.relaxed.gpu.u64 %rd15, [%rd14];
+	cvta.to.global.u64 %rd17, %rd14;
+	ld.relaxed.gpu.global.u64 %rd15, [%rd17];
 	add.u64 %rd12, %rd12, %rd15;
 	add.u64 %rd13, %rd13, 1;
 	bra.uni $L_shard;

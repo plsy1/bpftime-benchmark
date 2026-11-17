@@ -116,6 +116,40 @@ bool parse_int(const std::string &s, long long *v)
 	return true;
 }
 
+// lines whose first operand is reg: its definitions (an instruction's
+// destination is its first operand; stores, reductions and branches have
+// none that is a register)
+int count_defs(const std::string &body, const std::string &reg)
+{
+	static const std::regex first(
+		R"(^\s*(?:@!?%[\w$]+\s+)?([a-z][\w.:]*)\s+(%[\w$]+)\s*[,;])");
+	std::istringstream in(body);
+	std::string line;
+	int n = 0;
+	while (std::getline(in, line)) {
+		std::smatch m;
+		if (!std::regex_search(line, m, first))
+			continue;
+		const std::string op = m[1];
+		if (op.rfind("st.", 0) == 0 || op.rfind("red", 0) == 0)
+			continue;
+		if (m[2] == reg)
+			n++;
+	}
+	return n;
+}
+
+// insert a state space before the operation of atom/red modifiers
+// (atom{.sem}{.scope}{.space}.op.type)
+std::string with_space(const std::string &mods, const std::string &op,
+		       const char *space)
+{
+	size_t at = (mods + ".").find("." + op + ".");
+	if (at == std::string::npos)
+		fail("no operation in modifiers " + mods);
+	return mods.substr(0, at) + space + mods.substr(at);
+}
+
 // the constant a callseq passes as its map argument, if it is one
 bool constant_fd(const std::string &fbody, const std::string &block,
 		 long long *fd)
@@ -163,7 +197,9 @@ bool constant_fd(const std::string &fbody, const std::string &block,
 // (PTX ISA 9.7.10.22): local addresses take a plain load, the operation and
 // a store (exact: the memory is the thread's own), others keep the atomic.
 std::string guard_generic_atomics(const std::string &fbody,
-				  const std::string &fname, int *count)
+				  const std::string &fname, int *count,
+				  const std::set<std::string> &global_regs,
+				  int *global_count)
 {
 	static const std::regex atom_line(
 		R"(^(\s*)(@!?%[\w$]+\s+)?(atom|red)((?:\.[a-zA-Z0-9_:]+)+)\s+([^;]*);(.*)$)");
@@ -238,20 +274,55 @@ std::string guard_generic_atomics(const std::string &fbody,
 			base = trim(addr.substr(0, plus));
 			off = trim(addr.substr(plus + 1));
 		}
-		const std::string id = std::to_string(n++);
 		const std::string ws = m[1];
+		// the operands with the address replaced
+		auto ops_at = [&](const std::string &a) {
+			std::string r;
+			for (size_t i = 0; i < parts.size(); i++)
+				r += (i ? ", " : "") +
+				     (i == ai ? "[" + a + "]" : parts[i]);
+			return r;
+		};
+		const std::string gmods = with_space(mods, op, ".global");
+		if (global_regs.count(base)) {
+			// a sum map's value: global memory (see the header)
+			const std::string id = std::to_string((*global_count)++);
+			std::ostringstream o;
+			o << ws << "{ // bpftime: atomic on a sum map's value\n"
+			  << ws << ".reg .b64 %bpag_a" << id << ";\n"
+			  << ws << "cvta.to.global.u64 %bpag_a" << id << ", "
+			  << base << ";\n"
+			  << ws << m[3].str() << gmods << " "
+			  << ops_at("%bpag_a" + id + "+" + off) << ";\n"
+			  << ws << "}" << m[6].str();
+			out += o.str();
+			continue;
+		}
+		const std::string id = std::to_string(n++);
 		std::ostringstream o;
+		// global addresses take the .global form (no wait for a
+		// generic atomic's reply), local ones the plain operation,
+		// anything else the generic atomic as written
 		o << ws << "{ // bpftime: atomic on a possibly local address\n"
 		  << ws << ".reg .pred %bpat_l" << id << ", %bpat_q" << id
+		  << ", %bpat_g" << id << ", %bpat_x" << id << ";\n"
+		  << ws << ".reg .b64 %bpat_a" << id << ", %bpat_ga" << id
 		  << ";\n"
-		  << ws << ".reg .b64 %bpat_a" << id << ";\n"
 		  << ws << ".reg .b" << bits << " %bpat_o" << id
 		  << ", %bpat_n" << id << ";\n"
 		  << ws << "add.u64 %bpat_a" << id << ", " << base << ", "
 		  << off << ";\n"
 		  << ws << "isspacep.local %bpat_l" << id << ", %bpat_a" << id
 		  << ";\n"
-		  << ws << "@!%bpat_l" << id << " " << m[3].str() << mods << " "
+		  << ws << "isspacep.global %bpat_g" << id << ", %bpat_a" << id
+		  << ";\n"
+		  << ws << "or.pred %bpat_x" << id << ", %bpat_l" << id
+		  << ", %bpat_g" << id << ";\n"
+		  << ws << "@%bpat_g" << id << " cvta.to.global.u64 %bpat_ga"
+		  << id << ", %bpat_a" << id << ";\n"
+		  << ws << "@%bpat_g" << id << " " << m[3].str() << gmods << " "
+		  << ops_at("%bpat_ga" + id) << ";\n"
+		  << ws << "@!%bpat_x" << id << " " << m[3].str() << mods << " "
 		  << m[5].str() << ";\n"
 		  << ws << "@%bpat_l" << id << " ld.b" << bits << " %bpat_o"
 		  << id << ", [%bpat_a" << id << "];\n";
@@ -290,9 +361,68 @@ std::string guard_generic_atomics(const std::string &fbody,
 	return out;
 }
 
+bool sum_has_copy(const sum_map_desc &d)
+{
+	return d.base != 0 && d.shards >= 32 && !(d.shards & (d.shards - 1)) &&
+	       d.max_entries != 0 && d.value_size != 0;
+}
+
+// a constant-fd lookup of a sum map: the shard address of the key, as the
+// trampoline's sum_array_offset ((SM mod slots) x 32 + lane), or NULL
+std::string sum_lookup(const sum_map_desc &d, long long fd, int n,
+		       const std::string &key_ptr, const std::string &ret)
+{
+	std::ostringstream o;
+	const std::string N = std::to_string(n);
+	o << "{ // bpftime sum-map lookup, map " << fd << "\n";
+	if (!sum_has_copy(d)) {
+		// no device copy in this process: NULL, as the trampoline
+		o << "\tmov.b64 \t" << ret << ", 0;\n"
+		  << "} // bpftime sum-map lookup\n";
+		return o.str();
+	}
+	o << "\t.reg .pred \t%bpsm_p" << N << ";\n"
+	  << "\t.reg .b32 \t%bpsm_k" << N << ", %bpsm_s" << N << ", %bpsm_l"
+	  << N << ";\n"
+	  << "\t.reg .b64 \t%bpsm_a" << N << ", %bpsm_w" << N << ";\n"
+	  << "\tld.u32 \t%bpsm_k" << N << ", [" << key_ptr << "];\n"
+	  << "\tsetp.lt.u32 \t%bpsm_p" << N << ", %bpsm_k" << N << ", "
+	  << d.max_entries << ";\n"
+	  << "\tmov.u32 \t%bpsm_s" << N << ", %smid;\n"
+	  << "\tand.b32 \t%bpsm_s" << N << ", %bpsm_s" << N << ", "
+	  << ((d.shards >> 5) - 1) << ";\n"
+	  << "\tshl.b32 \t%bpsm_s" << N << ", %bpsm_s" << N << ", 5;\n"
+	  << "\tmov.u32 \t%bpsm_l" << N << ", %laneid;\n"
+	  << "\tor.b32 \t%bpsm_s" << N << ", %bpsm_s" << N << ", %bpsm_l"
+	  << N << ";\n";
+	if (d.max_entries * d.shards <= (1ull << 32)) {
+		// the index (key x shards + shard) fits in 32 bits
+		o << "\tmad.lo.u32 \t%bpsm_k" << N << ", %bpsm_k" << N << ", "
+		  << d.shards << ", %bpsm_s" << N << ";\n"
+		  << "\tmul.wide.u32 \t%bpsm_a" << N << ", %bpsm_k" << N
+		  << ", " << d.value_size << ";\n";
+	} else {
+		o << "\tmul.wide.u32 \t%bpsm_a" << N << ", %bpsm_k" << N << ", "
+		  << d.shards << ";\n"
+		  << "\tcvt.u64.u32 \t%bpsm_w" << N << ", %bpsm_s" << N
+		  << ";\n"
+		  << "\tadd.u64 \t%bpsm_a" << N << ", %bpsm_a" << N
+		  << ", %bpsm_w" << N << ";\n"
+		  << "\tmul.lo.u64 \t%bpsm_a" << N << ", %bpsm_a" << N << ", "
+		  << d.value_size << ";\n";
+	}
+	o << "\tadd.u64 \t%bpsm_a" << N << ", %bpsm_a" << N << ", " << d.base
+	  << ";\n"
+	  << "\tselp.b64 \t" << ret << ", %bpsm_a" << N << ", 0, %bpsm_p" << N
+	  << ";\n"
+	  << "} // bpftime sum-map lookup\n";
+	return o.str();
+}
+
 std::string route_function_body(
 	const std::string &fbody, bool routed,
 	const std::map<long long, thread_local_map_desc> &maps,
+	const std::map<long long, sum_map_desc> &sums,
 	thread_local_routing_stats &st, const std::string &fname)
 {
 	static const std::regex p1(
@@ -305,6 +435,9 @@ std::string route_function_body(
 	std::string out;
 	size_t pos = 0;
 	int direct_seq = 0;
+	int sum_seq = 0;
+	// registers sum lookups define, with the number of such definitions
+	std::map<std::string, int> sum_defs;
 	for (;;) {
 		size_t b = fbody.find("{ // callseq ", pos);
 		if (b == std::string::npos)
@@ -330,6 +463,19 @@ std::string route_function_body(
 		long long fd = -1;
 		bool is_const = constant_fd(fbody, block, &fd);
 		auto tl = is_const ? maps.find(fd) : maps.end();
+		auto sm = is_const ? sums.find(fd) : sums.end();
+		if (id == 1 && sm != sums.end()) {
+			std::smatch km, rm;
+			if (!std::regex_search(block, km, p1) ||
+			    !std::regex_search(block, rm, ret))
+				fail("unexpected lookup shape in " + fname);
+			out += sum_lookup(sm->second, fd, sum_seq++,
+					  trim(km[1]), rm[1].str());
+			if (sum_has_copy(sm->second))
+				sum_defs[rm[1].str()]++;
+			st.sum_lookups++;
+			continue;
+		}
 		if (routed && id == 1 && tl != maps.end()) {
 			std::smatch km, rm;
 			if (!std::regex_search(block, km, p1) ||
@@ -378,7 +524,15 @@ std::string route_function_body(
 			st.helper_calls_given_zero++;
 	}
 	out.append(fbody, pos, std::string::npos);
-	return guard_generic_atomics(out, fname, &st.guarded_atomics);
+	// a register every definition of which is such a lookup (llvmbpf
+	// joins the lookups of several branches into one register) holds a
+	// sum map's address wherever it is used
+	std::set<std::string> sum_ptrs;
+	for (const auto &[reg, n] : sum_defs)
+		if (count_defs(out, reg) == n)
+			sum_ptrs.insert(reg);
+	return guard_generic_atomics(out, fname, &st.guarded_atomics, sum_ptrs,
+				     &st.global_atomics);
 }
 } // namespace
 
@@ -386,9 +540,13 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 				    const std::vector<std::string> &kernels_in,
 				    const std::vector<thread_local_map_desc> &descs,
 				    uint64_t area_bytes,
-				    thread_local_routing_stats *stats_out)
+				    thread_local_routing_stats *stats_out,
+				    const std::vector<sum_map_desc> &sum_descs)
 {
 	thread_local_routing_stats st;
+	std::map<long long, sum_map_desc> sums;
+	for (auto &d : sum_descs)
+		sums[d.fd] = d;
 	if (area_bytes > THREAD_LOCAL_AREA_MAX)
 		fail("thread-local maps need " + std::to_string(area_bytes) +
 		     " bytes per thread, more than " +
@@ -401,7 +559,10 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 	std::set<std::string> kernels(kernels_in.begin(), kernels_in.end());
 
 	// 1. kernels: the area, its zeroing, the address at every probe call
+	// (only with a thread-local map)
 	std::set<std::string> routed_functions;
+	if (descs.empty())
+		kernels.clear();
 	for (const auto &k : kernels) {
 		auto [kb, ke] = ptxpass::find_kernel_body(ptx, k);
 		if (kb == std::string::npos)
@@ -508,8 +669,8 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 		bool routed = routed_functions.count(f.name) > 0;
 		std::string fbody = ptx.substr(f.body_open + 1,
 					       f.body_end - 1 - f.body_open - 1);
-		std::string nbody =
-			route_function_body(fbody, routed, maps, st, f.name);
+		std::string nbody = route_function_body(fbody, routed, maps,
+							sums, st, f.name);
 		std::string params = trim(ptx.substr(
 			f.params_open + 1, f.params_close - f.params_open - 1));
 		std::string head;
