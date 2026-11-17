@@ -233,3 +233,13 @@ Interpretation (fixed now):
 - gen (generic red vs red.global) has no rule: it is reported to choose the
   documented form (generic red keeps the delivery's generic load at the same
   address; red.global needs the delivery to load through .global as well).
+
+### Addendum 4a, after g1-g3 (a counting correction; the rules above are unchanged)
+
+An independent check of the SASS found a BSSY/BSYNC pair around the exit
+call in the kernel bodies of locc, addminnored, addq and addmingen (not in
+locc-noadd, addg, addone, addmin); the rest of every body is identical. Per
+thread: locc 92, addminnored 55, addq 70, addmingen 60. So guard = 16 SASS,
+locc - addg = 19, gen = 6, and addminnored runs one instruction more than
+addmin. R7's statement "the SASS count (14 instructions) stands" would read
+16; R7 held by timing, so this changes no verdict.

@@ -175,24 +175,24 @@ Caveats: hand-written shapes, so bounds for the real pipeline. A and C are margi
 
 Question: section 6's R1 puts the add into 1531 next. How short can the add path (everything after the bound compare) be made on documented guarantees, and what is left? Same hook, dump, carry (`locc`'s `.local` word) and tool (the 6-step log2). Rules fixed before the runs: `DECISION-RULES.md` addendum 4, after an advisor review of the plan.
 
-What the path is today (`locc`, and the same in the generated code after its helper call): three tests, each with its own early return (key below `max_entries`, a device copy exists, at least 32 shards), the shard address in 64-bit arithmetic from `map_info`, `isspacep.global`, then a generic `atom.add.u64`. ptxas makes the generic atomic an `ATOM.E` that returns a predicate (did it hit global memory?) and branches on it, with shared and local fallbacks behind it. The generated code's wrapper (`isspacep.local`, else the generic atomic) ends in the same `ATOM.E`.
+What the path is today (`locc`): three tests, each with its own early return (key below `max_entries`, a device copy exists, at least 32 shards), the shard address in 64-bit arithmetic from `map_info`, `isspacep.global`, then a generic `atom.add.u64`. ptxas makes the generic atomic an `ATOM.E` that returns a predicate (did it hit global memory?), on which a return two instructions later depends, with shared and local fallbacks behind it. The generated code runs the same tests in the trampoline's helper (NULL copy, shards, bound) and its add through the routing's wrapper (`isspacep.local`, else the generic atomic), which ends in the same `ATOM.E`.
 
-Variants (all 56 registers, as `locc` and `locc-noadd`; executed SASS of the exit subroutine with a start present and the key in range, from `variants-info/probe-subroutines-addpath.txt`):
+Variants (all 56 registers, as `locc` and `locc-noadd`). Executed SASS per thread with a start present and the key in range, from `variants-info/probe-subroutines-addpath.txt` and the kernels' SASS: the exit subroutine, plus 2 where ptxas put a BSSY/BSYNC pair around the exit call in the kernel body (`locc`, `addminnored`, `addq`, `addmingen`). The rest of every kernel body is the same (479 instructions, the same 138-instruction main loop).
 
-| variant | the add path | executed SASS |
+| variant | the add path | executed SASS (exit + pair) |
 |---|---|---:|
 | `locc-noadd` | none (the bound compare guards a trap) | 41 |
-| `locc` | today's: three tests, 64-bit address, `isspacep.global`, generic `atom.add` | 90 |
+| `locc` | today's: three tests, 64-bit address, `isspacep.global`, generic `atom.add` | 90 + 2 |
 | `addg` | the add as `red.global.add.u64` on the `cvta.to.global` address; tests and arithmetic as today | 73 |
 | `addone` | `addg` with the bound compare as the only test | 64 |
 | `addmin` | `addone` with 32-bit offsets, shards (256) and value size (8) as immediates | 54 |
-| `addminnored` | `addmin` without the `red`; the address kept alive by a never-true compare and trap | 53 |
-| `addq` | `addmin`, but the add guarded by `isspacep.global` (red.global, else the generic atomic) | 68 |
-| `addmingen` | `addmin` with a generic `red.add.u64` (no `cvta`, no `.global`) | 58 |
+| `addminnored` | `addmin` without the `red`; the address kept alive by a never-true compare and trap | 53 + 2 |
+| `addq` | `addmin`, but the add guarded by `isspacep.global` (red.global, else the generic atomic) | 68 + 2 |
+| `addmingen` | `addmin` with a generic `red.add.u64` (no `cvta`, no `.global`) | 58 + 2 |
 
-Compiled, not timed: `addminc` (shards and value size read from `map_info`'s existing fields: 56 SASS, 2 more than `addmin`) and `addmina` (`atom.global.add.u64` with the result unused, what LLVM emits for an `addrspace(1)` atomic: ptxas makes it the same `RED` as `addmin`, plus one `YIELD`).
+Compiled, not timed: `addminc` (shards and value size read from `map_info`'s existing fields: 56 SASS, 2 more than `addmin`) and `addmina` (`atom.global.add.u64` with the result unused, the form an `addrspace(1)` atomic should take through LLVM's NVPTX backend, not checked here: ptxas makes it the same `RED` as `addmin`, plus one `YIELD`).
 
-tg128, mul_mat_vec_q only, three passes (the third because the current path's cost moved 0.008 between g1 and g2, rule V5; `analysis-addpath.txt`):
+tg128, mul_mat_vec_q only, three passes (the third because the current path's cost moved 0.008 between g1 and g2, addendum 4's third-pass rule; `analysis-addpath.txt`):
 
 | variant | t/s (g1 / g2 / g3) | s per run | add path, ns per thread (over `locc-noadd`) | drop vs base |
 |---|---:|---:|---:|---:|
@@ -203,43 +203,43 @@ tg128, mul_mat_vec_q only, three passes (the third because the current path's co
 | addmin | 59.59 / 59.62 / 59.59 | 2.15 | 0.010-0.015 | 11.8-12.0% |
 | addone | 58.87 / 59.11 / 59.05 | 2.17 | 0.016-0.023 | 12.7-12.8% |
 | addg | 58.46 / 58.36 / 58.38 | 2.19 | 0.024-0.029 | 13.4-13.9% |
-| addq | 58.12 / 58.09 / 58.05 | 2.20 | 0.028-0.033 | 13.9-14.3% |
+| addq | 58.12 / 58.09 / 58.05 | 2.20 | 0.028-0.033 | 14.0-14.3% |
 | addmingen | 57.27 / 56.87 / 57.24 | 2.24-2.25 | 0.042-0.043 | 15.2-16.1% |
 | locc | 55.15 / 55.47 / 55.57 | 2.30-2.32 | 0.061-0.069 | 17.8-18.3% |
 | t0 (generated) | 46.12 / 46.09 / 46.06 | 2.78 | - | 31.7-32.0% |
 
 Differences, ns per thread (g1 / g2 / g3, median):
 - the add path today (`locc`): 0.069 / 0.061 / 0.065, median 0.065; shortest (`addmin`): 0.014 / 0.010 / 0.015, median 0.014; saved 0.055 / 0.051 / 0.050.
-- the atomic's form, `isspacep.global` + generic atomic -> `red.global` (`locc` - `addg`): 0.042 / 0.036 / 0.035, for 17 SASS.
+- the atomic's form, `isspacep.global` + generic atomic -> `red.global` (`locc` - `addg`): 0.042 / 0.036 / 0.035, for 19 SASS.
 - the two extra tests (`addg` - `addone`): 0.005 / 0.009 / 0.008, 9 SASS; 32-bit arithmetic (`addone` - `addmin`): 0.008 / 0.006 / 0.006, 10 SASS. Neither is resolved by timing (below 0.012).
-- the guard for a pointer of unknown origin (`addq` - `addmin`): 0.017 / 0.018 / 0.018, 14 SASS.
-- generic `red` against `red.global` (`addmingen` - `addmin`): 0.028 / 0.033 / 0.028, 4 SASS.
-- what is left of `addmin`: the `red` beyond its issue (`addmin` - `addminnored`) 0.002 in each pass; the shard and address (`addminnored` - `locc-noadd`, keep-alive included) 0.007-0.013.
+- the guard for a pointer of unknown origin (`addq` - `addmin`): 0.017 / 0.018 / 0.018, 16 SASS.
+- generic `red` against `red.global` (`addmingen` - `addmin`): 0.028 / 0.033 / 0.028, 6 SASS.
+- what is left of `addmin`: `addmin` - `addminnored` 0.002 in each pass, and `addminnored` - `locc-noadd` (shard and address, with the keep-alive and a BSSY pair) 0.007-0.013. Neither is resolved by timing, and the first is not the `red` alone: `addminnored` runs one instruction more than `addmin`.
 
-Checks, all three passes: every full form sums exactly 15,711,207,424 with bucket 194 = 0, every other form 0, every override logged; the current path's cost (0.061-0.069) and t0 (0.281-0.283 over base) match section 6 and the earlier passes; the order `locc` >= `addg` >= `addone` >= `addmin` >= `addminnored` >= `locc-noadd` holds. No leftover processes or shared memory afterwards; clocks fixed throughout.
+Checks, all three passes: every full form sums exactly 15,711,207,424 with bucket 194 = 0, every other form 0, every override logged; the current path's cost (0.061-0.069) is within V1' (section 6: 0.065-0.071), and t0 (0.281-0.283 over base) too (0.283 +-0.007; f1/f2 had 0.288-0.289, so g1 is 0.008 lower); the order `locc` >= `addg` >= `addone` >= `addmin` >= `addminnored` >= `locc-noadd` holds. No leftover processes or shared memory when checked after the passes; clocks fixed at every item.
 
 Verdicts:
 - R5 holds: 0.014 <= 0.065 / 2 (each pass and the median). **The documented shortening (a `red` on the global address, one test, 32-bit offsets) cuts the add path by about 80%, from 0.061-0.069 to 0.010-0.015 ns per thread; the whole shape goes from 55.2-55.6 to 59.6 t/s (-17.8 to -18.3% -> -11.8 to -12.0%).**
-- R6 is not resolved by timing. By SASS, what is left is 13 instructions over `locc-noadd`: about 8 for the shard and address (`%smid`, `%laneid`, mask, two multiply-adds, operand moves), the `RED` with its operands, and the return. The `RED` itself costs about 0.002.
+- R6 is not resolved by timing. By SASS, what is left is 13 instructions over `locc-noadd`: about 8 for the shard and address (`%smid`, `%laneid`, mask, two multiply-adds, operand moves), the `RED` with its operands, and the return. Timing does not split them.
 - R7 holds: the guard costs 0.017-0.018. Knowing where the pointer came from is worth building.
 
 Reading:
-- Most of the gain is the atomic's form, not the instruction count. The guard runs 14 SASS for 0.017-0.018, about 1.25-1.3 ps per instruction per thread. By that rate the 17 SASS of `isspacep.global` + generic atomic would be about 0.022, but they cost 0.035-0.042, and the generic `red` adds 4 SASS but costs 0.028-0.033. Both end in the generic `ATOM.E`, whose returned predicate the next instruction waits for; `RED` returns nothing. So waiting for the atomic's reply costs about 0.013-0.028 per thread. That this is the reply's latency is an inference from the SASS, not measured directly.
+- Most of the gain is the atomic's form, not the instruction count. The guard runs 16 SASS for 0.017-0.018, about 1.09-1.14 ps per instruction per thread. By that rate the 19 SASS between `locc` and `addg` would cost about 0.021, but they cost 0.035-0.042; the generic `red` runs 6 SASS more than `red.global` (about 0.007 by count) but costs 0.028-0.033. Both end in the generic `ATOM.E`, whose returned predicate a return two instructions later depends on; `RED` returns nothing. So the extra beyond the instruction count is 0.014-0.021 by the first comparison and 0.021-0.026 by the second (the two do not overlap). That it is the wait for the atomic's reply is an inference from the SASS, not measured directly.
 - The map in this shape is now the carry (about 0, section 6) plus the add (0.010-0.015): about 0.014, against 0.064-0.068 for everything outside the map (section 6). The generated code spends about 0.196 on the map.
 - The same applies to the generated code: its add ends in the same `ATOM.E`.
 
 Design (each item with where it is built and on what it rests; `addpath-docs.txt` has the quotes):
-1. **The add as a `red` on the global address.** The basis is three documents. The Driver API: `cuMemAlloc` "Allocates device memory". The Programming Guide: "Global memory (also called device memory) ... is allocated with CUDA API calls such as cudaMalloc". PTX ISA 6.4.1.1: "A generic address maps to global memory unless it falls within the window for const, local, or shared memory". `red` defaults to `.relaxed` and `.gpu` scope, as the current `atom` does.
-   - Where: the thread-local routing pass (`nv_thread_local_routing.cpp`) already turns constant-fd lookups of 1530 into the address, with `max_entries` and `value_size` from `map_info` written into the PTX. 1531 gets the same, with the shard address. The pass's atomic wrapper, given an address register that such a lookup defined, emits `cvta.to.global` + `red.global.add.u64`. Done in LLVM instead, an `addrspace(1)` pointer gives `atom.global` with the result unused, and ptxas makes that the same `RED` (`addmina`).
-   - Only for adds whose old value is unused: BPF's atomic add without `BPF_FETCH`, as `lat` emits. A fetch needs the reply, so it stays an `atom`, but on `.global` there is no predicate to wait for.
+1. **The add as a `red` on the global address.** The basis is three documents. The Driver API: `cuMemAlloc` "Allocates device memory". The Programming Guide: "Global memory (also called device memory) is the primary memory space ..." and "Global memory is allocated with CUDA API calls such as cudaMalloc and cudaMallocManaged" (it names the runtime call; the Driver API lists `cudaMalloc` with `cuMemAlloc`). PTX ISA 6.4.1.1: "A generic address maps to global memory unless it falls within the window for const, local, or shared memory". `red` allows a `.global` address and defaults to `.relaxed` and `.gpu` scope; in SASS both today's `ATOM.E` and the `RED` are `STRONG.GPU`.
+   - Where: the thread-local routing pass (`nv_thread_local_routing.cpp`) already turns constant-fd lookups of 1530 into the address, with `max_entries` and `value_size` from `map_info` written into the PTX. 1531 gets the same, with the shard address. The pass's atomic wrapper, given an address register that such a lookup defined, emits `cvta.to.global` + `red.global.add.u64`. Done in LLVM instead, an `addrspace(1)` pointer should give `atom.global` with the result unused (the NVPTX output was not checked here); ptxas makes that form the same `RED` (`addmina`).
+   - Only for adds whose old value is unused: BPF's atomic add without `BPF_FETCH`, as `lat` emits. A fetch needs the reply, so it stays an `atom` (on `.global` for a known-origin pointer; not compiled or timed here).
    - For a pointer of unknown origin, the wrapper gains a global branch: `isspacep.global`, then `red.global`, keeping the local and generic fallbacks. That costs 0.017-0.018 more than the known-origin lowering.
-   - Delivery: the snapshot kernel reads with a generic `ld.relaxed.gpu`. With `red.global` it reads through `cvta.to.global` + `ld.relaxed.gpu.global` too, so the program's add and the delivery's load are both strong, gpu scope, generic proxy, same eight bytes at the same global address: morally strong (PTX ISA 8.7). The generic `red` would keep today's load, but ptxas makes it the generic `ATOM.E` (0.028-0.033 more), so it is not used.
+   - Delivery: the snapshot kernel reads with a generic `ld.relaxed.gpu`. With `red.global` it reads through `cvta.to.global` + `ld.relaxed.gpu.global` too, so the program's add and the delivery's load are both strong, gpu scope, generic proxy (PTX ISA 8.6: "Unless otherwise specified"), the same eight bytes: morally strong (PTX ISA 8.7). 8.7 has no state-space condition; the load takes the same `.global` form anyway, so both use the identical address in the identical state space and 8.6's note on virtual aliases (distinct virtual addresses behave as distinct proxies) cannot apply. The generic `red` would keep today's load, but ptxas makes it the generic `ATOM.E` (0.028-0.033 more), so it is not used.
 2. **One test.** "No device copy" shows as a NULL buffer and as 0 shards. The agent instead writes `max_entries` 0 into `map_info` for a 1531 map without a copy (`create_map_basic_info`), so the bound compare alone returns NULL. There is no layout change, and the trampoline's `sum_array_offset` can drop the same two tests. 9 SASS, 0.005-0.009 (not resolved).
-3. **32-bit offsets.** Valid when the copy (max_entries x shards x value size) is under 4 GiB. That is known when the pass runs: the copy is made at link instantiation, before the fatbin's passes. Otherwise the pass keeps 64-bit arithmetic. Shards and value size are known then too, and the routing already writes such constants into the PTX. Reading them from `map_info` would cost 2 SASS more (`addminc`). 10 SASS, 0.006-0.008 (not resolved).
+3. **32-bit offsets.** The index (key x shards + shard) is computed in 32 bits and widened once by the value size, so it is valid when max_entries x shards fits in 32 bits. That is known when the pass runs: the copy is made at link instantiation, before the fatbin's passes. Otherwise the pass keeps 64-bit arithmetic. Shards and value size are known then too, and the routing already writes such constants into the PTX. Reading them from `map_info` would cost 2 SASS more (`addminc`). 10 SASS, 0.006-0.008 (not resolved).
 
 Not built: these are hand-written shapes through the debug hook. Building them changes the routing pass, `create_map_basic_info` and the snapshot kernel.
 
-Caveats: the shapes are hand-written, so they bound what the real pipeline gets. Register counts come from the CLI ptxas (as section 6). Shards 256 and value size 8 are this board and this tool. `addminnored`'s keep-alive puts 2 compares and a predicated return where the `red`'s operand moves were, so its split of the rest is approximate.
+Caveats: the shapes are hand-written, so they bound what the real pipeline gets. Register counts come from the CLI ptxas (as section 6). Shards 256 and value size 8 are this board and this tool. `addminnored`'s keep-alive puts 2 compares and a predicated return where the `red`'s operand moves were, and ptxas added a BSSY pair around its exit call, so its split of the rest is approximate.
 
 ## Corrections to gpu/map-model-proto-20261116
 
