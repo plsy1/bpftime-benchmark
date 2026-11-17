@@ -10,6 +10,9 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
 #include <dlfcn.h>
 #include <iterator>
 #include <stdexcept>
@@ -100,6 +103,43 @@ bool fatbin_record::find_and_fill_function_info(void *ptr,
 	return false;
 }
 
+
+namespace
+{
+// Measurement aid (proto/map-model, 2026-11-17), never for production: with
+// BPFTIME_CUDA_PTX_DUMP_DIR set, every patched PTX about to be compiled is
+// written there as <sha256>.ptx; with BPFTIME_CUDA_PTX_OVERRIDE_DIR set, a
+// file <sha256>.ptx found there is compiled instead of the generated PTX
+// (and the in-memory cache is bypassed). The sha256 is the generated PTX's,
+// after the target rewrite: the ptx_pool key.
+void dump_patched_ptx(const std::string &sha, const std::string &ptx)
+{
+	const char *dir = getenv("BPFTIME_CUDA_PTX_DUMP_DIR");
+	if (!dir || !*dir)
+		return;
+	std::string path = std::string(dir) + "/" + sha + ".ptx";
+	std::ofstream out(path, std::ios::binary | std::ios::trunc);
+	out << ptx;
+	SPDLOG_WARN("PTX dump: {} ({} bytes)", path, ptx.size());
+}
+bool override_patched_ptx(const std::string &sha, std::string &ptx)
+{
+	const char *dir = getenv("BPFTIME_CUDA_PTX_OVERRIDE_DIR");
+	if (!dir || !*dir)
+		return false;
+	std::string path = std::string(dir) + "/" + sha + ".ptx";
+	std::ifstream in(path, std::ios::binary);
+	if (!in)
+		return false;
+	std::stringstream buf;
+	buf << in.rdbuf();
+	ptx = buf.str();
+	SPDLOG_WARN("PTX override: {} ({} bytes) compiled instead of the generated PTX",
+		    path, ptx.size());
+	return true;
+}
+} // namespace
+
 std::map<std::string, std::vector<uint8_t>> fatbin_record::compile_ptxs(
 	class nv_attach_impl &impl,
 	std::map<std::string, std::tuple<std::string, bool>> patched_ptx)
@@ -135,8 +175,13 @@ std::map<std::string, std::vector<uint8_t>> fatbin_record::compile_ptxs(
 						rewrite_ptx_target(ptx, sm_arch);
 					auto sha256_string =
 						sha256(ptx_fixed.data(), ptx_fixed.size());
+					dump_patched_ptx(sha256_string, ptx_fixed);
+					std::string ptx_override;
+					const bool overridden = override_patched_ptx(
+						sha256_string, ptx_override);
 					if (auto itr =
 						    this->ptx_pool->find(sha256_string);
+					    !overridden &&
 					    itr != this->ptx_pool->end()) {
 						SPDLOG_INFO(
 						"PTX {} ({}) found in cache",
@@ -160,7 +205,10 @@ std::map<std::string, std::vector<uint8_t>> fatbin_record::compile_ptxs(
 								"-O3"
 							};
 						if (auto err = handler.compile(
-							    compiler, ptx_fixed.c_str(),
+							    compiler,
+							    overridden ?
+								    ptx_override.c_str() :
+								    ptx_fixed.c_str(),
 							    compile_options,
 							    std::size(compile_options));
 						    err != 0) {
@@ -185,9 +233,10 @@ std::map<std::string, std::vector<uint8_t>> fatbin_record::compile_ptxs(
 					std::lock_guard<std::mutex> _guard(
 						map_lock);
 					compiled_ptx[name] = compiled_program;
-					this->ptx_pool->insert(std::make_pair(
-						sha256_string,
-						compiled_program));
+					if (!overridden)
+						this->ptx_pool->insert(std::make_pair(
+							sha256_string,
+							compiled_program));
 					SPDLOG_INFO("Compile of {} done", name);
 				}
 				} catch (const std::exception &e) {
