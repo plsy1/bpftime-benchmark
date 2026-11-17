@@ -22,7 +22,8 @@ Variants (directory names):
           register and passes it to the exit (calls kept)
   loc     as reg, but the kernel keeps the start in a kernel-scope .local
           word (st.local / ld.local), the design's fallback form
-  chain   as reg, with the 6-step log2 chain instead of clz
+  chain   as reg, with the 6-step log2 chain instead of clz (LLVM's structure,
+          one setp fewer than the generated code)
   inline  as reg, with both probe bodies spliced into the kernel (no calls)
   none    the probe calls removed from the kernel (no switch load): the
           kernel as ptxas compiles it in this module, without probes
@@ -30,6 +31,21 @@ Variants (directory names):
   inlinecap  inline with .maxnreg 56
   regcap  as reg, with .maxnreg 56 on the kernel (the generated kernel's
           register count: keeps 36 warps per SM by registers)
+Map-residual variants (added 2026-11-17 afternoon; the tool unchanged, so
+all of them keep the tool's 6-step log2 chain, never clz):
+  empty   the switch and two predicated calls to empty functions
+  nomap   calls kept; no carry, no add. The entry reads %globaltimer and
+          keeps it alive with a never-true compare against the sum map's
+          max_entries (constant memory) guarding a trap; the exit takes a
+          stand-in start loaded from the same constant, then runs the exit's
+          tool work (no-start test, timer, subtract, chain, key) and the bound
+          compare, which guards a trap instead of skipping the add
+  locc    loc with the chain (full map work)
+  locc-noadd  locc with the 1531 part after the bound compare replaced by
+          the trap (the carry kept, no add)
+  regc-noadd  chain (reg form) without the add
+  *cap    the same with .maxnreg 56 on the kernel: emptycap, nomapcap,
+          loccap, loccap-noadd, regcapc, regcapc-noadd
 End shape: %globaltimer read inline, bucket = 63 - clz(delta | 1), the sum
 map's address computed inline from map_info[fd] (as sum_array_offset), an
 isspacep.global check on that address before the generic atom.add.
@@ -58,7 +74,8 @@ def bucket_clz(d, out, p):
 
 
 def bucket_chain(d, out, p):
-    """the same value by pt_common.h's shift chain, as LLVM emits it today"""
+    """the same value by pt_common.h's shift chain, in the structure LLVM emits
+    (one setp fewer than the generated code: c0 is reused for the r0 select)"""
     return f'''	setp.lt.u64 	{p}c0, {d}, 4294967296;
 	shr.u64 	{p}y0, {d}, 32;
 	selp.b64 	{p}v0, {d}, {p}y0, {p}c0;
@@ -90,9 +107,11 @@ def bucket_chain(d, out, p):
 '''
 
 
-def exit_body(start, tag, chain=False):
+def exit_body(start, tag, chain=False, mode='full'):
     """The exit's work for a start value in register `start` (.u64, 0 = no
-    start). Labels and registers are prefixed by tag (unique per copy)."""
+    start). Labels and registers are prefixed by tag (unique per copy).
+    mode 'noadd': the bound compare guards a trap (never taken: keys stay
+    below max_entries) and the sum map's part after it is left out."""
     p = '%' + tag + '_'
     L = '$L' + tag
     regs = f'''	.reg .pred 	{p}q<6>;
@@ -115,7 +134,9 @@ def exit_body(start, tag, chain=False):
 {L}_key:
 	ld.const.u32 	{p}w3, [{mi(OFF_MAX_ENTRIES)}];
 	setp.ge.u32 	{p}q1, {p}k, {p}w3;
-	@{p}q1 bra 	{L}_done;
+''' + (f'''	@{p}q1 trap;
+	}}
+''' if mode == 'noadd' else f'''	@{p}q1 bra 	{L}_done;
 	ld.const.u64 	{p}x3, [{mi(OFF_EXTRA)}];
 	setp.eq.u64 	{p}q2, {p}x3, 0;
 	@{p}q2 bra 	{L}_done;
@@ -140,10 +161,10 @@ def exit_body(start, tag, chain=False):
 	@{p}q4 atom.add.u64 	{p}x13, [{p}x12], 1;
 {L}_done:
 	}}
-'''
+''')
 
 
-FUNCS_BYVALUE = lambda chain: f'''
+FUNCS_BYVALUE = lambda chain, mode='full': f'''
 .func  (.param .b64 __bpt_entry_ret) __bpt_entry(
 	.param .b32 __bpt_entry_unused
 )
@@ -160,10 +181,67 @@ FUNCS_BYVALUE = lambda chain: f'''
 {{
 	.reg .b64 	%bpt_s;
 	ld.param.b64 	%bpt_s, [__bpt_exit_start];
-''' + exit_body('%bpt_s', 'bptx', chain) + '''	ret;
+''' + exit_body('%bpt_s', 'bptx', chain, mode) + '''	ret;
 }
 
 '''
+
+FUNCS_NOMAP = f'''
+.func __bpt_entry_nm(
+	.param .b32 __bpt_entry_nm_unused
+)
+{{
+	.reg .b64 	%bpt_t;
+	.reg .b64 	%bpt_m;
+	.reg .b32 	%bpt_mw;
+	.reg .pred 	%bpt_p;
+	mov.u64 	%bpt_t, %globaltimer;
+	ld.const.u32 	%bpt_mw, [{mi(OFF_MAX_ENTRIES)}];
+	cvt.u64.u32 	%bpt_m, %bpt_mw;
+	setp.eq.u64 	%bpt_p, %bpt_t, %bpt_m;
+	@%bpt_p trap;
+	ret;
+}}
+
+.func __bpt_exit_nm(
+	.param .b64 __bpt_exit_nm_unused
+)
+{{
+	.reg .b64 	%bpt_s;
+	.reg .b32 	%bpt_sw;
+	ld.const.u32 	%bpt_sw, [{mi(OFF_MAX_ENTRIES)}];
+	cvt.u64.u32 	%bpt_s, %bpt_sw;
+''' + exit_body('%bpt_s', 'bptx', True, 'noadd') + '''	ret;
+}
+
+'''
+
+FUNCS_EMPTY = '''
+.func __bpt_entry_e(
+	.param .b32 __bpt_entry_e_unused
+)
+{
+	ret;
+}
+
+.func __bpt_exit_e(
+	.param .b64 __bpt_exit_e_unused
+)
+{
+	ret;
+}
+
+'''
+
+# map-residual variants: name -> (form, cap, mode); all with the chain
+MAPRES = {
+    'empty': ('empty', False, 'full'), 'emptycap': ('empty', True, 'full'),
+    'nomap': ('nomap', False, 'noadd'), 'nomapcap': ('nomap', True, 'noadd'),
+    'locc': ('loc', False, 'full'), 'locc-noadd': ('loc', False, 'noadd'),
+    'loccap': ('loc', True, 'full'), 'loccap-noadd': ('loc', True, 'noadd'),
+    'regc-noadd': ('reg', False, 'noadd'),
+    'regcapc': ('reg', True, 'full'), 'regcapc-noadd': ('reg', True, 'noadd'),
+}
 
 
 def area_lookup(tag):
@@ -261,7 +339,38 @@ def variant(lines, name):
     ex = ex[0]
     assert lines[ex - 1].strip().startswith('cvta.local.u64'), lines[ex - 1]
     # what replaces them
-    if name == 'area':
+    cap = name in ('regcap', 'nonecap', 'inlinecap')
+    if name in MAPRES:
+        form, cap, mode = MAPRES[name]
+        if form == 'empty':
+            new_pro = SWITCH + '\t@%bpt_on call __bpt_entry_e, (0);\n'
+            new_exit = '\t@%bpt_on call __bpt_exit_e, (0);\n'
+            funcs = FUNCS_EMPTY
+        elif form == 'nomap':
+            new_pro = SWITCH + '\t@%bpt_on call __bpt_entry_nm, (0);\n'
+            new_exit = '\t@%bpt_on call __bpt_exit_nm, (0);\n'
+            funcs = FUNCS_NOMAP
+        elif form == 'reg':
+            new_pro = SWITCH + '''	.reg .b64 	%bpt_start;
+	mov.u64 	%bpt_start, 0;
+	@%bpt_on call (%bpt_start), __bpt_entry, (0);
+'''
+            new_exit = '\t@%bpt_on call __bpt_exit, (%bpt_start);\n'
+            funcs = FUNCS_BYVALUE(True, mode)
+        elif form == 'loc':
+            new_pro = SWITCH + '''	.local .align 8 .b8 	__bpt_slot[8];
+	.reg .b64 	%bpt_start;
+	.reg .b64 	%bpt_start2;
+	mov.u64 	%bpt_start, 0;
+	st.local.u64 	[__bpt_slot], %bpt_start;
+	@%bpt_on call (%bpt_start), __bpt_entry, (0);
+	st.local.u64 	[__bpt_slot], %bpt_start;
+'''
+            new_exit = '''	ld.local.u64 	%bpt_start2, [__bpt_slot];
+	@%bpt_on call __bpt_exit, (%bpt_start2);
+'''
+            funcs = FUNCS_BYVALUE(True, mode)
+    elif name == 'area':
         new_pro = '''	.local .align 16 .b8 	__bpftime_tl[8];
 	.reg .b64 	%bpftime_tl;
 	cvta.local.u64 	%bpftime_tl, __bpftime_tl;
@@ -304,7 +413,7 @@ def variant(lines, name):
     else:
         raise SystemExit('unknown variant ' + name)
     head = lines[k0:first]
-    if name in ('regcap', 'nonecap', 'inlinecap'):
+    if cap:
         i = next(j for j, l in enumerate(head) if l.startswith('.minnctapersm'))
         head = head[:i + 1] + ['.maxnreg 56'] + head[i + 1:]
     out = lines[:k0] + [funcs] + head + [new_pro] + lines[ent + 1:ex - 1] + [new_exit] + lines[ex + 1:]

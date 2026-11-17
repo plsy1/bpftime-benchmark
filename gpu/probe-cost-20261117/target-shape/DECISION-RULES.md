@@ -51,3 +51,114 @@ nonecap, regcap, inlinecap = inline with .maxnreg 56) rerun D2/D3 at equal
 caps: cost of each capped variant is also quoted against nonecap. D2 holds
 if regcap - nonecap > 0.029 >= inlinecap - nonecap in both passes; D3 if
 inlinecap - nonecap > 0.029.
+
+## Addendum 3, map residual: written before passes f1/f2 (2026-11-17 afternoon)
+
+Question: in the best documented shapes, how much of the per-thread cost is
+still the map model's own work? The tool stays unchanged, so every variant
+here keeps the tool's 6-step log2 chain (no clz; clz is a tool change and
+appears only in the link item `loc`). New variants (make_variants.py, same
+dump; definitions in its docstring): empty, nomap, locc, locc-noadd,
+regc-noadd and the capped emptycap, nomapcap, loccap, loccap-noadd, regcapc,
+regcapc-noadd.
+
+Registers (ptxas -O3 sm_87, cuobjdump -res-usage, before any run):
+- no cap, 56 registers: none, empty, nomap, locc-noadd, locc (STACK 0 for
+  none/empty/nomap; 8 for the two loc forms = their own .local word, no
+  spills: STL/LDL count equals the written st.local/ld.local);
+- .maxnreg 56, 48 registers: nonecap, emptycap, nomapcap, loccap-noadd,
+  loccap, regcapc-noadd, regcapc (STACK as above);
+- 64 registers: chain, regc-noadd (only their difference is used).
+
+Items, two passes shuffled (f1, f2): base, t0, loc, none, empty, nomap,
+locc-noadd, locc, nonecap, emptycap, nomapcap, loccap-noadd, loccap,
+regcapc-noadd, regcapc, regc-noadd, chain.
+
+Quantities, per pass, ns per thread (time difference / 3,137,339,392):
+- A = full - noadd: the sum map's work after the bound compare (constant
+  loads of the buffer and shard count, NULL tests, %smid and %laneid, the
+  shard address, isspacep, the atomic add);
+- C = noadd - nomap: carrying the start (the .local word or the register,
+  the entry's return value, the exit's parameter, the no-start test on the
+  carried value), against a stand-in start loaded from constant memory.
+  C is biased LOW: nomap pays a keep-alive the noadd form does not (one
+  constant compare and a never-taken trap in the entry);
+- M = full - nomap = A + C: the map model's residual in that shape;
+- T = nomap - empty: the tool's own work (two timer reads, subtract, chain,
+  key, bound compare) plus the keep-alive;
+- F = empty - none: the switch and the two calls.
+Families: U = no cap (none, empty, nomap, locc-noadd, locc); K = cap
+(nonecap, emptycap, nomapcap, loccap-noadd, loccap) and the register-carry
+pair inside K (regcapc-noadd, regcapc: A only, plus C against nomapcap);
+R64 = chain, regc-noadd (A only).
+
+Validity (each in both passes; a failing quantity is reported, not used):
+- V1 links: t0 - base within 0.006 of 0.282-0.284; loc - base within 0.006
+  of 0.116-0.118. Otherwise the passes are void.
+- V2 counts: full forms (locc, loccap, regcapc, chain, loc, t0) hold exactly
+  15,711,207,424 with bucket 194 = 0; none, empty, nomap and every -noadd
+  form hold 0; every override item logs "PTX override".
+- V3 registers: a difference is used only between members with the same
+  REG count and no spills (as listed above).
+- V4 order: within U and within K, none <= empty <= nomap <= noadd <= full
+  to within 0.006 (a nomap at the level of empty means its body did not run).
+- V5 noise: a quantity whose two passes differ by more than 0.006 gets a
+  third pass and the median of three is reported.
+
+Interpretation (fixed now; U's loc form is the one the design builds by
+default, K is the second reading):
+- R1: A >= 0.03 in both passes: the sum map's add path is the main map cost
+  left; it is designed next.
+- R2: C >= 0.03 in both passes: carrying the start still costs; its form is
+  designed next (R1 and R2 can both hold).
+- R3: M <= 0.01 in both U and K: the map model is at its floor in this
+  shape; what remains is outside the map.
+- R4: anything else (0.01 < M, A < 0.03 and C < 0.03): reported, no decision.
+Also reported, without a rule: the non-map floor in two readings, (a) the
+generated code's call floor + timer helper calls + log2 (0.018 + 0.035 +
+0.035, passes a1/a2) and (b) nomap - none in this shape (timer read inline,
+switch read once); which bpftime-side changes are in scope is the user's
+decision.
+
+### Addendum 3a: after an independent review of the variants and these rules, still before f1
+
+The review (two read-only reviewers) confirmed the variants: module byte-identical outside the probed kernel's call sites, the inserted
+functions and the cap line; each -noadd form differs from its full form in
+one PTX line plus the 23 add-path lines; the traps cannot fire (max_entries
+260; keys 130..194; the stand-in start 260 is not 0); ptxas kept both timer
+reads and the whole chain in nomap and every -noadd exit (42 SASS
+instructions each); the empty bodies are real calls. Changes and additions:
+- A also contains the add path's control structure: BSSY/BSYNC around the
+  exit call, YIELD, extra predicated returns, and in the loc form a BSSY/BSYNC
+  pair around the no-start branch (about 17 executed instructions in the loc
+  form, one BSSY pair fewer in the reg forms).
+- C: the no-start test and subtract are in both members and cancel. C's low
+  bias is the nomap entry's keep-alive: 2 ISETP and a move per thread (the
+  trap never runs).
+- Kreg's C (regcapc-noadd - nomapcap) is the start held in uniform
+  registers under the cap, and it adds 2 instructions per main-loop iteration.
+  It is reported as "carry plus a loop cost from register pressure", not as a
+  per-probe constant. A within Kreg is clean (equal loops).
+- F and floor (b) include more than switch + calls: with an exit probe every
+  thread runs to the exit, and the reduction gets divergence checks.
+- A and C are marginal costs in this order (the add with the carry present;
+  the carry without the add). M is judged from its own values.
+- V3 assumes the run-time compiler (libnvptxcompiler, same CUDA 13.2) gives
+  the same register counts as the CLI ptxas used here.
+- The chain in the variants has LLVM's structure, with one setp fewer than
+  the generated code. That changes T only, not A, C or M.
+New or sharpened rules:
+- V6 bodies ran: T = nomap - empty >= 0.012 in both passes, per family (U, K).
+  Otherwise that family's T, C and M are void.
+- Families: R1-R3 are decided on U. K and Kreg are reported; a disagreement
+  with U is reported, with no decision. R64 is report-only. V4 applies to U,
+  K and Kreg; for R64, only regc-noadd <= chain.
+- V5 with a third pass: f3 reruns all 17 items. With three passes, a rule
+  holds if it holds for the median and in at least 2 of 3. A pass voided by
+  V1 is rerun once with the same items.
+- R3, sharpened: "at its floor" needs M + 0.006 <= 0.01 in both passes (on U).
+  An M at or below 0.01 that fails this is reported as "below resolution".
+- A quantity excluded by V4 or V6 leaves its rule unjudged. R4 is simply
+  "otherwise".
+- Analysis: a zero-sum item with no 1531 sum is MISSING. A full item with
+  bucket 194 != 0 is WRONG.

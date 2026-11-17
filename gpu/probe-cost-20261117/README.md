@@ -2,7 +2,7 @@
 
 Follow-up to `gpu/map-model-proto-20261116`. There a latency histogram (`lat`: the entry stores `%globaltimer` in the thread-local map 1530, the exit adds 1 to a log2 bucket in the sum map 1531) cost 33% of llama.cpp's tg128 throughput, about 0.28-0.30 ns per thread on mul_mat_vec_q, whose own work is about 0.41 ns per thread. At most 5% on tg128 allows about 0.031 ns per thread.
 
-This round finds where the 0.28 ns goes, prices probe shapes, checks the documents for each way of cutting it, writes one design, and measures its end shapes on the real kernel. The only bpftime change is a debug-only hook for that measurement.
+This round finds where the 0.28 ns goes, prices probe shapes, checks the documents for each way of cutting it, writes one design, measures its end shapes on the real kernel, and splits what remains of the best shape into the map model's own work and the rest (section 6). The only bpftime change is a debug-only hook for that measurement.
 
 Board and settings as before: Orin Nano 8 GB (sm_87, 8 SMs), clocks fixed and checked before every item, prototype build c940870b, llama-bench TinyLlama Q4_K_M `-r 5` with warmup.
 
@@ -115,12 +115,61 @@ Probe cost at equal registers, best forms:
 
 Verdicts (rules fixed before the runs, both passes):
 - D1, calls kept at or below 0.029 ns: **not met** (best 0.092; 0.113 at equal registers).
-- D2/D3: spliced 0.111-0.113 uncapped, 0.083 against `nonecap` capped (addendum 2), both > 0.029: **D3**. This tool shape (two timer reads, a bucket and one add per thread) cannot reach 5% on mul_mat_vec_q on this board, spliced or not. These are hand-written end shapes, so they bound what the documented path can reach: at best 0.284 -> about 0.11-0.12 ns per thread, 46 -> about 57 t/s (-32% -> about -16%); the real pipeline (LLVM lowering, the eBPF stack, the map facts) may not reach them. The 5% target needs another tool shape or another budget. What the remaining 0.08-0.12 ns consists of was not measured.
+- D2/D3: spliced 0.111-0.113 uncapped, 0.083 against `nonecap` capped (addendum 2), both > 0.029: **D3**. This tool shape (two timer reads, a bucket and one add per thread) cannot reach 5% on mul_mat_vec_q on this board, spliced or not. These are hand-written end shapes, so they bound what the documented path can reach: at best 0.284 -> about 0.11-0.12 ns per thread, 46 -> about 57 t/s (-32% -> about -16%); the real pipeline (LLVM lowering, the eBPF stack, the map facts) may not reach them. The 5% target needs another tool shape or another budget. What the remaining 0.08-0.12 ns consists of was not measured here; section 6 splits it, with the tool unchanged.
 - D4, clz: chain - reg = 0.011-0.013 >= 0.01: build it.
 - D5, register vs `.local`: reg (64 registers) is slower than loc; regcap beats loc only through the register cap, which speeds up the kernel itself. Carry the start in a `.local` word unless the registers stay at the kernel's own count.
 - D6: area - reg = 0.056 >= 0.03: carrying the start by value comes before inlining the lookup.
 - Splicing the probe into the kernel saves about 0.031-0.036 ns per thread at equal registers (it is not documented to behave like the call; section 3). It does not change the verdict.
 - Register count moves the result as much as the probe's instructions do (reg 0.148 against loc 0.117 and regcap 0.093). A product must check registers per kernel (as the design's mode rule said); mul_mat_vec_q sits at the 36-warp boundary.
+
+## 6. How much of the best shape is still the map (`target-shape/`, passes f1/f2)
+
+Question: the tool stays as written (its 6-step log2, no clz, since changing the tool is not the point), and the work is the map model. In the best documented shape, how much of the per-thread cost is still the map model's own work? New variants of the same patched PTX (`make_variants.py`), rules fixed before the runs (`DECISION-RULES.md`, addendum 3), then reviewed by two read-only reviewers and sharpened before the first item (addendum 3a, `review-mapres.md`):
+- `empty`: the switch and two calls to empty functions;
+- `nomap`: the tool's own work without any map: the entry reads `%globaltimer`; the exit reads it again, subtracts a stand-in start (the sum map's `max_entries` from constant memory, which ptxas cannot fold), runs the log2 chain and forms the key, and the bound compare guards a trap that never fires (keys 130-194 < 260) instead of the add;
+- `locc-noadd`: as `nomap`, but the start is carried from entry to exit in a kernel `.local` word (1530's documented form);
+- `locc`: the full shape: carry plus the add into 1531 (inline shard address, `isspacep.global`, atomic add);
+- the same with `.maxnreg 56` (`emptycap`, `nomapcap`, `loccap-noadd`, `loccap`), and the register carry under the cap (`regcapc-noadd`, `regcapc`).
+
+Every comparison is between variants with the same register count (ptxas, before the runs): 56 for none, empty, nomap, locc-noadd and locc; 48 for all capped forms. ptxas kept both timer reads and the whole chain in every no-add exit (42 SASS instructions each, `variants-info/probe-subroutines.txt`).
+
+tg128, mul_mat_vec_q only, two passes (`analysis-mapres.txt`), no cap:
+
+| variant | what the probes do | t/s (f1 / f2) | s per run | added per thread vs `none` | drop vs base |
+|---|---|---:|---:|---:|---:|
+| base | no agent | 67.59 / 67.53 | 1.894-1.895 | - | - |
+| none | the kernel without probe calls | 67.38 / 67.37 | 1.900 | 0 | 0.2-0.3% |
+| empty | switch, two calls to empty functions | 64.31 / 64.30 | 1.990-1.991 | 0.029 ns | 4.8-4.9% |
+| nomap | + the tool's own work (two timer reads, subtract, log2 chain, key, bound compare) | 60.97 / 60.56 | 2.10-2.11 | 0.064-0.068 ns | 9.8-10.3% |
+| locc-noadd | + the start carried in a `.local` word | 60.96 / 60.47 | 2.10-2.12 | 0.064-0.069 ns | 9.8-10.5% |
+| locc | + the add into 1531 | 55.12 / 55.14 | 2.32 | 0.134-0.135 ns | 18.4% |
+| t0 | the generated `lat`, for reference | 45.71 / 45.72 | 2.80 | 0.287 ns | 32.3-32.4% |
+
+The differences, ns per thread (f1 / f2):
+
+| | no cap, `.local` word (56 registers) | cap, `.local` word (48) | cap, register (48) | 64 registers, register |
+|---|---:|---:|---:|---:|
+| A: the add into 1531 (full - no add) | 0.071 / 0.065 | 0.063 / 0.063 | 0.064 / 0.063 | 0.071 / 0.071 |
+| C: carrying the start (no add - nomap) | 0.000 / 0.001 | 0.007 / 0.003 | 0.013 / 0.009 | - |
+| M: the map's work (full - nomap) | 0.071 / 0.066 | 0.071 / 0.066 | 0.076 / 0.072 | - |
+| T: the tool's own work (nomap - empty) | 0.035 / 0.039 | 0.037 / 0.040 | as left | - |
+| F: switch and calls (empty - none) | 0.029 / 0.029 | 0.030 / 0.027 | as left | - |
+
+Checks, both passes: t0 and the clz link `loc` match the earlier passes (t0 0.288-0.289 ns over base, `loc` 0.121); every full form holds exactly 15,711,207,424 with bucket 194 = 0, every other form 0; the order none <= empty <= nomap <= no add <= full holds; T >= 0.012 (the bodies ran); no difference moved more than 0.006 between passes, so no third pass.
+
+Verdicts (decided on the no-cap `.local` form, the one the design builds):
+- R1 holds: A = 0.065-0.071 >= 0.03. **The add into the sum map is the main map cost left, and it is designed next.**
+- R2 does not: C = 0.000-0.001. Carrying the start in a `.local` word costs nothing measurable here. In a register under the cap it costs 0.009-0.013, which includes 2 more instructions per iteration of the kernel's main loop (register pressure).
+- R3 does not (M = 0.066-0.071).
+
+Reading:
+- In this shape the map model's own work is 0.066-0.071 ns per thread, about half of the 0.134 left. The generated code spends about 0.207 on the map (carry 0.072, lookup and add 0.135; section 1), so the documented shape cuts the map's part by about two thirds: the carry goes to about 0, the 1531 part from 0.135 to about 0.068.
+- What A contains: on the global path the full exit runs about 90 SASS instructions against 41 without the add. The extra are three constant loads (buffer, shard count, value size), the NULL and shard-count tests, `%smid` and `%laneid`, the shard address, `isspacep`, the atomic, and about 17 instructions of control structure for the add path's early returns (BSSY/BSYNC around the call, YIELD, predicated returns).
+- Outside the map: 0.064-0.068 ns (switch and calls 0.029, the tool's own work 0.035-0.039). With the map at zero this shape would run at about 60.8 t/s (-10%); with it, 55.1 t/s (-18.4%); the generated code, 45.7 t/s (-32%).
+- With the tool unchanged, the best documented shape is about -18% (`locc`), not the -16% of section 5, which used clz (`loc`: 56.3 t/s here, -16.7%).
+- Side finding, not explained and outside the map: the hand-written switch and two calls (`empty`, 0.029 ns over `none`) cost more than the generated empty probes did (`empty2`, 0.016-0.018 over base in c1/c2, other passes).
+
+Caveats: hand-written shapes, so bounds for the real pipeline. A and C are marginal costs in this order (the add with the carry present). C is biased low by the stand-in's keep-alive in `nomap`'s entry (2 compares and a move per thread). Register counts come from the CLI ptxas; the run-time compiler is the same CUDA 13.2 release (t0 matched `lat` in c1/c2). The variants' chain has one `setp` fewer than the generated code, which affects T only.
 
 ## Corrections to gpu/map-model-proto-20261116
 
@@ -135,3 +184,4 @@ Verdicts (rules fixed before the runs, both passes):
 - `probe-shape/`: source, SASS, two passes, `analysis.txt`.
 - `design/`: inputs (`measurements.md` as given to the panel, before section 1's b-passes; SASS; `facts_docs.txt`, `facts_code.txt`), the three designs, `refutation.md`, `synthesis.md`.
 - `target-shape/`: `make_variants.py` (the variants, from the dumped PTX whose sha256 is in `dump-sha256.txt`; the 11.6 MB PTX files are not kept), `DECISION-RULES.md`, `analysis.txt`, `variants-info/` (registers, ptxas logs, SASS of mul_mat_vec_q per variant); `meas/run_meas3.sh` (items `tool@variant`), `meas/out/{c1,c2,d1,d2,e1,e2}-*`; `patches/0001` (the hook).
+- Section 6: `target-shape/` `analyze_mapres.py`, `analysis-mapres.txt`, `sassfn.py` (probe subroutines in SASS), `review-mapres.md`, `variants-info/probe-subroutines.txt` and the new variants' SASS and registers; `meas/out/{f1,f2}-*`.
