@@ -411,7 +411,29 @@ override on `proto/map-model`, local).
   tool's own timer reads and log2) 0.064-0.068. The map's part falls from about 0.196 in the
   generated code to about 0.068; the add into the sum map is what is left to design.
 
-## Where it stands (11-17)
+## 11-18: the sum map's add path
+
+How short the add into the sum map can be on documented guarantees (`results/gpu/probe-cost-20261117`,
+section 7; hand-written shapes through the same debug override, the tool unchanged, rules fixed
+before the runs, three passes, counts exact in every variant).
+
+- **Design:** the add becomes a `red` on the global address (device memory from `cuMemAlloc` is
+  global memory; PTX allows `red` there), with one test (the agent writes `max_entries` 0 when there
+  is no device copy) and 32-bit offsets. The routing pass already rewrites constant-fd lookups of
+  the thread-local map, and it would do the same for the sum map. The delivery's load moves to the
+  same global form, a cautious choice (it is morally strong with the adds either way).
+- **Measured:** the add path falls from 0.061-0.069 to 0.010-0.015 ns per thread, and the shape from
+  55.2-55.6 to 59.6 t/s (-18% -> -12% on tg128). In three steps: the atomic's form 0.035-0.042,
+  the extra tests 0.005-0.009, the arithmetic 0.006-0.008. How much is instruction count and how
+  much is waiting is not pinned down (the cost per instruction varies, 0.7-1.1 ps): the generic
+  atomic sets a predicate the path then depends on (so, inferred, the thread waits for its
+  reply), and `red` sets nothing. A guard for pointers of unknown origin would cost 0.017-0.018
+  more.
+- **What is left:** about 13 instructions (shard address, the `red`). The map's part of the shape is
+  now about 0.014 ns, against about 0.066 for everything outside the map; with the add at zero
+  the shape would still run at about 60.5-60.9 t/s (-10%).
+
+## Where it stands (11-18)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
   (10-26 figures in [reports/bpftime-research-overview.md](https://github.com/plsy1/bpftime-benchmark/blob/benchmark-results/jetson/reports/bpftime-research-overview.md),
@@ -429,7 +451,9 @@ override on `proto/map-model`, local).
   0.3 ns. Hand-written end shapes of the documented design bring that to about 0.11 ns (about 16%,
   with clz in the tool; 0.134 ns, about 18%, with the tool unchanged), 0.08 spliced: 5% on such kernels needs another tool shape or budget. With the tool unchanged the
   map's own part goes from about 0.196 ns to about 0.068, nearly all of it the add into the sum
-  map. Not built: the design itself, per-record output.
+  map; the add's documented design (a `red` on the global address, one test, 32-bit offsets)
+  brings the map's part to about
+  0.014 and the shape to about 12% (59.6 t/s). Not built: the design itself, per-record output.
 - Open: Gum's per-function usage counter under many threads; the agent's own load time (about
   9 ms); the CUDA late path (`bpftime attach` to a running GPU process; 5–9 µs per launch slower
   than official's); fixes not yet offered upstream.
