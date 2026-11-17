@@ -41,3 +41,13 @@ loc) only explain that; they change no decision:
 - nonecap: the same with .maxnreg 56 (48 regs).
 If nonecap is faster than none by 0.006 ns or more in both passes, regcap is
 also quoted against nonecap (probe cost at the same register cap).
+
+## Addendum 2, written after d1/d2 and before e1/e2
+
+The spliced form (inline, 64 registers) was compared with a capped call form
+(regcap, 48 registers) and judged without a cap; at equal registers (reg vs
+inline, both 64) removing the calls saved about 0.036 ns. Passes e1/e2 (base,
+nonecap, regcap, inlinecap = inline with .maxnreg 56) rerun D2/D3 at equal
+caps: cost of each capped variant is also quoted against nonecap. D2 holds
+if regcap - nonecap > 0.029 >= inlinecap - nonecap in both passes; D3 if
+inlinecap - nonecap > 0.029.

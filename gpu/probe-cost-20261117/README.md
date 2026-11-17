@@ -97,18 +97,29 @@ tg128, mul_mat_vec_q only, passes c1/c2 (`target-shape/analysis.txt`):
 | loc: start in a kernel `.local` word | 56 | 56.7 | 2.26 | 0.116-0.118 ns |
 | inline: probe bodies spliced, no calls | 64 | 57.1 | 2.24 | 0.111-0.113 ns |
 | regcap: reg with `.maxnreg 56` | 48 | 58.7 | 2.18 | 0.092-0.093 ns |
+| inlinecap: inline with `.maxnreg 56` (passes e1/e2) | 48 | 61.4 | 2.08-2.09 | 0.062-0.064 ns |
 
 Every variant counted every exit (15,711,207,424) with 0 in the no-start bucket, and logged the override.
 
-Passes d1/d2 explain regcap: the kernel without probe calls, compiled in the same module, runs at 67.4-67.9 t/s with 56 registers (`none`) and at 70.1 t/s with the cap (`nonecap`, 48 registers): the cap alone makes mul_mat_vec_q 0.019-0.023 ns per thread faster. Against `nonecap` regcap's probes cost 0.113-0.114 ns per thread (d1/d2: regcap 0.093-0.095, loc 0.117-0.118). So at equal registers the three best shapes cost the same, about 0.11-0.12 ns per thread.
+Passes d1/d2 explain regcap: the kernel without probe calls, compiled in the same module, runs at 67.4-67.9 t/s with 56 registers (`none`) and at 70.1 t/s with the cap (`nonecap`, 48 registers): the cap alone makes mul_mat_vec_q 0.019-0.023 ns per thread (about 3%) faster. That is a side finding about the kernel, not a probe saving. Against `nonecap` regcap's probes cost 0.113-0.114 ns per thread (d1/d2: regcap 0.093-0.095, loc 0.117-0.118).
+
+Passes e1/e2 (addendum 2) cap the spliced form too: against `nonecap` in the same passes, inlinecap costs 0.083 ns per thread and regcap 0.114. At equal registers (reg and inline, both 64; regcap and inlinecap, both 48) removing the calls saves about 0.031-0.036 ns per thread.
+
+Probe cost at equal registers, best forms:
+
+| form | against the same kernel without probes | against the application as shipped |
+|---|---:|---:|
+| calls kept, start in a `.local` word (56 registers) | 0.116-0.118 ns | 56.7 t/s, 2.26 s per run |
+| calls kept, start in a register, cap 56 (48 registers) | 0.113-0.114 ns | 58.6-58.7 t/s, 2.18 s per run |
+| spliced, cap 56 (48 registers) | 0.083 ns | 61.4 t/s, 2.08-2.09 s per run |
 
 Verdicts (rules fixed before the runs, both passes):
 - D1, calls kept at or below 0.029 ns: **not met** (best 0.092; 0.113 at equal registers).
-- D2/D3: spliced 0.111-0.113 > 0.029: **D3**. This tool shape (two timer reads, a bucket and one add per thread) cannot reach 5% on mul_mat_vec_q on this board, spliced or not. The documented path is still worth building for its gain (0.284 -> about 0.11-0.12 ns, 46 -> about 57 t/s, -32% -> about -16%); the 5% target needs another tool shape or another budget.
+- D2/D3: spliced 0.111-0.113 uncapped, 0.083 against `nonecap` capped (addendum 2), both > 0.029: **D3**. This tool shape (two timer reads, a bucket and one add per thread) cannot reach 5% on mul_mat_vec_q on this board, spliced or not. These are hand-written end shapes, so they bound what the documented path can reach: at best 0.284 -> about 0.11-0.12 ns per thread, 46 -> about 57 t/s (-32% -> about -16%); the real pipeline (LLVM lowering, the eBPF stack, the map facts) may not reach them. The 5% target needs another tool shape or another budget. What the remaining 0.08-0.12 ns consists of was not measured.
 - D4, clz: chain - reg = 0.011-0.013 >= 0.01: build it.
 - D5, register vs `.local`: reg (64 registers) is slower than loc; regcap beats loc only through the register cap, which speeds up the kernel itself. Carry the start in a `.local` word unless the registers stay at the kernel's own count.
 - D6: area - reg = 0.056 >= 0.03: carrying the start by value comes before inlining the lookup.
-- Splicing gains nothing over the call forms at equal cost, so the undocumented step is not needed.
+- Splicing the probe into the kernel saves about 0.031-0.036 ns per thread at equal registers (it is not documented to behave like the call; section 3). It does not change the verdict.
 - Register count moves the result as much as the probe's instructions do (reg 0.148 against loc 0.117 and regcap 0.093). A product must check registers per kernel (as the design's mode rule said); mul_mat_vec_q sits at the 36-warp boundary.
 
 ## Corrections to gpu/map-model-proto-20261116
@@ -123,4 +134,4 @@ Verdicts (rules fixed before the runs, both passes):
 - `tools/`: `pt_timer`, `pt_sreg`, `pt_count`, `pt_carrynolog` (new), with `pt_lat`, `pt_empty`, `pt_common.h` and the Makefile.
 - `probe-shape/`: source, SASS, two passes, `analysis.txt`.
 - `design/`: inputs (`measurements.md` as given to the panel, before section 1's b-passes; SASS; `facts_docs.txt`, `facts_code.txt`), the three designs, `refutation.md`, `synthesis.md`.
-- `target-shape/`: `make_variants.py` (the variants, from the dumped PTX whose sha256 is in `dump-sha256.txt`; the 11.6 MB PTX files are not kept), `DECISION-RULES.md`, `analysis.txt`, `variants-info/` (registers, ptxas logs, SASS of mul_mat_vec_q per variant); `meas/run_meas3.sh` (items `tool@variant`), `meas/out/{c1,c2,d1,d2}-*`; `patches/0001` (the hook).
+- `target-shape/`: `make_variants.py` (the variants, from the dumped PTX whose sha256 is in `dump-sha256.txt`; the 11.6 MB PTX files are not kept), `DECISION-RULES.md`, `analysis.txt`, `variants-info/` (registers, ptxas logs, SASS of mul_mat_vec_q per variant); `meas/run_meas3.sh` (items `tool@variant`), `meas/out/{c1,c2,d1,d2,e1,e2}-*`; `patches/0001` (the hook).

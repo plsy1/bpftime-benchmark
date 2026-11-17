@@ -27,6 +27,7 @@ Variants (directory names):
   none    the probe calls removed from the kernel (no switch load): the
           kernel as ptxas compiles it in this module, without probes
   nonecap none with .maxnreg 56 (how the register cap alone moves the kernel)
+  inlinecap  inline with .maxnreg 56
   regcap  as reg, with .maxnreg 56 on the kernel (the generated kernel's
           register count: keeps 36 warps per SM by registers)
 End shape: %globaltimer read inline, bucket = 63 - clz(delta | 1), the sum
@@ -293,7 +294,7 @@ def variant(lines, name):
         new_pro = ''
         new_exit = ''
         funcs = ''
-    elif name == 'inline':
+    elif name in ('inline', 'inlinecap'):
         new_pro = SWITCH + '''	.reg .b64 	%bpt_start;
 	mov.u64 	%bpt_start, 0;
 	@%bpt_on mov.u64 	%bpt_start, %globaltimer;
@@ -303,7 +304,7 @@ def variant(lines, name):
     else:
         raise SystemExit('unknown variant ' + name)
     head = lines[k0:first]
-    if name in ('regcap', 'nonecap'):
+    if name in ('regcap', 'nonecap', 'inlinecap'):
         i = next(j for j, l in enumerate(head) if l.startswith('.minnctapersm'))
         head = head[:i + 1] + ['.maxnreg 56'] + head[i + 1:]
     out = lines[:k0] + [funcs] + head + [new_pro] + lines[ent + 1:ex - 1] + [new_exit] + lines[ex + 1:]
