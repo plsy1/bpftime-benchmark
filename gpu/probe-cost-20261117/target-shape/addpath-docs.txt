@@ -1,0 +1,86 @@
+Documents behind the add-path design (fetched 2026-11-18; verbatim excerpts)
+
+== PTX ISA 9.5, https://docs.nvidia.com/cuda/parallel-thread-execution/index.html
+-- 6.4.1.1 Generic Addressing
+6.4.1.1. Generic Addressing
+If a memory instruction does not specify a state space, the operation is performed using generic
+addressing. The state spaces .const, Kernel Function Parameters
+(.param), .local and .shared are modeled as
+windows within the generic address space. Each window is defined by a window base and a window size
+that is equal to the size of the corresponding state space. A generic address maps to global
+memory unless it falls within the window for const, local, or shared memory. The
+Kernel Function Parameters (.param) window is contained
+within the .global window. Within each window, a generic address maps to an address in the
+underlying state space by subtracting the window base from the generic address.
+6.4.2. Arrays as Operands
+-- 9.7.10.23 cvta (description, part)
+.space = { .const, .global, .local, .shared{::cta, ::cluster}, .param{::entry} };
+.size = { .u32, .u64 };
+Description
+Convert a const, Kernel Function Parameters
+(.param), global, local, or shared address to a generic address, or vice-versa. The
+source and destination addresses must be the same size. Use cvt.u32.u64 or cvt.u64.u32 to
+truncate or zero-extend addresses.
+For variables declared in .const,
+Kernel Function Parameters (.param), .global, .local, or .shared
+state space, the generic address of the variable may be taken using cvta. The source is either a
+register or a variable defined in const,
+Kernel Function Parameters (.param), global, local, or shared memory
+with an optional offset.
+When converting a generic address into a const,
+Kernel Function Parameters (.param), global, local, or shared
+address, the resulting address is undefined in cases where the generic address does not fall within
+the address window of the specified state space. A program may use isspacep to guard against
+such incorrect behavior.
+-- 9.7.15.6 red (description, part)
+Reduction operations on global and shared memory.
+Performs a reduction operation with operand b and the value in location a, and stores the
+result of the specified operation at location a, overwriting the original value. Operand a
+specifies a location in the specified state space. If no state space is given, perform the memory
+accesses using Generic Addressing. red with scalar type may
+be used only with .global and .shared spaces and with generic addressing, where the address
+points to .global or .shared space. red with vector type may be used only with
+.global space and with generic addressing where the address points to .global space.
+For red with vector type, operand b is brace-enclosed vector expressions, size of which is
+equal to the size of vector qualifier.
+If no sub-qualifier is specified with .shared state space, then ::cta is assumed by default.
+The optional .sem qualifier specifies a memory synchronizing effect as described in the
+Memory Consistency Model. If the .sem qualifier is absent,
+.relaxed is assumed by default.
+The optional .scope qualifier specifies the set of threads that can directly observe the memory
+synchronizing effect of this operation, as described in the Memory Consistency Model.
+If the .scope qualifier is absent, .gpu scope is
+assumed by default.
+Table 42 shows the valid combinations of types and reduction operations for scalar red
+instructions.
+Table 42 Red Scalar Type Operations
+-- 8.6 Proxies (part)
+8.6. Proxies
+A memory proxy, or a proxy is an abstract label applied to a method of memory access. When two
+memory operations use distinct methods of memory access, they are said to be different proxies.
+A proxy fence is required to synchronize memory operations across different proxies. Although
+virtual aliases use the generic method of memory access, since using distinct virtual addresses
+behaves as if using different proxies, they require a proxy fence to establish memory ordering.
+Unless otherwise specified, memory operations as defined in Operation types use generic
+method of memory access, i.e. a generic proxy. Operations using methods of access distinct from
+the generic method include:
+-- 8.7 Morally strong operations
+8.7. Morally strong operations
+Two operations are said to be morally strong relative to each other if they satisfy all of the
+following conditions:
+The operations are related in program order (i.e, they are both executed by the same thread),
+or each operation is strong and specifies a scope that includes the thread executing the
+other operation.
+Both operations are performed via the same proxy.
+If both are memory operations, then they overlap completely.
+Most (but not all) of the axioms in the memory consistency model depend on relations between
+morally strong operations.
+
+== CUDA Driver API, https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__MEM.html
+cuMemAlloc: Allocates device memory.
+Allocates bytesize bytes of linear memory on the device and returns in *dptr a pointer to the allocated memory. The allocated memory is suitably aligned for any kind of variable. The memory is not cleared. If bytesize is 0, cuMemAlloc() returns CUDA_ERROR_INVALID_VALUE.
+
+== CUDA Programming Guide v13.5, https://docs.nvidia.com/cuda/cuda-programming-guide/02-basics/writing-cuda-kernels.html
+Global memory (also called device memory) is the primary memory space for storing data that is accessible by all threads in a kernel. It is similar to RAM in a CPU system. Kernels running on the GPU have direct access to global memory in the same way code running on the CPU has access to system memory.
+Global memory is persistent. That is, an allocation made in global memory and the data stored in it persist until the allocation is freed or until the application is terminated. cudaDeviceReset also frees all allocations.
+Global memory is allocated with CUDA API calls such as cudaMalloc and cudaMallocManaged. Data can be copied into global memory from CPU memory using CUDA runtime API calls such as cudaMemcpy. Global memory allocations made with CUDA APIs are freed using cudaFree.

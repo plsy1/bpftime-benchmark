@@ -162,3 +162,74 @@ New or sharpened rules:
   "otherwise".
 - Analysis: a zero-sum item with no 1531 sum is MISSING. A full item with
   bucket 194 != 0 is WRONG.
+
+## Addendum 4, the sum map's add path: written before passes g1/g2 (2026-11-18)
+
+Question: how short can the 1531 add path (everything after the bound
+compare) be made on documented guarantees, and what is left. Same hook, same
+dump, locc's carry (kernel .local word), the tool unchanged (6-step log2).
+New variants (make_variants.py ADDPATH; registers 56 for all, ptxas -O3
+sm_87, cuobjdump -res-usage, checked before any run):
+- addg: the add as `red.global.add.u64` on the `cvta.to.global` address;
+  the NULL-copy and shard-count checks and the 64-bit arithmetic as locc.
+- addone: addg with the bound compare as the only check (stands for a bound
+  the agent writes: max_entries, or 0 without a device copy).
+- addmin: addone with 32-bit offsets, S = 256 and V = 8 as immediates.
+- addminnored: addmin without the red; the address kept alive by a
+  never-true compare against max_entries guarding a trap (zero-sum item).
+- addq: addmin's check and arithmetic, the add guarded by isspacep.global
+  (red.global if it holds, else the generic atom.add): the lowering for a
+  pointer whose origin is unknown.
+- addmingen: addmin with a generic `red.add.u64` (no cvta, no .global).
+Compiled, not timed: addminc (S, V from map_info's existing fields: 2
+executed SASS more than addmin), addmina (atom.global.add.u64 with an unused
+result: ptxas emits the same RED as addmin, plus one YIELD).
+
+Executed SASS of the exit subroutine on the normal path (start present, key
+in range), counted from the listings before the runs: locc-noadd 41,
+locc 90, addg 73, addone 64, addmin 54, addminnored 53 (its keep-alive: 2
+ISETP, 2 moves and a predicated return in place of the red's 3 moves, red and
+return), addq 68, addmingen 58 (generic ATOM.E with a returned predicate;
+the shared and local fallbacks are not executed).
+
+Items per pass (11, shuffled by the pass label): base none locc-noadd locc
+addg addone addmin addminnored addq addmingen t0.
+
+Quantities (ns per thread, 3,137,339,392 threads per run):
+- end to end: A_cur = locc - locc-noadd; A_min = addmin - locc-noadd;
+  saved = locc - addmin.
+- timed splits (reported; each is a few SASS, near the noise): space =
+  locc - addg, checks = addg - addone, arith = addone - addmin, guard =
+  addq - addmin, atomic = addmin - addminnored, addr = addminnored -
+  locc-noadd (with the keep-alive bias), gen = addmingen - addmin.
+  A split is "resolved" only at >= 0.012 in every pass; below that it is
+  "not resolved by timing" and the executed SASS count above is the
+  attribution.
+Checks:
+- V1': A_cur within 0.059..0.077 (f1/f2: 0.065-0.071, +-0.006) and t0 - base
+  within 0.283 +-0.007; otherwise the pass is void and rerun once.
+- Counts: full items (locc addg addone addmin addq addmingen t0) sum exactly
+  15,711,207,424 with bucket 194 = 0; zero-sum items (none, locc-noadd,
+  addminnored) sum 0; every override logged.
+- V4': locc >= addg >= addone >= addmin >= addminnored >= locc-noadd in
+  s per run, each within 0.006 ns; a violation is reported and the
+  quantities spanning it are not judged.
+- Third pass (all 11 items) if A_cur, A_min or saved differ by more than
+  0.006 between g1 and g2; then median of three, a rule holding in at least
+  2 of 3 and for the median.
+Interpretation (fixed now):
+- R5: A_min <= A_cur / 2 in both passes: the documented shortening (red on
+  the global address, one check, 32-bit arithmetic) at least halves the add
+  path; it is the design. Otherwise: the shortening's gain is not shown.
+- R6, what is left: atomic >= addr + 0.012 in both passes: the remainder is
+  the atomic itself (the floor for one atomic add per thread); addr >=
+  atomic + 0.012: the shard and address computation is the next design
+  question; neither: not resolved by timing (SASS: the address is ~8
+  instructions, the red 1 plus its operands).
+- R7: guard >= 0.012 in both passes: telling the lowering where the pointer
+  came from (constant-fd 1531 lookups) is worth building; otherwise the
+  guarded lowering's cost is not resolved by timing and the SASS count
+  (14 instructions) stands.
+- gen (generic red vs red.global) has no rule: it is reported to choose the
+  documented form (generic red keeps the delivery's generic load at the same
+  address; red.global needs the delivery to load through .global as well).

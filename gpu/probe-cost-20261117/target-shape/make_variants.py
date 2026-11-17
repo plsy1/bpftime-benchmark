@@ -107,6 +107,130 @@ def bucket_chain(d, out, p):
 '''
 
 
+def exit_tool(start, p, L, b):
+    """the exit's tool work and the bound compare, as in exit_body"""
+    return f'''	mov.u32 	{p}k, {KIDX * 65 + 64};
+	setp.eq.u64 	{p}q0, {start}, 0;
+	@{p}q0 bra 	{L}_key;
+	mov.u64 	{p}x0, %globaltimer;
+	sub.u64 	{p}x1, {p}x0, {start};
+''' + b + f'''	add.u32 	{p}k, {p}b, {KIDX * 65};
+{L}_key:
+	ld.const.u32 	{p}w3, [{mi(OFF_MAX_ENTRIES)}];
+	setp.ge.u32 	{p}q1, {p}k, {p}w3;
+'''
+
+
+# Add-path variants (2026-11-18): what follows the bound compare.
+#   g     the add as red.global on the cvta.to.global address; the NULL and
+#         shard-count checks and the 64-bit arithmetic as today
+#   one   g with one check: the bound compare alone (standing for a bound the
+#         agent writes as max_entries, or 0 when there is no device copy)
+#   min   one with 32-bit offsets and S (shards), V (value size) as
+#         immediates (known when the PTX is generated: the device copy is
+#         made at link instantiation, before the fatbin's passes run)
+#   minc  min with S and V read from map_info's existing fields (an upper
+#         bound for precomputed fields; compiled for the SASS count)
+#   mingen  min with a generic red (no cvta, no .global): ISA-allowed for an
+#         address that points to .global
+#   mina  min with atom.global.add.u64 and an unused result (what LLVM's
+#         NVPTX backend emits for an addrspace(1) atomicrmw)
+#   minnored  min without the red: the address kept alive by a never-true
+#         compare against max_entries (constant memory) guarding a trap
+#   q     min's arithmetic and check, the add guarded by isspacep.global:
+#         red.global when it holds, else the generic atom.add (the lowering
+#         without knowing where the pointer came from)
+ADDPATH = ('g', 'one', 'min', 'minc', 'mingen', 'mina', 'minnored', 'q')
+S_SHARDS, V_SIZE = 256, 8     # this device: 8 SMs -> pow2 8 x 32 lanes; u64 values
+
+
+def add_tail(mode, p, L):
+    if mode in ('g',):
+        checks = f'''	@{p}q1 bra 	{L}_done;
+	ld.const.u64 	{p}x3, [{mi(OFF_EXTRA)}];
+	setp.eq.u64 	{p}q2, {p}x3, 0;
+	@{p}q2 bra 	{L}_done;
+	ld.const.u64 	{p}x4, [{mi(OFF_THREADS)}];
+	setp.lt.u64 	{p}q3, {p}x4, 32;
+	@{p}q3 bra 	{L}_done;
+'''
+    else:
+        checks = f'''	@{p}q1 bra 	{L}_done;
+	ld.const.u64 	{p}x3, [{mi(OFF_EXTRA)}];
+'''
+    if mode in ('g', 'one'):
+        if mode == 'one':
+            checks += f'''	ld.const.u64 	{p}x4, [{mi(OFF_THREADS)}];
+'''
+        addr = f'''	shr.u64 	{p}x5, {p}x4, 5;
+	add.s64 	{p}x6, {p}x5, -1;
+	mov.u32 	{p}w4, %smid;
+	cvt.u64.u32 	{p}x7, {p}w4;
+	and.b64 	{p}x7, {p}x7, {p}x6;
+	shl.b64 	{p}x7, {p}x7, 5;
+	mov.u32 	{p}w5, %laneid;
+	cvt.u64.u32 	{p}x8, {p}w5;
+	or.b64 	{p}x7, {p}x7, {p}x8;
+	cvt.u64.u32 	{p}x9, {p}k;
+	mad.lo.u64 	{p}x10, {p}x9, {p}x4, {p}x7;
+	ld.const.u32 	{p}w6, [{mi(OFF_VALUE_SIZE)}];
+	cvt.u64.u32 	{p}x11, {p}w6;
+	mad.lo.u64 	{p}x12, {p}x10, {p}x11, {p}x3;
+'''
+    elif mode == 'minc':
+        addr = f'''	ld.const.u32 	{p}w8, [{mi(OFF_THREADS)}];
+	shr.u32 	{p}w9, {p}w8, 5;
+	add.s32 	{p}w9, {p}w9, -1;
+	mov.u32 	{p}w4, %smid;
+	and.b32 	{p}w4, {p}w4, {p}w9;
+	shl.b32 	{p}w4, {p}w4, 5;
+	mov.u32 	{p}w5, %laneid;
+	or.b32 	{p}w4, {p}w4, {p}w5;
+	mad.lo.u32 	{p}w7, {p}k, {p}w8, {p}w4;
+	ld.const.u32 	{p}w6, [{mi(OFF_VALUE_SIZE)}];
+	mul.wide.u32 	{p}x10, {p}w7, {p}w6;
+	add.s64 	{p}x12, {p}x10, {p}x3;
+'''
+    else:
+        addr = f'''	mov.u32 	{p}w4, %smid;
+	and.b32 	{p}w4, {p}w4, {S_SHARDS // 32 - 1};
+	shl.b32 	{p}w4, {p}w4, 5;
+	mov.u32 	{p}w5, %laneid;
+	or.b32 	{p}w4, {p}w4, {p}w5;
+	mad.lo.u32 	{p}w7, {p}k, {S_SHARDS}, {p}w4;
+	mul.wide.u32 	{p}x10, {p}w7, {V_SIZE};
+	add.s64 	{p}x12, {p}x10, {p}x3;
+'''
+    if mode == 'mingen':
+        add = f'''	red.add.u64 	[{p}x12], 1;
+'''
+    elif mode == 'mina':
+        add = f'''	cvta.to.global.u64 	{p}x13, {p}x12;
+	atom.global.add.u64 	{p}x14, [{p}x13], 1;
+'''
+    elif mode == 'minnored':
+        add = f'''	cvt.u64.u32 	{p}x14, {p}w3;
+	setp.eq.u64 	{p}q4, {p}x12, {p}x14;
+	@{p}q4 trap;
+'''
+    elif mode == 'q':
+        add = f'''	isspacep.global 	{p}q4, {p}x12;
+	@!{p}q4 bra 	{L}_gen;
+	cvta.to.global.u64 	{p}x13, {p}x12;
+	red.global.add.u64 	[{p}x13], 1;
+	bra.uni 	{L}_done;
+{L}_gen:
+	atom.add.u64 	{p}x14, [{p}x12], 1;
+'''
+    else:
+        add = f'''	cvta.to.global.u64 	{p}x13, {p}x12;
+	red.global.add.u64 	[{p}x13], 1;
+'''
+    return checks + addr + add + f'''{L}_done:
+	}}
+'''
+
+
 def exit_body(start, tag, chain=False, mode='full'):
     """The exit's work for a start value in register `start` (.u64, 0 = no
     start). Labels and registers are prefixed by tag (unique per copy).
@@ -125,6 +249,8 @@ def exit_body(start, tag, chain=False, mode='full'):
 	.reg .b64 	{p}r<6>;
 '''
     b = bucket_chain(f'{p}x1', f'{p}b', p) if chain else bucket_clz(f'{p}x1', f'{p}b', p)
+    if mode in ADDPATH:
+        return '\t{\n' + regs + exit_tool(start, p, L, b) + add_tail(mode, p, L)
     return '\t{\n' + regs + f'''	mov.u32 	{p}k, {KIDX * 65 + 64};
 	setp.eq.u64 	{p}q0, {start}, 0;
 	@{p}q0 bra 	{L}_key;
@@ -242,6 +368,8 @@ MAPRES = {
     'regc-noadd': ('reg', False, 'noadd'),
     'regcapc': ('reg', True, 'full'), 'regcapc-noadd': ('reg', True, 'noadd'),
 }
+# add-path variants (2026-11-18): locc's form, the add path per ADDPATH
+MAPRES.update({'add' + m: ('loc', False, m) for m in ADDPATH})
 
 
 def area_lookup(tag):
