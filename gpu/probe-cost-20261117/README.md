@@ -2,7 +2,7 @@
 
 Follow-up to `gpu/map-model-proto-20261116`. There a latency histogram (`lat`: the entry stores `%globaltimer` in the thread-local map 1530, the exit adds 1 to a log2 bucket in the sum map 1531) cost 33% of llama.cpp's tg128 throughput, about 0.28-0.30 ns per thread on mul_mat_vec_q, whose own work is about 0.41 ns per thread. At most 5% on tg128 allows about 0.031 ns per thread.
 
-This round finds where the 0.28 ns goes, prices probe shapes, checks the documents for each way of cutting it, writes one design, measures its end shapes on the real kernel, and splits what remains of the best shape into the map model's own work and the rest (section 6). The only bpftime change is a debug-only hook for that measurement.
+This round finds where the 0.28 ns goes, prices probe shapes, checks the documents for each way of cutting it, writes one design, measures its end shapes on the real kernel, and, with the tool unchanged, splits the best calls-kept shape into the map model's own work and the rest (section 6). The only bpftime change is a debug-only hook for that measurement.
 
 Board and settings as before: Orin Nano 8 GB (sm_87, 8 SMs), clocks fixed and checked before every item, prototype build c940870b, llama-bench TinyLlama Q4_K_M `-r 5` with warmup.
 
@@ -115,7 +115,7 @@ Probe cost at equal registers, best forms:
 
 Verdicts (rules fixed before the runs, both passes):
 - D1, calls kept at or below 0.029 ns: **not met** (best 0.092; 0.113 at equal registers).
-- D2/D3: spliced 0.111-0.113 uncapped, 0.083 against `nonecap` capped (addendum 2), both > 0.029: **D3**. This tool shape (two timer reads, a bucket and one add per thread) cannot reach 5% on mul_mat_vec_q on this board, spliced or not. These are hand-written end shapes, so they bound what the documented path can reach: at best 0.284 -> about 0.11-0.12 ns per thread, 46 -> about 57 t/s (-32% -> about -16%); the real pipeline (LLVM lowering, the eBPF stack, the map facts) may not reach them. The 5% target needs another tool shape or another budget. What the remaining 0.08-0.12 ns consists of was not measured here; section 6 splits it, with the tool unchanged.
+- D2/D3: spliced 0.111-0.113 uncapped, 0.083 against `nonecap` capped (addendum 2), both > 0.029: **D3**. This tool shape (two timer reads, a bucket and one add per thread) cannot reach 5% on mul_mat_vec_q on this board, spliced or not. These are hand-written end shapes, so they bound what the documented path can reach: at best 0.284 -> about 0.11-0.12 ns per thread, 46 -> about 57 t/s (-32% -> about -16%); the real pipeline (LLVM lowering, the eBPF stack, the map facts) may not reach them. The 5% target needs another tool shape or another budget. What the remaining 0.08-0.12 ns consists of was not measured here. Section 6 splits the uncapped calls-kept shape with the tool unchanged (`locc`: the log2 chain instead of clz, 0.134-0.135 ns over `none`, about 0.015 more than `loc`); the spliced 0.083 is not split.
 - D4, clz: chain - reg = 0.011-0.013 >= 0.01: build it.
 - D5, register vs `.local`: reg (64 registers) is slower than loc; regcap beats loc only through the register cap, which speeds up the kernel itself. Carry the start in a `.local` word unless the registers stay at the kernel's own count.
 - D6: area - reg = 0.056 >= 0.03: carrying the start by value comes before inlining the lookup.
@@ -151,9 +151,9 @@ The differences, ns per thread (f1 / f2):
 |---|---:|---:|---:|---:|
 | A: the add into 1531 (full - no add) | 0.071 / 0.065 | 0.063 / 0.063 | 0.064 / 0.063 | 0.071 / 0.071 |
 | C: carrying the start (no add - nomap) | 0.000 / 0.001 | 0.007 / 0.003 | 0.013 / 0.009 | - |
-| M: the map's work (full - nomap) | 0.071 / 0.066 | 0.071 / 0.066 | 0.076 / 0.072 | - |
-| T: the tool's own work (nomap - empty) | 0.035 / 0.039 | 0.037 / 0.040 | as left | - |
-| F: switch and calls (empty - none) | 0.029 / 0.029 | 0.030 / 0.027 | as left | - |
+| M: the map's work (full - nomap) | 0.071 / 0.066 | 0.070 / 0.066 | 0.076 / 0.072 | - |
+| T: the tool's own work (nomap - empty) | 0.035 / 0.039 | 0.036 / 0.040 | as left | - |
+| F: switch, calls, exit structure (empty - none) | 0.029 / 0.029 | 0.030 / 0.027 | as left | - |
 
 Checks, both passes: t0 and the clz link `loc` match the earlier passes (t0 0.288-0.289 ns over base, `loc` 0.121); every full form holds exactly 15,711,207,424 with bucket 194 = 0, every other form 0; the order none <= empty <= nomap <= no add <= full holds; T >= 0.012 (the bodies ran); no difference moved more than 0.006 between passes, so no third pass.
 
@@ -163,13 +163,13 @@ Verdicts (decided on the no-cap `.local` form, the one the design builds):
 - R3 does not (M = 0.066-0.071).
 
 Reading:
-- In this shape the map model's own work is 0.066-0.071 ns per thread, about half of the 0.134 left. The generated code spends about 0.207 on the map (carry 0.072, lookup and add 0.135; section 1), so the documented shape cuts the map's part by about two thirds: the carry goes to about 0, the 1531 part from 0.135 to about 0.068.
-- What A contains: on the global path the full exit runs about 90 SASS instructions against 41 without the add. The extra are three constant loads (buffer, shard count, value size), the NULL and shard-count tests, `%smid` and `%laneid`, the shard address, `isspacep`, the atomic, and about 17 instructions of control structure for the add path's early returns (BSSY/BSYNC around the call, YIELD, predicated returns).
-- Outside the map: 0.064-0.068 ns (switch and calls 0.029, the tool's own work 0.035-0.039). With the map at zero this shape would run at about 60.8 t/s (-10%); with it, 55.1 t/s (-18.4%); the generated code, 45.7 t/s (-32%).
-- With the tool unchanged, the best documented shape is about -18% (`locc`), not the -16% of section 5, which used clz (`loc`: 56.3 t/s here, -16.7%).
-- Side finding, not explained and outside the map: the hand-written switch and two calls (`empty`, 0.029 ns over `none`) cost more than the generated empty probes did (`empty2`, 0.016-0.018 over base in c1/c2, other passes).
+- In this shape the map model's own work is 0.066-0.071 ns per thread, about half of the 0.134 left. Measured the same way (marginal costs in the same order), the generated code spends about 0.196 on the map: the carry 0.072 (section 1) and then the add, `lat` - `carryonly` = 0.124-0.125 (passes a1/a2). The documented shape cuts that by about two thirds: the carry to about 0, the add from 0.124-0.125 to 0.065-0.071 (about 45% less). (Section 1's 0.135 for the lookup and add was measured without the timer and carry, in `count`.)
+- What A contains: on the global path the full exit runs about 90 SASS instructions against 41 without the add. Of the 49 extra, 34 are data work: the buffer, shard count and value size from constant memory, the NULL and shard-count tests, `%smid` and `%laneid`, the shard address, `isspacep` and the atomic. 15 are control structure: YIELD, a BSSY/BSYNC pair around the tool's no-start branch, four predicated returns and their return-address moves. The kernel body adds a BSSY/BSYNC pair around the exit call, so about 17 control instructions in all.
+- Outside the map: 0.064-0.068 ns in this shape (switch, calls and exit structure 0.029: with an exit probe every thread runs to the exit and the reduction gets divergence checks; the tool's own work 0.035-0.039). In the generated code the same parts were about 0.088 (call floor 0.018, timer helper calls 0.035, log2 0.035; section 1). With the map at zero this shape would run at about 60.8 t/s (-10%); with it, 55.1 t/s (-18.4%); the generated code, 45.7 t/s (-32%).
+- With the tool unchanged and the kernel at its own register count, the best calls-kept shape is about -18% (`locc`), not the -16% of section 5, which used clz (`loc`: 56.3 t/s here, -16.6 to -16.7%). With the register cap, `loccap` runs at 56.7-56.8 t/s (-16.0%) and `regcapc` at 56.3 (-16.7%) against the application as shipped, but at equal registers they cost the same as `locc` or more (0.133-0.137 and 0.139-0.142 over `nonecap`): the gain is the cap speeding up the kernel itself (section 5).
+- Side finding, outside the map and not established: the hand-written switch and two calls (`empty`, 0.030-0.031 ns over base here) look costlier than the generated empty probes (`empty2`, 0.016-0.026 over base in a1-c2). The gap is 0.004-0.015 depending on the pass, the comparison is across passes, and `empty2`'s register count is not on file.
 
-Caveats: hand-written shapes, so bounds for the real pipeline. A and C are marginal costs in this order (the add with the carry present). C is biased low by the stand-in's keep-alive in `nomap`'s entry (2 compares and a move per thread). Register counts come from the CLI ptxas; the run-time compiler is the same CUDA 13.2 release (t0 matched `lat` in c1/c2). The variants' chain has one `setp` fewer than the generated code, which affects T only.
+Caveats: hand-written shapes, so bounds for the real pipeline. A and C are marginal costs in this order (the add with the carry present). C is biased low by the stand-in's keep-alive in `nomap`'s entry (2 compares per thread). Register counts come from the CLI ptxas; the run-time compiler (libnvptxcompiler of the same CUDA 13.2) does not log its counts, so equal registers at run time is an assumption (t0 matching `lat` in c1/c2 only shows the hook is neutral). The variants' chain has one `setp` fewer than the generated code, which affects T only.
 
 ## Corrections to gpu/map-model-proto-20261116
 
