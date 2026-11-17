@@ -404,6 +404,12 @@ override on `proto/map-model`, local).
   spliced into the kernel; the target for 5% is 0.029. This tool shape cannot reach 5% on this
   kernel, spliced or not. Register count moves the result as much as the instructions do; capping
   registers alone made mul_mat_vec_q itself 3% faster.
+- **How much of that is still the map** (the tool unchanged, so its log2 stays; rules fixed before
+  the runs and reviewed; variants at equal register counts): the best calls-kept shape costs
+  0.134 ns per thread (55.1 t/s, -18%). Of that, carrying the start in a `.local` word costs
+  nothing measurable, the add into the sum map 0.065-0.071, and the rest (switch, calls, the
+  tool's own timer reads and log2) 0.064-0.068. The map's part falls from about 0.196 in the
+  generated code to about 0.068; the add into the sum map is what is left to design.
 
 ## Where it stands (11-17)
 
@@ -420,9 +426,10 @@ override on `proto/map-model`, local).
 - GPU map model (the one research direction now): the minimal prototype works within documented
   guarantees (thread-local state, sharded sums, synchronization-ordered delivery): exact counts on
   llama.cpp, about 4% on pp512, 33% on tg128 where every thread of a very fine kernel pays about
-  0.3 ns. Hand-written end shapes of the documented design bring that to about 0.11 ns (about 16%),
-  0.08 spliced: 5% on such kernels needs another tool shape or budget. Not built: the design
-  itself, per-record output.
+  0.3 ns. Hand-written end shapes of the documented design bring that to about 0.11 ns (about 16%,
+  with clz in the tool; 0.134 ns, about 18%, with the tool unchanged), 0.08 spliced: 5% on such kernels needs another tool shape or budget. With the tool unchanged the
+  map's own part goes from about 0.196 ns to about 0.068, nearly all of it the add into the sum
+  map. Not built: the design itself, per-record output.
 - Open: Gum's per-function usage counter under many threads; the agent's own load time (about
   9 ms); the CUDA late path (`bpftime attach` to a running GPU process; 5–9 µs per launch slower
   than official's); fixes not yet offered upstream.
