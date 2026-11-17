@@ -433,6 +433,28 @@ before the runs, three passes, counts exact in every variant).
   now about 0.014 ns, against about 0.066 for everything outside the map; with the add at zero
   the shape would still run at about 60.5-60.9 t/s (-10%).
 
+## 11-18: the map side built
+
+The map side of the design built into the prototype (`proto/map-model`, six commits on
+c27412f4; results `gpu/map-lowering-20261118`); the tool and the framework's parts (probe
+calls, the switch, the timer helpers, the log2) are left as they are (user: tool side).
+
+- **Sum map:** constant-fd lookups become the shard address inline, and their 64-bit adds go
+  to the global state space (`red`), as section 7 designed. The delivery reads the same way.
+  Register definitions are counted fail-closed (an independent review found the first count
+  failing open).
+- **Lookup keys:** a lookup takes the key the program just stored instead of reading it back
+  from the stack (thread-local and sum map). Of the thread-local map's hand-written forms only
+  this one saved (0.028-0.030 ns); local and 64-bit accesses did not show and are not built.
+- **Measured** (counts exact everywhere, the same before and after): tg128 with
+  mul_mat_vec_q probed 46.1 -> 54.5 t/s, 0.283-0.286 -> 0.147-0.149 ns per thread
+  (32% -> 20%); the latency tool on four kernels 33% -> 21% on tg128, 3.7-3.9% -> 2.1-2.7%
+  on pp512.
+- **What is left, split** on hand-edited forms of the built code: the map 0.035 ns per thread,
+  everything else (calls, switch, timer helpers, log2) 0.110-0.114; with the map's work gone
+  the shape would run at 57.2 t/s (-16%). Carrying the start by value instead of through the
+  thread-local area saves 0.015-0.021 (a candidate, not built).
+
 ## Where it stands (11-18)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
@@ -452,8 +474,11 @@ before the runs, three passes, counts exact in every variant).
   with clz in the tool; 0.134 ns, about 18%, with the tool unchanged), 0.08 spliced: 5% on such kernels needs another tool shape or budget. With the tool unchanged the
   map's own part goes from about 0.196 ns to about 0.068, nearly all of it the add into the sum
   map; the add's documented design (a `red` on the global address, one test, 32-bit offsets)
-  brings the map's part to about
-  0.014 and the shape to about 12% (59.6 t/s). Not built: the design itself, per-record output.
+  brings the map's part to about 0.014 and the shape to about 12% (59.6 t/s). The map side is
+  now built (sum-map adds global, lookup keys forwarded): 0.147-0.149 ns per thread, about 20%
+  on tg128 (54.5 t/s) and 21% with four kernels. Of that the map is 0.035 and the tool's and
+  framework's parts 0.110-0.114; carrying the start by value would save 0.015-0.021 more (not
+  built). Not built: per-record output.
 - Open: Gum's per-function usage counter under many threads; the agent's own load time (about
   9 ms); the CUDA late path (`bpftime attach` to a running GPU process; 5–9 µs per launch slower
   than official's); fixes not yet offered upstream.
