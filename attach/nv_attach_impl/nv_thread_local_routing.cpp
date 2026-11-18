@@ -1,10 +1,14 @@
 #include "nv_thread_local_routing.hpp"
 #include "ptxpass/core.hpp"
 #include <map>
+#include <unordered_map>
+#include <algorithm>
+#include <tuple>
 #include <regex>
 #include <set>
 #include <sstream>
 #include <cstring>
+#include <cctype>
 
 namespace bpftime
 {
@@ -116,93 +120,251 @@ bool parse_int(const std::string &s, long long *v)
 	return true;
 }
 
-// The statements of a function body: comments removed, split on ';',
-// leading braces, labels and a guard predicate stripped. Directives without
-// a ';' (.loc, .file) stay glued to the statement after them; count_defs
-// then counts that statement if it mentions the register at all.
-std::vector<std::string> statements(const std::string &body)
+// PTX text as statements. Comments become a space (string literals are
+// kept whole, so a "//" inside one is not a comment), the text is split on
+// ';' outside string literals, and each statement's leading text is taken
+// off: whitespace, braces, labels (identifiers may start with %, $ or a
+// letter, PTX ISA 4.4) and a guard predicate (@p, @!p, any identifier).
+// What the leading text held is kept as flags. Directives without a ';'
+// (.loc, .file) stay glued to the statement after them.
+struct piece {
+	std::string text; // the statement without its leading text
+	bool label = false;
+	bool brace = false;
+	bool guarded = false;
+};
+
+std::string strip_comments(const std::string &t)
 {
-	static const std::regex comment(R"(//[^\n]*|/\*[\s\S]*?\*/)");
-	static const std::regex lead(
-		R"(^(?:\s|[{}]|[%$A-Za-z_][\w$]*\s*:(?!:)|@\s*!?\s*%[\w$]+)+)");
-	std::string text = std::regex_replace(body, comment, "");
-	std::vector<std::string> out;
-	size_t start = 0;
-	for (;;) {
-		size_t semi = text.find(';', start);
-		std::string st = text.substr(
-			start, semi == std::string::npos ? std::string::npos :
-							   semi - start);
-		st = std::regex_replace(st, lead, "");
-		out.push_back(trim(st));
-		if (semi == std::string::npos)
-			break;
-		start = semi + 1;
+	std::string out;
+	out.reserve(t.size());
+	for (size_t i = 0; i < t.size();) {
+		const char c = t[i];
+		if (c == '"') {
+			size_t j = i + 1;
+			while (j < t.size() && t[j] != '"')
+				j += (t[j] == '\\' && j + 1 < t.size()) ? 2 : 1;
+			j = std::min(j + 1, t.size());
+			out.append(t, i, j - i);
+			i = j;
+		} else if (c == '/' && i + 1 < t.size() && t[i + 1] == '/') {
+			size_t j = t.find('\n', i);
+			out += ' ';
+			i = j == std::string::npos ? t.size() : j;
+		} else if (c == '/' && i + 1 < t.size() && t[i + 1] == '*') {
+			size_t j = t.find("*/", i + 2);
+			out += ' ';
+			i = j == std::string::npos ? t.size() : j + 2;
+		} else {
+			out += c;
+			i++;
+		}
 	}
 	return out;
 }
 
-// How many statements may write reg. Fail-closed: a statement counts when
-// reg appears in its destination position, everything before the first
-// operand comma outside [], {} and () (a plain register, a {..} vector, a
-// p|q pair, call's (..) return list), except instructions that write no
-// register (stores, reductions, branches). An unknown form counts, so a
-// register is never taken for written once when it may not be.
+std::vector<piece> pieces(const std::string &body)
+{
+	static const std::regex lead(
+		R"(^(?:\s|[{}]|[%$A-Za-z_][\w$]*\s*:(?!:)|@\s*!?\s*[%$A-Za-z_][\w$]*)+)");
+	static const std::regex lab(R"([%$A-Za-z_][\w$]*\s*:(?!:))");
+	const std::string t = strip_comments(body);
+	std::vector<piece> out;
+	size_t start = 0;
+	bool in_str = false;
+	for (size_t i = 0; i <= t.size(); i++) {
+		if (i < t.size() && t[i] == '"')
+			in_str = !in_str;
+		if (i < t.size() && (t[i] != ';' || in_str))
+			continue;
+		std::string s = t.substr(start, i - start);
+		piece p;
+		std::smatch m;
+		if (std::regex_search(s, m, lead)) {
+			const std::string l = m.str(0);
+			p.brace = l.find_first_of("{}") != std::string::npos;
+			p.guarded = l.find('@') != std::string::npos;
+			// a label is an identifier before ':' that is not a guard
+			std::string nl = std::regex_replace(
+				l, std::regex(R"(@\s*!?\s*[%$A-Za-z_][\w$]*)"), " ");
+			p.label = std::regex_search(nl, lab);
+			s = s.substr(m.length(0));
+		}
+		p.text = trim(s);
+		out.push_back(p);
+		start = i + 1;
+	}
+	return out;
+}
+
+std::vector<std::string> statements(const std::string &body)
+{
+	std::vector<std::string> out;
+	for (auto &p : pieces(body))
+		out.push_back(p.text);
+	return out;
+}
+
+// an instruction's mnemonic (the leading run of letters, digits, '_', '.',
+// ':') and its operand text
+void split_op(const std::string &st, std::string *op, std::string *rest)
+{
+	size_t k = 0;
+	while (k < st.size() &&
+	       (std::isalnum((unsigned char)st[k]) || st[k] == '_' ||
+		st[k] == '.' || st[k] == ':'))
+		k++;
+	*op = st.substr(0, k);
+	*rest = st.substr(k);
+}
+
+// Definitions of every register in a body, found in one pass (the same
+// rule as before, fail closed): a statement counts for each register in its
+// destination position, everything before the first operand comma outside
+// [], {} and () (a plain register, a {..} vector, a p|q pair, call's (..)
+// return list), except instructions that write no register (stores,
+// reductions, branches); a directive that is not a one-line declaration (a
+// .loc glued to an instruction) counts for every register it mentions; a
+// one-line declaration names registers, it does not write them (a
+// same-named register of a nested scope is written by instructions, which
+// count by name). Also the .reg declarations, for register widths.
+struct body_index {
+	std::unordered_map<std::string, int> defs;
+	std::unordered_map<std::string, std::string> last_def;
+	// name or range prefix, is a range, range count, width
+	std::vector<std::tuple<std::string, bool, long long, int>> regs;
+};
+
+void registers_in(const std::string &t, std::vector<std::string> *out)
+{
+	for (size_t i = 0; i < t.size(); i++) {
+		if (t[i] != '%')
+			continue;
+		if (i > 0 && (std::isalnum((unsigned char)t[i - 1]) ||
+			      t[i - 1] == '_' || t[i - 1] == '$' ||
+			      t[i - 1] == '%'))
+			continue;
+		size_t j = i + 1;
+		while (j < t.size() && (std::isalnum((unsigned char)t[j]) ||
+					t[j] == '_' || t[j] == '$'))
+			j++;
+		if (j > i + 1)
+			out->push_back(t.substr(i, j - i));
+		i = j - 1;
+	}
+}
+
+body_index build_index(const std::string &body)
+{
+	static const std::regex decl(
+		R"(^\.(?:reg|local|shared|param|const|global|pragma)\s[^\n]*$)");
+	static const std::regex regdecl(
+		R"(^\.reg\s+\.([bus])(\d+)\s+([\s\S]*)$)");
+	static const std::regex range(R"(^(%[\w$]*?)<(\d+)>$)");
+	body_index ix;
+	for (const auto &p : pieces(body)) {
+		const std::string &st = p.text;
+		if (st.empty())
+			continue;
+		std::vector<std::string> regs;
+		if (st[0] == '.') {
+			std::smatch m;
+			if (std::regex_match(st, m, regdecl)) {
+				const int bits = std::stoi(m[2]);
+				std::stringstream names(m[3].str());
+				std::string nm;
+				while (std::getline(names, nm, ',')) {
+					nm = trim(nm);
+					std::smatch r;
+					if (std::regex_match(nm, r, range) &&
+					    r[2].length() < 10)
+						ix.regs.emplace_back(
+							r[1], true,
+							std::stoll(r[2]), bits);
+					else
+						ix.regs.emplace_back(nm, false, 0,
+								     bits);
+				}
+			}
+			if (!std::regex_match(st, decl))
+				registers_in(st, &regs);
+		} else {
+			std::string op, rest;
+			split_op(st, &op, &rest);
+			if (op.rfind("st", 0) == 0 || op.rfind("red", 0) == 0 ||
+			    op.rfind("bra", 0) == 0 || op == "ret" ||
+			    op == "exit" || op == "trap")
+				continue;
+			int depth = 0;
+			size_t end = rest.size();
+			for (size_t i = 0; i < rest.size(); i++) {
+				char c = rest[i];
+				if (c == '[' || c == '{' || c == '(')
+					depth++;
+				else if (c == ']' || c == '}' || c == ')')
+					depth--;
+				else if (c == ',' && depth == 0) {
+					end = i;
+					break;
+				}
+			}
+			registers_in(rest.substr(0, end), &regs);
+		}
+		std::sort(regs.begin(), regs.end());
+		regs.erase(std::unique(regs.begin(), regs.end()), regs.end());
+		for (auto &r : regs) {
+			ix.defs[r]++;
+			ix.last_def[r] = st;
+		}
+	}
+	return ix;
+}
+
+// one index per body text, kept per thread (the pass runs on a pool)
+const body_index &index_of(const std::string &body)
+{
+	thread_local std::unordered_map<std::string, body_index> cache;
+	auto it = cache.find(body);
+	if (it != cache.end())
+		return it->second;
+	if (cache.size() > 64)
+		cache.clear();
+	return cache.emplace(body, build_index(body)).first->second;
+}
+
 int count_defs(const std::string &body, const std::string &reg,
 	       std::string *def = nullptr)
 {
-	const std::regex word("(^|[^\\w$%])" +
-			      std::regex_replace(reg, std::regex(R"([$%.])"),
-						 R"(\$&)") +
-			      "($|[^\\w$])");
-	static const std::set<std::string> decls = {
-		".reg", ".local", ".shared", ".param", ".const", ".global",
-		".pragma"
-	};
-	int n = 0;
-	for (const auto &st : statements(body)) {
-		if (st.empty())
-			continue;
-		if (st[0] == '.') {
-			// a declaration writes nothing; anything else starting
-			// with a directive (a .loc glued to an instruction)
-			// counts if it mentions the register
-			std::string d = st.substr(0, st.find_first_of(" \t\n"));
-			if (!decls.count(d) && std::regex_search(st, word)) {
-				n++;
-				if (def)
-					*def = st;
-			}
-			continue;
+	const auto &ix = index_of(body);
+	auto it = ix.defs.find(reg);
+	if (it == ix.defs.end())
+		return 0;
+	if (def)
+		*def = ix.last_def.at(reg);
+	return it->second;
+}
+
+// the width (32 or 64) the body's .reg declarations give reg, 0 when not
+// exactly one integer width is found
+int reg_width(const std::string &body, const std::string &reg)
+{
+	int w = 0;
+	for (const auto &[nm, is_range, count, bits] : index_of(body).regs) {
+		bool hit = !is_range && nm == reg;
+		if (is_range && reg.size() > nm.size() &&
+		    reg.compare(0, nm.size(), nm) == 0) {
+			const std::string idx = reg.substr(nm.size());
+			hit = idx.find_first_not_of("0123456789") ==
+				      std::string::npos &&
+			      idx.size() < 10 && std::stoll(idx) < count;
 		}
-		size_t sp = st.find_first_of(" \t\n");
-		std::string op = st.substr(0, sp);
-		if (op.rfind("st.", 0) == 0 || op == "st" ||
-		    op.rfind("red.", 0) == 0 || op == "red" ||
-		    op.rfind("bra", 0) == 0 || op == "ret" || op == "exit" ||
-		    op == "trap")
+		if (!hit)
 			continue;
-		std::string rest = sp == std::string::npos ? "" : st.substr(sp);
-		int depth = 0;
-		size_t end = rest.size();
-		for (size_t i = 0; i < rest.size(); i++) {
-			char c = rest[i];
-			if (c == '[' || c == '{' || c == '(')
-				depth++;
-			else if (c == ']' || c == '}' || c == ')')
-				depth--;
-			else if (c == ',' && depth == 0) {
-				end = i;
-				break;
-			}
-		}
-		if (std::regex_search(rest.substr(0, end), word)) {
-			n++;
-			if (def)
-				*def = st;
-		}
+		if (w != 0 && w != bits)
+			return 0;
+		w = bits;
 	}
-	return n;
+	return (w == 32 || w == 64) ? w : 0;
 }
 
 // The stack slot a register addresses: base %SP (the frame's generic
@@ -232,8 +394,8 @@ bool stack_slot(const std::string &body, const std::string &reg,
 		return false;
 	if (!stack_slot(body, m[3], base, off, depth + 1))
 		return false;
-	if (is_add)
-		*off += std::stoll(m[4]);
+	if (is_add && __builtin_add_overflow(*off, std::stoll(m[4]), off))
+		return false;
 	return true;
 }
 
@@ -249,58 +411,29 @@ bool has_frame(const std::string &body)
 	       std::regex_match(b, sp);
 }
 
-// One statement of the text before a lookup (comments removed), with what
-// its leading text held: a label (a basic block starts there) or a brace
-// (a scope opens or closes). Guards stay in the text.
-struct piece {
-	std::string text;
-	bool label = false;
-	bool brace = false;
-};
-
-std::vector<piece> pieces(const std::string &text)
-{
-	static const std::regex comment(R"(//[^\n]*|/\*[\s\S]*?\*/)");
-	static const std::regex lead(
-		R"(^(?:\s|[{}]|[%$A-Za-z_][\w$]*\s*:(?!:))+)");
-	static const std::regex lab(R"([%$A-Za-z_][\w$]*\s*:(?!:))");
-	const std::string t = std::regex_replace(text, comment, " ");
-	std::vector<piece> out;
-	size_t start = 0;
-	for (;;) {
-		size_t semi = t.find(';', start);
-		std::string s = t.substr(start, semi == std::string::npos ?
-							std::string::npos :
-							semi - start);
-		piece p;
-		std::smatch m;
-		if (std::regex_search(s, m, lead)) {
-			const std::string l = m.str(0);
-			p.brace = l.find_first_of("{}") != std::string::npos;
-			p.label = std::regex_search(l, lab);
-			s = s.substr(m.length(0));
-		}
-		p.text = trim(s);
-		out.push_back(p);
-		if (semi == std::string::npos)
-			break;
-		start = semi + 1;
-	}
-	return out;
-}
-
 // The value a map lookup's key holds, taken from the store that put it in
 // its stack slot: the last store to the slot before the call, in the same
-// basic block and scope, unguarded, with nothing in between that could write
-// the slot or the stored register. Fail closed: a label, a brace, a
-// directive, a guarded store, a call, an atomic or reduction, a store the
-// pass cannot place in the frame, a literal that is not plain decimal, a
-// store whose state space does not match its base (st.local through the
-// depot's local address, st through its generic one) or a key pointer not
-// on the generic frame each give up, and the lookup loads the key as before.
+// basic block and scope, unguarded, with only instructions in between that
+// cannot write memory (an allowlist: arithmetic, moves, conversions,
+// compares, selects, loads, branches) and none that writes the stored
+// register. Fail closed: a label, a brace, a directive, any other
+// instruction (a store elsewhere, st.param, wmma, a call, an atomic), a
+// literal that is not plain decimal, an offset that overflows, a store whose
+// state space does not match its base (st.local through the depot's local
+// address, st through its generic one), a key pointer not on the generic
+// frame, or a stored register whose .reg width is not found each give up,
+// and the lookup loads the key as before.
 std::string forwarded_key(const std::string &fbody, size_t call_at,
-			  const std::string &kp)
+			  const std::string &kp, int *width)
 {
+	static const std::set<std::string> no_memory_write = {
+		"mov",	"add",	"sub",	"mul",	"mad",	"mul24", "mad24",
+		"sad",	"div",	"rem",	"abs",	"neg",	"min",	 "max",
+		"shl",	"shr",	"and",	"or",	"xor",	"not",	 "cnot",
+		"lop3", "shf",	"prmt", "bfe",	"bfi",	"brev",	 "popc",
+		"clz",	"cvt",	"cvta", "setp", "selp", "set",	 "slct",
+		"ld",	"bra",
+	};
 	std::string kb;
 	long long ko = 0;
 	if (!has_frame(fbody) || !stack_slot(fbody, kp, &kb, &ko) ||
@@ -309,16 +442,14 @@ std::string forwarded_key(const std::string &fbody, size_t call_at,
 	const auto ps = pieces(fbody.substr(0, call_at));
 	static const std::regex store(
 		R"(^st(\.local)?\.[ubs](8|16|32|64)\s+\[\s*(%[\w$]+)\s*(?:\+\s*(-?(?:0|[1-9]\d{0,17})))?\s*\]\s*,\s*(%[\w$]+|-?(?:0|[1-9]\d{0,9}))\s*$)");
-	static const std::regex guarded(
-		R"(^@\s*!?\s*%[\w$]+\s+(st|call|atom|red)\b)");
 	for (int i = (int)ps.size() - 1; i >= 0; i--) {
 		const piece &p = ps[i];
 		const std::string &st = p.text;
-		const std::string op =
-			st.substr(0, st.find_first_of(" \t\n"));
-		const bool is_store = op.rfind("st", 0) == 0 &&
-				      op.rfind("st.param", 0) != 0;
-		if (is_store) {
+		std::string op, rest;
+		split_op(st, &op, &rest);
+		const std::string base_op = op.substr(0, op.find('.'));
+		const bool is_store = base_op == "st";
+		if (is_store && !p.guarded) {
 			std::smatch m;
 			if (!std::regex_match(st, m, store))
 				return ""; // a store the pass cannot read
@@ -326,25 +457,37 @@ std::string forwarded_key(const std::string &fbody, size_t call_at,
 			long long so = 0;
 			if (!stack_slot(fbody, m[3], &sb, &so))
 				return ""; // it may write the slot
-			so += m[4].matched ? std::stoll(m[4]) : 0;
+			if (m[4].matched &&
+			    __builtin_add_overflow(so, std::stoll(m[4]), &so))
+				return "";
 			const long long w = std::stoll(m[2]) / 8;
-			const bool overlaps = !(so + w <= ko || so >= ko + 4);
-			if (overlaps) {
-				if (so != ko || w != 4)
-					return ""; // part of the key
-				const bool local = m[1].matched;
-				if (local != (sb == "%SPL"))
-					return ""; // not the depot's bytes
+			long long end = 0, kend = 0;
+			if (__builtin_add_overflow(so, w, &end) ||
+			    __builtin_add_overflow(ko, 4LL, &kend))
+				return "";
+			if (end <= ko || so >= kend) {
+				// a store into another slot of the frame
+				if (p.label || p.brace)
+					return "";
+				continue;
+			}
+			if (so != ko || w != 4)
+				return ""; // part of the key
+			if (m[1].matched != (sb == "%SPL"))
+				return ""; // not the depot's bytes
+			{
 				const std::string v = m[5];
 				if (v[0] == '%') {
-					if (v.rfind("%rd", 0) != 0 &&
-					    v.rfind("%r", 0) != 0)
-						return "";
-					std::string rest;
+					std::string after;
 					for (size_t j = i + 1; j < ps.size(); j++)
-						rest += ps[j].text + ";";
-					if (count_defs(rest, v) != 0)
+						after += ps[j].text + ";";
+					if (count_defs(after, v) != 0)
 						return "";
+					*width = reg_width(fbody, v);
+					if (*width == 0)
+						return "";
+				} else {
+					*width = 32;
 				}
 				return v;
 			}
@@ -352,29 +495,21 @@ std::string forwarded_key(const std::string &fbody, size_t call_at,
 		// between the slot's store and the call
 		if (p.label || p.brace)
 			return ""; // another path or scope
-		if (st.empty() || is_store)
+		if (st.empty())
 			continue;
-		if (st[0] == '.')
-			return ""; // a directive, possibly glued to an instruction
-		if (st[0] == '@') {
-			if (std::regex_search(st, guarded))
-				return "";
-			continue;
-		}
-		if (op.rfind("call", 0) == 0 || op.rfind("atom", 0) == 0 ||
-		    op.rfind("red", 0) == 0)
-			return "";
+		if (st[0] == '.' || !no_memory_write.count(base_op))
+			return ""; // it may write memory
 	}
 	return "";
 }
 
 // the key into a 32-bit register: forwarded, or loaded from the slot
 std::string key_into(const std::string &dst, const std::string &key_ptr,
-		     const std::string &fwd)
+		     const std::string &fwd, int width)
 {
 	if (fwd.empty())
 		return "\tld.u32 \t" + dst + ", [" + key_ptr + "];\n";
-	if (fwd.rfind("%rd", 0) == 0)
+	if (width == 64)
 		return "\tcvt.u32.u64 \t" + dst + ", " + fwd + ";\n";
 	return "\tmov.u32 \t" + dst + ", " + fwd + ";\n";
 }
@@ -598,12 +733,29 @@ bool sum_has_copy(const sum_map_desc &d)
 	       d.max_entries != 0 && d.value_size != 0;
 }
 
+// A helper call block that the pass replaces holds nothing else: its
+// .reg/.param declarations, the argument stores, the call and the return
+// load. Anything more (an instruction llvmbpf never puts there) would be
+// dropped with the block, so the caller refuses the module instead.
+bool plain_call_block(const std::string &block)
+{
+	static const std::regex ok(
+		R"(^(?:\.reg\s[\s\S]*|\.param\s[\s\S]*|st\.param\.b64\s+\[param\d+\+0\]\s*,\s*[^\s,]+|call\.uni\s[\s\S]*|ld\.param\.b64\s+%[\w$]+\s*,\s*\[retval0\+0\])$)");
+	for (const auto &p : pieces(block)) {
+		if (p.text.empty())
+			continue;
+		if (p.guarded || p.label || !std::regex_match(p.text, ok))
+			return false;
+	}
+	return true;
+}
+
 // a constant-fd lookup of a sum map with a device copy: the shard address
 // of the key, as the trampoline's sum_array_offset ((SM mod slots) x 32 +
 // lane), or NULL for a key out of range
 std::string sum_lookup(const sum_map_desc &d, long long fd, int n,
 		       const std::string &key_ptr, const std::string &ret,
-		       const std::string &fwd)
+		       const std::string &fwd, int fwd_width)
 {
 	std::ostringstream o;
 	const std::string N = std::to_string(n);
@@ -612,7 +764,7 @@ std::string sum_lookup(const sum_map_desc &d, long long fd, int n,
 	  << "\t.reg .b32 \t%bpsm_k" << N << ", %bpsm_s" << N << ", %bpsm_l"
 	  << N << ";\n"
 	  << "\t.reg .b64 \t%bpsm_a" << N << ", %bpsm_w" << N << ";\n"
-	  << key_into("%bpsm_k" + N, key_ptr, fwd)
+	  << key_into("%bpsm_k" + N, key_ptr, fwd, fwd_width)
 	  << "\tsetp.lt.u32 \t%bpsm_p" << N << ", %bpsm_k" << N << ", "
 	  << d.max_entries << ";\n"
 	  << "\tmov.u32 \t%bpsm_s" << N << ", %smid;\n"
@@ -669,6 +821,16 @@ std::string route_function_body(
 		size_t b = fbody.find("{ // callseq ", pos);
 		if (b == std::string::npos)
 			break;
+		// a marker only at the start of a line (not inside a comment)
+		{
+			size_t ls = fbody.rfind('\n', b);
+			ls = ls == std::string::npos ? 0 : ls + 1;
+			if (fbody.find_first_not_of(" \t", ls) != b) {
+				out.append(fbody, pos, b + 1 - pos);
+				pos = b + 1;
+				continue;
+			}
+		}
 		size_t close = fbody.find("} // callseq ", b);
 		if (close == std::string::npos)
 			fail("unterminated callseq in " + fname);
@@ -695,26 +857,37 @@ std::string route_function_body(
 		// from the run-time map_info (a copy made later, after a cached
 		// image was patched, is then still found)
 		if (id == 1 && sm != sums.end() && sum_has_copy(sm->second)) {
+			if (!plain_call_block(block))
+				fail("unexpected instructions in a helper call of " +
+				     fname);
 			std::smatch km, rm;
 			if (!std::regex_search(block, km, p1) ||
 			    !std::regex_search(block, rm, ret))
 				fail("unexpected lookup shape in " + fname);
-			std::string fwd = forwarded_key(fbody, b, trim(km[1]));
+			int fwd_width = 0;
+			std::string fwd =
+				forwarded_key(fbody, b, trim(km[1]), &fwd_width);
 			if (!fwd.empty())
 				st.keys_forwarded++;
 			out += sum_lookup(sm->second, fd, sum_seq++,
-					  trim(km[1]), rm[1].str(), fwd);
+					  trim(km[1]), rm[1].str(), fwd,
+					  fwd_width);
 			sum_defs[rm[1].str()]++;
 			st.sum_lookups++;
 			continue;
 		}
 		if (routed && id == 1 && tl != maps.end()) {
+			if (!plain_call_block(block))
+				fail("unexpected instructions in a helper call of " +
+				     fname);
 			std::smatch km, rm;
 			if (!std::regex_search(block, km, p1) ||
 			    !std::regex_search(block, rm, ret))
 				fail("unexpected lookup shape in " + fname);
 			const auto &d = tl->second;
-			std::string fwd = forwarded_key(fbody, b, trim(km[1]));
+			int fwd_width = 0;
+			std::string fwd =
+				forwarded_key(fbody, b, trim(km[1]), &fwd_width);
 			if (!fwd.empty())
 				st.keys_forwarded++;
 			std::ostringstream o;
@@ -724,7 +897,7 @@ std::string route_function_body(
 			  << ";\n\t.reg .b32 \t%bptl_k" << n
 			  << ";\n\t.reg .b64 \t%bptl_a" << n << ";\n"
 			  << key_into("%bptl_k" + std::to_string(n),
-				      trim(km[1]), fwd)
+				      trim(km[1]), fwd, fwd_width)
 			  << "\tsetp.lt.u32 \t%bptl_p" << n << ", %bptl_k"
 			  << n << ", " << d.max_entries << ";\n"
 			  << "\tmul.wide.u32 \t%bptl_a" << n << ", %bptl_k"

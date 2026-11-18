@@ -21,7 +21,8 @@ std::string probe(const std::string &fd_def, const std::string &fd_arg,
 {
 	return std::string(".version 8.1\n.target sm_87\n.address_size 64\n"
 			   ".visible .func __retprobe_func__kern()\n{\n"
-			   "\t.reg .pred \t%p<20>;\n\t.reg .b64 \t%rd<80>;\n") +
+			   "\t.reg .pred \t%p<20>;\n\t.reg .b32 \t%r<20>;\n"
+			   "\t.reg .b64 \t%rd<80>;\n") +
 	       fd_def + "\tadd.s64 \t%rd51, %rd2, -8;\n" +
 	       "\t{ // callseq 20, 0\n"
 	       "\t.reg .b32 temp_param_reg;\n"
@@ -334,7 +335,8 @@ TEST_CASE("Without a thread-local map kernels are not routed and helpers get 0",
 namespace
 {
 // llvmbpf's frame and the key stored into slot SP+504 just before the call
-const std::string FRAME = "\tmov.u64 \t%SPL, __local_depot0;\n"
+const std::string FRAME = "\t.reg .b64 \t%SP;\n\t.reg .b64 \t%SPL;\n"
+			  "\tmov.u64 \t%SPL, __local_depot0;\n"
 			  "\tcvta.local.u64 \t%SP, %SPL;\n"
 			  "\tadd.u64 \t%rd9, %SP, 0;\n"
 			  "\tadd.u64 \t%rd1, %SPL, 0;\n"
@@ -557,4 +559,92 @@ TEST_CASE("A large sum map's 64-bit lookup, whole", "[sum-map-routing]")
 		";\n"
 		"\tselp.b64 \t%rd55, %bpsm_a0, 0, %bpsm_p0;\n";
 	REQUIRE(has(out, lookup));
+}
+
+TEST_CASE("Only instructions that cannot write memory may stand between a key's store and its lookup",
+	  "[sum-map-routing]")
+{
+	// review of 7e5861b9: forms a denylist and a whitespace tokenizer
+	// let through
+	const std::string cases[] = {
+		// st.param through a frame address
+		FRAME + STORE + "\tadd.u64 \t%rd60, %SPL, 504;\n"
+				"\tst.param.u32 \t[%rd60], %r9;\n",
+		// a guard named without %
+		FRAME + STORE + "\t@p st.local.u32 \t[%rd1+504], %r9;\n",
+		// wmma writes memory
+		FRAME + STORE +
+			"\twmma.store.d.sync.aligned.row.m16n16k16.f32 \t[%rd9], {%f1, %f2, %f3, %f4, %f5, %f6, %f7, %f8};\n",
+		// the stored register redefined without a space, or after \r
+		FRAME + STORE + "\tmov.u32%r7,5;\n",
+		FRAME + STORE + "\tmov.u32\r%r7, 5;\n",
+		// a comment between mnemonic and operands of a second key
+		// pointer definition
+		FRAME + "\tadd.u64/**/%rd51, %rd9, 500;\n" + STORE,
+		// a "//" inside a string hides nothing any more
+		FRAME + "\t.pragma \"nounroll//\";\n\tadd.u64 \t%rd51, %SP, 500;\n" +
+			STORE,
+		// offsets that overflow
+		FRAME + "\tst.local.u32 \t[%rd1+999999999999999999], %r9;\n" +
+			STORE.substr(0, 0) + "\tadd.s64 \t%rd70, %rd2, 999999999999999999;\n"
+					     "\tadd.s64 \t%rd71, %rd70, 999999999999999999;\n"
+					     "\tst.local.u32 \t[%rd71+999999999999999999], %r8;\n",
+	};
+	for (const auto &c : cases) {
+		thread_local_routing_stats st;
+		std::string ptx = probe(c, "14");
+		// a guard named p needs its declaration
+		ptx.insert(ptx.find("\t.reg .b32"), "\t.reg .pred \tp;\n\t.reg .f32 \t%f<9>;\n");
+		auto out = route(ptx, { sum14() }, st);
+		INFO(c);
+		REQUIRE(st.sum_lookups == 1);
+		REQUIRE(st.keys_forwarded == 0);
+	}
+}
+
+TEST_CASE("A forwarded register's width comes from its .reg declaration",
+	  "[sum-map-routing]")
+{
+	// a 64-bit register not named %rd: cvt
+	{
+		std::string ptx = probe(FRAME + "\tst.local.u32 \t[%rd1+504], %rq1;\n", "14");
+		ptx.insert(ptx.find("\t.reg .b32"), "\t.reg .b64 \t%rq<4>;\n");
+		thread_local_routing_stats st;
+		auto out = route(ptx, { sum14() }, st);
+		REQUIRE(st.keys_forwarded == 1);
+		REQUIRE(has(out, "\tcvt.u32.u64 \t%bpsm_k0, %rq1;\n"));
+	}
+	// a 32-bit register named like %rd: mov
+	{
+		std::string ptx = probe(FRAME + "\tst.local.u32 \t[%rd1+504], %rdx;\n", "14");
+		ptx.insert(ptx.find("\t.reg .b32"), "\t.reg .b32 \t%rdx;\n");
+		thread_local_routing_stats st;
+		auto out = route(ptx, { sum14() }, st);
+		REQUIRE(st.keys_forwarded == 1);
+		REQUIRE(has(out, "\tmov.u32 \t%bpsm_k0, %rdx;\n"));
+	}
+	// no declaration found: no forwarding
+	{
+		thread_local_routing_stats st;
+		route(probe(FRAME + "\tst.local.u32 \t[%rd1+504], %zz9;\n", "14"),
+		      { sum14() }, st);
+		REQUIRE(st.keys_forwarded == 0);
+	}
+}
+
+TEST_CASE("A helper call block with more than the call is refused, a commented marker ignored",
+	  "[sum-map-routing]")
+{
+	// an instruction inside the block would be dropped with it
+	std::string ptx = probe(FRAME + STORE, "14");
+	const std::string at = "\t.param .b64 retval0;\n";
+	ptx.insert(ptx.find(at), "\tst.local.u32 \t[%rd1+504], %r9;\n");
+	thread_local_routing_stats st;
+	REQUIRE_THROWS_AS(route(ptx, { sum14() }, st), std::runtime_error);
+	// a marker inside a comment is not a block
+	thread_local_routing_stats st2;
+	auto out = route(probe(FRAME + STORE + "\t// { // callseq 99, 0 }\n", "14"),
+			 { sum14() }, st2);
+	REQUIRE(st2.sum_lookups == 1);
+	REQUIRE(has(out, "// { // callseq 99, 0 }"));
 }
