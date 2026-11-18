@@ -21,8 +21,8 @@ def load(d):
 
 
 def correct(wl, var, run):
-    tool = var.split('-', 1)[1] if var.startswith(('old-', 'new-', 'newk-')) else var
-    if tool not in ('base',) and not tool.split('@')[0] in ('lat_mmvq', 'lat'):
+    tool = var.split('-', 1)[1] if var.startswith(('old-', 'new-', 'newk-', 'cur-')) else var
+    if tool not in ('base',) and not tool.split('@')[0] in ('lat_mmvq', 'lat', 'hist'):
         raise SystemExit('unknown tool ' + var)
     out = []
     if '@' in tool:  # a PTX override: it must have been applied
@@ -37,8 +37,8 @@ def correct(wl, var, run):
         w = A.words(os.path.join(run, 'hist.bin'))
         out.append(('sum', s == WANT, '%s want %d' % (s, WANT)))
         out.append(('bucket 194', w[194] == 0, '%d' % w[194]))
-    elif tool == 'lat':
-        out = A.check(wl, 'lat', run)
+    elif tool in ('lat', 'hist'):
+        out += A.check(wl, tool, run)
     return out
 
 
@@ -62,7 +62,7 @@ for d in sys.argv[1:]:
                 ('  %+.4f ns/thread' % ns) if (ns is not None and 'mmvq' in var) else '',
                 'ok' if not bad else 'INVALID ' + '; '.join('%s %s' % (c[0], c[2]) for c in bad)))
             q[(wl, var)] = dict(ts=ts, oh=100 * (1 - ts / b), ns=ns, ok=not bad,
-                                counts=[c[2] for c in chk if c[0].endswith(('exits timed', 'exits without start')) or c[0] in ('sum', 'bucket 194')])
+                                counts=[c[2] for c in chk if c[0].endswith(('exits timed', 'exits without start', ' calls')) or c[0] in ('sum', 'bucket 194')])
     for wl, tool, A_, B_ in [(w, t, a, b) for (w, t) in (('tg', 'lat_mmvq'), ('tg', 'lat'), ('pp', 'lat')) for (a, b) in (('old-', 'new-'), ('new-', 'newk-'))]:
         o, n = q.get((wl, A_ + tool)), q.get((wl, B_ + tool))
         if o and n:
@@ -71,6 +71,14 @@ for d in sys.argv[1:]:
                 wl, tool, A_, o['ts'], B_, n['ts'], o['oh'], n['oh'],
                 ('; ns %.4f -> %.4f, saved %.4f' % (o['ns'], n['ns'], o['ns'] - n['ns'])) if tool == 'lat_mmvq' else '',
                 'same' if same else 'DIFFER'))
+    g = [q.get(('tg', v)) for v in ('cur-lat_mmvq', 'cur-lat_mmvq@g0', 'cur-lat_mmvq@gnomap', 'cur-lat_mmvq@gbyval')]
+    if all(g):
+        print('  attribution (ns/thread): control g0 - cur %+.4f  map part g0 - gnomap %+.4f  by value saves g0 - gbyval %+.4f  rest (gnomap over base) %+.4f' % (
+            g[1]['ns'] - g[0]['ns'], g[1]['ns'] - g[2]['ns'], g[1]['ns'] - g[3]['ns'], g[2]['ns']))
+        q['_g'] = dict(ctl=g[1]['ns'] - g[0]['ns'], map=g[1]['ns'] - g[2]['ns'], byval=g[1]['ns'] - g[3]['ns'], rest=g[2]['ns'])
+    o, n = q.get(('tg', 'newk-hist')), q.get(('tg', 'cur-hist'))
+    if o and n:
+        print('  hist tg128: before %.2f -> after %.2f t/s, overhead %.1f%% -> %.1f%%; counts %s' % (o['ts'], n['ts'], o['oh'], n['oh'], 'same' if o['counts'] == n['counts'] else 'DIFFER'))
     tl = [q.get(('tg', v)) for v in ('new-lat_mmvq', 'new-lat_mmvq@tl0', 'new-lat_mmvq@tlK', 'new-lat_mmvq@tlKL', 'new-lat_mmvq@tlKLW')]
     if all(tl):
         names = ('control tl0 - new', 'K keys forwarded', 'L local accesses', 'W 64-bit accesses')
@@ -85,6 +93,12 @@ for d in sys.argv[1:]:
 if len(res) >= 2:
     print('== across passes')
     tls = [q['_tl'] for q in res.values() if '_tl' in q]
+    gs = [q['_g'] for q in res.values() if '_g' in q]
+    if len(gs) >= 2:
+        for k in ('ctl', 'map', 'byval', 'rest'):
+            v = [x[k] for x in gs]
+            verdict = ('  helps (>= 0.006 in every pass)' if min(v) >= 0.006 else '  not shown') if k == 'byval' else ''
+            print('  attribution %-5s %s spread %.4f%s' % (k, ' '.join('%+.4f' % x for x in v), max(v) - min(v), verdict))
     if len(tls) >= 2:
         for k in ('ctl', 'K', 'L', 'W'):
             v = [t[k] for t in tls]

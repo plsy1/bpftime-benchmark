@@ -51,3 +51,30 @@ Expected: newk-lat_mmvq about tlK's 0.146-0.149 ns (h1/h2); the built
 form is "as measured" if new - newk is within 0.006 of h1/h2's K
 (0.028-0.030) in both passes, otherwise the difference is reported.
 Third pass if new - newk differs by more than 0.006 between passes.
+
+## Addendum: what is left, split; passes m1/m2 (written before them)
+
+Built code cur-7e5861b9 (= 1fee25d1 plus the final review's fixes); its
+generated lat_mmvq PTX is 41b5bf76..., the same as newk-0890dbdd's (and the
+four-kernel lat modules are identical too), so k1-k3 stand for it. Forms of
+that PTX (target-shape/make_gforms.py; all 56 registers; executed SASS of
+the probes entry / exit: g0 21 / 86, gnomap 17 / 54, gbyval 15 / 70):
+- g0 the dump unchanged (control, expected within 0.006 of cur-lat_mmvq);
+- gnomap the map work removed (no thread-local lookup or access, no sum-map
+  lookup or add), the tool's work kept (timer helper calls, no-start test,
+  subtract, log2, key, bound compare guarding a trap; a stand-in start from
+  constant memory);
+- gbyval the start carried by value (entry returns it, the kernel keeps it
+  in a .local word, the exit takes it as a parameter; no thread-local
+  area), the sum map as built.
+Items: tg:base tg:cur-lat_mmvq tg:cur-lat_mmvq@g0 tg:cur-lat_mmvq@gnomap
+tg:cur-lat_mmvq@gbyval tg:newk-hist tg:cur-hist.
+Quantities (ns per thread): map part = g0 - gnomap; by-value saving = g0 -
+gbyval; rest = gnomap over base (the tool's and the framework's part with
+the calls as generated). Rule: by value "helps" if it saves at least 0.006
+in every pass (then it is a candidate to build; not built in this round);
+the split is reported, with the keep-alive biases (a compare and a trap per
+probe in gnomap). hist (1532 only): before (newk) and after (cur) the pass
+runs for it; counts must match; overhead reported. Third pass if any of
+map part, by-value saving or hist overhead differs by more than 0.006 ns /
+1 point between m1 and m2.

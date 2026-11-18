@@ -1,0 +1,25 @@
+== out/m1-20261118-091054
+  tg base               68.03 t/s  1.882 s/run  overhead   0.0%  ok
+  tg cur-hist           51.40 t/s  2.490 s/run  overhead  24.4%  ok
+  tg cur-lat_mmvq       54.19 t/s  2.362 s/run  overhead  20.3%  +0.1531 ns/thread  ok
+  tg cur-lat_mmvq@g0    54.51 t/s  2.348 s/run  overhead  19.9%  +0.1487 ns/thread  ok
+  tg cur-lat_mmvq@gbyval   56.09 t/s  2.282 s/run  overhead  17.5%  +0.1276 ns/thread  ok
+  tg cur-lat_mmvq@gnomap   57.20 t/s  2.238 s/run  overhead  15.9%  +0.1135 ns/thread  INVALID sum 0 want 15711207424
+  tg newk-hist          48.56 t/s  2.636 s/run  overhead  28.6%  ok
+  attribution (ns/thread): control g0 - cur -0.0044  map part g0 - gnomap +0.0352  by value saves g0 - gbyval +0.0211  rest (gnomap over base) +0.1135
+  hist tg128: before 48.56 -> after 51.40 t/s, overhead 28.6% -> 24.4%; counts same
+== out/m2-20261118-091847
+  tg base               67.71 t/s  1.890 s/run  overhead   0.0%  ok
+  tg cur-hist           51.40 t/s  2.490 s/run  overhead  24.1%  ok
+  tg cur-lat_mmvq       54.30 t/s  2.357 s/run  overhead  19.8%  +0.1488 ns/thread  ok
+  tg cur-lat_mmvq@g0    54.51 t/s  2.348 s/run  overhead  19.5%  +0.1459 ns/thread  ok
+  tg cur-lat_mmvq@gbyval   55.64 t/s  2.300 s/run  overhead  17.8%  +0.1307 ns/thread  ok
+  tg cur-lat_mmvq@gnomap   57.22 t/s  2.237 s/run  overhead  15.5%  +0.1104 ns/thread  INVALID sum 0 want 15711207424
+  tg newk-hist          48.61 t/s  2.633 s/run  overhead  28.2%  ok
+  attribution (ns/thread): control g0 - cur -0.0028  map part g0 - gnomap +0.0355  by value saves g0 - gbyval +0.0152  rest (gnomap over base) +0.1104
+  hist tg128: before 48.61 -> after 51.40 t/s, overhead 28.2% -> 24.1%; counts same
+== across passes
+  attribution ctl   -0.0044 -0.0028 spread 0.0016
+  attribution map   +0.0352 +0.0355 spread 0.0003
+  attribution byval +0.0211 +0.0152 spread 0.0059  helps (>= 0.006 in every pass)
+  attribution rest  +0.1135 +0.1104 spread 0.0031

@@ -61,6 +61,7 @@ for item in $ORDER; do
   case $tool in old-*) BUILD=$W/proto/builds/old-c27412f4; tool=${tool#old-} ;; esac
   case $tool in new-*) BUILD=$W/proto/builds/${NEW_BUILD:-new-00f12354}; tool=${tool#new-} ;; esac
   case $tool in newk-*) BUILD=$W/proto/builds/${NEWK_BUILD:-newk-0890dbdd}; tool=${tool#newk-} ;; esac
+  case $tool in cur-*) BUILD=$W/proto/builds/${CUR_BUILD:-cur-7e5861b9}; tool=${tool#cur-} ;; esac
   case $tool in
     base)  OBJ=noop_test; NOAG=1 ;;   # the loader runs, the victim has no agent
     agent) OBJ=noop_test; NOAG= ;;    # the agent, a probe with no map on kernels llama does not have

@@ -26,7 +26,7 @@ if tool == 'carry':
         check(name + ' mismatches', w[k*8+2], 0)
         check(name + ' exits without entry', w[k*8+3], 0)
         check(name + ' NULL lookups', w[k*8+4], 0)
-elif tool in ('lat', 'latold'):
+elif tool in ('lat', 'latold', 'latmix'):
     w = words('hist')
     for name, k in K:
         n = exp[name]['thread_execs']

@@ -22,7 +22,12 @@ Board and settings as before: Orin Nano 8 GB (sm_87, 8 SMs), clocks fixed and ch
    - This applies to the thread-local and the sum-map lookups.
    - It also closes a remaining fail-open in the definition count: a `.loc` glued to the next statement, and `/* */` comments.
 4. **No forwarding across a guarded store, call, atomic or reduction** (1fee25d1). Found in self-review. llvmbpf emits none today, and `lat_mmvq`'s generated PTX is byte-identical before and after (sha256 41b5bf76…), so passes k1-k3 stand.
-5. **Fixes after the final review** (dd99d1ac). An independent review of c27412f4..1fee25d1 ran from three lenses, and each finding was then reproduced or refuted by another agent. None of its findings is reachable from llvmbpf's output today. Changes:
+5. **Fixes after the final review** (7e5861b9). An independent review of c27412f4..1fee25d1 ran from three lenses (key forwarding, sum path, tests and regressions), and another agent then reproduced or refuted each of its 16 findings.
+   - **Confirmed: 9.** The fixes below cover all of them.
+   - **Refuted: 7.** The octal offsets and the state-space mismatch were fixed anyway.
+   - **Reachability:** the forwarding findings are not reachable from llvmbpf's output today. The 1532 one was: `pt_hist` ran with generic adds against a `.global` delivery load from 026f490f to 1fee25d1. Its counts were exact in every check.
+
+   Changes:
    - **Key forwarding fails closed** where it failed open. It now gives up at:
      - a label or brace between the store and the call (another path or scope);
      - any directive (a `.loc` glues to the next instruction);
@@ -80,25 +85,40 @@ Before building anything for 1530, its accesses in the new build's generated `la
 
 Only key forwarding saved at least 0.006 in both passes (the rule), so only it was built. Local accesses and 64-bit accesses are not built.
 
-## What is left
+## What is left, split (passes m1/m2)
 
-On tg128 with mul_mat_vec_q probed, the built shape costs 0.147-0.149 ns per thread (54.5 t/s, -20%).
-- **Section 6's breakdown:** the hand-written best shape left 0.064-0.068 outside the map with the timer read inline. The generated code's tool and framework parts measured about 0.088 (calls 0.018, timer helper calls 0.035, log2 0.035; section 1).
-- **Map part not measured:** the map's remaining part in the built code was not measured separately.
-- **Not ours to change:** what the user counts as tool side is not touched (11-18): probe calls, the switch each probe reads, the timer helper calls and the log2.
+On tg128 with mul_mat_vec_q probed, the built code costs about 0.146-0.149 ns per thread (54.5 t/s, -20%). To see how much of that is still the map, two forms of its generated PTX (`target-shape/make_gforms.py`, sha 41b5bf76; all 56 registers) were timed through the same override.
+- **Without the map:** the map work is removed and the tool's work kept. That means no thread-local lookup or access and no sum-map lookup or add. The timer helper calls, the no-start test, the subtract, the log2, the key and the bound compare stay; the compare guards a trap, and a stand-in start comes from constant memory. Its 1531 sum is 0, as intended; the analysis flags that, and it is expected for this form.
+- **By value:** the start is carried by value. The entry returns it, the kernel keeps it in a `.local` word and passes it to the exit; there is no thread-local area. This is section 6's `.local`-word form on the generated code, which the 11-17 design had listed as "carry by value".
+
+Executed SASS of the probes, entry / exit: unchanged 21 / 86, without the map 17 / 54, by value 15 / 70. Analysis in `meas/analysis-m.txt`.
+
+| form | t/s (m1 / m2) | s per run | per thread over base |
+|---|---:|---:|---:|
+| base | 68.03 / 67.71 | 1.882-1.890 | - |
+| the built code, through the override (control) | 54.51 / 54.51 | 2.348 | 0.1487 / 0.1459 ns |
+| without the map's work | 57.20 / 57.22 | 2.237-2.238 | 0.1135 / 0.1104 ns |
+| the start by value | 56.09 / 55.64 | 2.282-2.300 | 0.1276 / 0.1307 ns |
+
+- **The map's part** of the built code is 0.035 ns per thread (0.0352 / 0.0355), about a quarter. Section 7's hand-written bound was 0.014.
+- **Everything else** is 0.110-0.114 ns, about three quarters: the probe calls, the switch read in every probe, the two timer helper calls and the log2. This includes the stand-in's keep-alive, one compare and a trap per probe. These are the tool's and the framework's parts, which this round does not touch. With the map's work gone the shape runs at 57.2 t/s (-15.5 to -15.9%), and that is as far as map work alone can go here.
+- **Carrying the start by value** saves 0.015-0.021 ns (0.0211 / 0.0152). That is at least 0.006 in both passes, so by the rule it is a candidate to build next. It is not built: it changes how the probe functions are called (the entry returns the start, the exit takes it), and the routing would have to show that the thread-local value is only written at the entry and read at the exit of the same kernel.
+- **Control:** the built code through the override read 0.003-0.004 ns below the build itself (cur-lat_mmvq 0.1531 / 0.1488), within the 0.006 expected.
+
+The device per-thread map (1532) now runs through the pass too (7e5861b9). The four-kernel `hist` tool, which uses only 1532, went on tg128 from 48.56 / 48.61 to 51.40 / 51.40 t/s (28.2-28.6% -> 24.1-24.4%) with the same counts.
 
 Not done:
+- Building the by-value carry.
 - The 1530 value through local accesses: it showed 0.0035-0.0042.
-- Splitting the remaining cost of the built code into map and non-map parts.
 - The pass's load time: it rescans a probe function's body per query. The final review measured lat_mmvq's module at about 15 ms against about 5 ms before, and it grows quadratically with very large probes. This is paid at module load only, not on the GPU. Caching the definitions per function would remove it.
 
 ## Files
 
 - `patches/`: the four commits (format-patch on c27412f4).
 - `meas/`:
-  - `RULES-sum-map-build.md`, with its addendum for k1-k3.
+  - `RULES-sum-map-build.md`, with its addenda for k1-k3 and m1/m2.
   - `run_meas3.sh`: `old-`, `new-` and `newk-` items choose a copy of the agent and server.
   - `analyze_h.py`, `analyze.py`.
-  - `analysis-h.txt`, `analysis-k.txt`, `out/{h1,h2,k1,k2,k3}-*`.
-- `target-shape/`: `make_tlvariants.py`, the dump's sha, registers, ptxas logs and the probe subroutines of each form.
-- `check/`: `run_test_set.sh`, `check_test_set.py`, the five-tool checks after each commit, and the unit-test output.
+  - `analysis-h.txt`, `analysis-k.txt`, `analysis-m.txt`, `out/{h1,h2,k1,k2,k3,m1,m2}-*`.
+- `target-shape/`: `make_tlvariants.py`, `make_gforms.py`, the dumps' sha, registers, ptxas logs and the probe subroutines of each form.
+- `check/`: `run_test_set.sh`, `check_test_set.py`, the five-tool checks after each commit (`addpath1-6`), `latmix` and `tlatomic` (`addpath7`), and the unit-test output.
