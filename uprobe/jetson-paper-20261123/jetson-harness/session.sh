@@ -61,7 +61,7 @@ while IFS= read -r line; do
     step=$((step + 1))
     echo "step $step start $(date +%T) $(thermal)" >>"$LOG/steps.txt"
     # shellcheck disable=SC2086
-    sudo -n timeout 3000 docker exec "$NAME" taskset -c 2 python3 /bench/run_paper.py \
+    sudo -n timeout 6000 docker exec "$NAME" taskset -c 2 python3 /bench/run_paper.py \
         --config /bench/config-jetson.json --session "$SID" --out /out/rows.jsonl --capdir /out/cap \
         $line 2>&1 | tee -a "$OUT/console.log"
     echo "step $step end   $(date +%T) $(thermal)" >>"$LOG/steps.txt"
