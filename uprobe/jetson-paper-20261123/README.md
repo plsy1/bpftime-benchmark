@@ -1,0 +1,21 @@
+# Jetson paper re-measurement (2026-11-23 →)
+
+Jetson Orin Nano part of the paper re-measurement (plan of record: remeasure-plan-20261123.md, kept with the
+NUC session). The x86 counterpart is `uprobe/x86-nuc-paper-20261123/` on benchmark-results/x86-nuc.
+
+- `harness/`: shared files, byte-identical on both platforms (`SHA256SUMS`): PREREGISTRATION.md, run_paper.py, pinbench.c, nginx.conf.
+- `jetson-harness/`: Jetson-only session wrapper, guard (`check_env.sh`) and affinity config.
+- `scripts/`: build scripts (LLVM 16 + clang-15) and the E0 activation audit.
+- `builds/`: per frozen arm the sha256, cmake options, source state and toolchain. Binaries stay in
+  `~/src/paper-runs-20261124/builds/` (read-only) with a copy on the NUC.
+- `sslsniff-src/`: counting loader and stage sources (+ the stock .orig, Makefile, sslsniff.h).
+- `e0/`: E0 read-only checks and functional gate (all pass), see `e0/E0-summary.md`.
+
+## Deviations and implementation notes
+- 2026-11-23 PREREGISTRATION.md line 6 names Odiag = 4bef75b7; the frozen Odiag is 016a5151 (4bef75b7 read the switches with getenv at first use, which nginx workers cannot see because nginx clears the environment when forking workers). Same switches, read at library load.
+- 2026-11-23 Plan E1 leg `B#M-t3` is written `B#Mt3` (run_paper.py policy names are \w+). Policy Mt3 = nginx {4,5}, sslsniff {3}, wrk {0,1,2} -t3. Agreed with the NUC session.
+- 2026-11-23 Policy U ("no pinning") is written as all six CPUs {0-5} for nginx, sslsniff and wrk. An empty list would make run_paper.py skip sched_setaffinity, and the children would inherit the harness mask (docker exec taskset -c 2).
+- 2026-11-23 AOT cache (plan 1.5 "clear the cache directory per session"): dev 9ccda7e8 keeps compiled AOT objects in the bpftime shared memory next to the program (syscall server compiles at BPF_PROG_LOAD), not on disk. run_paper.py removes the shm before and after every leg, so every leg starts with an empty cache; nothing to clear per session.
+- 2026-11-23 K legs are always one request short: start_nginx's readiness curl is served before the kernel sslsniff attaches to the worker (bpftime agents are preloaded and see it). Audit for K subtracts 1 request (1 read, 261 bytes at 16 B).
+- 2026-11-23 Backup of frozen artifacts to the NUC uses tar over ssh (no rsync on the NUC). Backup is never run while an x86 session is measuring.
+- 2026-11-23 nginx busy for criterion (e) under M: one worker migrating between cpu4 and cpu5, so busy = sum over {4,5}.
