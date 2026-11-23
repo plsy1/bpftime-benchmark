@@ -93,6 +93,10 @@ while IFS= read -r line; do
     case $line in ''|'#'*) continue;; esac
     step=$((step + 1))
     echo "step $step at freq-log line $(wc -l <"$LOG/freq-log.txt"): $line" >>"$LOG/freq-log-marks.txt"
+    if [ "${line:0:1}" = '!' ]; then  # host command inside the pinned session (e.g. pinbench)
+        OUT="$OUT" H="$H" timeout 3000 bash -c "${line:1}" 2>&1 | tee -a "$OUT/console.log"
+        continue
+    fi
     # shellcheck disable=SC2086
     sudo -n timeout 3000 docker exec "$NAME" taskset -c 12-14 python3 /bench/run_paper.py \
         --config /bench/config-x86.json --session "$SID" --out /out/rows.jsonl --capdir /out/cap \
