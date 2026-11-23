@@ -27,4 +27,6 @@ Per-event pinning cost: 1.77 us at 3.5 GHz and 3.83 us at 1.7 GHz, i.e. about 6,
 
 Every kernel row costs the same number of cycles at both clocks (e.g. uprobe 4,884 vs 4,896 cycles), and every O/K and D/K ratio is unchanged within 0.02 except per-CPU hash lookup (4.15 vs 3.86, 0.66 vs 0.59).
 
-G14: not fired. At the Jetson's clock x86 keeps official ahead (+3.8%) and dev at +54%; the platform difference is not the clock. What differs is cycles per kernel entry: the pinning sequence costs about twice as many cycles on the Orin.
+G14: not fired. At the Jetson's clock x86 keeps official ahead (+3.8%) and dev at +54%; the platform difference is not the clock.
+
+Correction (2026-11-24, from the consolidated fact sheet): the factor of about 2 in pin cycles is an end-to-end (in-situ) effect. Idle, the pin sequence costs the same cycles on both machines (pinbench: x86 2,804 / ~5,600 cycles for single / multi-core masks; Jetson 2,713 / ~5,400). In nginx the per-event pin costs 2.1-2.4x its idle unit price on the Jetson but 1.08x on x86. Simple syscalls (getpid) cost about 1.6-1.8x the cycles on the Orin (~500 vs ~300).
