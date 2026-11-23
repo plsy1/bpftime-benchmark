@@ -24,7 +24,7 @@ Session E3-full10-20261123-try1: CPU 2 at 4.4 GHz (turbo on, C6+ off), benchmark
 
 Notes:
 - array_map_lookup rows do not use the lookup result (not a valid speedup claim; plan D3/E10 consuming benchmark is Jetson-only).
-- dev is slower than official on probe read/write on x86 (read 2533 vs 1694 ns per call of 1,000 reads; every sample of both dev runs 2441-2794 vs official 1635-1740). The 10-26 dev a7d54d7e measured 1507 ns, so this is a regression inside dev between a7d54d7e and 9ccda7e8 (probe checks are OFF in both builds). Recorded, not fixed (code is frozen).
+- dev is slower than official on probe read/write on x86 (read 2533 vs 1694 ns per call of 1,000 reads; every sample of both dev runs 2441-2794 vs official 1635-1740). The 10-26 dev a7d54d7e measured 1507 ns, so this is a regression inside dev between a7d54d7e and 9ccda7e8 (probe checks are OFF in both builds). Recorded, not fixed (code is frozen). Cross-platform (Jetson E3, reported 2026-11-24): on the Orin dev/official is 1.002 for probe read and 1.003 for probe write, so the regression is x86-only. Checked reads cost about 855 ns each on the Orin (188x unchecked) against about 270 ns on x86.
 - dev uprobe hit 131 ns vs official 123 ns.
 
 ## Probe checks on (session E3pc-full10-20261123-try1, Opc/Dpc, same order and bookends)

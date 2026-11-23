@@ -26,3 +26,16 @@ Cost model: predicted extra time per request = calls per request (E7) x loaded u
 | pid/tid | 2 getpid + 2 gettid | 0.343 | 0.413 | 1.20 |
 
 Indirect-cost coefficient on x86: 1.10-1.20 (the syscalls' direct cost explains 83-91% of each step; the rest is cache/pipeline disturbance).
+
+## Container vs host control (2026-11-24)
+
+Question from the Jetson session: is the in-situ pin cost on the Orin (about 2.3x the idle price) caused by nginx running inside the container's cpuset cgroup while pinbench ran on the host? x86 check: the same pinbench, same CPU 4, host vs a throwaway container of the paper image (--pid=host --privileged), ABAB x 3 rounds, 5 runs x 1e6 iterations each; governor not pinned, so only ratios are meaningful. Raw: raw/PB-container-20261124/rows.jsonl.
+
+| case | container / host |
+|---|---:|
+| pin sequence, single mask | 0.98 |
+| pin sequence, pair mask | 0.90 |
+| pin sequence, all CPUs | 0.90 |
+| getpid / gettid / getuid+getgid | 1.00 / 1.03 / 1.00 |
+
+On x86 (6.12) the container does not make pinning slower (the pair mask is 10% faster inside, consistently across all 15 runs). This does not rule the cgroup out on the Orin (6.8); the Jetson should run the same in-container check.
