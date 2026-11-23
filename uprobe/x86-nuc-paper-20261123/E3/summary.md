@@ -26,3 +26,15 @@ Notes:
 - array_map_lookup rows do not use the lookup result (not a valid speedup claim; plan D3/E10 consuming benchmark is Jetson-only).
 - dev is slower than official on probe read/write on x86 (read 2533 vs 1694 ns per call of 1,000 reads; every sample of both dev runs 2441-2794 vs official 1635-1740). The 10-26 dev a7d54d7e measured 1507 ns, so this is a regression inside dev between a7d54d7e and 9ccda7e8 (probe checks are OFF in both builds). Recorded, not fixed (code is frozen).
 - dev uprobe hit 131 ns vs official 123 ns.
+
+## Probe checks on (session E3pc-full10-20261123-try1, Opc/Dpc, same order and bookends)
+
+| op | kernel | official | Opc | dev | Dpc |
+|---|---:|---:|---:|---:|---:|
+| uprobe | 1109.2 | 122.8 (0.11x) | 122.8 (0.11x) | 131.2 (0.12x) | 129.8 (0.12x) |
+| read (1,000 reads per call) | 19301.4 | 1694.4 (0.09x) | 271699.8 (14.08x) | 2533.3 (0.13x) | 271109.9 (14.05x) |
+| write (1,000 writes per call) | 19180.5 | 1507.1 (0.08x) | 271435.0 (14.15x) | 2719.6 (0.14x) | 269157.9 (14.03x) |
+| hash lookup | 10580.7 | 21143.1 | 20878.3 | 4814.3 | 4806.4 |
+| per-CPU array lookup | 1821.3 | 9867.5 | 9836.2 | 1517.8 | 1516.2 |
+
+With checks on, every bpf_probe_read/write_user is a process_vm_readv/writev system call: about 270 ns per read on x86 (vs about 19 ns for the kernel's in-kernel copy and 1.7-2.5 ns unchecked). The microbenchmark makes 1,000 reads per call, so the cost shows 160x there; sslsniff makes one read per event (E7: Dpc +2 process_vm_readv per request), which is why checks cost only 0.5 us per event end to end (E4). Map and hook costs are unaffected by the check flags.

@@ -1,0 +1,2 @@
+# pinbench while a B leg loads the nginx and wrk cores (policy M); pinbench on CPU 4 (sslsniff core, idle in a B leg)
+!(sudo -n docker exec paper-x86 taskset -c 12-14 python3 /bench/run_paper.py --config /bench/config-x86.json --session PBload --exp PBload --out /out/rows.jsonl --capdir /out/cap --payload 16 --reps 1 --secs 60 --legs B > $OUT/pbload-leg.log 2>&1 &) ; sleep 10; taskset -c 4 $H/pinbench 4 3500 10 200000 single=4 pair=4,6 pcores=0,2,4,6 all=0-15 > $OUT/pinbench-loaded.jsonl; sleep 45; cat $OUT/pbload-leg.log

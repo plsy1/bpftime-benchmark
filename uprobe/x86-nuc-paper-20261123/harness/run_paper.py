@@ -33,6 +33,13 @@ SWITCHES = {
     'AOT0': {'BPFTIME_AOT_CACHE': '0'},
 }
 STAGES = ('S1', 'S2h', 'S2hm', 'S2m', 'S3', 'S4')
+PERF = {'mode': None, 'start': 2.0, 'dur': 16.0}
+PERF_EVENTS = {
+    'cyc': 'cpu_core/cycles/u,cpu_core/cycles/k,cpu_core/instructions/u,cpu_core/instructions/k,task-clock',
+    'sc': ('raw_syscalls:sys_enter,syscalls:sys_enter_sched_setaffinity,syscalls:sys_enter_sched_getaffinity,'
+           'syscalls:sys_enter_getuid,syscalls:sys_enter_getgid,syscalls:sys_enter_getpid,'
+           'syscalls:sys_enter_gettid,syscalls:sys_enter_process_vm_readv'),
+}
 AGENT_ENV_DROP = ('BPFTIME_VM_NAME', 'BPFTIME_DISABLE_JIT', 'BPFTIME_SYSCALL_LAZY',
                   'BPFTIME_HASH_ZERO_SEED', 'BPFTIME_MAP_PRODUCTION_AB', 'BPFTIME_ARRAY_JIT_INLINE')
 
@@ -250,9 +257,47 @@ def run_leg(cfg, leg, conns, secs, threads, capdir):
         t0 = cpu_times()
         w0 = proc_cpu_s(worker)
         s0 = proc_cpu_s(sniff.pid) if sniff else None
+        perfp = None
+        if PERF['mode']:
+            events = PERF_EVENTS.get(PERF['mode'], PERF['mode'])
+            if PERF['mode'] == 'cyc' and cfg.get('perf_cyc_events'):
+                events = cfg['perf_cyc_events']
+            perfp = subprocess.Popen(['sh', '-c', f"sleep {PERF['start']}; exec nsenter -t 1 -m -- perf stat -x, "
+                                      f"-p {worker} -e {events} -- sleep {PERF['dur']}"],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        win = {}
+        if perfp:
+            import threading
+            def count_window():
+                def lines():
+                    r = sh('wc', '-l', f'{BENCH}/access.log')
+                    return int(r.stdout.split()[0]) if r.stdout else None
+                time.sleep(PERF['start'])
+                win['l0'] = lines()
+                time.sleep(PERF['dur'])
+                win['l1'] = lines()
+            wt = threading.Thread(target=count_window, daemon=True)
+            wt.start()
         tt0 = time.time()
         rps, total, errors, _ = wrk(pol['wrk'], pol.get('wrk_threads', threads), conns, secs)
         tt1 = time.time()
+        if perfp:
+            wt.join(timeout=5)
+            if win.get('l0') is not None and win.get('l1') is not None:
+                row['perf_window_reqs'] = win['l1'] - win['l0']
+            out = perfp.communicate(timeout=60)[1]
+            perf = {}
+            for line in out.splitlines():
+                f = line.split(',')
+                if len(f) >= 5 and f[2]:
+                    try:
+                        val = float(f[0])
+                    except ValueError:
+                        val = None
+                    perf[f[2]] = dict(value=val, unit=f[1], run_pct=float(f[4]) if f[4] else None)
+            row['perf'] = perf
+            row['perf_mode'] = PERF['mode']
+            row['perf_dur'] = PERF['dur']
         t1 = cpu_times()
         w1 = proc_cpu_s(worker)
         s1 = proc_cpu_s(sniff.pid) if sniff else None
@@ -342,7 +387,11 @@ def main():
     ap.add_argument('--round', type=int, default=0)
     ap.add_argument('--out', required=True, help='JSONL file to append to')
     ap.add_argument('--capdir', required=True)
+    ap.add_argument('--perf-mode', help='cyc | sc | explicit perf event list; perf stat on the nginx worker')
+    ap.add_argument('--perf-start', type=float, default=2.0)
+    ap.add_argument('--perf-dur', type=float, default=16.0)
     a = ap.parse_args()
+    PERF.update(mode=a.perf_mode, start=a.perf_start, dur=a.perf_dur)
     cfg = json.load(open(a.config))
     legs = [parse_leg(t, cfg) for t in a.legs.split(',')]
     threads = a.wrk_threads or cfg.get('wrk_threads', 4)
@@ -362,6 +411,11 @@ def main():
                 row = run_leg(cfg, leg, a.conns, a.secs, threads, capdir)
             except Exception as e:  # recorded, the session decides
                 row = dict(error=repr(e))
+            if PERF['mode'] and row.get('perf') and row.get('rps'):
+                reqs = row.get('perf_window_reqs') or row['rps'] * PERF['dur']
+                row['perf_per_req'] = {k: (v['value'] / reqs if v['value'] is not None else None) for k, v in row['perf'].items()}
+                if any((v.get('run_pct') or 0) < 99 for v in row['perf'].values()):
+                    row.setdefault('flags', []).append('perf_multiplexed')
             row.update(platform=cfg['platform'], session_id=a.session, exp=a.exp, round=a.round, rep=rep,
                        order_idx=idx, pred_leg=pred, leg=leg['text'], build=leg['base'], stage=leg['stage'],
                        policy=leg['policy'], env=leg['env'], stock=leg['stock'], payload=a.payload,

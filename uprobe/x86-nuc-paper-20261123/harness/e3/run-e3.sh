@@ -8,7 +8,7 @@ SID=$1; shift
 R=/home/y/src/bpftime-x86-runs/paper-20261124
 E=$R/harness/e3
 F=$R/raw/$SID
-CPU=2; KHZ=4400000
+CPU=2; KHZ=${E3_KHZ:-4400000}
 mkdir "$F"
 STATE=$F/freq-before.txt
 FREQLOG_PID=
@@ -24,7 +24,7 @@ finish() {
 trap finish EXIT; trap 'exit 130' INT; trap 'exit 143' TERM
 date --iso-8601=seconds >"$F/started-at.txt"
 (cd "$R/bench" && sha256sum --check --quiet sha256.txt)
-for a in official dev; do (cd "$R/builds/$a" && sha256sum --check --quiet sha256.txt); done
+for a in official dev opc dpc; do (cd "$R/builds/$a" && sha256sum --check --quiet sha256.txt); done
 test -z "$(find /dev/shm -mindepth 1 -name 'bpftime*')"
 awk '{ if ($1 >= 0.3) { print "load too high: " $1; exit 1 } }' /proc/loadavg
 "$E/freq.sh" pin "$CPU" "$KHZ" "$STATE" turbo-on
@@ -45,7 +45,7 @@ for a in "$@"; do
     echo "run$i $a at log line $(wc -l <"$F/freq-log.txt")" >>"$F/marks.txt"
     date --iso-8601=seconds >"$OUT/started-at.txt"
     cd "$R/runners/$a/bpftime"
-    sudo -n timeout 2400 taskset -c "$CPU" env -u BPFTIME_ARRAY_JIT_INLINE PYTHONUNBUFFERED=1 BPFTIME_LOG_OUTPUT=console \
+    sudo -n timeout 7200 taskset -c "$CPU" env -u BPFTIME_ARRAY_JIT_INLINE PYTHONUNBUFFERED=1 BPFTIME_LOG_OUTPUT=console \
         python3 -u benchmark/uprobe/benchmark.py --iter 10 >"$OUT/runner.log" 2>&1
     for x in benchmark-output.json results.md benchmark-logs.txt; do test "benchmark/uprobe/$x" -nt "$OUT/started-at.txt"; cp "benchmark/uprobe/$x" "$OUT/"; done
     sudo -n build/tools/bpftimetool/bpftimetool remove >"$OUT/post-cleanup.log" 2>&1 || true
