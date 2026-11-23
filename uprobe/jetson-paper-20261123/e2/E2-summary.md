@@ -30,6 +30,6 @@ x = 1/rps − 1/rps(B) per request (paired, 95 % t-CI); per event = /2 (E_work =
 End-to-end pin cost per event vs pinbench: S 3.36 / 1.57 = 2.1×, M 7.44 / 3.12 = 2.4× (x86: about 1.1× in both).
 
 ## Reading against the checkpoints
-- G2: under S official still trails K on the Jetson (0.981, CI upper 0.997 < 1), but by 2 % instead of 11–12 % under M/U.
+- G2: **undecided**. Under S, Odiag#S trails K (0.981, CI upper 0.997 < 1) by 2 % instead of 11–12 % under M/U; O#S was not in the E2 leg set, and gate (b) did not show Odiag ≡ O (Odiag is about 1 % slower: 24 of 30 paired reps negative, E1x-summary.md), so O#S vs K could include 1. Needs a supplementary O#S measurement.
 - Removing the pinning alone puts official ahead of K under every policy (+5 to +8 %).
 - G2b: the C − S difference for Odiag is −0.17 µs/event (CI spans 0) → not triggered; the kernel consumer is 1.26 µs/event cheaper when on the same cluster.
