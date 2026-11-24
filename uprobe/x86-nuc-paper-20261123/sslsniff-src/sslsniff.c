@@ -495,9 +495,17 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	pb = perf_buffer__new(bpf_map__fd(obj->maps.perf_SSL_events),
+	{
+		/* Paper E15: SSLSNIFF_PB_WAKEUP=N asks the kernel for a consumer wakeup every N samples
+		 * (libbpf sets wakeup_events = sample_period); unset = libbpf default (every sample). */
+		LIBBPF_OPTS(perf_buffer_opts, pb_opts);
+		const char *wb = getenv("SSLSNIFF_PB_WAKEUP");
+		if (wb && atoi(wb) > 1)
+			pb_opts.sample_period = (__u32)atoi(wb);
+		pb = perf_buffer__new(bpf_map__fd(obj->maps.perf_SSL_events),
 							PERF_BUFFER_PAGES, handle_event, handle_lost_events,
-							NULL, NULL);
+							NULL, &pb_opts);
+	}
 	if (!pb) {
 		err = -errno;
 		warn("failed to open perf buffer: %d\n", err);
