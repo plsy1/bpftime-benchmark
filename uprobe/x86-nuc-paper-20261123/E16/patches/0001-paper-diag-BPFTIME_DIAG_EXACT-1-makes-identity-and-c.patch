@@ -1,0 +1,80 @@
+From 87e0117ad5c39ec77cbd317910f4e0e902fde6af Mon Sep 17 00:00:00 2001
+From: plsy1 <39407459+plsy1@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 10:57:28 +0900
+Subject: [PATCH 1/2] paper diag: BPFTIME_DIAG_EXACT=1 makes identity and
+ credential helpers query the kernel on every call
+
+Read once at load. For the HotOS exact-runtime measurement only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ runtime/src/bpf_helper.cpp        |  3 ++-
+ runtime/src/producer_identity.cpp |  9 +++++++++
+ runtime/src/producer_identity.hpp | 10 ++++++++++
+ 3 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index f3a836f1..fa641fdd 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -350,7 +350,8 @@ extern "C" void bpftime_invalidate_credential_cache()
+ uint64_t bpf_get_current_uid_gid(uint64_t, uint64_t, uint64_t, uint64_t,
+ 				 uint64_t)
+ {
+-	if (!credential_cache_enabled.load(std::memory_order_acquire))
++	if (bpftime::bpftime_diag_exact ||
++	    !credential_cache_enabled.load(std::memory_order_acquire))
+ 		return query_credentials();
+ 	auto value = cached_credentials.load(std::memory_order_acquire);
+ 	if (value != credentials_unknown)
+diff --git a/runtime/src/producer_identity.cpp b/runtime/src/producer_identity.cpp
+index cefd8c2f..d3e8c407 100644
+--- a/runtime/src/producer_identity.cpp
++++ b/runtime/src/producer_identity.cpp
+@@ -1,4 +1,13 @@
+ #include "producer_identity.hpp"
++#include <cstdlib>
++namespace bpftime
++{
++// Read at load: nginx clears the environment of its workers, which inherit this.
++bool bpftime_diag_exact = [] {
++	const char *e = std::getenv("BPFTIME_DIAG_EXACT");
++	return e && e[0] == '1';
++}();
++} // namespace bpftime
+ #include "fork_handlers.hpp"
+ #include <atomic>
+ #include <cerrno>
+diff --git a/runtime/src/producer_identity.hpp b/runtime/src/producer_identity.hpp
+index 450d0a5a..5836aef0 100644
+--- a/runtime/src/producer_identity.hpp
++++ b/runtime/src/producer_identity.hpp
+@@ -1,6 +1,7 @@
+ #ifndef _BPFTIME_PRODUCER_IDENTITY_HPP
+ #define _BPFTIME_PRODUCER_IDENTITY_HPP
+ #include <cstdint>
++#include <unistd.h>
+ 
+ extern "C" uint64_t bpftime_identity_epoch;
+ 
+@@ -26,8 +27,17 @@ void read_identity(int &pid, int64_t &tid);
+ // handler clears them, and a vfork-like clone (bpftime_identity_epoch, bumped
+ // by the syscall-trace transformer) makes them checked again. If registering
+ // the handler failed, they are queried on every call.
++// Paper diagnostic (dexact): BPFTIME_DIAG_EXACT=1, read once at load, makes every
++// identity read two system calls (getpid, gettid), as official bpftime does.
++extern bool bpftime_diag_exact;
++int64_t current_thread_id();
+ inline void current_producer_identity(int &pid, int64_t &tid)
+ {
++	if (__builtin_expect(bpftime_diag_exact, 0)) {
++		pid = (int)::getpid();
++		tid = current_thread_id();
++		return;
++	}
+ 	const identity_detail::identity_cache &c = identity_detail::cache;
+ 	if (__builtin_expect(c.pid != -1 &&
+ 				     c.epoch ==
+-- 
+2.47.3
+

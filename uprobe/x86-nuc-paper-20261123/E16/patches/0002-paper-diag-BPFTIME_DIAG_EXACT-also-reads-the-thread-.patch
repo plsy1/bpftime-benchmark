@@ -1,0 +1,46 @@
+From 66ed229ef46a64ed012ad1258441d2fc3ec99234 Mon Sep 17 00:00:00 2001
+From: plsy1 <39407459+plsy1@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 10:57:39 +0900
+Subject: [PATCH 2/2] paper diag: BPFTIME_DIAG_EXACT also reads the thread comm
+ with prctl on every call
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ runtime/src/bpf_helper.cpp | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index fa641fdd..6b9b15e1 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -59,6 +59,7 @@
+ #include <vector>
+ #include <bpftime_shm_internal.hpp>
+ #include "producer_identity.hpp"
++#include <sys/prctl.h>
+ #include <chrono>
+ #include <thread>
+ 
+@@ -381,6 +382,19 @@ uint64_t bpftime_get_current_comm(uint64_t buf, uint64_t size, uint64_t,
+ {
+ 	static std::string filename_buf;
+ 
++	if (unlikely(bpftime::bpftime_diag_exact)) {
++		// Paper diag: the thread's comm, as the kernel helper returns it
++		// (TASK_COMM_LEN 16, NUL-padded), one prctl per call.
++		char comm[16] = {};
++		if (prctl(PR_GET_NAME, comm, 0, 0, 0) != 0)
++			return (uint64_t)-1;
++		size_t n = size < sizeof(comm) ? (size_t)size : sizeof(comm);
++		memset((void *)(uintptr_t)buf, 0, (size_t)size);
++		memcpy((void *)(uintptr_t)buf, comm, n);
++		if (n)
++			((char *)(uintptr_t)buf)[n - 1] = 0;
++		return 0;
++	}
+ 	if (unlikely(filename_buf.empty())) {
+ 		char strbuf[PATH_MAX];
+ 
+-- 
+2.47.3
+
