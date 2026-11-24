@@ -5,7 +5,9 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <exception>
+#include <functional>
 #include <stdexcept>
 
 #include "stack_trace_map.hpp"
@@ -166,18 +168,21 @@ int stack_trace_map_impl::lookup_and_delete(const void *key, void *value_out,
 		return -1;
 	}
 	uint32_t index = *(uint32_t *)key;
-	auto itr = data.find(index);
-	if (itr == data.end()) {
+	// Under the map lock (should_lock), as elem_delete: plain reads.
+	uint64_t *record =
+		index < max_entries ? record_of(slots[index]) : nullptr;
+	if (record == nullptr || record[REC_NR] == 0) {
 		errno = ENOENT;
 		return -1;
 	}
 	const auto value_size = max_stack_entries * sizeof(uint64_t);
 	const auto trace_len =
-		std::min(itr->second.size(), size_t(max_stack_entries)) *
+		std::min<size_t>(record[REC_NR], max_stack_entries) *
 		sizeof(uint64_t);
-	std::memcpy(value_out, itr->second.data(), trace_len);
+	std::memcpy(value_out, record + REC_FRAMES, trace_len);
 	std::memset((uint8_t *)value_out + trace_len, 0, value_size - trace_len);
-	data.erase(itr);
+	// The frames stay until the next fill overwrites them.
+	store(&record[REC_NR], 0, std::memory_order_relaxed);
 	return 0;
 }
 

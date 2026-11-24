@@ -193,6 +193,11 @@ bool frida_internal_attach_entry::has_uprobe_or_uretprobe() const
 void frida_internal_attach_entry::run_uprobes(
 	const frida_hook_dispatch &dispatch, const pt_regs &regs)
 {
+	// Recursion and agent-suppression guard (#733); the override handler,
+	// on_enter and on_leave catch what the callbacks throw (#830).
+	attach_callback_scope callback_scope;
+	if (!callback_scope.entered())
+		return;
 	for (auto v : dispatch.uprobes)
 		v->run_callback<ATTACH_UPROBE_INDEX>(regs);
 }
@@ -200,12 +205,18 @@ void frida_internal_attach_entry::run_uprobes(
 void frida_internal_attach_entry::run_override(const frida_attach_entry &attach,
 					       const pt_regs &regs)
 {
+	attach_callback_scope callback_scope;
+	if (!callback_scope.entered())
+		return;
 	attach.run_callback<ATTACH_UPROBE_OVERRIDE_INDEX>(regs);
 }
 
 void frida_internal_attach_entry::run_uretprobes(
 	const frida_hook_dispatch &dispatch, const pt_regs &regs)
 {
+	attach_callback_scope callback_scope;
+	if (!callback_scope.entered())
+		return;
 	for (auto v : dispatch.uretprobes)
 		v->run_callback<ATTACH_URETPROBE_INDEX>(regs);
 }
@@ -256,6 +267,9 @@ extern "C" void *__bpftime_frida_attach_manager__override_handler()
 
 		SPDLOG_DEBUG("Setting current thread gum cpu context");
 		current_thread_gum_cpu_context = ctx->cpu_context;
+		// The BPF callback chain can throw, and an exception escaping
+		// this frida-gum C frame would call std::terminate and kill the
+		// host (#830). On failure run the original function instead.
 		try {
 			frida_internal_attach_entry::run_override(*attach, regs);
 		} catch (const std::exception &e) {
@@ -277,9 +291,6 @@ extern "C" void *__bpftime_frida_attach_manager__override_handler()
 	if (overridden) {
 		SPDLOG_DEBUG("Using override return value: {}", value);
 		return (void *)value;
-	} else {
-		return func((void *)arg0, (void *)arg1, (void *)arg2,
-			    (void *)arg3, (void *)arg4);
 	}
 	return func((void *)arg0, (void *)arg1, (void *)arg2, (void *)arg3,
 		    (void *)arg4);
@@ -300,7 +311,19 @@ void bpftime::attach::frida_slot_on_enter(GumInvocationContext *ctx,
 		SPDLOG_DEBUG("Setting current thread gum cpu context");
 		current_thread_gum_cpu_context = ctx->cpu_context;
 
-		frida_internal_attach_entry::run_uprobes(*dispatch, regs);
+		// Same C-frame hazard as the override handler (#830): a throw
+		// here would terminate the host, so a failed callback drops one
+		// event.
+		try {
+			frida_internal_attach_entry::run_uprobes(*dispatch,
+								 regs);
+		} catch (const std::exception &e) {
+			BPFTIME_LOG_ERROR_RATELIMITED(
+				"frida uprobe callback threw: {}", e.what());
+		} catch (...) {
+			BPFTIME_LOG_ERROR_RATELIMITED(
+				"frida uprobe callback threw an unknown exception");
+		}
 
 		SPDLOG_DEBUG("Resetting current thread gum cpu context");
 		current_thread_gum_cpu_context.reset();
@@ -322,7 +345,16 @@ void bpftime::attach::frida_slot_on_leave(GumInvocationContext *ctx,
 		// Stack helpers find this context through the current gum
 		// invocation; setting the thread-local here would cost every
 		// return (+5 ns).
-		frida_internal_attach_entry::run_uretprobes(*dispatch, regs);
+		try {
+			frida_internal_attach_entry::run_uretprobes(*dispatch,
+								    regs);
+		} catch (const std::exception &e) {
+			BPFTIME_LOG_ERROR_RATELIMITED(
+				"frida uretprobe callback threw: {}", e.what());
+		} catch (...) {
+			BPFTIME_LOG_ERROR_RATELIMITED(
+				"frida uretprobe callback threw an unknown exception");
+		}
 	}
 	probe_grace::leave(reader);
 }

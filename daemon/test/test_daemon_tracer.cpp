@@ -58,15 +58,20 @@ TEST_CASE("Daemon tracer attaches without the syscalls this kernel lacks",
 
 namespace
 {
+// Upstream removed BPF_FD_TYPE_MAX (#868); the tests only need a value no
+// entry has.
+static constexpr auto NO_FD_ENTRY =
+	static_cast<bpf_fd_type>(BPF_FD_TYPE_MAP + 1);
+
 // The tracer's pid/fd table entry for FD of this process, or type
-// BPF_FD_TYPE_MAX when there is none.
+// NO_FD_ENTRY when there is none.
 bpf_fd_data fd_entry(bpf_tracer_bpf *obj, int fd)
 {
 	unsigned long long key = MAKE_PFD(getpid(), fd);
 	bpf_fd_data data = {};
 	if (bpf_map__lookup_elem(obj->maps.bpf_fd_map, &key, sizeof(key), &data,
 				 sizeof(data), 0) != 0)
-		data.type = BPF_FD_TYPE_MAX;
+		data.type = NO_FD_ENTRY;
 	return data;
 }
 
@@ -113,7 +118,7 @@ TEST_CASE("Daemon tracer follows duplicated bpf descriptors", "[daemon-tracer]")
 		CHECK(entry.kernel_id == (int)id);
 		// A non-bpf descriptor duplicated over it clears the entry.
 		REQUIRE(dup2(null_fd, reserved) == reserved);
-		CHECK(fd_entry(obj.get(), reserved).type == BPF_FD_TYPE_MAX);
+		CHECK(fd_entry(obj.get(), reserved).type == NO_FD_ENTRY);
 		close(null_fd);
 		close(reserved);
 	}

@@ -881,26 +881,63 @@ long syscall_context::handle_sysbpf(int cmd, union bpf_attr *attr, size_t size)
 			}
 		}
 #endif
-		int id = bpftime_maps_create(
-			-1 /* let the shm alloc fd for us */, attr->map_name,
-			bpftime::bpf_map_attr{
-				map_type,
-				attr->key_size,
-				attr->value_size,
-				attr->max_entries,
-				attr->map_flags,
-				attr->map_ifindex,
-				attr->btf_vmlinux_value_type_id,
-				attr->btf_id,
-				attr->btf_key_type_id,
-				attr->btf_value_type_id,
-				attr->map_extra,
-			});
-		SPDLOG_DEBUG(
-			"Created map {}, type={}, name={}, key_size={}, value_size={}",
-			id, attr->map_type, attr->map_name, attr->key_size,
-			attr->value_size);
-		return id;
+		std::vector<int> occupied_fds;
+		auto close_occupied_fds = [&]() {
+			for (int fd : occupied_fds)
+				orig_close_fn(fd);
+		};
+		for (;;) {
+			int reserved_fd = create_unlinked_mock_fd(true);
+			if (reserved_fd < 0) {
+				int saved_errno = errno;
+				close_occupied_fds();
+				errno = saved_errno;
+				return -1;
+			}
+			errno = 0;
+			int id = bpftime_maps_create(
+				reserved_fd, attr->map_name,
+				bpftime::bpf_map_attr{
+					map_type,
+					attr->key_size,
+					attr->value_size,
+					attr->max_entries,
+					attr->map_flags,
+					attr->map_ifindex,
+					attr->btf_vmlinux_value_type_id,
+					attr->btf_id,
+					attr->btf_key_type_id,
+					attr->btf_value_type_id,
+					attr->map_extra,
+				});
+			const int create_errno = errno;
+			SPDLOG_DEBUG(
+				"Created map {}, type={}, name={}, key_size={}, value_size={}",
+				id, attr->map_type, attr->map_name,
+				attr->key_size, attr->value_size);
+			if (id >= 0) {
+				// The map keeps the reserved real fd, so the
+				// program sees a kernel fd number.
+				close_occupied_fds();
+				return id;
+			}
+			// Map creation reports -1 with errno (map_init's size
+			// checks, ENOMEM on shared memory exhaustion); other
+			// internal failures return a negative errno as the value
+			// (-EEXIST when the shm slot is still occupied, -ENOSPC
+			// when the fd is out of the shared table's range). Only
+			// -EEXIST is worth another reservation; everything else
+			// goes back to the caller as the syscall ABI convention.
+			if (id == -EEXIST) {
+				occupied_fds.push_back(reserved_fd);
+				continue;
+			}
+			const int err = id == -1 ? create_errno : -id;
+			orig_close_fn(reserved_fd);
+			close_occupied_fds();
+			errno = err != 0 ? err : EINVAL;
+			return -1;
+		}
 	}
 	case BPF_MAP_LOOKUP_ELEM: {
 		SPDLOG_DEBUG("Looking up map {}, key={:x}", attr->map_fd,
@@ -969,6 +1006,8 @@ long syscall_context::handle_sysbpf(int cmd, union bpf_attr *attr, size_t size)
 					       (long)(uintptr_t)attr,
 					       (long)size);
 		}
+		// Keyed for the hash map types (the kernel reads attr->key for
+		// those), keyless for queue/stack where it is a pop.
 		// The kernel takes only BPF_F_LOCK, and that only for values
 		// with a spin lock, which bpftime's maps do not have.
 		if (attr->flags != 0) {
@@ -1060,10 +1099,13 @@ long syscall_context::handle_sysbpf(int cmd, union bpf_attr *attr, size_t size)
 				}
 			}
 #endif
+			int reserved_fd = create_unlinked_mock_fd(true);
+			if (reserved_fd < 0)
+				return -1;
 			// Compiled once here, with the AOT object kept for
 			// the agents (bpftime_prog_cache.cpp).
 			int id = bpftime_progs_create_cached(
-				-1 /* let the shm alloc fd for us */,
+				reserved_fd,
 				(ebpf_inst *)(uintptr_t)attr->insns,
 				(size_t)attr->insn_cnt, attr->prog_name,
 				attr->prog_type);
@@ -1307,12 +1349,22 @@ int syscall_context::handle_perfevent(perf_event_attr *attr, pid_t pid, int cpu,
 		return fd;
 	} else if ((int)attr->type == (int)bpf_event_type::PERF_TYPE_SOFTWARE) {
 		SPDLOG_DEBUG("Detected software perf event creation");
+		int reserved_fd = orig_syscall_fn(
+			__NR_eventfd2, 0, EFD_CLOEXEC | EFD_NONBLOCK);
+		if (reserved_fd < 0)
+			return reserved_fd;
 		// The wakeup settings decide when output wakes the consumer
 		// (libbpf's perf_buffer: every sample); they were dropped, and
-		// output woke it only at half a ring.
-		int fd = bpftime_add_software_perf_event_with_wakeup(
-			cpu, attr->sample_type, attr->config, attr->watermark,
-			attr->wakeup_events);
+		// output woke it only at half a ring. (No public
+		// bpftime_add_software_perf_event_* takes both a given fd and
+		// the settings.)
+		int fd = shm_holder.global_shared_memory.add_software_perf_event(
+			reserved_fd, cpu, attr->sample_type, attr->config,
+			software_perf_event_wakeup{
+				.watermark = (bool)attr->watermark,
+				.wakeup = attr->wakeup_events });
+		if (fd < 0)
+			orig_close_fn(reserved_fd);
 		SPDLOG_DEBUG("Created software perf event with fd {}", fd);
 		return fd;
 	} else if ((int)attr->type == (int)bpf_event_type::BPF_TYPE_UREPLACE) {

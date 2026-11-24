@@ -1190,7 +1190,6 @@ int bpf_map_handler::map_init_checked(managed_shared_memory &memory)
 			boost::interprocess::anonymous_instance)(
 			memory, max_entries, key_size, value_size,
 			hash_zero_seed(flags));
-#endif
 		init_refcnt();
 		return 0;
 	}
@@ -1342,8 +1341,10 @@ int bpf_map_handler::map_init_checked(managed_shared_memory &memory)
 	case bpf_map_type::BPF_MAP_TYPE_ARRAY_OF_MAPS: {
 		// inner fd is stored as a uint32; reject mismatched value_size so
 		// the syscall memcpy path can never over-read/truncate (M13 follow-up).
-		if (value_size != sizeof(uint32_t))
-			return -EINVAL;
+		if (value_size != sizeof(uint32_t)) {
+			errno = EINVAL;
+			return -1;
+		}
 		map_impl_ptr = memory.construct<array_map_of_maps_impl>(
 			boost::interprocess::anonymous_instance)(memory,
 								 max_entries);
@@ -1351,8 +1352,10 @@ int bpf_map_handler::map_init_checked(managed_shared_memory &memory)
 		return 0;
 	}
 	case bpf_map_type::BPF_MAP_TYPE_HASH_OF_MAPS: {
-		if (value_size != sizeof(uint32_t))
-			return -EINVAL;
+		if (value_size != sizeof(uint32_t)) {
+			errno = EINVAL;
+			return -1;
+		}
 		map_impl_ptr = memory.construct<hash_map_of_maps_impl>(
 			boost::interprocess::anonymous_instance)(
 			memory, key_size, max_entries,
@@ -1897,24 +1900,26 @@ long bpf_map_handler::map_pop_elem(void *value, bool from_syscall) const
 	}
 }
 
-// Only the syscall's command.
-long bpf_map_handler::map_lookup_and_delete_elem(const void *key,
-						 void *value) const
+// BPF_MAP_LOOKUP_AND_DELETE_ELEM, the syscall's command only. Dispatched by
+// map type as the kernel's map_lookup_and_delete_elem
+// (kernel/bpf/syscall.c): a keyless pop for queues and stacks, the element
+// of `key` for the hash variants and stack trace maps (value in the syscall
+// layout).
+long bpf_map_handler::map_lookup_and_delete_elem(const void *key, void *value,
+						 bool from_syscall) const
 {
 	if (is_frozen()) {
 		errno = EPERM;
 		return -1;
 	}
-	// Maps under the handler lock: the lookup and the delete as one step.
-	const auto under_lock = [&](auto *impl) -> long {
-		bpftime_lock_guard guard(map_lock);
-		const void *found = impl->elem_lookup(key);
-		if (found == nullptr) {
-			errno = ENOENT;
-			return -1;
+	// Backends that declare should_lock: the handler owns their lock.
+	const auto do_lookup_and_delete = [&](auto *impl) -> long {
+		if (impl->should_lock) {
+			bpftime_lock_guard guard(map_lock);
+			return impl->lookup_and_delete(key, value, from_syscall);
+		} else {
+			return impl->lookup_and_delete(key, value, from_syscall);
 		}
-		std::memcpy(value, found, value_size);
-		return impl->elem_delete(key);
 	};
 	// The kernel copies key and value from and to the caller: a bad
 	// pointer is EFAULT, and nothing is removed. A null key crashed the
@@ -1922,7 +1927,8 @@ long bpf_map_handler::map_lookup_and_delete_elem(const void *key,
 	// (null is the striped hash's "no copy").
 	const bool keyed = type == bpf_map_type::BPF_MAP_TYPE_HASH ||
 			   type == bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH ||
-			   type == bpf_map_type::BPF_MAP_TYPE_LRU_HASH;
+			   type == bpf_map_type::BPF_MAP_TYPE_LRU_HASH ||
+			   type == bpf_map_type::BPF_MAP_TYPE_STACK_TRACE;
 	const bool popped = type == bpf_map_type::BPF_MAP_TYPE_QUEUE ||
 			    type == bpf_map_type::BPF_MAP_TYPE_STACK;
 	if ((keyed && key == nullptr) || ((keyed || popped) && value == nullptr)) {
@@ -1932,15 +1938,13 @@ long bpf_map_handler::map_lookup_and_delete_elem(const void *key,
 	switch (type) {
 	case bpf_map_type::BPF_MAP_TYPE_QUEUE:
 	case bpf_map_type::BPF_MAP_TYPE_STACK:
+		// map_pop_elem takes map_lock for queue and stack
+		// (should_lock = true).
 		return map_pop_elem(value, true);
 	case bpf_map_type::BPF_MAP_TYPE_HASH: {
 		auto impl = static_cast<hash_map_impl *>(map_impl_ptr.get());
-#ifdef BPFTIME_USE_VAR_HASH_MAP
-		return under_lock(impl);
-#else
 		// Locks its stripes itself.
 		return impl->lookup_and_delete_userspace(key, value);
-#endif
 	}
 	case bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH: {
 		auto impl = static_cast<per_cpu_hash_map_impl *>(
@@ -1951,8 +1955,11 @@ long bpf_map_handler::map_lookup_and_delete_elem(const void *key,
 		return impl->lookup_and_delete_userspace(key, value);
 	}
 	case bpf_map_type::BPF_MAP_TYPE_LRU_HASH:
-		return under_lock(
+		return do_lookup_and_delete(
 			static_cast<lru_var_hash_map_impl *>(map_impl_ptr.get()));
+	case bpf_map_type::BPF_MAP_TYPE_STACK_TRACE:
+		return do_lookup_and_delete(
+			static_cast<stack_trace_map_impl *>(map_impl_ptr.get()));
 	default:
 		// The kernel: ENOTSUPP (524, kernel-internal, not ENOTSUP) for
 		// the other map types.

@@ -230,7 +230,7 @@ its entry message is debug level (spdlog's default logger, before the stderr
 logger is set, wrote it to the host's stdout). Test: "The transformer leaves
 the host running when the agent is unusable".
 
-## Repository Documentation
+## Trap and RISC-V backend constraints
 
 Trap callbacks execute inside SIGTRAP. Runtime-managed BPF links must reject
 programs whose concrete helper implementations have not been audited as
@@ -245,8 +245,59 @@ three-phase write counter. Test late dlopen after worker threads already exist,
 and permission failures during arm, disarm and rollback. QEMU results do not
 establish native concurrent patch/restore behavior.
 
-Do not create a root `docs/` directory or commit pull-request review artifacts.
-Keep repository maintenance and design constraints in this file.
+## Repository Documentation
+
+Keep cross-cutting constraints in this file; keep detailed component design
+next to the code in that component's `README.md`
+(see `attach/trap_uprobe_attach_impl/README.md` for the established format,
+including its Host process contract section). Do not create a root `docs/`
+directory and do not commit pull-request review artifacts. The main README
+stays user-facing and does not host maintenance invariants.
+
+## Syscall Interception and Seccomp Layering
+
+Syscall interception has three independent layers. Keep them physically
+separate; do not merge mechanisms that intercept at different points.
+
+1. **`runtime/syscall-server/` - the fake kernel.** It owns the only
+   fd/mmap resource ledger and emulated syscall state. Anything it does not
+   emulate must fall through to the real syscall (`call_original()`). It does
+   not include any `attach/` header and must stay buildable without the agent.
+   When it needs seccomp, it implements its own small, self-contained seccomp
+   hook inside this directory; it must not reach into an attach implementation.
+2. **`attach/` - BPF event sources.** Each attach mechanism is a module under
+   `attach/` that is linked into `bpftime-agent` (see
+   `runtime/agent/CMakeLists.txt`); attach implementations are not standalone
+   shared objects. A seccomp-based attach mechanism lives in its own
+   `attach/seccomp_attach_impl/` module and is linked into the agent like every
+   other attach impl. It produces events for BPF programs and reaches the fake
+   kernel only through the `get_call_hook()` / dispatcher function-pointer seam,
+   never by linking `bpftime-syscall-server` directly.
+3. **`attach/text_segment_transformer/` - Frida/libc binary rewriting only.**
+   It exists solely because the Frida trampoline must run before the agent and
+   hijack `__libc_start_main`. Seccomp code does not belong here; do not add
+   seccomp filters, workers, or resource tables to this module.
+
+The two seccomp implementations are deliberately separate because they serve
+different masters: the syscall-server version intercepts to emulate resources
+without an agent; the attach version intercepts to feed BPF callbacks inside
+the agent. Do not unify them into one shared implementation.
+
+Cross-layer coupling is allowed only through the existing function-pointer
+seam (`get_call_hook`/`set_call_hook`). No new link dependency or `#include`
+may cross the syscall-server / attach boundary.
+
+## Change Size and Scope Discipline
+
+- Make the smallest change that satisfies the task. Prefer deleting dead or
+  duplicated code over adding new code.
+- Do not modify files unrelated to the change. A refactor that moves a module
+  must touch only that module, its build target, and the docs describing it;
+  leave neighboring modules, formatting, and unrelated call sites untouched.
+- Do not duplicate state or helpers that already exist in another layer. In
+  particular, never keep a second fd/mmap ledger outside `syscall-server`.
+- Before introducing a structure, enum, or register-layout type, check for an
+  existing shared definition and reuse it instead of declaring a parallel one.
 
 ## Ordinary Array JIT Specialization
 

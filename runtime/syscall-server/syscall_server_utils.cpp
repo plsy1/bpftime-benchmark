@@ -12,6 +12,15 @@
 #include "cuda.h"
 #endif
 #include "syscall_context.hpp"
+#include "synthetic_kallsyms.hpp"
+#if __linux__
+// Self-contained rootless tracepoint id synthesis. The syscall name->number
+// table is generated inside runtime/ (syscall_id_table target); the syscall
+// server must not include or link anything under attach/ to read it.
+#include "syscall_id_list.h"
+#include "platform_utils.hpp"
+#endif
+#include <cstdint>
 #include <atomic>
 #include <cerrno>
 #include <cstdlib>

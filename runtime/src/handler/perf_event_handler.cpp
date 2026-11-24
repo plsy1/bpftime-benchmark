@@ -111,13 +111,27 @@ uint64_t next_software_perf_event_generation()
 struct software_perf_event_shard_cache_entry {
 	uint64_t event_generation;
 	uint64_t buffer_generation;
+	// The shard's generation. With no shard (nullptr: the thread got
+	// none and writes to the overflow shard), the coarse monotonic time
+	// in ns at which it tries again for one of its own.
 	uint64_t shard_generation;
 	// nullptr: the thread got no shard; it writes to the overflow shard
-	// until retry_ns, then tries again.
+	// until the time in shard_generation, then tries again.
 	software_perf_event_shard *shard;
-	uint64_t fork_generation;
-	uint64_t retry_ns = 0;
+	const software_perf_event_data *owner;
 };
+
+// Six entries keep the per-thread initial-exec footprint at 240 bytes. A
+// larger table exhausted the static TLS surplus when this runtime is
+// dlopen()ed after startup: the Nginx attach example failed with
+// "cannot allocate memory in static TLS block". The cache stays
+// allocation-free; exceeding the capacity reuses the bounded eviction path.
+constexpr size_t max_software_perf_event_shard_cache_entries = 6;
+static_assert(
+	sizeof(software_perf_event_shard_cache_entry) *
+			max_software_perf_event_shard_cache_entries <=
+		256,
+	"initial-exec shard cache must fit the late-dlopen static TLS budget");
 
 // How long a thread that got no shard writes to the overflow shard before
 // trying to allocate one again.
@@ -126,15 +140,6 @@ constexpr uint64_t software_perf_event_shard_retry_ns = 10'000'000;
 // looks for dead threads' shards at once.
 constexpr uint64_t software_perf_event_full_reclaim_period_ns = 10'000'000;
 
-// Bumped in fork children (no allocation there): the forking thread's
-// entries name its parent's shards. A child usually has another pid, but
-// a pid 1 that forks after unshare(CLONE_NEWPID) has a pid 1 child: the
-// inherited entry matched, and both wrote one single-producer ring.
-uint64_t shard_cache_fork_generation = 0;
-const int shard_cache_atfork_status = register_fork_handlers(
-	nullptr, nullptr, [] { shard_cache_fork_generation++; });
-
-constexpr size_t max_software_perf_event_shard_cache_entries = 64;
 // Shards of dead threads are looked for at most this often per event (one
 // tgkill per idle shard). From 64 shards on, every drain and every new
 // producer swept them all: an idle tool with 493 shards made about a million
@@ -149,16 +154,72 @@ uint64_t coarse_monotonic_ns()
 	return (uint64_t)ts.tv_sec * 1'000'000'000 + (uint64_t)ts.tv_nsec;
 }
 
-thread_local std::unordered_map<const software_perf_event_data *,
-				software_perf_event_shard_cache_entry>
-	software_perf_event_shard_cache;
+// Output can be called while libc holds a malloc arena lock. Keep this cache
+// trivial: a TLS container's destructor registration itself calls calloc.
+static_assert(
+	std::is_trivially_destructible_v<
+		software_perf_event_shard_cache_entry>);
+thread_local software_perf_event_shard_cache_entry
+	software_perf_event_shard_cache[
+		max_software_perf_event_shard_cache_entries]
+#if defined(__linux__)
+	__attribute__((tls_model("initial-exec")))
+#endif
+	= {};
+thread_local size_t next_victim_slot
+#if defined(__linux__)
+	__attribute__((tls_model("initial-exec")))
+#endif
+	= 0;
 
+void cache_software_perf_event_shard(
+	software_perf_event_shard_cache_entry value)
+{
+	for (auto &entry : software_perf_event_shard_cache) {
+		if (entry.owner == nullptr || entry.owner == value.owner) {
+			entry = value;
+			return;
+		}
+	}
+	// Every slot holds a different owner. Replace one slot round-robin rather
+	// than clearing the table: with more live events than slots, clearing all
+	// of them evicts every entry on each miss and sends the whole rotation back
+	// to the shard lock.
+	software_perf_event_shard_cache[next_victim_slot++ %
+					 max_software_perf_event_shard_cache_entries] =
+		value;
+}
+
+// Cleared in fork children (a trivial array: no allocation there): the
+// forking thread's entries name its parent's shards. A child usually has
+// another pid, but a pid 1 that forks after unshare(CLONE_NEWPID) has a
+// pid 1 child: the inherited entry matched, and both wrote one
+// single-producer ring.
+void clear_software_perf_event_shard_cache()
+{
+	for (auto &entry : software_perf_event_shard_cache)
+		entry.owner = nullptr;
+	next_victim_slot = 0;
+}
+const int shard_cache_atfork_status = register_fork_handlers(
+	nullptr, nullptr, clear_software_perf_event_shard_cache);
 } // namespace
+
+#if defined(BPFTIME_UNIT_TESTING)
+size_t cached_software_perf_event_shard_count()
+{
+	size_t cached = 0;
+	for (const auto &entry : software_perf_event_shard_cache)
+		if (entry.owner != nullptr)
+			++cached;
+	return cached;
+}
+#endif
 
 void software_perf_event_fork_child_for_test()
 {
 	(void)shard_cache_atfork_status;
-	shard_cache_fork_generation++;
+	clear_software_perf_event_shard_cache();
 }
 
 bpf_perf_event_handler::bpf_perf_event_handler(
@@ -587,13 +648,13 @@ software_perf_event_shard *software_perf_event_data::get_current_thread_shard()
 		if (entry.owner != this)
 			continue;
 		if (entry.event_generation != event_generation ||
-		    entry.buffer_generation != current_buffer_generation ||
-		    entry.fork_generation != shard_cache_fork_generation) {
-			software_perf_event_shard_cache.erase(itr);
+		    entry.buffer_generation != current_buffer_generation) {
+			entry.owner = nullptr;
 		} else if (entry.shard == nullptr) {
-			if (coarse_monotonic_ns() < entry.retry_ns)
+			// shard_generation holds the retry time here.
+			if (coarse_monotonic_ns() < entry.shard_generation)
 				return nullptr; // the overflow shard
-			software_perf_event_shard_cache.erase(itr);
+			entry.owner = nullptr;
 		} else if (entry.shard->pid == pid && entry.shard->tid == tid &&
 			   entry.shard->generation == entry.shard_generation &&
 			   entry.shard->buffer_generation ==
@@ -619,9 +680,8 @@ software_perf_event_shard *software_perf_event_data::get_current_thread_shard()
 		    shard.buffer_generation == current_buffer_generation) {
 			cache_software_perf_event_shard({
 				event_generation, current_buffer_generation,
-				shard.generation, &shard,
-				shard_cache_fork_generation
-			};
+				shard.generation, &shard, this
+			});
 			return &shard;
 		}
 	}
@@ -662,31 +722,18 @@ software_perf_event_shard *software_perf_event_data::get_current_thread_shard()
 		// Shards of other pid namespaces, and of live threads, are
 		// never reclaimed here: the thread writes to the overflow
 		// shard for a while.
-		if (software_perf_event_shard_cache.size() >=
-		    max_software_perf_event_shard_cache_entries) {
-			software_perf_event_shard_cache.clear();
-		}
-		software_perf_event_shard_cache[this] = {
-			event_generation,
-			current_buffer_generation,
-			0,
-			nullptr,
-			shard_cache_fork_generation,
-			coarse_monotonic_ns() + software_perf_event_shard_retry_ns
-		};
+		cache_software_perf_event_shard({
+			event_generation, current_buffer_generation,
+			coarse_monotonic_ns() + software_perf_event_shard_retry_ns,
+			nullptr, this });
 		errno = ENOSPC;
 		return nullptr;
 	}
 	auto &shard = producer_shards.back();
 	shard.pid_namespace = pid_namespace;
-	if (software_perf_event_shard_cache.size() >=
-	    max_software_perf_event_shard_cache_entries) {
-		software_perf_event_shard_cache.clear();
-	}
-	software_perf_event_shard_cache[this] = { event_generation,
+	cache_software_perf_event_shard({ event_generation,
 						  current_buffer_generation,
-						  shard.generation, &shard,
-						  shard_cache_fork_generation };
+						  shard.generation, &shard, this });
 	return &shard;
 }
 

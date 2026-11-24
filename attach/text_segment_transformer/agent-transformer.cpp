@@ -14,7 +14,6 @@
 #include <optional>
 #include "text_segment_transformer.hpp"
 #include "agent_namespace.hpp"
-#include <spdlog/cfg/env.h>
 #include <string>
 #include <thread>
 
@@ -47,9 +46,6 @@ extern "C" int __libc_start_main(int (*main)(int, char **, char **), int argc,
 				 void *stack_end)
 {
 	injected_with_frida = false;
-	// Before bpftime_agent_main sets the stderr logger, spdlog's default
-	// logger writes to the host's stdout.
-	SPDLOG_DEBUG("Entering bpftime syscal transformer agent");
 	orig_main_func = main;
 	using this_func_t = decltype(&__libc_start_main);
 	this_func_t orig = (this_func_t)dlsym(RTLD_NEXT, "__libc_start_main");
@@ -83,13 +79,35 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 		return;
 	}
 	SPDLOG_DEBUG("Using agent {}", agent_so);
-	bpftime::setup_syscall_tracer();
+	// This transformer serves the in-process text-segment path only.
+	// BPFTIME_SKIP_TEXT_SEGMENT_TRACER is an explicit rootless opt-out: the
+	// unprivileged bundle captures syscalls through seccomp USER_NOTIF in the
+	// syscall-server and memory events through the agent frida uprobe, so no
+	// process needs the global text-segment syscall rewrite. That rewrite hangs
+	// in torch/CUDA init (futex deadlock, GPU stays at 0%). The classic
+	// in-process frida deployment leaves this unset and keeps the full rewrite.
+	const bool rewrite = getenv("BPFTIME_SKIP_TEXT_SEGMENT_TRACER") == nullptr;
+	// Rewrite before the agent is loaded: the agent's namespace (its own
+	// libc included) must not be rewritten. A tracer that cannot be
+	// installed leaves the host running untraced (fail open, #761).
+	if (!rewrite)
+		SPDLOG_INFO("Rootless opt-out: skipping text-segment syscall tracer");
+	else if (!bpftime::setup_syscall_tracer())
+		SPDLOG_ERROR("Syscall tracer not installed; system calls are not traced");
 	SPDLOG_DEBUG("Loading dynamic library..");
-	// The agent's namespace (its own libc included) must not be rewritten
-	// as code mapped later.
+	// BPFTIME_AGENT_USE_DLOPEN loads the agent into the main namespace
+	// (upstream #727): it shares the rewritten libc there, its fork
+	// handlers are registered with that libc already, and lazy mode has no
+	// separate namespace to allow.
+	const bool use_same_namespace =
+		getenv("BPFTIME_AGENT_USE_DLOPEN") != nullptr;
+	// Code mapped while the agent loads (its namespace) is not rewritten.
 	std::optional<bpftime::unhooked_scope> unhooked;
 	unhooked.emplace();
-	auto next_handle = bpftime::load_agent_in_new_namespace(agent_so);
+	auto next_handle =
+		use_same_namespace ?
+			dlopen(agent_so, RTLD_NOW | RTLD_LOCAL) :
+			bpftime::load_agent_in_new_namespace(agent_so);
 	if (next_handle == nullptr) {
 		// The code is already rewritten; the default hook passes every
 		// call through, so the process runs on untraced (host-process
@@ -99,45 +117,46 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 			     agent_so, error ? error : "unknown error");
 		return;
 	}
-	if (!bpftime::install_agent_fork_hook(next_handle))
+	if (!use_same_namespace && !bpftime::install_agent_fork_hook(next_handle))
 		SPDLOG_WARN(
 			"Agent has no bpftime_agent_fork_hook: its fork handlers will not run in fork children");
 	if (auto *epoch =
 		    (uint64_t *)dlsym(next_handle, "bpftime_identity_epoch"))
 		bpftime::set_identity_epoch(epoch);
-	// Set the flag `injected_with_frida` for agent
+	// Set the `injected_with_frida` flag when the agent exports it. The
+	// syscall-server does not, so a missing symbol only skips the assignment;
+	// returning here would also skip seccomp setup and break rootless tracing.
 	bool *injected_with_frida__agent =
 		(bool *)dlsym(next_handle, "injected_with_frida");
-	if (!injected_with_frida__agent) {
-		SPDLOG_WARN(
-			"Agent does not expose a symbol named injected_with_frida, so we can't let agent know whether it was loaded using frida");
-	} else {
+	if (injected_with_frida__agent)
 		*injected_with_frida__agent = injected_with_frida;
-	}
+	else
+		SPDLOG_WARN("Agent does not expose injected_with_frida");
 	auto entry_func = (void (*)(syscall_hooker_func_t *))dlsym(
 		next_handle, "_bpftime__setup_syscall_trace_callback");
 
+	syscall_hooker_func_t orig_syscall_hooker_func =
+		bpftime::get_call_hook();
 	if (entry_func) {
-		syscall_hooker_func_t orig_syscall_hooker_func =
-			bpftime::get_call_hook();
 		entry_func(&orig_syscall_hooker_func);
-		bpftime::set_call_hook(orig_syscall_hooker_func);
 	} else if (auto dispatcher = (syscall_hooker_func_t)dlsym(
 			   next_handle,
 			   "bpftime_syscall_server__dispatch_raw_syscall");
 		   dispatcher) {
-		bpftime::set_call_hook(dispatcher);
+		orig_syscall_hooker_func = dispatcher;
 	} else {
 		SPDLOG_CRITICAL(
 			"Malformed agent so: no syscall callback entry point");
 		return;
 	}
-	syscall_hooker_func_t orig_syscall_hooker_func =
-		bpftime::get_call_hook();
-	entry_func(&orig_syscall_hooker_func);
-	if (bpftime::lazy_rewriting_requested())
-		bpftime::enable_lazy_rewriting(
-			bpftime::namespace_code_ranges(next_handle));
+	if (rewrite && bpftime::lazy_rewriting_requested()) {
+		if (use_same_namespace)
+			SPDLOG_WARN(
+				"BPFTIME_SYSCALL_LAZY needs the agent in its own namespace; not enabled with BPFTIME_AGENT_USE_DLOPEN");
+		else
+			bpftime::enable_lazy_rewriting(
+				bpftime::namespace_code_ranges(next_handle));
+	}
 	unhooked.reset();
 	bpftime::set_call_hook(orig_syscall_hooker_func);
 	SPDLOG_DEBUG("Transformer exiting, syscall trace is usable now");

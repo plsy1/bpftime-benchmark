@@ -455,7 +455,11 @@ void *frida_attach_impl::call_attach_specific_function(const std::string& name,
 			cpu_context = invocation->cpu_context;
 		}
 		if (cpu_context == nullptr) {
-			BPFTIME_LOG_ERROR_RATELIMITED("There is no frida hook running");
+			// The caller may run outside a Frida hook: a syscall-trace
+			// or tracepoint program gets a synthesized pt_regs and has
+			// no Gum invocation to unwind. No frames is a normal
+			// result for bpf_get_stack, not an error.
+			SPDLOG_DEBUG("There is no frida hook running");
 			return nullptr;
 		}
 		SPDLOG_DEBUG("Getting stack trace...");

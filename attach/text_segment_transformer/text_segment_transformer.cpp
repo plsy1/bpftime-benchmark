@@ -91,9 +91,13 @@ static __thread bool in_hook __attribute__((tls_model("initial-exec")));
 
 // The system call itself, as the hook makes it: outside the guard, so that the
 // system calls of a signal handler interrupting a blocking call are traced.
+// The application's ip, sp and frame pointer at the site (user_ip, user_sp,
+// user_bp; x86-64 only, 0 on aarch64) are for the agent's pt_regs and are not
+// needed to make the call.
 static int64_t call_unguarded_syscall(int64_t sys_nr, int64_t arg1,
 				      int64_t arg2, int64_t arg3, int64_t arg4,
-				      int64_t arg5, int64_t arg6)
+				      int64_t arg5, int64_t arg6, int64_t,
+				      int64_t, int64_t)
 {
 	in_hook = false;
 	int64_t ret =
@@ -103,6 +107,22 @@ static int64_t call_unguarded_syscall(int64_t sys_nr, int64_t arg1,
 }
 
 static syscall_hooker_func_t call_hook = &call_unguarded_syscall;
+
+#if defined(__x86_64__)
+// Rootless trampoline (#727): when page zero cannot be mapped
+// (vm.mmap_min_addr), sites of memory system calls with a constant number
+// call a slot of a low mapping instead.
+static const size_t LOW_TRAMPOLINE_SLOT_SIZE = 16;
+static uintptr_t low_trampoline_begin;
+static uintptr_t low_trampoline_end;
+static bool use_low_trampoline;
+// The vfork child shares the parent's stack: the asm keeps the return address
+// here instead (upstream's x86 dispatch-active flag is replaced by in_hook).
+extern "C" {
+// Read only by the asm: `used`, or LTO drops it.
+__attribute__((used)) thread_local uintptr_t bpftime_vfork_return_ip = 0;
+}
+#endif
 
 // The agent's bpftime_identity_epoch (runtime producer_identity.cpp), or null.
 static uint64_t *identity_epoch;
@@ -222,6 +242,13 @@ __asm__(".pushsection .data\n\t"
 		"je handle_clone\n\t"
 		"cmp $435, %rax\n\t" // SYS_clone3
 		"je handle_clone3\n\t"
+		// fork and vfork also return in two processes. In particular, the
+		// vfork child shares the parent's stack until exec or _exit, so it
+		// must never run through the C++ dispatcher on that stack.
+		"cmp $57, %rax\n\t" // SYS_fork
+		"je syscall_addr\n\t"
+		"cmp $58, %rax\n\t" // SYS_vfork
+		"je handle_vfork\n\t"
 		// The kernel changes only rax, rcx and r11 across `syscall`;
 		// code after an inline system call keeps using the argument
 		// registers and vector registers (glibc's __libc_sigaction
@@ -256,17 +283,27 @@ __asm__(".pushsection .data\n\t"
 		"movl $" BPFTIME_XSAVE_MASK_STR ", %eax\n\t"
 		"xorl %edx, %edx\n\t"
 		"xsave (%rsp)\n\t"
-		// syscall_hooker_cxx(nr, arg1, ..., arg6), arg6 on the stack
+		// syscall_hooker_cxx(nr, arg1, ..., arg6, user_ip, user_sp,
+		// user_bp): arg6 and the application's state at the site on the
+		// stack, for the agent's pt_regs. The frame starts 128 bytes
+		// below the hook's entry sp (120 + the saved rbp), where the
+		// rewritten `call *%rax` stored the return address: user_ip at
+		// 128(%rbp), the application's sp before that call at rbp + 136,
+		// its rbp saved at 0(%rbp). Four 8-byte pushes keep the 16-byte
+		// alignment of the XSAVE area at the call.
 		"movq -8(%rbp), %rdi\n\t"
 		"movq -16(%rbp), %rsi\n\t"
 		"movq -24(%rbp), %rdx\n\t"
 		"movq -32(%rbp), %rcx\n\t"
 		"movq -40(%rbp), %r8\n\t"
 		"movq -48(%rbp), %r9\n\t"
-		"subq $8, %rsp\n\t" // 16-byte alignment at the call
-		"pushq -56(%rbp)\n\t"
+		"pushq 0(%rbp)\n\t" // user_bp (argument 10)
+		"leaq 136(%rbp), %r11\n\t"
+		"pushq %r11\n\t" // user_sp (argument 9)
+		"pushq 128(%rbp)\n\t" // user_ip (argument 8)
+		"pushq -56(%rbp)\n\t" // arg6 (argument 7)
 		"call syscall_hooker_cxx\n\t"
-		"addq $16, %rsp\n\t"
+		"addq $32, %rsp\n\t"
 		"movq %rax, %r11\n\t" // the result; `syscall` clobbers r11
 		"movl $" BPFTIME_XSAVE_MASK_STR ", %eax\n\t"
 		"xorl %edx, %edx\n\t"
@@ -343,7 +380,7 @@ __asm__(".pushsection .data\n\t"
 		"movq %r11, (%rcx)\n\t"
 		"subq $8, 48(%rdi)\n\t" // the kernel starts the child one
 					 // slot lower, on the seeded address
-		"jmp handle_sigreturn\n\t"
+		"jmp syscall_addr\n\t"
 	".popsection\n\t");
 #elif defined(__aarch64__)
 /*
@@ -717,7 +754,8 @@ __asm__(".pushsection .text\n\t"
 // stack canary): +43 instructions per call.
 __attribute__((noinline, cold)) static int64_t
 hook_special_call(int64_t sys_nr, int64_t arg1, int64_t arg2, int64_t arg3,
-		  int64_t arg4, int64_t arg5, int64_t arg6)
+		  int64_t arg4, int64_t arg5, int64_t arg6, int64_t user_ip,
+		  int64_t user_sp, int64_t user_bp)
 {
 	in_hook = true;
 	uint64_t scratch[4];
@@ -728,7 +766,8 @@ hook_special_call(int64_t sys_nr, int64_t arg1, int64_t arg2, int64_t arg3,
 		retire_hook_stack();
 	if (!bpftime::before_hooked_syscall(sys_nr, arg1, arg2, arg3, scratch,
 					    ret))
-		ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
+		ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6,
+				user_ip, user_sp, user_bp);
 	bpftime::after_hooked_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5, ret);
 	if (sys_nr == SYS_sigaltstack && ret == 0 && arg1 != 0)
 		note_sigaltstack(((const stack_t *)arg1)->ss_flags);
@@ -915,11 +954,23 @@ static void retire_hook_stack()
 }
 #endif
 
-// Called only from the assembly hook: keep it through LTO.
-extern "C" __attribute__((used)) int64_t syscall_hooker_cxx(int64_t sys_nr, int64_t arg1,
-				      int64_t arg2, int64_t arg3, int64_t arg4,
-				      int64_t arg5, int64_t arg6)
+// Called only from the assembly hook, which LTO cannot see: without `used` it
+// is dropped as unreferenced and the hook's call becomes an undefined
+// reference (issue #83). The x86-64 hook also passes the application's ip, sp
+// and frame pointer at the site (for the agent's pt_regs); the aarch64 hook
+// does not, and they are 0 there.
+extern "C" __attribute__((used)) int64_t
+syscall_hooker_cxx(int64_t sys_nr, int64_t arg1, int64_t arg2, int64_t arg3,
+		   int64_t arg4, int64_t arg5, int64_t arg6
+#if defined(__x86_64__)
+		   ,
+		   int64_t user_ip, int64_t user_sp, int64_t user_bp
+#endif
+)
 {
+#if !defined(__x86_64__)
+	const int64_t user_ip = 0, user_sp = 0, user_bp = 0;
+#endif
 	if (__builtin_expect(in_hook, 0)) {
 		const int64_t ret = orig_syscall_direct(sys_nr, arg1, arg2,
 							arg3, arg4, arg5, arg6);
@@ -933,9 +984,10 @@ extern "C" __attribute__((used)) int64_t syscall_hooker_cxx(int64_t sys_nr, int6
 	ensure_hook_stack();
 	if (__builtin_expect(is_special_call(sys_nr), 0))
 		return hook_special_call(sys_nr, arg1, arg2, arg3, arg4, arg5,
-					 arg6);
+					 arg6, user_ip, user_sp, user_bp);
 	in_hook = true;
-	int64_t ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
+	int64_t ret = call_hook(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6,
+				user_ip, user_sp, user_bp);
 	in_hook = false;
 	return ret;
 }
@@ -956,7 +1008,68 @@ static bool bpftime::before_hooked_syscall(int64_t, int64_t &, int64_t &,
 #endif
 
 #if defined(__x86_64__)
-static inline void rewrite_segment(uint8_t *code, size_t len, int perm)
+static bool is_memory_syscall(int64_t sysno)
+{
+	return sysno == __NR_mmap || sysno == __NR_munmap ||
+	       sysno == __NR_mremap || sysno == __NR_brk;
+}
+
+static bool is_accumulator_register(unsigned reg)
+{
+	return reg == X86_REG_RAX || reg == X86_REG_EAX || reg == X86_REG_AX ||
+	       reg == X86_REG_AL || reg == X86_REG_AH;
+}
+
+static bool setup_low_syscall_trampoline()
+{
+	constexpr size_t slots_size = NR_syscalls * LOW_TRAMPOLINE_SLOT_SIZE;
+	constexpr size_t mapping_size = (slots_size + 12 + 0xfff) & ~0xfff;
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+	void *mapping = MAP_FAILED;
+	for (uintptr_t address = 0x10000; address < 0x10000000;
+	     address += 0x10000) {
+		mapping = mmap((void *)address, mapping_size,
+			       PROT_READ | PROT_WRITE,
+			       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE,
+			       -1, 0);
+		if (mapping != MAP_FAILED)
+			break;
+	}
+	if (mapping == MAP_FAILED)
+		return false;
+
+	auto *base = static_cast<uint8_t *>(mapping);
+	auto *common = base + slots_size;
+	for (int sysno = 0; sysno < NR_syscalls; ++sysno) {
+		auto *slot = base + sysno * LOW_TRAMPOLINE_SLOT_SIZE;
+		memset(slot, 0x90, LOW_TRAMPOLINE_SLOT_SIZE);
+		slot[0] = 0xb8; // mov $sysno, %eax
+		memcpy(slot + 1, &sysno, sizeof(uint32_t));
+		slot[5] = 0x50; // push %rax
+		slot[6] = 0xe9; // jmp common
+		int32_t relative = (int32_t)(common - (slot + 11));
+		memcpy(slot + 7, &relative, sizeof(relative));
+	}
+	common[0] = 0x48;
+	common[1] = 0xb8; // movabs $syscall_hooker_asm, %rax
+	uintptr_t handler = (uintptr_t)syscall_hooker_asm;
+	memcpy(common + 2, &handler, sizeof(handler));
+	common[10] = 0xff;
+	common[11] = 0xe0; // jmp *%rax
+	if (mprotect(mapping, mapping_size, PROT_READ | PROT_EXEC) != 0) {
+		int saved_errno = errno;
+		munmap(mapping, mapping_size);
+		errno = saved_errno;
+		return false;
+	}
+	low_trampoline_begin = (uintptr_t)mapping;
+	low_trampoline_end = low_trampoline_begin + mapping_size;
+	return true;
+}
+
+static inline bool rewrite_segment(uint8_t *code, size_t len, int perm)
 {
 	// Set the pages to be writable
 	if (int err = mprotect(code, len, PROT_READ | PROT_WRITE | PROT_EXEC);
@@ -1138,7 +1251,7 @@ static uint64_t xsave_area_size()
 	return (end + 63) & ~(uint64_t)63;
 }
 
-void setup_syscall_tracer()
+bool setup_syscall_tracer()
 {
 	// frida-gum's capstone opens only registered architectures; the
 	// rewriting below needs x86 (registering again is harmless).
@@ -1147,7 +1260,7 @@ void setup_syscall_tracer()
 	if (bpftime_xsave_area_size == 0) {
 		SPDLOG_ERROR(
 			"No OS-enabled XSAVE: the system call hook could not preserve vector registers; not rewriting");
-		return;
+		return false;
 	}
 	// Setup page mappings
 
@@ -2644,7 +2757,7 @@ lazy_rewrite_stats get_lazy_rewrite_stats()
 		 lazy_shared_skipped.load(), lazy_execs_refused_total.load() };
 }
 
-void setup_syscall_tracer()
+bool setup_syscall_tracer()
 {
 	// The rewriting's own system calls go through libc while its sites
 	// are being rewritten: keep them out of the hook and of rescans.
@@ -2680,6 +2793,7 @@ void setup_syscall_tracer()
 		SPDLOG_INFO(
 			"Skipped {} executable mappings without ELF sections (BPFTIME_SYSCALL_REWRITE_ANON=1 scans them word by word)",
 			skipped_maps);
+	return true;
 }
 #endif
 

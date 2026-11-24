@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 #include "bpf_attach_ctx.hpp"
+#include "base_attach_impl.hpp"
 #include "bpftime_ratelimited_log.hpp"
 #include "fork_handlers.hpp"
 #if BPFTIME_HAVE_TRAP_UPROBE_ATTACH
@@ -22,6 +23,7 @@
 #include <pthread.h>
 #elif __linux__
 #include <pthread.h>
+#include <fcntl.h>
 #include <sched.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
@@ -144,7 +146,12 @@ extern "C" {
 	(defined(ENABLE_PROBE_READ_CHECK) || defined(ENABLE_PROBE_WRITE_CHECK))
 static pid_t probe_access_pid = getpid();
 static const int probe_access_atfork_status = bpftime::register_fork_handlers(
-	nullptr, nullptr, [] { probe_access_pid = getpid(); });
+	nullptr, nullptr, [] {
+		probe_access_pid = getpid();
+#if defined(ENABLE_PROBE_READ_CHECK) && __linux__
+		probe_read_ahead_invalidate();
+#endif
+	});
 #endif
 
 uint64_t bpftime_override_return(uint64_t ctx, uint64_t value);
@@ -203,8 +210,7 @@ uint64_t bpftime_trace_printk(uint64_t fmt, uint64_t fmt_size, ...)
 	va_list args;
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
-#pragma GCC diagnostic ignored "-Wvarargs"
-	va_start(args, fmt_str);
+	va_start(args, fmt_size);
 	int len = vsnprintf(buf, sizeof(buf), fmt_str, args);
 #pragma GCC diagnostic pop
 	va_end(args);
@@ -306,9 +312,8 @@ static bool probe_read_memory(void *dst, const void *src, size_t size)
 	}
 	struct iovec local = { dst, size };
 	struct iovec remote = { const_cast<void *>(src), size };
-	if (syscall(SYS_process_vm_readv,
-		    probe_access_atfork_status == 0 ? probe_access_pid : getpid(),
-		    &local, 1, &remote, 1, 0) == (ssize_t)size)
+	if (syscall(SYS_process_vm_readv, pid, &local, 1, &remote, 1, 0) ==
+	    (ssize_t)size)
 		return true;
 	// A seccomp filter may deny the call (EPERM, ENOSYS): then every probe
 	// read fails with -EFAULT, and the application goes on.
@@ -425,6 +430,63 @@ uint64_t bpftime_ktime_get_boot_ns(uint64_t, uint64_t, uint64_t, uint64_t,
 	return spec.tv_sec * (uint64_t)1000000000 + spec.tv_nsec;
 }
 
+#if __linux__
+static int get_host_nspid(const char *procfs, const char *entry, int fallback)
+{
+	if (procfs == nullptr || procfs[0] == '\0')
+		return fallback;
+	char path[PATH_MAX];
+	int length = snprintf(path, sizeof(path), "%s/%s/status", procfs, entry);
+	if (length < 0 || static_cast<size_t>(length) >= sizeof(path))
+		return fallback;
+	FILE *file = fopen(path, "re");
+	if (file == nullptr)
+		return fallback;
+	char *line = nullptr;
+	size_t capacity = 0;
+	int result = fallback;
+	// The Groups line can be arbitrarily long and precedes NSpid in procfs.
+	// getline also avoids accepting a PID truncated at a read boundary.
+	while (getline(&line, &capacity, file) >= 0) {
+		if (strncmp(line, "NSpid:", 6) != 0)
+			continue;
+		char *end = nullptr;
+		errno = 0;
+		long value = strtol(line + 6, &end, 10);
+		if (errno == 0 && end != line + 6 && value > 0 &&
+		    value <= INT32_MAX && (*end == ' ' || *end == '\t' ||
+					  *end == '\n' || *end == '\0'))
+			result = static_cast<int>(value);
+		break;
+	}
+	free(line);
+	fclose(file);
+	return result;
+}
+namespace
+{
+// BPFTIME_HOST_PROCFS names a host procfs mounted inside a PID namespace;
+// the helper then reports the host's ids (NSpid), as bpf does. Whether it is
+// set is read once per process, again in fork children: -1 unknown, 0 unset,
+// 1 set. Unset, the helper returns the cached ids with no TLS access.
+std::atomic<int> host_procfs_state{ -1 };
+// This thread's translated ids, for the (pid, tid) they were read for: a
+// fork child, a new thread or a vfork-like child reads them again.
+struct host_identity {
+	int pid;
+	int64_t tid;
+	uint64_t value;
+};
+thread_local host_identity host_identity_cache = { -1, -1, 0 };
+const int host_procfs_atfork_status = bpftime::register_fork_handlers(
+	nullptr, nullptr, [] {
+		host_procfs_state.store(-1, std::memory_order_relaxed);
+		// pid 1 after unshare(CLONE_NEWPID) has its parent's ids.
+		host_identity_cache = { -1, -1, 0 };
+	});
+} // namespace
+#endif
+
 // The identity is cached (producer_identity.cpp): per thread, cleared in fork
 // children, checked again after a vfork-like clone.
 static const int bpftime_credential_atfork_status =
@@ -440,7 +502,198 @@ uint64_t bpftime_get_current_pid_tgid(uint64_t, uint64_t, uint64_t, uint64_t,
 #if __APPLE__
 	return ((uint64_t)pid << 32) | (uint64_t)tid;
 #else
-	return ((uint64_t)pid << 32) | static_cast<uint32_t>(tid);
+	int state = host_procfs_state.load(std::memory_order_relaxed);
+	if (__builtin_expect(state == 0, 1))
+		return ((uint64_t)pid << 32) | static_cast<uint32_t>(tid);
+	if (state < 0) {
+		const char *procfs = getenv("BPFTIME_HOST_PROCFS");
+		state = procfs != nullptr && procfs[0] != '\0' ? 1 : 0;
+		host_procfs_state.store(state, std::memory_order_relaxed);
+		if (state == 0)
+			return ((uint64_t)pid << 32) |
+			       static_cast<uint32_t>(tid);
+	}
+	host_identity &host = host_identity_cache;
+	if (host.pid != pid || host.tid != tid) {
+		const char *procfs = getenv("BPFTIME_HOST_PROCFS");
+		host.value =
+			(uint64_t(get_host_nspid(procfs, "self", pid)) << 32) |
+			uint32_t(get_host_nspid(procfs, "thread-self",
+						static_cast<int>(tid)));
+		host.pid = pid;
+		host.tid = tid;
+	}
+	return host.value;
+#endif
+}
+
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__)) && \
+	defined(BPFTIME_BUILD_WITH_LIBBPF)
+// Byte offset of member `name` in struct/union `type_id`, looking through
+// anonymous members. On success *member_type is the member's resolved type.
+// Read the BTF UAPI fields directly instead of libbpf's static inline
+// accessors in bpf/btf.h: those calls make GCC record the ExternalProject
+// build-tree header (build/libbpf/bpf/btf.h) in this TU's gcno, while the
+// integrated-test jobs only receive the gcno/gcda artifacts; lcov 2.x then
+// aborts coverage capture because the header is absent there.
+static long btf_member_offset(const struct btf *btf, int type_id,
+			      const char *name, int *member_type)
+{
+	const struct btf_type *type = btf__type_by_id(btf, type_id);
+	if (type == nullptr ||
+	    (BTF_INFO_KIND(type->info) != BTF_KIND_STRUCT &&
+	     BTF_INFO_KIND(type->info) != BTF_KIND_UNION))
+		return -1;
+	const struct btf_member *member =
+		(const struct btf_member *)(type + 1);
+	const uint32_t member_count = BTF_INFO_VLEN(type->info);
+	for (uint32_t i = 0; i < member_count; i++, member++) {
+		const uint32_t bit_offset =
+			BTF_INFO_KFLAG(type->info) ?
+				BTF_MEMBER_BIT_OFFSET(member->offset) :
+				member->offset;
+		const long offset = (long)(bit_offset / 8);
+		const int resolved = btf__resolve_type(btf, member->type);
+		const char *member_name =
+			btf__name_by_offset(btf, member->name_off);
+		if (member_name != nullptr && member_name[0] != '\0') {
+			if (strcmp(member_name, name) != 0)
+				continue;
+			*member_type = resolved;
+			return offset;
+		}
+		const long inner =
+			btf_member_offset(btf, resolved, name, member_type);
+		if (inner >= 0)
+			return offset + inner;
+	}
+	return -1;
+}
+#endif
+
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
+// Kernel BTF may hold several task_struct structs (empty forwards on 5.4
+// kernels), so scan every non-empty candidate instead of a name lookup.
+static const std::pair<size_t, long> &resolve_task_layout()
+{
+	static const std::pair<size_t, long> layout = []() {
+		std::pair<size_t, long> result{ 64 * 1024, -1 };
+#ifdef BPFTIME_BUILD_WITH_LIBBPF
+		struct btf *btf = btf__parse_raw("/sys/kernel/btf/vmlinux");
+		if (btf != nullptr && libbpf_get_error(btf) == 0) {
+#if defined(__x86_64__)
+			const char *path[] = { "thread", "fsbase" };
+#else
+			const char *path[] = { "thread", "uw", "tp_value" };
+#endif
+			for (__u32 id = 1; id < btf__type_cnt(btf); id++) {
+				const struct btf_type *type =
+					btf__type_by_id(btf, id);
+				if (type == nullptr ||
+				    BTF_INFO_KIND(type->info) !=
+					    BTF_KIND_STRUCT ||
+				    BTF_INFO_VLEN(type->info) == 0)
+					continue;
+				const char *name =
+					btf__name_by_offset(btf, type->name_off);
+				if (name == nullptr ||
+				    strcmp(name, "task_struct") != 0)
+					continue;
+				int64_t size = btf__resolve_size(btf, (int)id);
+				if (size >= (int64_t)sizeof(void *))
+					result.first = (size_t)size;
+				long offset = 0;
+				int type_id = (int)id;
+				for (const char *member : path) {
+					long m = btf_member_offset(
+						btf, type_id, member,
+						&type_id);
+					if (m < 0) {
+						offset = -1;
+						break;
+					}
+					offset += m;
+				}
+				result.second = offset;
+				if (offset >= 0)
+					break;
+			}
+			btf__free(btf);
+		}
+#endif
+		return result;
+	}();
+	return layout;
+}
+
+long bpftime_get_current_task_tpbase_offset() noexcept
+{
+	long offset = resolve_task_layout().second;
+	if (offset >= 0)
+		return offset;
+#if defined(__x86_64__)
+	return 0x14d0;
+#else
+	return 0x8c0;
+#endif
+}
+#endif
+
+uint64_t bpftime_get_current_task(uint64_t, uint64_t, uint64_t, uint64_t,
+				  uint64_t)
+{
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
+	// Keep the per-thread task storage on the heap through a pthread key
+	// instead of a thread_local buffer. This library can be linked into a
+	// dlopen'ed module that carries initial-exec TLS; a multi-KB thread_local
+	// would land in its static TLS block and exhaust the limited static TLS
+	// surplus ("cannot allocate memory in static TLS block").
+	// Size and thread-pointer slot of the synthetic task_struct, from kernel
+	// BTF when available so programs that read the TLS base through
+	// task_struct (thread.fsbase / thread.uw.tp_value) see the real value.
+	static const auto &task_layout = resolve_task_layout();
+	static const size_t task_storage_size = task_layout.first;
+	static pthread_key_t task_key;
+	static const int task_key_status = pthread_key_create(&task_key, free);
+	if (task_key_status != 0)
+		return 0;
+	uint8_t *task = static_cast<uint8_t *>(pthread_getspecific(task_key));
+	if (task == nullptr) {
+		void *raw = nullptr;
+		if (posix_memalign(&raw, 64, task_storage_size) != 0)
+			return 0;
+		task = static_cast<uint8_t *>(raw);
+		memset(task, 0, task_storage_size);
+		if (pthread_setspecific(task_key, task) != 0) {
+			free(task);
+			return 0;
+		}
+	}
+	static const size_t tpbase_offset = [] {
+		const char *text =
+			getenv("BPFTIME_SYSTEM_ANALYSIS_TPBASE_OFFSET");
+		if (text != nullptr) {
+			char *end = nullptr;
+			errno = 0;
+			unsigned long value = strtoul(text, &end, 0);
+			if (errno == 0 && end != text && *end == '\0' &&
+			    value <= task_storage_size - sizeof(void *))
+				return (size_t)value;
+		}
+		long resolved = bpftime_get_current_task_tpbase_offset();
+		return (size_t)resolved <=
+				       task_storage_size - sizeof(void *) ?
+			       (size_t)resolved :
+			       SIZE_MAX;
+	}();
+	if (tpbase_offset != SIZE_MAX) {
+		void *thread_pointer = __builtin_thread_pointer();
+		memcpy(task + tpbase_offset, &thread_pointer,
+		       sizeof(thread_pointer));
+	}
+	return (uint64_t)(uintptr_t)task;
+#else
+	return 0;
 #endif
 }
 
@@ -749,19 +1002,19 @@ uint64_t bpftime_array_map_update_elem_helper(
 	if (manager == nullptr || fd < 0 ||
 	    static_cast<std::size_t>(fd) >= manager->size()) {
 		errno = ENOENT;
-		return static_cast<uint64_t>(-1);
+		return static_cast<uint64_t>(-ENOENT);
 	}
 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
 		&manager->get_handler_at_valid_fd(fd));
 	if (handler == nullptr) {
 		errno = ENOENT;
-		return static_cast<uint64_t>(-1);
+		return static_cast<uint64_t>(-ENOENT);
 	}
 	if (handler->type != bpftime::bpf_map_type::BPF_MAP_TYPE_ARRAY)
-		return static_cast<uint64_t>(handler->map_update_elem(
+		return kernel_map_helper_result(handler->map_update_elem(
 			reinterpret_cast<void *>(key),
 			reinterpret_cast<void *>(value), flags, false));
-	return static_cast<uint64_t>(handler->map_update_array(
+	return kernel_map_helper_result(handler->map_update_array(
 		reinterpret_cast<void *>(key), reinterpret_cast<void *>(value),
 		flags));
 }
@@ -801,20 +1054,20 @@ uint64_t bpftime_percpu_array_map_update_elem_helper(
 	if (manager == nullptr || fd < 0 ||
 	    static_cast<std::size_t>(fd) >= manager->size()) {
 		errno = ENOENT;
-		return static_cast<uint64_t>(-1);
+		return static_cast<uint64_t>(-ENOENT);
 	}
 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
 		&manager->get_handler_at_valid_fd(fd));
 	if (handler == nullptr) {
 		errno = ENOENT;
-		return static_cast<uint64_t>(-1);
+		return static_cast<uint64_t>(-ENOENT);
 	}
 	if (handler->type !=
 	    bpftime::bpf_map_type::BPF_MAP_TYPE_PERCPU_ARRAY)
-		return static_cast<uint64_t>(handler->map_update_elem(
+		return kernel_map_helper_result(handler->map_update_elem(
 			reinterpret_cast<void *>(key),
 			reinterpret_cast<void *>(value), flags, false));
-	return static_cast<uint64_t>(handler->map_update_percpu_array(
+	return kernel_map_helper_result(handler->map_update_percpu_array(
 		reinterpret_cast<void *>(key), reinterpret_cast<void *>(value),
 		flags));
 }
@@ -828,19 +1081,19 @@ uint64_t bpftime_hash_map_update_elem_helper(
 	if (manager == nullptr || fd < 0 ||
 	    static_cast<std::size_t>(fd) >= manager->size()) {
 		errno = ENOENT;
-		return static_cast<uint64_t>(-1);
+		return static_cast<uint64_t>(-ENOENT);
 	}
 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
 		&manager->get_handler_at_valid_fd(fd));
 	if (handler == nullptr) {
 		errno = ENOENT;
-		return static_cast<uint64_t>(-1);
+		return static_cast<uint64_t>(-ENOENT);
 	}
 	if (handler->type != bpftime::bpf_map_type::BPF_MAP_TYPE_HASH)
-		return static_cast<uint64_t>(handler->map_update_elem(
+		return kernel_map_helper_result(handler->map_update_elem(
 			reinterpret_cast<void *>(key),
 			reinterpret_cast<void *>(value), flags, false));
-	return static_cast<uint64_t>(handler->map_update_hash(
+	return kernel_map_helper_result(handler->map_update_hash(
 		reinterpret_cast<void *>(key), reinterpret_cast<void *>(value),
 		flags));
 }
@@ -854,18 +1107,18 @@ uint64_t bpftime_hash_map_delete_elem_helper(
 	if (manager == nullptr || fd < 0 ||
 	    static_cast<std::size_t>(fd) >= manager->size()) {
 		errno = ENOENT;
-		return static_cast<uint64_t>(-1);
+		return static_cast<uint64_t>(-ENOENT);
 	}
 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
 		&manager->get_handler_at_valid_fd(fd));
 	if (handler == nullptr) {
 		errno = ENOENT;
-		return static_cast<uint64_t>(-1);
+		return static_cast<uint64_t>(-ENOENT);
 	}
 	if (handler->type != bpftime::bpf_map_type::BPF_MAP_TYPE_HASH)
-		return static_cast<uint64_t>(handler->map_delete_elem(
+		return kernel_map_helper_result(handler->map_delete_elem(
 			reinterpret_cast<void *>(key), false));
-	return static_cast<uint64_t>(
+	return kernel_map_helper_result(
 		handler->map_delete_hash(reinterpret_cast<void *>(key)));
 }
 
@@ -878,20 +1131,20 @@ uint64_t bpftime_percpu_hash_map_update_elem_helper(
 	if (manager == nullptr || fd < 0 ||
 	    static_cast<std::size_t>(fd) >= manager->size()) {
 		errno = ENOENT;
-		return static_cast<uint64_t>(-1);
+		return static_cast<uint64_t>(-ENOENT);
 	}
 	const auto *handler = std::get_if<bpftime::bpf_map_handler>(
 		&manager->get_handler_at_valid_fd(fd));
 	if (handler == nullptr) {
 		errno = ENOENT;
-		return static_cast<uint64_t>(-1);
+		return static_cast<uint64_t>(-ENOENT);
 	}
 	if (handler->type !=
 	    bpftime::bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH)
-		return static_cast<uint64_t>(handler->map_update_elem(
+		return kernel_map_helper_result(handler->map_update_elem(
 			reinterpret_cast<void *>(key),
 			reinterpret_cast<void *>(value), flags, false));
-	return static_cast<uint64_t>(handler->map_update_percpu_hash(
+	return kernel_map_helper_result(handler->map_update_percpu_hash(
 		reinterpret_cast<void *>(key), reinterpret_cast<void *>(value),
 		flags));
 }
@@ -1019,11 +1272,8 @@ uint64_t bpf_ringbuf_output(uint64_t rb, uint64_t data, uint64_t size,
 			    uint64_t flags, uint64_t)
 {
 	int fd = (int)rb;
-	if (flags & ~(uint64_t)(BPF_RB_NO_WAKEUP | BPF_RB_FORCE_WAKEUP)) {
-		BPFTIME_LOG_WARN_RATELIMITED(
-			"ringbuf_output: flags {:#x} other than the wakeup flags are ignored",
-			flags);
-	}
+	if (flags & ~(uint64_t)(BPF_RB_NO_WAKEUP | BPF_RB_FORCE_WAKEUP))
+		return (uint64_t)-EINVAL;
 	auto buf = bpftime_ringbuf_reserve(fd, size);
 	if (!buf) {
 		BPFTIME_LOG_ERROR_RATELIMITED("Failed to reserve when executing ringbuf output");
@@ -1082,12 +1332,14 @@ uint64_t bpf_perf_event_output(uint64_t ctx, uint64_t map, uint64_t flags,
 			"Unable to get current cpu when running perf event output");
 		return (uint64_t)-1;
 	}
-	// current_cpu is only a snapshot used as the per-CPU map lookup key,
-	// and ring writes go to per-thread producer shards, so nothing below
-	// depends on staying on this CPU. Do not pin the thread here: the
-	// sched_getaffinity/sched_setaffinity pair costs microseconds per
-	// event on some platforms (e.g. ARM) and provides no exclusion or
-	// ownership guarantee.
+	// Software perf events are sharded by (pid, tid) and the consumer polls
+	// every slot, so no per-cpu invariant has to be emulated in userspace.
+	// Pinning the thread to the current cpu around each output cost three
+	// scheduler syscalls (getaffinity + two setaffinity) and forced two
+	// migrations per event for no correctness benefit. The cpu index comes
+	// from the vDSO via my_sched_getcpu(); a thread migrating between calls
+	// only selects a different array slot, which the consumer already
+	// enumerates.
 	int fd = (int)map;
 	// Check map type. userspace perf event array, or shared perf event
 	// array?
@@ -1109,13 +1361,14 @@ uint64_t bpf_perf_event_output(uint64_t ctx, uint64_t map, uint64_t flags,
 			return (uint64_t)-1;
 		}
 		int32_t perf_handler_fd = *val_ptr;
-		ret = bpftime_perf_event_output(perf_handler_fd,
-						(const void *)(uintptr_t)data,
-						(size_t)size);
+		int ret = bpftime_perf_event_output(
+			perf_handler_fd, (const void *)(uintptr_t)data,
+			(size_t)size);
 		// Report a dropped sample as the kernel does (-ENOSPC when
 		// the ring is full) instead of a bare -1.
 		if (ret < 0 && errno != 0)
 			ret = -errno;
+		return (uint64_t)(int64_t)ret;
 	}
 #if __linux__ && BPFTIME_BUILD_WITH_LIBBPF
 	else if (map_ty == bpftime::bpf_map_type::
@@ -1127,10 +1380,65 @@ uint64_t bpf_perf_event_output(uint64_t ctx, uint64_t map, uint64_t flags,
 	else {
 		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Attempting to run perf_output on a non-perf array map");
-		ret = -1;
+		return (uint64_t)-1;
 	}
+}
 
-	return (uint64_t)ret;
+// Tail-call targets always receive a 64-byte context buffer.
+//
+// The helper's ctx may be either host-owned memory from the region passed
+// to bpftime_prog::bpftime_prog_exec (whose pointer and size are published
+// per thread), or a replacement context the running BPF program built on
+// its own BPF stack and passed as r1. The BPF ABI carries no size for the
+// latter, so only pointers contained in the host entry region are bounded;
+// replacement contexts keep the historical full 64-byte copy.
+//
+// Safety of a replacement context (the pointer actually lands on the
+// program's BPF stack and 64 bytes are readable there) is a verifier/ABI
+// precondition this helper cannot enforce without BPF-stack metadata; a
+// malformed program pointing r1 outside its stack frame is tracked under
+// the verifier-bypass work (issue #699).
+static void bpftime_prepare_tail_call_context(char (&context)[64],
+					      uint64_t ctx)
+{
+	constexpr size_t tail_call_context_size = 64;
+	if (ctx == 0) {
+		memset(context, 0, tail_call_context_size);
+		return;
+	}
+	const uintptr_t ctx_addr = (uintptr_t)ctx;
+	size_t copy_size = tail_call_context_size;
+	if (bpftime::current_thread_exec_ctx.has_value()) {
+		const auto &entry = *bpftime::current_thread_exec_ctx;
+		const uintptr_t entry_begin =
+			reinterpret_cast<uintptr_t>(entry.ptr);
+		const uintptr_t entry_end = entry_begin + entry.size;
+		if (ctx_addr >= entry_begin && ctx_addr < entry_end) {
+			// Inside the host entry region (exact base or an
+			// interior alias such as entry + 4): only the bytes
+			// from the alias to the region end are known valid.
+			copy_size = std::min(
+				static_cast<size_t>(entry_end - ctx_addr),
+				tail_call_context_size);
+		}
+		// Fully outside the region: a program-owned replacement
+		// context; copy all 64 bytes as the ABI historically does.
+	} else {
+		// Helper reached without any published exec context: the
+		// real size is unknown, so keep the historical 64-byte copy
+		// (still capped to the destination buffer) and warn once.
+		static std::once_flag tail_call_ctx_info_warn_once;
+		std::call_once(tail_call_ctx_info_warn_once, [] {
+			SPDLOG_WARN(
+				"tail_call: exec context info is unavailable; copying the full 64-byte tail-call context");
+		});
+	}
+	memcpy(context, reinterpret_cast<const void *>(ctx_addr),
+	       copy_size);
+	if (copy_size < tail_call_context_size) {
+		memset(context + copy_size, 0,
+		       tail_call_context_size - copy_size);
+	}
 }
 
 uint64_t bpftime_tail_call(uint64_t ctx, uint64_t prog_array, uint64_t index)
@@ -1424,10 +1732,11 @@ int64_t bpftime_get_stackid(uint64_t ctx_raw, uint64_t map_raw, uint64_t flags,
 	auto raw_ptr = (*attach_impl)
 			       ->call_attach_specific_function("generate_stack",
 							       nullptr);
-	if (raw_ptr == nullptr) {
-		BPFTIME_LOG_ERROR_RATELIMITED("Unable to get stack trace");
-		return -ENOENT;
-	}
+	// No frames is normal when the probe has no unwinding context, such as a
+	// syscall-trace or tracepoint program whose pt_regs was synthesized:
+	// treat it as an empty stack, not a logged error. An empty stack has no
+	// id: like any trace with no frame left after the skip it is -EFAULT
+	// below, as in the kernel (no empty trace is stored).
 	std::unique_ptr<std::vector<uint64_t>> result(
 		raw_ptr != nullptr ? (std::vector<uint64_t> *)raw_ptr :
 				     new std::vector<uint64_t>());
@@ -1458,9 +1767,8 @@ int64_t bpftime_get_stackid(uint64_t ctx_raw, uint64_t map_raw, uint64_t flags,
 	}
 
 	SPDLOG_DEBUG("Got stackid {}", ret);
-	// Ids are non-negative; errors (-EEXIST) must stay negative in the
-	// 64-bit result. (ret < 0 ? ret : (uint32_t)ret) made both branches
-	// unsigned int and returned -EEXIST as 0xffffffef.
+	// Keep negative errno values (e.g. -EEXIST on a collision) intact;
+	// valid stack ids are non-negative and unchanged by the conversion.
 	return ret;
 }
 
@@ -1468,7 +1776,7 @@ int64_t bpftime_get_stack(uint64_t ctx_raw, uint64_t buf, uint64_t size,
 			  uint64_t flags, uint64_t)
 {
 	if (!(flags & BPF_F_USER_STACK)) {
-		BPFTIME_LOG_ERROR_RATELIMITED(
+		SPDLOG_DEBUG(
 			"bpftime_get_stack only supports collect user stack!");
 		return -ENOTSUP;
 	}
@@ -1499,8 +1807,15 @@ int64_t bpftime_get_stack(uint64_t ctx_raw, uint64_t buf, uint64_t size,
 			       ->call_attach_specific_function("generate_stack",
 							       nullptr);
 	if (raw_ptr == nullptr) {
-		BPFTIME_LOG_ERROR_RATELIMITED("Unable to get stack trace");
-		return -ENOENT;
+		// No frames: the probe ran where no userspace stack can be
+		// unwound, such as a syscall-trace or tracepoint program
+		// whose pt_regs was synthesized. The kernel reports that as
+		// an empty stack, so copy nothing and report zero bytes
+		// instead of an error the program would have to special-case.
+		SPDLOG_DEBUG("No stack frames available");
+		if (size > 0)
+			memset(buffer, 0, size);
+		return 0;
 	}
 	std::unique_ptr<std::vector<uint64_t>> result(
 		(std::vector<uint64_t> *)raw_ptr);

@@ -74,7 +74,8 @@ __attribute__((noinline)) void clobber_caller_saved()
 }
 
 int64_t recording_hook(int64_t nr, int64_t a1, int64_t a2, int64_t a3,
-		       int64_t a4, int64_t a5, int64_t a6)
+		       int64_t a4, int64_t a5, int64_t a6, int64_t ip,
+		       int64_t sp, int64_t bp)
 {
 	if (nr >= 0 && nr < 512)
 		calls[nr]++;
@@ -85,7 +86,7 @@ int64_t recording_hook(int64_t nr, int64_t a1, int64_t a2, int64_t a3,
 	clobber_caller_saved();
 	if (nr == SYS_getppid && fake_getppid != 0)
 		return fake_getppid;
-	return next_hook(nr, a1, a2, a3, a4, a5, a6);
+	return next_hook(nr, a1, a2, a3, a4, a5, a6, ip, sp, bp);
 }
 
 void install()
@@ -382,10 +383,11 @@ TEST_CASE("the clone hook makes no system call an application may forbid",
 namespace
 {
 int64_t rounding_hook(int64_t nr, int64_t a1, int64_t a2, int64_t a3,
-		      int64_t a4, int64_t a5, int64_t a6)
+		      int64_t a4, int64_t a5, int64_t a6, int64_t ip,
+		       int64_t sp, int64_t bp)
 {
 	fesetround(FE_UPWARD); // FPCR.RMode, as hook code might
-	return next_hook(nr, a1, a2, a3, a4, a5, a6);
+	return next_hook(nr, a1, a2, a3, a4, a5, a6, ip, sp, bp);
 }
 } // namespace
 
@@ -1384,7 +1386,8 @@ thread_local bool lazy_ready = false;
 // state with a system call through the rewritten libc (ld.so allocating the
 // agent's dynamic TLS: malloc creates an arena and reads sysfs).
 int64_t lazy_state_hook(int64_t nr, int64_t a1, int64_t a2, int64_t a3,
-			int64_t a4, int64_t a5, int64_t a6)
+			int64_t a4, int64_t a5, int64_t a6, int64_t ip,
+		       int64_t sp, int64_t bp)
 {
 	lazy_hook_entries++;
 	if (nr >= 0 && nr < 512)
@@ -1393,7 +1396,7 @@ int64_t lazy_state_hook(int64_t nr, int64_t a1, int64_t a2, int64_t a3,
 		getpid();
 		lazy_ready = true;
 	}
-	return next_hook(nr, a1, a2, a3, a4, a5, a6);
+	return next_hook(nr, a1, a2, a3, a4, a5, a6, ip, sp, bp);
 }
 } // namespace
 

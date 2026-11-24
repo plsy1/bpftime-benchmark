@@ -61,7 +61,7 @@ long array_map_impl::elem_update(const void *key, const void *value,
 	}
 	if (mode == map_production_ab_mode::array_update_no_address)
 		return 0;
-	auto *destination = &data[key_val * _value_size];
+	auto *destination = &data[size_t(key_val) * _value_size];
 	if (mode == map_production_ab_mode::array_update_address_only) {
 		asm volatile("" : : "r"(destination) : "memory");
 		return 0;

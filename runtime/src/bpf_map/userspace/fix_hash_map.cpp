@@ -9,14 +9,8 @@
 #include <algorithm>
 #include <cerrno>
 #include <functional>
-#include <linux/bpf.h>
 #include <unistd.h>
 #include <unordered_map>
-
-static bool is_good_update_flag(uint64_t flags)
-{
-	return flags == BPF_ANY || flags == BPF_EXIST || flags == BPF_NOEXIST;
-}
 
 namespace bpftime
 {

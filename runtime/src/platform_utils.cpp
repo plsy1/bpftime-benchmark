@@ -45,6 +45,14 @@ int sched_setaffinity([[maybe_unused]]pid_t pid, [[maybe_unused]]size_t cpusetsi
 
 #endif
 
+int bpftime_get_current_bpf_cpu() {
+    return current_bpf_cpu;
+}
+
+void bpftime_set_current_bpf_cpu(int cpu) {
+    current_bpf_cpu = cpu;
+}
+
 #include <unistd.h>
 #if __linux__
 #include <cstdio>

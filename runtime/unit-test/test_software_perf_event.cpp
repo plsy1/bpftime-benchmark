@@ -229,12 +229,7 @@ TEST_CASE("Software perf event buffers shard concurrent producers by thread",
 				std::chrono::milliseconds(10));
 		}
 	}
-	// Drains look for dead threads' shards every 100 ms.
-	for (int i = 0; i < 50 && !perf->producer_shards.empty(); i++) {
-		usleep(10 * 1000);
-		REQUIRE(perf->has_data());
-	}
-	REQUIRE(perf->producer_shards.empty());
+	REQUIRE(shards_reclaimed);
 
 	auto *header = (perf_event_mmap_page *)raw_buffer;
 	auto *base = (uint8_t *)raw_buffer + getpagesize();

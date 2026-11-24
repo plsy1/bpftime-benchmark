@@ -790,7 +790,10 @@ static int refresh_attach_session(const gchar *data)
 			auto_refresh_thread.join();
 		agent_internal_section probes_ignored_for_spawn;
 		auto_refresh_thread = std::thread([auto_refresh_ms, epoch]() {
-ignore_probes_on_this_thread();
+			// Callbacks suppressed (#733) and probes ignored for the
+			// thread's lifetime (agent work is invisible to probes).
+			attach_callback_suppression_scope suppress_callbacks;
+			ignore_probes_on_this_thread();
 			for (;;) {
 				if (auto_refresh_epoch.load(
 					    std::memory_order_acquire) != epoch) {
@@ -896,7 +899,8 @@ extern "C" void **__cudaRegisterFatBinary(void *fatbin)
 #endif
 extern "C" bool bpftime_agent_setup_credential_cache();
 
-extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
+static void bpftime_agent_main_impl(const gchar *data,
+				    gboolean *stay_resident)
 {
 	install_agent_bootstrap_logger();
 	// Only effective when this agent's set*id interposers are bound.
@@ -1154,6 +1158,7 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 			SPDLOG_INFO("Initializing agent..");
 
 			try {
+				attach_callback_suppression_scope suppress_callbacks;
 				agent_internal_section probes_ignored;
 				int res = ctx_holder.ctx
 						  .init_attach_ctx_from_handlers(
@@ -1196,7 +1201,9 @@ extern "C" void bpftime_agent_main(const gchar *data, gboolean *stay_resident)
 				agent_internal_section probes_ignored_for_spawn;
 				auto_refresh_thread = std::thread(
 					[auto_refresh_ms, epoch]() {
-ignore_probes_on_this_thread();
+						attach_callback_suppression_scope
+							suppress_callbacks;
+						ignore_probes_on_this_thread();
 						for (;;) {
 							if (auto_refresh_epoch.load(
 								    std::memory_order_acquire) !=

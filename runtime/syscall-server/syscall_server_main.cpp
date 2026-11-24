@@ -5,6 +5,7 @@
  */
 #include "syscall_context.hpp"
 #include "syscall_server_utils.hpp"
+#include "syscall_server_internal_dispatch.hpp"
 #include "bpftime_shm_internal.hpp"
 #if defined(__x86_64__)
 #include <asm/unistd_64.h>
@@ -581,6 +582,25 @@ long dispatch_syscall(long sysno, long arg1, long arg2, long arg3,
 				(perf_event_attr *)(uintptr_t)arg1, (pid_t)arg2,
 				(int)arg3, (int)arg4, (unsigned long)arg5);
 		});
+	} else if (sysno == __NR_close) {
+		return handle_exceptions(
+			[&]() { return context->handle_close((int)arg1); },
+			call_original);
+	} else if (sysno == __NR_openat) {
+		return handle_exceptions(
+			[&]() {
+				return context->handle_openat(
+					(int)arg1, (const char *)arg2, (int)arg3,
+					(unsigned short)arg4);
+			},
+			call_original);
+	} else if (sysno == __NR_read) {
+		return handle_exceptions(
+			[&]() {
+				return context->handle_read(
+					(int)arg1, (void *)arg2, (size_t)arg3);
+			},
+			call_original);
 	} else if (sysno == __NR_ioctl) {
 		safe_spdlog_debug("SYS_IOCTL {} {} {} {} {} {}", arg1, arg2,
 				  arg3, arg4, arg5, arg6);

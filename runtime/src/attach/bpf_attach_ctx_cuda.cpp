@@ -133,7 +133,10 @@ void serve_cuda_request(cuda::CUDAContext *ctx)
 	if (req_id == (int)cuda::HelperOperation::MAP_LOOKUP) {
 		const auto &req = comm->req.map_lookup;
 		auto &resp = comm->resp.map_lookup;
-		auto ptr = bpftime_map_lookup_elem(map_fd, req.key);
+		// A GPU program's helper request: not subject to the
+		// BPF_F_RDONLY/BPF_F_WRONLY fd-mode checks (#776).
+		auto ptr = bpftime_map_lookup_elem_with_origin(map_fd, req.key,
+							       false);
 		resp.value = nullptr;
 		if (ptr) {
 			resp.value = cuda::gpu_address_of_map_value(ptr);
@@ -149,14 +152,15 @@ void serve_cuda_request(cuda::CUDAContext *ctx)
 	} else if (req_id == (int)cuda::HelperOperation::MAP_UPDATE) {
 		const auto &req = comm->req.map_update;
 		auto &resp = comm->resp.map_update;
-		resp.result = bpftime_map_update_elem(map_fd, req.key,
-						      req.value, req.flags);
+		resp.result = bpftime_map_update_elem_with_origin(
+			map_fd, req.key, req.value, req.flags, false);
 		SPDLOG_DEBUG("CUDA: Executing map update for {}, result = {}",
 			     map_fd, resp.result);
 	} else if (req_id == (int)cuda::HelperOperation::MAP_DELETE) {
 		const auto &req = comm->req.map_delete;
 		auto &resp = comm->resp.map_delete;
-		resp.result = bpftime_map_delete_elem(map_fd, req.key);
+		resp.result =
+			bpftime_map_delete_elem_with_origin(map_fd, req.key, false);
 		SPDLOG_DEBUG("CUDA: Executing map delete for {}, result = {}",
 			     map_fd, resp.result);
 	} else if (req_id == (int)cuda::HelperOperation::TRACE_PRINTK) {

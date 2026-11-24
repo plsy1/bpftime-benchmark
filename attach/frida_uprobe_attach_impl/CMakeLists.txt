@@ -29,6 +29,7 @@ set(TEST_SOURCES
     test/test_base_attach_impl.cpp
     test/test_back_trace.cpp
     test/test_register_conversion.cpp
+    test/test_short_uprobe_reclaim.cpp
     test/test_thread_context_with_probed_mmap.cpp
     test/test_detach_while_called.cpp
 )

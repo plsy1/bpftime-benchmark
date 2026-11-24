@@ -26,6 +26,40 @@
 #include <memory>
 #include <optional>
 #include <tuple>
+
+#if defined(__x86_64__)
+// The pinned uBPF x86_64 JIT emulates fetch-ALU atomics (add/or/and/xor with
+// BPF_FETCH) with a cmpxchg retry loop. When the destination register is r0
+// (mapped to native RAX), the initial load overwrites RAX with the old memory
+// value and the retried cmpxchg dereferences that value as the address,
+// crashing the host process. The interpreter and the aarch64 JIT are correct.
+// Until the defect is fixed upstream, keep the historical fail-closed
+// contract for this single encoding by steering it to the interpreter.
+static bool
+ubpf_x86_jit_unsafe_fetch_into_r0(const struct ebpf_inst *insn, size_t cnt)
+{
+	for (size_t i = 0; i < cnt; i++) {
+		const struct ebpf_inst &in = insn[i];
+		if (in.code != EBPF_ATOMIC_OPCODE_32 &&
+		    in.code != EBPF_ATOMIC_OPCODE_64)
+			continue;
+		if (in.dst_reg != 0)
+			continue;
+		// Only fetch-ALU is affected; non-fetch, XCHG and CMPXCHG use
+		// safe single-instruction sequences.
+		if (!(in.imm & EBPF_FETCH))
+			continue;
+		if (in.imm == EBPF_XCHG || in.imm == EBPF_CMPXCHG)
+			continue;
+		return true;
+	}
+	return false;
+}
+#endif
+
+#include <atomic>
+#include <chrono>
+#include <functional>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <cstdio>
@@ -314,21 +348,32 @@ struct array_jit_execution_scope {
 		// Hash/unknown handles keep the exact original helper and arguments.
 		return scope->original(scope->prog.raw_lookup, 1)(fd, key, a3, a4, a5);
 	}
+	// As the standard map helpers (#853, kernel_map_helper_result in
+	// bpf_helper.cpp): a negative errno, where the binding reports -1 and
+	// errno.
+	static uint64_t helper_result(long result)
+	{
+		if (result >= 0)
+			return 0;
+		if (result != -1)
+			return static_cast<uint64_t>(result);
+		return static_cast<uint64_t>(-(errno != 0 ? errno : EINVAL));
+	}
 	static uint64_t update(uint64_t fd, uint64_t key, uint64_t value, uint64_t flags, uint64_t a5)
 	{
 		auto *scope = active_array_scope;
-		if (!scope) { errno = ENOENT; return uint64_t(-1); }
+		if (!scope) { errno = ENOENT; return uint64_t(-ENOENT); }
 		if (auto *binding = scope->resolve(fd))
-			return static_cast<uint64_t>(binding->update(reinterpret_cast<const void *>(key),
+			return helper_result(binding->update(reinterpret_cast<const void *>(key),
 				reinterpret_cast<const void *>(value), flags));
 		return scope->original(scope->prog.raw_update, 2)(fd, key, value, flags, a5);
 	}
 	static uint64_t erase(uint64_t fd, uint64_t key, uint64_t a3, uint64_t a4, uint64_t a5)
 	{
 		auto *scope = active_array_scope;
-		if (!scope) { errno = ENOENT; return uint64_t(-1); }
+		if (!scope) { errno = ENOENT; return uint64_t(-ENOENT); }
 		if (auto *binding = scope->resolve(fd))
-			return static_cast<uint64_t>(binding->erase(reinterpret_cast<const void *>(key)));
+			return helper_result(binding->erase(reinterpret_cast<const void *>(key)));
 		return scope->original(scope->prog.raw_erase, 3)(fd, key, a3, a4, a5);
 	}
 };
@@ -784,9 +829,12 @@ int bpftime_prog::finish_load(bool jit, const std::vector<ebpf_inst> &load_insns
 	// provides the actual implementations (e.g. _bpf_helper_ext_0503).
 	// This VM is only used here to produce that device code, so the
 	// host-side audit does not apply.
+	// Audit the instructions actually loaded: the poison and dead-call
+	// rewrites in prepare_load point calls at private slots registered
+	// through register_vm_helper.
 	if (!is_cuda()) {
-		for (size_t i = 0; i < insns.size(); ++i) {
-			const struct ebpf_inst &inst = insns[i];
+		for (size_t i = 0; i < load_insns.size(); ++i) {
+			const struct ebpf_inst &inst = load_insns[i];
 			if (inst.code == 0x18) {
 				// Second instruction of a LDDW is data, not code.
 				++i;
@@ -1122,8 +1170,12 @@ int bpftime_prog::register_vm_helper(unsigned int index,
 				     const char *helper_name, void *fn)
 {
 	int result = ebpf_register(vm, index, helper_name, fn);
-	if (result >= 0)
+	if (result >= 0) {
 		vm_helper_names[index] = helper_name;
+		// Helpers registered at load (pending array/map helpers, the
+		// poison and dead-call slots) count for the load-time audit.
+		registered_helper_ids.insert(index);
+	}
 	return result;
 }
 

@@ -58,6 +58,12 @@ struct bpftime_global_epoch_state {
 	std::uint64_t epoch_seq = 0;
 };
 
+static constexpr int BPFTIME_MAX_CPU_COUNT = 1024;
+
+struct bpftime_cpu_exec_locks {
+	boost::interprocess::interprocess_mutex locks[BPFTIME_MAX_CPU_COUNT];
+};
+
 // Lets producers wake a consumer sleeping in bpftime_epoll_wait once a
 // software perf event ring is half full or drops a sample (the kernel's
 // wakeup_watermark), instead of leaving a burst to the consumer's next 1 ms
@@ -166,7 +172,11 @@ class bpftime_shm {
 	}
 	bpftime_shm(const bpftime_shm &) = delete;
 	bpftime_shm &operator=(const bpftime_shm &) = delete;
-	shm_open_type get_shm_open_type() const
+	// True when the fully-contained [addr, addr+size) range lies inside the
+	// mapped SHM segment. Backends with runtime memory safety checks
+	// (uBPF) use this to admit BPF map/context accesses that the kernel
+	// verifier would normally allow. Includes an overflow guard.
+	bool is_within_shm_segment(uint64_t addr, uint64_t size) const
 	{
 		if (size == 0) {
 			return true;
@@ -333,9 +343,8 @@ public:
 			       bool from_syscall) const;
 
 	long bpf_map_pop_elem(int fd, void *value, bool from_syscall) const;
-	long bpf_map_lookup_and_delete_elem(int fd, const void *key,
-					    void *value) const;
-
+	// BPF_MAP_LOOKUP_AND_DELETE_ELEM (bpf_map_handler::
+	// map_lookup_and_delete_elem).
 	long bpf_map_lookup_and_delete_elem(int fd, const void *key, void *value,
 					    bool from_syscall) const;
 

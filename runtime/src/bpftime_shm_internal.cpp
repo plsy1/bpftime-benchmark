@@ -406,10 +406,14 @@ long bpftime_shm::bpf_map_pop_elem(int fd, void *value, bool from_syscall) const
 }
 
 long bpftime_shm::bpf_map_lookup_and_delete_elem(int fd, const void *key,
-						 void *value) const
+						 void *value,
+						 bool from_syscall) const
 {
 	auto *handler = try_get_map_handler(fd);
-	return handler ? handler->map_lookup_and_delete_elem(key, value) : -1;
+	return handler ?
+		       handler->map_lookup_and_delete_elem(key, value,
+							   from_syscall) :
+		       -1;
 }
 
 long bpftime_shm::bpf_map_peek_elem(int fd, void *value,
@@ -874,6 +878,7 @@ int bpftime_shm::open_fake_fd()
 	if ((std::size_t)fd >= manager->size()) {
 		SPDLOG_ERROR("open_fake_fd: fd {} exceeds handler pool size {}", fd, manager->size());
 		close(fd);
+		errno = ENOSPC;
 		return -ENOSPC;
 	}
 	return fd;
@@ -1041,6 +1046,17 @@ bpftime_shm::bpftime_shm(const char *shm_name, shm_open_type type)
 		epoch_state = segment.find<bpftime_global_epoch_state>(
 					     "bpftime_global_epoch_state")
 				      .first;
+		cpu_exec_locks = segment.find<bpftime_cpu_exec_locks>(
+					 "bpftime_cpu_exec_locks")
+				  .first;
+		map_prog_refs =
+			segment.find<map_prog_ref_count_map>(
+				bpftime::DEFAULT_MAP_PROG_REFS_NAME)
+				.first;
+		map_prog_refs_lock =
+			segment.find<boost::interprocess::interprocess_mutex>(
+				bpftime::DEFAULT_MAP_PROG_REFS_LOCK_NAME)
+				.first;
 		perf_wakeup_state =
 			segment.find<bpftime_perf_wakeup_state>(
 				       "bpftime_perf_wakeup_state")
@@ -1096,6 +1112,17 @@ bpftime_shm::bpftime_shm(const char *shm_name, shm_open_type type)
 		epoch_state =
 			segment.find_or_construct<bpftime_global_epoch_state>(
 				"bpftime_global_epoch_state")();
+		cpu_exec_locks =
+			segment.find_or_construct<bpftime_cpu_exec_locks>(
+				"bpftime_cpu_exec_locks")();
+		map_prog_refs = segment.find_or_construct<map_prog_ref_count_map>(
+			bpftime::DEFAULT_MAP_PROG_REFS_NAME)(
+			std::less<int>(),
+			map_prog_ref_allocator(segment.get_segment_manager()));
+		map_prog_refs_lock =
+			segment.find_or_construct<
+				boost::interprocess::interprocess_mutex>(
+				bpftime::DEFAULT_MAP_PROG_REFS_LOCK_NAME)();
 		perf_wakeup_state =
 			segment.find_or_construct<bpftime_perf_wakeup_state>(
 				"bpftime_perf_wakeup_state")();
@@ -1149,6 +1176,16 @@ bpftime_shm::bpftime_shm(const char *shm_name, shm_open_type type)
 				bpftime::DEFAULT_PID_SET_LOCK_NAME)();
 		epoch_state = segment.construct<bpftime_global_epoch_state>(
 			"bpftime_global_epoch_state")();
+		cpu_exec_locks = segment.construct<bpftime_cpu_exec_locks>(
+			"bpftime_cpu_exec_locks")();
+		map_prog_refs = segment.construct<map_prog_ref_count_map>(
+			bpftime::DEFAULT_MAP_PROG_REFS_NAME)(
+			std::less<int>(),
+			map_prog_ref_allocator(segment.get_segment_manager()));
+		map_prog_refs_lock =
+			segment.construct<
+				boost::interprocess::interprocess_mutex>(
+				bpftime::DEFAULT_MAP_PROG_REFS_LOCK_NAME)();
 		perf_wakeup_state = segment.construct<bpftime_perf_wakeup_state>(
 			"bpftime_perf_wakeup_state")();
 		SPDLOG_DEBUG("done: bpftime_shm for server setup.");
@@ -1379,9 +1416,12 @@ int bpftime_shm::add_bpf_map(int fd, const char *name,
 	if (own_fd) {
 		// if fd is negative, we need to create a new fd for allocating
 		fd = open_fake_fd();
-		fd_self_allocated = true;
-		if (fd < 0)
-			return fd;
+		if (fd < 0) {
+			// open_fake_fd returns -errno; creation returns -1 with
+			// errno, as map_init and set_handler do.
+			errno = -fd;
+			return -1;
+		}
 	}
 	// A rejected map must not keep the descriptor opened for it (libbpf
 	// retries a failed creation once: two leaked per map).

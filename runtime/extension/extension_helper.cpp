@@ -8,9 +8,11 @@
 #include <map>
 #include <stdio.h>
 #include <stdarg.h>
+#include <cstring>
 #include <time.h>
 #include <unistd.h>
 #include <ctime>
+#include <filesystem>
 #include "bpftime.hpp"
 #include "bpftime_shm.hpp"
 #include "bpftime_internal.h"

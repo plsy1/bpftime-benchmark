@@ -137,7 +137,14 @@ int bpftime_is_map_frozen(int fd)
 		       .is_frozen();
 }
 
-long bpftime_map_delete_elem(int fd, const void *key)
+long bpftime_map_update_elem(int fd, const void *key, const void *value,
+			     uint64_t flags)
+{
+	return bpftime_map_update_elem_with_origin(fd, key, value, flags, true);
+}
+
+long bpftime_map_delete_elem_with_origin(int fd, const void *key,
+					 bool from_syscall)
 {
 	try {
 		return shm_holder.global_shared_memory.bpf_delete_elem(
@@ -150,11 +157,16 @@ long bpftime_map_delete_elem(int fd, const void *key)
 	}
 }
 
+long bpftime_map_delete_elem(int fd, const void *key)
+{
+	return bpftime_map_delete_elem_with_origin(fd, key, true);
+}
+
 long bpftime_map_lookup_and_delete_elem(int fd, const void *key, void *value)
 {
 	try {
 		return shm_holder.global_shared_memory
-			.bpf_map_lookup_and_delete_elem(fd, key, value);
+			.bpf_map_lookup_and_delete_elem(fd, key, value, true);
 	} catch (std::exception &ex) {
 		BPFTIME_LOG_ERROR_RATELIMITED(
 			"Exception happened when performing map lookup and delete elem: {}",
@@ -437,6 +449,59 @@ int bpftime_is_epoll_handler(int fd)
 	return shm_holder.global_shared_memory.is_epoll_fd(fd);
 }
 
+// Upstream's epoll signal handling (#785, gated on sigpending by #805),
+// kept compiled but not called: the merged bpftime_epoll_wait follows dev's
+// rule (57b75af0) and leaves signals to the kernel, so it neither blocks
+// SIGINT/SIGTERM nor takes a pending one. Called at the top of each pass,
+// it would act only on a SIGINT/SIGTERM the caller has blocked (sigpending
+// reports blocked signals only), and that is the case the two contradict:
+// upstream's test blocks SIGINT, raises it and expects this to run the
+// handler; dev's test "A consumer leaves signals to the threads they are
+// meant for" starts the consumer with SIGINT blocked (as outattach) and
+// expects a process-directed SIGINT to stay pending for the thread that
+// unblocks it, which this would take (it also ignores SIG_DFL and calls
+// SIG_IGN as a function). To be removed in its own commit together with
+// the upstream test "Epoll honors a blocked pending signal while a source
+// stays ready".
+// Returns true when a pending SIGINT/SIGTERM was dequeued and dispatched.
+[[maybe_unused]] static bool
+epoll_take_pending_exit_signal(const sigset_t &to_block)
+{
+	// A perpetually ready source must not starve signal delivery.
+	// The no-data branch below was previously the only place that
+	// consumed a blocked SIGINT/SIGTERM; under a high-frequency
+	// tracepoint the ready path (next_id > 0) is taken every
+	// iteration, so the signal stayed pending and was never
+	// delivered, leaving the process unresponsive to SIGINT/SIGTERM.
+	// Poll for a pending blocked signal here so it is honored
+	// regardless of event readiness. sigpending is a cheap
+	// non-consuming probe; only when it reports a pending SIGINT/
+	// SIGTERM do we take the heavier sigtimedwait path to dequeue and
+	// dispatch it, keeping the common no-signal ready path inexpensive.
+	sigset_t pending_now;
+	if (sigpending(&pending_now) == 0 &&
+	    (sigismember(&pending_now, SIGINT) ||
+	     sigismember(&pending_now, SIGTERM))) {
+		siginfo_t sig_info;
+		const timespec nonblock{ .tv_sec = 0, .tv_nsec = 0 };
+		if (int sig = sigtimedwait(&to_block, &sig_info, &nonblock);
+		    sig > 0) {
+			SPDLOG_DEBUG("epoll_wait interrupted by pending signal {}",
+				     sig);
+			// Invoke the original signal handler
+			struct sigaction act;
+			sigaction(sig, nullptr, &act);
+			if ((act.sa_flags & SA_SIGINFO) && act.sa_sigaction) {
+				act.sa_sigaction(sig, &sig_info, nullptr);
+			} else if (auto f = act.sa_handler) {
+				f(sig);
+			}
+			return true;
+		}
+	}
+	return false;
+}
+
 int bpftime_epoll_wait(int fd, struct epoll_event *out_evts, int max_evt,
 		       int timeout)
 {
@@ -652,6 +717,13 @@ int bpftime_add_software_perf_event(int cpu, int32_t sample_type,
 {
 	auto &shm = shm_holder.global_shared_memory;
 	return shm.add_software_perf_event(cpu, sample_type, config);
+}
+
+int bpftime_add_software_perf_event_at(int fd, int cpu, int32_t sample_type,
+				       int64_t config)
+{
+	auto &shm = shm_holder.global_shared_memory;
+	return shm.add_software_perf_event(fd, cpu, sample_type, config);
 }
 
 int bpftime_add_software_perf_event_with_wakeup(int cpu, int32_t sample_type,

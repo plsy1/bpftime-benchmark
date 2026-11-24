@@ -10,6 +10,8 @@
 #include <mutex>
 #include <dlfcn.h>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <frida-gum.h>
@@ -123,11 +125,23 @@ resolve_mapped_module_path(const std::string_view &module_name)
 #if __linux__
 namespace
 {
+struct exec_vma {
+	uintptr_t start, end, pgoff;
+};
+
+void *translate_through_vma(const exec_vma &vma, uintptr_t file_offset)
+{
+	if (file_offset < vma.pgoff || file_offset - vma.pgoff >= vma.end - vma.start)
+		return nullptr;
+	return reinterpret_cast<void *>(vma.start + (file_offset - vma.pgoff));
+}
+
 // Mirror Linux kernel/events/uprobes.c offset_to_vaddr(): find the executable
 // file-backed VMA for `target_path` in /proc/self/maps covering `file_offset`,
-// and translate to vma_start + (file_offset - vma_pgoff).
+// and translate to vma_start + (file_offset - vma_pgoff). The VMA used is
+// stored in `found`.
 void *resolve_exec_vma_by_file_offset(const std::string &target_path,
-				      uintptr_t file_offset)
+				      uintptr_t file_offset, exec_vma *found)
 {
 	struct stat target_st = {};
 	const bool have_target_st = !target_path.empty() &&
@@ -166,6 +180,10 @@ void *resolve_exec_vma_by_file_offset(const std::string &target_path,
 				matched = true;
 		}
 		if (matched) {
+			if (found != nullptr)
+				*found = { static_cast<uintptr_t>(start),
+					   static_cast<uintptr_t>(end),
+					   static_cast<uintptr_t>(pgoff) };
 			return reinterpret_cast<void *>(
 				static_cast<uintptr_t>(start) +
 				(file_offset - static_cast<uintptr_t>(pgoff)));
@@ -176,30 +194,65 @@ void *resolve_exec_vma_by_file_offset(const std::string &target_path,
 } // namespace
 #endif
 
+namespace
+{
+// What a module's lookups found, kept while a module is still loaded there
+// (dladdr finds the same object base). Every probe looked its module up again
+// (gum_module_load and Gum's module enumeration, with the executable path and
+// a flushed log line, and a scan of /proc/self/maps): 0.42 ms per probe at
+// every process start, 0.44 s with 1,000 probes
+// (uprobe/more-dims-20261106, n4-many-probes).
+struct module_cache_entry {
+	void *base = nullptr;
+#if __linux__
+	// Executable VMAs found by file offset, each with its object's base.
+	std::vector<std::pair<exec_vma, void *> > vmas;
+#endif
+};
+
+bool still_loaded_at(const void *address, const void *object_base)
+{
+	Dl_info info{};
+	return dladdr(address, &info) != 0 && info.dli_fbase == object_base;
+}
+} // namespace
+
 void *
 resolve_function_addr_by_module_offset(const std::string_view &module_name,
 				       uintptr_t func_offset)
 {
-	// A module's base is kept once found, while a module is still loaded
-	// there. Every probe looked it up again (gum_module_load and Gum's
-	// module enumeration, with the executable path and a flushed log
-	// line): 0.42 ms per probe at every process start, 0.44 s with 1,000
-	// probes (uprobe/more-dims-20261106, n4-many-probes).
-	static std::mutex base_cache_mutex;
-	static std::unordered_map<std::string, void *> base_cache;
+	static std::mutex cache_mutex;
+	static std::unordered_map<std::string, module_cache_entry> cache;
 	const std::string key(module_name);
+	void *cached_base = nullptr;
 	{
-		std::lock_guard<std::mutex> guard(base_cache_mutex);
-		if (auto itr = base_cache.find(key); itr != base_cache.end()) {
-			Dl_info info{};
-			if (dladdr(itr->second, &info) != 0 &&
-			    info.dli_fbase == itr->second)
-				return ((char *)itr->second) + func_offset;
-			base_cache.erase(itr);
+		std::lock_guard<std::mutex> guard(cache_mutex);
+		if (auto itr = cache.find(key); itr != cache.end()) {
+			auto &entry = itr->second;
+#if __linux__
+			for (auto vma = entry.vmas.begin();
+			     vma != entry.vmas.end();) {
+				if (!still_loaded_at((void *)vma->first.start,
+						     vma->second)) {
+					vma = entry.vmas.erase(vma);
+					continue;
+				}
+				// The same translation as an uncached lookup
+				// (#904); a hit is inside a mapped VMA.
+				if (void *addr = translate_through_vma(
+					    vma->first, func_offset))
+					return addr;
+				++vma;
+			}
+#endif
+			if (entry.base != nullptr &&
+			    still_loaded_at(entry.base, entry.base))
+				cached_base = entry.base;
+			else
+				entry.base = nullptr;
 		}
 	}
 	const auto &exec_path = get_executable_path();
-	void *module_base_addr = nullptr;
 	std::error_code ec;
 	// Resolve the executable alias the same way for the base and its VMAs.
 	const std::string resolved_name =
@@ -209,12 +262,23 @@ resolve_function_addr_by_module_offset(const std::string_view &module_name,
 #if __linux__
 	const std::string &target_path =
 		resolved_name.empty() ? exec_path : resolved_name;
-	if (void *vma_addr =
-		    resolve_exec_vma_by_file_offset(target_path, func_offset)) {
+	exec_vma found{};
+	if (void *vma_addr = resolve_exec_vma_by_file_offset(
+		    target_path, func_offset, &found)) {
+		// Kept only for mappings of a loaded object (not, for
+		// example, a file mapped by hand), as the base is.
+		Dl_info info{};
+		if (dladdr((void *)found.start, &info) != 0 &&
+		    info.dli_fbase != nullptr) {
+			std::lock_guard<std::mutex> guard(cache_mutex);
+			cache[key].vmas.emplace_back(found, info.dli_fbase);
+		}
 		return vma_addr;
 	}
 #endif
-	void *module_base_addr = get_module_base_addr(resolved_name.c_str());
+	void *module_base_addr = cached_base;
+	if (module_base_addr == nullptr)
+		module_base_addr = get_module_base_addr(resolved_name.c_str());
 	if (!module_base_addr) {
 		// It's not a bug, it might be attach to a unrelated process
 		// when using the LD_PRELOAD
@@ -222,11 +286,21 @@ resolve_function_addr_by_module_offset(const std::string_view &module_name,
 			    module_name);
 		return nullptr;
 	}
-	{
-		std::lock_guard<std::mutex> guard(base_cache_mutex);
-		base_cache[key] = module_base_addr;
+	if (cached_base == nullptr) {
+		std::lock_guard<std::mutex> guard(cache_mutex);
+		cache[key].base = module_base_addr;
 	}
-	return ((char *)module_base_addr) + func_offset;
+
+	// Reject both integer overflow and unmapped gaps. Missing mappings fail
+	// closed: an unchecked address must never reach Frida's trampoline writer.
+	const auto base = reinterpret_cast<uintptr_t>(module_base_addr);
+	if (func_offset > UINTPTR_MAX - base ||
+	    !module_contains_address(resolved_name, base + func_offset)) {
+		SPDLOG_ERROR("Module offset 0x{:x} is not mapped in {}",
+			     func_offset, module_name);
+		return nullptr;
+	}
+	return reinterpret_cast<void *>(base + func_offset);
 }
 
 // The symbol helpers below may run before any frida_attach_impl exists (ufunc
@@ -265,9 +339,69 @@ struct ExtentAccumulator {
 
 gboolean accumulate_range(const GumRangeDetails *details, gpointer user_data)
 {
+	auto *acc = static_cast<ExtentAccumulator *>(user_data);
+	const auto base = (uintptr_t)details->range->base_address;
+	const auto range_end = base + (uintptr_t)details->range->size;
+	if (base < acc->begin)
+		acc->begin = base;
+	if (range_end > acc->end)
+		acc->end = range_end;
+	return TRUE;
+}
+
+struct AddressLookup {
+	uintptr_t address;
+	bool found = false;
+};
+
+gboolean find_mapped_address(const GumRangeDetails *details, gpointer user_data)
+{
+	auto *lookup = static_cast<AddressLookup *>(user_data);
+	const auto start = (uintptr_t)details->range->base_address;
+	if (lookup->address >= start &&
+	    lookup->address - start < (uintptr_t)details->range->size) {
+		lookup->found = true;
+		return FALSE;
+	}
+	return TRUE;
+}
+
+} // namespace
+
+// gum's module lookup matches a full path for the base address but, for range
+// enumeration, only the executable name (the basename) is matched; a full path
+// yields zero ranges. Try the given name and then the basename so a path from
+// an attach spec still resolves.
+bool module_contains_address(std::string_view module_name, uintptr_t address)
+{
 	ensure_gum_initialized();
-	return (void *)(uintptr_t)gum_module_find_export_by_name(module_name,
-								 symbol_name);
+	AddressLookup lookup{address};
+	const std::string name(module_name);
+	gum_module_enumerate_ranges(name.c_str(), GUM_PAGE_READ,
+				    find_mapped_address, &lookup);
+	if (lookup.found)
+		return true;
+
+	const auto slash = name.find_last_of('/');
+	if (slash == std::string::npos || slash + 1 >= name.size())
+		return false;
+	gum_module_enumerate_ranges(name.c_str() + slash + 1, GUM_PAGE_READ,
+				    find_mapped_address, &lookup);
+	return lookup.found;
+}
+
+// Returns the span covering the module's mapped ranges (possibly with gaps),
+// or 0 when the ranges cannot be determined.
+uintptr_t module_mapped_extent(const std::string_view &module_name)
+{
+	ensure_gum_initialized();
+	const std::string name(module_name);
+	ExtentAccumulator acc;
+	gum_module_enumerate_ranges(name.c_str(), GUM_PAGE_READ,
+				    accumulate_range, &acc);
+	if (acc.end <= acc.begin)
+		return 0;
+	return acc.end - acc.begin;
 }
 int from_cb_idx_to_attach_type(int idx)
 {

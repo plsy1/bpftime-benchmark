@@ -103,15 +103,18 @@ int64_t syscall_trace_attach_impl::dispatch_syscall(int64_t sys_nr,
 						    int64_t user_sp,
 						    int64_t user_bp)
 {
-	if (sys_nr < 0 ||
-	    sys_nr >= static_cast<int64_t>(std::size(sys_enter_callbacks))) {
-		return orig_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6,
-				    user_ip, user_sp, user_bp);
-	}
-	const bool run_enter = !sys_enter_callbacks[sys_nr].empty() ||
-			       !global_enter_callbacks.empty();
-	const bool run_exit = !sys_exit_callbacks[sys_nr].empty() ||
-			      !global_exit_callbacks.empty();
+	// Numbers outside the per-syscall lists (x32, syscall(-1) probing for
+	// ENOSYS) run only the global programs: indexing the lists with them
+	// read neighbouring members or past the object.
+	const bool in_range =
+		sys_nr >= 0 &&
+		sys_nr < static_cast<int64_t>(std::size(sys_enter_callbacks));
+	const bool run_enter =
+		(in_range && !sys_enter_callbacks[sys_nr].empty()) ||
+		!global_enter_callbacks.empty();
+	const bool run_exit =
+		(in_range && !sys_exit_callbacks[sys_nr].empty()) ||
+		!global_exit_callbacks.empty();
 	const bool run_process_fork =
 		!process_fork_callbacks.empty() &&
 		is_process_creation_syscall(sys_nr);
@@ -121,6 +124,9 @@ int64_t syscall_trace_attach_impl::dispatch_syscall(int64_t sys_nr,
 #else
 	const bool run_process_exit = false;
 #endif
+	// Every system call of the process comes here: without programs, issue
+	// it before touching the thread-local override callback and the
+	// callback scope (dynamic TLS accesses in the dlmopen-ed agent).
 	if (!run_enter && !run_exit && !run_process_fork && !run_process_exit) {
 		return orig_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6,
 				    user_ip, user_sp, user_bp);
@@ -140,33 +146,26 @@ int64_t syscall_trace_attach_impl::dispatch_syscall(int64_t sys_nr,
 #endif
 	SPDLOG_DEBUG("Syscall callback {} {} {} {} {} {} {}", sys_nr, arg1,
 		     arg2, arg3, arg4, arg5, arg6);
-	// Numbers outside the per-syscall lists (x32, syscall(-1) probing for
-	// ENOSYS) run only the global programs.
-	const bool in_range =
-		sys_nr >= 0 && sys_nr < (int64_t)std::size(sys_enter_callbacks);
-	const bool has_enter = (in_range && !sys_enter_callbacks[sys_nr].empty()) ||
-			       !global_enter_callbacks.empty();
-	const bool has_exit = (in_range && !sys_exit_callbacks[sys_nr].empty()) ||
-			      !global_exit_callbacks.empty();
-	// Every system call of the process comes here: without programs, issue
-	// it before touching the thread-local override callback (two heap
-	// allocations and dynamic TLS accesses, about 200 ns on aarch64).
-	if (!has_enter && !has_exit)
-		return orig_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
-
-	// Set by bpf_override_return/bpf_set_retval. The callback captures only
-	// a pointer, so std::function keeps it in its local buffer: no
-	// allocation.
+	// Keep the std::function target within its small-object buffer. A syscall
+	// can be issued while libc holds its malloc lock, so allocating here would
+	// recursively enter malloc and deadlock the target process.
 	struct override_state {
-		bool overridden = false;
-		uint64_t value = 0;
-	} state;
-	auto set_override = [s = &state](uint64_t, uint64_t v) {
-		s->overridden = true;
-		s->value = v;
+		bool is_overrided = false;
+		uint64_t user_ret = 0;
+		uint64_t user_ret_ctx = 0;
+	} override_state;
+	auto run_callback = [](syscall_trace_attach_entry *prog,
+			       const auto &ctx) noexcept {
+		try {
+			auto ctx_copy = ctx;
+			uint64_t callback_ret = 0;
+			int err = prog->cb(&ctx_copy, sizeof(ctx_copy),
+					   &callback_ret);
+			SPDLOG_DEBUG("ret {}, err {}", callback_ret, err);
+		} catch (...) {
+		}
 	};
-	auto run_callbacks = [](const auto &callbacks,
-				const auto &ctx) noexcept {
+	auto run_enter_callbacks = [&](const auto &callbacks) noexcept {
 		for (auto prog : callbacks) {
 			if (prog->attach_type == ATTACH_SYSCALL_TRACE) {
 				trace_event_raw_sys_enter ctx = {};
@@ -281,40 +280,48 @@ int64_t syscall_trace_attach_impl::dispatch_syscall(int64_t sys_nr,
 		}
 	};
 
-	if (has_enter) {
-		trace_event_raw_sys_enter ctx;
-		memset(&ctx, 0, sizeof(ctx));
-		ctx.id = sys_nr;
-		ctx.args[0] = arg1;
-		ctx.args[1] = arg2;
-		ctx.args[2] = arg3;
-		ctx.args[3] = arg4;
-		ctx.args[4] = arg5;
-		ctx.args[5] = arg6;
+	if (run_enter) {
 		curr_thread_override_return_callback =
-			override_return_set_callback(set_override);
+			override_return_set_callback([state = &override_state](
+						     uint64_t ctx, uint64_t v) {
+				state->is_overrided = true;
+				state->user_ret = v;
+				state->user_ret_ctx = ctx;
+			});
 		if (in_range)
-			run_callbacks(sys_enter_callbacks[sys_nr], ctx);
-		run_callbacks(global_enter_callbacks, ctx);
+			run_enter_callbacks(sys_enter_callbacks[sys_nr]);
+		run_enter_callbacks(global_enter_callbacks);
 		curr_thread_override_return_callback.reset();
-		if (state.overridden)
-			return state.value;
+		if (override_state.is_overrided) {
+			return override_state.user_ret;
+		}
 	}
 	SPDLOG_DEBUG("executing original syscall");
-	int64_t ret = orig_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6);
-	if (has_exit) {
-		trace_event_raw_sys_exit ctx;
-		memset(&ctx, 0, sizeof(ctx));
-		ctx.id = sys_nr;
-		ctx.ret = ret;
+	int64_t ret = orig_syscall(sys_nr, arg1, arg2, arg3, arg4, arg5, arg6,
+				   user_ip, user_sp, user_bp);
+	if (run_process_fork && ret > 0) {
+#ifdef __linux__
+		int parent_pid = static_cast<int>(::syscall(SYS_gettid));
+#else
+		int parent_pid = static_cast<int>(getpid());
+#endif
+		run_process_fork_callbacks(parent_pid, static_cast<int>(ret));
+	}
+	if (run_exit) {
 		curr_thread_override_return_callback =
-			override_return_set_callback(set_override);
+			override_return_set_callback([state = &override_state](
+						     uint64_t ctx, uint64_t v) {
+				state->is_overrided = true;
+				state->user_ret = v;
+				state->user_ret_ctx = ctx;
+			});
 		if (in_range)
-			run_callbacks(sys_exit_callbacks[sys_nr], ctx);
-		run_callbacks(global_exit_callbacks, ctx);
+			run_exit_callbacks(sys_exit_callbacks[sys_nr], ret);
+		run_exit_callbacks(global_exit_callbacks, ret);
 		curr_thread_override_return_callback.reset();
-		if (state.overridden)
-			return state.value;
+		if (override_state.is_overrided) {
+			return override_state.user_ret;
+		}
 	}
 	return ret;
 }

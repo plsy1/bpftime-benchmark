@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
+#include <string_view>
 #include <vector>
 
 #if __linux__
@@ -29,7 +30,10 @@
     #error "Unsupported platform"
 #endif
 
-int my_sched_getcpu(); 
+int my_sched_getcpu();
+int bpftime_get_native_cpu();
+int bpftime_get_current_bpf_cpu();
+void bpftime_set_current_bpf_cpu(int cpu);
 // Possible CPUs (/sys/devices/system/cpu/possible): CPUs can come online
 // after a map is created. The mask may have holes ("0,2-3").
 // The possible CPU numbers, ascending.
@@ -44,4 +48,30 @@ int bpftime_cpu_index_limit();
 bool bpftime_parse_cpu_list(const char *text, std::vector<int> &ids);
 // Tests: use this list instead of the system's.
 void bpftime_set_possible_cpus_for_test(const std::vector<int> &ids);
+
+namespace bpftime::rootless
+{
+// Use the tracefs mount path as the stable ID input. The debugfs alias must
+// resolve to the same ID; otherwise the attach table cannot find that event.
+inline int32_t synthetic_tracepoint_id(std::string_view id_path) noexcept
+{
+	constexpr std::string_view debugfs_prefix =
+		"/sys/kernel/debug/tracing/events/";
+	constexpr std::string_view tracefs_prefix =
+		"/sys/kernel/tracing/events/";
+	uint32_t hash = 2166136261U;
+	const auto feed = [&](std::string_view path) {
+		for (unsigned char ch : path) {
+			hash ^= ch;
+			hash *= 16777619U;
+		}
+	};
+	if (id_path.starts_with(debugfs_prefix)) {
+		feed(tracefs_prefix);
+		id_path.remove_prefix(debugfs_prefix.size());
+	}
+	feed(id_path);
+	return static_cast<int32_t>(1024U + hash % 100000000U);
+}
+} // namespace bpftime::rootless
 #endif

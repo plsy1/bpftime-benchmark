@@ -131,10 +131,25 @@ set_property(TARGET bpftime_config_header_test PROPERTY CXX_STANDARD 20)
 add_dependencies(bpftime_runtime_tests bpftime_config_header_test)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_sources(bpftime_runtime_tests PRIVATE test_get_current_uid_gid.cpp
+    target_sources(bpftime_runtime_tests PRIVATE
+        ../syscall-server/syscall_server_utils.cpp
+        ../syscall-server/syscall_context.cpp)
+    target_include_directories(bpftime_runtime_tests PRIVATE ../syscall-server)
+    target_link_libraries(bpftime_runtime_tests PRIVATE bpftime_syscall_trace_attach_impl ${CMAKE_DL_LIBS})
+    target_link_options(bpftime_runtime_tests PRIVATE -Wl,--wrap=dlsym)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
+        target_sources(bpftime_runtime_tests PRIVATE
+            test_rootless_seccomp_constructor.cpp)
+    endif()
+    target_sources(bpftime_runtime_tests PRIVATE
+        test_get_current_uid_gid.cpp
+        test_get_current_comm.cpp
         ${CMAKE_SOURCE_DIR}/runtime/agent/credential_hooks.cpp)
     target_link_options(bpftime_runtime_tests PRIVATE
-        -Wl,--wrap=getuid -Wl,--wrap=getgid -Wl,--wrap=sched_getcpu)
+        -Wl,--wrap=getuid -Wl,--wrap=getgid -Wl,--wrap=sched_getcpu
+        # Runtime unit tests require BPFTIME_BUILD_WITH_LIBBPF.
+        -Wl,--wrap=btf__parse_raw
+        -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc)
 endif()
 
 if(ENABLE_PROBE_READ_CHECK)
@@ -150,6 +165,8 @@ if(UNIX AND NOT APPLE)
         assets/shm_allocation_test_helper.c)
     add_executable(bpftime-runtime-options-test-helper
         assets/runtime_options_test_helper.c)
+    add_executable(bpftime-map-syscall-test-helper
+        assets/map_syscall_test_helper.c)
     add_executable(bpftime-logger-exit-test-helper
         assets/logger_exit_test_helper.cpp)
     add_library(bpftime-close-at-exit-test-lib SHARED
@@ -195,12 +212,13 @@ if(UNIX AND NOT APPLE)
         bpftime-agent
         bpftime-syscall-server
         bpftime-runtime-options-test-helper
+        bpftime-map-syscall-test-helper
         bpftime-logger-exit-test-helper
         bpftime-close-at-exit-test-helper
         bpftime-shm-allocation-test-helper)
     file(GENERATE
         OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/shm_allocation_test_paths.hpp"
-        CONTENT "#define BPFTIME_SHM_ALLOCATION_TEST_HELPER \"$<TARGET_FILE:bpftime-shm-allocation-test-helper>\"\n#define BPFTIME_SYSCALL_SERVER_LIBRARY \"$<TARGET_FILE:bpftime-syscall-server>\"\n#define BPFTIME_AGENT_LIBRARY \"$<TARGET_FILE:bpftime-agent>\"\n#define BPFTIME_LOGGER_EXIT_TEST_HELPER \"$<TARGET_FILE:bpftime-logger-exit-test-helper>\"\n#define BPFTIME_CLOSE_AT_EXIT_TEST_HELPER \"$<TARGET_FILE:bpftime-close-at-exit-test-helper>\"\n")
+        CONTENT "#define BPFTIME_SHM_ALLOCATION_TEST_HELPER \"$<TARGET_FILE:bpftime-shm-allocation-test-helper>\"\n#define BPFTIME_MAP_SYSCALL_TEST_HELPER \"$<TARGET_FILE:bpftime-map-syscall-test-helper>\"\n#define BPFTIME_SYSCALL_SERVER_LIBRARY \"$<TARGET_FILE:bpftime-syscall-server>\"\n#define BPFTIME_AGENT_LIBRARY \"$<TARGET_FILE:bpftime-agent>\"\n#define BPFTIME_ROOTLESS_CUSTOM_START_HELPER \"${_rootless_custom_helper_expr}\"\n#define BPFTIME_ROOTLESS_NORMAL_START_HELPER \"${_rootless_normal_helper_expr}\"\n#define BPFTIME_LOGGER_EXIT_TEST_HELPER \"$<TARGET_FILE:bpftime-logger-exit-test-helper>\"\n#define BPFTIME_CLOSE_AT_EXIT_TEST_HELPER \"$<TARGET_FILE:bpftime-close-at-exit-test-helper>\"\n")
     target_include_directories(bpftime_runtime_tests PRIVATE
         "${CMAKE_CURRENT_BINARY_DIR}")
 endif()
