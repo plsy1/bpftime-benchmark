@@ -591,3 +591,13 @@ accepted 2026-11-11/12 (`1b3d9c99`, `aa6eb973`, `46f5a7cb`, `52126f33`).
 Replaying the adapted copies onto a newer official snapshot conflicts less than
 replaying the originals from the archive branches, which stay required for
 history only.
+
+On 2026-11-24 official moved from `4708f409` to `70f7bc1f` (137 commits) and
+the stack was migrated by hand: the 240 commits were replayed (68 conflicts
+took this tree's side of each hunk), then `Reconcile the replayed stack with
+official 70f7bc1f` sets the tree to a tested merge of the two (what was taken
+from upstream and what kept is in its message), followed by three commits
+that remove upstream's per-CPU execution lock (#730) and epoll signal taking
+(#785/#805) and adapt tests. The list now names the 244 commits of
+`dev/uprobe-official-70f7bc1f3363` (`70f7bc1f..c71a9987`). Intermediate
+replayed commits before the reconcile commit are not meant to build.
