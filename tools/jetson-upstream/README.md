@@ -583,3 +583,11 @@ Run the candidate gate by hand on a patched worktree with:
 ```sh
 python3 tools/jetson-upstream/tracker.py test-candidate <worktree>
 ```
+
+On 2026-11-24 the list was switched to the 240 commits of
+`dev/uprobe-official-4708f4092d1e` (`4708f409..52126f33`): the 236 earlier
+commits as already adapted to official `4708f409`, plus the four GPU commits
+accepted 2026-11-11/12 (`1b3d9c99`, `aa6eb973`, `46f5a7cb`, `52126f33`).
+Replaying the adapted copies onto a newer official snapshot conflicts less than
+replaying the originals from the archive branches, which stay required for
+history only.
