@@ -1,0 +1,5 @@
+# E7 counters (Jetson), policy M, 16 B, wrk -d 20, perf stat on the nginx worker for t=2..18 s; not part of throughput statistics.
+# Same lines as x86 E7-counters.txt plus O, L1, L2, L3port at S4 (Jetson real-patch ladder). cyc events from config perf_cyc_events (no cpu_core PMU on Orin).
+--exp E7 --round 0 --payload 16 --reps 3 --secs 20 --perf-mode cyc --legs B,K@S1,K@S3,K@S4,Odiag@S1,Odiag@S2h,Odiag@S4,Odiag@S4+NO_PIN,Odiag@S4+ALL3,D@S1,D@S4,Dpc@S4,O@S4,L1@S4,L2@S4,L3port@S4
+--exp E7 --round 1 --payload 16 --reps 3 --secs 20 --perf-mode sc --legs B,K@S1,K@S3,K@S4,Odiag@S1,Odiag@S2h,Odiag@S4,Odiag@S4+NO_PIN,Odiag@S4+ALL3,D@S1,D@S4,Dpc@S4,O@S4,L1@S4,L2@S4,L3port@S4
+--exp E7 --round 2 --payload 16 --reps 3 --secs 20 --legs K@S1+BPFSTATS,K@S3+BPFSTATS,K@S4+BPFSTATS

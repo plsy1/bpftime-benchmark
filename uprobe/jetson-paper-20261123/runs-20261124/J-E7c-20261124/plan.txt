@@ -1,0 +1,4 @@
+# E7c (Jetson, supplementary, NUC suggestion 11-24): cache/TLB misses of the nginx worker per request, to test whether the
+# in-application cycles (hook, pin) exceed the microbenchmark unit costs because of the A78AE's caches/TLBs.
+# 6 events = the Orin PMU's 6 counters (no multiplexing). Policy M, 16 B, wrk -d 20, perf window t=2..18 s.
+--exp E7c --round 0 --payload 16 --reps 3 --secs 20 --perf-mode L1-icache-load-misses,L1-dcache-load-misses,iTLB-load-misses,dTLB-load-misses,l2d_cache_refill,instructions --legs B,K@S1,Odiag@S1,D@S1,K@S4,Odiag@S4,Odiag@S4+NO_PIN,D@S4

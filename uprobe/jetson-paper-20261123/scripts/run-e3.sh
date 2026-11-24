@@ -2,6 +2,8 @@
 # E3 full10 microbenchmark (Jetson), structure of the x86 run-e3.sh:
 #   bookend 0 -> run1 A -> run2 B -> bookend 2 -> run3 B -> run4 A -> bookend 4  (ABBA from the arguments)
 # Usage: run-e3.sh <session-id> <arm> <arm> <arm> <arm>      e.g. J-E3-20261123 O D D O
+# PART2=1: only the second half (bookend 2 -> run3 -> run4 -> bookend 4), for a session whose first half finished
+# (arms 1-2 are still given so the runner checks cover all four).
 # Runner per arm: runners/<arm>/bpftime (D-tree benchmark/, frozen test + uprobe, arm's agent,
 # syscall server, embed and bpftimetool). Everything on cpu5 at 1.728 GHz (jetson_clocks).
 set -euo pipefail
@@ -27,7 +29,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 date --iso-8601=seconds >"$LOG/started-at.txt"
 printf '%s\n' "${ARMS[@]}" >"$LOG/order.txt"
-"$R/harness/check_env.sh" start "$LOG" 130
+"$R/harness/check_env.sh" start "$LOG" "${E3_GUARD_MIN:-170}"
 (cd "$R/runners/D/bpftime/benchmark" && sha256sum --check --quiet "$R/runners/bench-sha256.txt")
 for a in "${ARMS[@]}"; do
   B=$R/runners/$a/bpftime
@@ -59,7 +61,7 @@ fullrun() { # n arm
   test -z "$(find /dev/shm -mindepth 1 -name 'bpftime*')"
   date --iso-8601=seconds >"$F/run$n-$a.started-at"
   echo "run$n $a start $(date +%T)" >>"$LOG/steps.txt"
-  (cd "$B" && sudo -n timeout 3600 taskset -c $CPU env -u BPFTIME_ARRAY_JIT_INLINE PYTHONUNBUFFERED=1 BPFTIME_LOG_OUTPUT=console \
+  (cd "$B" && sudo -n timeout "${E3_RUN_TIMEOUT:-3600}" taskset -c $CPU env -u BPFTIME_ARRAY_JIT_INLINE PYTHONUNBUFFERED=1 BPFTIME_LOG_OUTPUT=console \
       python3 -u benchmark/uprobe/benchmark.py --iter 10) >"$LOG/run$n-$a.log" 2>&1
   echo "run$n $a end   $(date +%T)" >>"$LOG/steps.txt"
   for x in benchmark-output.json results.md benchmark-logs.txt; do
@@ -78,8 +80,10 @@ for g, c in (('kernel_uprobe', 17), ('userspace_uprobe', 17), ('embed', 1)):
 print('validation ok', sys.argv[1])
 PY
 }
-bookend 0
-fullrun 1 "${ARMS[0]}"; fullrun 2 "${ARMS[1]}"
+if [ "${PART2:-0}" != 1 ]; then
+  bookend 0
+  fullrun 1 "${ARMS[0]}"; fullrun 2 "${ARMS[1]}"
+fi
 bookend 2
 fullrun 3 "${ARMS[2]}"; fullrun 4 "${ARMS[3]}"
 bookend 4
