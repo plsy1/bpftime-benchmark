@@ -70,3 +70,7 @@ Every perf-buffer leg reports a few counted losses in some runs. Sum over 10 run
 ## Reading
 
 The rebase onto upstream head changes nothing measurable on x86. The new Tern matches the old one within 1.5%. Exactness still costs 1.53 µs per event. The exact, checked runtime is 12.0% faster than the stock kernel and 1.1% slower than the batched one. The paper's x86 Tern and exact-runtime numbers (E15/E16, dev 9ccda7e8) therefore also describe Tern on current upstream. Tern on upstream head is 1.14× upstream's throughput (checks on: 1.13×).
+
+## Probe-attachment scan (all x86 paper sessions)
+
+The Orin E18 found one stock-segment run in which the probe was not working (sslsniff CPU 0.03 s, rps equal to B). On x86, every throughput leg in E2o, E7c, E15, E16, E17 and E18 is a counted leg, so each run has direct evidence: delivered/expected ≥ 0.9993 and sslsniff CPU ≥ 1.0 s on every non-B row, and no leg duration above twice the median. The rows that deliver 0 events are all hook-stage (S1) legs, which emit no output by design. Each of those runs is clearly below B in the same round (K@S1 about 70k, O/Ol/D/Odiag@S1 about 91–98k, B about 108k), so the hook ran in every one. No x86 row needs to be excluded.
