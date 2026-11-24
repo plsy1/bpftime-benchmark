@@ -1,0 +1,6 @@
+# E15: kernel baseline with batched consumer wakeups (review r2: K wakes every sample by libbpf default,
+# official polls, Tern naps). K+SSLSNIFF_PB_WAKEUP=N sets perf_buffer_opts.sample_period = wakeup_events = N.
+# Policy M, 16 B, 2 rounds x 10 reps, rotated. Audit applies (final perf_buffer__consume flushes).
+# Jetson: + O-stock, D-stock (16 B gate (a) fallback; throughput of O and D from the stock legs).
+--exp E15 --round 0 --payload 16 --reps 10 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,K+SSLSNIFF_PB_WAKEUP=256,O,L3port,D,O-stock,D-stock
+--exp E15 --round 1 --payload 16 --reps 10 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,K+SSLSNIFF_PB_WAKEUP=256,O,L3port,D,O-stock,D-stock

@@ -24,3 +24,12 @@ NUC session). The x86 counterpart is `uprobe/x86-nuc-paper-20261123/` on benchma
 - 2026-11-23 E2 supplement E2s (B#S, K#S, O#S, Odiag#S, 10 reps): O#S was not in the E2 leg set and gate (b) failed on the Jetson, so G2 cannot be read from Odiag#S.
 - 2026-11-23 E3 uses the shared kernel_bookend.py (sha256 63d7542c…) and the x86 runner structure (bookend 0, A, B, bookend 2, B, A, bookend 4) on cpu5.
 - 2026-11-23 Freezing made builds/ itself read-only, so the first L1 build could not copy its artifacts; the L1 copy step was completed by hand from the finished build directory (same commands as build-arm.sh), L2 rebuilt with the script.
+
+## 11-24 afternoon and evening sessions
+- `runs-20261124/`: also E3pc (complete), E3pc2, E14, E15, E16, E18a/E18b (E18 split around apt-daily,
+  pooled), the two smokes; `refused/` keeps the logs of guard-refused attempts. Per-leg captures stay on the Jetson
+  except `J-E18a-20261124/excluded-leg-cap/` (the E18 leg excluded for a probe that was not running).
+- `analysis/`: E14-E3pc.md, E15-E16.md (batched-wakeup kernel, exact identity), E18.md (new base: official
+  70f7bc1f, dev c71a9987, dexact on c71a9987), E18-table-{n19,all}.txt, E18-filtered/ (rows without the excluded leg).
+- `builds/`: Dx, Ol, Olpc, Dn, Dnpc, Dxn added. `scripts/pairgmr.py`: paired GMR with 95 % t-CI used for the paper numbers.
+- Deviations for these sessions are in DEVIATIONS.md.

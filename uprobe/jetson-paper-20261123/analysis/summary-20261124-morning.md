@@ -8,10 +8,12 @@ O#S/K 0.998 [0.982, 1.014], Odiag#S/K 1.000 [0.990, 1.011]. Under M O/K is 0.892
 vs K is almost entirely a policy-M (two-core nginx mask) effect. G2: decided (O measured under S).
 
 ## E4 headline (n = 30 per payload)
-- 16 B: O 0.892 [0.885, 0.898], D 1.199 [1.185, 1.214], Dpc 1.085, Opc 0.825. Stock legs equal to counting legs
-  (O-stock 0.893, D-stock 1.198, Opc-stock 0.827, Dpc-stock 1.075). Every tracing leg ev/req 2.000, del/exp 1.0000.
+- 16 B (throughput from the -stock legs, the gate (a) fallback in DEVIATIONS; corrected 11-24 afternoon, the first
+  version quoted the counting legs): O 0.8931 [0.8862, 0.9001], D 1.1977 [1.1839, 1.2117], Dpc 1.0751 [1.0641, 1.0861],
+  Opc 0.8266. Counting legs (audit only): O 0.892, D 1.199, Dpc 1.085, Opc 0.825. Every tracing leg ev/req 2.000,
+  del/exp 1.0000. rows.jsonl of J-E4 also holds 10 E4old rows: analyses must pass `--exp E4`.
 - 256 KB: O 0.922 but delivers 37.4 % of the response bytes (7.92 vs 17.87 ev/req) with 0 reported lost (silent);
-  Opc 40.2 % of bytes, also silent. D 1.136 (D-stock 1.131), Dpc 1.021; K, D, Dpc deliver ≥ 99.87 % and missing = reported.
+  Opc 40.2 % of bytes, also silent. D-stock 1.1308 (counting leg 1.136), Dpc 1.021; K, D, Dpc deliver ≥ 99.87 % and missing = reported.
 - x86 for comparison: O 1.041, D 1.532 (16 B).
 
 ## E5-R2 (n = 10): O 0.887, D 1.201, Dpc 1.089 — within 0.5 pp of E4.

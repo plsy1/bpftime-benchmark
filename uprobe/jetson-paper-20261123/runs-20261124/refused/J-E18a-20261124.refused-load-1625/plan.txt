@@ -1,0 +1,8 @@
+# E18 split by round around apt-daily (18:03:59): E18a = round 0, E18b = round 1.
+# E18: the new base. Official upstream master 70f7bc1f (Ol, checks off; Olpc, checks on = upstream default) against
+# the paper's O (4708f409), and the dev moved onto it: Dn = dev/uprobe-official-70f7bc1f3363 c71a9987 (checks off),
+# Dxn = Dn + paper diag (ladder/dexact-c71a9987: 845c77c9 + the comm port of 1d8eda4d), checks on, as Dx.
+# Dnpc = Dn with checks on (as Dpc). Old D and Dpc repeated in the same round (as on x86).
+# K and K+WAKEUP=32 as in E15/E16. Ol/Olpc/Dn built with transformer + cli like O/D; Dxn like Dx.
+# 16 B, policy M; bpftime throughput from the -stock legs (gate (a) fallback), audit from the counting legs.
+--exp E18 --round 0 --payload 16 --reps 10 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,O,Ol,Olpc,D,Dpc,Dn,Dnpc,Dxn,Dxn+BPFTIME_DIAG_EXACT=1,O-stock,Ol-stock,Olpc-stock,D-stock,Dpc-stock,Dn-stock,Dnpc-stock,Dxn-stock,Dxn-stock+BPFTIME_DIAG_EXACT=1

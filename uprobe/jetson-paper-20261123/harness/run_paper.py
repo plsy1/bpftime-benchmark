@@ -237,7 +237,7 @@ def run_leg(cfg, leg, conns, secs, threads, capdir):
             nginx, worker = start_nginx(pol['nginx'])
         elif base == 'K':
             nginx, worker = start_nginx(pol['nginx'])
-            env = dict(base_env)
+            env = dict(base_env, **leg['env'])  # E15: loader env such as SSLSNIFF_PB_WAKEUP
             if 'BPFSTATS' in leg['flags']:
                 env['SSLSNIFF_BPF_STATS'] = '1'
             sniff = subprocess.Popen(sniff_args + ['-p', str(worker)], env=env, stdout=outf, stderr=errf,

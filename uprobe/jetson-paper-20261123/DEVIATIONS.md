@@ -25,3 +25,52 @@
 - 2026-11-24 E12 O opensnoop rc 127: official 4708f409's libbpftime-agent-transformer.so imports `syscall_addr`, which official defines only in x86-64 inline asm (text_segment_transformer.cpp), so the workload fails to load on aarch64 ("undefined symbol: syscall_addr"). Recorded as "not supported on aarch64" (functional absence), same cause as E11 layers-O rc 127. Not a build error of the frozen O.
 - 2026-11-24 E13 n4-many kernel M=1000 marked ok=false in both reps: outattach did not exit within the runner's 60 s after detaching 1,000 uprobes (TimeoutExpired); the start-time samples were collected before the teardown and are reported, flagged.
 - 2026-11-24 Chain g (09:05) was refused again for E14 and E3pc2: the guard also rejects a timer that fired within the last 20 min (man-db LastTrigger 09:03:53). Attempts kept as *.refused-guard-mandb2 (no measurement started). Chain h restarts both at 09:24:30.
+- 2026-11-24 E15 (NUC request: K with batched consumer wakeups). sslsniff-src/sslsniff.c replaced by the NUC patch (sha 702ab070; the pre-patch file kept as sslsniff.c.pre-wb, identical to the NUC's pre-wb). Only sslsniff-s4 rebuilt (scripts/build-sslsniff-s4-wb.sh, new sha 3cceb9c8); old binary in sslsniff-archive/. Without SSLSNIFF_PB_WAKEUP the loader passes zeroed perf_buffer_opts, i.e. libbpf's default (sample_period 1), so sessions before and after use the same behaviour. harness/run_paper.py replaced by the NUC's edeec7df (K legs now get leg env; old file kept as run_paper.py.v2-274419bb). Jetson plan adds O-stock and D-stock (16 B gate (a) fallback). K_wb legs are counting legs (the stock loader has no switch), as on x86.
+- 2026-11-24 E16 (NUC request: exact checked runtime). Dx = dev 9ccda7e8 + the NUC's two format-patch commits applied with git am on branch ladder/dexact-9ccda7e8 (local SHAs 845c77c9, 1d8eda4d, tree 55471b35; x86 SHAs 87e0117a, 66ed229e), built with checks ON as Dpc (build-arm.sh Dx … checks). builds/ was made writable for this build and frozen again afterwards. config-jetson.json gains "Dx". Jetson plan adds D-stock, Dpc-stock, Dx-stock, Dx-stock+BPFTIME_DIAG_EXACT=1.
+
+## 2026-11-24 14:45 JST: apt timers restored, Jetson paper queue finished
+
+E15 (J-E15-20261124) and E16 (J-E16-20261124) ended 14:36, all rows valid; analysis/E15-E16.md.
+apt-daily.timer and apt-daily-upgrade.timer, stopped by the user on 11-23 22:59, were started again
+(`systemctl start`). No further Jetson paper measurements are queued; any Orin O-latest / new-D round
+will start with a fresh guard check.
+
+## 2026-11-24 16:10 JST: E18, the new base (added after the plan of record)
+
+User (via the NUC session): run the daily task, move dev to the latest official, then measure again.
+- Official upstream master 70f7bc1f (137 commits past 4708f409) is the new base; the daily pushed official-latest
+  and the migrated dev `dev/uprobe-official-70f7bc1f3363` = c71a9987 (240 replayed commits + a reconcile commit
+  + removal of upstream's #730 per-CPU execution lock and #785/#805 epoll signal taking + test updates).
+- New arms, built with scripts/build-arm.sh (same options as O/D/Dx):
+  - Ol = 70f7bc1f, checks off;
+  - Olpc = 70f7bc1f, checks on (upstream's default);
+  - Dn = c71a9987, checks off;
+  - Dxn = ladder/dexact-c71a9987 (845c77c9 replayed, 1d8eda4d ported onto the new comm cache), checks on.
+- Worktrees: ~/src/bpftime-paper/{official-70f7bc1f,dev-c71a9987,dexact-c71a9987}.
+- Build chain: scripts/build-newbase-20261124.sh. builds/ was made writable for it, then refrozen.
+- config-jetson.json: Ol, Olpc, Dn and Dxn added.
+- Added after the NUC's x86 E18 set: Dnpc = c71a9987 with checks on (scripts/build-dnpc-20261124.sh), and the
+  old D and Dpc repeated in the round.
+- plans/E18.txt: 2 rounds × 10 reps, 21 legs, 16 B, policy M, with stock legs.
+- The daily task ran jetson_clocks again (14:46). Clocks are re-checked before E18.
+- The frozen paper arms (O, D, Dx, ...) and their numbers are unchanged; E18 is an addition.
+- 16:23 the guard refused E18 (apt-daily.timer due 18:03:59 inside the 120 min window; refused dirs
+  `J-E18-20261124.refused-load`, `.refused-guard-apt`). E18 is split by round: J-E18a (round 0, plans/E18a.txt)
+  now, J-E18b (round 1, plans/E18b.txt) after the apt run (guard: no timer fired within 20 min). Analysis pools both.
+
+## 2026-11-24 19:20 JST: E18a refused at 16:25, re-run after E18b
+
+E18a (round 0) was refused by the start guard at 16:25 (load 0.42 right after waitload passed);
+kept as `raw/J-E18a-20261124.refused-load-1625`. E18b (round 1) ran 18:26-19:15, 210/210 valid.
+E18a re-run by `scripts/chain-20261124k.sh` (same plan, retries on guard refusal), so round 1
+precedes round 0 in wall time; rounds are pooled as before.
+
+## 2026-11-24 20:20 JST: E18 analysis exclusions and notes
+
+- E18a round 0 rep 3 `Dxn-stock+BPFTIME_DIAG_EXACT=1` excluded from the headline: 19,289 rps (= B),
+  sslsniff CPU 0.03 s (other 680 stock legs >= 0.40 s), wall 37.9 s (median 14.2 s). The probe
+  was not running; stock legs have no event count, so the harness marked it valid. Rule applied
+  after the fact: stock leg with sslsniff CPU < 0.3 s. Scan of all Jetson sessions found no other
+  such row. Both n = 19 and n = 20 numbers are in analysis/E18.md.
+- A tool call at 19:55:04 JST (progress check requested by the user) ran during E18a round 0
+  rep 6. Excluding rep 6-7 changes no E18 ratio by more than 0.6 % and no verdict.

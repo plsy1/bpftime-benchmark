@@ -1,0 +1,7 @@
+# E16: an exact, checked runtime measured directly (review r2: the +25%/tie claim was an additive estimate).
+# Dx = dev 9ccda7e8 + paper diag 66ed229e (ladder/dexact-9ccda7e8), probe-read/write checks ON (as Dpc).
+# Dx+BPFTIME_DIAG_EXACT=1: pid/tid, uid/gid and comm queried from the kernel on every call.
+# Dx without the switch must equal the frozen Dpc (equivalence control). K+WAKEUP=32 is the tuned kernel (E15).
+# Jetson: + D-stock, Dpc-stock, Dx-stock, Dx-stock+BPFTIME_DIAG_EXACT=1 (16 B gate (a) fallback; bpftime throughput from the stock legs; K and K_wb are counting legs as on x86).
+--exp E16 --round 0 --payload 16 --reps 10 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,D,Dpc,Dx,Dx+BPFTIME_DIAG_EXACT=1,D-stock,Dpc-stock,Dx-stock,Dx-stock+BPFTIME_DIAG_EXACT=1
+--exp E16 --round 1 --payload 16 --reps 10 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,D,Dpc,Dx,Dx+BPFTIME_DIAG_EXACT=1,D-stock,Dpc-stock,Dx-stock,Dx-stock+BPFTIME_DIAG_EXACT=1
