@@ -1054,7 +1054,8 @@ invocation after a failed one (about 1 ms each, logged each time: 1,122
 calls/s for funclatency with the unsupported helper 37). `bpftime_prog_load`
 now marks such a program `jit_failed`, logs once that it is disabled, and
 `bpftime_prog_exec` returns `-ENOEXEC` without running; the Frida callback
-does not log it again. VMs with an interpreter (ubpf) still fall back to it.
+does not log it again. Since upstream #705 a program calling a helper nobody
+registered never gets here: it is refused at load. VMs with an interpreter (ubpf) still fall back to it.
 A disabled program is not a stub for the missing helper: the tool loads but
 records nothing.
 
@@ -1091,7 +1092,9 @@ a program calls a helper nobody registered, `bpftime_prog_load` runs
 analysis that tracks scalars and pointers into frozen read-only array values
 and follows a branch decided by them one way only. Calls of missing helpers it
 finds unreachable go to a private slot (`BPFTIME_DEAD_CALL_SLOT`, 8187) whose
-helper reports that it ran; a reachable one still fails the compile. A kfunc
+helper reports that it ran; a reachable one is refused at load (`-EINVAL`,
+upstream #705, as the kernel's verifier; the audit runs on the rewritten
+instructions, and the private slots count as registered). A kfunc
 call (`BPF_PSEUDO_KFUNC_CALL`, src_reg 2, imm a BTF id) is never registered and
 counts as missing (before 11-05 one in dead code kept the program disabled). It is
 conservative: unmodeled instructions leave their registers unknown, joins turn

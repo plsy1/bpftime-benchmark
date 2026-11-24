@@ -27,8 +27,9 @@ void produce(bpftime::ringbuf &rb, size_t size, uint8_t fill)
 	void *sample = rb.reserve(size, MAP_FD);
 	REQUIRE(sample != nullptr);
 	// bpf_ringbuf_submit() recovers the map fd from the word right before
-	// the sample, so it must be the fd stored in the header
-	REQUIRE(static_cast<int32_t *>(sample)[-1] == MAP_FD);
+	// the sample (a tag: the fd above the owner slot, ringbuf_record_tag)
+	REQUIRE(bpftime::ringbuf_tag_fd(static_cast<int32_t *>(sample)[-1]) ==
+		MAP_FD);
 	std::memset(sample, fill, size);
 	rb.submit(sample, false);
 }

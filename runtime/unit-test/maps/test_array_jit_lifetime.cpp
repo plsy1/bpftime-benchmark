@@ -489,7 +489,7 @@ TEST_CASE("Default array JIT preserves standard mutations on retained per-CPU ar
 	uint64_t result=0; errno=EDOM;
 	REQUIRE(prog.bpftime_prog_exec(&input,sizeof(input),&result)==0);
 	REQUIRE(result==37); REQUIRE(input.update_status==0);
-	REQUIRE(input.delete_status==UINT64_MAX); REQUIRE(errno==EINVAL);
+	REQUIRE(input.delete_status==static_cast<uint64_t>(-EINVAL)); REQUIRE(errno==EINVAL);
 	REQUIRE(*static_cast<const uint64_t *>(bpftime_map_lookup_elem(fd,&key))==999);
 }
 
@@ -1113,10 +1113,11 @@ TEST_CASE("Typed hash helpers match the generic helper for other handles",
 		errno = 0;
 		REQUIRE(bpftime_map_lookup_elem_helper(fd, key_arg, 0, 0, 0) == 0);
 		REQUIRE(errno == ENOENT);
+		// Map helpers return -errno as the kernel's (upstream #853).
 		REQUIRE(bpftime_hash_map_update_elem_helper(fd, key_arg, value_arg, BPF_ANY, 0) ==
-			static_cast<uint64_t>(-1));
-		REQUIRE(bpftime_map_update_elem_helper(fd, key_arg, value_arg, BPF_ANY, 0) ==
-			static_cast<uint64_t>(-1));
+			static_cast<uint64_t>(-ENOENT));
+		REQUIRE(static_cast<int64_t>(bpftime_map_update_elem_helper(
+				fd, key_arg, value_arg, BPF_ANY, 0)) < 0);
 	}
 }
 
@@ -1194,10 +1195,10 @@ TEST_CASE("Typed hash delete helper matches the generic helper for other handles
 	REQUIRE(bpftime_map_lookup_elem(105, &key) == nullptr);
 	for (uint64_t fd : {uint64_t(99), uint64_t(1u << 30)}) {
 		errno = 0;
-		REQUIRE(bpftime_hash_map_delete_elem_helper(fd, key_arg, 0, 0, 0) == static_cast<uint64_t>(-1));
+		REQUIRE(bpftime_hash_map_delete_elem_helper(fd, key_arg, 0, 0, 0) == static_cast<uint64_t>(-ENOENT));
 		REQUIRE(errno == ENOENT);
 		errno = 0;
-		REQUIRE(bpftime_map_delete_elem_helper(fd, key_arg, 0, 0, 0) == static_cast<uint64_t>(-1));
+		REQUIRE(bpftime_map_delete_elem_helper(fd, key_arg, 0, 0, 0) == static_cast<uint64_t>(-ENOENT));
 		REQUIRE(errno == ENOENT);
 	}
 }

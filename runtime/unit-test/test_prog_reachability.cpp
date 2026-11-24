@@ -207,7 +207,7 @@ TEST_CASE("A missing helper behind a read-only constant does not disable the "
 	REQUIRE(ret == 7);
 
 	// Not frozen, or not read-only to programs: not a constant, the call
-	// can run, and the program stays disabled.
+	// can run, and the program is refused at load (upstream #705).
 	const int open_fd = make_rodata("open_rodata", BPF_F_RDONLY_PROG);
 	const int writable_fd = make_rodata("writable", 0);
 	REQUIRE(bpftime_map_freeze(writable_fd) == 0);
@@ -216,9 +216,7 @@ TEST_CASE("A missing helper behind a read-only constant does not disable the "
 		auto other = program(fd);
 		bpftime_prog disabled(other.data(), other.size(), "not_constant",
 				      runtime_config{});
-		REQUIRE(disabled.bpftime_prog_load(true) == 0);
-		REQUIRE(disabled.bpftime_prog_exec(memory, sizeof(memory),
-						   &ret) == -ENOEXEC);
+		REQUIRE(disabled.bpftime_prog_load(true) == -EINVAL);
 	}
 }
 

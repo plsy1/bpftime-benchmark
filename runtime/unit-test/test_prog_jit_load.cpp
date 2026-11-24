@@ -115,23 +115,18 @@ TEST_CASE("A bpf-to-bpf callee's stack frame does not overlap its caller's",
 
 // A program calling an unregistered helper (funclatency's helper 37) cannot
 // be JIT compiled. The LLVM VM has no interpreter and retried the compile on
-// every invocation (about 1 ms each, logged each time); the program is now
-// disabled once.
-TEST_CASE("A program whose JIT compile fails is disabled", "[jit_load]")
+// every invocation (about 1 ms each, logged each time). A reachable call of a
+// helper nobody registered is now refused at load, as the kernel's verifier
+// does (upstream #705); calls in dead code are rewritten first (below).
+TEST_CASE("A program calling an unregistered helper is refused at load",
+	  "[jit_load]")
 {
 	const ebpf_inst code[] = {
 		{ .code = 0x85, .dst_reg = 0, .src_reg = 0, .off = 0, .imm = 37 },
 		{ .code = 0x95, .dst_reg = 0, .src_reg = 0, .off = 0, .imm = 0 },
 	};
 	bpftime_prog prog(code, 2, "missing_helper", runtime_config{});
-	REQUIRE(prog.bpftime_prog_load(true) == 0);
-	uint64_t memory[4] = {};
-	for (int i = 0; i < 3; i++) {
-		uint64_t ret = 7;
-		REQUIRE(prog.bpftime_prog_exec(memory, sizeof(memory), &ret) ==
-			-ENOEXEC);
-		REQUIRE(ret == 0);
-	}
+	REQUIRE(prog.bpftime_prog_load(true) == -EINVAL);
 }
 
 // libbpf turns a dead branch's map load (a map it did not create) into two

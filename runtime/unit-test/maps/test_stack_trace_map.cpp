@@ -220,7 +220,7 @@ TEST_CASE("Test stack trace map 4: different-size collision")
 	}
 }
 
-TEST_CASE("Test stack trace map 5: fast hash comparison keeps legacy id reuse")
+TEST_CASE("Test stack trace map 5: fast hash comparison uses the full hash")
 {
 	shm_remove remover(SHM_NAME);
 	managed_shared_memory mem(create_only, SHM_NAME, 20 << 20);
@@ -233,10 +233,14 @@ TEST_CASE("Test stack trace map 5: fast hash comparison keeps legacy id reuse")
 	int id1 = impl.fill_stack_trace(stk1, false, false);
 	REQUIRE(id1 >= 0);
 
-	// BPF_F_FAST_STACK_CMP compares by hash/bucket only: distinct stacks
-	// still share the id and never trigger -EEXIST.
+	// BPF_F_FAST_STACK_CMP compares the full hash, as the kernel's
+	// __bpf_get_stackid: these stacks share only the bucket, so without
+	// BPF_F_REUSE_STACKID the occupied slot is -EEXIST (upstream's version
+	// of this test matched on the bucket alone).
+	REQUIRE(stack_trace_map::hash_stack_trace(stk1) !=
+		stack_trace_map::hash_stack_trace(stk2));
 	int id2 = impl.fill_stack_trace(stk2, false, true);
-	REQUIRE(id2 == id1);
+	REQUIRE(id2 == -EEXIST);
 	int id3 = impl.fill_stack_trace(stk2, true, true);
 	REQUIRE(id3 == id1);
 }
