@@ -58,12 +58,6 @@ struct bpftime_global_epoch_state {
 	std::uint64_t epoch_seq = 0;
 };
 
-static constexpr int BPFTIME_MAX_CPU_COUNT = 1024;
-
-struct bpftime_cpu_exec_locks {
-	boost::interprocess::interprocess_mutex locks[BPFTIME_MAX_CPU_COUNT];
-};
-
 // Lets producers wake a consumer sleeping in bpftime_epoll_wait once a
 // software perf event ring is half full or drops a sample (the kernel's
 // wakeup_watermark), instead of leaving a burst to the consumer's next 1 ms
@@ -144,7 +138,6 @@ class bpftime_shm {
 	boost::interprocess::interprocess_mutex *map_prog_refs_lock = nullptr;
 
 	bpftime_global_epoch_state *epoch_state = nullptr;
-	bpftime_cpu_exec_locks *cpu_exec_locks = nullptr;
 
 	// Absent in segments created by older servers; consumers then poll.
 	bpftime_perf_wakeup_state *perf_wakeup_state = nullptr;
@@ -240,15 +233,6 @@ class bpftime_shm {
 	// Returns 0 if the epoch object isn't available.
 	// Returns UINT64_MAX if the epoch couldn't be stabilized within max_tries.
 	std::uint64_t read_stable_epoch_seq(int max_tries = 200) const;
-	void lock_bpf_cpu(int cpu);
-	void unlock_bpf_cpu(int cpu);
-	// Blocking, exception-safe per-CPU lock used on the BPF hot path. It
-	// preserves the serialization semantics of lock() (waits through normal
-	// contention) but catches locking exceptions, returning false instead of
-	// letting one propagate through the Frida C trampoline into
-	// std::terminate. The caller skips BPF execution only on a locking
-	// error, never on ordinary contention.
-	bool acquire_bpf_cpu(int cpu);
 
 	bpftime_perf_wakeup_state *get_perf_wakeup_state() const
 	{

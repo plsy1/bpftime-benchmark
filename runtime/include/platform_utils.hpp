@@ -31,9 +31,6 @@
 #endif
 
 int my_sched_getcpu();
-int bpftime_get_native_cpu();
-int bpftime_get_current_bpf_cpu();
-void bpftime_set_current_bpf_cpu(int cpu);
 // Possible CPUs (/sys/devices/system/cpu/possible): CPUs can come online
 // after a map is created. The mask may have holes ("0,2-3").
 // The possible CPU numbers, ascending.

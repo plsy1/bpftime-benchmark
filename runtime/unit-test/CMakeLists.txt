@@ -61,7 +61,6 @@ set(TEST_SOURCES
 
     test_bpftime_shm_json.cpp
     test_probe.cpp
-    test_cpu_execution.cpp
     test_get_current_pid_tgid.cpp
     test_get_stack.cpp
     test_tracepoint_id.cpp
