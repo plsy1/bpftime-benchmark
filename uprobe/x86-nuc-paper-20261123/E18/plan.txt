@@ -1,0 +1,10 @@
+# E18: Tern rebased onto official 70f7bc1f (new dev c71a9987, pushed by the Jetson session: 240 dev commits replayed
+# + reconcile f9479e57 + no per-CPU exec lock 24999e3c + no epoll signal taking d922dd0b + tests c71a9987).
+# Dn = c71a9987 checks OFF (as D); Dnpc = same, checks ON (as Dpc); Dxn = c71a9987 + paper diag (ladder/dexact-c71a9987:
+# fa6e5ee9 = 87e0117a cherry-picked, f39f7362 = 66ed229e ported onto upstream's comm cache), checks ON (as Dx).
+# Old D/Dpc (9ccda7e8), O (4708f409), Ol/Olpc (70f7bc1f), K, K_wb32 in the same rotation. 16 B, policy M unless #S.
+--exp E18 --round 0 --payload 16 --reps 10 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,O,Ol,Olpc,D,Dpc,Dn,Dnpc,Dxn,Dxn+BPFTIME_DIAG_EXACT=1
+# E18 step 2: policy S for the new dev (Tern should not depend on the policy)
+--exp E18 --round 1 --payload 16 --reps 10 --legs B#S,K#S,Dn#S,Dnpc#S
+# E18 step 3: system calls per request on the nginx worker (perf stat, as E7 round 1). Not throughput statistics.
+--exp E18 --round 2 --payload 16 --reps 3 --secs 20 --perf-mode sc --legs B,Dn@S4,Dnpc@S4,Dxn@S4,Dxn@S4+BPFTIME_DIAG_EXACT=1

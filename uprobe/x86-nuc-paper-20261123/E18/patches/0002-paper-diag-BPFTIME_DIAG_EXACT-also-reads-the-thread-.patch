@@ -1,0 +1,49 @@
+From f39f73620017dfbe65e2e37082f36d41edebef7c Mon Sep 17 00:00:00 2001
+From: plsy1 <39407459+plsy1@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 15:44:46 +0900
+Subject: [PATCH 2/2] paper diag: BPFTIME_DIAG_EXACT also reads the thread comm
+ with prctl on every call
+
+Port of 66ed229e onto c71a9987, whose bpftime_get_current_comm is upstream's
+pthread_once cache: the diag block runs first, before the cache.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ runtime/src/bpf_helper.cpp | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index 2346c97e..4e549661 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -66,6 +66,7 @@
+ #include <utility>
+ #include <bpftime_shm_internal.hpp>
+ #include "producer_identity.hpp"
++#include <sys/prctl.h>
+ #include <chrono>
+ #include <thread>
+ 
+@@ -845,6 +846,19 @@ const int current_comm_atfork_status =
+ uint64_t bpftime_get_current_comm(uint64_t buf, uint64_t size, uint64_t,
+ 				  uint64_t, uint64_t)
+ {
++	if (unlikely(bpftime::bpftime_diag_exact)) {
++		// Paper diag: the thread's comm, as the kernel helper returns it
++		// (TASK_COMM_LEN 16, NUL-padded), one prctl per call.
++		char comm[16] = {};
++		if (prctl(PR_GET_NAME, comm, 0, 0, 0) != 0)
++			return (uint64_t)-1;
++		size_t n = size < sizeof(comm) ? (size_t)size : sizeof(comm);
++		memset((void *)(uintptr_t)buf, 0, (size_t)size);
++		memcpy((void *)(uintptr_t)buf, comm, n);
++		if (n)
++			((char *)(uintptr_t)buf)[n - 1] = 0;
++		return 0;
++	}
+ #if __linux__
+ 	// If the fork handler could not be registered, a forked child might keep
+ 	// an in-progress once word, so bypass the cache and resolve every call
+-- 
+2.47.3
+
