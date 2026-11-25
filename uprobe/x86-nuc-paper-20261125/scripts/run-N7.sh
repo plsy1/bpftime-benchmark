@@ -1,0 +1,1 @@
+for i in $(seq 10); do until awk '{exit !($1 < 0.10)}' /proc/loadavg; do sleep 5; done; harness/session.sh N7-20261126-try1 plans/N7.txt > logs/N7-20261126-try1.out 2>&1; s=$?; [ $s -ne 3 ] && ! grep -q 'load too high' logs/N7-20261126-try1.out && break; rm -rf raw/N7-20261126-try1; sleep 60; done; echo "N7 exit $s $(date +%T)"

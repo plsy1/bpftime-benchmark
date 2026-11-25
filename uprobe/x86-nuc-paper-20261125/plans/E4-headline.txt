@@ -1,0 +1,10 @@
+# E4 headline (policy M). Round payloads 16,256K,256K,16,16,256K. 256 KB rounds add stock-loader legs (G0(a) fallback: 256 KB throughput from stock legs, audit from cnt legs).
+--exp E4 --round 0 --payload 16 --reps 10 --legs B,K,O,D,Dpc,Opc
+--exp E4 --round 1 --payload 262144 --reps 10 --legs B,K,O,D,Dpc,Opc,K-stock,O-stock,D-stock,Dpc-stock,Opc-stock
+--exp E4 --round 2 --payload 262144 --reps 10 --legs B,K,O,D,Dpc,Opc,K-stock,O-stock,D-stock,Dpc-stock,Opc-stock
+--exp E4 --round 3 --payload 16 --reps 10 --legs B,K,O,D,Dpc,Opc
+--exp E4 --round 4 --payload 16 --reps 10 --legs B,K,O,D,Dpc,Opc
+--exp E4 --round 5 --payload 262144 --reps 10 --legs B,K,O,D,Dpc,Opc,K-stock,O-stock,D-stock,Dpc-stock,Opc-stock
+# old-method audit (-c 10 -d 3) for continuity
+--exp E4old --round 0 --payload 16 --reps 1 --conns 10 --secs 3 --legs K,O,D,Dpc,Opc
+--exp E4old --round 1 --payload 262144 --reps 1 --conns 10 --secs 3 --legs K,O,D,Dpc,Opc

@@ -1,0 +1,4 @@
+# R-PR follow-up (exploratory, not preregistered): end-to-end cost of the AOT cache's indirect helper calls.
+# BPFTIME_AOT_CACHE=0 makes server and agent JIT-compile (direct call rel32 to helpers) instead of linking the AOT object
+# (large code model: movabs + call *reg). Policy M, 16 B, cnt loader.
+--exp RPRA --round 0 --payload 16 --reps 11 --warmup 1 --legs B,Dn,Dn+BPFTIME_AOT_CACHE=0,Dnpc,Dnpc+BPFTIME_AOT_CACHE=0

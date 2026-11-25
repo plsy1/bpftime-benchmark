@@ -1,0 +1,5 @@
+# DX1 (exploratory diagnostic, not in PREREG-2 main comparisons): the epoll wrapper Tern inherited from upstream 82e7dc60.
+# DnE/DnEpc = c71a9987 + ddd61834 (handle_epoll_wait passes the timeout through, as D 9ccda7e8). Plus perf for the C1 residual (OlL3x730 vs Dn).
+--exp DX1 --round 0 --payload 16 --reps 11 --warmup 1 --legs K,K+SSLSNIFF_PB_WAKEUP=32,D,Dn,DnE,Dpc,Dnpc,DnEpc,OlL3x730
+--exp DX1 --round 1 --payload 16 --reps 3 --secs 20 --perf-mode raw_syscalls:sys_enter,syscalls:sys_enter_futex,sched:sched_wakeup --legs D,Dn,DnE,Dnpc,DnEpc
+--exp DX1 --round 2 --payload 16 --reps 3 --secs 20 --perf-mode cyc --legs OlL3x730,Dn

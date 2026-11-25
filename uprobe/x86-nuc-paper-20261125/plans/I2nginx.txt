@@ -1,0 +1,5 @@
+# I2 nginx with 2 workers (eval plan I2; W3/W6). Policy W2: worker_processes 2, both workers on CPUs {2,6} (mask, not
+# pinned per worker), consumer 4, wrk 8-11 (4 threads). 16 B. Kernel legs use the multi-pid counting loader (S4mp: one
+# -p per worker; BPF object identical to s4); bpftime legs the s4 loader (agent only in nginx). Kb = K+SSLSNIFF_PB_WAKEUP=32.
+--exp I2N --round 0 --payload 16 --reps 11 --warmup 1 --legs B#W2,K@S4mp#W2,K@S4mp#W2+SSLSNIFF_PB_WAKEUP=32,O#W2,L3port#W2,Ol#W2,Dn#W2,Dnpc#W2
+--exp I2N --round 1 --payload 16 --reps 10 --legs B#W2,K@S4mp#W2,K@S4mp#W2+SSLSNIFF_PB_WAKEUP=32,O#W2,L3port#W2,Ol#W2,Dn#W2,Dnpc#W2

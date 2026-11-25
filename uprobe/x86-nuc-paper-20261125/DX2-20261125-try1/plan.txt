@@ -1,0 +1,6 @@
+# DX2 (exploratory, C1 follow-up; 12-08 rule branch 2: attribute the Dn vs OlL3x730 gap with counters).
+# Stage ladder on both: S1 hook only; S2h + helpers (no maps); S2m + maps (no uid/meta helpers); S2hm + both; S3 + probe read; S4 full.
+# OlL3x730P = OlL3x730 + 81ef1d41 (perf output shard lookup without getpid per sample): in-situ price of upstream's per-event getpid.
+--exp DX2 --round 0 --payload 16 --reps 11 --warmup 1 --legs B,OlL3x730@S1,OlL3x730@S2h,OlL3x730@S2m,OlL3x730@S2hm,OlL3x730@S3,OlL3x730@S4,Dn@S1,Dn@S2h,Dn@S2m,Dn@S2hm,Dn@S3,Dn@S4,OlL3x730P@S4
+--exp DX2 --round 1 --payload 16 --reps 3 --secs 20 --perf-mode sc --legs OlL3x730P@S4
+--exp DX2 --round 2 --payload 16 --reps 3 --secs 20 --perf-mode cyc --legs OlL3x730@S2hm,Dn@S2hm,OlL3x730@S3,Dn@S3,OlL3x730P@S4

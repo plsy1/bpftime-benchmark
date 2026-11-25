@@ -1,0 +1,84 @@
+--- ../sslsniff-nobtf/sslsniff.bpf.c	2026-10-23 14:05:57.044180415 +0900
++++ sslsniff.bpf.c	2026-10-24 09:29:29.668877786 +0900
+@@ -28,6 +28,12 @@
+ #define EVENT_SIZE(X) (BASE_EVENT_SIZE + ((size_t)(X)))
+ #define MAX_ENTRIES 10240
+ 
++/* Path ablation (July 2026 V1-V4): 1 = probes return at once; 2 = + helpers,
++ * maps and event metadata; 3 = + bpf_probe_read_user; 4 = + perf output (full). */
++#ifndef SSLSNIFF_STAGE
++#define SSLSNIFF_STAGE 4
++#endif
++
+ #define min(x, y)                      \
+     ({                                 \
+         typeof(x) _min1 = (x);         \
+@@ -59,6 +65,8 @@
+ 
+ SEC("uprobe/do_handshake")
+ int BPF_UPROBE(probe_SSL_rw_enter, void *ssl, void *buf, int num) {
++    if (SSLSNIFF_STAGE == 1)
++        return 0;
+     u64 pid_tgid = bpf_get_current_pid_tgid();
+     u32 pid = pid_tgid >> 32;
+     u32 tid = pid_tgid;
+@@ -72,6 +80,8 @@
+ }
+ 
+ static __always_inline int SSL_exit(struct pt_regs *ctx, int rw) {
++    if (SSLSNIFF_STAGE == 1)
++        return 0;
+     int ret = 0;
+     u32 zero = 0;
+     u64 pid_tgid = bpf_get_current_pid_tgid();
+@@ -111,7 +121,7 @@
+ 
+     bpf_get_current_comm(&data->comm, sizeof(data->comm));
+ 
+-    if (bufp != 0)
++    if (SSLSNIFF_STAGE >= 3 && bufp != 0)
+         ret = bpf_probe_read_user(&data->buf, buf_copy_size, (char *)*bufp);
+ 
+     bpf_map_delete_elem(&bufs, &tid);
+@@ -122,8 +132,9 @@
+     else
+         buf_copy_size = 0;
+ 
+-    bpf_perf_event_output(ctx, &perf_SSL_events, BPF_F_CURRENT_CPU, data,
+-                            EVENT_SIZE(buf_copy_size));
++    if (SSLSNIFF_STAGE >= 4)
++        bpf_perf_event_output(ctx, &perf_SSL_events, BPF_F_CURRENT_CPU, data,
++                                EVENT_SIZE(buf_copy_size));
+     return 0;
+ }
+ 
+@@ -139,6 +150,8 @@
+ 
+ SEC("uprobe/do_handshake")
+ int BPF_UPROBE(probe_SSL_do_handshake_enter, void *ssl) {
++    if (SSLSNIFF_STAGE == 1)
++        return 0;
+     u64 pid_tgid = bpf_get_current_pid_tgid();
+     u32 pid = pid_tgid >> 32;
+     u32 tid = (u32)pid_tgid;
+@@ -151,6 +164,8 @@
+ 
+ SEC("uretprobe/do_handshake")
+ int BPF_URETPROBE(probe_SSL_do_handshake_exit) {
++    if (SSLSNIFF_STAGE == 1)
++        return 0;
+     u32 zero = 0;
+     u64 pid_tgid = bpf_get_current_pid_tgid();
+     u32 pid = pid_tgid >> 32;
+@@ -183,8 +198,9 @@
+     bpf_get_current_comm(&data->comm, sizeof(data->comm));
+     bpf_map_delete_elem(&start_ns, &tid);
+ 
+-    bpf_perf_event_output(ctx, &perf_SSL_events, BPF_F_CURRENT_CPU, data,
+-                            EVENT_SIZE(0));
++    if (SSLSNIFF_STAGE >= 4)
++        bpf_perf_event_output(ctx, &perf_SSL_events, BPF_F_CURRENT_CPU, data,
++                                EVENT_SIZE(0));
+     return 0;
+ }
+ 

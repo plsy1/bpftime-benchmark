@@ -1,0 +1,11 @@
+# E17: official bpftime at upstream master 70f7bc1f (2026-11-23) = O-latest, next to the paper's O (4708f409).
+# Why: upstream merged #836 (pin removed), #812/#837 (pid/tid caches), #834 (comm cache), #835 (probe read-ahead),
+# #730 (per-CPU serialization) after the paper base; the paper's "official bpftime" numbers describe 4708f409.
+# Ol = upstream 70f7bc1f, checks OFF (as O); Olpc = same, checks ON (as Opc). Same build options as official.
+# K+WAKEUP=32 is the batched-wakeup kernel (E15). #S = policy S (nginx on one core), as E2o.
+--exp E17 --round 0 --payload 16 --reps 10 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,O,Ol,Opc,Olpc,B#S,K#S,O#S,Ol#S
+# E17 step 2: system-call counts per request on the nginx worker (perf stat, as E7 round 1): checks the code-reading claim
+# that upstream makes 14 per request (getuid 6, getgid 6, getpid 2) instead of O's 22. Not throughput statistics.
+--exp E17 --round 1 --payload 16 --reps 3 --secs 20 --perf-mode sc --legs B,K@S4,O@S4,Ol@S1,Ol@S4,Olpc@S4
+# E17 step 3: hook-only stage S1 (no output, no helpers): does #730's per-CPU lock or #733's scope move the hook cost?
+--exp E17 --round 2 --payload 16 --reps 10 --legs B,K@S1,O@S1,Ol@S1

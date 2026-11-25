@@ -1,0 +1,7 @@
+# I3 payload sweep (eval plan §2.2 I3; Q10). Policy M, cnt loader; payload order shuffled by hand against drift.
+# Reported as "ratios under another configuration", normalized by delivery; not alongside C2. 256 KB adds stock-loader legs.
+--exp I3 --round 0 --payload 16384 --reps 11 --warmup 1 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,O,L3port,Ol,Dn,Dnpc
+--exp I3 --round 1 --payload 1024 --reps 10 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,O,L3port,Ol,Dn,Dnpc
+--exp I3 --round 2 --payload 262144 --reps 10 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,O,L3port,Ol,Dn,Dnpc,K-stock,O-stock,Dn-stock,Dnpc-stock
+--exp I3 --round 3 --payload 4096 --reps 10 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,O,L3port,Ol,Dn,Dnpc
+--exp I3 --round 4 --payload 65536 --reps 10 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,O,L3port,Ol,Dn,Dnpc
