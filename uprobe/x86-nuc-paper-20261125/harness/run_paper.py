@@ -41,8 +41,33 @@ H2 additions (inactive unless used):
   Requests/sec (its run time includes connection setup); invalid ('rate_miss') when
   rate_achieved or rate_completed differs from R by more than 2%. Schedule lag (send time
   minus slot time) is in row['openloop'].
+
+E7b tool mode (--tool memleak | funclatency; inactive unless given, eval plan L447/L455):
+  a libbpf-tools v0.37.0 CO-RE tool (host build e6/bcc-v0.37.0/libbpf-tools, mounted at /lt by
+  session.sh) replaces the sslsniff loader for every leg of the plan line; B runs without a tool.
+  Legs must be plain (no @STAGE, -stock, BPFSTATS/X/REPORT/LATW) on a HAProxy policy with
+  server_log_fd (H4T: haproxy-t4-fd3.cfg logs to fd 3 = access.log, because under memleak -c
+  HAProxy's stdout is memleak's stdout). bpftime legs: tool with LD_PRELOAD=syscall-server,
+  BPFTIME_SHM_MEMORY_MB=512 (container /dev/shm is 1 GiB), BPFTIME_LOG_OUTPUT=console (as E6/I5 audit.py), HAProxy with the agent.
+  memleak: `memleak -c /rp/sw 3600` (one report, printed at SIGINT); /rp/sw (e6/src-x86/staticwrap.c,
+  static, so it does not load the tool's syscall-server) execs HAProxy with SW_PRELOAD (agent, or
+  empty for K) and SW_CPUS = the server CPUs. K and bpftime alike: tool first, it spawns HAProxy.
+  Stop: SIGINT to memleak (final report while HAProxy is alive), memleak SIGTERMs and reaps HAProxy.
+  row: memleak_bytes / memleak_allocs / memleak_frames of the final report (top 10 stacks), no exact
+  expected count (sanity only; upstream builds record one empty stack, E6).
+  funclatency: `funclatency -u LIBSSL:SSL_write` (LIBSSL as sslsniff finds it: first `ldconfig -p`
+  line with libssl.so), started before HAProxy; funclatency resolves LIBRARY:FUNCTION without -p via
+  `which`, which refuses 0644 shared libraries, so the tool's PATH starts with /bench/e7b-bin (a
+  stand-in `which` that prints an existing absolute path). K: HAProxy first, then
+  `funclatency -u -p PID ssl:SSL_write` (kernel tool attaches to the running server, as K sslsniff).
+  Ready = the tool's main thread sleeps in its report loop (/proc/PID/syscall) for 0.5 s. Expected
+  count = req_nginx (1 SSL_write per 16 B response; H7b sslsniff: write_ev = req + 1 on bpftime
+  legs, req - 1 on K); invalid ('tool_count') when |reported - expected| > 2. Upstream builds
+  (OlL3x730) cannot create funclatency's cgroup_map (map type 8, -EOPNOTSUPP): the tool exits,
+  the leg records tool_failed / tool_rc / tool output and runs no load. Tool output: capdir
+  tool-stdout.txt / tool-stderr.txt (heads and tails in the row).
 """
-import argparse, hashlib, json, os, random, re, signal, subprocess, sys, time
+import argparse, hashlib, json, os, random, re, shutil, signal, subprocess, sys, time
 
 BENCH = '/bench'
 LOG_SKIPPED = 0  # E7: non-request lines in the last access log parsed
@@ -67,6 +92,16 @@ PERF_EVENTS = {
 }
 AGENT_ENV_DROP = ('BPFTIME_VM_NAME', 'BPFTIME_DISABLE_JIT', 'BPFTIME_SYSCALL_LAZY',
                   'BPFTIME_HASH_ZERO_SEED', 'BPFTIME_MAP_PRODUCTION_AB', 'BPFTIME_ARRAY_JIT_INLINE')
+# E7b tool mode (see module doc)
+TOOLS = {'memleak': '/lt/memleak', 'funclatency': '/lt/funclatency'}
+TOOL_SW = '/rp/sw'                   # memleak -c takes at most 31 characters
+TOOL_WHICH_DIR = f'{BENCH}/e7b-bin'  # stand-in `which` for funclatency
+TOOL_SHM_MB = '512'                  # BPFTIME_SHM_MEMORY_MB. Not E6/I5's 1024: the container's /dev/shm is 1 GiB (session.sh --shm-size=1g), and a 1 GiB segment SIGBUSes the traced haproxy once touched (E7bT smoke)
+MEMLEAK_INTERVAL = 3600              # no periodic report during the run; the final one comes at SIGINT
+
+
+class ToolFailed(Exception):
+    """E7b: the tool exited (or the server it spawns never came up) before the load; recorded in the row."""
 
 
 def sh(*args, **kw):
@@ -181,9 +216,23 @@ def start_nginx(cpus, env=None, nworkers=1, conf='nginx.conf'):
     raise RuntimeError('nginx not ready')
 
 
-def start_haproxy(cpus, env, conf, nthreads):
+def preexec_logfd(src, dst, cpus):
+    """E7b: child-side setup for Popen(close_fds=False): fd dst = src, inheritable so it survives exec (Python's own
+    fds are close-on-exec, so nothing else leaks), then the CPU affinity as affinity() sets it."""
+    mask = set(cpus or [])
+    def f():
+        if src != dst:
+            os.dup2(src, dst)
+        os.set_inheritable(dst, True)
+        if mask:
+            os.sched_setaffinity(0, mask)
+    return f
+
+
+def start_haproxy(cpus, env, conf, nthreads, log_fd=None):
     """E7: HAProxy in the foreground (-db, one process, nthreads threads); its stdout is the access log.
-    Returns (process, pid) like a 1-worker nginx, so -p, perf -p and the per-process metrics apply as they are."""
+    Returns (process, pid) like a 1-worker nginx, so -p, perf -p and the per-process metrics apply as they are.
+    E7b: log_fd (policy server_log_fd) also opens the access log as that fd, for a config that logs to fd@N."""
     for f in ('access.log', 'error.log', 'haproxy.sock'):
         try:
             os.remove(f'{BENCH}/{f}')
@@ -191,8 +240,13 @@ def start_haproxy(cpus, env, conf, nthreads):
             pass
     logf = open(f'{BENCH}/access.log', 'w')
     errf = open(f'{BENCH}/error.log', 'w')
-    p = subprocess.Popen(['haproxy', '-db', '-f', f'{BENCH}/{conf}'], env=env, stdout=logf, stderr=errf,
-                         start_new_session=True, **affinity(cpus))
+    if log_fd is None:
+        p = subprocess.Popen(['haproxy', '-db', '-f', f'{BENCH}/{conf}'], env=env, stdout=logf, stderr=errf,
+                             start_new_session=True, **affinity(cpus))
+    else:
+        p = subprocess.Popen(['haproxy', '-db', '-f', f'{BENCH}/{conf}'], env=env, stdout=logf, stderr=errf,
+                             start_new_session=True, close_fds=False,
+                             preexec_fn=preexec_logfd(logf.fileno(), log_fd, cpus))
     deadline = time.time() + 20
     while time.time() < deadline:
         r = sh('curl', '-k', '-s', '-o', '/dev/null', '-w', '%{http_code}', URL)
@@ -249,7 +303,209 @@ def start_server(pol, env, nworkers, conf):
     """nginx (default, unchanged) or, for a policy with server = haproxy, HAProxy (E7)."""
     if pol.get('server', 'nginx') == 'nginx':
         return start_nginx(pol['nginx'], env, nworkers, conf)
-    return start_haproxy(pol['nginx'], env, pol['server_conf'], pol.get('server_threads', 1))
+    return start_haproxy(pol['nginx'], env, pol['server_conf'], pol.get('server_threads', 1), pol.get('server_log_fd'))
+
+
+# --- E7b tool mode helpers (module doc) ---
+def kill_tools():
+    for name in TOOLS:
+        sh('pkill', '-9', '-x', name)
+
+
+def tool_leftovers():
+    hits = []
+    for pid in os.listdir('/proc'):
+        if pid.isdigit():
+            try:
+                if os.path.basename(os.readlink(f'/proc/{pid}/exe')) in TOOLS:
+                    hits.append(int(pid))
+            except OSError:
+                pass
+    return hits
+
+
+def children(ppid, comm):
+    """Pids of ppid's children whose comm is comm."""
+    out = []
+    for pid in os.listdir('/proc'):
+        if not pid.isdigit():
+            continue
+        try:
+            st = open(f'/proc/{pid}/stat').read()
+        except OSError:
+            continue
+        if st[st.find('(') + 1:st.rfind(')')] == comm and int(st.rsplit(')', 1)[1].split()[1]) == ppid:
+            out.append(int(pid))
+    return out
+
+
+def thread_comms(pid):
+    comms = []
+    for t in os.listdir(f'/proc/{pid}/task'):
+        try:
+            comms.append(open(f'/proc/{pid}/task/{t}/comm').read().strip())
+        except OSError:
+            pass
+    return comms
+
+
+def libssl_path():
+    """libssl as sslsniff's find_library_path finds it (first `ldconfig -p` line containing libssl.so), so the
+    uprobe path string is the one the sslsniff legs attach with."""
+    for line in sh('ldconfig', '-p').stdout.splitlines():
+        if 'libssl.so' in line and '=>' in line:
+            return line.split('=>', 1)[1].strip()
+    raise RuntimeError('libssl.so not in ldconfig -p')
+
+
+def wait_tool_ready(p, timeout=30.0, stable=0.5):
+    """Seconds until the tool's main thread has slept in sleep() (clock_nanosleep 230 / nanosleep 35 in
+    /proc/PID/syscall) for `stable` s without a break: its report loop, entered after load and attach.
+    None on timeout; ToolFailed if the tool exits first."""
+    t0 = time.time()
+    since = None
+    while time.time() - t0 < timeout:
+        if p.poll() is not None:
+            raise ToolFailed(f'tool exited rc={p.returncode} before it was ready')
+        try:
+            nr = open(f'/proc/{p.pid}/syscall').read().split()[0]
+        except (OSError, IndexError):
+            nr = None
+        if nr in ('35', '230'):
+            since = since or time.time()
+            if time.time() - since >= stable:
+                return round(time.time() - t0, 3)
+        else:
+            since = None
+        time.sleep(0.05)
+    return None
+
+
+def start_tool_leg(cfg, leg, pol, tool, base_env, toolio, row, st, nworkers, conf):
+    """E7b: start server and tool for one leg; fills st: 'server' (HAProxy Popen, None when memleak spawned it),
+    'worker' (HAProxy pid), 'proc' (tool Popen) as soon as each exists, so run_leg can clean up after ToolFailed."""
+    base = leg['base']
+    if base == 'B':
+        st['server'], st['worker'] = start_server(pol, None, nworkers, conf)
+        return
+    build = cfg['builds'].get(base)  # None for K
+    out, err = toolio
+    tenv = dict(base_env)
+    bt = dict(BPFTIME_SHM_MEMORY_MB=TOOL_SHM_MB, BPFTIME_LOG_OUTPUT='console')
+    if build:
+        tenv.update(bt, LD_PRELOAD=f'{build}/libbpftime-syscall-server.so')
+    t0 = time.time()
+    if tool == 'memleak':
+        log_fd = pol.get('server_log_fd')
+        assert pol.get('server') == 'haproxy' and log_fd, 'memleak mode needs a haproxy policy with server_log_fd'
+        hp = shutil.which('haproxy') or '/usr/sbin/haproxy'  # sw execs without a PATH search
+        # HAProxy inherits this environment from memleak (sw replaces only LD_PRELOAD), leg env included.
+        tenv.update(SW_CMD=hp, SW_ARGS=f"-db -f {BENCH}/{pol['server_conf']}",
+                    SW_PRELOAD=f'{build}/libbpftime-agent.so' if build else '',
+                    SW_CPUS=','.join(map(str, pol['nginx'])))
+        tenv.update(leg['env'])
+        for f in ('access.log', 'error.log', 'haproxy.sock'):
+            try:
+                os.remove(f'{BENCH}/{f}')
+            except FileNotFoundError:
+                pass
+        cmd = [TOOLS['memleak'], '-c', TOOL_SW, str(MEMLEAK_INTERVAL)]
+        row.update(tool_cmd=' '.join(cmd), tool_sw_cmd=f"{hp} {tenv['SW_ARGS']}", tool_sw_preload=tenv['SW_PRELOAD'],
+                   tool_sw_cpus=tenv['SW_CPUS'])
+        with open(f'{BENCH}/access.log', 'w') as logf:  # memleak and (through it) HAProxy keep their own copy
+            st['proc'] = p = subprocess.Popen(cmd, env=tenv, stdout=out, stderr=err, start_new_session=True,
+                                              close_fds=False, preexec_fn=preexec_logfd(logf.fileno(), log_fd, pol['sniff']))
+        deadline = time.time() + 60
+        while True:
+            if p.poll() is not None:
+                raise ToolFailed(f'memleak exited rc={p.returncode} before HAProxy was ready')
+            if time.time() > deadline:
+                raise ToolFailed('HAProxy under memleak not ready after 60 s')
+            if sh('curl', '-k', '-s', '-o', '/dev/null', '-w', '%{http_code}', URL).stdout == '200':
+                break
+            time.sleep(0.2)
+        kids = children(p.pid, 'haproxy')
+        assert len(kids) == 1, f'haproxy children of memleak: {kids}'
+        comms = thread_comms(kids[0])
+        assert comms.count('haproxy') >= pol.get('server_threads', 1), f'haproxy threads {comms}'
+        st['server'], st['worker'] = None, kids[0]
+        row['tool_ready_s'] = round(time.time() - t0, 3)
+        return
+    # funclatency
+    lib = libssl_path()
+    tenv['PATH'] = TOOL_WHICH_DIR + ':' + base_env.get('PATH', '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin')
+    tenv.update(leg['env'])
+    if base == 'K':
+        st['server'], st['worker'] = start_server(pol, None, nworkers, conf)
+        cmd = [TOOLS['funclatency'], '-u', '-p', str(st['worker']), 'ssl:SSL_write']
+    else:
+        cmd = [TOOLS['funclatency'], '-u', f'{lib}:SSL_write']
+    row.update(tool_cmd=' '.join(cmd), tool_target=lib)
+    st['proc'] = p = subprocess.Popen(cmd, env=tenv, stdout=out, stderr=err, start_new_session=True,
+                                      **affinity(pol['sniff']))
+    row['tool_ready_s'] = wait_tool_ready(p)
+    if row['tool_ready_s'] is None:
+        row['tool_ready_timeout'] = True
+    if base != 'K':
+        env = dict(base_env, LD_PRELOAD=f'{build}/libbpftime-agent.so')
+        env.update(bt)
+        env.update(leg['env'])
+        st['server'], st['worker'] = start_server(pol, env, nworkers, conf)
+    if p.poll() is not None:
+        raise ToolFailed(f'funclatency exited rc={p.returncode}')
+
+
+def parse_tool(row, tool, capdir):
+    """E7b: tool output -> row (heads/tails, reported counts); full output stays in the capdir."""
+    out = open(f'{capdir}/tool-stdout.txt', errors='replace').read()
+    err = open(f'{capdir}/tool-stderr.txt', errors='replace').read()
+    n = 2000
+    row.update(tool_stdout=f'{capdir}/tool-stdout.txt', tool_out_bytes=len(out), tool_err_bytes=len(err),
+               tool_out_head=out[:n], tool_out_tail=out[-n:] if len(out) > n else None,
+               tool_err_head=err[:n], tool_err_tail=err[-n:] if len(err) > n else None,
+               tool_stack_errors=(out + err).count('Unable to get stack trace'),
+               tool_map_errors=(out + err).count('Expected fd'))
+    if tool == 'funclatency':
+        hist = [int(m.group(1)) for m in re.finditer(r'^\s*\d+ -> \d+\s*:\s*(\d+)', out, re.M)]
+        # no histogram at all means zero events if the tool reached its exit message, else no report
+        row['tool_reported'] = sum(hist) if hist or 'Exiting trace' in out else None
+        row['tool_exit_msg'] = 'Exiting trace' in out
+    else:
+        parts = out.split('stacks with outstanding allocations:')
+        last = parts[-1] if len(parts) > 1 else ''
+        top = re.findall(r'Top (\d+) stacks with outstanding', out)
+        sizes = [(int(a), int(b)) for a, b in re.findall(r'^(\d+) bytes in (\d+) allocations from stack', last, re.M)]
+        child = re.search(r'child created with pid: (\d+)', out)
+        row.update(memleak_reports=len(parts) - 1, memleak_top=int(top[-1]) if top else None,
+                   memleak_bytes=sum(a for a, _ in sizes) if parts[1:] else None,
+                   memleak_allocs=sum(b for _, b in sizes) if parts[1:] else None,
+                   memleak_frames=len(re.findall(r'^\t\d+ \[<', last, re.M)),
+                   memleak_child_pid=int(child.group(1)) if child else None,
+                   memleak_reaped='reaped child process' in out,
+                   memleak_missing_stacks=sum(int(x) for x in re.findall(r'WARNING: (\d+) stack traces could not', err)))
+        row['tool_reported'] = row['memleak_allocs']
+
+
+def tool_derive(row, leg, reasons):
+    """E7b validity: tool failure, tool exit status, funclatency count against the server's request count."""
+    if row.get('tool_failed'):
+        reasons.append('tool_failed')
+        return
+    if leg['base'] == 'B':
+        return
+    if row.get('tool_rc') != 0:
+        reasons.append('tool_rc')
+    req = row.get('req_nginx')
+    rep = row.get('tool_reported')
+    if row['tool'] == 'funclatency':
+        row['tool_expected'] = req
+        if rep is not None and req:
+            row['tool_diff'] = rep - req
+            row['tool_over_exp'] = rep / req
+        if rep is None or not req or abs(rep - req) > 2:
+            reasons.append('tool_count')
+    elif not row.get('memleak_reports'):
+        reasons.append('tool_report_missing')
 
 
 def stop(p):
@@ -537,7 +793,7 @@ def open_loop(cpus, threads, conns, secs, rate, capdir):
     return float(m.group(1)), completed, errors, extra
 
 
-def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None):
+def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None, tool=None):
     pol = cfg['policies'][leg['policy']]
     NW, NCONF = pol.get('nginx_workers', 1), pol.get('nginx_conf', 'nginx.conf')  # I2
     base = leg['base']
@@ -571,8 +827,23 @@ def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None):
         os.chmod(capdir, 0o777)  # nginx workers run as nobody
         base_env['BPFTIME_DIAG_REPORT'] = diagpath
     sniff_cpu = None
+    toolio, st = None, {}
+    if tool:  # E7b
+        kill_tools()
+        # A leg whose tool fails starts no HAProxy: without this, its row would parse the
+        # previous leg's access.log (E7bT-20261126-try1 OlL3x730 funclatency rows).
+        try:
+            os.remove(f'{BENCH}/access.log')
+        except FileNotFoundError:
+            pass
+        row.update(tool=tool, tool_leftovers_pre=len(tool_leftovers()))
+        toolio = (open(f'{capdir}/tool-stdout.txt', 'w'), open(f'{capdir}/tool-stderr.txt', 'w'))
     try:
-        if base == 'B':
+        if tool:  # E7b: the tool replaces the sslsniff loader (B: no tool)
+            start_tool_leg(cfg, leg, pol, tool, base_env, toolio, row, st, NW, NCONF)
+            nginx, worker, sniff = st.get('server'), st['worker'], st.get('proc')
+            row['tool_server_pid'] = worker
+        elif base == 'B':
             nginx, worker = start_server(pol, None, NW, NCONF)
         elif base == 'K':
             nginx, worker = start_server(pol, None, NW, NCONF)
@@ -695,13 +966,18 @@ def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None):
         row.update(rps=rps, req_wrk=total, wrk_errors=errors, wall_s=round(tt1 - tt0, 3),
                    busy=busy(t0, t1, cpus), nginx_cpu_s=(w1 - w0) if None not in (w0, w1) else None,
                    sniff_cpu_s=(s1 - s0) if None not in (s0, s1) else None, worker_alive=alive)
+    except ToolFailed as e:  # E7b only (never raised without --tool): no load; tool rc and output recorded below
+        nginx, sniff = st.get('server'), st.get('proc')
+        row['tool_failed'] = str(e)
     finally:
+        if tool:  # E7b: also after another exception inside start_tool_leg
+            nginx, sniff = nginx or st.get('server'), sniff or st.get('proc')
         stop(nginx)
         time.sleep(1)
         if sniff:
             sniff.send_signal(signal.SIGINT)
             try:
-                sniff.wait(timeout=15)
+                sniff.wait(timeout=60 if tool else 15)  # E7b: memleak symbolizes its report and reaps HAProxy
             except subprocess.TimeoutExpired:
                 sniff.kill()
                 sniff.wait()
@@ -709,7 +985,13 @@ def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None):
         errf.close()
         if outpath:
             outf.close()
+        if toolio:
+            for f in toolio:
+                f.close()
+            row['tool_rc'] = sniff.returncode if sniff else None
         kill_all()
+        if tool:
+            kill_tools()
         remove_shm(cfg, base)
     req_nginx, bytes_nginx, bad = parse_access_log()
     cum = (row.get('haproxy_info') or {}).get('CumReq')
@@ -742,6 +1024,9 @@ def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None):
         row['bpf_stats'] = stats
     if outpath:
         row['stdout_capture'] = outpath
+    if tool:
+        parse_tool(row, tool, capdir)
+        row['tool_leftovers_post'] = len(tool_leftovers())
     row['leftovers_post'] = len(leftovers())
     row['shm_post'] = len(shm_left())
     return row
@@ -836,7 +1121,7 @@ def derive(row, leg, payload):
         reasons.append('wrk_errors')
     if row.get('worker_alive') is False:
         reasons.append('worker_gone')
-    if tracing and cnt is None and not leg['stock']:
+    if tracing and cnt is None and not leg['stock'] and not row.get('tool'):
         reasons.append('cnt_missing')
     if row.get('leftovers_pre') or row.get('shm_pre'):
         reasons.append('leftover_pre')
@@ -854,6 +1139,8 @@ def derive(row, leg, payload):
         r = row['rate_req']
         if any(row.get(k) is None or abs(row[k] - r) > 0.02 * r for k in ('rate_achieved', 'rate_completed')):
             reasons.append('rate_miss')
+    if row.get('tool'):  # E7b
+        tool_derive(row, leg, reasons)
     row['valid'] = not reasons
     row['invalid_reason'] = reasons
 
@@ -878,10 +1165,21 @@ def main():
     ap.add_argument('--perf-start', type=float, default=2.0)
     ap.add_argument('--perf-dur', type=float, default=16.0)
     ap.add_argument('--rate', type=float, help='H2: open loop at this many requests/s in total (wrk + Lua pacing)')
+    ap.add_argument('--tool', choices=sorted(TOOLS), help='E7b: this libbpf-tools tool on the server instead of the '
+                    'sslsniff loader, for every leg (B: no tool); see the module doc')
     a = ap.parse_args()
     PERF.update(mode=a.perf_mode, start=a.perf_start, dur=a.perf_dur)
     cfg = json.load(open(a.config))
     legs = [parse_leg(t, cfg) for t in a.legs.split(',')]
+    if a.tool:
+        if a.rate or a.perf_mode:
+            raise SystemExit('--tool: --rate and --perf-mode are not validated in tool mode')
+        for leg in legs:
+            pol = cfg['policies'][leg['policy']]
+            if leg['stage'] != 'S4' or '@' in leg['text'] or leg['stock'] or leg['flags']:
+                raise SystemExit(f"--tool: plain legs only (no @STAGE, -stock, BPFSTATS/X/REPORT/LATW): {leg['text']}")
+            if pol.get('server') != 'haproxy' or not pol.get('server_log_fd'):
+                raise SystemExit(f"--tool: needs a haproxy policy with server_log_fd (H4T): {leg['text']}")
     threads = a.wrk_threads or cfg.get('wrk_threads', 4)
     write_payload(a.payload)
     os.makedirs(a.capdir, exist_ok=True)
@@ -896,9 +1194,12 @@ def main():
             os.makedirs(capdir, exist_ok=True)
             t_start = time.time()
             try:
-                row = run_leg(cfg, leg, a.conns, a.secs, threads, capdir, **({'rate': a.rate} if a.rate else {}))
+                row = run_leg(cfg, leg, a.conns, a.secs, threads, capdir, **({'rate': a.rate} if a.rate else {}),
+                              **({'tool': a.tool} if a.tool else {}))
             except Exception as e:  # recorded, the session decides
                 row = dict(error=repr(e))
+                if a.tool:
+                    row['tool'] = a.tool
             if PERF['mode'] and row.get('perf') and row.get('rps'):
                 reqs = row.get('perf_window_reqs') or row['rps'] * PERF['dur']
                 row['perf_per_req'] = {k: (v['value'] / reqs if v['value'] is not None else None) for k, v in row['perf'].items()}
@@ -928,6 +1229,11 @@ def main():
             if row.get('rate_req'):
                 msg += (f"rate={row.get('rate_achieved')}/{row['rate_req']} done={row.get('rate_completed')} "
                         f"lag_max_ms={(row.get('openloop') or {}).get('lag_max_ms')} ")
+            if row.get('tool'):
+                msg += (f"tool={row['tool']} rc={row.get('tool_rc')} rep={row.get('tool_reported')} "
+                        f"exp={row.get('tool_expected')} ")
+                if row.get('tool_failed'):
+                    msg += f"tool_failed={row['tool_failed']!r} "
             msg += f"valid={row['valid']} {row.get('invalid_reason') or ''}"
             print(msg, flush=True)
             pred = leg['text']

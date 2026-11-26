@@ -1,0 +1,10 @@
+# I5 (eval plan): x86 18-tool audit (E12 protocol: delivered/reported vs expected per run), 19 tool entries (both
+# funclatency variants) × backends kernel, O, Ol, Dn, Dnpc × 3 runs, 4 s per run (audit.py default, as E12).
+# Tools on CPU 4, workloads on CPU 2 (as E6). Builds: e6/builds-i5 = the frozen builds plus the syscall-trace
+# transformer and bpftime CLI built from the same build dirs (Ol, Dn, Dnpc; O already had them) for opensnoop,
+# syscount and javagc. One run per line.
+!cd /home/y/src/bpftime-x86-runs/paper-20261124/e6 && sha256sum --check --quiet sha256.txt && echo "e6 inputs sha256 OK"
+!mkdir -p $OUT/run1 && cd $OUT/run1 && E6_BUILDS=/home/y/src/bpftime-x86-runs/paper-20261124/e6/builds-i5 python3 -u /home/y/src/bpftime-x86-runs/paper-20261124/e6/harness/audit.py --backends kernel,O,Ol,Dn,Dnpc --secs 4 --out $OUT/run1.jsonl
+!mkdir -p $OUT/run2 && cd $OUT/run2 && E6_BUILDS=/home/y/src/bpftime-x86-runs/paper-20261124/e6/builds-i5 python3 -u /home/y/src/bpftime-x86-runs/paper-20261124/e6/harness/audit.py --backends kernel,O,Ol,Dn,Dnpc --secs 4 --out $OUT/run2.jsonl
+!mkdir -p $OUT/run3 && cd $OUT/run3 && E6_BUILDS=/home/y/src/bpftime-x86-runs/paper-20261124/e6/builds-i5 python3 -u /home/y/src/bpftime-x86-runs/paper-20261124/e6/harness/audit.py --backends kernel,O,Ol,Dn,Dnpc --secs 4 --out $OUT/run3.jsonl
+!cd /home/y/src/bpftime-x86-runs/paper-20261124/e6 && sha256sum --check --quiet sha256.txt && echo "e6 inputs sha256 OK (after)"

@@ -44,7 +44,9 @@ trap 'exit 143' TERM
 date --iso-8601=seconds >"$LOG/started-at.txt"
 
 # --- start guards ---
-check_sha() { (cd "$R/builds" && for d in */; do (cd "$d" && sha256sum --check --quiet sha256.txt) || exit 1; done) && (cd "$R/sslsniff" && sha256sum --check --quiet sha256.txt); }
+check_sha() { (cd "$R/builds" && for d in */; do (cd "$d" && sha256sum --check --quiet sha256.txt) || exit 1; done) && (cd "$R/sslsniff" && sha256sum --check --quiet sha256.txt) && check_tools; }
+# E7b: the libbpf-tools binaries and the static exec wrapper mounted at /lt and /rp, against their e6/sha256.txt lines.
+check_tools() { (cd "$R/e6" && l=$(grep -E '  (bcc-v0\.37\.0/libbpf-tools/(memleak|funclatency)|/home/y/src/rp/sw)$' sha256.txt) && [ "$(printf '%s\n' "$l" | wc -l)" -eq 3 ] && printf '%s\n' "$l" | sha256sum --check --quiet); }
 cat /proc/loadavg >"$LOG/load-before-sha.txt"
 awk '{ if ($1 >= 0.3) { print "load too high: " $1; exit 1 } }' /proc/loadavg
 check_sha
@@ -56,7 +58,7 @@ for pid in os.listdir('/proc'):
     try: exe = os.readlink(f'/proc/{pid}/exe')
     except OSError: continue
     b = os.path.basename(exe)
-    if b in ('nginx', 'wrk', 'test', 'uprobe', 'memleak', 'bpftrace', 'java', 'haproxy') or b.startswith(('sslsniff', 'bpftime')):
+    if b in ('nginx', 'wrk', 'test', 'uprobe', 'memleak', 'funclatency', 'bpftrace', 'java', 'haproxy') or b.startswith(('sslsniff', 'bpftime')):
         bad.append((pid, exe))
 if bad: sys.exit(f'leftover processes: {bad}')
 PY
@@ -94,7 +96,8 @@ FREQLOG_PID=$!
 sudo -n docker run -d --name "$NAME" --privileged --pid=host --shm-size=1g -v /sys:/sys \
     -v /lib/modules:/lib/modules:ro -v "$H":/bench -v "$R/builds":/builds:ro \
     -v /home/y/src/bpftime-x86-runs/ssl-nginx-20261026/builds:/builds177:ro \
-    -v "$R/sslsniff":/sslsniff:ro -v "$OUT":/out "$IMAGE" sleep infinity >"$LOG/container-id.txt"
+    -v "$R/sslsniff":/sslsniff:ro -v "$R/e6/bcc-v0.37.0/libbpf-tools":/lt:ro -v /home/y/src/rp:/rp:ro \
+    -v "$OUT":/out "$IMAGE" sleep infinity >"$LOG/container-id.txt"  # /lt, /rp: E7b tool mode (run_paper.py --tool)
 
 step=0
 while IFS= read -r line; do

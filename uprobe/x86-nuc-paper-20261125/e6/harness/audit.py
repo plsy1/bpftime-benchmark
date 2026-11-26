@@ -25,7 +25,7 @@ import argparse, json, os, re, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 
 ROOT = Path('/home/y/src/bpftime-x86-runs/paper-20261124/e6')
-BUILDS = ROOT / 'builds'
+BUILDS = Path(os.environ.get('E6_BUILDS', str(ROOT / 'builds')))  # I5: e6/builds-i5 (adds transformer + CLI for Ol, Dn, Dnpc)
 LT = ROOT / 'bcc-v0.37.0' / 'libbpf-tools'
 EX = Path('/home/y/src/bpftime-paper/official-4708f409/example')
 WL = Path(os.environ.get('E6_WL', str(ROOT / 'workloads')))  # N2: E6_WL=e6/workloads-mt (multithreaded callloop/mallocloop)

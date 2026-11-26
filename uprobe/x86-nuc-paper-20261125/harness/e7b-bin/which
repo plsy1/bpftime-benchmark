@@ -1,0 +1,10 @@
+#!/bin/sh
+# E7b tool mode (run_paper.py --tool funclatency): libbpf-tools funclatency resolves LIBRARY:FUNCTION without -p by
+# popen("which LIBRARY") (uprobe_helpers.c which_program); debianutils' which prints only executable files, and
+# packaged shared libraries are 0644. This stand-in, first on the tool's PATH only, prints an existing absolute path
+# as is and fails otherwise. Like debianutils' which it is a /bin/sh script (on bpftime legs it inherits the tool's
+# LD_PRELOAD exactly as the real which did in E6/I5).
+case $1 in
+/*) [ -f "$1" ] && { printf '%s\n' "$1"; exit 0; } ;;
+esac
+exit 1

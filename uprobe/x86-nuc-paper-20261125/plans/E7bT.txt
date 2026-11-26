@@ -1,0 +1,10 @@
+# E7b tool mode (eval plan L455 "服务器上的真实工具", L447 "非 sslsniff 工具"模式): libbpf-tools v0.37.0 memleak and
+# funclatency (e6 host build, mounted at /lt) on HAProxy nbthread=4, 16 B. Policy H4T = H4 (threads cpu-mapped to
+# 2,3,6,7; tool on 4; wrk on 0,1,8-11 with 6 threads) with the access log on fd 3 (haproxy-t4-fd3.cfg), the same for
+# every leg of both lines. Legs B, K, OlL3x730, Dn, Dn730f (Dn730f for Dn730, PREREG-2b); 10 reps + 1 warm-up per tool.
+# memleak: `memleak -c /rp/sw 3600`, the tool spawns HAProxy on every traced leg (K too); final report at SIGINT is a
+# sanity number only. funclatency: `funclatency -u <libssl>:SSL_write` before HAProxy (K: -p after HAProxy starts);
+# expected count = req_nginx (1 SSL_write per response). OlL3x730 cannot load funclatency (cgroup_map, map type 8):
+# those rows record tool_failed and run no load. Exploratory (no PREREG entry).
+--exp E7bTm --round 0 --payload 16 --reps 11 --warmup 1 --tool memleak --legs B#H4T,K#H4T,OlL3x730#H4T,Dn#H4T,Dn730f#H4T
+--exp E7bTf --round 0 --payload 16 --reps 11 --warmup 1 --tool funclatency --legs B#H4T,K#H4T,OlL3x730#H4T,Dn#H4T,Dn730f#H4T

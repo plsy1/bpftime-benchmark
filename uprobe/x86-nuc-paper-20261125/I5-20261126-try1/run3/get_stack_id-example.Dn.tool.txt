@@ -1,0 +1,6718 @@
+libbpf: loading object 'get_stack_id_example_bpf' from buffer
+libbpf: elf: section(2) .symtab, size 216, link 1, flags 0, type=2
+libbpf: elf: section(3) uprobe/libc.so.6:malloc, size 192, link 0, flags 6, type=1
+libbpf: sec 'uprobe/libc.so.6:malloc': found program 'malloc_enter' at insn offset 0 (0 bytes), code size 24 insns (192 bytes)
+libbpf: elf: section(4) uprobe/libc.so.6:free, size 192, link 0, flags 6, type=1
+libbpf: sec 'uprobe/libc.so.6:free': found program 'free_enter' at insn offset 0 (0 bytes), code size 24 insns (192 bytes)
+libbpf: elf: section(5) .maps, size 48, link 0, flags 3, type=1
+libbpf: elf: section(6) license, size 4, link 0, flags 3, type=1
+libbpf: license of get_stack_id_example_bpf is GPL
+libbpf: elf: section(7) .reluprobe/libc.so.6:malloc, size 32, link 2, flags 40, type=9
+libbpf: elf: section(8) .reluprobe/libc.so.6:free, size 32, link 2, flags 40, type=9
+libbpf: elf: section(9) .BTF, size 1580, link 0, flags 0, type=1
+libbpf: elf: section(10) .BTF.ext, size 440, link 0, flags 0, type=1
+libbpf: looking for externs among 9 symbols...
+libbpf: collected 0 externs total
+[2026-11-26 21:45:44][info][2968842] Setting BPFTIME_SHM_MEMORY_MB to: 1024
+[2026-11-26 21:45:44][info][2968842] Init bpftime syscall mocking..
+[2026-11-26 21:45:44][info][2968842] The log will be written to: console
+[2026-11-26 21:45:44][info][2968842] Starting syscall server..
+[2026-11-26 21:45:44][info][2968842] Setting BPFTIME_SHM_MEMORY_MB to: 1024
+[2026-11-26 21:45:44][info][2968842] Initialize syscall server
+[2026-11-26 21:45:44][info][2968842] Setting BPFTIME_SHM_MEMORY_MB to: 1024
+[2026-11-26 21:45:44][info][2968842] Global shm constructed. shm_open_type 4 for bpftime_maps_shm
+[2026-11-26 21:45:44][info][2968842] Global shm initialized
+[2026-11-26 21:45:44][info][2968842] bpftime-syscall-server started
+libbpf: map 'rb': at sec_idx 5, offset 0.
+libbpf: map 'rb': found type = 27.
+libbpf: map 'rb': found max_entries = 262144.
+libbpf: map 'stack_traces': at sec_idx 5, offset 16.
+libbpf: map 'stack_traces': found type = 7.
+libbpf: map 'stack_traces': found key_size = 4.
+libbpf: map 'stack_traces': found value_size = 160.
+libbpf: map 'stack_traces': found max_entries = 1000.
+libbpf: sec '.reluprobe/libc.so.6:malloc': collecting relocation for section(3) 'uprobe/libc.so.6:malloc'
+libbpf: sec '.reluprobe/libc.so.6:malloc': relo #0: insn #2 against 'rb'
+libbpf: prog 'malloc_enter': found map 0 (rb, sec 5, off 0) for insn #2
+libbpf: sec '.reluprobe/libc.so.6:malloc': relo #1: insn #13 against 'stack_traces'
+libbpf: prog 'malloc_enter': found map 1 (stack_traces, sec 5, off 16) for insn #13
+libbpf: sec '.reluprobe/libc.so.6:free': collecting relocation for section(4) 'uprobe/libc.so.6:free'
+libbpf: sec '.reluprobe/libc.so.6:free': relo #0: insn #1 against 'rb'
+libbpf: prog 'free_enter': found map 0 (rb, sec 5, off 0) for insn #1
+libbpf: sec '.reluprobe/libc.so.6:free': relo #1: insn #12 against 'stack_traces'
+libbpf: prog 'free_enter': found map 1 (stack_traces, sec 5, off 16) for insn #12
+libbpf: object 'get_stack_id_ex': failed (-22) to create BPF token from '/sys/fs/bpf', skipping optional step...
+libbpf: map 'rb': created successfully, fd=3
+libbpf: map 'stack_traces': created successfully, fd=4
+libbpf: resolved 'libc.so.6' to '/lib/x86_64-linux-gnu/libc.so.6'
+libbpf: elf: symbol address match for 'malloc' in '/lib/x86_64-linux-gnu/libc.so.6': 0xa28d0
+[2026-11-26 21:45:44][info][2968842] Created uprobe/uretprobe perf event handler, module name /lib/x86_64-linux-gnu/libc.so.6, offset a28d0
+libbpf: resolved 'libc.so.6' to '/lib/x86_64-linux-gnu/libc.so.6'
+libbpf: elf: symbol address match for 'free' in '/lib/x86_64-linux-gnu/libc.so.6': 0xa2fc0
+[2026-11-26 21:45:44][info][2968842] Created uprobe/uretprobe perf event handler, module name /lib/x86_64-linux-gnu/libc.so.6, offset a2fc0
+Successfully started! Tracing malloc/free in ./victim...
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81ccd30f3b
+  0x7f81ccd31943
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc0b3bac
+  0x7f81ccda05a9
+  0x7f81ccdb9bc4
+  0x7f81cc6a38f7
+  0x7f81cc6a3969
+  0x7f81ccd9f864
+  0x7f81ccd30f69
+  0x7f81ccd31943
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81ccda04b5
+  0x7f81ccdb9bc4
+  0x7f81cc6a38f7
+  0x7f81cc6a3969
+  0x7f81ccd9f864
+  0x7f81ccd30f69
+  0x7f81ccd31943
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641d39
+  0x7f81cc641135
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc68a5cb
+  0x6c61636f6c2f6572
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc689ad3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6483d5
+  0x7f81cc6485d4
+  0x7f81cc6414f9
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6482c3
+  0x7f81cc6485d4
+  0x7f81cc6414f9
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc698815
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc689c45
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641739
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc641fe9
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b61cb
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b552a
+  0x435f534c00382d46
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641d39
+  0x7f81cc641135
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641739
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc641fe9
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b61cb
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b552a
+  0x435f534c00382d46
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641d39
+  0x7f81cc641135
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641739
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc641fe9
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b61cb
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b552a
+  0x435f534c00382d46
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641d39
+  0x7f81cc641135
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641739
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc641fe9
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b61cb
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b552a
+  0x435f534c00382d46
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641d39
+  0x7f81cc641135
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641739
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc641fe9
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b61cb
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b552a
+  0x435f534c00382d46
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641d39
+  0x7f81cc641135
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641739
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc641fe9
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b61cb
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b552a
+  0x435f534c00382d46
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641d39
+  0x7f81cc641135
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641739
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc641fe9
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b61cb
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b552a
+  0x435f534c00382d46
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641d39
+  0x7f81cc641135
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641739
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc641fe9
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b61cb
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b552a
+  0x435f534c00382d46
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641d39
+  0x7f81cc641135
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641739
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc641fe9
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b61cb
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b552a
+  0x435f534c00382d46
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641d39
+  0x7f81cc641135
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641739
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc641fe9
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b61cb
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b552a
+  0x435f534c00382d46
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641d39
+  0x7f81cc641135
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641739
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc641fe9
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b61cb
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b552a
+  0x435f534c00382d46
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641d39
+  0x7f81cc641135
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc648d39
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6489c3
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64881b
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc648af8
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc641739
+  0x7f81cc643ca2
+  0x558ae05ee927
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6420e1
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b61cb
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b552a
+  0x435f534c00382d46
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc64391c
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc643b29
+
+PID: 2968845, Function: free enter
+got err=0
+Call stack:
+  0x7f81cc643b33
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc644c87
+  0x558ae05f79d8
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc6b552a
+
+PID: 2968845, Function: malloc enter
+got err=0
+Call stack:
+  0x7f81cc0b3bac
+  0x7f81ccd5a645
+  0x7f81cc7040cf
+  0x7f81cc6ee36c
+  0x558ae05eec2b
+  0x7f81cc635ca8
+  0x7f81cc635d65
+  0x558ae05eef41
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f953c330f3b
+  0x7f953c331943
+  0x7f953bc35ca8
+  0x7f953bc35d65
+  0x55ca9e4d1781
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f953b6b3bac
+  0x7f953c3a05a9
+  0x7f953c3b9bc4
+  0x7f953bca38f7
+  0x7f953bca3969
+  0x7f953c39f864
+  0x7f953c330f69
+  0x7f953c331943
+  0x7f953bc35ca8
+  0x7f953bc35d65
+  0x55ca9e4d1781
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f953c3a04b5
+  0x7f953c3b9bc4
+  0x7f953bca38f7
+  0x7f953bca3969
+  0x7f953c39f864
+  0x7f953c330f69
+  0x7f953c331943
+  0x7f953bc35ca8
+  0x7f953bc35d65
+  0x55ca9e4d1781
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x653a53555f6e653d
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x382d4654552e5355
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x3d48544150003d53
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x45535500746f6f72
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x2f3d454d4f480074
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x4c4c45485300746f
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x687361622f6e69
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x445553006e776f6e
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x73752f3d444e414d
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x4f44555300793d52
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x555300303030313d
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x555300303030313d
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x2f656d6f682f3d45
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x656d6f682f3d4441
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x5054554f5f474f4c
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+  0x2f00313d44455355
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f953bd0e92e
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db747
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db6ad
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x55ca9e4e4213
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db67d
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x55ca9e4db747
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1f130f3b
+  0x7f9f1f131943
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1e4b3bac
+  0x7f9f1f1a05a9
+  0x7f9f1f1b9bc4
+  0x7f9f1eaa38f7
+  0x7f9f1eaa3969
+  0x7f9f1f19f864
+  0x7f9f1f130f69
+  0x7f9f1f131943
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1f1a04b5
+  0x7f9f1f1b9bc4
+  0x7f9f1eaa38f7
+  0x7f9f1eaa3969
+  0x7f9f1f19f864
+  0x7f9f1f130f69
+  0x7f9f1f131943
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41d39
+  0x7f9f1ea41135
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea8a5cb
+  0x6c61636f6c2f6572
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea89ad3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea483d5
+  0x7f9f1ea485d4
+  0x7f9f1ea414f9
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea482c3
+  0x7f9f1ea485d4
+  0x7f9f1ea414f9
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea98815
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea89c45
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41739
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea41fe9
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab61cb
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab552a
+  0x505f444c00382d46
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41d39
+  0x7f9f1ea41135
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41739
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea41fe9
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab61cb
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab552a
+  0x505f444c00382d46
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41d39
+  0x7f9f1ea41135
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41739
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea41fe9
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab61cb
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab552a
+  0x505f444c00382d46
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41d39
+  0x7f9f1ea41135
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41739
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea41fe9
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab61cb
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab552a
+  0x505f444c00382d46
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41d39
+  0x7f9f1ea41135
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41739
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea41fe9
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab61cb
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab552a
+  0x505f444c00382d46
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41d39
+  0x7f9f1ea41135
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41739
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea41fe9
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab61cb
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab552a
+  0x505f444c00382d46
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41d39
+  0x7f9f1ea41135
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41739
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea41fe9
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab61cb
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab552a
+  0x505f444c00382d46
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41d39
+  0x7f9f1ea41135
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41739
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea41fe9
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab61cb
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab552a
+  0x505f444c00382d46
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41d39
+  0x7f9f1ea41135
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41739
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea41fe9
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab61cb
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab552a
+  0x505f444c00382d46
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41d39
+  0x7f9f1ea41135
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41739
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea41fe9
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab61cb
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab552a
+  0x505f444c00382d46
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41d39
+  0x7f9f1ea41135
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41739
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea41fe9
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab61cb
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab552a
+  0x505f444c00382d46
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41d39
+  0x7f9f1ea41135
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea489c3
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4881b
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea48af8
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea41739
+  0x7f9f1ea43ca2
+  0x56517d89786a
+  0x7f9f1ea35ca8
+  0x7f9f1ea35d65
+  0x56517d897f71
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea420e1
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab61cb
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab552a
+  0x505f444c00382d46
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea4391c
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea43b29
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7f9f1ea43b33
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea44c87
+  0x56517d8a0a78
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1eab552a
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7f9f1ea93818
+  0x7ffd6ef96be8
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x56517d89c3d5
+  0x6675626474732f
+  0x7f9f229b2a20
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x56517d898661
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x56517d897cf3
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x56517d897b4d
+  0x5651a54e9870
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x56517d897be1
+  0x5651a54e9870
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x56517d897c05
+  0x5651a54e9870
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x7fc72ed30f3b
+  0x7fc72ed31943
+  0x7fc72e635ca8
+  0x7fc72e635d65
+  0x55df768e60a1
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7fc72e0b3bac
+  0x7fc72eda05a9
+  0x7fc72edb9bc4
+  0x7fc72e6a38f7
+  0x7fc72e6a3969
+  0x7fc72ed9f864
+  0x7fc72ed30f69
+  0x7fc72ed31943
+  0x7fc72e635ca8
+  0x7fc72e635d65
+  0x55df768e60a1
+
+PID: 2968848, Function: free enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: malloc enter
+got err=0
+Call stack:
+  0x7fc72e689ad3
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x55df768e61ab
+  0x7fc72e635ca8
+  0x7fc72e635d65
+  0x55df768e60a1
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x55df768e61ab
+  0x7fc72e635ca8
+  0x7fc72e635d65
+  0x55df768e60a1
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+
+PID: 2968848, Function: free enter
+got err=0
+Call stack:
+  0x55df768e61ab
+  0x7fc72e635ca8
+  0x7fc72e635d65
+  0x55df768e60a1
+
+PID: 2968848, Function: malloc enter
+No stack trace available (stack_id=-17)
+

@@ -41,6 +41,9 @@ session's check/exit files. Capture directories (cap/) stay on the NUC.
 | E5/results/I8-20261126-try1 | E5 rerun with Dnext careful mode (switch off = Dn; on: only declared W7r, W8c/d p1 left) | I8-20261126-try1.SUMMARY.md |
 | DN1-20261126-try1 | Dnext careful mode on nginx: off ≡ Dn/Dnpc, on − off −0.004 / +0.016 µs/event | SUMMARY.md |
 | P5a-20261126 (+ E5/results/I8v-*, M4-20261126-try1) | P5a kernel-view spike: hooks attach, I8v all as predicted, read 1.49 ns, nginx +0.011 µs/event; GO recommended | P5a-20261126/SUMMARY.md |
+| I5-20261126-try1 | x86 18-tool audit (E12 protocol): Tern exact 12/18, official 10, upstream 10, kernel 14; JVM USDT tools fail under every bpftime build (Frida) | SUMMARY.md (outputs > 5 MB not copied) |
+| I6-20261126 | memory from smaps_rollup of existing rows (agent +~10 MB shared per nginx worker; ≲ 0.3 MB/thread) | SUMMARY.md |
+| E7bT-20261126-try1 | E7b real tools on 4-thread HAProxy: funclatency Dn/K 1.132 (exact); memleak Dn/K 0.258 (x86 stack walk) | SUMMARY.md |
 
 Deviations and notes:
 - 2026-11-26 00:27:05–12: an ssh from the Jetson session overlapped I3 round 2 rep 9 leg K (I3 DEVIATIONS.md; no
@@ -65,4 +68,8 @@ Deviations and notes:
   (2) fork from a multithreaded target then a new thread hitting a probe hangs on Gum's dlmalloc lock inherited locked
   (E5/results/I8v-20261126.SUMMARY.md, stacks w7t-fork-hang-stacks.txt); (3) bpftrace 0.23.2 BEGIN/END/printf do not
   work under bpftime (E6 port).
+- E7b tool mode: run_paper.py --tool (backup .pre-e7b and .pre-e7bfix on the NUC), policy H4T (access log on fd 3,
+  haproxy-t4-fd3.cfg), session.sh mounts /lt (libbpf-tools) and /rp (static wrapper) and checks their sha; bpftime tools
+  use a 512 MB shm (container /dev/shm 1 GiB). I5: e6/builds-i5 adds the transformer and CLI for Ol, Dn, Dnpc
+  (audit.py E6_BUILDS override; .pre-i5 on the NUC).
 
