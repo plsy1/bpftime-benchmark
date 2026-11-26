@@ -798,11 +798,289 @@ std::string sum_lookup(const sum_map_desc &d, long long fd, int n,
 	return o.str();
 }
 
+// The thread-local area by value (see the header). Only what `lat` runs on
+// the device is rewritten: 32-bit loads and stores at 4-byte offsets of a
+// value, with 64-bit registers. Anything else keeps the area in memory.
+constexpr uint64_t BYVALUE_MAX_BYTES = 16;
+const char *TV_SYM = "__bpftime_tv";
+const char *TV_ARG = "%bpftime_tv_a";
+const char *TV_RET = "%bpftime_tv_r";
+
+struct byvalue_plan {
+	bool ok = false;
+	std::string why; // why not
+	bool reads = false;
+	bool writes = false;
+	// a lookup's result register -> its value's byte offset in the area
+	std::map<std::string, uint64_t> pointers;
+	// an access (statement text) -> the register move replacing it
+	std::map<std::string, std::string> moves;
+	// accesses per statement text, each on a line of its own
+	std::map<std::string, int> access_lines;
+};
+
+// a statement on a line of its own: the line without its comment, trimmed,
+// without the ';'; empty when the line is not exactly one statement
+std::string line_statement(const std::string &line)
+{
+	std::string s = trim(strip_comments(line));
+	if (s.empty() || s.back() != ';')
+		return "";
+	s = trim(s.substr(0, s.size() - 1));
+	if (s.find(';') != std::string::npos)
+		return "";
+	return s;
+}
+
+bool is_ret_line(const std::string &line)
+{
+	static const std::regex r(
+		R"(^\s*(?:@\s*!?\s*%?[\w$]+\s+)?ret(?:\.uni)?\s*;\s*$)");
+	return std::regex_match(trim(strip_comments(line)) , r);
+}
+
+// a register written once, by a mov of a plain decimal that fits 32 bits
+bool constant_key(const std::string &body, const std::string &reg,
+		  long long *v)
+{
+	std::string def;
+	if (reg.empty() || reg[0] != '%' || count_defs(body, reg, &def) != 1)
+		return false;
+	static const std::regex mv(
+		R"(^mov\.[ubs](?:32|64)\s+(%[\w$]+)\s*,\s*(0|[1-9]\d{0,9})$)");
+	std::smatch m;
+	if (!std::regex_match(def, m, mv) || m[1] != reg)
+		return false;
+	*v = std::stoll(m[2]);
+	return *v <= 0xffffffffLL;
+}
+
+// Whether a probe function can take the area by value, and how. Fail
+// closed: every map helper call must name its map with a constant; a
+// thread-local map may only be looked up (helper 1), with a constant key
+// the program just stored (forwarded_key), in range; every statement the
+// tokenizer finds mentioning such a lookup's result must be its definition
+// in the call block, a compare with 0, or a 32-bit load or store through it
+// at a 4-byte offset inside the value with a 64-bit register, unguarded, on
+// a line of its own; every ret must be on a line of its own.
+byvalue_plan plan_by_value(const std::string &fbody,
+			   const std::map<long long, thread_local_map_desc> &maps,
+			   uint64_t area_bytes)
+{
+	byvalue_plan pl;
+	auto no = [&](const std::string &why) {
+		pl.ok = false;
+		pl.why = why;
+		return pl;
+	};
+	if (area_bytes > BYVALUE_MAX_BYTES)
+		return no("the area has " + std::to_string(area_bytes) +
+			  " bytes");
+	static const std::regex helper(R"(_bpf_helper_ext_(\d{4})\b)");
+	static const std::regex p1(
+		R"(st\.param\.b64\s+\[param1\+0\],\s*([^;]+);)");
+	static const std::regex retval(
+		R"(ld\.param\.b64\s+(%[\w$]+),\s*\[retval0\+0\];)");
+	std::map<std::string, uint64_t> value_size;
+	size_t pos = 0;
+	for (;;) {
+		size_t b = fbody.find("{ // callseq ", pos);
+		if (b == std::string::npos)
+			break;
+		{
+			size_t ls = fbody.rfind('\n', b);
+			ls = ls == std::string::npos ? 0 : ls + 1;
+			if (fbody.find_first_not_of(" \t", ls) != b) {
+				pos = b + 1;
+				continue;
+			}
+		}
+		size_t close = fbody.find("} // callseq ", b);
+		if (close == std::string::npos)
+			return no("an unterminated call block");
+		size_t e = fbody.find('\n', close);
+		e = (e == std::string::npos) ? fbody.size() : e + 1;
+		const std::string block = fbody.substr(b, e - b);
+		pos = e;
+		std::smatch hm;
+		if (!std::regex_search(block, hm, helper))
+			continue;
+		const int id = std::stoi(hm[1]);
+		if (id < 1 || id > 3)
+			continue;
+		long long fd = -1;
+		if (!constant_fd(fbody, block, &fd))
+			return no("a map call whose map is not a constant");
+		auto tl = maps.find(fd);
+		if (tl == maps.end())
+			continue; // helpers 1-3 read the area for thread-local
+				  // maps only (default_trampoline.cu)
+		if (id != 1)
+			return no("an update or delete of a thread-local map");
+		std::smatch km, rm;
+		if (!plain_call_block(block) ||
+		    !std::regex_search(block, km, p1) ||
+		    !std::regex_search(block, rm, retval))
+			return no("a thread-local lookup of another shape");
+		int fw = 0;
+		const std::string fwd =
+			forwarded_key(fbody, b, trim(km[1]), &fw);
+		long long key = 0;
+		if (fwd.empty() || !constant_key(fbody, fwd, &key))
+			return no("a thread-local key that is not a constant");
+		const auto &d = tl->second;
+		if ((uint64_t)key >= d.max_entries)
+			return no("a constant key out of range");
+		const std::string dst = rm[1];
+		if (count_defs(fbody, dst) != 1 || pl.pointers.count(dst))
+			return no("a lookup result written more than once");
+		pl.pointers[dst] = d.offset + (uint64_t)key * d.value_size;
+		value_size[dst] = d.value_size;
+	}
+	static const std::regex def(
+		R"(^ld\.param\.b64\s+(%[\w$]+)\s*,\s*\[retval0\+0\]$)");
+	static const std::regex cmp0(
+		R"(^setp\.(?:eq|ne)\.[bsu]64\s+%[\w$]+\s*,\s*(%[\w$]+)\s*,\s*0$)");
+	static const std::regex cmp0r(
+		R"(^setp\.(?:eq|ne)\.[bsu]64\s+%[\w$]+\s*,\s*0\s*,\s*(%[\w$]+)$)");
+	static const std::regex ld32(
+		R"(^ld\.[ub]32\s+(%[\w$]+)\s*,\s*\[\s*(%[\w$]+)\s*(?:\+\s*(0|[1-9]\d{0,9}))?\s*\]$)");
+	static const std::regex st32(
+		R"(^st\.[ub]32\s+\[\s*(%[\w$]+)\s*(?:\+\s*(0|[1-9]\d{0,9}))?\s*\]\s*,\s*(%[\w$]+)$)");
+	int rets = 0;
+	for (const auto &p : pieces(fbody)) {
+		const std::string &s = p.text;
+		std::string op, rest;
+		split_op(s, &op, &rest);
+		if (op == "ret" || op == "ret.uni")
+			rets++;
+		if (op == "exit")
+			return no("an exit in a probe function");
+		std::vector<std::string> regs;
+		registers_in(s, &regs);
+		std::string hit;
+		for (const auto &r : regs) {
+			if (!pl.pointers.count(r))
+				continue;
+			if (!hit.empty() && hit != r)
+				return no("two lookup results in one statement");
+			hit = r;
+		}
+		if (hit.empty())
+			continue;
+		std::smatch m;
+		if (std::regex_match(s, m, def) && m[1] == hit)
+			continue; // in the call block the lookup replaces
+		if (!p.guarded && ((std::regex_match(s, m, cmp0) && m[1] == hit) ||
+				   (std::regex_match(s, m, cmp0r) && m[1] == hit)))
+			continue;
+		// a brace or a label before it (a scope, a branch target) does
+		// not change a register move; a guard would
+		if (p.guarded)
+			return no("a guarded use of a lookup result");
+		bool load;
+		std::string other;
+		long long off = 0;
+		if (std::regex_match(s, m, ld32) && m[2] == hit) {
+			load = true;
+			other = m[1];
+			off = m[3].matched ? std::stoll(m[3]) : 0;
+		} else if (std::regex_match(s, m, st32) && m[1] == hit) {
+			load = false;
+			other = m[3];
+			off = m[2].matched ? std::stoll(m[2]) : 0;
+		} else {
+			return no("a use of a lookup result other than a compare "
+				  "with 0 or a 32-bit access: " +
+				  s);
+		}
+		const uint64_t byte = pl.pointers[hit] + (uint64_t)off;
+		if (off % 4 != 0 || (uint64_t)off + 4 > value_size[hit] ||
+		    byte % 4 != 0)
+			return no("an access outside its value or not at a 4-byte "
+				  "offset");
+		if (reg_width(fbody, other) != 64)
+			return no("an access with a register that is not 64-bit");
+		const std::string half = "%bptv_h" + std::to_string(byte / 4);
+		pl.moves[s] = load ? "cvt.u64.u32 \t" + other + ", " + half :
+				     "cvt.u32.u64 \t" + half + ", " + other;
+		(load ? pl.reads : pl.writes) = true;
+		pl.access_lines[s]++;
+	}
+	// each access and each ret on a line of its own, to be rewritten
+	std::map<std::string, int> on_lines;
+	int ret_lines = 0;
+	{
+		std::istringstream in(fbody);
+		std::string line;
+		while (std::getline(in, line)) {
+			const std::string s = line_statement(line);
+			if (pl.access_lines.count(s))
+				on_lines[s]++;
+			if (is_ret_line(line))
+				ret_lines++;
+		}
+	}
+	if (on_lines != pl.access_lines)
+		return no("an access not on a line of its own");
+	if (ret_lines != rets)
+		return no("a ret not on a line of its own");
+	pl.ok = true;
+	return pl;
+}
+
+// the halves of the area's words: packed into the return parameters before
+// every ret (a function that writes the area)
+std::string tv_give_back(const std::string &fname, uint64_t words)
+{
+	std::string o;
+	for (uint64_t w = 0; w < words; w++)
+		o += "\tmov.b64 \t%bptv_x, {%bptv_h" + std::to_string(2 * w) +
+		     ", %bptv_h" + std::to_string(2 * w + 1) +
+		     "};\n\tst.param.b64 \t[" + fname + "_bpftime_tv_r" +
+		     std::to_string(w) + "], %bptv_x;\n";
+	return o;
+}
+
+// the accesses as register moves, and the area handed back before each ret
+std::string by_value_rewrite(const std::string &body, const byvalue_plan &pl,
+			     const std::string &fname, uint64_t words,
+			     int *accesses)
+{
+	std::istringstream in(body);
+	std::string line, out;
+	int done = 0;
+	while (std::getline(in, line)) {
+		const std::string s = line_statement(line);
+		auto mv = pl.moves.find(s);
+		if (mv != pl.moves.end()) {
+			out += line.substr(0, line.find_first_not_of(" \t")) +
+			       mv->second + ";\n";
+			done++;
+			continue;
+		}
+		if (pl.writes && is_ret_line(line))
+			out += tv_give_back(fname, words);
+		out += line + "\n";
+	}
+	int want = 0;
+	for (const auto &[s, n] : pl.access_lines)
+		want += n;
+	if (done != want)
+		fail("by-value rewrite of " + fname + " missed an access");
+	// getline dropped the body's last newline state
+	if (!body.empty() && body.back() != '\n' && !out.empty())
+		out.pop_back();
+	*accesses += done;
+	return out;
+}
+
 std::string route_function_body(
 	const std::string &fbody, bool routed,
 	const std::map<long long, thread_local_map_desc> &maps,
 	const std::map<long long, sum_map_desc> &sums,
-	thread_local_routing_stats &st, const std::string &fname)
+	thread_local_routing_stats &st, const std::string &fname,
+	const byvalue_plan *byvalue = nullptr)
 {
 	static const std::regex p1(
 		R"(st\.param\.b64\s+\[param1\+0\],\s*([^;]+);)");
@@ -874,6 +1152,19 @@ std::string route_function_body(
 					  fwd_width);
 			sum_defs[rm[1].str()]++;
 			st.sum_lookups++;
+			continue;
+		}
+		if (byvalue && id == 1 && tl != maps.end()) {
+			// a non-null constant: every access through it is a
+			// register move (plan_by_value)
+			std::smatch rm;
+			if (!std::regex_search(block, rm, ret) ||
+			    !byvalue->pointers.count(rm[1].str()))
+				fail("by-value lookup not planned in " + fname);
+			out += "mov.u64 \t" + rm[1].str() +
+			       ", 1; // bpftime thread-local lookup by value, map " +
+			       std::to_string(fd) + "\n";
+			st.byvalue_lookups++;
 			continue;
 		}
 		if (routed && id == 1 && tl != maps.end()) {
@@ -966,9 +1257,22 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 	std::string ptx = ptx_in;
 	std::set<std::string> kernels(kernels_in.begin(), kernels_in.end());
 
+	// 0. which probe functions can take the area by value
+	std::map<std::string, byvalue_plan> plans;
+	if (!descs.empty()) {
+		for (const auto &f : find_probe_functions(ptx)) {
+			const std::string fbody = ptx.substr(
+				f.body_open + 1, f.body_end - 1 - f.body_open - 1);
+			plans[f.name] = plan_by_value(fbody, maps, area_bytes);
+		}
+	}
+	const uint64_t words = area_bytes / 8;
+
 	// 1. kernels: the area, its zeroing, the address at every probe call
-	// (only with a thread-local map)
+	// (only with a thread-local map); or, when every probe function the
+	// kernel calls can take it by value, a .local slot and the words
 	std::set<std::string> routed_functions;
+	std::map<std::string, const byvalue_plan *> byvalue_functions;
 	if (descs.empty())
 		kernels.clear();
 	for (const auto &k : kernels) {
@@ -981,63 +1285,137 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 			fail("kernel without a body: " + k);
 		const std::string names[] = { "__probe_func__" + k,
 					      "__retprobe_func__" + k };
-		std::istringstream in(text.substr(open + 1));
-		std::string line, body;
-		int sites = 0;
-		std::set<std::string> called;
-		while (std::getline(in, line)) {
-			bool done = false;
+		// a probe call on a line: where "call" starts, where the name
+		// ends, where its ';' is
+		auto find_call = [&](const std::string &line, size_t *c,
+				     size_t *after, size_t *semi,
+				     std::string *name) {
 			for (const auto &n : names) {
 				size_t at = line.find(n);
 				if (at == std::string::npos)
 					continue;
-				size_t after = at + n.size();
-				size_t semi =
-					line.find_first_not_of(" \t", after);
-				if (semi == std::string::npos ||
-				    line[semi] != ';')
+				size_t a = at + n.size();
+				size_t s = line.find_first_not_of(" \t", a);
+				if (s == std::string::npos || line[s] != ';')
 					continue; // a longer name
-				size_t c = line.rfind("call", at);
-				if (c == std::string::npos)
-					fail("probe name outside a call in " +
-					     k);
-				// what precedes "call": spaces, a label, a
-				// predicate; the area's address is formed
-				// after the label and before the predicate
-				std::string head = line.substr(0, c);
-				size_t pred = head.find('@');
-				std::string before = pred == std::string::npos ?
-							     head :
-							     head.substr(0, pred);
-				std::string predicate =
-					pred == std::string::npos ?
-						"" :
-						head.substr(pred);
-				std::string indent = "\t";
-				body += before + "cvta.local.u64 \t" +
-					AREA_REG + ", " + AREA_SYM + ";\n" +
-					indent + predicate +
-					line.substr(c, after - c) + ", (" +
-					AREA_REG + ")" + line.substr(semi) +
-					"\n";
-				sites++;
-				called.insert(n);
-				done = true;
+				size_t cc = line.rfind("call", at);
+				if (cc == std::string::npos)
+					fail("probe name outside a call in " + k);
+				*c = cc;
+				*after = a;
+				*semi = s;
+				*name = n;
+				return true;
+			}
+			return false;
+		};
+		const std::string inner = text.substr(open + 1);
+		std::set<std::string> called;
+		{
+			std::istringstream in(inner);
+			std::string line, n;
+			size_t c, a, s;
+			while (std::getline(in, line))
+				if (find_call(line, &c, &a, &s, &n))
+					called.insert(n);
+		}
+		if (called.empty())
+			continue;
+		// by value only when every probe function it calls can take it
+		bool by_value = true;
+		for (const auto &n : called) {
+			auto p = plans.find(n);
+			if (p == plans.end() || !p->second.ok) {
+				by_value = false;
+				st.byvalue_fallbacks.push_back(
+					n + ": " +
+					(p == plans.end() ? "no definition" :
+							    p->second.why));
 				break;
 			}
-			if (!done)
-				body += line + "\n";
 		}
-		if (sites == 0)
-			continue;
+		std::istringstream in(inner);
+		std::string line, body;
+		int sites = 0;
+		while (std::getline(in, line)) {
+			size_t c = 0, after = 0, semi = 0;
+			std::string n;
+			if (!find_call(line, &c, &after, &semi, &n)) {
+				body += line + "\n";
+				continue;
+			}
+			sites++;
+			// what precedes "call": spaces, a label, a predicate;
+			// what the call needs is formed after the label and
+			// before the predicate
+			std::string head = line.substr(0, c);
+			size_t pred = head.find('@');
+			std::string before = pred == std::string::npos ?
+						     head :
+						     head.substr(0, pred);
+			std::string predicate = pred == std::string::npos ?
+							"" :
+							head.substr(pred);
+			std::string indent = "\t";
+			if (!by_value) {
+				body += before + "cvta.local.u64 \t" + AREA_REG +
+					", " + AREA_SYM + ";\n" + indent +
+					predicate + line.substr(c, after - c) +
+					", (" + AREA_REG + ")" +
+					line.substr(semi) + "\n";
+				continue;
+			}
+			const byvalue_plan &pl = plans.at(n);
+			const bool takes = pl.reads || pl.writes;
+			if (!takes) {
+				body += line + "\n";
+				continue;
+			}
+			std::string args, rets;
+			for (uint64_t w = 0; w < words; w++) {
+				const std::string W = std::to_string(w);
+				body += (w == 0 ? before : indent) +
+					"ld.local.u64 \t" + TV_ARG + W + ", [" +
+					TV_SYM + "+" + std::to_string(8 * w) +
+					"];\n";
+				args += (w ? ", " : "") + std::string(TV_ARG) + W;
+				rets += (w ? ", " : "") + std::string(TV_RET) + W;
+			}
+			const size_t at = after - n.size();
+			body += indent + predicate + line.substr(c, at - c) +
+				(pl.writes ? "(" + rets + "), " : "") + n +
+				", (" + args + ")" + line.substr(semi) + "\n";
+			if (pl.writes)
+				for (uint64_t w = 0; w < words; w++)
+					body += indent + predicate +
+						"st.local.u64 \t[" + TV_SYM +
+						"+" + std::to_string(8 * w) + "], " +
+						TV_RET + std::to_string(w) + ";\n";
+		}
+		bool takes_any = false;
+		for (const auto &n : called)
+			takes_any = takes_any || (by_value &&
+						  (plans.at(n).reads ||
+						   plans.at(n).writes));
 		std::ostringstream decl;
-		decl << "\n\t.local .align 16 .b8 \t" << AREA_SYM << "["
-		     << area_bytes << "];\n\t.reg .b64 \t" << AREA_REG
-		     << ";\n\tcvta.local.u64 \t" << AREA_REG << ", "
-		     << AREA_SYM << ";\n";
-		for (uint64_t off = 0; off < area_bytes; off += 8)
-			decl << "\tst.u64 \t[" << AREA_REG << "+" << off
-			     << "], 0;\n";
+		if (by_value && !takes_any) {
+			// no probe function reaches the area: none in the kernel
+		} else if (by_value) {
+			decl << "\n\t.local .align 8 .b8 \t" << TV_SYM << "["
+			     << area_bytes << "];\n\t.reg .b64 \t" << TV_ARG << "<"
+			     << words << ">, " << TV_RET << "<" << words << ">;\n";
+			for (uint64_t off = 0; off < area_bytes; off += 8)
+				decl << "\tst.local.u64 \t[" << TV_SYM << "+" << off
+				     << "], 0;\n";
+		} else {
+			decl << "\n\t.local .align 16 .b8 \t" << AREA_SYM << "["
+			     << area_bytes << "];\n\t.reg .b64 \t" << AREA_REG
+			     << ";\n\tcvta.local.u64 \t" << AREA_REG << ", "
+			     << AREA_SYM << ";\n";
+			for (uint64_t off = 0; off < area_bytes; off += 8)
+				decl << "\tst.u64 \t[" << AREA_REG << "+" << off
+				     << "], 0;\n";
+		}
 		std::string new_text = text.substr(0, open + 1) + decl.str() +
 				       body;
 		// getline dropped the text's last newline state: keep the
@@ -1048,12 +1426,23 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 		ptx = ptx.substr(0, kb) + new_text + ptx.substr(ke);
 		st.kernels++;
 		st.call_sites += sites;
-		for (auto &n : called)
-			routed_functions.insert(n);
+		if (by_value)
+			st.byvalue_kernels++;
+		for (auto &n : called) {
+			if (by_value)
+				byvalue_functions[n] = &plans.at(n);
+			else
+				routed_functions.insert(n);
+		}
 	}
 
-	// every call of a routed function must have been rewritten
-	for (const auto &f : routed_functions) {
+	// every call of a function that now takes the area (by address or
+	// by value) must have been rewritten
+	std::set<std::string> taking = routed_functions;
+	for (const auto &[n, pl] : byvalue_functions)
+		if (pl->reads || pl->writes)
+			taking.insert(n);
+	for (const auto &f : taking) {
 		size_t pos = 0;
 		while ((pos = ptx.find(f, pos)) != std::string::npos) {
 			size_t after = pos + f.size();
@@ -1075,14 +1464,59 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 	for (auto it = funcs.rbegin(); it != funcs.rend(); ++it) {
 		const auto &f = *it;
 		bool routed = routed_functions.count(f.name) > 0;
+		auto bv = byvalue_functions.find(f.name);
 		std::string fbody = ptx.substr(f.body_open + 1,
 					       f.body_end - 1 - f.body_open - 1);
-		std::string nbody = route_function_body(fbody, routed, maps,
-							sums, st, f.name);
 		std::string params = trim(ptx.substr(
 			f.params_open + 1, f.params_close - f.params_open - 1));
+		size_t name_at = f.params_open;
+		std::string ret_list;
 		std::string head;
-		if (routed) {
+		std::string nbody;
+		if (bv != byvalue_functions.end()) {
+			const byvalue_plan &pl = *bv->second;
+			nbody = route_function_body(fbody, false, maps, sums, st,
+						    f.name, &pl);
+			nbody = by_value_rewrite(nbody, pl, f.name, words,
+						 &st.byvalue_accesses);
+			if (!params.empty())
+				fail(f.name + " already has parameters");
+			head = ptx.substr(f.params_open,
+					  f.params_close + 1 - f.params_open);
+			if (pl.reads || pl.writes) {
+				std::string args, pro;
+				pro = "\n\t.reg .b32 \t%bptv_h<" +
+				      std::to_string(2 * words) +
+				      ">;\n\t.reg .b64 \t%bptv_x;";
+				for (uint64_t w = 0; w < words; w++) {
+					const std::string W = std::to_string(w);
+					args += (w ? ",\n" : "") +
+						std::string("\t.param .b64 ") +
+						f.name + "_bpftime_tv_a" + W;
+					ret_list += (w ? ", " : "") +
+						    std::string(".param .b64 ") +
+						    f.name + "_bpftime_tv_r" + W;
+					pro += "\n\tld.param.b64 \t%bptv_x, [" +
+					       f.name + "_bpftime_tv_a" + W +
+					       "];\n\tmov.b64 \t{%bptv_h" +
+					       std::to_string(2 * w) +
+					       ", %bptv_h" +
+					       std::to_string(2 * w + 1) +
+					       "}, %bptv_x;";
+				}
+				head = "(\n" + args + "\n)";
+				nbody = pro + nbody;
+				if (!pl.writes)
+					ret_list.clear();
+			}
+			name_at = ptx.rfind(f.name, f.params_open);
+			if (name_at == std::string::npos || name_at < f.header)
+				fail("no name before the parameters of " +
+				     f.name);
+			st.byvalue_functions++;
+		} else if (routed) {
+			nbody = route_function_body(fbody, true, maps, sums, st,
+						    f.name);
 			if (!params.empty())
 				fail(f.name + " already has parameters");
 			head = "(\n\t.param .b64 " + f.name + "_bpftime_tl\n)";
@@ -1091,14 +1525,20 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 				f.name + "_bpftime_tl];" + nbody;
 			st.routed_functions++;
 		} else {
+			nbody = route_function_body(fbody, false, maps, sums, st,
+						    f.name);
 			head = ptx.substr(f.params_open,
 					  f.params_close + 1 - f.params_open);
 			st.unrouted_functions++;
 		}
 		std::string between = ptx.substr(
 			f.params_close + 1, f.body_open - f.params_close - 1);
-		ptx = ptx.substr(0, f.params_open) + head + between + "{" +
-		      nbody + "}" + ptx.substr(f.body_end);
+		std::string lead = ptx.substr(0, f.params_open);
+		if (!ret_list.empty())
+			lead = ptx.substr(0, name_at) + "(" + ret_list + ") " +
+			       ptx.substr(name_at, f.params_open - name_at);
+		ptx = lead + head + between + "{" + nbody + "}" +
+		      ptx.substr(f.body_end);
 	}
 	for (const auto &f : routed_functions) {
 		bool found = false;

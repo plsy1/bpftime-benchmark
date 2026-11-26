@@ -1055,6 +1055,13 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
 		st.unrouted_functions, st.helper_calls_given_zero,
 		st.guarded_atomics, st.sum_lookups, st.global_atomics,
 		st.keys_forwarded);
+	SPDLOG_INFO(
+		"Thread-local area by value in {}: {} kernels, {} probe functions, {} lookups made constant, {} accesses made register moves, {} kernels kept the area in memory",
+		file_name, st.byvalue_kernels, st.byvalue_functions,
+		st.byvalue_lookups, st.byvalue_accesses,
+		st.byvalue_fallbacks.size());
+	for (const auto &why : st.byvalue_fallbacks)
+		SPDLOG_INFO("Thread-local area kept in memory: {}", why);
 	return out;
 }
 

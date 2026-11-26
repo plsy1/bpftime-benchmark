@@ -41,6 +41,31 @@ struct thread_local_map_desc {
 // lookup otherwise; measured 0.028 ns per thread on mul_mat_vec_q, the
 // three lookups of `lat`).
 //
+// By value (2026-11-26): a kernel whose probe functions reach the area only
+// through lookups of thread-local maps with constant keys the program just
+// stored, and use each lookup's result only in compares with 0 and in 32-bit
+// loads and stores at 4-byte offsets inside the value (64-bit registers), on
+// lines of their own, keeps the area (at most 16 bytes) in a .local slot of
+// its own instead and passes its 8-byte words by value: a probe function
+// that accesses the area takes them as parameters, one that writes it also
+// returns them; inside, the area is .b32 halves, a lookup a non-null
+// constant, a load cvt.u64.u32 and a store cvt.u32.u64 of the half. Any other
+// form, in any probe function of the kernel, keeps the area in memory for the
+// whole kernel (byvalue_fallbacks says why). Map calls with a constant fd of
+// another map type get 0 for the area (helpers 1-3 read it for thread-local
+// maps only). Measured on mul_mat_vec_q with `lat` (the text this pass
+// emits, through the debug override): 0.021-0.024 ns per thread less than
+// the area in memory, 54.3 -> 55.9 t/s on tg128.
+//
+// Correctness rests on, besides the above: the area is the thread's own
+// (.local, PTX ISA 5.1.5) and its address never leaves the probe functions'
+// rewritten accesses, so its bytes can live in registers; function input
+// and return parameters are .param (5.1.6, 5.1.6.4: return parameters
+// written with st.param; 7.1 call); ld/st with a register wider than the
+// type zero-extend a load and store the low bits (9.4.1), as cvt.u64.u32 and
+// cvt.u32.u64 do (6.5.1, zext and chop). The halves are packed and unpacked
+// only by this code, so their order inside a word is never observed.
+//
 // Sum maps (1531): a lookup with a constant map fd, in any probe function,
 // becomes the calling thread's shard address of the key (as the
 // trampoline's sum_array_offset computes it), with the map's geometry and
@@ -74,6 +99,12 @@ struct thread_local_routing_stats {
 	int sum_lookups = 0;	   // constant-fd 1531 lookups made inline
 	int global_atomics = 0;	   // atomics on such a lookup's address
 	int keys_forwarded = 0;	   // inline lookups given the stored key
+	int byvalue_kernels = 0;   // kernels passing the area by value
+	int byvalue_functions = 0; // probe functions taking it by value
+	int byvalue_lookups = 0;   // lookups made a constant
+	int byvalue_accesses = 0;  // accesses made register moves
+	// why a kernel kept the area in memory (function: reason)
+	std::vector<std::string> byvalue_fallbacks;
 };
 
 // Throws std::runtime_error when the PTX does not have the expected shape;

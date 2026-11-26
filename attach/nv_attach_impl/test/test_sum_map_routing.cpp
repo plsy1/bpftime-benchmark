@@ -316,7 +316,8 @@ TEST_CASE("Without a thread-local map kernels are not routed and helpers get 0",
 	REQUIRE(has(out, "st.param.b64 \t[param4+0], 0;"));
 	REQUIRE_FALSE(has(out, "[param4+0], %rd12;"));
 	REQUIRE_FALSE(has(out, "__bpftime_tl"));
-	// with one, the kernel gets the area and the probe its parameter
+	// with one that the probe does not use, nothing reaches the area: the
+	// kernel and the probe keep their form (by value, nothing to pass)
 	thread_local_map_desc tl;
 	tl.fd = 4;
 	tl.offset = 0;
@@ -326,8 +327,13 @@ TEST_CASE("Without a thread-local map kernels are not routed and helpers get 0",
 	auto out2 = route_thread_local_maps(probe("", "14") + kernel, { K },
 					    { tl }, 8, &st2, { sum14() });
 	REQUIRE(st2.kernels == 1);
-	REQUIRE(st2.routed_functions == 1);
-	REQUIRE(has(out2, "__bpftime_tl"));
+	REQUIRE(st2.routed_functions == 0);
+	REQUIRE(st2.byvalue_kernels == 1);
+	REQUIRE(st2.byvalue_functions == 1);
+	REQUIRE(has(out2, kernel));
+	REQUIRE(has(out2, ".visible .func __retprobe_func__kern()"));
+	REQUIRE_FALSE(has(out2, "__bpftime_tl"));
+	REQUIRE_FALSE(has(out2, "__bpftime_tv"));
 	REQUIRE(st2.sum_lookups == 1);
 	REQUIRE(st2.global_atomics == 1);
 }
