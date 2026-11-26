@@ -1,6 +1,6 @@
 # The start by value: the thread-local area passed by value (2026-11-26)
 
-Follow-up to `gpu/map-lowering-20261118` (the by-value carry, listed there as the next candidate: 0.015-0.021 ns per thread) and `gpu/map-model-move-70f7bc1f-20261126` (the prototype on dev 70f7bc1f). User 11-26: build it. Branch `proto/map-model-70f7bc1f`, two commits on 33d5a3d8 (`patches/`): 1d95c160 (the change) and c4235347 (fixes after an independent review). The tool (`lat`) is unchanged.
+Follow-up to `gpu/map-lowering-20261118` (the by-value carry, listed there as the next candidate: 0.015-0.021 ns per thread) and `gpu/map-model-move-70f7bc1f-20261126` (the prototype on dev 70f7bc1f). User 11-26: build it. Branch `proto/map-model-70f7bc1f`, three commits on 33d5a3d8 (`patches/`): 1d95c160 (the change), c4235347 (fixes after an independent review) and 7d02d677 (one more line form, found when checking those fixes). The tool (`lat`) is unchanged.
 
 Board and settings as before: Orin Nano 8 GB, clocks fixed and checked before every item, llama-bench TinyLlama Q4_K_M `-r 5` with warmup, items shuffled per pass, rules written before each set of passes (`meas/RULES-sum-map-build.md`, the last two addenda).
 
@@ -15,7 +15,7 @@ A kernel whose probe functions reach the thread-local area (1530) only in the fo
   - thread-local maps are only looked up, with a constant key the program just stored (key forwarding), in range;
   - each lookup result is used only in compares with 0 and in 32-bit loads and stores with 64-bit registers, at 4-byte offsets inside the value, unguarded, each on a line of its own, never storing the result itself;
   - the area is one 8-byte word (a writing function returns it, and a device function has at most one return value, PTX ISA 7.1.1);
-  - no block comments, no directives glued to statements, no guard on a line of its own; each kernel probe call alone on its line.
+  - no block comments, no directives glued to statements, no line ending in a guard; each kernel probe call alone on its line (a probe call whose guard ends the line before is refused in either form).
 
   Anything else in any probe function of a kernel keeps the address form for the whole kernel, and the agent logs why ("Thread-local area kept in memory: ..."). Map calls with a constant fd of another type get 0 for the area (the trampoline reads it for thread-local maps only). A kernel none of whose probes reaches the area gets no area.
 - **Basis:** `.local` is the thread's own (PTX ISA 5.1.5), and the area's address never leaves the rewritten accesses. Device function inputs and returns are `.param`, returns written with `st.param` (5.1.6.4, 7.1). `ld`/`st` with a wider register zero-extend a load and store the low bits (9.4.1), as `cvt.u64.u32` and `cvt.u32.u64` do (6.5.1, zext and chop). The halves are packed and unpacked only by this code; 64-bit accesses keep the address form.
@@ -49,27 +49,28 @@ The built pass emits tvpass byte for byte (sha 81ea6349 for both; `target-shape/
 - With the four kernels, all three patched modules (one routed kernel each, as before) take the area by value.
 - From the start of the map work: 46.1 t/s (32%) -> 54.5 (20%) on 11-18 -> 56.1 t/s (17.2-17.5%) now. Section `gpu/map-lowering-20261118` put the map-free shape at 57.2 t/s.
 
-c4235347 changes neither this PTX nor the four-kernel modules (byte-identical; `target-shape/dumps.txt`), so t1/t2 stand for it.
+c4235347 and 7d02d677 change neither this PTX nor the four-kernel modules (byte-identical; `target-shape/dumps.txt`), so t1/t2 stand for them.
 
 ## Correctness
 
-- **Unit tests** (`check/unit-tests.txt`): `[tl-byvalue]` and `[sum-map-routing]`, 27 cases, 566 assertions.
+- **Unit tests** (`check/unit-tests.txt`): `[tl-byvalue]` and `[sum-map-routing]`, 28 cases, 577 assertions.
   - They pin the emitted text: heads, the prologue, give-back before every ret, call sites with labels and guards, the kernel slot.
-  - Every fallback form has a row that asserts its reason (35 rows; a lookup call block holding more than the call is refused as a module, as before).
+  - Every fallback form has a row that asserts its reason (36 rows; a lookup call block holding more than the call is refused as a module, as before).
   - The whole binary passes but `[ptx-failure]`, which fails on plain dev 70f7bc1f too (`gpu/map-model-move-70f7bc1f-20261126`).
-- **pt_victim** (`check/tvf-pt_victim.txt`, and with 1d95c160 `check/tv-1.txt`): eight tools exact, every count line equal to the previous build's.
+- **pt_victim** (`check/tvf2-pt_victim.txt` with 7d02d677, `check/tvf-pt_victim.txt` with c4235347, `check/tv-1.txt` with 1d95c160): eight tools exact, every count line equal to the previous build's.
   - `lat` takes the area by value.
   - `carry` and `tlatomic` keep the address form, with the reason logged: 16 and 24 bytes. Before the one-word limit, carry's reason was its keys: one vector store writes both, so they are not forwarded.
 - **A check of the value itself:** a new tool, `carry1` (`tools/pt_carry1.bpf.c`), keeps one 8-byte value; the entry writes a 64-bit mark of the thread and the exit compares every bit.
   - By value it had 0 mismatches over 3,880,960 thread executions.
   - With the halves swapped in one kernel's exit (override, `check/tv-carry1-mutation.txt`) it reported all 1,000,960 exits of that kernel and none of the other.
+- **The probes switched off:** a probe function that writes the area hands it back before the gate's early `ret` too. With carry1's `__bpftime_probes_enabled` set to 0 by override (`check/carry1-probes-off.txt`), the victim ran to the end and every count was 0 (the FAIL lines are the checker's want for probes that run).
 - **The address form is unchanged:** the generated PTX of the tools that keep it (carry, tlatomic, hist, latold) is byte-identical to the build without this change, before and after the fixes.
 
 ## Independent review (`review/review-1d95c160.json`)
 
 Three lenses (eligibility, the rewrite, tests and claims) went over 1d95c160. Another agent then traced each finding on its input.
 
-- **Results:** 14 findings; 13 confirmed, 1 refuted as a test remark (taken anyway). All are fixed in c4235347.
+- **Results:** 14 findings; 13 confirmed, 1 refuted as a test remark (taken anyway). All are fixed in c4235347. A check of those fixes found one more line form of the same kind (a guard ending a line after another statement, before a `ret`), fixed in 7d02d677.
 - **One reachable from ordinary llvmbpf output, not from the measured tools:** a 9-16 byte area with a writing probe got two `.param` return values, which ptxas refuses. The module would then load without probes. Fixed by the one-word limit.
 - **The rest are hypothetical inputs:**
   - text the line-based rewrite reads differently from the tokenizer: block comments, `.loc` glued to a statement, a guard on its own line before a `ret`, a probe call sharing its line;
@@ -84,11 +85,11 @@ Three lenses (eligibility, the rewrite, tests and claims) went over 1d95c160. An
 - **Areas over 8 bytes** (16-byte values, several thread-local maps) keep the address form. Two words would need one `.param` byte array as the return value.
 - **Keys written with a vector store** (carry) are not forwarded, so they are not constant to the pass.
 - **64-bit, 8- and 16-bit and signed accesses** keep the address form: no tool runs them.
-- **An independent review of c4235347 itself.**
+- **An independent review of c4235347 and 7d02d677 themselves.** Fixes written per layout left a neighbouring layout open once already.
 
 ## Files
 
-- `patches/`: the two commits (format-patch on 33d5a3d8).
+- `patches/`: the three commits (format-patch on 33d5a3d8).
 - `meas/`:
   - `RULES-sum-map-build.md` (addenda v1/v2 and t1/t2);
   - `run_meas3.sh` (the copy that ran has `tv-` and `n70-` items), `analyze_h.py`, `analyze.py`;

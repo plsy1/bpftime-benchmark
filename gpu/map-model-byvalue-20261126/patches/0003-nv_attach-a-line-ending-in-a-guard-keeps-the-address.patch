@@ -1,0 +1,134 @@
+From 7d02d677b1dcd5f25b7d38bec3c04bd365c6cdf7 Mon Sep 17 00:00:00 2001
+From: jetson <jetson@orin-nano.tail52323b.ts.net>
+Date: Thu, 26 Nov 2026 17:31:21 +0900
+Subject: [PATCH] nv_attach: a line ending in a guard keeps the address form; a
+ split-guard probe call is refused
+
+c4235347 refused a guard alone on its line, but not one ending a line after
+another statement ("shr.u64 %rd16, %rd14, 32; @%p1" then "ret;"): the
+give-back went between the guard and the ret, so the ret ran unguarded.
+Any line whose last token is a guard now keeps the address form for the
+function's kernel (ends_in_guard). A kernel probe call whose guard ends the
+line before is refused in both forms: the area's address (address form) or
+the word's load (by value) is put at the start of the call's line, where
+that guard would take it and leave the call unguarded; the address form had
+this before. Hypothetical input: llvmbpf and the probe passes put a guard
+and its instruction on one line.
+
+Checked: tests for both line forms and both kernel forms (28 routing cases,
+577 assertions); lat_mmvq's, the four-kernel lat's and carry1's generated
+PTX and the fallback tools' are byte-identical to before; eight pt_victim
+tools exact; carry1 with the probes switched off from the start (override
+of __bpftime_probes_enabled) runs to the end with every count 0, the
+gate's give-back path on the device.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../nv_thread_local_routing.cpp               | 26 ++++++++++++++-----
+ .../test/test_thread_local_byvalue.cpp        | 18 ++++++++++++-
+ 2 files changed, 37 insertions(+), 7 deletions(-)
+
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.cpp b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+index cbffb38a..2d3d0c0c 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.cpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+@@ -837,6 +837,13 @@ std::string line_statement(const std::string &line)
+ 	return s;
+ }
+ 
++// a line whose last token is a guard (@p, @!p): it guards the next line
++bool ends_in_guard(const std::string &line)
++{
++	static const std::regex g(R"((?:^|[;{}:\s])@\s*!?\s*%?[\w$]+$)");
++	return std::regex_search(trim(strip_comments(line)), g);
++}
++
+ bool is_ret_line(const std::string &line)
+ {
+ 	static const std::regex r(
+@@ -883,7 +890,8 @@ byvalue_plan plan_by_value(const std::string &fbody,
+ 			  " bytes");
+ 	// the rewrite works on lines: every statement it reads must be what
+ 	// the line shows. No block comments, no directive glued to a
+-	// statement (.loc without ';'), no guard on a line of its own.
++	// statement (.loc without ';'), no line ending in a guard (alone or
++	// after another statement: it guards what the next line holds).
+ 	if (fbody.find("/*") != std::string::npos)
+ 		return no("a block comment");
+ 	{
+@@ -893,13 +901,11 @@ byvalue_plan plan_by_value(const std::string &fbody,
+ 			if (!p.text.empty() && p.text[0] == '.' &&
+ 			    !std::regex_match(p.text, decl))
+ 				return no("a directive glued to a statement");
+-		static const std::regex lone_guard(R"(^@\s*!?\s*%?[\w$]+$)");
+ 		std::istringstream in(fbody);
+ 		std::string line;
+ 		while (std::getline(in, line))
+-			if (std::regex_match(trim(strip_comments(line)),
+-					     lone_guard))
+-				return no("a guard on a line of its own");
++			if (ends_in_guard(line))
++				return no("a line ending in a guard");
+ 	}
+ 	static const std::regex helper(R"(_bpf_helper_ext_(\d{4})\b)");
+ 	static const std::regex p1(
+@@ -1347,11 +1353,19 @@ std::string route_thread_local_maps(const std::string &ptx_in,
+ 				R"(^\s*(?:[%$A-Za-z_][\w$]*\s*:\s*)?(?:@\s*!?\s*%?[\w$]+\s*)?$)");
+ 			static const std::regex word(R"(^call\s+$)");
+ 			std::istringstream in(inner);
+-			std::string line, n;
++			std::string line, n, prev;
+ 			size_t c, a, s;
+ 			while (std::getline(in, line)) {
++				const bool guard_before = ends_in_guard(prev);
++				prev = line;
+ 				if (!find_call(line, &c, &a, &s, &n))
+ 					continue;
++				// the area's address or the word is formed at the
++				// start of the call's line: a guard ending the line
++				// before would take it and leave the call unguarded
++				if (guard_before)
++					fail("a call of " + n +
++					     " whose guard is on the line before");
+ 				called.insert(n);
+ 				const std::string rest =
+ 					trim(strip_comments(line.substr(s + 1)));
+diff --git a/attach/nv_attach_impl/test/test_thread_local_byvalue.cpp b/attach/nv_attach_impl/test/test_thread_local_byvalue.cpp
+index f26c3a06..88a59706 100644
+--- a/attach/nv_attach_impl/test/test_thread_local_byvalue.cpp
++++ b/attach/nv_attach_impl/test/test_thread_local_byvalue.cpp
+@@ -382,7 +382,10 @@ TEST_CASE("Any other form keeps the area in memory for the whole kernel",
+ 		  "block comment" },
+ 		{ "guard on a line of its own before a ret",
+ 		  entry(KEY0, "\t@%p1\n\tret;\n"), ok_exit, m, 8,
+-		  "guard on a line of its own" },
++		  "ending in a guard" },
++		{ "guard ending the line before a ret",
++		  entry(KEY0, "\tshr.u64 \t%rd20, %rd14, 32; @%p1\n\tret;\n"),
++		  ok_exit, m, 8, "ending in a guard" },
+ 		{ "compare with another register",
+ 		  entry(KEY0, "\tsetp.eq.s64 \t%p2, %rd9, %rd14;\n"), ok_exit, m,
+ 		  8, "other than a compare" },
+@@ -440,6 +443,19 @@ TEST_CASE("Any other form keeps the area in memory for the whole kernel",
+ 	}
+ }
+ 
++TEST_CASE("A probe call whose guard ends the line before is refused, in either form",
++	  "[tl-byvalue]")
++{
++	const std::string k = kernel("\tmov.u32 \t%r2, 1; @%p1\n    call __probe_func__kern;\n");
++	const std::string k2 = kernel("\t@!%p1\n    call __probe_func__kern;\n");
++	thread_local_routing_stats st;
++	// by value
++	REQUIRE_THROWS(route(HEAD + exit_fn() + entry() + k, st));
++	REQUIRE_THROWS(route(HEAD + exit_fn() + entry() + k2, st));
++	// the address form (a 24-byte area) refuses it too
++	REQUIRE_THROWS(route(HEAD + exit_fn() + entry() + k, st, { tl(4, 16) }, 24));
++}
++
+ TEST_CASE("A by-value function called outside its kernel is refused",
+ 	  "[tl-byvalue]")
+ {
+-- 
+2.43.0
+
