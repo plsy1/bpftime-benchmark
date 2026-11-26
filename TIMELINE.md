@@ -510,6 +510,25 @@ was measured (results `gpu/hash-current-20261126`; a read-only survey first, rul
   served (thousands per key at one call per thread), and lookup-then-update (cuda-counter's sum)
   loses about half.
 
+## 11-26: a device hash map, stage one designed and checked
+
+A first stage of hash maps in the map model (results `gpu/hash-design-20261126` for the design,
+`gpu/hash-round1-20261126` for the checks; nothing built in bpftime yet).
+
+- **Design:** a device key directory (open addressing, slots claimed for good by a 64-bit CAS in
+  the trampoline, a bound on reservations, E2BIG when full) and, for add-only u64 values, the sum
+  map's (SM, lane) sharded rows. Lookups never wait; an insert that loses to the same key waits a
+  bounded time, then returns EEXIST. Other value layouts (stores, deletes) designed, not decided.
+- **Round one, rules before the runs:** the llvmbpf output of the hash examples shows their
+  counter maps fit stage one (64-bit adds without fetch, NOEXIST inserts). Hand-written forms of
+  the hit path on mul_mat_vec_q (tg128): 56.15 t/s with today's sum array, 53.65 with a directory
+  hit, i.e. +0.034 ns per thread (a 1,024-slot directory); a called walk costs 0.016 more and a
+  row fixed at patch time saves nothing, so the path goes inline. Registers unchanged (56).
+- **Protocol stress (standalone CUDA, 10^6 threads x 10 launches):** claim, reservation bound
+  and wait held over 3,900 trials; the wait is what prevents NULL after EEXIST. Open: the map
+  reports E2BIG when half full, because threads reserve before their CAS (the order has to
+  change), and the release publish could not be observed by the test.
+
 ## Where it stands (11-18)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
