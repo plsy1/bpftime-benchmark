@@ -1,0 +1,74 @@
+--- pt_loader.c.orig-20261126	2026-11-17 00:50:08.184364319 +0900
++++ pt_loader.c	2026-11-26 18:14:39.579545009 +0900
+@@ -5,7 +5,11 @@
+  * map's values: OUTDIR/<map>.bin (keys 0 .. max_entries-1, each the value
+  * size bpf() returns: value_size x BPFTIME_MAP_GPU_THREAD_COUNT for the
+  * per-thread types), OUTDIR/<map>.status (types 1531/1532: the delivery
+- * status, key max_entries) and OUTDIR/maps.json. */
++ * status, key max_entries) and OUTDIR/maps.json.
++ * PT_PREFILL="map:n[,map:n]" inserts keys 0 .. n-1 (value 0, BPF_NOEXIST)
++ * into those maps after loading, before attaching (2026-11-26, hash maps).
++ * Hash maps (types 1 and 1501) also report their entry count, by
++ * bpf_map_get_next_key, in maps.json ("entries"). */
+ #include <errno.h>
+ #include <inttypes.h>
+ #include <signal.h>
+@@ -57,6 +61,32 @@
+ 		fprintf(stderr, "load failed\n");
+ 		return 1;
+ 	}
++	const char *pre = getenv("PT_PREFILL");
++	if (pre && *pre) {
++		char spec[4096];
++		snprintf(spec, sizeof spec, "%s", pre);
++		for (char *tok = strtok(spec, ","); tok; tok = strtok(NULL, ",")) {
++			char *colon = strchr(tok, ':');
++			if (!colon)
++				continue;
++			*colon = 0;
++			uint32_t n = (uint32_t)strtoul(colon + 1, NULL, 10);
++			struct bpf_map *m =
++				bpf_object__find_map_by_name(obj, tok);
++			if (!m) {
++				fprintf(stderr, "prefill: no map %s\n", tok);
++				return 1;
++			}
++			uint32_t vs = bpf_map__value_size(m);
++			char *zero = calloc(1, vs);
++			uint32_t ok = 0;
++			for (uint32_t k = 0; k < n; k++)
++				ok += bpf_map_update_elem(bpf_map__fd(m), &k, zero,
++							  BPF_NOEXIST) == 0;
++			free(zero);
++			printf("prefill %s: %u of %u keys inserted\n", tok, ok, n);
++		}
++	}
+ 	struct bpf_program *prog;
+ 	bpf_object__for_each_program(prog, obj)
+ 	{
+@@ -141,12 +171,23 @@
+ 			}
+ 			free(buf);
+ 		}
++		long long entries = -1;
++		if (type == 1 || type == 1501) {
++			uint32_t cur = 0, next = 0;
++			entries = 0;
++			int e = bpf_map_get_next_key(fd, NULL, &next);
++			while (e == 0 && entries <= (long long)n + 1) {
++				entries++;
++				cur = next;
++				e = bpf_map_get_next_key(fd, &cur, &next);
++			}
++		}
+ 		fprintf(mj,
+ 			"%s{\"name\": \"%s\", \"type\": %d, \"value_size\": %u, \"max_entries\": %u, \"bytes_per_key\": %" PRIu64
+ 			", \"lookup_failures\": %" PRIu64 ", \"nonzero_words\": %" PRIu64
+-			", \"sum\": %.0Lf}",
++			", \"sum\": %.0Lf, \"entries\": %lld}",
+ 			first ? "" : ", ", bpf_map__name(map), type, vs, n, per,
+-			failed, nonzero, sum);
++			failed, nonzero, sum, entries);
+ 		first = 0;
+ 		printf("map %s type %d: sum %.0Lf, nonzero words %" PRIu64
+ 		       ", failed lookups %" PRIu64 "\n",
