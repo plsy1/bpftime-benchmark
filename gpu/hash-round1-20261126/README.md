@@ -99,10 +99,10 @@ A standalone CUDA test: 10^6 threads x 10 launches, 64 heavily duplicated keys. 
 - **C4: the claim, the reservation bound and the wait held** (consistent with the model, not proof). **The release publish is not verified:** its control was not observable. Two items are open:
   - **The publish ordering:** it needs a test that can see it (a faster reader, or a check inside the claiming kernel).
   - **The reservation order:** it needs a change, because E2BIG appears below capacity. Candidates for the next round (not decided):
-    - walk first, and reserve only when the CAS is about to be tried on a slot that is still empty;
-    - or claim first and reserve after winning, with a counted overshoot bounded by the threads in flight (the directory has twice max_entries slots).
+    - claim first and reserve after winning, so that threads losing the CAS to the same key never hold a reservation (what a refused winner's slot becomes has to be defined);
+    - a first draft also listed "walk first, reserve only right before the CAS", but that is the order C4 ran: the reservation is taken at the first empty slot, just before the CAS, and 185 of the 188 give-backs came from threads that lost the CAS to the same key. It is not a fix.
 
-    Either needs C4 again.
+    The change needs C4 again.
 - **The user's decisions from the design still stand:** whether hash tools may declare the device hash type, the first-touch semantics, the loss channel, and R.
 
 ## Files

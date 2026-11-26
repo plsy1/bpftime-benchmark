@@ -42,7 +42,7 @@ A **device hash map**: a hash map that GPU probes use without host calls. It has
   - **A hash keyed per thread** (a start time by thread index, inserted at entry and deleted at exit). Slots are permanent, so every distinct thread key needs one: 720,896-4,096,000 threads per llama.cpp launch. Those tools get E2BIG (counted). Their storage in the model is 1530 (thread-local, by value), declared by the tool, as `lat` does.
   - **Stores, multi-word values, deletes and in-place reads:** the store layout (below), not decided.
 - **Coverage by default is small.** Today only 1501 maps would become device hash maps (plain HASH maps may be shared with CPU programs). That is 4 maps and 6 of 38 hash call sites in bpftime's examples, in two programs never run on this board.
-  - So a decision is needed first (below): whether hash tools may declare the device hash type, as `lat` declares 1530 and 1531.
+  - So hash tools declare the device hash type, as `lat` declares 1530 and 1531 (decided, below).
 
 ## Operations (stage one)
 
@@ -94,7 +94,7 @@ All header and value accesses go through the `.global` address (`cvta.to.global`
   - The tool reads delivered snapshots: 1531's delivery thread, schedule and owner rule.
   - get_next_key goes in slot order, which never changes.
   - CPU update and delete return EPERM, as 1531 and 1532 do.
-- **Loss counts** (E2BIG, EEXIST, unstable claims) need a channel: reserved keys cannot work in a hash key space. That is an open question.
+- **Loss counts** (E2BIG, EEXIST, unstable claims) need a channel: reserved keys cannot work in a hash key space. They go to a companion status array (decided, below).
 
 ## Expected costs (estimates, not measured)
 
@@ -125,14 +125,12 @@ The panel proposed a second analyzer over eBPF bytecode, to choose each map's la
 - **The routing pass's PTX allowlist still guards what it lowers inline:** constant-fd lookups, and adds through their results. Anything it does not recognise keeps the helper call.
 - **Why not add it:** a second checker that must agree with the PTX allowlist is the kind of code that failed open in each review round so far.
 
-## Decisions for the user
+## Decisions (user, 11-26, as proposed)
 
-1. **Declaration.** May a hash tool declare the device hash type? This is a new type number such as 1533, or 1501 itself becoming it. It is the same as `lat` declaring 1530 and 1531 instead of the existing types. If yes, no opt-in mechanism for plain HASH maps is needed, and plain HASH keeps today's host path.
-2. **The first-touch counter.**
-   - Keep bpf's semantics: the idiom loses increments whose lookup missed before the first insert was served, counted as EEXIST.
-   - Or offer an opt-in fused "lookup or insert".
-3. **Loss counts.** A companion status array named after the map, or a reader found with dlsym, as the ringbuf's poll is.
-4. **R**, the rows with shards. A per-map default min(max_entries, 512), about 1 MiB for a 1,024-entry u64 map. Or a tool-visible parameter.
+1. **Declaration: yes.** A hash tool declares the device hash type (a new type number, as `lat` declares 1530 and 1531). Plain HASH maps keep today's host path; 1501 is not changed.
+2. **First touch: bpf's semantics.** An insert that loses to the same key returns EEXIST, and the idiom's increment is lost, as in bpf; losses are counted. A fused "lookup or insert" may come later as an opt-in.
+3. **Loss counts: a companion status array** named after the map, read with the ordinary map API (no dlsym entry).
+4. **R: min(max_entries, 512) by default,** not a tool parameter for now.
 
 ## First checks (round one), with decision rules written now
 
