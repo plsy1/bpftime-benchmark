@@ -1,0 +1,8 @@
+# I1 smoke: every leg of plans/I1.txt once (R4 and R1, same N), then the unchanged nginx path (policy M, 5 s) as a
+# regression check of the edited run_paper.py in the redis image (no haproxy in this image; the HAProxy path is unchanged
+# apart from the kill/leftover name lists). Check: rows valid, ev_per_req ~2, unreported_ev +2 (Tern/upstream) / +4 (K),
+# write_bytes = bytes_nginx (bpftime) or - 7 (K), redis_load_extra 2, io_threaded_frac (R4) ~1, server_thread_pin,
+# busy of 0,1,8-11 at B below ~90 %, wall_s per leg (adjust --redis-n), B#M/K#M/Dn#M rps and ev offsets as in earlier nginx rows.
+--exp I1R4-smoke --round 0 --payload 16 --reps 1 --conns 96 --redis-n 1000000 --legs B#R4,K#R4,K#R4+SSLSNIFF_PB_WAKEUP=32,Ol#R4,OlL3#R4,OlL3x730#R4,Dn#R4,Dn730f#R4,Dnpc#R4
+--exp I1R1-smoke --round 0 --payload 16 --reps 1 --conns 96 --redis-n 700000 --legs B#R1,K#R1,K#R1+SSLSNIFF_PB_WAKEUP=32,Ol#R1,OlL3x730#R1,Dn#R1,Dnpc#R1,Dxn#R1+BPFTIME_DIAG_EXACT=1
+--exp I1-smoke-nginx --round 0 --payload 16 --reps 1 --secs 5 --legs B#M,K#M,Dn#M

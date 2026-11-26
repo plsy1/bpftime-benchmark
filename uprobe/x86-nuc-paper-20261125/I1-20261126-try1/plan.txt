@@ -1,0 +1,16 @@
+# 2026-11-26 after the smoke: R4 --redis-n 1000000 -> 1500000 (B#R4 ran 6.5 s; target >= 8 s).
+# I1 (eval plan L530): Redis 7.0.15 with TLS as a second real server with named threads, image bpftime-ssl-redis:x86-20261126
+# (frozen nginx image + Ubuntu's redis-server/redis-tools, libssl 3.0.13-0ubuntu3.16 unchanged; docker-redis/Dockerfile).
+# Server: redis-t4.conf / redis-t1.conf (TLS only on 6380, nginx's test.cer/test.key, io-threads N, io-threads-do-reads yes).
+# R4 = H4's CPUs: io-threads 4, main thread + io_thd_1..3 pinned to 2,3,6,7 one each (as H4's cpu-map); consumer 4;
+# redis-benchmark on 0,1,8-11 with 6 threads, 96 clients. R1 = io-threads 1 under the mask {2,6} (as H1/M), consumer 4,
+# the same generator (0,1,8-11, 6 threads: on 8-11 alone redis-benchmark ran ~80 % busy at B in the pre-build check).
+# Load: redis-benchmark --tls --threads 6 -c 96 -P 1 -d 16 -t set,get -n N (N per test; 2N commands, no duration option:
+# --redis-n chosen for ~8-10 s at B with the pinned frequencies; recheck against the smoke). Counts from INFO stats
+# (run_paper.py module doc "I1"): 2 events per command expected, offsets +2 (CONFIG GET pair) / K +4 (+ readiness PING).
+# Legs: R4 = H7b's sslsniff legs (B, K, Kb, Ol, OlL3, OlL3x730, Dn, Dn730f, Dnpc), 2 x 10 paired reps (+1 warm-up);
+# R1 = H7a's core (B, K, Kb, Ol, OlL3x730, Dn, Dnpc, Dxn+EXACT), 1 x 10 (+1 warm-up). 16 B values only.
+# Estimate (unmeasured; ~20 s per leg incl. start/stop): R4 189 legs ~ 60 min, R1 88 legs ~ 30 min. Exploratory (no PREREG entry).
+--exp I1R4 --round 0 --payload 16 --reps 11 --warmup 1 --conns 96 --redis-n 1500000 --legs B#R4,K#R4,K#R4+SSLSNIFF_PB_WAKEUP=32,Ol#R4,OlL3#R4,OlL3x730#R4,Dn#R4,Dn730f#R4,Dnpc#R4
+--exp I1R4 --round 1 --payload 16 --reps 10 --conns 96 --redis-n 1500000 --legs B#R4,K#R4,K#R4+SSLSNIFF_PB_WAKEUP=32,Ol#R4,OlL3#R4,OlL3x730#R4,Dn#R4,Dn730f#R4,Dnpc#R4
+--exp I1R1 --round 0 --payload 16 --reps 11 --warmup 1 --conns 96 --redis-n 700000 --legs B#R1,K#R1,K#R1+SSLSNIFF_PB_WAKEUP=32,Ol#R1,OlL3x730#R1,Dn#R1,Dnpc#R1,Dxn#R1+BPFTIME_DIAG_EXACT=1

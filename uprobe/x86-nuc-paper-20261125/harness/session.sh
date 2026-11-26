@@ -14,7 +14,7 @@ H=$R/harness
 exec 9>"$R/.measure.lock"
 flock -n 9 || { echo "refusing: build or another session holds the measurement lock"; exit 3; }
 OUT=$R/raw/$SID
-IMAGE=${PAPER_IMAGE:-bpftime-ssl-nginx:x86-20261026}  # E7: PAPER_IMAGE=bpftime-ssl-haproxy:x86-20261126 (frozen image + haproxy)
+IMAGE=${PAPER_IMAGE:-bpftime-ssl-nginx:x86-20261026}  # E7: PAPER_IMAGE=bpftime-ssl-haproxy:x86-20261126 (frozen image + haproxy); I1: bpftime-ssl-redis:x86-20261126 (frozen image + redis)
 NAME=paper-x86
 PINS=(${PAPER_PINS:-2:3500000 4:3500000 6:3500000 8:2500000 9:2500000 10:2500000 11:2500000})
 PCPUS=("${PINS[@]%%:*}")  # CPUs pinned this session (logged by show / freq-log)
@@ -58,7 +58,7 @@ for pid in os.listdir('/proc'):
     try: exe = os.readlink(f'/proc/{pid}/exe')
     except OSError: continue
     b = os.path.basename(exe)
-    if b in ('nginx', 'wrk', 'test', 'uprobe', 'memleak', 'funclatency', 'bpftrace', 'java', 'haproxy') or b.startswith(('sslsniff', 'bpftime')):
+    if b in ('nginx', 'wrk', 'test', 'uprobe', 'memleak', 'funclatency', 'bpftrace', 'java', 'haproxy', 'redis-server', 'redis-benchmark') or b.startswith(('sslsniff', 'bpftime')):
         bad.append((pid, exe))
 if bad: sys.exit(f'leftover processes: {bad}')
 PY

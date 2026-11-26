@@ -66,6 +66,28 @@ E7b tool mode (--tool memleak | funclatency; inactive unless given, eval plan L4
   (OlL3x730) cannot create funclatency's cgroup_map (map type 8, -EOPNOTSUPP): the tool exits,
   the leg records tool_failed / tool_rc / tool output and runs no load. Tool output: capdir
   tool-stdout.txt / tool-stderr.txt (heads and tails in the row).
+
+I1 Redis mode (policy "server": "redis"; inactive otherwise, eval plan L530): redis-server 7.0.15 (image
+  bpftime-ssl-redis:x86-20261126 = frozen image + Ubuntu's redis-server/redis-tools, libssl unchanged) with TLS only on
+  127.0.0.1:6380 (REDIS_PORT), nginx's certificate, `io-threads N` + `io-threads-do-reads yes` (redis-t1.conf /
+  redis-t4.conf), under the policy's server CPU mask; with server_thread_cpus the main thread and io_thd_<i> are then
+  pinned one per CPU (as HAProxy's cpu-map in H4). Ready = PING answered; the thread check counts the threads Redis
+  names io_thd_* (exactly N - 1). Harness commands (PING, INFO) go through redis_cmd(): a Python ssl client, one
+  command per connection, no certificate check (test.cer expired 2024), so the reply bytes are known exactly.
+  Load: `redis-benchmark --tls --insecure --threads T -c C -P 1 -d PAYLOAD -n N -t set,get --csv` on the policy's
+  wrk CPUs (T = wrk_threads, C = --conns, N = --redis-n per test, so 2N commands; no duration option, the run
+  length follows the throughput). rps = 2N / (N/rps_SET + N/rps_GET) from redis-benchmark's own per-test rps
+  (row redis_rps_set / redis_rps_get; rate_by_wall = 2N / wall time of the generator process).
+  Counts from INFO stats (total_commands_processed excludes the INFO being answered): req_nginx = final count + 1
+  (every command of the server's life: readiness PINGs, the INFO before the load, redis-benchmark's 2N SETs/GETs and
+  its 2 CONFIG GETs, the final INFO), bytes_nginx = total_net_output_bytes + the final INFO's reply bytes; derive()
+  then expects 2 events per command (pipelining off: one SSL_read and one SSL_write each). Known offsets: the two
+  CONFIG GETs arrive in one read and leave in one write (+2 unreported on every traced leg), K misses the readiness
+  PING (+2 more; the kernel loader attaches after the server is up). req_load = commands between the two INFOs
+  (minus the first INFO) must be >= 2N and <= 2N + 4 ('redis_count'); io_threaded_reads_processed must cover >= half
+  of req_load when N > 1 ('io_threads_idle'); generator exit status 'redis_gen_rc'. Per-thread run time as HAProxy
+  (server_thread_cpu_ns) plus server_thread_comm; Redis 7.0 io threads spin while active, so their run time is not
+  work. S4 counting legs only (no --tool, --rate, --perf-mode, other stages).
 """
 import argparse, hashlib, json, os, random, re, shutil, signal, subprocess, sys, time
 
@@ -98,6 +120,10 @@ TOOL_SW = '/rp/sw'                   # memleak -c takes at most 31 characters
 TOOL_WHICH_DIR = f'{BENCH}/e7b-bin'  # stand-in `which` for funclatency
 TOOL_SHM_MB = '512'                  # BPFTIME_SHM_MEMORY_MB. Not E6/I5's 1024: the container's /dev/shm is 1 GiB (session.sh --shm-size=1g), and a 1 GiB segment SIGBUSes the traced haproxy once touched (E7bT smoke)
 MEMLEAK_INTERVAL = 3600              # no periodic report during the run; the final one comes at SIGINT
+# I1 Redis mode (module doc)
+REDIS_PORT = 6380
+REDIS = {'n': None, 'tests': ('set', 'get')}  # n: --redis-n (requests per redis-benchmark test)
+REDIS_LEG = {}                       # set by start_redis for the current leg (thread map), copied into the row
 
 
 class ToolFailed(Exception):
@@ -153,7 +179,7 @@ def write_payload(size):
 
 
 def kill_all():
-    for pat in ('^nginx$', '^sslsniff', '^wrk$', '^haproxy$'):
+    for pat in ('^nginx$', '^sslsniff', '^wrk$', '^haproxy$', '^redis-server$', '^redis-benchmark$'):
         sh('pkill', '-9', pat)
     time.sleep(0.3)
 
@@ -169,7 +195,7 @@ def leftovers():
         except OSError:
             continue
         b = os.path.basename(exe)
-        if b in ('nginx', 'wrk', 'haproxy') or b.startswith('sslsniff'):
+        if b in ('nginx', 'wrk', 'haproxy', 'redis-server', 'redis-benchmark') or b.startswith('sslsniff'):
             hits.append((int(pid), exe))
     return hits
 
@@ -299,10 +325,121 @@ def thread_ns(pid):
     return out
 
 
+def resp_complete(d):
+    """I1: True once d holds one whole RESP reply (simple string / error / integer, or a bulk string)."""
+    i = d.find(b'\r\n')
+    if i < 0:
+        return False
+    if d[:1] != b'$':
+        return True
+    n = int(d[1:i])
+    return n < 0 or len(d) >= i + 2 + n + 2
+
+
+def redis_cmd(*args, timeout=5.0):
+    """I1: one command on a fresh TLS connection to the Redis server (no certificate check: test.cer expired in 2024).
+    Returns the raw RESP reply bytes, or None when the server is not reachable (yet)."""
+    import socket, ssl
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    req = f'*{len(args)}\r\n'.encode() + b''.join(f'${len(a.encode())}\r\n{a}\r\n'.encode() for a in args)
+    try:
+        with socket.create_connection(('127.0.0.1', REDIS_PORT), timeout=timeout) as s:
+            with ctx.wrap_socket(s) as c:
+                c.sendall(req)
+                data = b''
+                while not resp_complete(data):
+                    b = c.recv(65536)
+                    if not b:
+                        break
+                    data += b
+                return data
+    except OSError:  # includes ssl.SSLError, ConnectionRefusedError
+        return None
+
+
+def redis_info():
+    """I1: INFO stats as {field: int|str} plus reply_bytes (the whole RESP reply), or None."""
+    raw = redis_cmd('INFO', 'stats')
+    if not raw or raw[:1] != b'$':
+        return None
+    d = {}
+    for line in raw.split(b'\r\n', 1)[1].decode(errors='replace').splitlines():
+        if ':' in line and not line.startswith('#'):
+            k, v = line.split(':', 1)
+            d[k] = int(v) if v.isdigit() else v
+    d['reply_bytes'] = len(raw)
+    return d
+
+
+def start_redis(cpus, env, conf, nthreads, thread_cpus=None):
+    """I1: redis-server in the foreground with TLS (module doc); its log goes to error.log. Returns (process, pid)
+    like a 1-worker nginx. thread_cpus: after readiness, the main thread goes to thread_cpus[0] and io_thd_<i> to
+    thread_cpus[i] (recorded in REDIS_LEG)."""
+    REDIS_LEG.clear()
+    for f in ('access.log', 'error.log'):
+        try:
+            os.remove(f'{BENCH}/{f}')
+        except FileNotFoundError:
+            pass
+    errf = open(f'{BENCH}/error.log', 'w')
+    p = subprocess.Popen(['redis-server', f'{BENCH}/{conf}'], env=env, stdout=errf, stderr=errf,
+                         start_new_session=True, **affinity(cpus))
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        if redis_cmd('PING', timeout=2) == b'+PONG\r\n':
+            comms = {}
+            for t in os.listdir(f'/proc/{p.pid}/task'):
+                try:
+                    comms[int(t)] = open(f'/proc/{p.pid}/task/{t}/comm').read().strip()
+                except OSError:
+                    pass
+            io = sorted(c for c in comms.values() if c.startswith('io_thd_'))
+            # bpftime's agent adds threads of its own; count Redis's io threads by name
+            assert comms.get(p.pid) == 'redis-server' and len(io) == nthreads - 1, f'redis threads {comms} vs {nthreads}'
+            if thread_cpus:
+                assert len(thread_cpus) == nthreads, (thread_cpus, nthreads)
+                tmap = {}
+                for tid, c in comms.items():
+                    idx = 0 if tid == p.pid else int(c[7:]) if c.startswith('io_thd_') else None
+                    if idx is not None:
+                        os.sched_setaffinity(tid, {thread_cpus[idx]})
+                        tmap[str(tid)] = thread_cpus[idx]
+                REDIS_LEG['thread_cpu'] = tmap
+            REDIS_LEG['thread_comm'] = {str(t): c for t, c in comms.items()}
+            return p, p.pid
+        assert p.poll() is None, 'redis-server exited: ' + open(f'{BENCH}/error.log').read()[-500:]
+        time.sleep(0.2)
+    raise RuntimeError('redis-server not ready')
+
+
+def redis_bench(cpus, threads, conns, n, size, capdir):
+    """I1: redis-benchmark (module doc). Returns rps, total, errors, extra-row-fields."""
+    cmd = ['redis-benchmark', '--tls', '--insecure', '-h', '127.0.0.1', '-p', str(REDIS_PORT), '--threads', str(threads),
+           '-c', str(conns), '-P', '1', '-d', str(size), '-n', str(n), '-t', ','.join(REDIS['tests']), '--csv']
+    t0 = time.time()
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=600, **affinity(cpus))
+    wall = time.time() - t0
+    with open(f'{capdir}/gen-stdout.txt', 'w') as f:
+        f.write(r.stdout + '\n--- stderr ---\n' + r.stderr)
+    tests = {m.group(1).lower(): float(m.group(2)) for m in re.finditer(r'^"([A-Z]+)","([\d.]+)"', r.stdout, re.M)}
+    assert all(t in tests and tests[t] > 0 for t in REDIS['tests']), r.stdout + r.stderr
+    total = n * len(REDIS['tests'])
+    rps = total / sum(n / tests[t] for t in REDIS['tests'])
+    errors = 0 if r.returncode == 0 and 'rror' not in r.stdout + r.stderr else total
+    extra = {f'redis_rps_{t}': tests[t] for t in REDIS['tests']}
+    extra.update(redis_n=n, redis_gen_rc=r.returncode, redis_gen_cmd=' '.join(cmd), rate_by_wall=round(total / wall, 3),
+                 redis_gen_wall_s=round(wall, 3), redis_gen_stderr=r.stderr[-500:] or None)
+    return rps, total, errors, extra
+
+
 def start_server(pol, env, nworkers, conf):
-    """nginx (default, unchanged) or, for a policy with server = haproxy, HAProxy (E7)."""
+    """nginx (default, unchanged) or, for a policy with server = haproxy, HAProxy (E7), or Redis (I1)."""
     if pol.get('server', 'nginx') == 'nginx':
         return start_nginx(pol['nginx'], env, nworkers, conf)
+    if pol['server'] == 'redis':
+        return start_redis(pol['nginx'], env, pol['server_conf'], pol.get('server_threads', 1), pol.get('server_thread_cpus'))
     return start_haproxy(pol['nginx'], env, pol['server_conf'], pol.get('server_threads', 1), pol.get('server_log_fd'))
 
 
@@ -873,13 +1010,16 @@ def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None, tool=None):
             assert sniff.poll() is None, 'bpftime sslsniff exited'
             env = dict(base_env, LD_PRELOAD=f'{build}/libbpftime-agent.so', **leg['env'])
             nginx, worker = start_server(pol, env, NW, NCONF)
+        srv = pol.get('server', 'nginx')
+        if srv == 'redis':  # I1: counter snapshot before the load (outside the measured window)
+            row['redis_info0'] = redis_info()
+            row['redis_threads'] = pol.get('server_threads', 1)
         cpus = sorted(set(pol['nginx'] + pol['sniff'] + pol['wrk']))
         t0 = cpu_times()
         w0 = agg(proc_cpu_s, worker)
         s0 = proc_cpu_s(sniff.pid) if sniff else None
         wns0, sns0 = agg(task_schedstat_ns, worker), task_schedstat_ns(sniff.pid if sniff else None)
         mig0 = agg(nr_migrations, worker)
-        srv = pol.get('server', 'nginx')
         tns0 = thread_ns(worker) if srv != 'nginx' else None
         irq0 = irq_counts()
         perfp = None
@@ -907,7 +1047,11 @@ def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None, tool=None):
             sniff.send_signal(signal.SIGUSR2)  # H2: the latency window opens 1 s after this
             row['lat_usr2_t'] = time.time()
         tt0 = time.time()
-        if rate:
+        if srv == 'redis':  # I1
+            rps, total, errors, extra = redis_bench(pol['wrk'], pol.get('wrk_threads', threads), conns, REDIS['n'],
+                                                    REDIS['payload'], capdir)
+            row.update(extra)
+        elif rate:
             rps, total, errors, extra = open_loop(pol['wrk'], pol.get('wrk_threads', threads), conns, secs, rate, capdir)
             row.update(extra)
         else:
@@ -942,8 +1086,13 @@ def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None, tool=None):
             tns1 = thread_ns(worker)
             row['server'] = srv
             row['server_thread_cpu_ns'] = {t: tns1[t] - tns0[t] for t in tns1 if t in tns0}
-            info = haproxy_info()
-            row['haproxy_info'] = {k: info.get(k) for k in ('CumReq', 'CumConns', 'CumSslConns', 'Nbthread', 'Version')}
+            if srv == 'redis':  # I1: final counters (the INFO is answered after the measured window, before the stop)
+                row['server_thread_comm'] = REDIS_LEG.get('thread_comm')
+                row['server_thread_pin'] = REDIS_LEG.get('thread_cpu')
+                row['redis_info1'] = redis_info()
+            else:
+                info = haproxy_info()
+                row['haproxy_info'] = {k: info.get(k) for k in ('CumReq', 'CumConns', 'CumSslConns', 'Nbthread', 'Version')}
         irq1 = irq_counts()
         row['busy_all'] = busy(t0, t1, sorted(t1))
         row['nginx_cpu_ns'] = (wns1 - wns0) if None not in (wns0, wns1) else None
@@ -1006,6 +1155,16 @@ def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None, tool=None):
         if req_srv > req_nginx:
             bytes_nginx = round(bytes_nginx * req_srv / req_nginx)
             req_nginx = req_srv
+    if pol.get('server') == 'redis':  # I1: no access log; counts from INFO stats (module doc)
+        i0, i1 = row.get('redis_info0'), row.get('redis_info1')
+        req_nginx = bytes_nginx = bad = None
+        if i1:
+            req_nginx = i1['total_commands_processed'] + 1
+            bytes_nginx = i1['total_net_output_bytes'] + i1['reply_bytes']
+            if i0:
+                row['req_load'] = i1['total_commands_processed'] - i0['total_commands_processed'] - 1
+                row['io_threaded_reads'] = i1['io_threaded_reads_processed'] - i0['io_threaded_reads_processed']
+                row['io_threaded_writes'] = i1['io_threaded_writes_processed'] - i0['io_threaded_writes_processed']
     row.update(req_nginx=req_nginx, bytes_nginx=bytes_nginx, nginx_non200=bad)
     cnt, stats = None, []
     for line in open(errpath, errors='replace'):
@@ -1141,6 +1300,19 @@ def derive(row, leg, payload):
             reasons.append('rate_miss')
     if row.get('tool'):  # E7b
         tool_derive(row, leg, reasons)
+    if row.get('redis_n') is not None:  # I1
+        exp_load = row['redis_n'] * len(REDIS['tests'])
+        load = row.get('req_load')
+        row['redis_load_extra'] = load - exp_load if load is not None else None
+        if load is None or not exp_load <= load <= exp_load + 4:
+            reasons.append('redis_count')
+        if row.get('redis_gen_rc') != 0:
+            reasons.append('redis_gen_rc')
+        if row.get('redis_threads', 1) > 1:
+            frac = row['io_threaded_reads'] / load if load and row.get('io_threaded_reads') is not None else None
+            row['io_threaded_frac'] = round(frac, 4) if frac is not None else None
+            if frac is None or frac < 0.5:
+                reasons.append('io_threads_idle')
     row['valid'] = not reasons
     row['invalid_reason'] = reasons
 
@@ -1165,6 +1337,8 @@ def main():
     ap.add_argument('--perf-start', type=float, default=2.0)
     ap.add_argument('--perf-dur', type=float, default=16.0)
     ap.add_argument('--rate', type=float, help='H2: open loop at this many requests/s in total (wrk + Lua pacing)')
+    ap.add_argument('--redis-n', type=int, default=1000000, help='I1: redis-benchmark -n (requests per test; 2 tests, '
+                    'SET and GET) on a redis policy')
     ap.add_argument('--tool', choices=sorted(TOOLS), help='E7b: this libbpf-tools tool on the server instead of the '
                     'sslsniff loader, for every leg (B: no tool); see the module doc')
     a = ap.parse_args()
@@ -1180,6 +1354,13 @@ def main():
                 raise SystemExit(f"--tool: plain legs only (no @STAGE, -stock, BPFSTATS/X/REPORT/LATW): {leg['text']}")
             if pol.get('server') != 'haproxy' or not pol.get('server_log_fd'):
                 raise SystemExit(f"--tool: needs a haproxy policy with server_log_fd (H4T): {leg['text']}")
+    for leg in legs:  # I1
+        if cfg['policies'][leg['policy']].get('server') == 'redis':
+            if a.tool or a.rate or a.perf_mode:
+                raise SystemExit('redis policy: --tool, --rate and --perf-mode are not supported')
+            if leg['stage'] != 'S4' or leg['stock'] or leg['flags']:
+                raise SystemExit(f"redis policy: plain S4 legs only (no @STAGE, -stock, BPFSTATS/X/REPORT/LATW): {leg['text']}")
+    REDIS.update(n=a.redis_n, payload=a.payload)
     threads = a.wrk_threads or cfg.get('wrk_threads', 4)
     write_payload(a.payload)
     os.makedirs(a.capdir, exist_ok=True)
