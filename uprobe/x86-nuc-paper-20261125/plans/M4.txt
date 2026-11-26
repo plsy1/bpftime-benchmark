@@ -1,0 +1,10 @@
+# M4 (P5a spike, plan §3.6): user-space cost of the kernel view on nginx (policy M, 16 B). viewd's hooks stay attached
+# for every leg (also B and Kb), so leg differences are the read path only; the kernel-side hook cost is M2 (hookbench).
+# Dviewpc = Dnextpc + view read side (3499d664). Comparisons: CAREFUL+VIEW vs CAREFUL (same binary; <= 0.084 us/event),
+# Dviewpc (both off) vs Dnextpc (inertness, different binaries), and vs Kb.
+!sudo -n /home/y/src/bpftime-paper/dview-6b6b247e/tools/view/build/tern_viewd start --pin-dir /sys/fs/bpf/tern_view > $OUT/viewd-start.txt 2>&1; tail -1 $OUT/viewd-start.txt
+!sudo -n /home/y/src/bpftime-paper/dview-6b6b247e/tools/view/build/tern_viewd status --pin-dir /sys/fs/bpf/tern_view > $OUT/viewd-pre.json
+--exp M4 --round 0 --payload 16 --reps 11 --warmup 1 --legs B,K+SSLSNIFF_PB_WAKEUP=32,Dnextpc,Dviewpc,Dviewpc+BPFTIME_CAREFUL=1,Dviewpc+BPFTIME_CAREFUL=1+BPFTIME_VIEW=1
+--exp M4 --round 1 --payload 16 --reps 10 --legs B,K+SSLSNIFF_PB_WAKEUP=32,Dnextpc,Dviewpc,Dviewpc+BPFTIME_CAREFUL=1,Dviewpc+BPFTIME_CAREFUL=1+BPFTIME_VIEW=1
+!sudo -n /home/y/src/bpftime-paper/dview-6b6b247e/tools/view/build/tern_viewd status --pin-dir /sys/fs/bpf/tern_view > $OUT/viewd-post.json
+!sudo -n /home/y/src/bpftime-paper/dview-6b6b247e/tools/view/build/tern_viewd stop --pin-dir /sys/fs/bpf/tern_view

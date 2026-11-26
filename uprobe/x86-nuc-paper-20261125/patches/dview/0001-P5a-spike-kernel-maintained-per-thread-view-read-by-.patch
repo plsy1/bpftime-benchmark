@@ -1,0 +1,4718 @@
+From 3499d6645a917d554a621d81a7f753aa08355788 Mon Sep 17 00:00:00 2001
+From: plsy1 <39407459+plsy1@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 20:03:40 +0900
+Subject: [PATCH] P5a spike: kernel-maintained per-thread view read by the
+ agent (BPFTIME_VIEW=1)
+
+tools/view: a privileged loader (tern_viewd start/status/stop, pinned links)
+attaches five hooks (task_newtask, fexit commit_creds with fentry/kprobe
+fallbacks, task_rename, sched_process_exec, sched_process_exit) that keep
+{tid, tgid, uid, gid, comm} per thread in a BPF_F_MMAPABLE array indexed by
+tid & mask, under a seqlock. view_selftest (S0-S10, M0, --bench) and
+hookbench test it without Tern.
+
+Runtime: with BPFTIME_VIEW=1 (read at load) the agent maps the view read only
+(RW fd, PROT_READ mapping: on 6.12 a shared mapping of a read-only bpf fd is
+refused) and bpf_get_current_uid_gid / bpf_get_current_comm read the calling
+thread's slot first; a miss (other tid/tgid, odd seq, stale, empty) queries
+the kernel. pid/tid still come from the (careful) identity cache, which is
+the view key. Off, each helper pays one load and branch.
+
+Known: under same-slot write contention a writer that cannot take the lock
+marks the slot stale (reads fall back until the next full refresh); no wrong
+value in any selftest.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ runtime/CMakeLists.txt                 |    4 +
+ runtime/agent/agent.cpp                |   18 +
+ runtime/include/bpftime_view_abi.h     |  146 +++
+ runtime/src/bpf_helper.cpp             |   89 +-
+ runtime/src/kernel_view.cpp            |  456 +++++++
+ runtime/src/kernel_view.hpp            |  173 +++
+ runtime/unit-test/CMakeLists.txt       |    6 +
+ runtime/unit-test/test_kernel_view.cpp |  445 +++++++
+ tools/view/.gitignore                  |    1 +
+ tools/view/build.sh                    |   95 ++
+ tools/view/hookbench.c                 |  356 ++++++
+ tools/view/tern_viewd.c                |  813 +++++++++++++
+ tools/view/view.bpf.c                  |  384 ++++++
+ tools/view/view_selftest.c             | 1527 ++++++++++++++++++++++++
+ 14 files changed, 4510 insertions(+), 3 deletions(-)
+ create mode 100644 runtime/include/bpftime_view_abi.h
+ create mode 100644 runtime/src/kernel_view.cpp
+ create mode 100644 runtime/src/kernel_view.hpp
+ create mode 100644 runtime/unit-test/test_kernel_view.cpp
+ create mode 100644 tools/view/.gitignore
+ create mode 100755 tools/view/build.sh
+ create mode 100644 tools/view/hookbench.c
+ create mode 100644 tools/view/tern_viewd.c
+ create mode 100644 tools/view/view.bpf.c
+ create mode 100644 tools/view/view_selftest.c
+
+diff --git a/runtime/CMakeLists.txt b/runtime/CMakeLists.txt
+index 9a118ac1..0d5a8caf 100644
+--- a/runtime/CMakeLists.txt
++++ b/runtime/CMakeLists.txt
+@@ -73,6 +73,10 @@ set(sources
+   src/platform_utils.cpp
+   src/fork_handlers.cpp
+   src/producer_identity.cpp
++  # Dview read side: raw bpf(2) only, so it stays out of the
++  # BPFTIME_BUILD_WITH_LIBBPF list below and every build has it (one binary
++  # for all spike legs; the view is switched by BPFTIME_VIEW at run time).
++  src/kernel_view.cpp
+ 
+   src/bpf_map/userspace/array_map.cpp
+   src/bpf_map/array_map_binding.cpp
+diff --git a/runtime/agent/agent.cpp b/runtime/agent/agent.cpp
+index b77d9769..4199cb18 100644
+--- a/runtime/agent/agent.cpp
++++ b/runtime/agent/agent.cpp
+@@ -900,6 +900,10 @@ extern "C" void **__cudaRegisterFatBinary(void *fatbin)
+ extern "C" bool bpftime_agent_setup_credential_cache();
+ extern "C" bool bpftime_agent_setup_careful();
+ extern "C" bool bpftime_careful_mode;
++// Dview (runtime/src/kernel_view.hpp).
++extern "C" bool bpftime_view_setup();
++extern "C" const char *bpftime_view_status();
++extern "C" bool bpftime_view_mode;
+ 
+ static void bpftime_agent_main_impl(const gchar *data,
+ 				    gboolean *stay_resident)
+@@ -917,6 +921,20 @@ static void bpftime_agent_main_impl(const gchar *data,
+ 		SPDLOG_INFO("Careful mode: interposers {}",
+ 			    careful_bound ? "bound, caches on" :
+ 					    "not bound, no identity/comm cache");
++	// Dview (BPFTIME_VIEW=1): map the kernel thread view before any probe
++	// is attached, so that no helper call races with the publication
++	// (raw bpf(2), no libbpf). Once per process image; a failure only
++	// leaves the helpers on their paths. "View: mapped" is what the
++	// harness looks for.
++	static const bool view_ok = bpftime_view_setup();
++	if (bpftime_view_mode) {
++		SPDLOG_INFO("View: {}", bpftime_view_status());
++		// The view is keyed by the cached (pid, tid); without the
++		// careful interposers bound that key is the plain cache, which
++		// a vfork-like child or a raw clone can make another thread's.
++		if (view_ok && !(bpftime_careful_mode && careful_bound))
++			SPDLOG_WARN("View: key from non-careful identity cache");
++	}
+ 	bool force_reinit = false;
+ 	bool recorded_alive_pid = false;
+ 	bool ctx_constructed = false;
+diff --git a/runtime/include/bpftime_view_abi.h b/runtime/include/bpftime_view_abi.h
+new file mode 100644
+index 00000000..46657914
+--- /dev/null
++++ b/runtime/include/bpftime_view_abi.h
+@@ -0,0 +1,146 @@
++/* SPDX-License-Identifier: MIT */
++#ifndef BPFTIME_VIEW_ABI_H
++#define BPFTIME_VIEW_ABI_H
++
++/*
++ * Kernel thread view ("Dview"): the layout shared by the kernel eBPF writer
++ * (tools/view/view.bpf.c), its privileged loader (tools/view/tern_viewd.c),
++ * the standalone selftest and the runtime's read-only reader
++ * (runtime/src/kernel_view.hpp).
++ *
++ * The view is one BPF_MAP_TYPE_ARRAY with BPF_F_MMAPABLE and 64-byte values:
++ * index 0 holds a tern_view_hdr, index 1 + (tid & (nslots - 1)) the slot of
++ * thread tid (init pid namespace). The kernel keeps every slot current from
++ * five hooks (task_newtask, commit_creds, task_rename, sched_process_exec,
++ * sched_process_exit); the runtime maps the array PROT_READ and reads its own
++ * thread's slot without a syscall.
++ *
++ * Seqlock: seq is even when the slot is stable and odd while a writer holds
++ * it. Writers take it with a compare-and-swap from an even value to value+1
++ * and release it with a fetch-and-add of 1 (both full barriers), so writers
++ * on different CPUs (a /proc comm write racing the target's own setresuid)
++ * exclude each other. A reader loads seq (acquire), the fields, a fence and
++ * seq again, and retries or falls back when seq was odd or changed. A value
++ * cannot carry a bpf_spin_lock: bpf_map_mmap refuses maps whose value has a
++ * BTF record (kernel/bpf/syscall.c), hence the hand-made lock.
++ *
++ * Validity: a reader takes a slot only when tid and tgid equal its own key,
++ * TV_F_STALE is clear and every bit it needs is set; anything else is a miss
++ * and the caller uses its exact syscall path. Each hook sets only the bits of
++ * the fields it wrote, so a slot rekeyed by a partial hook (a thread that
++ * existed before the loader, or a slot collision) never claims fields it did
++ * not fill.
++ *
++ * Usable from BPF C (include vmlinux.h first, which defines __VMLINUX_H__ and
++ * the __u32/__u64 types), from C and from C++ (via <linux/types.h>). The
++ * layout is fixed: TERN_VIEW_ABI changes with any change to it.
++ */
++
++#ifndef __VMLINUX_H__
++#if defined(__linux__)
++#include <linux/types.h>
++#else
++/* The runtime also builds on darwin (compat/darwin/include has a linux/bpf.h
++ * shim but no linux/types.h), and bpf_helper.cpp includes this header there
++ * through kernel_view.hpp. The view itself is Linux-only; only the layout
++ * has to compile. */
++#include <stdint.h>
++typedef uint32_t __u32;
++typedef uint64_t __u64;
++#endif
++#endif
++
++#define TERN_VIEW_MAGIC 0x5745495654524554ull /* "TERNVIEW" little-endian */
++#define TERN_VIEW_ABI 1
++
++/* Valid bits in tern_view_slot.flags. */
++#define TV_F_IDS 1u /* tid/tgid valid */
++#define TV_F_CREDS 2u /* uid/gid valid */
++#define TV_F_COMM 4u /* comm valid */
++#define TV_F_ALL (TV_F_IDS | TV_F_CREDS | TV_F_COMM)
++/* An update was lost (a writer could not take the lock, or the view is
++ * stopping): the slot must not be used until a full refresh rewrites it. */
++#define TV_F_STALE 0x80000000u
++
++/* tern_view_hdr.state. INIT until the loader has attached every hook and
++ * written the header; DEAD once `tern_viewd stop` began (slots are being made
++ * STALE and the hooks are about to be detached). */
++enum { TV_STATE_INIT = 0, TV_STATE_LIVE = 1, TV_STATE_DEAD = 2 };
++
++/* tern_view_hdr.hook_mode: which commit_creds program is attached. */
++enum { TV_HOOK_NONE = 0, TV_HOOK_FEXIT = 1, TV_HOOK_FENTRY = 2, TV_HOOK_KPROBE = 3 };
++
++/* tern_view_slot.writer (debugging: the hook that wrote the slot last). */
++enum {
++	TV_W_NEWTASK = 1,
++	TV_W_CREDS = 2,
++	TV_W_RENAME = 3,
++	TV_W_EXEC = 4,
++	TV_W_REKEY = 5,
++};
++
++/* Per-CPU counters of the view program (tv_stats map, u64 per index); the
++ * loader's `status` sums them. Not part of the reader ABI. */
++enum {
++	TV_ST_NEWTASK = 0, /* full fill at task_newtask */
++	TV_ST_CREDS, /* commit_creds update (any hook mode) */
++	TV_ST_RENAME, /* task_rename update */
++	TV_ST_EXEC, /* full fill at sched_process_exec */
++	TV_ST_EXIT, /* slot cleared at sched_process_exit */
++	TV_ST_REKEY, /* a partial hook (creds/rename) took over a slot */
++	TV_ST_COLLISION, /* a slot holding another live-or-stale tid was taken over */
++	TV_ST_LOCK_FAIL, /* lock not taken in the spin bound: slot made STALE */
++	TV_ST_DEAD_WRITE, /* write after state DEAD: slot made STALE */
++	TV_ST_EXEC_CLEAR, /* old tid of a non-leader exec cleared */
++	TV_ST__COUNT,
++};
++
++/* 64 bytes, one cache line. The value area of an mmapable array starts page
++ * aligned, so every slot is line aligned and comm is 8-byte aligned (a reader
++ * may load it as two u64). */
++struct tern_view_slot {
++	__u32 seq; /* even = stable, odd = a writer holds the slot */
++	__u32 tid, tgid; /* init pid namespace; tid == 0: empty */
++	__u32 flags; /* TV_F_* */
++	__u32 uid, gid; /* cred->uid.val / gid.val: kuid/kgid (init user ns),
++			   the same values bpf_get_current_uid_gid returns */
++	__u64 start_time; /* task->start_time; exit clears only on a match */
++	char comm[16]; /* <= 15 chars, NUL padded (strscpy_pad semantics) */
++	__u32 writer, _r; /* TV_W_* of the last writer (debugging) */
++	__u64 _pad;
++};
++
++/* Index 0 of the map, 64 bytes. Written by the loader through an RW mapping;
++ * state is stored last (release). */
++struct tern_view_hdr {
++	__u64 magic; /* TERN_VIEW_MAGIC */
++	__u32 abi, nslots, state, hook_mode; /* nslots: power of two */
++	__u64 pidns_ino, pidns_dev; /* stat("/proc/self/ns/pid") of the loader */
++	__u32 loader_pid, _r;
++	__u64 _pad[2];
++};
++
++/* Slot index of thread tid in the map (index 0 is the header). */
++#define TV_SLOT_INDEX(tid, nslots) (1u + ((__u32)(tid) & ((__u32)(nslots) - 1u)))
++
++/* Defaults shared by the loader and the runtime. 2^18 slots (16 MiB): with
++ * ~1100 threads on the machine a given thread shares its slot with another
++ * one with probability ~0.4% (1.7% at 2^16), so an nginx run rarely has a
++ * worker that falls back for its whole life. */
++#define TV_DEFAULT_NSLOTS_LOG2 18
++#define TV_DEFAULT_PIN "/sys/fs/bpf/tern_view/view"
++
++#ifdef __cplusplus
++#define TV_STATIC_ASSERT(c, m) static_assert(c, m)
++#else
++#define TV_STATIC_ASSERT(c, m) _Static_assert(c, m)
++#endif
++TV_STATIC_ASSERT(sizeof(struct tern_view_slot) == 64, "tern_view_slot is 64 bytes");
++TV_STATIC_ASSERT(sizeof(struct tern_view_hdr) == 64, "tern_view_hdr is 64 bytes");
++TV_STATIC_ASSERT(__builtin_offsetof(struct tern_view_slot, comm) == 32,
++		 "comm is 8-byte aligned at offset 32");
++TV_STATIC_ASSERT(__builtin_offsetof(struct tern_view_hdr, state) == 16,
++		 "hdr.state offset is part of the ABI");
++#undef TV_STATIC_ASSERT
++
++#endif /* BPFTIME_VIEW_ABI_H */
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index 18b5f904..36b8854c 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -66,6 +66,7 @@
+ #include <utility>
+ #include <bpftime_shm_internal.hpp>
+ #include "producer_identity.hpp"
++#include "kernel_view.hpp"
+ #if __linux__
+ #include <sys/prctl.h>
+ #endif
+@@ -717,6 +718,31 @@ uint64_t query_credentials()
+ 	return (static_cast<uint64_t>(getgid()) << 32) |
+ 	       static_cast<uint32_t>(getuid());
+ }
++
++// Dview (kernel_view.hpp): the calling thread's kuid/kgid from the kernel
++// view, keyed by the cached thread identity. A miss queries exactly and
++// never uses or fills the process-wide cache: that cache is what raw
++// setresuid in one thread defeats (it changes only that thread, and the
++// interposers never see it). Out of line, so that the view-off path of
++// bpf_get_current_uid_gid is one load and a branch.
++//
++// Semantics: the view holds cred->uid.val/gid.val, the init user namespace
++// ids, as the kernel helper returns; getuid() on a miss returns the ids of
++// the caller's user namespace. The two agree in the init user namespace
++// (E5, nginx).
++[[gnu::noinline]] uint64_t view_get_current_uid_gid()
++{
++	int pid;
++	int64_t tid;
++	bpftime::current_producer_identity(pid, tid);
++	uint32_t uid, gid;
++	bpftime_view_count_read();
++	if (bpftime_view_read((uint32_t)tid, (uint32_t)pid,
++			      TV_F_IDS | TV_F_CREDS, &uid, &gid, nullptr))
++		return (static_cast<uint64_t>(gid) << 32) | uid;
++	bpftime_view_count_miss();
++	return query_credentials();
++}
+ } // namespace
+ 
+ extern "C" void bpftime_set_credential_cache_enabled(bool enabled)
+@@ -734,6 +760,11 @@ extern "C" void bpftime_invalidate_credential_cache()
+ uint64_t bpf_get_current_uid_gid(uint64_t, uint64_t, uint64_t, uint64_t,
+ 				 uint64_t)
+ {
++	// Before the credential cache: with a view, the cache is not used.
++	if (__builtin_expect(__atomic_load_n(&bpftime_view_slots,
++					     __ATOMIC_RELAXED) != nullptr,
++			     0))
++		return view_get_current_uid_gid();
+ 	if (!credential_cache_enabled.load(std::memory_order_acquire))
+ 		return query_credentials();
+ 	auto value = cached_credentials.load(std::memory_order_acquire);
+@@ -885,6 +916,53 @@ void careful_copy_comm(char *buf, uint64_t size, const char *comm)
+ 	buf[n - 1] = '\0';
+ }
+ 
++// The calling thread's comm, read now (prctl(PR_GET_NAME): no allocation,
++// async-signal-safe), as the kernel helper returns it. false: prctl failed.
++bool read_thread_comm(char comm[16])
++{
++	memset(comm, 0, 16);
++	if (prctl(PR_GET_NAME, comm, 0, 0, 0) != 0)
++		return false;
++	comm[15] = '\0';
++	return true;
++}
++
++// The exact comm path without any cache: the careful mode refill path,
++// minus the fill. On failure the buffer is zeroed and -EINVAL returned, as
++// careful_get_current_comm does.
++uint64_t read_comm_exact(uint64_t buf, uint64_t size)
++{
++	char comm[16];
++	if (!read_thread_comm(comm)) {
++		if (size)
++			memset((void *)(uintptr_t)buf, 0, (size_t)size);
++		return (uint64_t)(int64_t)-EINVAL;
++	}
++	careful_copy_comm((char *)(uintptr_t)buf, size, comm);
++	return 0;
++}
++
++// Dview (kernel_view.hpp): the calling thread's comm from the kernel view,
++// which also sees renames the careful interposers do not (raw prctl, writes
++// to /proc/<pid>/task/<tid>/comm by this or another thread). A miss reads
++// the name exactly and caches nothing. Out of line: the view-off path of
++// bpftime_get_current_comm stays one load and a branch.
++[[gnu::noinline]] uint64_t view_get_current_comm(uint64_t buf, uint64_t size)
++{
++	int pid;
++	int64_t tid;
++	bpftime::current_producer_identity(pid, tid);
++	char comm[16];
++	bpftime_view_count_read();
++	if (bpftime_view_read((uint32_t)tid, (uint32_t)pid,
++			      TV_F_IDS | TV_F_COMM, nullptr, nullptr, comm)) {
++		careful_copy_comm((char *)(uintptr_t)buf, size, comm);
++		return 0;
++	}
++	bpftime_view_count_miss();
++	return read_comm_exact(buf, size);
++}
++
+ // Out of line and cold: the switch-off path of bpftime_get_current_comm stays
+ // as it was.
+ [[gnu::noinline, gnu::cold]] uint64_t careful_get_current_comm(uint64_t buf,
+@@ -897,13 +975,12 @@ void careful_copy_comm(char *buf, uint64_t size, const char *comm)
+ 		careful_copy_comm((char *)(uintptr_t)buf, size, e.comm);
+ 		return 0;
+ 	}
+-	char comm[16] = {};
+-	if (prctl(PR_GET_NAME, comm, 0, 0, 0) != 0) {
++	char comm[16];
++	if (!read_thread_comm(comm)) {
+ 		if (size)
+ 			memset((void *)(uintptr_t)buf, 0, (size_t)size);
+ 		return (uint64_t)(int64_t)-EINVAL;
+ 	}
+-	comm[15] = '\0';
+ 	if (careful_comm_cache_enabled.load(std::memory_order_relaxed) &&
+ 	    e.renaming == 0 && bpftime_careful_spawning == 0 &&
+ 	    !bpftime_identity_tls_shared() &&
+@@ -944,6 +1021,12 @@ uint64_t bpftime_get_current_comm(uint64_t buf, uint64_t size, uint64_t,
+ 				  uint64_t, uint64_t)
+ {
+ #if __linux__
++	// The view first: it answers for the careful mode too (exactly, where
++	// the careful cache misses renames it cannot see).
++	if (__builtin_expect(__atomic_load_n(&bpftime_view_slots,
++					     __ATOMIC_RELAXED) != nullptr,
++			     0))
++		return view_get_current_comm(buf, size);
+ 	if (__builtin_expect(bpftime_careful_mode, 0))
+ 		return careful_get_current_comm(buf, size);
+ #endif
+diff --git a/runtime/src/kernel_view.cpp b/runtime/src/kernel_view.cpp
+new file mode 100644
+index 00000000..5c7b8dfa
+--- /dev/null
++++ b/runtime/src/kernel_view.cpp
+@@ -0,0 +1,456 @@
++/* SPDX-License-Identifier: MIT
++ *
++ * Dview (P5a): read side of the kernel-maintained thread view. See
++ * kernel_view.hpp for the model, tools/view/view.bpf.c for the writers and
++ * tools/view/tern_viewd.c for the loader that creates and pins the map.
++ */
++#include "kernel_view.hpp"
++#include "fork_handlers.hpp"
++#include "spdlog/spdlog.h"
++#include <atomic>
++#include <cerrno>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#if __linux__
++#include <fcntl.h>
++#include <linux/bpf.h>
++#include <sys/mman.h>
++#include <sys/stat.h>
++#include <sys/syscall.h>
++#include <unistd.h>
++#endif
++
++extern "C" {
++// Read once at load, like bpftime_careful_mode (producer_identity.cpp):
++// nginx clears its workers' environment, and they inherit these.
++bool bpftime_view_mode = [] {
++	const char *e = getenv("BPFTIME_VIEW");
++	return e != nullptr && e[0] == '1';
++}();
++bool bpftime_view_count_reads = [] {
++	const char *e = getenv("BPFTIME_VIEW_COUNT");
++	return e != nullptr && e[0] == '1';
++}();
++const struct tern_view_slot *bpftime_view_slots = nullptr;
++uint32_t bpftime_view_mask = 0;
++uint64_t bpftime_view_reads = 0;
++uint64_t bpftime_view_misses = 0;
++}
++
++namespace
++{
++// BPFTIME_VIEW_LOG_FORK=1: fork children of a process with a view write
++// "View: mapped (inherited) pid <p>" to stderr. nginx workers inherit the
++// master's mapping and never run the agent's setup, so this is how their
++// logs show that they read the view; off by default because targets that
++// churn processes (E5 W12) would flood their logs.
++const bool view_log_fork = [] {
++	const char *e = getenv("BPFTIME_VIEW_LOG_FORK");
++	return e != nullptr && e[0] == '1';
++}();
++
++// "off" until bpftime_view_setup ran with the switch on. Written once, by
++// the one setup call, before anything reads it.
++char view_status[256] = "off";
++
++// Async-signal-safe formatting for the fork child handler (the parent may
++// be multithreaded: no stdio, no allocation there) and the exit report.
++char *put_str(char *p, char *end, const char *s)
++{
++	while (*s && p < end)
++		*p++ = *s++;
++	return p;
++}
++
++char *put_u64(char *p, char *end, uint64_t v)
++{
++	char digits[24];
++	int n = 0;
++	do {
++		digits[n++] = (char)('0' + v % 10);
++		v /= 10;
++	} while (v != 0);
++	while (n > 0 && p < end)
++		*p++ = digits[--n];
++	return p;
++}
++
++void write_stderr(const char *buf, size_t len)
++{
++#if __linux__
++	// Best effort: a closed or redirected stderr only loses the line.
++	while (len > 0) {
++		const ssize_t w = write(2, buf, len);
++		if (w <= 0) {
++			if (w < 0 && errno == EINTR)
++				continue;
++			return;
++		}
++		buf += w;
++		len -= (size_t)w;
++	}
++#else
++	(void)buf;
++	(void)len;
++#endif
++}
++
++void view_fork_child()
++{
++	// The child's statistics are its own (an nginx worker's miss rate must
++	// not include the master's reads before the fork).
++	__atomic_store_n(&bpftime_view_reads, 0, __ATOMIC_RELAXED);
++	__atomic_store_n(&bpftime_view_misses, 0, __ATOMIC_RELAXED);
++	if (view_log_fork &&
++	    __atomic_load_n(&bpftime_view_slots, __ATOMIC_RELAXED) != nullptr) {
++		char line[96];
++		char *end = line + sizeof(line), *p = line;
++		p = put_str(p, end, "View: mapped (inherited) pid ");
++#if __linux__
++		p = put_u64(p, end, (uint64_t)syscall(SYS_getpid));
++#endif
++		p = put_str(p, end, "\n");
++		write_stderr(line, (size_t)(p - line));
++	}
++}
++
++const int view_atfork_status =
++	bpftime::register_fork_handlers(nullptr, nullptr, view_fork_child);
++
++// Exit report of every process that had a view, on stderr rather than
++// through spdlog: the agent turns its logger off at exit
++// (bpftime_quiet_logger_at_exit), before destructors of this library run.
++__attribute__((destructor)) void view_exit_report()
++{
++	if (__atomic_load_n(&bpftime_view_slots, __ATOMIC_RELAXED) == nullptr)
++		return;
++	char line[128];
++	char *end = line + sizeof(line), *p = line;
++	p = put_str(p, end, "View: reads ");
++	if (bpftime_view_count_reads)
++		p = put_u64(p, end,
++			    __atomic_load_n(&bpftime_view_reads,
++					    __ATOMIC_RELAXED));
++	else
++		p = put_str(p, end, "off");
++	p = put_str(p, end, " misses ");
++	p = put_u64(p, end,
++		    __atomic_load_n(&bpftime_view_misses, __ATOMIC_RELAXED));
++#if __linux__
++	p = put_str(p, end, " pid ");
++	p = put_u64(p, end, (uint64_t)syscall(SYS_getpid));
++#endif
++	p = put_str(p, end, "\n");
++	write_stderr(line, (size_t)(p - line));
++}
++
++bool is_power_of_two(uint64_t n)
++{
++	return n != 0 && (n & (n - 1)) == 0;
++}
++
++// Header checks shared by the real setup and the test hook. nullptr: the
++// header describes a live view for this process; otherwise the reason,
++// formatted into buf.
++const char *check_header(const tern_view_hdr *h, uint32_t nslots, char *buf,
++			 size_t buf_len)
++{
++	// The loader writes the header through its RW mapping and stores
++	// state = LIVE last: read state first (acquire), then the rest.
++	const uint32_t state = __atomic_load_n(&h->state, __ATOMIC_ACQUIRE);
++	const uint64_t magic = __atomic_load_n(&h->magic, __ATOMIC_RELAXED);
++	const uint32_t abi = __atomic_load_n(&h->abi, __ATOMIC_RELAXED);
++	const uint32_t hdr_nslots = __atomic_load_n(&h->nslots, __ATOMIC_RELAXED);
++	if (magic != TERN_VIEW_MAGIC) {
++		snprintf(buf, buf_len, "bad magic 0x%llx",
++			 (unsigned long long)magic);
++		return buf;
++	}
++	if (abi != TERN_VIEW_ABI) {
++		snprintf(buf, buf_len, "abi %u, runtime has %u", abi,
++			 (unsigned)TERN_VIEW_ABI);
++		return buf;
++	}
++	if (hdr_nslots != nslots || !is_power_of_two(nslots)) {
++		snprintf(buf, buf_len, "header nslots %u, map has %u slots",
++			 hdr_nslots, nslots);
++		return buf;
++	}
++	// INIT: the loader has not finished (hooks may not all be attached);
++	// DEAD: it is stopping, slots are being made STALE. Neither is a view
++	// to start reading.
++	if (state != TV_STATE_LIVE) {
++		snprintf(buf, buf_len, "state %u, not LIVE", state);
++		return buf;
++	}
++#if __linux__
++	// The slots hold init-namespace tids written by a loader in its own
++	// pid namespace; the runtime's keys are this process's ids. Unless the
++	// namespaces are the same (inode and device of the nsfs file), a key
++	// would select another task's slot.
++	struct stat st;
++	if (stat("/proc/self/ns/pid", &st) != 0) {
++		snprintf(buf, buf_len, "cannot stat /proc/self/ns/pid: %s",
++			 strerror(errno));
++		return buf;
++	}
++	const uint64_t ino = __atomic_load_n(&h->pidns_ino, __ATOMIC_RELAXED);
++	const uint64_t dev = __atomic_load_n(&h->pidns_dev, __ATOMIC_RELAXED);
++	if (ino != (uint64_t)st.st_ino || dev != (uint64_t)st.st_dev) {
++		snprintf(buf, buf_len,
++			 "pid namespace %llu:%llu, loader's %llu:%llu",
++			 (unsigned long long)st.st_dev,
++			 (unsigned long long)st.st_ino,
++			 (unsigned long long)dev, (unsigned long long)ino);
++		return buf;
++	}
++#endif
++	return nullptr;
++}
++
++// Mask first: a reader that sees the slots sees at worst an older mask (0),
++// which stays inside the array (kernel_view.hpp).
++void publish(const void *base, uint32_t nslots)
++{
++	__atomic_store_n(&bpftime_view_mask, nslots - 1, __ATOMIC_RELEASE);
++	__atomic_store_n(&bpftime_view_slots,
++			 (const tern_view_slot *)base + 1, __ATOMIC_RELEASE);
++}
++
++#if __linux__
++// The calling thread's slot, for the log line only: a miss (a thread that
++// existed before the loader started, a collision) is no reason to keep the
++// view off, since misses fall back to the exact path.
++bool self_hit()
++{
++	const uint32_t tid = (uint32_t)syscall(SYS_gettid);
++	const uint32_t tgid = (uint32_t)syscall(SYS_getpid);
++	uint32_t uid, gid;
++	return bpftime_view_read(tid, tgid, TV_F_IDS | TV_F_CREDS, &uid, &gid,
++				 nullptr);
++}
++
++// Raw bpf(2): the runtime is built without libbpf in some configurations
++// (array_map_kernel_user.cpp is only in the BPFTIME_BUILD_WITH_LIBBPF
++// build), and the view must not change the build of Dnextpc. The whole
++// union is passed, zeroed: the kernel accepts a larger attr whose tail is
++// zero.
++long sys_bpf(int cmd, union bpf_attr *attr)
++{
++	return syscall(__NR_bpf, cmd, attr, sizeof(*attr));
++}
++
++int view_fd_from_pin(const char *path)
++{
++	union bpf_attr attr;
++	memset(&attr, 0, sizeof(attr));
++	attr.pathname = (uint64_t)(uintptr_t)path;
++	// Not BPF_F_RDONLY: on 6.12 a MAP_SHARED mapping of a read-only fd has
++	// VM_SHARED cleared by mmap(2), and bpf_map_mmap refuses it (EINVAL).
++	// The fd is used only for a PROT_READ mapping and closed at once; the
++	// kernel then clears VM_MAYWRITE, so the mapping cannot be made
++	// writable (mprotect refused; checked by view_selftest M0).
++	attr.file_flags = 0;
++	return (int)sys_bpf(BPF_OBJ_GET, &attr);
++}
++
++// The map id the loader wrote (decimal). 0: no usable id.
++uint32_t read_id_file(const char *path, char *err, size_t err_len)
++{
++	const int fd = open(path, O_RDONLY | O_CLOEXEC);
++	if (fd < 0) {
++		snprintf(err, err_len, "open %s: %s", path, strerror(errno));
++		return 0;
++	}
++	char buf[32];
++	ssize_t n;
++	do
++		n = read(fd, buf, sizeof(buf) - 1);
++	while (n < 0 && errno == EINTR);
++	close(fd);
++	if (n <= 0) {
++		snprintf(err, err_len, "read %s: empty", path);
++		return 0;
++	}
++	buf[n] = '\0';
++	char *endp = nullptr;
++	errno = 0;
++	const unsigned long id = strtoul(buf, &endp, 10);
++	if (errno != 0 || endp == buf || id == 0 || id > UINT32_MAX) {
++		snprintf(err, err_len, "%s holds no map id", path);
++		return 0;
++	}
++	return (uint32_t)id;
++}
++
++int view_fd_from_id(uint32_t id)
++{
++	union bpf_attr attr;
++	memset(&attr, 0, sizeof(attr));
++	attr.map_id = id;
++	attr.open_flags = 0; // see view_fd_from_pin
++	return (int)sys_bpf(BPF_MAP_GET_FD_BY_ID, &attr);
++}
++
++// Same size as libbpf's bpf_map_mmap_sz (array_map_kernel_user.cpp): the
++// value area of an mmapable array starts at offset 0 of the mapping.
++size_t view_mmap_size(uint32_t value_size, uint32_t max_entries)
++{
++	const long page = sysconf(_SC_PAGE_SIZE);
++	const size_t page_sz = page > 0 ? (size_t)page : 4096;
++	size_t sz = (((size_t)value_size + 7) / 8 * 8) * (size_t)max_entries;
++	return (sz + page_sz - 1) / page_sz * page_sz;
++}
++
++// Validates the map behind fd and maps it read-only. nullptr on failure
++// (reason in err); fd is always left to the caller.
++const void *map_view(int fd, uint32_t &nslots, char *err, size_t err_len)
++{
++	struct bpf_map_info info;
++	memset(&info, 0, sizeof(info));
++	union bpf_attr attr;
++	memset(&attr, 0, sizeof(attr));
++	attr.info.bpf_fd = (uint32_t)fd;
++	attr.info.info_len = sizeof(info);
++	attr.info.info = (uint64_t)(uintptr_t)&info;
++	if (sys_bpf(BPF_OBJ_GET_INFO_BY_FD, &attr) != 0) {
++		snprintf(err, err_len, "BPF_OBJ_GET_INFO_BY_FD: %s",
++			 strerror(errno));
++		return nullptr;
++	}
++	// The index is 1 + (tid & (nslots - 1)): one header slot plus a
++	// power-of-two number of slots, 64-byte values, u32 keys.
++	if (info.type != BPF_MAP_TYPE_ARRAY ||
++	    !(info.map_flags & BPF_F_MMAPABLE) ||
++	    info.value_size != sizeof(tern_view_slot) || info.key_size != 4 ||
++	    info.max_entries < 2 || !is_power_of_two(info.max_entries - 1)) {
++		snprintf(err, err_len,
++			 "not a view map (type %u flags 0x%x key %u value %u "
++			 "entries %u)",
++			 info.type, info.map_flags, info.key_size,
++			 info.value_size, info.max_entries);
++		return nullptr;
++	}
++	const size_t sz = view_mmap_size(info.value_size, info.max_entries);
++	// PROT_READ only (array_map_kernel_user.cpp maps PROT_WRITE as well):
++	// the runtime must never write the view, and its probes run inside
++	// the traced program. MAP_SHARED: the kernel's writes are seen, and
++	// fork children (nginx workers, which drop privileges after the fork)
++	// keep reading the same pages.
++	void *p = mmap(nullptr, sz, PROT_READ, MAP_SHARED, fd, 0);
++	if (p == MAP_FAILED) {
++		snprintf(err, err_len, "mmap %zu bytes: %s", sz,
++			 strerror(errno));
++		return nullptr;
++	}
++	nslots = info.max_entries - 1;
++	char reason[160];
++	if (const char *bad = check_header((const tern_view_hdr *)p, nslots,
++					   reason, sizeof(reason))) {
++		snprintf(err, err_len, "%s", bad);
++		munmap(p, sz);
++		return nullptr;
++	}
++	return p;
++}
++#endif
++} // namespace
++
++extern "C" bool bpftime_view_setup(void)
++{
++	if (!bpftime_view_mode)
++		return false;
++	// One call per process image (the agent holds the result in a static).
++	static std::atomic<bool> ran{ false };
++	if (ran.exchange(true))
++		return __atomic_load_n(&bpftime_view_slots, __ATOMIC_RELAXED) !=
++		       nullptr;
++#if __linux__
++	const char *pin = getenv("BPFTIME_VIEW_PIN");
++	if (pin == nullptr || pin[0] == '\0')
++		pin = "/sys/fs/bpf/tern_view/view";
++	const char *id_file = getenv("BPFTIME_VIEW_ID_FILE");
++	char pin_err[160] = "", id_err[160] = "";
++	const char *via = "pin";
++	int fd = view_fd_from_pin(pin);
++	if (fd < 0) {
++		snprintf(pin_err, sizeof(pin_err), "BPF_OBJ_GET %s: %s", pin,
++			 strerror(errno));
++		// A container that does not see the host's bpffs can still
++		// reach the map by id (needs CAP_SYS_ADMIN: E5 targets and the
++		// nginx master run as root in a privileged container).
++		if (id_file != nullptr && id_file[0] != '\0') {
++			via = "id";
++			const uint32_t id =
++				read_id_file(id_file, id_err, sizeof(id_err));
++			if (id != 0) {
++				fd = view_fd_from_id(id);
++				if (fd < 0)
++					snprintf(id_err, sizeof(id_err),
++						 "BPF_MAP_GET_FD_BY_ID %u: %s",
++						 id, strerror(errno));
++			}
++		} else {
++			snprintf(id_err, sizeof(id_err),
++				 "no BPFTIME_VIEW_ID_FILE");
++		}
++	}
++	if (fd < 0) {
++		snprintf(view_status, sizeof(view_status),
++			 "not mapped: %s; %s", pin_err, id_err);
++		SPDLOG_WARN("View: {}", view_status);
++		return false;
++	}
++	uint32_t nslots = 0;
++	char map_err[200] = "";
++	const void *base = map_view(fd, nslots, map_err, sizeof(map_err));
++	// The mapping holds its own reference to the map.
++	close(fd);
++	if (base == nullptr) {
++		snprintf(view_status, sizeof(view_status),
++			 "not mapped (via %s): %s", via, map_err);
++		SPDLOG_WARN("View: {}", view_status);
++		return false;
++	}
++	publish(base, nslots);
++	snprintf(view_status, sizeof(view_status),
++		 "mapped %u slots via %s, self %s", nslots, via,
++		 self_hit() ? "hit" : "miss");
++	if (view_atfork_status != 0)
++		SPDLOG_WARN("View: fork handler not registered ({}); fork "
++			    "children report the parent's statistics",
++			    view_atfork_status);
++	return true;
++#else
++	snprintf(view_status, sizeof(view_status),
++		 "not mapped: unsupported platform");
++	SPDLOG_WARN("View: {}", view_status);
++	return false;
++#endif
++}
++
++extern "C" const char *bpftime_view_status(void)
++{
++	return view_status;
++}
++
++extern "C" bool bpftime_view_attach_for_test(void *base, uint32_t nslots)
++{
++	char reason[160];
++	if (base == nullptr ||
++	    check_header((const tern_view_hdr *)base, nslots, reason,
++			 sizeof(reason)) != nullptr)
++		return false;
++	publish(base, nslots);
++	return true;
++}
++
++extern "C" void bpftime_view_detach_for_test(void)
++{
++	__atomic_store_n(&bpftime_view_slots, (const tern_view_slot *)nullptr,
++			 __ATOMIC_RELEASE);
++	__atomic_store_n(&bpftime_view_mask, 0, __ATOMIC_RELEASE);
++	__atomic_store_n(&bpftime_view_reads, 0, __ATOMIC_RELAXED);
++	__atomic_store_n(&bpftime_view_misses, 0, __ATOMIC_RELAXED);
++}
+diff --git a/runtime/src/kernel_view.hpp b/runtime/src/kernel_view.hpp
+new file mode 100644
+index 00000000..d1f9888f
+--- /dev/null
++++ b/runtime/src/kernel_view.hpp
+@@ -0,0 +1,173 @@
++#ifndef _BPFTIME_KERNEL_VIEW_HPP
++#define _BPFTIME_KERNEL_VIEW_HPP
++#include <cstddef>
++#include <cstdint>
++#include <cstring>
++#if __linux__
++#include <linux/types.h>
++#endif
++#include "bpftime_view_abi.h"
++
++// Dview (P5a): a per-thread view of {tid, tgid, kuid, kgid, comm} kept by
++// kernel eBPF programs (tools/view, loaded by a privileged tern_viewd) in a
++// BPF_F_MMAPABLE array, which the runtime maps read-only. With the view,
++// bpf_get_current_uid_gid and bpf_get_current_comm answer what the kernel
++// helpers answer for the calling thread, including after changes the
++// careful interposers do not see (raw setresuid in one thread, writes to
++// /proc/<pid>/task/<tid>/comm), without a system call.
++//
++// Switch: BPFTIME_VIEW=1, read once at load (nginx clears its workers'
++// environment, which inherit this). The agent calls bpftime_view_setup()
++// once; only when it validated a live view are bpftime_view_slots and
++// bpftime_view_mask published. Off, or not mapped, each helper pays one load
++// of bpftime_view_slots and a branch.
++//
++// The view is keyed by the thread key the runtime already has (the careful
++// identity cache): uid/gid/comm are exact given a correct (tid, tgid). A
++// slot whose key differs, that is being written, that is STALE or that lacks
++// the requested valid bits is a miss, and the helper falls back to the exact
++// system call (never to a process-wide cache).
++
++static_assert(sizeof(struct tern_view_slot) == 64,
++	      "tern_view_slot is one cache line (ABI)");
++static_assert(sizeof(struct tern_view_hdr) == 64,
++	      "tern_view_hdr takes slot 0 (ABI)");
++static_assert(offsetof(struct tern_view_slot, comm) % 8 == 0,
++	      "comm is read as two 64-bit words");
++
++extern "C" {
++// BPFTIME_VIEW=1 at load. Default visibility, like bpftime_careful_mode.
++extern bool bpftime_view_mode;
++
++// Hidden: the runtime is linked into the agent (a shared object) and the
++// helpers read these on every call; a hidden global is one RIP-relative
++// load, a default-visibility one would add a GOT load. Each shared object
++// that links the runtime has its own copy.
++//
++// Slot array of the mapped view, already advanced past the header (slot
++// index 0), so that a thread's slot is bpftime_view_slots[tid & mask].
++// nullptr: no view in this process. Published once (mask first) and never
++// withdrawn while probes may run: the mapping stays until exec or exit.
++__attribute__((visibility("hidden"))) extern const struct tern_view_slot
++	*bpftime_view_slots;
++// nslots - 1 (nslots is a power of two). A reader that saw the slots but
++// an older mask (0) still indexes inside the array, and the key check
++// turns a wrong slot into a miss, so the two need no common lock.
++__attribute__((visibility("hidden"))) extern uint32_t bpftime_view_mask;
++// BPFTIME_VIEW_COUNT=1 at load: also count reads (a second read-modify-write
++// on the hot path, so off by default; misses are always counted).
++__attribute__((visibility("hidden"))) extern bool bpftime_view_count_reads;
++// Per process (cleared in fork children); reported at exit on stderr as
++// "View: reads <n|off> misses <m> pid <p>".
++__attribute__((visibility("hidden"))) extern uint64_t bpftime_view_reads;
++__attribute__((visibility("hidden"))) extern uint64_t bpftime_view_misses;
++
++// Called once by the agent (agent.cpp, after the careful setup). Off
++// (BPFTIME_VIEW unset): returns false and does nothing. On: gets a
++// read-only fd of the view (BPF_OBJ_GET of BPFTIME_VIEW_PIN, default
++// /sys/fs/bpf/tern_view/view; else BPF_MAP_GET_FD_BY_ID of the id in
++// BPFTIME_VIEW_ID_FILE), validates the map and its header, maps it with
++// PROT_READ and publishes it. Any failure logs a warning and leaves the view
++// off in this process; the helpers keep their paths. Raw bpf(2) only (no
++// libbpf), so that the build configuration of the runtime is unchanged.
++bool bpftime_view_setup(void);
++// One line for the agent's log: "off", "mapped <n> slots via pin|id, self
++// hit|miss", or "not mapped: <reason>". Valid after bpftime_view_setup.
++const char *bpftime_view_status(void);
++
++// Unit tests: publish a view at `base` (the header, followed by `nslots`
++// slots, nslots a power of two) after the same header checks as
++// bpftime_view_setup (magic, abi, nslots, state LIVE, pid namespace). No
++// kernel involved; the caller owns the memory. Returns whether published.
++bool bpftime_view_attach_for_test(void *base, uint32_t nslots);
++// Unit tests: withdraw the view (no reader may still use it).
++void bpftime_view_detach_for_test(void);
++}
++
++#if defined(__x86_64__) || defined(__i386__)
++#define BPFTIME_VIEW_CPU_RELAX() __builtin_ia32_pause()
++#elif defined(__aarch64__)
++#define BPFTIME_VIEW_CPU_RELAX() __asm__ __volatile__("yield" ::: "memory")
++#else
++#define BPFTIME_VIEW_CPU_RELAX() __asm__ __volatile__("" ::: "memory")
++#endif
++
++// comm is read as two 64-bit words through this type: char storage read
++// through a uint64_t lvalue would break strict aliasing.
++typedef uint64_t __attribute__((may_alias)) bpftime_view_u64_alias;
++
++// Reads the calling thread's slot (tid, tgid: init pid namespace ids).
++// `need`: valid bits required (TV_F_IDS | TV_F_CREDS for uid/gid,
++// TV_F_IDS | TV_F_COMM for comm). On a hit, fills uid/gid (if uid) and the
++// 16 bytes of comm (if comm) from one consistent snapshot and returns true.
++// Async-signal-safe: no lock, no system call, no allocation.
++//
++// Seqlock reader against the BPF writers (tools/view/view.bpf.c: cmpxchg
++// seq to odd, write, fetch_add to even): an even seq read with acquire, the
++// fields read with relaxed atomics, an acquire fence, then seq again. Equal
++// and even: the fields are one writer's complete update. A writer holding
++// the slot (odd seq) for four tries, or one that raced each try, is a miss:
++// writers hold a slot for a few dozen instructions, so waiting longer would
++// only add latency to a probe for a case the fallback answers exactly.
++static inline bool bpftime_view_read(uint32_t tid, uint32_t tgid,
++				     uint32_t need, uint32_t *uid,
++				     uint32_t *gid, char *comm)
++{
++	const tern_view_slot *v =
++		__atomic_load_n(&bpftime_view_slots, __ATOMIC_RELAXED);
++	if (v == nullptr)
++		return false;
++	const tern_view_slot *s =
++		&v[tid & __atomic_load_n(&bpftime_view_mask, __ATOMIC_RELAXED)];
++	for (int r = 0; r < 4; r++) {
++		const uint32_t q = __atomic_load_n(&s->seq, __ATOMIC_ACQUIRE);
++		if (q & 1) {
++			BPFTIME_VIEW_CPU_RELAX();
++			continue;
++		}
++		const uint32_t t = __atomic_load_n(&s->tid, __ATOMIC_RELAXED);
++		const uint32_t g = __atomic_load_n(&s->tgid, __ATOMIC_RELAXED);
++		const uint32_t f = __atomic_load_n(&s->flags, __ATOMIC_RELAXED);
++		const uint32_t u = __atomic_load_n(&s->uid, __ATOMIC_RELAXED);
++		const uint32_t gg = __atomic_load_n(&s->gid, __ATOMIC_RELAXED);
++		const bpftime_view_u64_alias *cw =
++			(const bpftime_view_u64_alias *)s->comm;
++		const uint64_t c0 = __atomic_load_n(&cw[0], __ATOMIC_RELAXED);
++		const uint64_t c1 = __atomic_load_n(&cw[1], __ATOMIC_RELAXED);
++		// Orders the field loads before the second seq load (a plain
++		// acquire load of seq would not keep earlier loads above it).
++		__atomic_thread_fence(__ATOMIC_ACQUIRE);
++		if (__atomic_load_n(&s->seq, __ATOMIC_RELAXED) != q)
++			continue;
++		// Another thread's slot (collision, a reused tid not yet
++		// rewritten), a slot the loader made STALE, or a slot without
++		// what was asked for: the exact path answers.
++		if (t != tid || g != tgid || (f & TV_F_STALE) ||
++		    (f & need) != need)
++			return false;
++		if (uid) {
++			*uid = u;
++			*gid = gg;
++		}
++		if (comm) {
++			memcpy(comm, &c0, 8);
++			memcpy(comm + 8, &c1, 8);
++		}
++		return true;
++	}
++	return false;
++}
++
++// Relaxed RMWs: per-process statistics, async-signal-safe.
++static inline void bpftime_view_count_read(void)
++{
++	if (__builtin_expect(bpftime_view_count_reads, 0))
++		__atomic_fetch_add(&bpftime_view_reads, 1, __ATOMIC_RELAXED);
++}
++
++static inline void bpftime_view_count_miss(void)
++{
++	__atomic_fetch_add(&bpftime_view_misses, 1, __ATOMIC_RELAXED);
++}
++
++#endif
+diff --git a/runtime/unit-test/CMakeLists.txt b/runtime/unit-test/CMakeLists.txt
+index 882be365..632406b2 100644
+--- a/runtime/unit-test/CMakeLists.txt
++++ b/runtime/unit-test/CMakeLists.txt
+@@ -143,6 +143,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+     target_sources(bpftime_runtime_tests PRIVATE
+         test_get_current_uid_gid.cpp
+         test_get_current_comm.cpp
++        # Dview read side. In this target, not a separate one: it needs the
++        # --wrap=getuid/getgid of this link (the fallback goes through
++        # them) and the same runtime link set; every case publishes its fake
++        # view through a scoped guard and withdraws it before returning, so
++        # the other cases never see a view.
++        test_kernel_view.cpp
+         ${CMAKE_SOURCE_DIR}/runtime/agent/credential_hooks.cpp)
+     target_link_options(bpftime_runtime_tests PRIVATE
+         -Wl,--wrap=getuid -Wl,--wrap=getgid -Wl,--wrap=sched_getcpu
+diff --git a/runtime/unit-test/test_kernel_view.cpp b/runtime/unit-test/test_kernel_view.cpp
+new file mode 100644
+index 00000000..68043337
+--- /dev/null
++++ b/runtime/unit-test/test_kernel_view.cpp
+@@ -0,0 +1,445 @@
++/* SPDX-License-Identifier: MIT
++ *
++ * Dview read side (runtime/src/kernel_view.{hpp,cpp}) without a kernel: a
++ * fake view in anonymous memory, published with bpftime_view_attach_for_test
++ * after the same header checks as the real setup. What is checked:
++ *  - hits: both helpers answer from the view;
++ *  - misses (odd seq, other tid, other tgid, STALE, missing valid bits, empty
++ *    slot): the helpers answer the exact system call results, and count;
++ *  - a writer following the BPF programs' seqlock protocol never makes a
++ *    reader return a torn snapshot;
++ *  - invalid headers (magic, abi, nslots, state, pid namespace) leave the
++ *    view off;
++ *  - the comm copy keeps the kernel helper's semantics for every size.
++ * The getuid/getgid wraps of this binary (test_get_current_uid_gid.cpp) pass
++ * through to libc here: the exact results are the process's real ids.
++ */
++#include "catch2/catch_test_macros.hpp"
++#include "kernel_view.hpp"
++
++#include <atomic>
++#include <cerrno>
++#include <cstdint>
++#include <cstring>
++#include <string>
++#include <thread>
++#include <sys/mman.h>
++#include <sys/prctl.h>
++#include <sys/stat.h>
++#include <sys/syscall.h>
++#include <sys/wait.h>
++#include <unistd.h>
++
++extern "C" {
++uint64_t bpf_get_current_uid_gid(uint64_t, uint64_t, uint64_t, uint64_t,
++				 uint64_t);
++uint64_t bpftime_get_current_comm(uint64_t buf, uint64_t size, uint64_t,
++				  uint64_t, uint64_t);
++}
++
++namespace
++{
++// Values no test process runs with: a hit is told from the fallback by value.
++constexpr uint32_t view_uid = 3000000001u;
++constexpr uint32_t view_gid = 3000000002u;
++constexpr const char *view_comm = "tern-view-ok";
++constexpr uint32_t all_valid = TV_F_IDS | TV_F_CREDS | TV_F_COMM;
++
++uint32_t self_tid()
++{
++	return (uint32_t)syscall(SYS_gettid);
++}
++
++uint32_t self_pid()
++{
++	return (uint32_t)getpid();
++}
++
++uint64_t ids(uint32_t uid, uint32_t gid)
++{
++	return ((uint64_t)gid << 32) | uid;
++}
++
++uint64_t exact_ids()
++{
++	return ids((uint32_t)getuid(), (uint32_t)getgid());
++}
++
++std::string exact_comm()
++{
++	char c[16] = {};
++	REQUIRE(prctl(PR_GET_NAME, c, 0, 0, 0) == 0);
++	c[15] = '\0';
++	return c;
++}
++
++uint64_t helper_ids()
++{
++	return bpf_get_current_uid_gid(0, 0, 0, 0, 0);
++}
++
++// No assertion inside: also called from a worker thread and a fork child,
++// where Catch2 assertions are not usable. "" on failure.
++std::string helper_comm()
++{
++	char b[16];
++	memset(b, 0x5a, sizeof(b));
++	if (bpftime_get_current_comm((uint64_t)(uintptr_t)b, sizeof(b), 0, 0,
++				     0) != 0 ||
++	    b[15] != '\0')
++		return "";
++	return b;
++}
++
++uint64_t misses()
++{
++	return __atomic_load_n(&bpftime_view_misses, __ATOMIC_RELAXED);
++}
++
++// A view as tern_viewd leaves it: header in slot 0, `nslots` slots after
++// it, state LIVE, this process's pid namespace. Withdrawn and unmapped on
++// destruction, so that no other test case sees a view.
++struct fake_view {
++	uint32_t nslots;
++	size_t len;
++	void *mem;
++	tern_view_hdr *hdr;
++	tern_view_slot *slots; // index 1 of the map
++
++	explicit fake_view(uint32_t n) : nslots(n)
++	{
++		len = sizeof(tern_view_slot) * (1 + (size_t)n);
++		mem = mmap(nullptr, len, PROT_READ | PROT_WRITE,
++			   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
++		REQUIRE(mem != MAP_FAILED);
++		hdr = (tern_view_hdr *)mem;
++		slots = (tern_view_slot *)mem + 1;
++		struct stat st;
++		REQUIRE(stat("/proc/self/ns/pid", &st) == 0);
++		hdr->magic = TERN_VIEW_MAGIC;
++		hdr->abi = TERN_VIEW_ABI;
++		hdr->nslots = n;
++		hdr->hook_mode = 1;
++		hdr->pidns_ino = (uint64_t)st.st_ino;
++		hdr->pidns_dev = (uint64_t)st.st_dev;
++		hdr->loader_pid = self_pid();
++		hdr->state = TV_STATE_LIVE;
++	}
++	~fake_view()
++	{
++		bpftime_view_detach_for_test();
++		munmap(mem, len);
++	}
++	fake_view(const fake_view &) = delete;
++	fake_view &operator=(const fake_view &) = delete;
++
++	bool attach()
++	{
++		return bpftime_view_attach_for_test(mem, nslots);
++	}
++	tern_view_slot &slot_of(uint32_t tid)
++	{
++		return slots[tid & (nslots - 1)];
++	}
++	// A complete slot, as the task_newtask hook writes it.
++	tern_view_slot &put(uint32_t tid, uint32_t tgid,
++			    uint32_t flags = all_valid,
++			    const char *comm = view_comm)
++	{
++		tern_view_slot &s = slot_of(tid);
++		s.seq += (s.seq & 1) ? 1 : 2;
++		s.tid = tid;
++		s.tgid = tgid;
++		s.flags = flags;
++		s.uid = view_uid;
++		s.gid = view_gid;
++		s.start_time = 1;
++		memset(s.comm, 0, sizeof(s.comm));
++		strncpy(s.comm, comm, sizeof(s.comm) - 1);
++		s.writer = 1;
++		return s;
++	}
++};
++} // namespace
++
++TEST_CASE("Dview: a hit answers both helpers from the view", "[view]")
++{
++	REQUIRE(exact_ids() != ids(view_uid, view_gid));
++	fake_view v(1024);
++	v.put(self_tid(), self_pid());
++	REQUIRE(v.attach());
++	REQUIRE(bpftime_view_slots == v.slots);
++	const uint64_t m0 = misses();
++	CHECK(helper_ids() == ids(view_uid, view_gid));
++	CHECK(helper_comm() == view_comm);
++	CHECK(misses() == m0);
++
++	// A rename in the view (task_rename hook) is seen at once: there is no
++	// cache to invalidate.
++	tern_view_slot &s = v.slot_of(self_tid());
++	s.seq++;
++	strncpy(s.comm, "renamed", sizeof(s.comm) - 1);
++	memset(s.comm + 7, 0, sizeof(s.comm) - 7);
++	s.seq++;
++	CHECK(helper_comm() == "renamed");
++
++	// Withdrawn: the helpers are back on their paths.
++	bpftime_view_detach_for_test();
++	CHECK(helper_ids() == exact_ids());
++}
++
++TEST_CASE("Dview: misses fall back to the exact system calls", "[view]")
++{
++	const uint64_t exact = exact_ids();
++	const std::string exact_name = exact_comm();
++	REQUIRE(exact_name != view_comm);
++	const uint32_t tid = self_tid(), pid = self_pid();
++	constexpr uint32_t nslots = 1024;
++	const struct {
++		const char *what;
++		void (*mutate)(tern_view_slot &, uint32_t tid, uint32_t pid);
++		bool uid_hit, comm_hit;
++	} cases[] = {
++		{ "writer holds the slot (odd seq)",
++		  [](tern_view_slot &s, uint32_t, uint32_t) { s.seq |= 1; },
++		  false, false },
++		{ "another tid in the same slot",
++		  [](tern_view_slot &s, uint32_t t, uint32_t) {
++			  s.tid = t + nslots;
++		  },
++		  false, false },
++		{ "another tgid",
++		  [](tern_view_slot &s, uint32_t, uint32_t p) {
++			  s.tgid = p + 1;
++		  },
++		  false, false },
++		{ "STALE (loader stopping, writer gave up)",
++		  [](tern_view_slot &s, uint32_t, uint32_t) {
++			  s.flags |= TV_F_STALE;
++		  },
++		  false, false },
++		{ "no comm yet: uid hits, comm falls back",
++		  [](tern_view_slot &s, uint32_t, uint32_t) {
++			  s.flags = TV_F_IDS | TV_F_CREDS;
++		  },
++		  true, false },
++		{ "no creds yet: comm hits, uid falls back",
++		  [](tern_view_slot &s, uint32_t, uint32_t) {
++			  s.flags = TV_F_IDS | TV_F_COMM;
++		  },
++		  false, true },
++		{ "ids not valid",
++		  [](tern_view_slot &s, uint32_t, uint32_t) {
++			  s.flags = TV_F_CREDS | TV_F_COMM;
++		  },
++		  false, false },
++		{ "empty slot (exit hook cleared it)",
++		  [](tern_view_slot &s, uint32_t, uint32_t) {
++			  s.tid = 0;
++			  s.flags = 0;
++		  },
++		  false, false },
++	};
++	for (const auto &c : cases) {
++		CAPTURE(c.what);
++		fake_view v(nslots);
++		c.mutate(v.put(tid, pid), tid, pid);
++		REQUIRE(v.attach());
++		const uint64_t m0 = misses();
++		CHECK(helper_ids() ==
++		      (c.uid_hit ? ids(view_uid, view_gid) : exact));
++		CHECK(helper_comm() == (c.comm_hit ? std::string(view_comm) :
++						     exact_name));
++		CHECK(misses() - m0 ==
++		      (uint64_t)(!c.uid_hit) + (uint64_t)(!c.comm_hit));
++	}
++}
++
++TEST_CASE("Dview: other threads and fork children read their own slots",
++	  "[view]")
++{
++	fake_view v(1u << 16);
++	const uint32_t main_tid = self_tid(), pid = self_pid();
++	v.put(main_tid, pid);
++	REQUIRE(v.attach());
++
++	// A new thread: no slot of its own yet, so it must not get the main
++	// thread's values (key check), then its own once written.
++	std::atomic<int> before{ -1 }, after{ -1 };
++	std::thread t([&] {
++		const uint32_t tid = self_tid();
++		if ((tid & (v.nslots - 1)) == (main_tid & (v.nslots - 1))) {
++			before = after = 2; // collision: nothing to check
++			return;
++		}
++		before = helper_ids() == exact_ids();
++		v.put(tid, pid, all_valid, "worker-slot");
++		after = helper_ids() == ids(view_uid, view_gid) &&
++			helper_comm() == "worker-slot";
++	});
++	t.join();
++	// Asserted here: Catch2 assertions are not usable in the worker.
++	const int saw_before = before.load(), saw_after = after.load();
++	CHECK(saw_before != 0);
++	CHECK(saw_after != 0);
++	CHECK(helper_comm() == view_comm);
++
++	// A fork child (the identity cache is reset by the fork handler): its
++	// own tid and tgid, so the parent's slot is not its. The mapping is
++	// MAP_PRIVATE here; the child writes its own copy.
++	const pid_t child = fork();
++	REQUIRE(child >= 0);
++	if (child == 0) {
++		if (helper_ids() != exact_ids())
++			_exit(1);
++		const uint32_t ctid = self_tid(), cpid = self_pid();
++		if ((ctid & (v.nslots - 1)) != (main_tid & (v.nslots - 1))) {
++			v.put(ctid, cpid, all_valid, "child-slot");
++			if (helper_ids() != ids(view_uid, view_gid) ||
++			    helper_comm() != "child-slot")
++				_exit(2);
++		}
++		_exit(0);
++	}
++	int status = -1;
++	REQUIRE(waitpid(child, &status, 0) == child);
++	REQUIRE(WIFEXITED(status));
++	CHECK(WEXITSTATUS(status) == 0);
++}
++
++TEST_CASE("Dview: a reader never returns a torn slot", "[view]")
++{
++	fake_view v(64);
++	const uint32_t tid = self_tid(), pid = self_pid();
++	tern_view_slot &s = v.put(tid, pid);
++	REQUIRE(v.attach());
++
++	// The BPF writers' protocol: seq to odd, the fields, seq to even
++	// (view.bpf.c uses cmpxchg and fetch_add; one writer here needs only
++	// the orderings). Every update writes uid == gid == i and comm ==
++	// {w, ~w} with w built from i: a snapshot mixing two updates breaks
++	// one of the equalities.
++	std::atomic<bool> stop{ false };
++	std::thread writer([&] {
++		auto *cw = (bpftime_view_u64_alias *)s.comm;
++		for (uint32_t i = 1; !stop.load(std::memory_order_relaxed);
++		     i++) {
++			const uint32_t q =
++				__atomic_load_n(&s.seq, __ATOMIC_RELAXED);
++			__atomic_store_n(&s.seq, q + 1, __ATOMIC_RELAXED);
++			// The odd seq before any field store.
++			__atomic_thread_fence(__ATOMIC_RELEASE);
++			const uint64_t w = ((uint64_t)i << 32) | i;
++			__atomic_store_n(&s.uid, i, __ATOMIC_RELAXED);
++			__atomic_store_n(&cw[0], w, __ATOMIC_RELAXED);
++			__atomic_store_n(&s.gid, i, __ATOMIC_RELAXED);
++			__atomic_store_n(&cw[1], ~w, __ATOMIC_RELAXED);
++			__atomic_store_n(&s.seq, q + 2, __ATOMIC_RELEASE);
++		}
++	});
++	uint64_t hits = 0, torn = 0;
++	for (int n = 0; n < 1000000; n++) {
++		uint32_t u = 0, g = 0;
++		char comm[16];
++		if (!bpftime_view_read(tid, pid, all_valid, &u, &g, comm))
++			continue;
++		hits++;
++		uint64_t w0, w1;
++		memcpy(&w0, comm, 8);
++		memcpy(&w1, comm + 8, 8);
++		// The initial slot (view_uid/view_gid, a text comm) is
++		// consistent too, but not in this encoding: skip it.
++		if (u == view_uid && g == view_gid)
++			continue;
++		const uint64_t w = ((uint64_t)u << 32) | u;
++		if (u != g || w0 != w || w1 != ~w)
++			torn++;
++	}
++	stop = true;
++	writer.join();
++	CHECK(torn == 0);
++	CHECK(hits > 0);
++}
++
++TEST_CASE("Dview: invalid headers leave the view off", "[view]")
++{
++	const uint64_t exact = exact_ids();
++	const struct {
++		const char *what;
++		uint32_t nslots;
++		void (*mutate)(tern_view_hdr &);
++	} cases[] = {
++		{ "magic", 1024,
++		  [](tern_view_hdr &h) { h.magic ^= 1; } },
++		{ "abi", 1024, [](tern_view_hdr &h) { h.abi += 1; } },
++		{ "state INIT (loader not done)", 1024,
++		  [](tern_view_hdr &h) { h.state = TV_STATE_INIT; } },
++		{ "state DEAD (loader stopping)", 1024,
++		  [](tern_view_hdr &h) { h.state = TV_STATE_DEAD; } },
++		{ "header nslots differs from the map", 1024,
++		  [](tern_view_hdr &h) { h.nslots = 2048; } },
++		{ "nslots not a power of two", 24, [](tern_view_hdr &) {} },
++		{ "another pid namespace (inode)", 1024,
++		  [](tern_view_hdr &h) { h.pidns_ino += 1; } },
++		{ "another pid namespace (device)", 1024,
++		  [](tern_view_hdr &h) { h.pidns_dev += 1; } },
++	};
++	for (const auto &c : cases) {
++		CAPTURE(c.what);
++		fake_view v(c.nslots);
++		v.put(self_tid(), self_pid());
++		c.mutate(*v.hdr);
++		CHECK_FALSE(v.attach());
++		CHECK(bpftime_view_slots == nullptr);
++		CHECK(helper_ids() == exact);
++		CHECK(helper_comm() != view_comm);
++	}
++	// The unmodified header is accepted (the cases above fail for their
++	// mutation only).
++	fake_view ok(1024);
++	CHECK(ok.attach());
++}
++
++TEST_CASE("Dview: comm copies keep the kernel helper's semantics",
++	  "[view]")
++{
++	fake_view v(1024);
++	// 15 characters: the longest name a task has.
++	const char *name = "abcdefghijklmno";
++	v.put(self_tid(), self_pid(), all_valid, name);
++	REQUIRE(v.attach());
++	auto comm_of_size = [](char *buf, uint64_t size) {
++		return bpftime_get_current_comm((uint64_t)(uintptr_t)buf, size,
++						0, 0, 0);
++	};
++	// Larger than TASK_COMM_LEN: the name, then zeros to the end.
++	{
++		char buf[32];
++		memset(buf, 0x5a, sizeof(buf));
++		REQUIRE(comm_of_size(buf, sizeof(buf)) == 0);
++		CHECK(std::string(buf) == name);
++		for (size_t i = 15; i < sizeof(buf); i++)
++			CHECK(buf[i] == '\0');
++	}
++	// Smaller: truncated to size - 1 and terminated.
++	{
++		char buf[8];
++		memset(buf, 0x5a, sizeof(buf));
++		REQUIRE(comm_of_size(buf, sizeof(buf)) == 0);
++		CHECK(std::string(buf) == "abcdefg");
++	}
++	// size 1: only the terminator.
++	{
++		char buf[1] = { 0x5a };
++		REQUIRE(comm_of_size(buf, 1) == 0);
++		CHECK(buf[0] == '\0');
++	}
++	// size 0: not touched.
++	{
++		char buf[4];
++		memset(buf, 0x5a, sizeof(buf));
++		REQUIRE(comm_of_size(buf, 0) == 0);
++		for (char c : buf)
++			CHECK(c == 0x5a);
++	}
++}
+diff --git a/tools/view/.gitignore b/tools/view/.gitignore
+new file mode 100644
+index 00000000..567609b1
+--- /dev/null
++++ b/tools/view/.gitignore
+@@ -0,0 +1 @@
++build/
+diff --git a/tools/view/build.sh b/tools/view/build.sh
+new file mode 100755
+index 00000000..085c6381
+--- /dev/null
++++ b/tools/view/build.sh
+@@ -0,0 +1,95 @@
++#!/usr/bin/env bash
++# Build the kernel thread view tools into tools/view/build/:
++#   vmlinux.h        BTF of the running kernel (bootstrap bpftool), or $VMLINUX_H
++#   libbpf/          static libbpf from this tree's third_party/libbpf (BUILD_STATIC_ONLY)
++#   view.bpf.o       clang-19 -target bpf -mcpu=v3 (32-bit cmpxchg / fetch atomics)
++#   view.skel.h      bpftool gen skeleton
++#   tern_viewd       loader (start/status/stop)
++#   view_selftest    S0-S10 and --bench (M0/M1)
++#   hookbench        hook costs (M2)
++# Standalone: links no Tern code, so it does not change the Dview/Dviewpc runtime builds.
++#
++# A CPU measurement must never share the machine with a build. The script takes the
++# measurement lock itself (non-blocking) and refuses if it is held. Run it directly, not
++# under `flock ... ./build.sh`: a second open of the lock file conflicts with the first
++# even in one process tree, so a wrapped run would always refuse.
++set -euo pipefail
++HERE=$(cd "$(dirname "$0")" && pwd)
++TERN_ROOT=${TERN_ROOT:-$(cd "$HERE/../.." && pwd)}
++LOCK=${MEASURE_LOCK:-/home/y/src/bpftime-x86-runs/paper-20261124/.measure.lock}
++BPFTOOL=${BPFTOOL:-/home/y/src/bpftime-x86-runs/paper-20261124/e6/build/bpftool/bootstrap/bpftool}
++CLANG=${CLANG:-clang-19}
++CC=${CC:-gcc-13}
++B="$HERE/build"
++
++if [[ ! -e "$LOCK" ]]; then
++	echo "build.sh: measurement lock $LOCK not found; refusing (set MEASURE_LOCK to override)" >&2
++	exit 1
++fi
++# Read-only open: neither creates nor truncates the lock file. Held until the script exits.
++exec 9<"$LOCK"
++if ! flock -n 9; then
++	echo "build.sh: measurement lock $LOCK is held (a measurement is running); refusing to build" >&2
++	exit 1
++fi
++
++for t in "$CLANG" "$CC" "$BPFTOOL" make; do
++	command -v "$t" >/dev/null || { echo "build.sh: $t not found" >&2; exit 1; }
++done
++mkdir -p "$B"
++
++# BTF of the running kernel (6.12 here: sched_process_exit has one argument). A prepared
++# dump of the same kernel can be passed as VMLINUX_H instead.
++if [[ ! -s "$B/vmlinux.h" ]]; then
++	if [[ -n "${VMLINUX_H:-}" ]]; then
++		cp "$VMLINUX_H" "$B/vmlinux.h.tmp"
++	else
++		"$BPFTOOL" btf dump file /sys/kernel/btf/vmlinux format c >"$B/vmlinux.h.tmp"
++	fi
++	mv "$B/vmlinux.h.tmp" "$B/vmlinux.h"
++fi
++
++# Static libbpf, objects and install tree outside the source directory (the tree stays clean).
++# install_uapi_headers: libbpf's own linux/bpf.h, which its headers expect, ahead of the
++# system copy.
++LIBBPF_SRC="$TERN_ROOT/third_party/libbpf/src"
++if [[ ! -f "$B/libbpf/lib/libbpf.a" ]]; then
++	make -C "$LIBBPF_SRC" -j"$(nproc)" BUILD_STATIC_ONLY=1 \
++		OBJDIR="$B/libbpf/obj" DESTDIR="$B/libbpf" PREFIX= LIBDIR=/lib \
++		INCLUDEDIR=/include UAPIDIR=/include \
++		install install_uapi_headers
++fi
++
++INC=(-I"$B" -I"$B/libbpf/include" -I"$TERN_ROOT/runtime/include")
++LIBBPF=("$B/libbpf/lib/libbpf.a" -lelf -lz)
++CFLAGS=(-O2 -g -std=gnu11 -Wall -Wextra)
++
++"$CLANG" -g -O2 -target bpf -mcpu=v3 -D__TARGET_ARCH_x86 "${INC[@]}" \
++	-c "$HERE/view.bpf.c" -o "$B/view.bpf.o"
++"$BPFTOOL" gen skeleton "$B/view.bpf.o" name view_bpf >"$B/view.skel.h.tmp"
++mv "$B/view.skel.h.tmp" "$B/view.skel.h"
++
++"$CC" "${CFLAGS[@]}" "${INC[@]}" "$HERE/tern_viewd.c" "${LIBBPF[@]}" -o "$B/tern_viewd"
++"$CC" "${CFLAGS[@]}" -pthread "${INC[@]}" "$HERE/view_selftest.c" "${LIBBPF[@]}" \
++	-o "$B/view_selftest"
++"$CC" "${CFLAGS[@]}" -pthread "$HERE/hookbench.c" -lm -o "$B/hookbench"
++
++# Evidence that the program uses the atomics the protocol relies on (BPF_CMPXCHG and the
++# FETCH forms). llvm-objdump-19 prints them as cmpxchg32_32 / atomic_fetch_*.
++if command -v llvm-objdump-19 >/dev/null; then
++	llvm-objdump-19 -d --no-show-raw-insn "$B/view.bpf.o" >"$B/view.bpf.dis"
++	echo "atomics in view.bpf.o:"
++	grep -Eo 'cmpxchg[0-9_]*|atomic_fetch_[a-z]+|xchg[0-9_]*|lock \*\(u32 \*\)' "$B/view.bpf.dis" |
++		sort | uniq -c || true
++fi
++
++(cd "$B" && sha256sum view.bpf.o tern_viewd view_selftest hookbench >sha256.txt)
++{
++	"$CLANG" --version | head -1
++	"$CC" --version | head -1
++	ldd --version | head -1
++	echo "libbpf $(sed -n 's/^#define LIBBPF_\(MAJOR\|MINOR\)_VERSION //p' \
++		"$LIBBPF_SRC/libbpf_version.h" | paste -sd.)"
++	uname -r
++} >"$B/toolchain.txt"
++cat "$B/sha256.txt"
+diff --git a/tools/view/hookbench.c b/tools/view/hookbench.c
+new file mode 100644
+index 00000000..5534fee2
+--- /dev/null
++++ b/tools/view/hookbench.c
+@@ -0,0 +1,356 @@
++// SPDX-License-Identifier: MIT
++//
++// hookbench: kernel-side cost of the view hooks (M2). Runs as root.
++//
++//   hookbench [--viewd PATH] [--pin-dir D] [--cpu N] [--blocks off,on,off,on]
++//             [--scale F] [--batches B]
++//
++// Four operations, each the trigger of one or two hooks:
++//   setresuid  raw setresuid between (4242,4242,0) and (0,0,0)   commit_creds
++//              (alternating: setresuid returns before commit_creds when
++//              nothing changes)
++//   prctl      PR_SET_NAME alternating two names                 task_rename
++//   fork       fork + child _exit(0) + waitpid                  newtask + exit
++//   pthread    pthread_create + pthread_join                    newtask + exit
++// Blocks alternate with the view off and on (tern_viewd start/stop around
++// each "on" block), so slow drift of the machine shows up in both arms. Each
++// block runs every operation in B batches; a batch's ns/op is one sample. The
++// delta is mean(on) - mean(off) over all batch samples, with a normal 95% CI
++// (Welch standard error). One JSON line per operation.
++//
++// G4 (plan section 1.2): fork+exit and pthread_create+join must not grow by
++// more than 1 us and 10% per operation; setresuid and prctl are reported.
++#define _GNU_SOURCE
++#include <dirent.h>
++#include <errno.h>
++#include <getopt.h>
++#include <limits.h>
++#include <math.h>
++#include <pthread.h>
++#include <sched.h>
++#include <signal.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/prctl.h>
++#include <sys/syscall.h>
++#include <sys/wait.h>
++#include <time.h>
++#include <unistd.h>
++
++#define UID_A 4242u
++#define MAX_BLOCKS 16
++#define MAX_BATCHES 200
++
++enum { OP_SETRESUID, OP_PRCTL, OP_FORK, OP_PTHREAD, OP__COUNT };
++static const char *const op_name[OP__COUNT] = { "setresuid", "prctl", "fork", "pthread" };
++// Operations per block at --scale 1 (about 10 s per block on the NUC).
++static const double op_base_n[OP__COUNT] = { 1e6, 1e6, 2e4, 1e5 };
++
++static char g_viewd[PATH_MAX];
++static char g_pin_dir[PATH_MAX] = "/sys/fs/bpf/tern_view_hookbench";
++static bool g_viewd_running;
++static pid_t g_controller;
++
++static uint64_t now_ns(void)
++{
++	struct timespec ts;
++	clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
++	return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
++}
++
++// ---------------------------------------------------------------- tern_viewd
++
++static int run_viewd(const char *const argv[], char *out, size_t cap)
++{
++	int pfd[2];
++	if (pipe(pfd))
++		return -1;
++	fflush(stdout);
++	pid_t c = fork();
++	if (c < 0)
++		return -1;
++	if (c == 0) {
++		dup2(pfd[1], 1);
++		close(pfd[0]);
++		close(pfd[1]);
++		execv(argv[0], (char *const *)argv);
++		fprintf(stderr, "exec %s: %s\n", argv[0], strerror(errno));
++		_exit(127);
++	}
++	close(pfd[1]);
++	size_t n = 0;
++	ssize_t r;
++	while (n + 1 < cap && (r = read(pfd[0], out + n, cap - 1 - n)) > 0)
++		n += (size_t)r;
++	out[n] = 0;
++	close(pfd[0]);
++	int st = 0;
++	waitpid(c, &st, 0);
++	return WIFEXITED(st) ? WEXITSTATUS(st) : 128;
++}
++
++static int viewd_start(void)
++{
++	const char *argv[] = { g_viewd, "start", "--pin-dir", g_pin_dir, NULL };
++	char out[512];
++	int rc = run_viewd(argv, out, sizeof(out));
++	if (rc != 0 || !strstr(out, "ready")) {
++		fprintf(stderr, "hookbench: viewd start failed (rc %d): %s\n", rc, out);
++		return -1;
++	}
++	g_viewd_running = true;
++	fprintf(stderr, "hookbench: viewd %s", out);
++	return 0;
++}
++
++static void viewd_stop(void)
++{
++	if (!g_viewd_running || getpid() != g_controller)
++		return;
++	const char *argv[] = { g_viewd, "stop", "--pin-dir", g_pin_dir, NULL };
++	char out[512];
++	int rc = run_viewd(argv, out, sizeof(out));
++	fprintf(stderr, "hookbench: viewd stop rc=%d %s", rc, out);
++	g_viewd_running = false;
++}
++
++static void on_signal(int sig)
++{
++	(void)sig;
++	exit(130); // atexit: viewd_stop
++}
++
++// Any view pinned by someone else (an E5 leg, the nginx session) means the
++// hooks are attached during "off" blocks too.
++static int foreign_views(void)
++{
++	DIR *d = opendir("/sys/fs/bpf");
++	if (!d)
++		return -1;
++	int n = 0;
++	struct dirent *e;
++	const char *mine = strrchr(g_pin_dir, '/');
++	mine = mine ? mine + 1 : g_pin_dir;
++	while ((e = readdir(d)))
++		if (!strncmp(e->d_name, "tern_view", 9) && strcmp(e->d_name, mine))
++			n++;
++	closedir(d);
++	return n;
++}
++
++// ---------------------------------------------------------------- operations
++
++static void *empty_thread(void *p)
++{
++	return p;
++}
++
++// Runs n operations; returns ns per operation, or -1 on a failure.
++static double run_op(int op, uint64_t n)
++{
++	uint64_t t0 = now_ns(), t1;
++	switch (op) {
++	case OP_SETRESUID:
++		for (uint64_t i = 0; i < n; i++) {
++			long r = (i & 1) ? syscall(SYS_setresuid, 0, 0, 0)
++					 : syscall(SYS_setresuid, UID_A, UID_A, 0);
++			if (r) {
++				syscall(SYS_setresuid, 0, 0, 0);
++				return -1;
++			}
++		}
++		t1 = now_ns();
++		// Saved uid is 0 throughout, so this always works: leave as root.
++		syscall(SYS_setresuid, 0, 0, 0);
++		return (double)(t1 - t0) / (double)n;
++	case OP_PRCTL:
++		for (uint64_t i = 0; i < n; i++)
++			if (prctl(PR_SET_NAME, (unsigned long)((i & 1) ? "hb-b" : "hb-a"), 0, 0, 0))
++				return -1;
++		break;
++	case OP_FORK:
++		for (uint64_t i = 0; i < n; i++) {
++			pid_t c = fork();
++			if (c == 0)
++				_exit(0);
++			if (c < 0)
++				return -1;
++			int st;
++			if (waitpid(c, &st, 0) != c)
++				return -1;
++		}
++		break;
++	case OP_PTHREAD:
++		for (uint64_t i = 0; i < n; i++) {
++			pthread_t t;
++			if (pthread_create(&t, NULL, empty_thread, NULL))
++				return -1;
++			pthread_join(t, NULL);
++		}
++		break;
++	}
++	return (double)(now_ns() - t0) / (double)n;
++}
++
++// ---------------------------------------------------------------- statistics
++
++struct moments {
++	double mean, var;
++	int n;
++};
++
++static struct moments moments_of(const double *v, int n)
++{
++	struct moments m = { 0, 0, n };
++	if (n <= 0)
++		return m;
++	for (int i = 0; i < n; i++)
++		m.mean += v[i];
++	m.mean /= n;
++	for (int i = 0; i < n; i++)
++		m.var += (v[i] - m.mean) * (v[i] - m.mean);
++	m.var = n > 1 ? m.var / (n - 1) : 0;
++	return m;
++}
++
++// ---------------------------------------------------------------- main
++
++static double samples[OP__COUNT][MAX_BLOCKS][MAX_BATCHES];
++
++int main(int argc, char **argv)
++{
++	ssize_t sl = readlink("/proc/self/exe", g_viewd, sizeof(g_viewd) - 1);
++	if (sl > 0) {
++		g_viewd[sl] = 0;
++		char *slash = strrchr(g_viewd, '/');
++		size_t off = slash ? (size_t)(slash + 1 - g_viewd) : 0;
++		snprintf(g_viewd + off, sizeof(g_viewd) - off, "tern_viewd");
++	}
++	char blocks_arg[128] = "off,on,off,on", blocks_print[128];
++	double scale = 1.0;
++	int batches = 20, cpu = -1;
++	static const struct option lo[] = {
++		{ "viewd", required_argument, NULL, 'V' },
++		{ "pin-dir", required_argument, NULL, 'p' },
++		{ "cpu", required_argument, NULL, 'C' },
++		{ "blocks", required_argument, NULL, 'b' },
++		{ "scale", required_argument, NULL, 's' },
++		{ "batches", required_argument, NULL, 'B' },
++		{ NULL, 0, NULL, 0 },
++	};
++	int c;
++	while ((c = getopt_long(argc, argv, "", lo, NULL)) != -1) {
++		switch (c) {
++		case 'V':
++			snprintf(g_viewd, sizeof(g_viewd), "%s", optarg);
++			break;
++		case 'p':
++			snprintf(g_pin_dir, sizeof(g_pin_dir), "%s", optarg);
++			break;
++		case 'C':
++			cpu = atoi(optarg);
++			break;
++		case 'b':
++			snprintf(blocks_arg, sizeof(blocks_arg), "%s", optarg);
++			break;
++		case 's':
++			scale = atof(optarg);
++			break;
++		case 'B':
++			batches = atoi(optarg);
++			break;
++		default:
++			fprintf(stderr, "usage: hookbench [--viewd PATH] [--pin-dir D] [--cpu N] "
++					"[--blocks off,on,...] [--scale F] [--batches B]\n");
++			return 2;
++		}
++	}
++	if (batches < 2 || batches > MAX_BATCHES || scale <= 0)
++		return fprintf(stderr, "hookbench: bad --batches/--scale\n"), 2;
++	snprintf(blocks_print, sizeof(blocks_print), "%s", blocks_arg); // strtok cuts blocks_arg
++	bool on[MAX_BLOCKS];
++	int nblocks = 0;
++	for (char *t = strtok(blocks_arg, ","); t; t = strtok(NULL, ",")) {
++		if (nblocks == MAX_BLOCKS || (strcmp(t, "on") && strcmp(t, "off")))
++			return fprintf(stderr, "hookbench: bad --blocks\n"), 2;
++		on[nblocks++] = !strcmp(t, "on");
++	}
++	if (geteuid() != 0)
++		return fprintf(stderr, "hookbench: needs root\n"), 2;
++	if (cpu >= 0) {
++		cpu_set_t set;
++		CPU_ZERO(&set);
++		CPU_SET(cpu, &set);
++		if (sched_setaffinity(0, sizeof(set), &set))
++			return fprintf(stderr, "hookbench: affinity %d: %s\n", cpu, strerror(errno)), 1;
++	}
++	g_controller = getpid();
++	atexit(viewd_stop);
++	signal(SIGINT, on_signal);
++	signal(SIGTERM, on_signal);
++
++	int foreign = foreign_views();
++	printf("{\"hookbench\":true,\"cpu\":%d,\"blocks\":\"%s\",\"scale\":%g,\"batches\":%d,"
++	       "\"foreign_views\":%d}\n",
++	       cpu, blocks_print, scale, batches, foreign);
++	fflush(stdout);
++	if (foreign > 0)
++		fprintf(stderr, "hookbench: WARNING %d other tern_view pin dirs: hooks are on in "
++				"'off' blocks too\n",
++			foreign);
++
++	for (int b = 0; b < nblocks; b++) {
++		if (on[b] && viewd_start())
++			return 1;
++		for (int op = 0; op < OP__COUNT; op++) {
++			uint64_t per = (uint64_t)(op_base_n[op] * scale / batches);
++			if (per == 0)
++				per = 1;
++			run_op(op, per / 10 + 1); // warm-up
++			for (int k = 0; k < batches; k++) {
++				double v = run_op(op, per);
++				if (v < 0) {
++					fprintf(stderr, "hookbench: %s failed: %s\n", op_name[op],
++						strerror(errno));
++					return 1;
++				}
++				samples[op][b][k] = v;
++			}
++		}
++		if (on[b])
++			viewd_stop();
++		fprintf(stderr, "hookbench: block %d (%s) done\n", b, on[b] ? "on" : "off");
++	}
++
++	for (int op = 0; op < OP__COUNT; op++) {
++		static double off_v[MAX_BLOCKS * MAX_BATCHES], on_v[MAX_BLOCKS * MAX_BATCHES];
++		int n_off = 0, n_on = 0;
++		printf("{\"op\":\"%s\",\"block_means_ns\":[", op_name[op]);
++		for (int b = 0; b < nblocks; b++) {
++			struct moments bm = moments_of(samples[op][b], batches);
++			printf("%s{\"view\":\"%s\",\"mean\":%.1f}", b ? "," : "", on[b] ? "on" : "off",
++			       bm.mean);
++			for (int k = 0; k < batches; k++) {
++				if (on[b])
++					on_v[n_on++] = samples[op][b][k];
++				else
++					off_v[n_off++] = samples[op][b][k];
++			}
++		}
++		printf("]");
++		struct moments mo = moments_of(off_v, n_off), mn = moments_of(on_v, n_on);
++		if (n_off && n_on) {
++			double d = mn.mean - mo.mean;
++			double se = sqrt(mo.var / n_off + mn.var / n_on);
++			printf(",\"off_ns\":%.1f,\"on_ns\":%.1f,\"delta_ns\":%.1f,\"ci95_ns\":[%.1f,%.1f],"
++			       "\"rel\":%.4f,\"n_off\":%d,\"n_on\":%d",
++			       mo.mean, mn.mean, d, d - 1.96 * se, d + 1.96 * se,
++			       mo.mean > 0 ? d / mo.mean : 0, n_off, n_on);
++		}
++		printf("}\n");
++	}
++	return 0;
++}
+diff --git a/tools/view/tern_viewd.c b/tools/view/tern_viewd.c
+new file mode 100644
+index 00000000..63240adf
+--- /dev/null
++++ b/tools/view/tern_viewd.c
+@@ -0,0 +1,813 @@
++// SPDX-License-Identifier: MIT
++//
++// tern_viewd: privileged loader of the kernel thread view (view.bpf.c).
++//
++//   tern_viewd start  --pin-dir D [--nslots-log2 N] [--idfile F] [-v]
++//   tern_viewd status --pin-dir D
++//   tern_viewd stop   --pin-dir D [--idfile F]
++//
++// start loads the program, attaches the five hooks, writes the header through
++// an RW mapping, pins every link and both maps under D (a directory on bpffs it
++// creates; it refuses an existing one), writes the map id to F, prints
++//   ready mode=fexit|fentry|kprobe nslots=N map_id=M pin_dir=D
++// and exits. The hooks live on through the pinned links: there is no resident
++// process whose death would silently leave a view that is no longer updated.
++// A start that fails part way removes what it created; one that crashes
++// leaves an incomplete D, which the next start refuses and the runner's
++// leftover check reports.
++//
++// status prints one JSON object: header, per-CPU counter sums, slot occupancy,
++// per-link program run counts and the number of threads in /proc. The runner
++// takes it before and after a measurement window.
++//
++// stop (1) stores state = DEAD, after which every hook write marks its slot
++// STALE, (2) takes every slot's lock with the same seq protocol and sets STALE,
++// (3) detaches and unpins the links, (4) unpins the maps, removes D and F.
++// Runtimes that still map the view keep the memory alive but every slot is
++// STALE, so each read falls back to the exact syscall.
++//
++// Never run this under the bpftime syscall-server preload: its bpf() calls
++// would be served in user space. It refuses an LD_PRELOAD naming bpftime.
++#define _GNU_SOURCE
++#include <bpf/bpf.h>
++#include <bpf/libbpf.h>
++#include <dirent.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <getopt.h>
++#include <libgen.h>
++#include <limits.h>
++#include <linux/magic.h>
++#include <sched.h>
++#include <stdarg.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/mman.h>
++#include <sys/stat.h>
++#include <sys/vfs.h>
++#include <unistd.h>
++
++#include "bpftime_view_abi.h"
++#include "view.skel.h"
++
++#ifndef BPF_FS_MAGIC
++#define BPF_FS_MAGIC 0xcafe4a11
++#endif
++
++// Attach order. exit first: it only clears, so it is harmless while the
++// commit_creds fallback chain retries. The two full-fill hooks (exec,
++// newtask) last: once a slot claims a field valid, the hook that keeps that
++// field current must already be live, otherwise a change in between (a
++// setresuid before the creds hook is attached) would leave a valid-looking
++// stale value. (The plan listed exec second; that order has this gap.)
++enum { H_EXIT, H_CREDS, H_RENAME, H_EXEC, H_NEWTASK, H__COUNT };
++static const int attach_order[H__COUNT] = { H_EXIT, H_CREDS, H_RENAME, H_EXEC, H_NEWTASK };
++static const char *const hook_name[H__COUNT] = {
++	[H_EXIT] = "exit",     [H_CREDS] = "creds",	[H_RENAME] = "rename",
++	[H_EXEC] = "exec",     [H_NEWTASK] = "newtask",
++};
++static const char *const mode_name[] = {
++	[TV_HOOK_NONE] = "none",
++	[TV_HOOK_FEXIT] = "fexit",
++	[TV_HOOK_FENTRY] = "fentry",
++	[TV_HOOK_KPROBE] = "kprobe",
++};
++static const char *const stat_name[TV_ST__COUNT] = {
++	[TV_ST_NEWTASK] = "newtask",	 [TV_ST_CREDS] = "creds",
++	[TV_ST_RENAME] = "rename",	 [TV_ST_EXEC] = "exec",
++	[TV_ST_EXIT] = "exit",		 [TV_ST_REKEY] = "rekey",
++	[TV_ST_COLLISION] = "collision", [TV_ST_LOCK_FAIL] = "lock_fail",
++	[TV_ST_DEAD_WRITE] = "dead_write", [TV_ST_EXEC_CLEAR] = "exec_clear",
++};
++
++#define MAX_NSLOTS_LOG2 20 // 64 MiB of vmalloc'd map memory
++
++struct opts {
++	const char *pin_dir;
++	const char *idfile;
++	int nslots_log2;
++	bool verbose;
++};
++
++static void usage(void)
++{
++	fprintf(stderr,
++		"usage: tern_viewd start  --pin-dir D [--nslots-log2 N] [--idfile F] [-v]\n"
++		"       tern_viewd status --pin-dir D\n"
++		"       tern_viewd stop   --pin-dir D [--idfile F]\n");
++}
++
++static int errf(const char *fmt, ...)
++{
++	va_list ap;
++	va_start(ap, fmt);
++	fputs("tern_viewd: ", stderr);
++	vfprintf(stderr, fmt, ap);
++	fputc('\n', stderr);
++	va_end(ap);
++	return 1;
++}
++
++static int pin_path(char *buf, const char *dir, const char *name)
++{
++	int n = snprintf(buf, PATH_MAX, "%s/%s", dir, name);
++	return n > 0 && n < PATH_MAX ? 0 : -1;
++}
++
++// Same size libbpf and the runtime use (array_map_kernel_user.cpp,
++// kernel_view.cpp): the value area of an mmapable array starts at offset 0
++// of the mapping, values rounded to 8 bytes, whole pages.
++static size_t view_mmap_size(uint32_t value_size, uint32_t max_entries)
++{
++	long page = sysconf(_SC_PAGE_SIZE);
++	size_t ps = page > 0 ? (size_t)page : 4096;
++	size_t sz = (((size_t)value_size + 7) / 8 * 8) * (size_t)max_entries;
++	return (sz + ps - 1) / ps * ps;
++}
++
++static int refuse_preload(void)
++{
++	const char *p = getenv("LD_PRELOAD");
++	if (p && strstr(p, "bpftime"))
++		return errf("LD_PRELOAD contains bpftime (%s): bpf() would not reach the kernel", p);
++	return 0;
++}
++
++// The hooks record init-namespace tids, and the header records the loader's
++// pid namespace for the runtime to compare with its own. A loader in a nested
++// pid namespace would publish a namespace no runtime keyed by init-ns ids
++// matches, so refuse it here instead of failing every reader later.
++static int check_init_pidns(void)
++{
++	FILE *f = fopen("/proc/self/status", "r");
++	if (!f)
++		return errf("cannot open /proc/self/status: %s", strerror(errno));
++	char line[256];
++	int levels = -1;
++	while (fgets(line, sizeof(line), f)) {
++		if (strncmp(line, "NSpid:", 6) != 0)
++			continue;
++		levels = 0;
++		for (char *t = strtok(line + 6, " \t\n"); t; t = strtok(NULL, " \t\n"))
++			levels++;
++		break;
++	}
++	fclose(f);
++	if (levels != 1)
++		return errf("not in the initial pid namespace (NSpid has %d ids)", levels);
++	return 0;
++}
++
++static int check_parent_bpffs(const char *dir)
++{
++	char copy[PATH_MAX];
++	snprintf(copy, sizeof(copy), "%s", dir);
++	const char *parent = dirname(copy);
++	struct statfs sf;
++	if (statfs(parent, &sf) != 0)
++		return errf("statfs %s: %s", parent, strerror(errno));
++	if ((unsigned long)sf.f_type != (unsigned long)BPF_FS_MAGIC)
++		return errf("%s is not on bpffs (f_type 0x%lx)", parent, (unsigned long)sf.f_type);
++	return 0;
++}
++
++// Unlinks every entry of dir (pins are files on bpffs; unlinking a link pin
++// that no fd references detaches the link), then the directory itself.
++// Returns the number of entries that could not be removed.
++static int remove_pin_dir(const char *dir, bool detach_links, int *links_removed)
++{
++	DIR *d = opendir(dir);
++	if (!d)
++		return errno == ENOENT ? 0 : 1;
++	int failed = 0;
++	struct dirent *e;
++	char p[PATH_MAX];
++	// Links first, then maps: a hook must not be left running on a map
++	// whose pin is gone (it would keep writing a view nobody can stop).
++	for (int pass = 0; pass < 2; pass++) {
++		rewinddir(d);
++		while ((e = readdir(d))) {
++			if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
++				continue;
++			bool is_link = !strncmp(e->d_name, "link_", 5);
++			if (is_link != (pass == 0))
++				continue;
++			if (pin_path(p, dir, e->d_name)) {
++				failed++;
++				continue;
++			}
++			if (is_link && detach_links) {
++				// Detach explicitly in case someone else (bpftool)
++				// holds an fd of the link. Tracing links may not
++				// implement LINK_DETACH; unlinking the pin then
++				// drops the last reference.
++				int lfd = bpf_obj_get(p);
++				if (lfd >= 0) {
++					bpf_link_detach(lfd);
++					close(lfd);
++				}
++			}
++			if (unlink(p) != 0) {
++				errf("unlink %s: %s", p, strerror(errno));
++				failed++;
++			} else if (is_link && links_removed) {
++				(*links_removed)++;
++			}
++		}
++	}
++	closedir(d);
++	if (rmdir(dir) != 0) {
++		errf("rmdir %s: %s", dir, strerror(errno));
++		failed++;
++	}
++	return failed;
++}
++
++static int write_idfile(const char *path, uint32_t id)
++{
++	char tmp[PATH_MAX];
++	if (snprintf(tmp, sizeof(tmp), "%s.tmp.%d", path, (int)getpid()) >= (int)sizeof(tmp))
++		return errf("idfile path too long");
++	int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
++	if (fd < 0)
++		return errf("open %s: %s", tmp, strerror(errno));
++	if (dprintf(fd, "%u\n", id) < 0 || fsync(fd) != 0) {
++		close(fd);
++		unlink(tmp);
++		return errf("write %s: %s", tmp, strerror(errno));
++	}
++	close(fd);
++	// rename: a reader of the idfile sees either no file or a whole id.
++	if (rename(tmp, path) != 0) {
++		unlink(tmp);
++		return errf("rename %s -> %s: %s", tmp, path, strerror(errno));
++	}
++	return 0;
++}
++
++static bool verbose_print;
++static int libbpf_print(enum libbpf_print_level level, const char *fmt, va_list ap)
++{
++	if (level == LIBBPF_DEBUG && !verbose_print)
++		return 0;
++	return vfprintf(stderr, fmt, ap);
++}
++
++static struct bpf_link *attach_hook(struct view_bpf *skel, int h, int mode)
++{
++	switch (h) {
++	case H_EXIT:
++		return bpf_program__attach(skel->progs.on_exit);
++	case H_RENAME:
++		return bpf_program__attach(skel->progs.on_rename);
++	case H_EXEC:
++		return bpf_program__attach(skel->progs.on_exec);
++	case H_NEWTASK:
++		return bpf_program__attach(skel->progs.on_newtask);
++	case H_CREDS:
++		if (mode == TV_HOOK_FEXIT)
++			return bpf_program__attach(skel->progs.on_creds_fexit);
++		if (mode == TV_HOOK_FENTRY)
++			return bpf_program__attach(skel->progs.on_creds_fentry);
++		{
++			// A real BPF link (perf link), not a bare perf event: only
++			// a link can be pinned.
++			LIBBPF_OPTS(bpf_kprobe_opts, ko, .attach_mode = PROBE_ATTACH_MODE_LINK);
++			return bpf_program__attach_kprobe_opts(skel->progs.on_creds_kprobe,
++							       "commit_creds", &ko);
++		}
++	}
++	errno = EINVAL;
++	return NULL;
++}
++
++static void drop_links(struct bpf_link **links, bool keep_attached)
++{
++	for (int h = 0; h < H__COUNT; h++) {
++		if (!links[h])
++			continue;
++		// keep_attached: the pins hold the links; do not let libbpf's
++		// detach run (for a kprobe it would also close the perf event
++		// and, for a legacy tracefs probe, delete the probe itself).
++		if (keep_attached)
++			bpf_link__disconnect(links[h]);
++		bpf_link__destroy(links[h]);
++		links[h] = NULL;
++	}
++}
++
++static int cmd_start(const struct opts *o)
++{
++	if (check_init_pidns() || check_parent_bpffs(o->pin_dir))
++		return 1;
++	struct stat st;
++	if (lstat(o->pin_dir, &st) == 0)
++		return errf("%s exists (left over from an earlier run?); run "
++			    "`tern_viewd stop --pin-dir %s` first",
++			    o->pin_dir, o->pin_dir);
++	if (errno != ENOENT)
++		return errf("lstat %s: %s", o->pin_dir, strerror(errno));
++	struct stat ns;
++	if (stat("/proc/self/ns/pid", &ns) != 0)
++		return errf("stat /proc/self/ns/pid: %s", strerror(errno));
++
++	const uint32_t nslots = 1u << o->nslots_log2;
++	struct view_bpf *skel = NULL;
++	struct bpf_link *links[H__COUNT] = { 0 };
++	int mode, err;
++	bool attached = false;
++	// commit_creds: fexit, else fentry, else kprobe. A failure to load or
++	// to attach the creds program starts over with the next one from a
++	// fresh open (a loaded object cannot change which programs it loads).
++	for (mode = TV_HOOK_FEXIT; mode <= TV_HOOK_KPROBE; mode++) {
++		skel = view_bpf__open();
++		if (!skel)
++			return errf("open skeleton: %s", strerror(errno));
++		skel->rodata->nslots_mask = nslots - 1;
++		err = bpf_map__set_max_entries(skel->maps.tv_slots, 1 + nslots);
++		if (err) {
++			view_bpf__destroy(skel);
++			return errf("set max_entries: %s", strerror(-err));
++		}
++		bpf_program__set_autoload(skel->progs.on_creds_fexit, mode == TV_HOOK_FEXIT);
++		bpf_program__set_autoload(skel->progs.on_creds_fentry, mode == TV_HOOK_FENTRY);
++		bpf_program__set_autoload(skel->progs.on_creds_kprobe, mode == TV_HOOK_KPROBE);
++		err = view_bpf__load(skel);
++		if (err) {
++			errf("load with commit_creds via %s failed: %s", mode_name[mode],
++			     strerror(-err));
++			view_bpf__destroy(skel);
++			skel = NULL;
++			continue;
++		}
++		bool creds_failed = false, fatal = false;
++		for (int i = 0; i < H__COUNT; i++) {
++			int h = attach_order[i];
++			links[h] = attach_hook(skel, h, mode);
++			if (!links[h]) {
++				err = -errno;
++				errf("attach %s (%s): %s", hook_name[h],
++				     h == H_CREDS ? mode_name[mode] : "tp_btf", strerror(errno));
++				if (h == H_CREDS)
++					creds_failed = true;
++				else
++					fatal = true;
++				break;
++			}
++		}
++		if (!creds_failed && !fatal) {
++			attached = true;
++			break;
++		}
++		drop_links(links, false);
++		view_bpf__destroy(skel);
++		skel = NULL;
++		if (fatal)
++			return 1;
++	}
++	if (!attached)
++		return errf("commit_creds could not be hooked by fexit, fentry or kprobe");
++
++	int ret = 1;
++	void *base = MAP_FAILED;
++	const int mfd = bpf_map__fd(skel->maps.tv_slots);
++	const size_t map_sz = view_mmap_size(sizeof(struct tern_view_slot), 1 + nslots);
++	bool dir_made = false;
++	char p[PATH_MAX];
++
++	// Header through an RW mapping (the program never writes index 0).
++	base = mmap(NULL, map_sz, PROT_READ | PROT_WRITE, MAP_SHARED, mfd, 0);
++	if (base == MAP_FAILED) {
++		errf("mmap view RW (%zu bytes): %s", map_sz, strerror(errno));
++		goto out;
++	}
++	struct tern_view_hdr *hdr = base;
++	hdr->magic = TERN_VIEW_MAGIC;
++	hdr->abi = TERN_VIEW_ABI;
++	hdr->nslots = nslots;
++	hdr->hook_mode = (uint32_t)mode;
++	hdr->pidns_ino = (uint64_t)ns.st_ino;
++	hdr->pidns_dev = (uint64_t)ns.st_dev;
++	hdr->loader_pid = (uint32_t)getpid();
++	// Last, with release: a reader that sees LIVE sees the rest.
++	__atomic_store_n(&hdr->state, (uint32_t)TV_STATE_LIVE, __ATOMIC_RELEASE);
++
++	if (mkdir(o->pin_dir, 0700) != 0) {
++		errf("mkdir %s: %s", o->pin_dir, strerror(errno));
++		goto out;
++	}
++	dir_made = true;
++	for (int h = 0; h < H__COUNT; h++) {
++		char name[32];
++		snprintf(name, sizeof(name), "link_%s", hook_name[h]);
++		if (pin_path(p, o->pin_dir, name) || (err = bpf_link__pin(links[h], p))) {
++			errf("pin %s: %s", p, strerror(errno));
++			goto out;
++		}
++	}
++	// 0600: the slots expose uid/gid/comm of every thread on the machine.
++	// Runtimes open the pin as root (or use the map id with CAP_SYS_ADMIN).
++	if (pin_path(p, o->pin_dir, "view") || bpf_map__pin(skel->maps.tv_slots, p) ||
++	    chmod(p, 0600) != 0) {
++		errf("pin %s: %s", p, strerror(errno));
++		goto out;
++	}
++	if (pin_path(p, o->pin_dir, "stats") || bpf_map__pin(skel->maps.tv_stats, p) ||
++	    chmod(p, 0600) != 0) {
++		errf("pin %s: %s", p, strerror(errno));
++		goto out;
++	}
++
++	struct bpf_map_info info;
++	uint32_t info_len = sizeof(info);
++	memset(&info, 0, sizeof(info));
++	if (bpf_obj_get_info_by_fd(mfd, &info, &info_len) != 0) {
++		errf("map info: %s", strerror(errno));
++		goto out;
++	}
++	if (info.max_entries != 1 + nslots) {
++		// The runtime derives nslots from max_entries - 1; an
++		// unprivileged-style round-up would break that.
++		errf("kernel sized the map to %u entries, wanted %u", info.max_entries,
++		     1 + nslots);
++		goto out;
++	}
++	if (o->idfile && write_idfile(o->idfile, info.id))
++		goto out;
++
++	printf("ready mode=%s nslots=%u map_id=%u pin_dir=%s\n", mode_name[mode], nslots, info.id,
++	       o->pin_dir);
++	fflush(stdout);
++	ret = 0;
++out:
++	if (base != MAP_FAILED)
++		munmap(base, map_sz);
++	if (ret != 0 && dir_made)
++		remove_pin_dir(o->pin_dir, false, NULL);
++	drop_links(links, ret == 0);
++	view_bpf__destroy(skel);
++	return ret;
++}
++
++static void json_str(FILE *f, const char *s)
++{
++	fputc('"', f);
++	for (; *s; s++) {
++		unsigned char c = (unsigned char)*s;
++		if (c == '"' || c == '\\')
++			fprintf(f, "\\%c", c);
++		else if (c < 0x20)
++			fprintf(f, "\\u%04x", c);
++		else
++			fputc(c, f);
++	}
++	fputc('"', f);
++}
++
++static long count_proc_threads(void)
++{
++	DIR *d = opendir("/proc");
++	if (!d)
++		return -1;
++	long n = 0;
++	struct dirent *e;
++	char p[64];
++	while ((e = readdir(d))) {
++		if (e->d_name[0] < '0' || e->d_name[0] > '9')
++			continue;
++		snprintf(p, sizeof(p), "/proc/%.20s/task", e->d_name);
++		DIR *t = opendir(p);
++		if (!t)
++			continue; // exited meanwhile
++		struct dirent *te;
++		while ((te = readdir(t)))
++			if (te->d_name[0] >= '1' && te->d_name[0] <= '9')
++				n++;
++		closedir(t);
++	}
++	closedir(d);
++	return n;
++}
++
++static int cmd_status(const struct opts *o)
++{
++	char p[PATH_MAX];
++	const char *error = NULL;
++	struct stat st;
++	if (lstat(o->pin_dir, &st) != 0) {
++		printf("{\"ok\":false,\"pin_dir\":");
++		json_str(stdout, o->pin_dir);
++		printf(",\"error\":\"no pin dir\"}\n");
++		return 1;
++	}
++
++	// Map, read only.
++	// RW fd, PROT_READ mapping (a read-only fd cannot be mapped shared).
++	LIBBPF_OPTS(bpf_obj_get_opts, ro, .file_flags = 0);
++	int fd = pin_path(p, o->pin_dir, "view") ? -1 : bpf_obj_get_opts(p, &ro);
++	struct bpf_map_info info;
++	uint32_t info_len = sizeof(info);
++	memset(&info, 0, sizeof(info));
++	const void *base = MAP_FAILED;
++	size_t map_sz = 0;
++	if (fd < 0) {
++		error = "view pin missing";
++	} else if (bpf_obj_get_info_by_fd(fd, &info, &info_len) != 0 ||
++		   info.value_size != sizeof(struct tern_view_slot) || info.max_entries < 2) {
++		error = "view pin is not a view map";
++	} else {
++		map_sz = view_mmap_size(info.value_size, info.max_entries);
++		base = mmap(NULL, map_sz, PROT_READ, MAP_SHARED, fd, 0);
++		if (base == MAP_FAILED)
++			error = "mmap view failed";
++	}
++	if (fd >= 0)
++		close(fd);
++
++	struct tern_view_hdr hdr;
++	memset(&hdr, 0, sizeof(hdr));
++	uint64_t used = 0, full = 0, stale = 0, odd = 0;
++	if (base != MAP_FAILED) {
++		memcpy(&hdr, base, sizeof(hdr));
++		if (hdr.magic != TERN_VIEW_MAGIC)
++			error = "bad header magic";
++		const struct tern_view_slot *s = (const struct tern_view_slot *)base + 1;
++		uint32_t n = info.max_entries - 1;
++		// A racy snapshot, good enough for occupancy statistics.
++		for (uint32_t i = 0; i < n; i++) {
++			uint32_t tid = __atomic_load_n(&s[i].tid, __ATOMIC_RELAXED);
++			uint32_t fl = __atomic_load_n(&s[i].flags, __ATOMIC_RELAXED);
++			uint32_t sq = __atomic_load_n(&s[i].seq, __ATOMIC_RELAXED);
++			odd += sq & 1;
++			if (fl & TV_F_STALE)
++				stale++;
++			if (!tid)
++				continue;
++			used++;
++			if ((fl & TV_F_ALL) == TV_F_ALL && !(fl & TV_F_STALE))
++				full++;
++		}
++	}
++
++	// Counters: per-CPU sums.
++	uint64_t sums[TV_ST__COUNT] = { 0 };
++	bool have_stats = false;
++	int ncpu = libbpf_num_possible_cpus();
++	int sfd = pin_path(p, o->pin_dir, "stats") ? -1 : bpf_obj_get_opts(p, &ro);
++	if (sfd >= 0 && ncpu > 0) {
++		uint64_t *vals = calloc((size_t)ncpu, sizeof(uint64_t));
++		have_stats = vals != NULL;
++		for (uint32_t k = 0; vals && k < TV_ST__COUNT; k++) {
++			if (bpf_map_lookup_elem(sfd, &k, vals) != 0) {
++				have_stats = false;
++				break;
++			}
++			for (int c = 0; c < ncpu; c++)
++				sums[k] += vals[c];
++		}
++		free(vals);
++	}
++	if (sfd >= 0)
++		close(sfd);
++	if (!have_stats && !error)
++		error = "stats pin missing or unreadable";
++
++	printf("{\"pin_dir\":");
++	json_str(stdout, o->pin_dir);
++	const char *state = hdr.state == TV_STATE_LIVE ? "live"
++			    : hdr.state == TV_STATE_DEAD ? "dead"
++							 : "init";
++	printf(",\"state\":\"%s\",\"hook_mode\":\"%s\",\"nslots\":%u,\"map_id\":%u,"
++	       "\"loader_pid\":%u,\"pidns_ino\":%llu,\"pidns_dev\":%llu",
++	       state, hdr.hook_mode <= TV_HOOK_KPROBE ? mode_name[hdr.hook_mode] : "?",
++	       hdr.nslots, info.id, hdr.loader_pid, (unsigned long long)hdr.pidns_ino,
++	       (unsigned long long)hdr.pidns_dev);
++
++	printf(",\"stats\":{");
++	for (int k = 0; k < TV_ST__COUNT; k++)
++		printf("%s\"%s\":%llu", k ? "," : "", stat_name[k], (unsigned long long)sums[k]);
++	printf("}");
++
++	printf(",\"slots_used\":%llu,\"slots_full\":%llu,\"slots_stale\":%llu,"
++	       "\"slots_locked\":%llu",
++	       (unsigned long long)used, (unsigned long long)full, (unsigned long long)stale,
++	       (unsigned long long)odd);
++
++	// Links: present, attached program, and its run counters (nonzero only
++	// with kernel.bpf_stats_enabled=1).
++	int links_ok = 0;
++	printf(",\"links\":{");
++	for (int h = 0; h < H__COUNT; h++) {
++		char name[32];
++		snprintf(name, sizeof(name), "link_%s", hook_name[h]);
++		printf("%s\"%s\":", h ? "," : "", hook_name[h]);
++		int lfd = pin_path(p, o->pin_dir, name) ? -1 : bpf_obj_get(p);
++		if (lfd < 0) {
++			printf("null");
++			continue;
++		}
++		struct bpf_link_info li;
++		uint32_t li_len = sizeof(li);
++		memset(&li, 0, sizeof(li));
++		struct bpf_prog_info pi;
++		uint32_t pi_len = sizeof(pi);
++		memset(&pi, 0, sizeof(pi));
++		if (bpf_obj_get_info_by_fd(lfd, &li, &li_len) == 0) {
++			int pfd = bpf_prog_get_fd_by_id(li.prog_id);
++			if (pfd >= 0) {
++				bpf_obj_get_info_by_fd(pfd, &pi, &pi_len);
++				close(pfd);
++			}
++			links_ok++;
++		}
++		close(lfd);
++		printf("{\"link_id\":%u,\"link_type\":%u,\"prog_id\":%u,\"prog\":", li.id, li.type,
++		       li.prog_id);
++		json_str(stdout, pi.name);
++		printf(",\"run_cnt\":%llu,\"run_time_ns\":%llu}", (unsigned long long)pi.run_cnt,
++		       (unsigned long long)pi.run_time_ns);
++	}
++	printf("}");
++	if (links_ok != H__COUNT && !error)
++		error = "link pin missing";
++	if (hdr.state != TV_STATE_LIVE && !error)
++		error = "state not live";
++
++	printf(",\"proc_threads\":%ld", count_proc_threads());
++	printf(",\"ok\":%s", error ? "false" : "true");
++	if (error) {
++		printf(",\"error\":");
++		json_str(stdout, error);
++	}
++	printf("}\n");
++	if (base != MAP_FAILED)
++		munmap((void *)base, map_sz);
++	return error ? 1 : 0;
++}
++
++static inline void cpu_relax(void)
++{
++#if defined(__x86_64__) || defined(__i386__)
++	__builtin_ia32_pause();
++#elif defined(__aarch64__)
++	__asm__ __volatile__("yield");
++#endif
++}
++
++// The writers' protocol from user space: CAS even -> odd. A holder is a BPF
++// program mid-section, so this never waits long; the bound only keeps a
++// broken map from hanging stop.
++static bool user_lock(uint32_t *seq)
++{
++	for (long i = 0; i < 100000000L; i++) {
++		uint32_t v = __atomic_load_n(seq, __ATOMIC_RELAXED);
++		if (!(v & 1) && __atomic_compare_exchange_n(seq, &v, v + 1, false, __ATOMIC_SEQ_CST,
++							    __ATOMIC_RELAXED))
++			return true;
++		if ((i & 1023) == 1023)
++			sched_yield();
++		else
++			cpu_relax();
++	}
++	return false;
++}
++
++static int cmd_stop(const struct opts *o)
++{
++	struct stat st;
++	if (lstat(o->pin_dir, &st) != 0) {
++		int e = errno;
++		if (e != ENOENT)
++			return errf("lstat %s: %s", o->pin_dir, strerror(e));
++		// Idempotent: the runner may call stop after a start that never
++		// got as far as the pin dir.
++		if (o->idfile)
++			unlink(o->idfile);
++		printf("stopped absent pin_dir=%s\n", o->pin_dir);
++		return 0;
++	}
++	char p[PATH_MAX];
++	uint64_t swept = 0, sweep_fail = 0;
++	int failed = 0;
++	bool have_view = false;
++	int fd = pin_path(p, o->pin_dir, "view") ? -1 : bpf_obj_get(p);
++	if (fd >= 0) {
++		struct bpf_map_info info;
++		uint32_t info_len = sizeof(info);
++		memset(&info, 0, sizeof(info));
++		void *base = MAP_FAILED;
++		size_t map_sz = 0;
++		if (bpf_obj_get_info_by_fd(fd, &info, &info_len) == 0 &&
++		    info.value_size == sizeof(struct tern_view_slot) && info.max_entries >= 2) {
++			map_sz = view_mmap_size(info.value_size, info.max_entries);
++			base = mmap(NULL, map_sz, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++		}
++		close(fd);
++		struct tern_view_hdr *hdr = base;
++		if (base != MAP_FAILED && hdr->magic == TERN_VIEW_MAGIC) {
++			have_view = true;
++			// (1) From here on every hook write marks its slot STALE.
++			__atomic_store_n(&hdr->state, (uint32_t)TV_STATE_DEAD, __ATOMIC_SEQ_CST);
++			// (2) Mark every slot STALE under its lock, so a reader
++			// mid-read retries and then falls back.
++			struct tern_view_slot *s = (struct tern_view_slot *)base + 1;
++			for (uint32_t i = 0; i < info.max_entries - 1; i++) {
++				bool locked = user_lock(&s[i].seq);
++				__atomic_fetch_or(&s[i].flags, TV_F_STALE, __ATOMIC_SEQ_CST);
++				if (locked) {
++					__atomic_fetch_add(&s[i].seq, 1, __ATOMIC_SEQ_CST);
++					swept++;
++				} else {
++					sweep_fail++;
++				}
++			}
++		} else {
++			errf("%s: no usable view map; removing pins only", p);
++			failed++;
++		}
++		if (base != MAP_FAILED)
++			munmap(base, map_sz);
++	}
++	// (3) links, (4) maps and the directory.
++	int links = 0;
++	failed += remove_pin_dir(o->pin_dir, true, &links);
++	if (o->idfile && unlink(o->idfile) != 0 && errno != ENOENT) {
++		errf("unlink %s: %s", o->idfile, strerror(errno));
++		failed++;
++	}
++	printf("stopped links=%d view=%d swept=%llu sweep_lock_fail=%llu pin_dir=%s\n", links,
++	       have_view, (unsigned long long)swept, (unsigned long long)sweep_fail, o->pin_dir);
++	return failed || sweep_fail ? 1 : 0;
++}
++
++int main(int argc, char **argv)
++{
++	if (argc < 2) {
++		usage();
++		return 2;
++	}
++	const char *cmd = argv[1];
++	struct opts o = { .nslots_log2 = TV_DEFAULT_NSLOTS_LOG2 };
++	static const struct option lo[] = {
++		{ "pin-dir", required_argument, NULL, 'p' },
++		{ "nslots-log2", required_argument, NULL, 'n' },
++		{ "idfile", required_argument, NULL, 'i' },
++		{ "verbose", no_argument, NULL, 'v' },
++		{ "help", no_argument, NULL, 'h' },
++		{ NULL, 0, NULL, 0 },
++	};
++	optind = 2;
++	int c;
++	while ((c = getopt_long(argc, argv, "p:n:i:vh", lo, NULL)) != -1) {
++		switch (c) {
++		case 'p':
++			o.pin_dir = optarg;
++			break;
++		case 'n': {
++			char *end;
++			long v = strtol(optarg, &end, 10);
++			if (*end || v < 1 || v > MAX_NSLOTS_LOG2) {
++				errf("--nslots-log2 must be 1..%d", MAX_NSLOTS_LOG2);
++				return 2;
++			}
++			o.nslots_log2 = (int)v;
++			break;
++		}
++		case 'i':
++			o.idfile = optarg;
++			break;
++		case 'v':
++			o.verbose = true;
++			break;
++		default:
++			usage();
++			return 2;
++		}
++	}
++	if (!o.pin_dir || optind != argc) {
++		usage();
++		return 2;
++	}
++	// Strip trailing slashes: the pin dir's parent must be the bpffs mount.
++	static char dir[PATH_MAX];
++	snprintf(dir, sizeof(dir), "%s", o.pin_dir);
++	for (size_t n = strlen(dir); n > 1 && dir[n - 1] == '/'; n--)
++		dir[n - 1] = 0;
++	o.pin_dir = dir;
++
++	if (refuse_preload())
++		return 1;
++	verbose_print = o.verbose;
++	libbpf_set_print(libbpf_print);
++	if (!strcmp(cmd, "start"))
++		return cmd_start(&o);
++	if (!strcmp(cmd, "status"))
++		return cmd_status(&o);
++	if (!strcmp(cmd, "stop"))
++		return cmd_stop(&o);
++	usage();
++	return 2;
++}
+diff --git a/tools/view/view.bpf.c b/tools/view/view.bpf.c
+new file mode 100644
+index 00000000..29a601c1
+--- /dev/null
++++ b/tools/view/view.bpf.c
+@@ -0,0 +1,384 @@
++// SPDX-License-Identifier: (MIT OR GPL-2.0)
++//
++// Kernel thread view writer (Dview). Keeps one tern_view_slot per thread,
++// {tid, tgid, kuid, kgid, comm}, in a BPF_F_MMAPABLE array that the runtime maps
++// read-only (layout and seqlock protocol: runtime/include/bpftime_view_abi.h).
++//
++// Hooks (6.12 BTF prototypes checked against the BTF dump of this machine):
++//   tp_btf/task_newtask(task, clone_flags)        full fill of the new task
++//   fexit|fentry|kprobe commit_creds(new)          uid/gid of current
++//   tp_btf/task_rename(task, comm)                 comm (task may not be current)
++//   tp_btf/sched_process_exec(p, old_pid, bprm)    full fill after exec
++//   tp_btf/sched_process_exit(task)                clear (6.12: one argument)
++// The loader (tern_viewd.c) picks exactly one commit_creds program: fexit, else
++// fentry, else kprobe (the other two are not loaded).
++//
++// Invariants (spike record):
++//  I-a  Every task passes task_newtask before it runs any user code (in
++//       copy_process the hook fires after attach_pid and before
++//       wake_up_new_task), and that hook rewrites the whole slot of its tid.
++//       So a stale slot left behind by a missed exit (the old tid of a
++//       non-leader exec, a copy_process that fails after the hook) can only
++//       be read by a live task holding the same tid, and that task passed the
++//       hook after the stale entry was written: the slot was overwritten.
++//  I-b  Each hook writes only the fields it is responsible for and sets only
++//       their valid bits (creds: uid/gid, rename: comm). On a key mismatch
++//       (slot collision, or a task that existed before the loader) it rekeys
++//       the slot: tid/tgid/start_time are rewritten and the valid bits start
++//       over from TV_F_IDS plus its own bit. A reader needs
++//       (flags & need) == need, so a half-filled slot never answers for the
++//       fields it lacks.
++//
++// Declared residual races (observed through the selftest S9 and counters):
++//  1. A sibling renames a new thread through /proc between attach_pid and
++//     task_newtask: the rename hook writes the new name, then newtask copies
++//     p->comm, which the rename may not have reached yet. A window of a few
++//     instructions.
++//  2. Two concurrent renames of one task: on 6.12 trace_task_rename runs under
++//     task_lock together with the copy, so the order of slot writes is the
++//     order of copies; on later kernels without the lock the last name in
++//     the slot may differ from the last one copied.
++#include "vmlinux.h"
++#include <bpf/bpf_core_read.h>
++#include <bpf/bpf_helpers.h>
++#include <bpf/bpf_tracing.h>
++
++#include "bpftime_view_abi.h"
++
++char LICENSE[] SEC("license") = "Dual MIT/GPL";
++
++// include/linux/sched.h; vmlinux.h carries no macros.
++#define PF_KTHREAD 0x00200000
++
++// Writers spin at most this many times for a slot lock. A holder is another
++// hook on another CPU in a critical section of a few dozen instructions (one
++// 16-byte probe read at most), and every failed iteration costs a cache-line
++// transfer, so 64 rounds cover it many times over. On failure the slot is
++// made STALE: the reader falls back to its syscall, a lost update costs time,
++// never a wrong value.
++#ifndef TV_LOCK_SPIN
++#define TV_LOCK_SPIN 1024
++#endif
++
++#define TV_READ_ONCE(x) (*(volatile __typeof__(x) *)&(x))
++
++// Set by the loader before load (power of two minus one); rodata is frozen at
++// load, so the verifier sees a constant and the index is bounded.
++const volatile __u32 nslots_mask = (1u << TV_DEFAULT_NSLOTS_LOG2) - 1;
++
++// Index 0: tern_view_hdr (same size as a slot), index 1 + (tid & mask): slots.
++// max_entries is overridden by the loader to 1 + nslots.
++struct {
++	__uint(type, BPF_MAP_TYPE_ARRAY);
++	__uint(map_flags, BPF_F_MMAPABLE);
++	__uint(max_entries, 1 + (1u << TV_DEFAULT_NSLOTS_LOG2));
++	__type(key, __u32);
++	__type(value, struct tern_view_slot);
++} tv_slots SEC(".maps");
++
++struct {
++	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
++	__uint(max_entries, TV_ST__COUNT);
++	__type(key, __u32);
++	__type(value, __u64);
++} tv_stats SEC(".maps");
++
++struct tv_key {
++	__u32 tid, tgid;
++	__u64 start_time;
++};
++
++static __always_inline void stat_inc(__u32 idx)
++{
++	__u64 *v = bpf_map_lookup_elem(&tv_stats, &idx);
++	// Per-CPU and tracing programs do not nest on one CPU: no atomic needed.
++	if (v)
++		*v += 1;
++}
++
++static __always_inline struct tern_view_slot *slot_of(__u32 tid)
++{
++	__u32 k = 1 + (tid & nslots_mask);
++	return bpf_map_lookup_elem(&tv_slots, &k);
++}
++
++static __always_inline bool view_dead(void)
++{
++	__u32 z = 0;
++	struct tern_view_hdr *h = (void *)bpf_map_lookup_elem(&tv_slots, &z);
++	return h && TV_READ_ONCE(h->state) == TV_STATE_DEAD;
++}
++
++// All read-modify-writes of seq and flags use the FETCH forms of the BPF
++// atomics. On x86 every BPF atomic is a lock-prefixed instruction anyway; on
++// arm64 the JIT gives only the FETCH forms (and xchg/cmpxchg) full ordering,
++// which the unlock needs as its release. barrier_var() makes the old value
++// "used", so clang (-mcpu=v3) cannot pick the non-fetch encoding.
++static __always_inline void flags_or(struct tern_view_slot *s, __u32 bits)
++{
++	__u32 old = __sync_fetch_and_or(&s->flags, bits);
++	barrier_var(old);
++}
++
++// Clears every valid bit (and STALE) at the start of a critical section that
++// rewrites the slot's key or all of its fields. A writer that fails to take
++// the lock during the section sets STALE with an atomic OR, which therefore
++// survives: the bits of this writer are ORed in afterwards, never stored.
++static __always_inline void flags_clear(struct tern_view_slot *s)
++{
++	__u32 old = __sync_lock_test_and_set(&s->flags, 0);
++	barrier_var(old);
++}
++
++static __always_inline bool slot_lock(struct tern_view_slot *s)
++{
++	for (int i = 0; i < TV_LOCK_SPIN; i++) {
++		__u32 v = TV_READ_ONCE(s->seq);
++		if (v & 1)
++			continue;
++		if (__sync_val_compare_and_swap(&s->seq, v, v + 1) == v)
++			return true;
++	}
++	// Without the lock: the holder's flag updates are atomic ORs, so this
++	// STALE stays set until the next full refresh or rekey. The one way to
++	// lose it is a holder whose flags_clear comes after this OR; that holder
++	// rekeys or refills the slot and claims only the fields it writes
++	// itself, and the update lost here is for another field (only the task
++	// itself commits its creds; on 6.12 renames of one task are serialized
++	// by task_lock, the tracepoint included).
++	flags_or(s, TV_F_STALE);
++	stat_inc(TV_ST_LOCK_FAIL);
++	return false;
++}
++
++static __always_inline void slot_unlock(struct tern_view_slot *s)
++{
++	// `stop` stores DEAD and then takes every slot's lock to set STALE. A
++	// writer that takes a slot after that sweep passed it sees DEAD here
++	// (the sweep's cmpxchg orders the store before our cmpxchg), so no slot
++	// written after the sweep is left without STALE.
++	if (view_dead()) {
++		flags_or(s, TV_F_STALE);
++		stat_inc(TV_ST_DEAD_WRITE);
++	}
++	__u32 old = __sync_fetch_and_add(&s->seq, 1);
++	barrier_var(old);
++}
++
++// Rewrites the key and clears all valid bits; the caller ORs in what it fills.
++static __always_inline void set_key(struct tern_view_slot *s, const struct tv_key *k)
++{
++	__u32 old = s->tid;
++	if (old && old != k->tid)
++		stat_inc(TV_ST_COLLISION);
++	flags_clear(s);
++	s->tid = k->tid;
++	s->tgid = k->tgid;
++	s->start_time = k->start_time;
++}
++
++static __always_inline bool key_matches(const struct tern_view_slot *s, const struct tv_key *k)
++{
++	return s->tid == k->tid && s->tgid == k->tgid;
++}
++
++// Full refresh from a task the hook may dereference (BTF pointer): newtask
++// (p not running yet) and exec (p == current, after its rename and
++// commit_creds).
++static __always_inline void fill_full(struct tern_view_slot *s, struct task_struct *t,
++				      const struct tv_key *k)
++{
++	set_key(s, k);
++	s->uid = BPF_CORE_READ(t, cred, uid.val);
++	s->gid = BPF_CORE_READ(t, cred, gid.val);
++	__builtin_memset(s->comm, 0, sizeof(s->comm));
++	// task->comm is NUL padded; the _str read stops at the NUL and the
++	// memset above keeps the tail zero whatever the source holds.
++	bpf_probe_read_kernel_str(s->comm, sizeof(s->comm), &t->comm);
++	flags_or(s, TV_F_ALL);
++}
++
++// commit_creds always acts on current. Both the fexit form (after the
++// commit) and the entry forms (before it, with the `new` argument) are exact
++// for the only reader of a slot, its own thread: that thread is inside the
++// syscall until commit_creds has returned. 6.12 commit_creds returns 0
++// unconditionally.
++static __always_inline void creds_update(const struct tv_key *k, __u32 uid, __u32 gid)
++{
++	struct tern_view_slot *s = slot_of(k->tid);
++	if (!s || !slot_lock(s))
++		return;
++	__u32 writer = TV_W_CREDS;
++	if (!key_matches(s, k)) {
++		set_key(s, k);
++		stat_inc(TV_ST_REKEY);
++		writer = TV_W_REKEY;
++	}
++	s->uid = uid;
++	s->gid = gid;
++	flags_or(s, TV_F_IDS | TV_F_CREDS);
++	s->writer = writer;
++	stat_inc(TV_ST_CREDS);
++	slot_unlock(s);
++}
++
++static __always_inline struct tv_key key_of(struct task_struct *t)
++{
++	struct tv_key k = {
++		.tid = (__u32)t->pid,
++		.tgid = (__u32)t->tgid,
++		.start_time = t->start_time,
++	};
++	return k;
++}
++
++// In copy_process after attach_pid and before wake_up_new_task: covers every
++// copy_process caller (fork, vfork, clone, clone3, pthread_create, io
++// workers). The child has not run, so its comm and cred are those it will
++// start with.
++SEC("tp_btf/task_newtask")
++int BPF_PROG(on_newtask, struct task_struct *p, unsigned long clone_flags)
++{
++	if (p->flags & PF_KTHREAD)
++		return 0;
++	struct tv_key k = key_of(p);
++	struct tern_view_slot *s = slot_of(k.tid);
++	if (!s || !slot_lock(s))
++		return 0;
++	fill_full(s, p, &k);
++	s->writer = TV_W_NEWTASK;
++	stat_inc(TV_ST_NEWTASK);
++	slot_unlock(s);
++	return 0;
++}
++
++// After commit_creds: current->cred == new. Preferred mode.
++SEC("fexit/commit_creds")
++int BPF_PROG(on_creds_fexit, struct cred *new, int ret)
++{
++	struct task_struct *t = bpf_get_current_task_btf();
++	if (ret != 0 || (t->flags & PF_KTHREAD))
++		return 0;
++	struct tv_key k = key_of(t);
++	creds_update(&k, new->uid.val, new->gid.val);
++	return 0;
++}
++
++// Fallback 1: entry, from the argument (see creds_update).
++SEC("?fentry/commit_creds")
++int BPF_PROG(on_creds_fentry, struct cred *new)
++{
++	struct task_struct *t = bpf_get_current_task_btf();
++	if (t->flags & PF_KTHREAD)
++		return 0;
++	struct tv_key k = key_of(t);
++	creds_update(&k, new->uid.val, new->gid.val);
++	return 0;
++}
++
++// Fallback 2: kprobe at entry. No BTF pointers here: every field is read with
++// bpf_probe_read_kernel (CO-RE relocated).
++SEC("?kprobe/commit_creds")
++int BPF_KPROBE(on_creds_kprobe, struct cred *new)
++{
++	struct task_struct *t = (struct task_struct *)bpf_get_current_task();
++	if (BPF_CORE_READ(t, flags) & PF_KTHREAD)
++		return 0;
++	struct tv_key k = {
++		.tid = (__u32)BPF_CORE_READ(t, pid),
++		.tgid = (__u32)BPF_CORE_READ(t, tgid),
++		.start_time = BPF_CORE_READ(t, start_time),
++	};
++	creds_update(&k, BPF_CORE_READ(new, uid.val), BPF_CORE_READ(new, gid.val));
++	return 0;
++}
++
++// The tracepoint fires before the new name is copied into t->comm (on 6.12
++// under task_lock, right before strscpy_pad): only the argument is the new
++// name. t may be another thread of the caller (/proc/<tid>/comm write, W8d).
++// Exec passes kbasename(filename), which may be longer than 15 characters;
++// the _str read truncates to 15 + NUL like strscpy_pad.
++SEC("tp_btf/task_rename")
++int BPF_PROG(on_rename, struct task_struct *t, const char *comm)
++{
++	// Kernel threads are renamed too (kthread_create names every new
++	// kworker), but never read the view, and newtask skipped them: without
++	// this check each such rename would rekey a slot and evict the user
++	// thread that shares its index.
++	if (t->flags & PF_KTHREAD)
++		return 0;
++	struct tv_key k = key_of(t);
++	struct tern_view_slot *s = slot_of(k.tid);
++	if (!s || !slot_lock(s))
++		return 0;
++	__u32 writer = TV_W_RENAME;
++	if (!key_matches(s, &k)) {
++		set_key(s, &k);
++		stat_inc(TV_ST_REKEY);
++		writer = TV_W_REKEY;
++	}
++	__builtin_memset(s->comm, 0, sizeof(s->comm));
++	bpf_probe_read_kernel_str(s->comm, sizeof(s->comm), comm);
++	flags_or(s, TV_F_IDS | TV_F_COMM);
++	s->writer = writer;
++	stat_inc(TV_ST_RENAME);
++	slot_unlock(s);
++	return 0;
++}
++
++// At the end of a successful exec: the exec rename and commit_creds(bprm->cred)
++// are done. old_pid is current->pid read before the binary handler ran, i.e.
++// before de_thread: for a non-leader thread it is the thread's old tid, which
++// de_thread gave to the old leader and released without an exit tracepoint.
++// Clear that slot when it still holds this thread group's entry (I-a makes it
++// harmless if this ever misses; clearing keeps the slot free for a collider).
++SEC("tp_btf/sched_process_exec")
++int BPF_PROG(on_exec, struct task_struct *p, pid_t old_pid, struct linux_binprm *bprm)
++{
++	struct tv_key k = key_of(p);
++	if ((__u32)old_pid != k.tid) {
++		struct tern_view_slot *o = slot_of((__u32)old_pid);
++		if (o && TV_READ_ONCE(o->tid) == (__u32)old_pid && TV_READ_ONCE(o->tgid) == k.tgid &&
++		    slot_lock(o)) {
++			if (o->tid == (__u32)old_pid && o->tgid == k.tgid) {
++				o->tid = 0;
++				flags_clear(o);
++				stat_inc(TV_ST_EXEC_CLEAR);
++			}
++			slot_unlock(o);
++		}
++	}
++	struct tern_view_slot *s = slot_of(k.tid);
++	if (!s || !slot_lock(s))
++		return 0;
++	fill_full(s, p, &k);
++	s->writer = TV_W_EXEC;
++	stat_inc(TV_ST_EXEC);
++	slot_unlock(s);
++	return 0;
++}
++
++// In do_exit, once per thread. 6.12's tracepoint has one argument (later
++// kernels add group_dead; reading only the first argument works on both).
++// The start_time check keeps a thread whose slot was already taken over by
++// a newer task of the same tid (impossible while the tid is held, but cheap)
++// from clearing it.
++SEC("tp_btf/sched_process_exit")
++int BPF_PROG(on_exit, struct task_struct *p)
++{
++	struct tv_key k = key_of(p);
++	struct tern_view_slot *s = slot_of(k.tid);
++	// Unlocked pre-check: most exits (kthreads, colliders, threads that
++	// predate the loader) do not own their slot and skip the lock.
++	if (!s || TV_READ_ONCE(s->tid) != k.tid)
++		return 0;
++	if (!slot_lock(s))
++		return 0;
++	if (s->tid == k.tid && s->start_time == k.start_time) {
++		s->tid = 0;
++		flags_clear(s);
++		stat_inc(TV_ST_EXIT);
++	}
++	slot_unlock(s);
++	return 0;
++}
+diff --git a/tools/view/view_selftest.c b/tools/view/view_selftest.c
+new file mode 100644
+index 00000000..c8ea0686
+--- /dev/null
++++ b/tools/view/view_selftest.c
+@@ -0,0 +1,1527 @@
++// SPDX-License-Identifier: MIT
++//
++// view_selftest: end-to-end test of the kernel thread view (view.bpf.c,
++// tern_viewd.c) without Tern. Runs as root. It starts and stops tern_viewd
++// itself under --pin-dir and reads the view through its own copy of the
++// runtime's read path: BPF_OBJ_GET with BPF_F_RDONLY by raw bpf(2), a
++// PROT_READ mapping, and the seqlock reader of runtime/src/kernel_view.hpp.
++//
++// Truth is the kernel's own answer for the calling thread: Uid/Gid (first
++// column, real ids, = cred->uid/gid, what bpf_get_current_uid_gid returns) of
++// /proc/thread-self/status and /proc/thread-self/comm. A read that hits must
++// equal it; a miss is allowed (the runtime falls back to a syscall) but
++// counted. Credential changes are raw syscalls, which change only the calling
++// thread (glibc's setxid broadcast is bypassed), as in E5's W7r.
++//
++//   S0  (controller, a task older than the view) partial rekey: no slot, then
++//       IDS|COMM after a rename, then all bits after a credential change
++//   S1  main thread raw setresuid/setresgid, alternating 0 and 4242
++//   S2  the same in a non-main thread; both threads check
++//   S3  prctl(PR_SET_NAME) and pthread_setname_np, names of 15/16/40 chars
++//   S4  write of the thread's own /proc comm (E5 W8c)
++//   S5  main thread writes a worker's /proc comm (E5 W8d)
++//   S6  first read of a fork child and of a new pthread (parent ids/name vary)
++//   S7  a non-leader thread execs itself; the new image checks its slot and
++//       that the old tid's slot was cleared
++//   S8  a thread's slot is cleared at exit; then W12-style tid reuse after a
++//       wrap of the pid allocator: no stale hit
++//   S9  concurrency: rename and raw setresuid loops in two threads while the
++//       main thread renames both through /proc; every hit is a legal value
++//       (no torn comm), then an exact check at rest
++//   S10 tern_viewd with 16 slots, S1-S6 again: misses expected, wrong values not
++//   M0  (with S1) the PROT_READ view mapping refuses mprotect(PROT_WRITE)
++//
++// After each scenario the program's per-CPU counters are compared: lock_fail
++// and dead_write must not grow (S10: lock_fail only reported).
++//
++//   view_selftest [--viewd PATH] [--pin-dir D] [--iters N] [--only S1,S9,..]
++//                 [--churn-seconds S]
++//   view_selftest --bench [--cpu N] [--bench-n N]     (M1)
++//
++// --bench pins to one CPU (pass a P core), reads the thread's own full
++// snapshot (uid, gid, comm) N times in 100 batches and reports the median of
++// the batch means, next to getuid()+getgid() and prctl(PR_GET_NAME).
++#define _GNU_SOURCE
++#include <bpf/bpf.h>
++#include <bpf/libbpf.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <getopt.h>
++#include <limits.h>
++#include <linux/bpf.h>
++#include <linux/futex.h>
++#include <pthread.h>
++#include <sched.h>
++#include <signal.h>
++#include <stdarg.h>
++#include <stdatomic.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/mman.h>
++#include <sys/prctl.h>
++#include <sys/stat.h>
++#include <sys/syscall.h>
++#include <sys/wait.h>
++#include <time.h>
++#include <unistd.h>
++
++#include "bpftime_view_abi.h"
++
++#define UID_A 4242u
++#define NAME_TAIL "-abcdefghijklmnopqrstuvwxyz0123456789ABCDEF"
++
++// ---------------------------------------------------------------- config
++
++static char g_viewd[PATH_MAX];
++static char g_pin_dir[PATH_MAX] = "/sys/fs/bpf/tern_view_selftest";
++static char g_self_exe[PATH_MAX];
++static uint64_t g_iters = 10000;
++static int g_churn_seconds = 180;
++static unsigned g_only = ~0u; // bit k: scenario Sk
++static pid_t g_controller;
++static bool g_viewd_running;
++
++static bool want(int k)
++{
++	return (g_only >> k) & 1u;
++}
++
++static double now_s(void)
++{
++	struct timespec ts;
++	clock_gettime(CLOCK_MONOTONIC, &ts);
++	return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
++}
++
++static uint64_t now_ns(void)
++{
++	struct timespec ts;
++	clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
++	return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
++}
++
++static pid_t gettid_(void)
++{
++	return (pid_t)syscall(SYS_gettid);
++}
++
++// ---------------------------------------------------------------- view mapping
++// Mirror of the runtime's setup (kernel_view.cpp): raw bpf(2), no libbpf.
++
++static const struct tern_view_slot *g_slots; // index 1 of the map
++static uint32_t g_mask;
++static void *g_map_base;
++static size_t g_map_sz;
++
++static long sys_bpf(int cmd, union bpf_attr *a)
++{
++	return syscall(__NR_bpf, cmd, a, sizeof(*a));
++}
++
++static size_t view_mmap_size(uint32_t value_size, uint32_t max_entries)
++{
++	long page = sysconf(_SC_PAGE_SIZE);
++	size_t ps = page > 0 ? (size_t)page : 4096;
++	size_t sz = (((size_t)value_size + 7) / 8 * 8) * (size_t)max_entries;
++	return (sz + ps - 1) / ps * ps;
++}
++
++static int g_m0_fail;
++
++// Maps <pin_dir>/view read-only. m0: also check that the read-only fd and
++// mapping cannot be made writable (the runtime relies on it: probes run
++// inside the traced program).
++static int view_map(const char *pin_dir, bool m0)
++{
++	char path[PATH_MAX];
++	snprintf(path, sizeof(path), "%s/view", pin_dir);
++	union bpf_attr a;
++	memset(&a, 0, sizeof(a));
++	a.pathname = (uint64_t)(uintptr_t)path;
++	// Not BPF_F_RDONLY: on 6.12 a MAP_SHARED mapping of a read-only fd has
++	// VM_SHARED cleared by mmap(2), and bpf_map_mmap refuses it (EINVAL).
++	// The fd is used only for a PROT_READ mapping and closed at once; the
++	// kernel then clears VM_MAYWRITE, so the mapping cannot be made
++	// writable (mprotect refused; checked by view_selftest M0).
++	a.file_flags = 0;
++	int fd = (int)sys_bpf(BPF_OBJ_GET, &a);
++	if (fd < 0) {
++		fprintf(stderr, "view: BPF_OBJ_GET %s: %s\n", path, strerror(errno));
++		return -1;
++	}
++	struct bpf_map_info info;
++	memset(&info, 0, sizeof(info));
++	memset(&a, 0, sizeof(a));
++	a.info.bpf_fd = (uint32_t)fd;
++	a.info.info_len = sizeof(info);
++	a.info.info = (uint64_t)(uintptr_t)&info;
++	if (sys_bpf(BPF_OBJ_GET_INFO_BY_FD, &a) != 0) {
++		fprintf(stderr, "view: OBJ_GET_INFO: %s\n", strerror(errno));
++		close(fd);
++		return -1;
++	}
++	uint32_t n = info.max_entries - 1;
++	if (info.type != BPF_MAP_TYPE_ARRAY || !(info.map_flags & BPF_F_MMAPABLE) ||
++	    info.key_size != 4 || info.value_size != sizeof(struct tern_view_slot) ||
++	    info.max_entries < 2 || (n & (n - 1)) != 0) {
++		fprintf(stderr, "view: not a view map (type %u flags 0x%x entries %u)\n", info.type,
++			info.map_flags, info.max_entries);
++		close(fd);
++		return -1;
++	}
++	size_t sz = view_mmap_size(info.value_size, info.max_entries);
++	void *p = mmap(NULL, sz, PROT_READ, MAP_SHARED, fd, 0);
++	if (p == MAP_FAILED) {
++		fprintf(stderr, "view: mmap PROT_READ: %s\n", strerror(errno));
++		close(fd);
++		return -1;
++	}
++	if (m0) {
++		// The fd is RW (see above), so a PROT_WRITE mmap of it would
++		// succeed; what matters is that the PROT_READ mapping the
++		// runtime keeps cannot be upgraded.
++		if (mprotect(p, sz, PROT_READ | PROT_WRITE) == 0) {
++			printf("M0   FAIL mprotect(PROT_WRITE) on the read-only mapping succeeded\n");
++			mprotect(p, sz, PROT_READ);
++			g_m0_fail++;
++		} else {
++			printf("M0   ok   mprotect(PROT_WRITE) refused (%s)\n", strerror(errno));
++		}
++	}
++	close(fd);
++	const struct tern_view_hdr *h = p;
++	uint32_t state = __atomic_load_n(&h->state, __ATOMIC_ACQUIRE);
++	struct stat ns;
++	const char *bad = NULL;
++	if (h->magic != TERN_VIEW_MAGIC)
++		bad = "magic";
++	else if (h->abi != TERN_VIEW_ABI)
++		bad = "abi";
++	else if (h->nslots != n)
++		bad = "nslots";
++	else if (state != TV_STATE_LIVE)
++		bad = "state";
++	else if (stat("/proc/self/ns/pid", &ns) != 0 || h->pidns_ino != (uint64_t)ns.st_ino ||
++		 h->pidns_dev != (uint64_t)ns.st_dev)
++		bad = "pid namespace";
++	if (bad) {
++		fprintf(stderr, "view: header check failed: %s\n", bad);
++		munmap(p, sz);
++		return -1;
++	}
++	g_map_base = p;
++	g_map_sz = sz;
++	g_mask = n - 1;
++	__atomic_store_n(&g_slots, (const struct tern_view_slot *)p + 1, __ATOMIC_RELEASE);
++	return 0;
++}
++
++static void view_unmap(void)
++{
++	if (g_map_base)
++		munmap(g_map_base, g_map_sz);
++	g_map_base = NULL;
++	g_slots = NULL;
++}
++
++static inline void cpu_relax(void)
++{
++#if defined(__x86_64__) || defined(__i386__)
++	__builtin_ia32_pause();
++#endif
++}
++
++// Copy of the runtime's reader (runtime/src/kernel_view.hpp, plan step 4):
++// lock-free, no syscall, async-signal-safe.
++static inline bool view_read(uint32_t tid, uint32_t tgid, uint32_t need, uint32_t *uid,
++			     uint32_t *gid, char comm[16])
++{
++	const struct tern_view_slot *s = &g_slots[tid & g_mask];
++	for (int r = 0; r < 4; r++) {
++		uint32_t q = __atomic_load_n(&s->seq, __ATOMIC_ACQUIRE);
++		if (q & 1) {
++			cpu_relax();
++			continue;
++		}
++		uint32_t t = __atomic_load_n(&s->tid, __ATOMIC_RELAXED);
++		uint32_t g = __atomic_load_n(&s->tgid, __ATOMIC_RELAXED);
++		uint32_t f = __atomic_load_n(&s->flags, __ATOMIC_RELAXED);
++		uint32_t u = __atomic_load_n(&s->uid, __ATOMIC_RELAXED);
++		uint32_t gg = __atomic_load_n(&s->gid, __ATOMIC_RELAXED);
++		uint64_t c0 = __atomic_load_n((const uint64_t *)s->comm, __ATOMIC_RELAXED);
++		uint64_t c1 = __atomic_load_n((const uint64_t *)s->comm + 1, __ATOMIC_RELAXED);
++		__atomic_thread_fence(__ATOMIC_ACQUIRE);
++		if (__atomic_load_n(&s->seq, __ATOMIC_RELAXED) != q)
++			continue;
++		if (t != tid || g != tgid || (f & TV_F_STALE) || (f & need) != need)
++			return false;
++		if (uid) {
++			*uid = u;
++			*gid = gg;
++		}
++		if (comm) {
++			memcpy(comm, &c0, 8);
++			memcpy(comm + 8, &c1, 8);
++		}
++		return true;
++	}
++	return false;
++}
++
++// Consistent snapshot of a slot's key and flags whatever its owner (for the
++// "slot was cleared" checks of S7/S8). false: never stable within the retries.
++static bool view_peek(uint32_t tid, uint32_t *t, uint32_t *g, uint32_t *f)
++{
++	const struct tern_view_slot *s = &g_slots[tid & g_mask];
++	for (int r = 0; r < 1000; r++) {
++		uint32_t q = __atomic_load_n(&s->seq, __ATOMIC_ACQUIRE);
++		if (q & 1) {
++			cpu_relax();
++			continue;
++		}
++		*t = __atomic_load_n(&s->tid, __ATOMIC_RELAXED);
++		*g = __atomic_load_n(&s->tgid, __ATOMIC_RELAXED);
++		*f = __atomic_load_n(&s->flags, __ATOMIC_RELAXED);
++		__atomic_thread_fence(__ATOMIC_ACQUIRE);
++		if (__atomic_load_n(&s->seq, __ATOMIC_RELAXED) == q)
++			return true;
++	}
++	return false;
++}
++
++// ---------------------------------------------------------------- truth and checks
++
++struct ident {
++	uint32_t uid, gid;
++	char comm[16];
++};
++
++static ssize_t read_file(const char *path, char *buf, size_t cap)
++{
++	int fd = open(path, O_RDONLY | O_CLOEXEC);
++	if (fd < 0)
++		return -1;
++	ssize_t n = read(fd, buf, cap - 1);
++	close(fd);
++	if (n < 0)
++		return -1;
++	buf[n] = 0;
++	return n;
++}
++
++static int truth(struct ident *id)
++{
++	char buf[4096];
++	if (read_file("/proc/thread-self/status", buf, sizeof(buf)) < 0)
++		return -1;
++	const char *u = strstr(buf, "\nUid:"), *g = strstr(buf, "\nGid:");
++	if (!u || !g || sscanf(u + 5, "%u", &id->uid) != 1 || sscanf(g + 5, "%u", &id->gid) != 1)
++		return -1;
++	char c[64];
++	ssize_t n = read_file("/proc/thread-self/comm", c, sizeof(c));
++	if (n < 0)
++		return -1;
++	if (n > 0 && c[n - 1] == '\n')
++		c[--n] = 0;
++	memset(id->comm, 0, sizeof(id->comm));
++	memcpy(id->comm, c, n > 15 ? 15 : (size_t)n);
++	return 0;
++}
++
++static void name16(char out[16], const char *s)
++{
++	memset(out, 0, 16);
++	strncpy(out, s, 15);
++}
++
++enum chk { CHK_HIT = 0, CHK_WRONG = 1, CHK_MISS = 2, CHK_ERR = 3, CHK_OLDSLOT = 4 };
++
++static _Atomic int g_reported;
++
++static void report_wrong(const char *what, uint32_t tid, const struct ident *want_id, uint32_t u,
++			 uint32_t g, const char c[16])
++{
++	if (atomic_fetch_add(&g_reported, 1) >= 20)
++		return;
++	char gc[17], wc[17];
++	memcpy(gc, c, 16);
++	gc[16] = 0;
++	memcpy(wc, want_id->comm, 16);
++	wc[16] = 0;
++	fprintf(stderr, "WRONG %s tid %u: view uid %u gid %u comm '%s'; kernel uid %u gid %u comm '%s'\n",
++		what, tid, u, g, gc, want_id->uid, want_id->gid, wc);
++}
++
++// The calling thread's full snapshot against the kernel's answer.
++static enum chk check_self(const char *what)
++{
++	struct ident tr;
++	if (truth(&tr))
++		return CHK_ERR;
++	uint32_t u = 0, g = 0, tid = (uint32_t)gettid_(), tgid = (uint32_t)getpid();
++	char c[16];
++	if (!view_read(tid, tgid, TV_F_ALL, &u, &g, c))
++		return CHK_MISS;
++	if (u != tr.uid || g != tr.gid || memcmp(c, tr.comm, 16) != 0) {
++		report_wrong(what, tid, &tr, u, g, c);
++		return CHK_WRONG;
++	}
++	return CHK_HIT;
++}
++
++struct tally {
++	_Atomic uint64_t reads, hit, miss, wrong, err, extra_fail;
++};
++static struct tally T;
++
++static void record(enum chk r)
++{
++	atomic_fetch_add(&T.reads, 1);
++	switch (r) {
++	case CHK_HIT:
++		atomic_fetch_add(&T.hit, 1);
++		break;
++	case CHK_MISS:
++		atomic_fetch_add(&T.miss, 1);
++		break;
++	case CHK_WRONG:
++		atomic_fetch_add(&T.wrong, 1);
++		break;
++	case CHK_OLDSLOT:
++		atomic_fetch_add(&T.wrong, 1);
++		atomic_fetch_add(&T.extra_fail, 1);
++		break;
++	default:
++		atomic_fetch_add(&T.err, 1);
++		break;
++	}
++}
++
++// Exit-code transport for checks done in fork children.
++static enum chk code_to_chk(int status)
++{
++	if (!WIFEXITED(status))
++		return CHK_ERR;
++	int c = WEXITSTATUS(status);
++	return c <= CHK_OLDSLOT ? (enum chk)c : CHK_ERR;
++}
++
++// ---------------------------------------------------------------- kernel counters
++
++static int read_kstats(uint64_t out[TV_ST__COUNT])
++{
++	memset(out, 0, sizeof(uint64_t) * TV_ST__COUNT);
++	char path[PATH_MAX];
++	snprintf(path, sizeof(path), "%s/stats", g_pin_dir);
++	int fd = bpf_obj_get(path);
++	int ncpu = libbpf_num_possible_cpus();
++	if (fd < 0 || ncpu <= 0) {
++		if (fd >= 0)
++			close(fd);
++		return -1;
++	}
++	uint64_t *v = calloc((size_t)ncpu, sizeof(uint64_t));
++	int rc = v ? 0 : -1;
++	for (uint32_t k = 0; v && k < TV_ST__COUNT; k++) {
++		if (bpf_map_lookup_elem(fd, &k, v) != 0) {
++			rc = -1;
++			break;
++		}
++		for (int c = 0; c < ncpu; c++)
++			out[k] += v[c];
++	}
++	free(v);
++	close(fd);
++	return rc;
++}
++
++// ---------------------------------------------------------------- thread-local actions
++
++static int raw_setresuid(uint32_t r, uint32_t e, uint32_t s)
++{
++	return (int)syscall(SYS_setresuid, r, e, s);
++}
++
++static int raw_setresgid(uint32_t r, uint32_t e, uint32_t s)
++{
++	return (int)syscall(SYS_setresgid, r, e, s);
++}
++
++// Raw syscalls: only the calling thread changes. The saved uid stays 0, so the
++// thread can always return to root (and its capabilities with it). Each
++// transition is a real change, so each syscall reaches commit_creds (setresuid
++// returns early when nothing changes).
++static int set_ids(uint32_t id)
++{
++	if (id != 0) {
++		if (raw_setresgid(id, id, 0) || raw_setresuid(id, id, 0))
++			return -1;
++	} else {
++		if (raw_setresuid(0, 0, 0) || raw_setresgid(0, 0, 0))
++			return -1;
++	}
++	return 0;
++}
++
++static void set_name(const char *n)
++{
++	prctl(PR_SET_NAME, (unsigned long)n, 0, 0, 0);
++}
++
++// tid 0: the calling thread (/proc/thread-self).
++static int write_comm(pid_t tid, const char *name)
++{
++	char path[64];
++	if (tid)
++		snprintf(path, sizeof(path), "/proc/self/task/%d/comm", (int)tid);
++	else
++		snprintf(path, sizeof(path), "/proc/thread-self/comm");
++	int fd = open(path, O_WRONLY | O_CLOEXEC);
++	if (fd < 0)
++		return -1;
++	ssize_t w = write(fd, name, strlen(name));
++	close(fd);
++	return w < 0 ? -1 : 0;
++}
++
++// A distinct name per iteration, cut to len characters (15, 16, 40: the
++// kernel keeps 15 in each case).
++static void mkname(char *out, size_t cap, const char *tag, uint64_t i, int len)
++{
++	char buf[96];
++	snprintf(buf, sizeof(buf), "%s%07llu%s", tag, (unsigned long long)(i % 10000000ull),
++		 NAME_TAIL);
++	if (len < (int)strlen(buf))
++		buf[len] = 0;
++	snprintf(out, cap, "%s", buf);
++}
++
++static const int name_lens[3] = { 15, 16, 40 };
++
++// ---------------------------------------------------------------- S0 (controller)
++
++static int s0_preexisting(void)
++{
++	int fails = 0;
++	uint32_t tid = (uint32_t)gettid_(), tgid = (uint32_t)getpid(), u, g;
++	char c[16], want_c[16];
++	struct ident tr;
++	// (a) Older than the view, nothing done since: no slot with our key.
++	if (view_read(tid, tgid, TV_F_IDS, NULL, NULL, NULL)) {
++		printf("S0   FAIL a task older than the view has a slot\n");
++		fails++;
++	}
++	// (b) A rename rekeys the slot with IDS|COMM only.
++	set_name("vst-s0-renamed");
++	name16(want_c, "vst-s0-renamed");
++	if (!view_read(tid, tgid, TV_F_IDS | TV_F_COMM, NULL, NULL, c) || memcmp(c, want_c, 16)) {
++		printf("S0   FAIL no IDS|COMM hit with the new name after rename\n");
++		fails++;
++	}
++	if (view_read(tid, tgid, TV_F_ALL, &u, &g, c)) {
++		printf("S0   FAIL rekeyed slot claims uid/gid it never received\n");
++		fails++;
++	}
++	// (c) A credential change completes the slot.
++	if (set_ids(UID_A) || set_ids(0)) {
++		printf("S0   FAIL setresuid: %s\n", strerror(errno));
++		fails++;
++	}
++	if (truth(&tr) || !view_read(tid, tgid, TV_F_ALL, &u, &g, c) || u != tr.uid ||
++	    g != tr.gid || memcmp(c, tr.comm, 16)) {
++		printf("S0   FAIL no exact full hit after rename + credential change\n");
++		fails++;
++	}
++	set_name("view_selftest");
++	printf("S0   %s pre-existing task: partial rekey\n", fails ? "FAIL" : "ok  ");
++	return fails;
++}
++
++// ---------------------------------------------------------------- S1-S6
++
++static void s1(void)
++{
++	for (uint64_t i = 0; i < g_iters; i++) {
++		if (set_ids((i & 1) ? UID_A : 0)) {
++			record(CHK_ERR);
++			continue;
++		}
++		record(check_self("S1"));
++	}
++	set_ids(0);
++}
++
++struct pair {
++	pthread_barrier_t b;
++	pid_t wtid;
++	uint64_t n;
++};
++
++static void *s2_worker(void *p)
++{
++	struct pair *x = p;
++	for (uint64_t i = 0; i < x->n; i++) {
++		if (set_ids((i & 1) ? UID_A : 0))
++			record(CHK_ERR);
++		else
++			record(check_self("S2 worker"));
++		pthread_barrier_wait(&x->b);
++		pthread_barrier_wait(&x->b); // main checks in between
++	}
++	set_ids(0);
++	return NULL;
++}
++
++static void s2(void)
++{
++	struct pair x = { .n = g_iters };
++	pthread_barrier_init(&x.b, NULL, 2);
++	pthread_t t;
++	if (pthread_create(&t, NULL, s2_worker, &x)) {
++		record(CHK_ERR);
++		return;
++	}
++	for (uint64_t i = 0; i < x.n; i++) {
++		pthread_barrier_wait(&x.b);
++		// The worker's ids changed, ours must not have.
++		record(check_self("S2 main"));
++		pthread_barrier_wait(&x.b);
++	}
++	pthread_join(t, NULL);
++	pthread_barrier_destroy(&x.b);
++}
++
++static void s3(void)
++{
++	char name[64];
++	for (uint64_t i = 0; i < g_iters; i++) {
++		int len = name_lens[i % 3];
++		mkname(name, sizeof(name), "s3-", i, len);
++		// pthread_setname_np takes at most 15 characters (ERANGE
++		// otherwise) and uses PR_SET_NAME for the calling thread.
++		if (len <= 15 && (i % 6) == 0)
++			pthread_setname_np(pthread_self(), name);
++		else
++			set_name(name);
++		record(check_self("S3"));
++	}
++	set_name("vst-child");
++}
++
++static void s4_body(uint64_t n, const char *tag)
++{
++	char name[64];
++	for (uint64_t i = 0; i < n; i++) {
++		mkname(name, sizeof(name), tag, i, name_lens[i % 3]);
++		if (write_comm(0, name)) {
++			record(CHK_ERR);
++			continue;
++		}
++		record(check_self("S4"));
++	}
++}
++
++static void *s4_worker(void *p)
++{
++	s4_body(*(uint64_t *)p, "s4w");
++	return NULL;
++}
++
++static void s4(void)
++{
++	uint64_t half = g_iters / 2;
++	s4_body(g_iters - half, "s4m");
++	pthread_t t;
++	if (pthread_create(&t, NULL, s4_worker, &half) == 0)
++		pthread_join(t, NULL);
++	else
++		record(CHK_ERR);
++	set_name("vst-child");
++}
++
++static void *s5_worker(void *p)
++{
++	struct pair *x = p;
++	x->wtid = gettid_();
++	pthread_barrier_wait(&x->b); // tid published
++	for (uint64_t i = 0; i < x->n; i++) {
++		pthread_barrier_wait(&x->b); // main renamed us
++		record(check_self("S5 worker"));
++		pthread_barrier_wait(&x->b);
++	}
++	return NULL;
++}
++
++static void s5(void)
++{
++	struct pair x = { .n = g_iters };
++	pthread_barrier_init(&x.b, NULL, 2);
++	pthread_t t;
++	if (pthread_create(&t, NULL, s5_worker, &x)) {
++		record(CHK_ERR);
++		return;
++	}
++	pthread_barrier_wait(&x.b);
++	char name[64];
++	for (uint64_t i = 0; i < x.n; i++) {
++		mkname(name, sizeof(name), "s5-", i, name_lens[i % 3]);
++		if (write_comm(x.wtid, name))
++			record(CHK_ERR);
++		pthread_barrier_wait(&x.b);
++		pthread_barrier_wait(&x.b);
++		if ((i & 15) == 0)
++			record(check_self("S5 main"));
++	}
++	pthread_join(t, NULL);
++	pthread_barrier_destroy(&x.b);
++}
++
++static void *s6_thread(void *p)
++{
++	(void)p;
++	record(check_self("S6 thread"));
++	return NULL;
++}
++
++static void s6(void)
++{
++	char name[64];
++	for (uint64_t i = 0; i < g_iters; i++) {
++		// Vary what the child inherits: the forking thread's name and
++		// (thread-local, raw) ids.
++		mkname(name, sizeof(name), "s6p", i, 15);
++		set_name(name);
++		bool ids = (i % 4) == 1;
++		if (ids && set_ids(UID_A)) {
++			record(CHK_ERR);
++			continue;
++		}
++		fflush(stdout);
++		pid_t c = fork();
++		if (c == 0)
++			_exit((int)check_self("S6 child"));
++		if (c < 0) {
++			record(CHK_ERR);
++		} else {
++			int st = 0;
++			waitpid(c, &st, 0);
++			record(code_to_chk(st));
++		}
++		pthread_t t;
++		if (pthread_create(&t, NULL, s6_thread, NULL) == 0)
++			pthread_join(t, NULL);
++		else
++			record(CHK_ERR);
++		if (ids)
++			set_ids(0);
++	}
++	set_name("vst-child");
++}
++
++// ---------------------------------------------------------------- S7
++
++static void *s7_exec_thread(void *p)
++{
++	(void)p;
++	char tid[24];
++	snprintf(tid, sizeof(tid), "%d", (int)gettid_());
++	char *argv[] = { g_self_exe, "--s7-child", g_pin_dir, tid, NULL };
++	execv(g_self_exe, argv);
++	_exit(CHK_ERR);
++}
++
++static void s7(void)
++{
++	for (uint64_t i = 0; i < g_iters; i++) {
++		fflush(stdout);
++		pid_t c = fork();
++		if (c == 0) {
++			pthread_t t;
++			if (pthread_create(&t, NULL, s7_exec_thread, NULL))
++				_exit(CHK_ERR);
++			// de_thread kills this thread when the worker execs.
++			pthread_join(t, NULL);
++			_exit(CHK_ERR);
++		}
++		if (c < 0) {
++			record(CHK_ERR);
++			continue;
++		}
++		int st = 0;
++		waitpid(c, &st, 0);
++		record(code_to_chk(st));
++	}
++}
++
++// The new image after a non-leader exec (argv: --s7-child PIN_DIR OLD_TID).
++static int s7_child(int argc, char **argv)
++{
++	// argv (from main, shifted by one): --s7-child PIN_DIR OLD_TID
++	if (argc != 3) {
++		fprintf(stderr, "S7 child: argc %d\n", argc);
++		return CHK_ERR;
++	}
++	uint32_t old = (uint32_t)strtoul(argv[2], NULL, 10);
++	if (view_map(argv[1], false)) {
++		fprintf(stderr, "S7 child: view_map failed\n");
++		return CHK_ERR;
++	}
++	// de_thread gave this thread the leader's tid.
++	if (gettid_() != getpid()) {
++		fprintf(stderr, "S7 child: tid %d != pid %d\n", (int)gettid_(), (int)getpid());
++		return CHK_ERR;
++	}
++	enum chk r = check_self("S7 after exec");
++	uint32_t t, g, f;
++	if (!view_peek(old, &t, &g, &f)) {
++		fprintf(stderr, "S7 child: old slot never stable\n");
++		return CHK_ERR;
++	}
++	// The old tid went to the old leader, which was released without an
++	// exit tracepoint: the exec hook must have cleared it. (With few slots
++	// the old tid may alias our own slot: then t is our tid, not old.)
++	if (t == old && g == (uint32_t)getpid() && !(f & TV_F_STALE)) {
++		fprintf(stderr, "S7 old tid %u slot still holds this process\n", old);
++		return CHK_OLDSLOT;
++	}
++	return (int)r;
++}
++
++// ---------------------------------------------------------------- S8
++
++struct s8arg {
++	uint64_t i;
++	pid_t tid;
++	const char *tag;
++	bool dirty; // rename and switch ids before the check, and exit so
++};
++
++static void *s8_thread(void *p)
++{
++	struct s8arg *a = p;
++	a->tid = gettid_();
++	if (a->dirty) {
++		char name[32];
++		snprintf(name, sizeof(name), "%s%llu", a->tag, (unsigned long long)a->i);
++		set_name(name);
++		if (set_ids(UID_A)) {
++			record(CHK_ERR);
++			return NULL;
++		}
++	}
++	record(check_self(a->tag));
++	return NULL;
++}
++
++// Waits until tid's slot no longer holds (tid, our tgid). On 6.12 the exit
++// tracepoint fires after exit_mm, which is where pthread_join is woken, so
++// the join may return first.
++static bool wait_cleared(uint32_t tid)
++{
++	uint32_t me = (uint32_t)getpid(), t, g, f;
++	for (int k = 0; k < 20000; k++) {
++		// STALE is as good as cleared for a reader (and a lock failure is
++		// caught by the lock_fail counter).
++		if (view_peek(tid, &t, &g, &f) && (!(t == tid && g == me) || (f & TV_F_STALE)))
++			return true;
++		struct timespec ts = { 0, 50000 };
++		nanosleep(&ts, NULL);
++	}
++	return false;
++}
++
++// W12-style churn (from E5's e5target.c): spawn trivial raw threads in
++// parallel until the cyclic pid allocator has wrapped around pid_max and
++// stands just before t0, then serially up to t0 - 1.
++#define RAW_THREAD_FLAGS                                                                    \
++	(CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM | \
++	 CLONE_CHILD_CLEARTID)
++#define CHURN_STACK 16384
++#define CHURN_MARGIN 256
++
++static void wait_cleartid(_Atomic pid_t *ctid)
++{
++	pid_t v;
++	while ((v = atomic_load(ctid)) != 0)
++		syscall(SYS_futex, ctid, FUTEX_WAIT, v, NULL, NULL, 0);
++}
++
++static int churn_fn(void *p)
++{
++	(void)p;
++	return 0;
++}
++
++static pid_t raw_thread(char *stack_top, _Atomic pid_t *ctid)
++{
++	atomic_store(ctid, 1);
++	pid_t t = clone(churn_fn, stack_top, RAW_THREAD_FLAGS, NULL, NULL, NULL, ctid);
++	if (t < 0) {
++		atomic_store(ctid, 0);
++		return -1;
++	}
++	wait_cleartid(ctid);
++	return t;
++}
++
++struct churner {
++	pthread_t th;
++	char *stack;
++	_Atomic pid_t ctid;
++};
++static _Atomic int churn_stop, churn_wrapped, churn_overshoot;
++static pid_t churn_t0;
++static double churn_deadline;
++
++static void *churner_fn(void *p)
++{
++	struct churner *c = p;
++	int wrapped_here = 0;
++	pid_t prev = 0;
++	uint64_t spawned = 0;
++	while (!atomic_load(&churn_stop)) {
++		pid_t t = raw_thread(c->stack + CHURN_STACK, &c->ctid);
++		if (t < 0)
++			continue;
++		spawned++;
++		if (prev && t < prev)
++			wrapped_here = 1;
++		prev = t;
++		if (t < churn_t0) {
++			atomic_store(&churn_wrapped, 1);
++			if (t >= churn_t0 - CHURN_MARGIN)
++				atomic_store(&churn_stop, 1);
++		} else if (wrapped_here) {
++			atomic_store(&churn_overshoot, 1);
++			atomic_store(&churn_stop, 1);
++		}
++		if ((spawned & 1023) == 0 && now_s() > churn_deadline)
++			atomic_store(&churn_stop, 1);
++	}
++	return NULL;
++}
++
++static int tid_in_use(pid_t t)
++{
++	char path[64];
++	struct stat st;
++	snprintf(path, sizeof(path), "/proc/%d", (int)t);
++	return stat(path, &st) == 0;
++}
++
++static int churn_to(pid_t t0)
++{
++	enum { NCH = 6 };
++	struct churner ch[NCH];
++	churn_t0 = t0;
++	churn_deadline = now_s() + g_churn_seconds;
++	atomic_store(&churn_stop, 0);
++	atomic_store(&churn_wrapped, 0);
++	atomic_store(&churn_overshoot, 0);
++	char *stacks = mmap(NULL, NCH * CHURN_STACK, PROT_READ | PROT_WRITE,
++			    MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
++	if (stacks == MAP_FAILED)
++		return 0;
++	int started = 0;
++	for (int k = 0; k < NCH; k++) {
++		ch[k].stack = stacks + k * CHURN_STACK;
++		atomic_store(&ch[k].ctid, 0);
++		if (pthread_create(&ch[k].th, NULL, churner_fn, &ch[k]) != 0)
++			break;
++		started++;
++	}
++	for (int k = 0; k < started; k++)
++		pthread_join(ch[k].th, NULL);
++	int ok = 0;
++	if (atomic_load(&churn_wrapped) && !atomic_load(&churn_overshoot)) {
++		_Atomic pid_t ctid = 0;
++		for (;;) {
++			pid_t t = raw_thread(stacks + CHURN_STACK, &ctid);
++			if (t < 0)
++				continue;
++			if (t >= t0)
++				break;
++			pid_t g = t + 1;
++			while (g < t0 && tid_in_use(g))
++				g++;
++			if (g == t0) {
++				ok = 1;
++				break;
++			}
++			if (now_s() > churn_deadline + 5)
++				break;
++		}
++	}
++	munmap(stacks, NCH * CHURN_STACK);
++	return ok;
++}
++
++static void s8(void)
++{
++	// (a) exit clears the slot.
++	uint64_t not_cleared = 0;
++	for (uint64_t i = 0; i < g_iters; i++) {
++		struct s8arg a = { .i = i, .tag = "s8x", .dirty = true };
++		pthread_t t;
++		if (pthread_create(&t, NULL, s8_thread, &a)) {
++			record(CHK_ERR);
++			continue;
++		}
++		pthread_join(t, NULL);
++		if (!wait_cleared((uint32_t)a.tid))
++			not_cleared++;
++	}
++	if (not_cleared) {
++		printf("S8   %llu exited threads' slots not cleared\n", (unsigned long long)not_cleared);
++		atomic_fetch_add(&T.extra_fail, not_cleared);
++	}
++	if (g_churn_seconds <= 0)
++		return;
++	// (b) tid reuse: generation 1 leaves renamed, uid-4242 threads behind;
++	// after the wrap generation 2 gets their tids and must see its own
++	// (inherited) name and uid 0 or miss, never generation 1's values.
++	enum { N = 64 };
++	pid_t g1[N], g2[N];
++	for (int i = 0; i < N; i++) {
++		struct s8arg a = { .i = (uint64_t)i, .tag = "s8g1-", .dirty = true };
++		pthread_t t;
++		if (pthread_create(&t, NULL, s8_thread, &a)) {
++			record(CHK_ERR);
++			return;
++		}
++		pthread_join(t, NULL);
++		g1[i] = a.tid;
++	}
++	double t_start = now_s();
++	int ready = churn_to(g1[0]);
++	for (int i = 0; i < N; i++) {
++		struct s8arg a = { .i = (uint64_t)i, .tag = "S8 gen2", .dirty = false };
++		pthread_t t;
++		if (pthread_create(&t, NULL, s8_thread, &a)) {
++			record(CHK_ERR);
++			return;
++		}
++		pthread_join(t, NULL);
++		g2[i] = a.tid;
++	}
++	int reused = 0;
++	for (int i = 0; i < N; i++)
++		reused += g1[i] == g2[i];
++	printf("S8   churn ready=%d wrapped=%d overshoot=%d seconds=%.1f tid_reused=%d/%d%s\n", ready,
++	       atomic_load(&churn_wrapped), atomic_load(&churn_overshoot), now_s() - t_start,
++	       reused, N, reused ? "" : " (reuse not reached: inconclusive)");
++}
++
++// ---------------------------------------------------------------- S9
++
++static const char *const s9_a[8] = { "s9a-0", "s9a-1", "s9a-2", "s9a-3",
++				     "s9a-4", "s9a-5", "s9a-6", "s9a-7" };
++static const char *const s9_m[8] = { "s9m-0", "s9m-1", "s9m-2", "s9m-3",
++				     "s9m-4", "s9m-5", "s9m-6", "s9m-7" };
++
++struct s9 {
++	pthread_barrier_t start, stop;
++	_Atomic int done;
++	pid_t tid_a, tid_b;
++	uint64_t n;
++};
++
++static bool comm_is(const char c[16], const char *name)
++{
++	char w[16];
++	name16(w, name);
++	return memcmp(c, w, 16) == 0;
++}
++
++static bool comm_in_m(const char c[16])
++{
++	for (int k = 0; k < 8; k++)
++		if (comm_is(c, s9_m[k]))
++			return true;
++	return false;
++}
++
++static void s9_bad(const char *who, uint32_t u, uint32_t g, const char c[16])
++{
++	if (atomic_fetch_add(&g_reported, 1) >= 20)
++		return;
++	char s[17];
++	memcpy(s, c, 16);
++	s[16] = 0;
++	fprintf(stderr, "WRONG S9 %s: uid %u gid %u comm '%s' not a legal value\n", who, u, g, s);
++}
++
++// A: renames itself; never changes ids. Legal comm after its own prctl: that
++// name, or one the main thread wrote meanwhile.
++static void *s9_thread_a(void *p)
++{
++	struct s9 *x = p;
++	x->tid_a = gettid_();
++	set_name("s9a-init");
++	pthread_barrier_wait(&x->start);
++	uint32_t tid = (uint32_t)x->tid_a, tgid = (uint32_t)getpid(), u, g;
++	char c[16];
++	for (uint64_t i = 0; i < x->n; i++) {
++		const char *name = s9_a[i & 7];
++		set_name(name);
++		if (!view_read(tid, tgid, TV_F_ALL, &u, &g, c)) {
++			record(CHK_MISS);
++			continue;
++		}
++		if (u != 0 || g != 0 || !(comm_is(c, name) || comm_in_m(c))) {
++			s9_bad("A", u, g, c);
++			record(CHK_WRONG);
++		} else {
++			record(CHK_HIT);
++		}
++	}
++	atomic_fetch_add(&x->done, 1);
++	pthread_barrier_wait(&x->stop);
++	record(check_self("S9 A at rest"));
++	return NULL;
++}
++
++// B: switches its own ids (only it changes them, so they are exact); its comm
++// is its initial name or one the main thread wrote.
++static void *s9_thread_b(void *p)
++{
++	struct s9 *x = p;
++	x->tid_b = gettid_();
++	set_name("s9b-init");
++	pthread_barrier_wait(&x->start);
++	uint32_t tid = (uint32_t)x->tid_b, tgid = (uint32_t)getpid(), u, g;
++	char c[16];
++	for (uint64_t i = 0; i < x->n; i++) {
++		uint32_t id = (i & 1) ? UID_A : 0;
++		if (set_ids(id)) {
++			record(CHK_ERR);
++			continue;
++		}
++		if (!view_read(tid, tgid, TV_F_ALL, &u, &g, c)) {
++			record(CHK_MISS);
++			continue;
++		}
++		if (u != id || g != id || !(comm_is(c, "s9b-init") || comm_in_m(c))) {
++			s9_bad("B", u, g, c);
++			record(CHK_WRONG);
++		} else {
++			record(CHK_HIT);
++		}
++	}
++	set_ids(0);
++	atomic_fetch_add(&x->done, 1);
++	pthread_barrier_wait(&x->stop);
++	record(check_self("S9 B at rest"));
++	return NULL;
++}
++
++static void s9(void)
++{
++	struct s9 x = { .n = g_iters * 100 };
++	pthread_barrier_init(&x.start, NULL, 3);
++	pthread_barrier_init(&x.stop, NULL, 3);
++	pthread_t a, b;
++	if (pthread_create(&a, NULL, s9_thread_a, &x)) {
++		record(CHK_ERR);
++		return;
++	}
++	if (pthread_create(&b, NULL, s9_thread_b, &x)) {
++		// A waits on a barrier that will never fill: end the child.
++		fprintf(stderr, "S9 pthread_create: %s\n", strerror(errno));
++		_exit(1);
++	}
++	pthread_barrier_wait(&x.start);
++	uint64_t writes = 0;
++	while (atomic_load(&x.done) < 2) {
++		pid_t tgt = (writes & 1) ? x.tid_a : x.tid_b;
++		if (write_comm(tgt, s9_m[(writes >> 1) & 7]))
++			record(CHK_ERR);
++		writes++;
++	}
++	pthread_barrier_wait(&x.stop);
++	pthread_join(a, NULL);
++	pthread_join(b, NULL);
++	pthread_barrier_destroy(&x.start);
++	pthread_barrier_destroy(&x.stop);
++	printf("S9   loops=%llu cross_renames=%llu\n", (unsigned long long)x.n,
++	       (unsigned long long)writes);
++}
++
++// ---------------------------------------------------------------- scenario driver
++
++struct scen {
++	int k;
++	const char *name;
++	void (*fn)(void);
++	bool in_s10;
++};
++
++static const struct scen scens[] = {
++	{ 1, "S1", s1, true }, { 2, "S2", s2, true }, { 3, "S3", s3, true },
++	{ 4, "S4", s4, true }, { 5, "S5", s5, true }, { 6, "S6", s6, true },
++	{ 7, "S7", s7, false }, { 8, "S8", s8, false }, { 9, "S9", s9, false },
++};
++
++// Runs in a fork child created after tern_viewd start, so the thread running
++// the scenarios got its slot from task_newtask. Returns the number of failed
++// scenarios.
++static int run_scenarios(bool s10)
++{
++	if (view_map(g_pin_dir, !s10))
++		return 1;
++	int failed = g_m0_fail;
++	set_name("vst-child");
++	uint64_t total_miss = 0;
++	for (size_t i = 0; i < sizeof(scens) / sizeof(scens[0]); i++) {
++		const struct scen *sc = &scens[i];
++		if (s10 ? !sc->in_s10 : !want(sc->k))
++			continue;
++		memset(&T, 0, sizeof(T));
++		uint64_t k0[TV_ST__COUNT], k1[TV_ST__COUNT];
++		int ks = read_kstats(k0);
++		double t0 = now_s();
++		sc->fn();
++		double secs = now_s() - t0;
++		ks |= read_kstats(k1);
++		uint64_t lf = k1[TV_ST_LOCK_FAIL] - k0[TV_ST_LOCK_FAIL];
++		uint64_t dw = k1[TV_ST_DEAD_WRITE] - k0[TV_ST_DEAD_WRITE];
++		uint64_t col = k1[TV_ST_COLLISION] - k0[TV_ST_COLLISION];
++		uint64_t rk = k1[TV_ST_REKEY] - k0[TV_ST_REKEY];
++		uint64_t reads = atomic_load(&T.reads), miss = atomic_load(&T.miss),
++			 wrong = atomic_load(&T.wrong), err = atomic_load(&T.err),
++			 extra = atomic_load(&T.extra_fail);
++		total_miss += miss;
++		// Wrong values and errors always fail. lock_fail must stay 0 with
++		// the default slot count (with 16 slots every thread of the
++		// machine shares a few slots and contention is part of the
++		// stress, so it is reported only). Misses fail nothing: with
++		// 2^18 slots they are collisions and are printed as such.
++		bool fail = wrong || err || extra || ks || dw || (!s10 && lf);
++		printf("%s%-3s %s reads=%llu hit=%llu miss=%llu wrong=%llu err=%llu "
++		       "lock_fail=%llu dead_write=%llu collision=%llu rekey=%llu secs=%.1f%s\n",
++		       s10 ? "S10/" : "", sc->name, fail ? "FAIL" : "ok  ",
++		       (unsigned long long)reads, (unsigned long long)atomic_load(&T.hit),
++		       (unsigned long long)miss, (unsigned long long)wrong,
++		       (unsigned long long)err, (unsigned long long)lf, (unsigned long long)dw,
++		       (unsigned long long)col, (unsigned long long)rk, secs,
++		       ks ? " (counters unreadable)" : (!s10 && miss ? " (misses: collisions?)" : ""));
++		fflush(stdout);
++		failed += fail;
++	}
++	if (s10 && total_miss == 0) {
++		printf("S10  FAIL no misses with 16 slots: the test did not exercise collisions\n");
++		failed++;
++	}
++	view_unmap();
++	return failed;
++}
++
++// ---------------------------------------------------------------- tern_viewd control
++
++static int run_viewd(const char *const argv[], char *out, size_t cap)
++{
++	int pfd[2];
++	if (pipe(pfd))
++		return -1;
++	fflush(stdout);
++	pid_t c = fork();
++	if (c < 0)
++		return -1;
++	if (c == 0) {
++		dup2(pfd[1], 1);
++		close(pfd[0]);
++		close(pfd[1]);
++		execv(argv[0], (char *const *)argv);
++		fprintf(stderr, "exec %s: %s\n", argv[0], strerror(errno));
++		_exit(127);
++	}
++	close(pfd[1]);
++	size_t n = 0;
++	ssize_t r;
++	while (n + 1 < cap && (r = read(pfd[0], out + n, cap - 1 - n)) > 0)
++		n += (size_t)r;
++	out[n] = 0;
++	close(pfd[0]);
++	int st = 0;
++	waitpid(c, &st, 0);
++	return WIFEXITED(st) ? WEXITSTATUS(st) : 128;
++}
++
++static void stop_viewd(void)
++{
++	if (!g_viewd_running || getpid() != g_controller)
++		return;
++	const char *argv[] = { g_viewd, "stop", "--pin-dir", g_pin_dir, NULL };
++	char out[512];
++	int rc = run_viewd(argv, out, sizeof(out));
++	printf("viewd stop rc=%d %s", rc, out);
++	g_viewd_running = false;
++}
++
++static int start_viewd(int log2)
++{
++	char nl[8];
++	snprintf(nl, sizeof(nl), "%d", log2);
++	const char *argv[] = { g_viewd, "start", "--pin-dir", g_pin_dir, "--nslots-log2", nl, NULL };
++	char out[512];
++	int rc = run_viewd(argv, out, sizeof(out));
++	if (rc != 0 || !strstr(out, "ready")) {
++		fprintf(stderr, "viewd start failed (rc %d): %s\n", rc, out);
++		return -1;
++	}
++	g_viewd_running = true;
++	printf("viewd %s", out);
++	return 0;
++}
++
++static void on_signal(int sig)
++{
++	(void)sig;
++	exit(130); // runs stop_viewd via atexit in the controller
++}
++
++// Phase: start the view, optionally S0 in this (older) process, then the
++// scenarios in a fresh fork child. Returns the number of failures.
++static int phase(int log2, bool s10)
++{
++	if (start_viewd(log2))
++		return 1;
++	int failed = 0;
++	if (!s10 && want(0)) {
++		if (view_map(g_pin_dir, false))
++			failed++;
++		else
++			failed += s0_preexisting();
++		view_unmap();
++	}
++	fflush(stdout);
++	pid_t c = fork();
++	if (c == 0) {
++		int f = run_scenarios(s10);
++		fflush(stdout);
++		_exit(f > 100 ? 100 : f);
++	}
++	int st = 0;
++	if (c < 0 || waitpid(c, &st, 0) < 0 || !WIFEXITED(st)) {
++		printf("%s child died (status 0x%x)\n", s10 ? "S10" : "phase 1", st);
++		failed++;
++	} else {
++		failed += WEXITSTATUS(st);
++	}
++	stop_viewd();
++	return failed;
++}
++
++// ---------------------------------------------------------------- M1 bench
++
++static int cmp_double(const void *a, const void *b)
++{
++	double x = *(const double *)a, y = *(const double *)b;
++	return x < y ? -1 : x > y;
++}
++
++enum { B_VIEW, B_GETUID, B_PRCTL };
++static volatile uint64_t g_sink;
++
++static void bench_one(const char *name, int kind, uint64_t n, uint32_t tid, uint32_t tgid)
++{
++	enum { BATCHES = 100 };
++	double v[BATCHES];
++	uint64_t per = n / BATCHES ? n / BATCHES : 1, acc = 0, misses = 0;
++	uint32_t u = 0, g = 0;
++	char c[16] = { 0 };
++	for (int b = -5; b < BATCHES; b++) { // 5 warm-up batches
++		uint64_t t0 = now_ns();
++		switch (kind) {
++		case B_VIEW:
++			for (uint64_t i = 0; i < per; i++) {
++				misses += !view_read(tid, tgid, TV_F_ALL, &u, &g, c);
++				acc += u + (uint8_t)c[0];
++			}
++			break;
++		case B_GETUID:
++			for (uint64_t i = 0; i < per; i++)
++				acc += getuid() + getgid();
++			break;
++		case B_PRCTL:
++			for (uint64_t i = 0; i < per; i++) {
++				prctl(PR_GET_NAME, (unsigned long)c, 0, 0, 0);
++				acc += (uint8_t)c[0];
++			}
++			break;
++		}
++		uint64_t t1 = now_ns();
++		if (b >= 0)
++			v[b] = (double)(t1 - t0) / (double)per;
++	}
++	g_sink = acc;
++	qsort(v, BATCHES, sizeof(double), cmp_double);
++	printf("{\"bench\":\"%s\",\"n\":%llu,\"batches\":%d,\"median_ns\":%.2f,\"p10_ns\":%.2f,"
++	       "\"p90_ns\":%.2f,\"min_ns\":%.2f,\"misses\":%llu}\n",
++	       name, (unsigned long long)(per * BATCHES), BATCHES, v[BATCHES / 2], v[BATCHES / 10],
++	       v[BATCHES * 9 / 10], v[0], (unsigned long long)misses);
++	fflush(stdout);
++}
++
++static int bench(int cpu, uint64_t n)
++{
++	if (start_viewd(TV_DEFAULT_NSLOTS_LOG2))
++		return 1;
++	fflush(stdout);
++	pid_t c = fork();
++	if (c == 0) {
++		// Fresh process: its slot was filled by task_newtask.
++		if (cpu >= 0) {
++			cpu_set_t set;
++			CPU_ZERO(&set);
++			CPU_SET(cpu, &set);
++			if (sched_setaffinity(0, sizeof(set), &set)) {
++				fprintf(stderr, "bench: sched_setaffinity %d: %s\n", cpu, strerror(errno));
++				_exit(1);
++			}
++		}
++		if (view_map(g_pin_dir, false))
++			_exit(1);
++		set_name("vst-bench");
++		uint32_t tid = (uint32_t)gettid_(), tgid = (uint32_t)getpid();
++		if (check_self("bench") != CHK_HIT) {
++			fprintf(stderr, "bench: own slot misses or is wrong\n");
++			_exit(1);
++		}
++		printf("{\"bench_cpu\":%d}\n", cpu);
++		bench_one("view_read_full", B_VIEW, n, tid, tgid);
++		bench_one("getuid_getgid", B_GETUID, n, tid, tgid);
++		bench_one("prctl_get_name", B_PRCTL, n, tid, tgid);
++		fflush(stdout);
++		_exit(0);
++	}
++	int st = 0;
++	waitpid(c, &st, 0);
++	stop_viewd();
++	return WIFEXITED(st) && WEXITSTATUS(st) == 0 ? 0 : 1;
++}
++
++// ---------------------------------------------------------------- main
++
++static int parse_only(const char *s)
++{
++	g_only = 0;
++	char buf[256];
++	snprintf(buf, sizeof(buf), "%s", s);
++	for (char *t = strtok(buf, ","); t; t = strtok(NULL, ",")) {
++		if ((t[0] != 'S' && t[0] != 's') || !t[1])
++			return -1;
++		char *end;
++		long k = strtol(t + 1, &end, 10);
++		if (*end || k < 0 || k > 10)
++			return -1;
++		g_only |= 1u << k;
++	}
++	return 0;
++}
++
++static void usage(void)
++{
++	fprintf(stderr, "usage: view_selftest [--viewd PATH] [--pin-dir D] [--iters N] "
++			"[--only S0,S1,..,S10] [--churn-seconds S]\n"
++			"       view_selftest --bench [--cpu N] [--bench-n N] [--viewd PATH] "
++			"[--pin-dir D]\n");
++}
++
++int main(int argc, char **argv)
++{
++	if (argc >= 2 && !strcmp(argv[1], "--s7-child"))
++		return s7_child(argc - 1, argv + 1);
++
++	setvbuf(stdout, NULL, _IOLBF, 0);
++	ssize_t n = readlink("/proc/self/exe", g_self_exe, sizeof(g_self_exe) - 1);
++	if (n <= 0)
++		return fprintf(stderr, "readlink /proc/self/exe failed\n"), 1;
++	g_self_exe[n] = 0;
++	// Default: tern_viewd next to this binary (both land in tools/view/build).
++	snprintf(g_viewd, sizeof(g_viewd), "%s", g_self_exe);
++	char *slash = strrchr(g_viewd, '/');
++	size_t off = slash ? (size_t)(slash + 1 - g_viewd) : 0;
++	snprintf(g_viewd + off, sizeof(g_viewd) - off, "tern_viewd");
++
++	bool do_bench = false;
++	int cpu = -1;
++	uint64_t bench_n = 10000000ull;
++	static const struct option lo[] = {
++		{ "viewd", required_argument, NULL, 'V' },
++		{ "pin-dir", required_argument, NULL, 'p' },
++		{ "iters", required_argument, NULL, 'n' },
++		{ "only", required_argument, NULL, 'o' },
++		{ "churn-seconds", required_argument, NULL, 'c' },
++		{ "bench", no_argument, NULL, 'b' },
++		{ "cpu", required_argument, NULL, 'C' },
++		{ "bench-n", required_argument, NULL, 'N' },
++		{ "help", no_argument, NULL, 'h' },
++		{ NULL, 0, NULL, 0 },
++	};
++	int c;
++	while ((c = getopt_long(argc, argv, "", lo, NULL)) != -1) {
++		switch (c) {
++		case 'V':
++			snprintf(g_viewd, sizeof(g_viewd), "%s", optarg);
++			break;
++		case 'p':
++			snprintf(g_pin_dir, sizeof(g_pin_dir), "%s", optarg);
++			break;
++		case 'n':
++			g_iters = strtoull(optarg, NULL, 10);
++			break;
++		case 'o':
++			if (parse_only(optarg)) {
++				usage();
++				return 2;
++			}
++			break;
++		case 'c':
++			g_churn_seconds = atoi(optarg);
++			break;
++		case 'b':
++			do_bench = true;
++			break;
++		case 'C':
++			cpu = atoi(optarg);
++			break;
++		case 'N':
++			bench_n = strtoull(optarg, NULL, 10);
++			break;
++		default:
++			usage();
++			return 2;
++		}
++	}
++	if (optind != argc || g_iters == 0) {
++		usage();
++		return 2;
++	}
++	if (geteuid() != 0) {
++		fprintf(stderr, "view_selftest: needs root (tern_viewd, raw setresuid)\n");
++		return 2;
++	}
++	g_controller = getpid();
++	atexit(stop_viewd);
++	signal(SIGINT, on_signal);
++	signal(SIGTERM, on_signal);
++	set_name("view_selftest");
++
++	if (do_bench)
++		return bench(cpu, bench_n);
++
++	int failed = 0;
++	printf("view_selftest iters=%llu viewd=%s pin_dir=%s\n", (unsigned long long)g_iters, g_viewd,
++	       g_pin_dir);
++	if (g_only & 0x3ffu) // S0..S9
++		failed += phase(TV_DEFAULT_NSLOTS_LOG2, false);
++	if (want(10))
++		failed += phase(4, true);
++	printf("view_selftest %s (%d failure%s)\n", failed ? "FAIL" : "PASS", failed,
++	       failed == 1 ? "" : "s");
++	return failed ? 1 : 0;
++}
+-- 
+2.47.3
+

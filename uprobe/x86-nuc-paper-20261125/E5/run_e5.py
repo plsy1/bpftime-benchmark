@@ -19,6 +19,17 @@ parent checks for leftover e5 processes and new /dev/shm entries and removes onl
 
 Legs: K, O, Ol, Dn, Dnpc, Dxn (dxnewpc with BPFTIME_DIAG_EXACT=1), or any build key of
 harness/config-x86.json; append +ENV=VALUE to add environment for the bpftime side.
+
+Kernel view (P5a Dview): a leg whose environment has BPFTIME_VIEW=1 loads the view programs for
+that leg only. Before the bpftime loader starts, the leg child runs
+  sudo -n tern_viewd start --pin-dir /sys/fs/bpf/tern_view_e5_<pid> --idfile <legdir>/view.id
+       [--nslots-log2 N]                   (N from the leg key +VIEWD_NSLOTS_LOG2=N)
+and waits (10 s) for its 'ready' line; the targets get BPFTIME_VIEW_PIN=<pin-dir>/view and
+BPFTIME_VIEW_ID_FILE=<legdir>/view.id. After the targets: 'tern_viewd status' (JSON, recorded in
+the kind=leg row together with the status taken right after start) and 'tern_viewd stop'. Every
+exit path (errors, SIGTERM) stops it too. VIEWD_* keys are for the runner only and never reach a
+child. Without BPFTIME_VIEW=1 nothing is loaded and the leg runs exactly as before; the parent's
+leftover check additionally requires that no /sys/fs/bpf/tern_view* entry exists after any leg.
 Rows (JSON lines, appended to --out): kind=leg (one per leg, with status and metadata), then the
 comparer's rows: kind=field per scenario/point/side/field (point = 0/1/2 and 'all'),
 kind=scenario, kind=target_meta.
@@ -38,12 +49,26 @@ BUILDS = R / 'builds'
 LEG_ENV = {'Dxn': {'BPFTIME_DIAG_EXACT': '1'}}
 # points per iteration (must match e5target.c)
 SCEN_POINTS = {'W1': 3, 'W2': 3, 'W3': 3, 'W3c': 2, 'W7g': 3, 'W7r': 3, 'W8a': 3, 'W8b': 3,
-               'W8c': 3, 'W8d': 3, 'W12': 2, 'W5': 3, 'W6': 3, 'W6t': 3, 'W6tc': 2}
+               'W8c': 3, 'W8d': 3, 'W12': 2, 'W5': 3, 'W6': 3, 'W6t': 3, 'W6tc': 2,
+               'W7t': 3, 'W5r': 3}
 MAP_MAX = 262144  # e5audit.bpf.c recs max_entries
 TARGET = str(SRC / 'e5target')
 TOOL = str(SRC / 'e5tool')
 PAT_TARGET = '^' + re.escape(TARGET) + '( |$)'
 PAT_TOOL = '^' + re.escape(TOOL) + '( |$)'
+# Kernel view loader (P5a). It runs as root via sudo -n, never under the syscall-server preload
+# (sudo drops LD_PRELOAD, and none is set for it): bpf() must reach the kernel.
+VIEWD = '/home/y/src/bpftime-paper/dview-6b6b247e/tools/view/build/tern_viewd'
+BPFFS = '/sys/fs/bpf'
+VIEW_PIN_PREFIX = 'tern_view'          # every view pin dir, ours or not (e.g. the nginx session's)
+VIEW_PIN_OURS = r'tern_view_e5_\d+'    # the only ones this runner creates and may remove
+VIEWD_KEYS = {'VIEWD_NSLOTS_LOG2'}
+VIEW_START_SECONDS = 10
+# Hook counters in 'tern_viewd status'. Each leg's sudo + exec of the targets forks, execs,
+# switches credentials, renames and exits, so all five must grow between the two status calls;
+# a counter that does not grow means a hook is no longer attached and the leg is void.
+VIEW_HOOK_COUNTERS = ('newtask', 'creds', 'rename', 'exec', 'exit')
+VIEW_ALL_COUNTERS = VIEW_HOOK_COUNTERS + ('rekey', 'collision', 'lock_fail', 'dead_write')
 
 
 class Budget(Exception):
@@ -79,6 +104,36 @@ def leg_parts(leg):
     return name, name, extra_env
 
 
+def view_split(extra_env):
+    """Split a leg's +KEY=VALUE environment into (child env, viewd options, view on?).
+    VIEWD_* keys configure tern_viewd and are removed here so no child ever sees them; a leg
+    without VIEWD_* keys gets its environment back unchanged."""
+    env = {k: v for k, v in extra_env.items() if not k.startswith('VIEWD_')}
+    opts = {k: v for k, v in extra_env.items() if k.startswith('VIEWD_')}
+    return env, opts, env.get('BPFTIME_VIEW') == '1'
+
+
+def check_view_leg(leg):
+    """Reject leg keys the view path cannot honour, before any leg runs."""
+    name, _, extra_env = leg_parts(leg)
+    env, opts, view = view_split({**LEG_ENV.get(name, {}), **extra_env})
+    if opts and not view:
+        raise SystemExit(f'{leg}: VIEWD_* keys need BPFTIME_VIEW=1')
+    for k in opts:
+        if k not in VIEWD_KEYS:
+            raise SystemExit(f'{leg}: unknown key {k} (known: {sorted(VIEWD_KEYS)})')
+    n = opts.get('VIEWD_NSLOTS_LOG2')
+    # 1..20: tern_viewd's own bound (MAX_NSLOTS_LOG2, 64 MiB of map memory); a larger value
+    # would only fail later, at 'start', after the leg had begun.
+    if n is not None and not (n.isdigit() and 1 <= int(n) <= 20):
+        raise SystemExit(f'{leg}: VIEWD_NSLOTS_LOG2 must be an integer in 1..20')
+    if view:
+        # The runner owns these: the pin dir and id file are per leg child.
+        for k in ('BPFTIME_VIEW_PIN', 'BPFTIME_VIEW_ID_FILE'):
+            if k in env:
+                raise SystemExit(f'{leg}: {k} is set by the runner on BPFTIME_VIEW=1 legs')
+
+
 def shm_entries():
     return set(os.listdir('/dev/shm'))
 
@@ -101,6 +156,96 @@ def remove_shm(names):
     for n in names:
         assert re.fullmatch(r'e5shm_\d+', n), n
         sh(['sudo', '-n', 'rm', '-f', f'/dev/shm/{n}'])
+
+
+def view_pins():
+    """Entries of /sys/fs/bpf starting with tern_view (bpffs is root-only, hence sudo -n ls).
+    Returns (sorted names, None) or (None, error text)."""
+    r = sh(['sudo', '-n', 'ls', '-1A', BPFFS], timeout=10)
+    if r.returncode != 0:
+        return None, f'ls {BPFFS}: rc {r.returncode} {(r.stderr or "").strip()[-200:]}'
+    return sorted(e for e in r.stdout.split() if e.startswith(VIEW_PIN_PREFIX)), None
+
+
+def viewd_stop(pin_dir, idfile=None):
+    """tern_viewd stop; if the pin dir is still there afterwards (stop failed, or start died
+    half way), remove it: unlinking a pinned link detaches its program once no fd holds it.
+    Only ever touches /sys/fs/bpf/tern_view_e5_<pid>. Returns a dict for the leg row."""
+    assert re.fullmatch(VIEW_PIN_OURS, os.path.basename(pin_dir)), pin_dir
+    assert os.path.dirname(pin_dir) == BPFFS, pin_dir
+    r = sh(['sudo', '-n', VIEWD, 'stop', '--pin-dir', pin_dir], timeout=8)
+    out = dict(rc=r.returncode, output=((r.stdout or '') + (r.stderr or '')).strip()[-600:])
+    if sh(['sudo', '-n', 'test', '-e', pin_dir], timeout=5).returncode == 0:
+        rr = sh(['sudo', '-n', 'rm', '-rf', '--', pin_dir], timeout=8)
+        out['forced_rm'] = rr.returncode
+    if idfile:
+        sh(['sudo', '-n', 'rm', '-f', '--', str(idfile)], timeout=5)
+    out['pin_dir_left'] = sh(['sudo', '-n', 'test', '-e', pin_dir], timeout=5).returncode == 0
+    return out
+
+
+def viewd_status(pin_dir):
+    """tern_viewd status as parsed JSON, or a dict with the error and raw output."""
+    r = sh(['sudo', '-n', VIEWD, 'status', '--pin-dir', pin_dir], timeout=8)
+    if r.returncode != 0:
+        return dict(error=f'rc {r.returncode}', raw=((r.stdout or '') + (r.stderr or ''))[-600:])
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        return dict(error='not JSON', raw=(r.stdout or '')[-600:])
+
+
+def view_counters(st):
+    """The known counters from a status JSON: top level, or one level down (e.g. under
+    'stats' / 'counters'), whichever holds them. Missing names are left out."""
+    if not isinstance(st, dict):
+        return {}
+    for d in [st] + [v for v in st.values() if isinstance(v, dict)]:
+        c = {k: d[k] for k in VIEW_ALL_COUNTERS if isinstance(d.get(k), int)}
+        if c:
+            return c
+    return {}
+
+
+def viewd_start(pin_dir, idfile, opts, log, deadline):
+    """tern_viewd start; returns its parsed 'ready' line as a dict. Raises on failure; the
+    caller has already set view_live, so its finally runs viewd_stop on whatever start left."""
+    cmd = ['sudo', '-n', VIEWD, 'start', '--pin-dir', pin_dir, '--idfile', str(idfile)]
+    if 'VIEWD_NSLOTS_LOG2' in opts:
+        cmd += ['--nslots-log2', opts['VIEWD_NSLOTS_LOG2']]
+    f = open(log, 'w+')
+    p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+    end = min(time.time() + VIEW_START_SECONDS, deadline)
+    ready = None
+    while time.time() < end:
+        f.seek(0)
+        ready = next((l.strip() for l in f.read().splitlines() if l.startswith('ready')), None)
+        if ready or p.poll() is not None:
+            break
+        time.sleep(0.05)
+    if ready is None:
+        f.seek(0)
+        ready = next((l.strip() for l in f.read().splitlines() if l.startswith('ready')), None)
+    # It exits right after 'ready' (the hooks live on in pinned links); give it a moment.
+    try:
+        p.wait(timeout=max(0.5, min(3.0, end - time.time())))
+    except subprocess.TimeoutExpired:
+        sh(['sudo', '-n', 'kill', '-9', '--', f'-{p.pid}'], timeout=5)
+        try:
+            p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+    f.seek(0)
+    text = f.read()
+    f.close()
+    if not ready or p.returncode not in (0, None):
+        raise RuntimeError(f'viewd not ready (rc {p.returncode}): ' + text[-600:])
+    info = dict(ready=ready, start_rc=p.returncode)
+    for kv in ready.split()[1:]:
+        if '=' in kv:
+            k, v = kv.split('=', 1)
+            info[k] = int(v) if v.isdigit() else v
+    return info
 
 
 # ---------------------------------------------------------------- one leg (under the lock)
@@ -154,12 +299,14 @@ def parse_dump_stats(path):
     return dict(calls=int(first[3]), dup=int(first[5]), fail=int(first[7]))
 
 
-def meta_row(build, scen_list):
+def meta_row(build, scen_list, view=False):
     files = {'e5target': TARGET, 'e5tool': TOOL, 'e5audit.bpf.o': str(SRC / 'e5audit.bpf.o')}
     if build:
         for so in ('libbpftime-agent.so', 'libbpftime-syscall-server.so'):
             files[so] = str(build / so)
     m = {k: sha256(v) for k, v in files.items()}
+    if view:  # the BPF programs are embedded in it (skeleton); a missing binary fails at start
+        m['tern_viewd'] = sha256(VIEWD) if os.path.exists(VIEWD) else None
     recorded = {}
     for line in open(SRC / 'sha256.txt'):
         h, n = line.split()
@@ -192,19 +339,41 @@ def one_leg(a):
     leg = a.one_leg
     name, build_key, extra_env = leg_parts(leg)
     build = None if name == 'K' else build_dir(build_key)
-    env_u = {**LEG_ENV.get(name, {}), **extra_env}
+    # VIEWD_* keys are split off here: env_u (what children get) is unchanged for other legs.
+    env_u, view_opts, view = view_split({**LEG_ENV.get(name, {}), **extra_env})
     scens = a.scenarios.split(',')
     d = Path(a.legdir)
     shm_name = f'e5shm_{os.getpid()}'
     shm_before = shm_entries()
     row = dict(kind='leg', leg=leg, build=str(build) if build else None, env=env_u,
                scenarios=a.scenarios, iters=a.iters, dir=str(d), shm_name=shm_name,
-               leg_budget=a.leg_budget, **meta_row(build, scens))
+               leg_budget=a.leg_budget, **meta_row(build, scens, view))
     kp = kf = up = uf = None
     rows = []
     scen_status = {}
     common = [f'BPFTIME_GLOBAL_SHM_NAME={shm_name}', 'BPFTIME_LOG_OUTPUT=console']
+    # Same <pid> as the shm name: one pin dir per leg child, never reused.
+    view_pin = f'{BPFFS}/tern_view_e5_{os.getpid()}' if view else None
+    view_idfile = d / 'view.id'
+    view_live = False  # True from the moment 'start' is launched until 'stop' has run
+    if view:
+        row['viewd_opts'] = view_opts
+        row['view_pin'] = view_pin
     try:
+        problems = []
+        if view:
+            # Load the view before the bpftime loader and the targets, so every target process
+            # is created with the hooks already attached (its slot is filled by task_newtask).
+            pins, err = view_pins()
+            row['view_pins_before'] = pins if err is None else err
+            if pins:  # a second view would double the hooks; viewd refuses only its own dir
+                problems.append(f'view pins present before start: {pins}')
+            view_live = True
+            row['viewd'] = viewd_start(view_pin, view_idfile, view_opts, d / 'viewd-start.log',
+                                       deadline)
+            r = sh(['sudo', '-n', 'cat', str(view_idfile)], timeout=5)
+            row['view_map_id'] = r.stdout.strip() if r.returncode == 0 else None
+            row['viewd_status_pre'] = viewd_status(view_pin)
         kp, kf = start_loader([], 'audit_point_k', d / 'k.dump', d / 'k-tool.log', deadline)
         target_env = []
         if build:
@@ -214,6 +383,9 @@ def one_leg(a):
                                   'audit_point_u', d / 'u.dump', d / 'u-tool.log', deadline)
             target_env = [f'LD_PRELOAD={build}/libbpftime-agent.so', *common,
                           *[f'{k}={v}' for k, v in env_u.items()]]
+            if view:
+                target_env += [f'BPFTIME_VIEW_PIN={view_pin}/view',
+                               f'BPFTIME_VIEW_ID_FILE={view_idfile}']
         for s in scens:
             left = deadline - time.time()
             if left < 5:
@@ -228,6 +400,29 @@ def one_leg(a):
             rc = run_target(cmd, tmo, d / f'target-{s}.log')
             scen_status[s] = dict(rc=rc, seconds=round(time.time() - tt, 2))
         row['targets'] = scen_status
+        if view:
+            # Right after the targets: are all pins still there, did every hook keep firing?
+            # Then stop, before the loaders, so the hooks are on no longer than needed.
+            r = sh(['sudo', '-n', 'ls', '-1A', view_pin], timeout=5)
+            pinned = sorted(r.stdout.split()) if r.returncode == 0 else []
+            row['view_pinned'] = pinned
+            nlinks = sum(1 for e in pinned if e.startswith('link_'))
+            if 'view' not in pinned or nlinks < len(VIEW_HOOK_COUNTERS):
+                problems.append(f'view pins incomplete after targets: {pinned}')
+            row['viewd_status'] = viewd_status(view_pin)
+            pre = view_counters(row.get('viewd_status_pre'))
+            post = view_counters(row['viewd_status'])
+            row['view_counters_delta'] = {k: post[k] - pre[k] for k in post if k in pre}
+            for k in VIEW_HOOK_COUNTERS:
+                if k not in pre or k not in post:
+                    problems.append(f'viewd status: counter {k} not found')
+                elif post[k] <= pre[k]:
+                    problems.append(f'viewd status: hook counter {k} did not grow '
+                                    f'({pre[k]} -> {post[k]})')
+            row['viewd_stop'] = viewd_stop(view_pin, view_idfile)
+            view_live = False
+            if row['viewd_stop']['rc'] != 0 or row['viewd_stop']['pin_dir_left']:
+                problems.append(f'viewd stop: {row["viewd_stop"]}')
         krc, ktext = stop_loader(kp, kf, 15)
         kp = None
         urc, utext = stop_loader(up, uf, 15) if up else (None, None)
@@ -237,12 +432,25 @@ def one_leg(a):
         row['u_tool'] = (re.search(r'dumped .*', utext) or [None])[0] if utext else None
         sh(['sudo', '-n', 'chown', '-R', f'{os.getuid()}:{os.getgid()}', str(d)])
         truths = [d / f'truth-{s}.txt' for s in scens if (d / f'truth-{s}.txt').exists()]
-        problems = []
         for s in scens:
             if scen_status.get(s, {}).get('rc') != 0:
                 problems.append(f'target {s} rc {scen_status.get(s, {}).get("rc")}')
             if not (d / f'truth-{s}.txt').exists():
                 problems.append(f'truth {s} missing')
+        if view and build:
+            # G1: every target's agent must have mapped the view; collect its read/miss lines.
+            mapped, reads = {}, {}
+            for s in scens:
+                log = d / f'target-{s}.log'
+                text = open(log, errors='replace').read() if log.exists() else ''
+                mapped[s] = [l.split('View: ', 1)[1] for l in text.splitlines()
+                             if 'View: mapped' in l]
+                reads[s] = [l.split('View: ', 1)[1] for l in text.splitlines()
+                            if 'View: reads' in l]
+                if not mapped[s]:
+                    problems.append(f'view not mapped in target {s}')
+            row['view_mapped'] = mapped
+            row['view_reads'] = reads
         nrec = 0
         for t in truths:
             nrec += sum(1 for l in open(t) if l.strip() and not l.startswith('#'))
@@ -284,6 +492,11 @@ def one_leg(a):
         if up:
             stop_loader(up, uf, 1)
         kill_ours()
+        if view_live:  # error or SIGTERM between 'start' and 'stop'
+            row['viewd_stop'] = viewd_stop(view_pin, view_idfile)
+        if view:
+            pins, err = view_pins()
+            row['leftover_view_pins'] = pins if err is None else [err]
         if build:
             sh(['sudo', '-n', 'env', f'BPFTIME_GLOBAL_SHM_NAME={shm_name}',
                 str(build / 'bpftimetool'), 'remove'], timeout=10)
@@ -294,7 +507,7 @@ def one_leg(a):
         row['leftover_shm'] = sorted(shm_entries() - shm_before)
         sh(['sudo', '-n', 'chown', '-R', f'{os.getuid()}:{os.getgid()}', str(d)])
     row['ok'] = (not row.get('error') and not row.get('problems') and not row['leftover_procs']
-                 and not row['leftover_shm'])
+                 and not row['leftover_shm'] and not row.get('leftover_view_pins'))
     row['seconds'] = round(time.time() - t0, 1)
     with open(d / 'rows.jsonl', 'w') as f:
         for r in [row] + rows:
@@ -357,6 +570,16 @@ def run_leg_locked(a, leg, outdir):
         remove_shm(shm)
         rows[0]['parent_cleanup'] = dict(procs=procs, shm=shm)
         rows[0]['ok'] = False
+    # No view may outlive a leg (its hooks are system wide). Stop and remove only our own
+    # tern_view_e5_<pid> dirs; a foreign tern_view* (another session's) voids the leg, untouched.
+    pins, err = view_pins()
+    if err or pins:
+        stopped = {}
+        for n in pins or []:
+            if re.fullmatch(VIEW_PIN_OURS, n):
+                stopped[n] = viewd_stop(f'{BPFFS}/{n}')
+        rows[0]['parent_view_cleanup'] = dict(pins=pins, error=err, stopped=stopped)
+        rows[0]['ok'] = False
     rows[0]['child_rc'] = rc
     return rows
 
@@ -391,6 +614,8 @@ def main():
         raise SystemExit('--out is required')
     outdir = Path(a.outdir) if a.outdir else HERE / 'runs' / time.strftime('%Y%m%d-%H%M%S')
     outdir.mkdir(parents=True, exist_ok=True)
+    for leg in a.legs.split(','):
+        check_view_leg(leg)
     for leg in a.legs.split(','):
         leg_parts(leg)
         rows = run_leg_locked(a, leg, outdir)

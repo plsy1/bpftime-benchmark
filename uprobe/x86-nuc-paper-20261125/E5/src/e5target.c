@@ -57,9 +57,11 @@ struct shared {
 };
 static struct shared *sh;
 
-// Index = scenario id in seq. Keep in sync with run_e5.py SCEN_POINTS.
-static const char *const SCEN[] = { "",   "W1",  "W2",  "W3",  "W3c", "W7g", "W7r",  "W8a",
-				    "W8b", "W8c", "W12", "W5",  "W6",  "W8d", "W6t", "W6tc" };
+// Index = scenario id in seq. Keep in sync with run_e5.py SCEN_POINTS. New scenarios are only
+// ever appended, so the seq of every existing scenario (and old truth files) keeps its meaning.
+static const char *const SCEN[] = { "",    "W1",  "W2",  "W3",  "W3c", "W7g", "W7r",
+				    "W8a", "W8b", "W8c", "W12", "W5",  "W6",  "W8d",
+				    "W6t", "W6tc", "W7t", "W5r" };
 enum { NSCEN = sizeof(SCEN) / sizeof(SCEN[0]) };
 
 static uint64_t seqof(int scen, uint64_t iter, int point)
@@ -268,6 +270,105 @@ static void w7(int scen, uint64_t n, int raw)
 		_exit(0);
 	}
 	reap(pid, "w7 child");
+}
+
+// ---- W7t raw setresuid/setresgid in ONE thread of a two-thread process (fork child, like W7r).
+// A raw set*id system call changes only the calling thread's credentials (glibc's set*id
+// broadcasts to every thread; the raw call does not), so after the worker drops, the two threads
+// of one process hold different ids. Per iteration, strictly sequenced by semaphores:
+//   p0 worker, before the drop (0/0)
+//   p1 worker, after raw setresgid(4343,4343,0) + setresuid(4242,4242,0) (4242/4343)
+//   p2 main thread, while the worker is still dropped (0/0)
+// then the worker restores (raw) before the next iteration. A process-wide credential cache is
+// wrong at p1 (it holds the 0/0 filled at p0) and a per-thread answer is right at p1 and p2. ----
+enum { W7T_STEP = 1, W7T_RESTORE = 2, W7T_QUIT = 3 };
+struct w7t_worker {
+	sem_t go, done;
+	int cmd, scen, err;
+	uint64_t iter;
+	pid_t tid;
+};
+static void *w7t_worker_fn(void *p)
+{
+	struct w7t_worker *w = p;
+	w->tid = (pid_t)syscall(SYS_gettid);
+	sem_post(&w->done);
+	for (;;) {
+		sem_wait(&w->go);
+		if (w->cmd == W7T_QUIT) {
+			sem_post(&w->done); // w7t_cmd waits for every command, QUIT included
+			break;
+		}
+		w->err = 0;
+		if (w->cmd == W7T_STEP) {
+			audit(w->scen, w->iter, 0);
+			// gid first: dropping the uid first would leave no permission to change the gid.
+			if (setres(1, 0, TEST_GID, TEST_GID, 0) || setres(1, 1, TEST_UID, TEST_UID, 0)) {
+				w->err = errno ? errno : EPERM;
+				restore_root(1);
+			} else {
+				audit(w->scen, w->iter, 1);
+			}
+		} else if (w->cmd == W7T_RESTORE) {
+			if (restore_root(1))
+				w->err = errno ? errno : EPERM;
+		}
+		sem_post(&w->done);
+	}
+	return NULL;
+}
+static int w7t_cmd(struct w7t_worker *w, int cmd, uint64_t i)
+{
+	w->cmd = cmd;
+	w->iter = i;
+	sem_post(&w->go);
+	sem_wait(&w->done);
+	return w->err;
+}
+static void w7t_child(int scen, uint64_t n)
+{
+	struct w7t_worker w = { .scen = scen };
+	sem_init(&w.go, 0, 0);
+	sem_init(&w.done, 0, 0);
+	pthread_t t;
+	if (pthread_create(&t, NULL, w7t_worker_fn, &w) != 0) {
+		meta("error W7t pthread_create");
+		return;
+	}
+	sem_wait(&w.done);
+	meta("W7t child threads_at_start %d worker %d", threads_now(), w.tid);
+	for (uint64_t i = 0; i < n; i++) {
+		int rc = w7t_cmd(&w, W7T_STEP, i);
+		if (rc) {
+			meta("error W7t drop: %s", strerror(rc));
+			break;
+		}
+		audit(scen, i, 2); // main thread: root, since only the worker dropped
+		rc = w7t_cmd(&w, W7T_RESTORE, i);
+		if (rc) {
+			meta("error W7t restore: %s", strerror(rc));
+			break;
+		}
+	}
+	w7t_cmd(&w, W7T_QUIT, 0);
+	pthread_join(t, NULL);
+	meta("W7t child threads_at_end %d uid %ld gid %ld", threads_now(), syscall(SYS_getuid),
+	     syscall(SYS_getgid));
+}
+static void w7t(int scen, uint64_t n)
+{
+	if (syscall(SYS_geteuid) != 0) {
+		meta("skipped %s: not root", SCEN[scen]);
+		return;
+	}
+	meta("%s parent threads %d (iterations run in a fork child)", SCEN[scen], threads_now());
+	fflush(NULL);
+	pid_t pid = fork();
+	if (pid == 0) {
+		w7t_child(scen, n);
+		_exit(0);
+	}
+	reap(pid, "w7t child");
 }
 
 // ---- W8 comm changes. Base name differs from the exe basename ("e5target") so that "exe
@@ -632,6 +733,31 @@ static void w_clone(int scen, uint64_t n, int vm)
 	munmap(stack, sz);
 }
 
+// ---- W5r raw syscall(SYS_clone, SIGCHLD, 0, 0, 0, 0): a fork that bypasses every libc entry
+// point (fork, _Fork, clone), so no atfork handler and no interposer runs in parent or child.
+// newsp = 0: the child continues on a copy-on-write copy of the caller's stack and returns 0 from
+// the system call, exactly like fork. It inherits the parent thread's TLS (its glibc thread
+// descriptor still names the parent's tid) and the parent's credentials and comm. The child only
+// calls audit() (atomics and system calls) and _exit, so the stale descriptor does not matter to
+// libc. x86-64 argument order: flags, newsp, parent_tid, child_tid, tls. ----
+NOINL static pid_t raw_clone_child_audits(int scen, uint64_t i)
+{
+	pid_t pid = (pid_t)syscall(SYS_clone, (long)SIGCHLD, 0L, 0L, 0L, 0L);
+	if (pid == 0) {
+		audit(scen, i, 1);
+		_exit(0);
+	}
+	return pid;
+}
+static void w5r(int scen, uint64_t n)
+{
+	for (uint64_t i = 0; i < n; i++) {
+		audit(scen, i, 0);
+		reap(raw_clone_child_audits(scen, i), "raw clone(SIGCHLD)");
+		audit(scen, i, 2);
+	}
+}
+
 // ---- W6t / W6tc: thread-like raw clone (CLONE_VM|CLONE_THREAD|CLONE_SIGHAND|...) WITHOUT
 // CLONE_SETTLS: the live child shares the parent thread's TLS (fs base) while the parent waits.
 // W6t: warm (the parent thread audited p0 just before); W6tc: cold (from a fresh pthread). ----
@@ -759,6 +885,8 @@ int main(int argc, char **argv)
 		case 13: w8bd(id, iters, 1); break;
 		case 14: w6t(id, iters, 1); break;
 		case 15: w6t(id, iters, 0); break;
+		case 16: w7t(id, iters); break;
+		case 17: w5r(id, iters); break;
 		}
 		meta("done %s records %llu", SCEN[id], (unsigned long long)(atomic_load(&sh->n) - before));
 	}

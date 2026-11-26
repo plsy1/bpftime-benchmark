@@ -1,0 +1,25 @@
+view_selftest iters=10000 viewd=/home/y/src/bpftime-paper/dview-6b6b247e/tools/view/build/tern_viewd pin_dir=/sys/fs/bpf/tern_view_selftest
+viewd ready mode=fexit nslots=262144 map_id=6576 pin_dir=/sys/fs/bpf/tern_view_selftest
+S0   ok   pre-existing task: partial rekey
+M0   ok   mprotect(PROT_WRITE) refused (Permission denied)
+S1  ok   reads=10000 hit=10000 miss=0 wrong=0 err=0 lock_fail=0 dead_write=0 collision=0 rekey=0 secs=0.1
+S2  ok   reads=20000 hit=20000 miss=0 wrong=0 err=0 lock_fail=0 dead_write=0 collision=0 rekey=0 secs=0.2
+S3  ok   reads=10000 hit=10000 miss=0 wrong=0 err=0 lock_fail=0 dead_write=0 collision=0 rekey=0 secs=0.1
+S4  ok   reads=10000 hit=10000 miss=0 wrong=0 err=0 lock_fail=0 dead_write=0 collision=0 rekey=0 secs=0.1
+S5  ok   reads=10625 hit=10625 miss=0 wrong=0 err=0 lock_fail=0 dead_write=0 collision=0 rekey=0 secs=0.2
+S6  ok   reads=20000 hit=20000 miss=0 wrong=0 err=0 lock_fail=0 dead_write=0 collision=0 rekey=0 secs=5.2
+S7  FAIL reads=10000 hit=0 miss=0 wrong=0 err=10000 lock_fail=0 dead_write=0 collision=0 rekey=10000 secs=12.9
+S8  ok   reads=10000 hit=10000 miss=0 wrong=0 err=0 lock_fail=0 dead_write=0 collision=0 rekey=0 secs=0.4
+S9   loops=1000000 cross_renames=705025
+S9  FAIL reads=2000002 hit=1000467 miss=999535 wrong=0 err=0 lock_fail=2083 dead_write=0 collision=0 rekey=0 secs=1.1 (misses: collisions?)
+viewd stop rc=0 stopped links=5 view=1 swept=262144 sweep_lock_fail=0 pin_dir=/sys/fs/bpf/tern_view_selftest
+viewd ready mode=fexit nslots=16 map_id=6582 pin_dir=/sys/fs/bpf/tern_view_selftest
+S10/S1  ok   reads=10000 hit=10000 miss=0 wrong=0 err=0 lock_fail=0 dead_write=0 collision=0 rekey=0 secs=0.1
+S10/S2  ok   reads=20000 hit=20000 miss=0 wrong=0 err=0 lock_fail=0 dead_write=0 collision=0 rekey=0 secs=0.2
+S10/S3  ok   reads=10000 hit=10000 miss=0 wrong=0 err=0 lock_fail=0 dead_write=0 collision=0 rekey=0 secs=0.1
+S10/S4  ok   reads=10000 hit=10000 miss=0 wrong=0 err=0 lock_fail=0 dead_write=0 collision=0 rekey=0 secs=0.1
+S10/S5  ok   reads=10625 hit=10625 miss=0 wrong=0 err=0 lock_fail=0 dead_write=0 collision=0 rekey=0 secs=0.1
+S10/S6  ok   reads=20000 hit=20000 miss=0 wrong=0 err=0 lock_fail=0 dead_write=0 collision=1250 rekey=1250 secs=2.2
+S10  FAIL no misses with 16 slots: the test did not exercise collisions
+viewd stop rc=0 stopped links=5 view=1 swept=16 sweep_lock_fail=0 pin_dir=/sys/fs/bpf/tern_view_selftest
+view_selftest FAIL (3 failures)

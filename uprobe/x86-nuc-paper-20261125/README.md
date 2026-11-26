@@ -36,6 +36,11 @@ session's check/exit files. Capture directories (cap/) stay on the NUC.
 | N7-20261126-try1 | Fig. 1 stage ladder with real builds | SUMMARY.md |
 | H7a-20261126-try1 | E7a: HAProxy 1 thread, 16 B and 4 KiB | SUMMARY.md |
 | H7b-20261126-try1 | E7b: HAProxy 4 threads; Q1 Dn730f/OlL3 1.053 → not met | SUMMARY.md |
+| E6-20261126-try1 | E6 P2′: 6 real tools × 9 backends; criterion met for K/Dn/Dnpc with the J2 tool list; upstream cannot load libbpf-tools funclatency, memleak stacks empty | SUMMARY.md (raw outputs > 5 MB not copied) |
+| N2-20261126-try1 | real tools on multithreaded workloads T = 1/4/8; criterion met pooled, not per T; upstream bpftrace hist crashes/hangs under threads | SUMMARY.md |
+| E5/results/I8-20261126-try1 | E5 rerun with Dnext careful mode (switch off = Dn; on: only declared W7r, W8c/d p1 left) | I8-20261126-try1.SUMMARY.md |
+| DN1-20261126-try1 | Dnext careful mode on nginx: off ≡ Dn/Dnpc, on − off −0.004 / +0.016 µs/event | SUMMARY.md |
+| P5a-20261126 (+ E5/results/I8v-*, M4-20261126-try1) | P5a kernel-view spike: hooks attach, I8v all as predicted, read 1.49 ns, nginx +0.011 µs/event; GO recommended | P5a-20261126/SUMMARY.md |
 
 Deviations and notes:
 - 2026-11-26 00:27:05–12: an ssh from the Jetson session overlapped I3 round 2 rep 9 leg K (I3 DEVIATIONS.md; no
@@ -51,3 +56,13 @@ Deviations and notes:
   entry of a duplicated key.
 - Timers that affect measurement were paused for the campaign (only tailscale-watchdog active); restore with
   /home/y/src/bpftime-x86-runs/paper-20261124/timers-paused-20261125/RESTORE.sh.
+- 2026-11-26: Tern patches for the paper live on local branches ladder/dnext-c71a9987 (6b6b247e, careful mode) and
+  ladder/dview-6b6b247e (3499d664, P5a view); copies in patches/. Builds builds/dnext, dnextpc, dview, dviewpc.
+- E6/N2 harness: e6/ (x86 port of J2: harness/audit.py + measure.py, mt workloads, sha lists; audit.py gained an E6_WL
+  override after E6, kept as audit.py.pre-n2 on the NUC). The E5 runner gained the view legs and scenarios W7t/W5r
+  (run_e5.py.pre-view, e5target.c.pre-view on the NUC).
+- Found, not fixed (Tern): (1) memleak scales worst under threads (N2; x86 accurate backtracer per malloc, inferred);
+  (2) fork from a multithreaded target then a new thread hitting a probe hangs on Gum's dlmalloc lock inherited locked
+  (E5/results/I8v-20261126.SUMMARY.md, stacks w7t-fork-hang-stacks.txt); (3) bpftrace 0.23.2 BEGIN/END/printf do not
+  work under bpftime (E6 port).
+

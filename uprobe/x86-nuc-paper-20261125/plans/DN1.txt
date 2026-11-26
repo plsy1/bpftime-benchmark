@@ -1,0 +1,9 @@
+# DN1 (exploratory; C2 is confirmatory): Dnext careful mode on nginx, policy M, 16 B.
+# Dnext/Dnextpc = Tern c71a9987 + careful-mode patch (6b6b247e, ladder/dnext-c71a9987), same CMake options as dnew/dnewpc.
+# Questions: (1) switch off inert: Dnext vs Dn, Dnextpc vs Dnpc (TOST +-1.5 %; different binaries, layout confound B5);
+# (2) cost of the switch: Dnext(pc)+BPFTIME_CAREFUL=1 vs Dnext(pc), same binary (eval plan N5a/N5b: <= 0.084 us/event).
+# sslsniff calls bpf_get_current_comm and bpf_get_current_pid_tgid per event, so the careful comm path is on the hot path.
+--exp DN1 --round 0 --payload 16 --reps 11 --warmup 1 --legs B,K+SSLSNIFF_PB_WAKEUP=32,Dn,Dnpc,Dnext,Dnext+BPFTIME_CAREFUL=1,Dnextpc,Dnextpc+BPFTIME_CAREFUL=1
+--exp DN1 --round 1 --payload 16 --reps 10 --legs B,K+SSLSNIFF_PB_WAKEUP=32,Dn,Dnpc,Dnext,Dnext+BPFTIME_CAREFUL=1,Dnextpc,Dnextpc+BPFTIME_CAREFUL=1
+# perf sc: system calls per request with the switch on (expect no change: no spawns or renames in nginx steady state)
+--exp DN1 --round 2 --payload 16 --reps 3 --secs 20 --perf-mode sc --legs Dnextpc@S4,Dnextpc@S4+BPFTIME_CAREFUL=1

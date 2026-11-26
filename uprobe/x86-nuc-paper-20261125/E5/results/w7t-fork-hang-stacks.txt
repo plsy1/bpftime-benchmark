@@ -1,0 +1,74 @@
+try 2: hung pids 1466363
+1466366
+== pid 1466363 ppid 1466361
+[New LWP 1466365]
+[New LWP 1466364]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+0x00007fb30f2a672e in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 3 (Thread 0x7fb2fed9e6c0 (LWP 1466364) "e5target"):
+#0  0x00007fb30f2a672e in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007fb30f29b388 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#2  0x00007fb30f29b3cd in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#3  0x00007fb30f30fc26 in read () from /lib/x86_64-linux-gnu/libc.so.6
+#4  0x00007fb30f92ec37 in operator() (__closure=<optimized out>) at /home/y/src/bpftime-paper/dnew-c71a9987/runtime/agent/agent.cpp:561
+#5  std::__invoke_impl<void, ensure_detach_worker_started()::<lambda()> > (__f=...) at /usr/include/c++/13/bits/invoke.h:61
+#6  std::__invoke<ensure_detach_worker_started()::<lambda()> > (__fn=...) at /usr/include/c++/13/bits/invoke.h:96
+#7  std::thread::_Invoker<std::tuple<ensure_detach_worker_started()::<lambda()> > >::_M_invoke<0> (this=<optimized out>) at /usr/include/c++/13/bits/std_thread.h:292
+#8  std::thread::_Invoker<std::tuple<ensure_detach_worker_started()::<lambda()> > >::operator() (this=<optimized out>) at /usr/include/c++/13/bits/std_thread.h:299
+#9  std::thread::_State_impl<std::thread::_Invoker<std::tuple<ensure_detach_worker_started()::<lambda()> > > >::_M_run(void) (this=<optimized out>) at /usr/include/c++/13/bits/std_thread.h:244
+#10 0x00007fb30eee1224 in ?? () from /lib/x86_64-linux-gnu/libstdc++.so.6
+#11 0x00007fb30f29e8bb in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#12 0x00007fb30f31c538 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 2 (Thread 0x7fb2fe59d6c0 (LWP 1466365) "e5target"):
+#0  0x00007fb30f2a672e in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007fb30f29b388 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#2  0x00007fb30f29b3cd in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#3  0x00007fb30f31dcfa in accept4 () from /lib/x86_64-linux-gnu/libc.so.6
+#4  0x00007fb30f92f2e7 in start_agent_ipc_server_once()::{lambda()#1}::operator()() const::{lambda()#1}::operator()() const () at /home/y/src/bpftime-paper/dnew-c71a9987/runtime/agent/agent.cpp:332
+#5  0x00007fb30eee1224 in ?? () from /lib/x86_64-linux-gnu/libstdc++.so.6
+#6  0x00007fb30f29e8bb in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#7  0x00007fb30f31c538 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 1 (Thread 0x7fb313188a80 (LWP 1466363) "e5target"):
+#0  0x00007fb30f2a672e in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007fb30f29b388 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#2  0x00007fb30f29b3cd in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#3  0x00007fb30f306507 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6
+#4  0x000055b8f4d833e3 in reap (pid=1466366, what=0x55b8f4d8628c "w7t child") at e5target.c:151
+#5  0x000055b8f4d82ba6 in w7t (scen=16, n=<optimized out>) at e5target.c:371
+#6  main (argc=<optimized out>, argv=<optimized out>) at e5target.c:888
+[Inferior 1 (process 1466363) detached]
+== pid 1466366 ppid 1466363
+[New LWP 1466367]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+0x00007fb30f2a672e in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 2 (Thread 0x7fb2fe59d6c0 (LWP 1466367) "e5target"):
+#0  0x00007fb30f304647 in sched_yield () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007fb31198d4e1 in spin_acquire_lock (sl=sl@entry=0x7fb3132a0384) at ../../../frida-gum/gum/dlmalloc.c:1934
+#2  0x00007fb31198e6ba in mspace_malloc (msp=0x7fb3132a0010, bytes=bytes@entry=2032) at ../../../frida-gum/gum/dlmalloc.c:5555
+#3  0x00007fb31198fd62 in mspace_calloc (msp=<optimized out>, n_elements=<optimized out>, elem_size=<optimized out>) at ../../../frida-gum/gum/dlmalloc.c:5778
+#4  0x00007fb3119a608f in g_private_set_alloc0 (key=0x7fb312d7b2a0 <private_thread_memory>, size=<optimized out>) at ../../../deps/glib/glib/gthread.c:549
+#5  0x00007fb3119ae1be in thread_memory_from_self () at ../../../deps/glib/glib/gslice.c:578
+#6  0x00007fb3119ae960 in g_slice_alloc (mem_size=168) at ../../../deps/glib/glib/gslice.c:1079
+#7  0x00007fb311991876 in interceptor_thread_context_new () at ../../../frida-gum/gum/guminterceptor.c:1881
+#8  get_interceptor_thread_context () at ../../../frida-gum/gum/guminterceptor.c:1747
+#9  0x00007fb31199297f in _gum_function_context_begin_invocation (function_ctx=0x7fb30f0e7a20, cpu_context=0x7fb2fe59cab0, caller_ret_addr=0x7fb2fe59cb48, next_hop=0x7fb2fe59cb40) at ../../../frida-gum/gum/guminterceptor.c:1500
+#10 0x00007fb30f0b0076 in ?? ()
+#11 0x000000000000037f in ?? ()
+#12 0x0000000000000000 in ?? ()
+
+Thread 1 (Thread 0x7fb313188a80 (LWP 1466366) "e5target"):
+#0  0x00007fb30f2a672e in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007fb30f29b388 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#2  0x00007fb30f29b9ac in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#3  0x00007fb30f2a6660 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#4  0x000055b8f4d826c9 in w7t_cmd (w=0x7ffd85c65b90, cmd=1, i=0) at e5target.c:325
+#5  w7t_child (scen=16, n=500) at e5target.c:341
+#6  w7t (scen=16, n=<optimized out>) at e5target.c:368
+#7  main (argc=<optimized out>, argv=<optimized out>) at e5target.c:888
+[Inferior 1 (process 1466366) detached]

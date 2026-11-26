@@ -1,0 +1,7 @@
+step 1 at freq-log line 0: !sudo -n /home/y/src/bpftime-paper/dview-6b6b247e/tools/view/build/tern_viewd start --pin-dir /sys/fs/bpf/tern_view > $OUT/viewd-start.txt 2>&1; tail -1 $OUT/viewd-start.txt
+step 2 at freq-log line 0: !sudo -n /home/y/src/bpftime-paper/dview-6b6b247e/tools/view/build/tern_viewd status --pin-dir /sys/fs/bpf/tern_view > $OUT/viewd-pre.json
+step 3 at freq-log line 0: --exp M4 --round 0 --payload 16 --reps 11 --warmup 1 --legs B,K+SSLSNIFF_PB_WAKEUP=32,Dnextpc,Dviewpc,Dviewpc+BPFTIME_CAREFUL=1,Dviewpc+BPFTIME_CAREFUL=1+BPFTIME_VIEW=1
+step 4 at freq-log line 937: --exp M4 --round 1 --payload 16 --reps 10 --legs B,K+SSLSNIFF_PB_WAKEUP=32,Dnextpc,Dviewpc,Dviewpc+BPFTIME_CAREFUL=1,Dviewpc+BPFTIME_CAREFUL=1+BPFTIME_VIEW=1
+step 5 at freq-log line 1788: !sudo -n /home/y/src/bpftime-paper/dview-6b6b247e/tools/view/build/tern_viewd status --pin-dir /sys/fs/bpf/tern_view > $OUT/viewd-post.json
+step 6 at freq-log line 1788: !sudo -n /home/y/src/bpftime-paper/dview-6b6b247e/tools/view/build/tern_viewd stop --pin-dir /sys/fs/bpf/tern_view
+end at freq-log line 1788

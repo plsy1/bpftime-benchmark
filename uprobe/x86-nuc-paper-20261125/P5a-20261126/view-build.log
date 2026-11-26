@@ -1,0 +1,20 @@
+/home/y/src/bpftime-paper/dview-6b6b247e/tools/view/tern_viewd.c: In function ‘cmd_start.constprop’:
+/home/y/src/bpftime-paper/dview-6b6b247e/tools/view/tern_viewd.c:349:30: warning: array subscript [0, 4] is outside array bounds of ‘struct bpf_link *[5]’ [-Warray-bounds=]
+  349 |                         links[h] = attach_hook(skel, h, mode);
+      |                         ~~~~~^~~
+/home/y/src/bpftime-paper/dview-6b6b247e/tools/view/tern_viewd.c:319:26: note: while referencing ‘links’
+  319 |         struct bpf_link *links[H__COUNT] = { 0 };
+      |                          ^~~~~
+/home/y/src/bpftime-paper/dview-6b6b247e/tools/view/view_selftest.c: In function ‘read_kstats’:
+/home/y/src/bpftime-paper/dview-6b6b247e/tools/view/view_selftest.c:418:41: warning: ‘/stats’ directive output may be truncated writing 6 bytes into a region of size between 1 and 4096 [-Wformat-truncation=]
+  418 |         snprintf(path, sizeof(path), "%s/stats", g_pin_dir);
+      |                                         ^~~~~~
+/home/y/src/bpftime-paper/dview-6b6b247e/tools/view/view_selftest.c:418:9: note: ‘snprintf’ output between 7 and 4102 bytes into a destination of size 4096
+  418 |         snprintf(path, sizeof(path), "%s/stats", g_pin_dir);
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+atomics in view.bpf.o:
+      8 lock *(u32 *)
+f4a457e2f0db21edb979acf7d7929b813eea5baa1e99fae4976231493a61d4db  view.bpf.o
+7b462f895cad51f29556477ba3dc86a119406f9740637bdf631d4882e115f855  tern_viewd
+77cd2fd14bdc439db614bc55415d0490c0904daf700d10dad92f54eabd9d63d8  view_selftest
+c39055b229baf57ea20e10d68bc9e9478fb1ee6d6ed799776fa4d3db8790f9e3  hookbench

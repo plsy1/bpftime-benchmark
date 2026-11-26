@@ -1,0 +1,995 @@
+From 6b6b247e2b7885b56611fec347f23df25dcae646 Mon Sep 17 00:00:00 2001
+From: plsy1 <39407459+plsy1@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 18:58:38 +0900
+Subject: [PATCH] runtime: careful mode (BPFTIME_CAREFUL=1) for per-thread comm
+ and identity
+
+Dnext for the paper's N5a/N5b. A switch read once at load, off by default;
+off, the new agent interposers only forward to libc and the helpers take the
+old paths.
+
+N5a: bpf_get_current_comm returns the calling thread's comm with the kernel
+helper's semantics (16 bytes, at most 15 characters, NUL padded), cached per
+thread and refilled with prctl(PR_GET_NAME). The agent interposes
+prctl(PR_SET_NAME) and pthread_setname_np and brackets each rename: no refill
+during it, and the comm epoch is bumped at its end.
+
+N5b: the agent interposes vfork/__vfork (frameless asm stub), _Fork,
+clone/__clone, posix_spawn(p), pidfd_spawn(p), system and popen/_IO_popen.
+They bump the identity epoch before the call; spawns whose child shares the
+caller's TLS mark the thread as spawning (no caching meanwhile); a clone with
+CLONE_VM and no CLONE_SETTLS that runs concurrently marks the TLS block shared
+for good; the children of a raw _Fork and of a clone without CLONE_VM reset
+the per-process state the fork handlers would (identity, pid namespace, perf
+shard cache, probe_read/write pid, host NSpid cache). A vfork-like child that
+changes its credentials turns the credential cache off.
+
+Caches are used in careful mode only if the process binds every interposer
+(LD_PRELOAD); under dlmopen or late Frida injection identity and comm are read
+on every call. Not covered: raw system calls, writes to /proc/.../comm, the
+GLIBC_2.2.5 compat posix_spawn(p) (captured and forwarded to the default
+version even with the switch off), and vfork on non-x86 (caches stay off).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ runtime/agent/CMakeLists.txt               |   5 +
+ runtime/agent/agent.cpp                    |   9 +
+ runtime/agent/agent.version                |   1 +
+ runtime/agent/careful_hooks.c              | 481 +++++++++++++++++++++
+ runtime/agent/credential_hooks.cpp         |  16 +-
+ runtime/src/bpf_helper.cpp                 | 122 ++++++
+ runtime/src/handler/perf_event_handler.cpp |   6 +
+ runtime/src/producer_identity.cpp          |  96 +++-
+ runtime/src/producer_identity.hpp          |  39 ++
+ 9 files changed, 773 insertions(+), 2 deletions(-)
+ create mode 100644 runtime/agent/careful_hooks.c
+
+diff --git a/runtime/agent/CMakeLists.txt b/runtime/agent/CMakeLists.txt
+index 38e9fb99..d90387ff 100644
+--- a/runtime/agent/CMakeLists.txt
++++ b/runtime/agent/CMakeLists.txt
+@@ -1,7 +1,12 @@
+ add_library(bpftime-agent SHARED
+   agent.cpp
+   credential_hooks.cpp
++  careful_hooks.c
+ )
++# careful_hooks.c holds a top-level asm stub that references C symbols; keep it
++# out of LTO so those references are seen by the linker (the symbols are also
++# marked `used`).
++set_source_files_properties(careful_hooks.c PROPERTIES COMPILE_OPTIONS -fno-lto)
+ 
+ set(AGENT_DEPS spdlog::spdlog)
+ if(BPFTIME_ENABLE_FRIDA)
+diff --git a/runtime/agent/agent.cpp b/runtime/agent/agent.cpp
+index f2d6aa5c..b77d9769 100644
+--- a/runtime/agent/agent.cpp
++++ b/runtime/agent/agent.cpp
+@@ -898,6 +898,8 @@ extern "C" void **__cudaRegisterFatBinary(void *fatbin)
+ }
+ #endif
+ extern "C" bool bpftime_agent_setup_credential_cache();
++extern "C" bool bpftime_agent_setup_careful();
++extern "C" bool bpftime_careful_mode;
+ 
+ static void bpftime_agent_main_impl(const gchar *data,
+ 				    gboolean *stay_resident)
+@@ -908,6 +910,13 @@ static void bpftime_agent_main_impl(const gchar *data,
+ 		bpftime_agent_setup_credential_cache();
+ 	SPDLOG_DEBUG("Credential cache for bpf_get_current_uid_gid: {}",
+ 		     credential_cache_enabled ? "enabled" : "disabled");
++	// Dnext careful mode (BPFTIME_CAREFUL=1): its caches need its
++	// interposers bound; off, they only forward to libc.
++	static const bool careful_bound = bpftime_agent_setup_careful();
++	if (bpftime_careful_mode)
++		SPDLOG_INFO("Careful mode: interposers {}",
++			    careful_bound ? "bound, caches on" :
++					    "not bound, no identity/comm cache");
+ 	bool force_reinit = false;
+ 	bool recorded_alive_pid = false;
+ 	bool ctx_constructed = false;
+diff --git a/runtime/agent/agent.version b/runtime/agent/agent.version
+index 7164e2d1..911e4c0e 100644
+--- a/runtime/agent/agent.version
++++ b/runtime/agent/agent.version
+@@ -1,5 +1,6 @@
+ {
+     global: injected_with_frida; bpftime_hooked_main; __libc_start_main; bpftime_agent_main; bpftime_agent_control; syscall_callback; _bpftime__setup_syscall_trace_callback; bpftime_agent_fork_hook; bpftime_identity_epoch; __cudaRegisterFatBinary;
+             setuid; setgid; seteuid; setegid; setreuid; setregid; setresuid; setresgid;
++            prctl; pthread_setname_np; vfork; __vfork; _Fork; clone; __clone; posix_spawn; posix_spawnp; pidfd_spawn; pidfd_spawnp; system; popen; _IO_popen;
+     local: *;
+ };
+diff --git a/runtime/agent/careful_hooks.c b/runtime/agent/careful_hooks.c
+new file mode 100644
+index 00000000..69e5f856
+--- /dev/null
++++ b/runtime/agent/careful_hooks.c
+@@ -0,0 +1,481 @@
++/* SPDX-License-Identifier: MIT */
++// Dnext careful mode (BPFTIME_CAREFUL=1; see runtime/src/producer_identity.hpp).
++// The agent interposes the libc calls after which a per-thread cache would be
++// stale:
++//  - identity (pid, tid): vfork/__vfork, _Fork, clone/__clone, posix_spawn,
++//    posix_spawnp, pidfd_spawn, pidfd_spawnp, system, popen/_IO_popen. Each
++//    bumps bpftime_identity_epoch before the real call, so every thread checks
++//    its cached identity again. A child that shares this process's memory
++//    (vfork, CLONE_VM) then sees a pid other than the process's and caches
++//    nothing; the parent reads its own identity once. While a thread spawns a
++//    child that shares its TLS (posix_spawn & co., CLONE_VFORK clones), it
++//    caches nothing (bpftime_careful_spawning), so a signal handler or probe
++//    between the bump and the clone cannot hand the parent's identity to the
++//    child. A clone with CLONE_VM but no CLONE_SETTLS that runs concurrently
++//    with its parent (no CLONE_VFORK, or CLONE_THREAD) shares the caller's TLS:
++//    that TLS block caches nothing from then on. The children of a raw _Fork
++//    and of a clone without CLONE_VM run no fork handlers: they reset the
++//    identity state themselves (the clone child through a trampoline). fork()
++//    calls _Fork internally, not through the PLT, and keeps using the fork
++//    handlers.
++//  - comm: prctl(PR_SET_NAME) and pthread_setname_np. glibc's
++//    pthread_setname_np calls prctl directly (self) or writes
++//    /proc/self/task/<tid>/comm (another thread), so it is interposed itself.
++//  - credentials: a vfork-like child or a CLONE_VM clone that may change its
++//    credentials while sharing the process-wide credential cache turns the
++//    cache off for good (credential_hooks.cpp, the clone interposer).
++// With the switch off every interposer only forwards to libc. In careful mode
++// the caches are used only if the process binds every interposer (the agent
++// was LD_PRELOADed); otherwise identity and comm are read on every call.
++// Not observed: raw system calls (including syscall(2)), writes to
++// /proc/.../comm. Known off-mode difference: posix_spawn/posix_spawnp have
++// GLIBC_2.2.5 compat versions (shell fallback on ENOEXEC); the agent's
++// unversioned definitions also capture references to them and forward to the
++// default version, so binaries linked against glibc < 2.15 lose that fallback.
++//
++// C, not C++: libstdc++'s <atomic> pulls in <unistd.h> and <pthread.h>, whose
++// noexcept prototypes a C++ alias declaration would have to repeat exactly.
++#ifndef _GNU_SOURCE
++#define _GNU_SOURCE
++#endif
++#include <dlfcn.h>
++#include <errno.h>
++#include <pthread.h>
++#include <sched.h>
++#include <spawn.h>
++#include <stdarg.h>
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <sys/prctl.h>
++#include <sys/types.h>
++#include <unistd.h>
++
++extern bool bpftime_careful_mode;
++extern uint64_t bpftime_identity_epoch;
++extern __thread unsigned bpftime_careful_spawning;
++void bpftime_identity_bump_epoch(void);
++void bpftime_identity_after_raw_fork_child(void);
++void bpftime_identity_mark_tls_shared(void);
++void bpftime_identity_disable_pid_namespace_cache(void);
++void bpftime_identity_disable_cache(void);
++void bpftime_identity_enable_cache(void);
++void bpftime_careful_comm_set_cache_enabled(bool enabled);
++void bpftime_careful_comm_rename_begin(void);
++void bpftime_careful_comm_rename_end(void);
++void bpftime_set_credential_cache_enabled(bool enabled);
++
++#define HIDDEN __attribute__((visibility("hidden")))
++#define EXPORT_ALIAS(target)                                                   \
++	__attribute__((visibility("default"), alias(target)))
++
++static inline bool careful(void)
++{
++	return __builtin_expect(bpftime_careful_mode, 0);
++}
++
++// Real libc functions, resolved by the constructor below (and again, lazily,
++// if an interposer runs before it) with dlsym(RTLD_NEXT).
++static void *careful_real(void **slot, const char *name)
++{
++	void *fn = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
++	if (!fn) {
++		fn = dlsym(RTLD_NEXT, name);
++		__atomic_store_n(slot, fn, __ATOMIC_RELEASE);
++	}
++	return fn;
++}
++
++static void *real_prctl, *real_pthread_setname_np, *real__Fork, *real_clone,
++	*real_posix_spawn, *real_posix_spawnp, *real_pidfd_spawn,
++	*real_pidfd_spawnp, *real_system, *real_popen;
++// Read by the vfork stub below; `used`: LTO does not see asm references.
++HIDDEN __attribute__((used)) void *bpftime_careful_real_vfork;
++
++// Around a spawn whose child shares this thread's TLS until it execs.
++static inline void spawn_begin(void)
++{
++	bpftime_careful_spawning++;
++	__atomic_signal_fence(__ATOMIC_SEQ_CST);
++	bpftime_identity_bump_epoch();
++}
++
++static inline void spawn_end(void)
++{
++	__atomic_signal_fence(__ATOMIC_SEQ_CST);
++	bpftime_careful_spawning--;
++}
++
++HIDDEN int bpftime_careful_prctl_hook(int option, ...)
++{
++	va_list ap;
++	va_start(ap, option);
++	unsigned long a2 = va_arg(ap, unsigned long);
++	unsigned long a3 = va_arg(ap, unsigned long);
++	unsigned long a4 = va_arg(ap, unsigned long);
++	unsigned long a5 = va_arg(ap, unsigned long);
++	va_end(ap);
++	int (*fn)(int, unsigned long, unsigned long, unsigned long,
++		  unsigned long) = careful_real(&real_prctl, "prctl");
++	if (!fn) {
++		errno = ENOSYS;
++		return -1;
++	}
++	if (!careful() || option != PR_SET_NAME)
++		return fn(option, a2, a3, a4, a5);
++	bpftime_careful_comm_rename_begin();
++	int ret = fn(option, a2, a3, a4, a5);
++	int saved = errno;
++	bpftime_careful_comm_rename_end();
++	errno = saved;
++	return ret;
++}
++
++HIDDEN int bpftime_careful_pthread_setname_np_hook(pthread_t thread,
++						   const char *name)
++{
++	int (*fn)(pthread_t, const char *) =
++		careful_real(&real_pthread_setname_np, "pthread_setname_np");
++	if (!fn)
++		return ENOSYS;
++	if (!careful())
++		return fn(thread, name);
++	// rename_end bumps the epoch: the renamed thread, this one or
++	// another, reads its name again.
++	bpftime_careful_comm_rename_begin();
++	int ret = fn(thread, name);
++	int saved = errno;
++	bpftime_careful_comm_rename_end();
++	errno = saved;
++	return ret;
++}
++
++HIDDEN pid_t bpftime_careful__Fork_hook(void)
++{
++	pid_t (*fn)(void) = careful_real(&real__Fork, "_Fork");
++	if (!fn) {
++		errno = ENOSYS;
++		return -1;
++	}
++	if (!careful())
++		return fn();
++	bpftime_identity_bump_epoch();
++	pid_t ret = fn();
++	if (ret == 0) {
++		int saved = errno;
++		bpftime_identity_after_raw_fork_child();
++		errno = saved;
++	}
++	return ret;
++}
++
++// A clone without CLONE_VM: the child runs on a copy of this process's
++// memory, so it can read the trampoline arguments from the parent's frame.
++struct careful_clone_tramp {
++	int (*fn)(void *);
++	void *arg;
++};
++
++static int careful_clone_child(void *p)
++{
++	struct careful_clone_tramp t = *(struct careful_clone_tramp *)p;
++	bpftime_identity_after_raw_fork_child();
++	return t.fn(t.arg);
++}
++
++HIDDEN int bpftime_careful_clone_hook(int (*fn)(void *), void *stack,
++				      int flags, void *arg, ...)
++{
++	// glibc's clone reads ptid, tls and ctid as the 5th-7th arguments
++	// whatever the flags; pass them through the same way.
++	va_list ap;
++	va_start(ap, arg);
++	void *ptid = va_arg(ap, void *);
++	void *tls = va_arg(ap, void *);
++	void *ctid = va_arg(ap, void *);
++	va_end(ap);
++	int (*real)(int (*)(void *), void *, int, void *, ...) =
++		careful_real(&real_clone, "clone");
++	if (!real) {
++		errno = ENOSYS;
++		return -1;
++	}
++	if (!careful())
++		return real(fn, stack, flags, arg, ptid, tls, ctid);
++	bool vm = flags & CLONE_VM;
++	bool settls = flags & CLONE_SETTLS;
++	bool vfork = flags & CLONE_VFORK;
++	bool thread = flags & CLONE_THREAD;
++	if (!vm) {
++		// A separate process: its identity, namespace, shard and probe
++		// state are reset in the child itself. glibc rejects a NULL fn
++		// with EINVAL; keep that.
++		if (fn == NULL)
++			return real(fn, stack, flags, arg, ptid, tls, ctid);
++		bpftime_identity_bump_epoch();
++		struct careful_clone_tramp t = { fn, arg };
++		return real(careful_clone_child, stack, flags, &t, ptid, tls,
++			    ctid);
++	}
++	if (thread && settls)
++		return real(fn, stack, flags, arg, ptid, tls, ctid); // a thread
++	// CLONE_VM, sharing this thread's TLS (no SETTLS) or a new process
++	// sharing the memory (no THREAD).
++	if (flags & CLONE_NEWPID)
++		bpftime_identity_disable_pid_namespace_cache();
++	if (!thread)
++		// The child may change its credentials in the shared cache.
++		bpftime_set_credential_cache_enabled(false);
++	if (!settls && (!vfork || thread)) {
++		// Runs concurrently with this thread on the same TLS.
++		bpftime_identity_bump_epoch();
++		bpftime_identity_mark_tls_shared();
++		return real(fn, stack, flags, arg, ptid, tls, ctid);
++	}
++	if (vfork) {
++		// This thread waits until the child execs or exits.
++		spawn_begin();
++		int ret = real(fn, stack, flags, arg, ptid, tls, ctid);
++		int saved = errno;
++		spawn_end();
++		errno = saved;
++		return ret;
++	}
++	// CLONE_VM|CLONE_SETTLS without CLONE_THREAD: own TLS, shared memory.
++	bpftime_identity_bump_epoch();
++	return real(fn, stack, flags, arg, ptid, tls, ctid);
++}
++
++#define CAREFUL_SPAWN_HOOK(name, ptype)                                        \
++	HIDDEN int bpftime_careful_##name##_hook(                              \
++		ptype *restrict pid, const char *restrict path,                \
++		const posix_spawn_file_actions_t *restrict fa,                 \
++		const posix_spawnattr_t *restrict attr,                        \
++		char *const argv[restrict], char *const envp[restrict])        \
++	{                                                                      \
++		int (*fn)(ptype *, const char *,                               \
++			  const posix_spawn_file_actions_t *,                  \
++			  const posix_spawnattr_t *, char *const[],            \
++			  char *const[]) = careful_real(&real_##name, #name);  \
++		if (!fn)                                                       \
++			return ENOSYS;                                         \
++		if (!careful())                                                \
++			return fn(pid, path, fa, attr, argv, envp);            \
++		spawn_begin();                                                 \
++		int ret = fn(pid, path, fa, attr, argv, envp);                 \
++		spawn_end();                                                   \
++		return ret;                                                    \
++	}
++
++CAREFUL_SPAWN_HOOK(posix_spawn, pid_t)
++CAREFUL_SPAWN_HOOK(posix_spawnp, pid_t)
++CAREFUL_SPAWN_HOOK(pidfd_spawn, int)
++CAREFUL_SPAWN_HOOK(pidfd_spawnp, int)
++
++HIDDEN int bpftime_careful_system_hook(const char *command)
++{
++	int (*fn)(const char *) = careful_real(&real_system, "system");
++	if (!fn) {
++		errno = ENOSYS;
++		return -1;
++	}
++	if (!careful())
++		return fn(command);
++	spawn_begin();
++	int ret = fn(command);
++	int saved = errno;
++	spawn_end();
++	errno = saved;
++	return ret;
++}
++
++HIDDEN FILE *bpftime_careful_popen_hook(const char *command,
++					const char *modes)
++{
++	FILE *(*fn)(const char *, const char *) =
++		careful_real(&real_popen, "popen");
++	if (!fn) {
++		errno = ENOSYS;
++		return NULL;
++	}
++	if (!careful())
++		return fn(command, modes);
++	spawn_begin();
++	FILE *ret = fn(command, modes);
++	int saved = errno;
++	spawn_end();
++	errno = saved;
++	return ret;
++}
++
++int prctl(int option, ...) EXPORT_ALIAS("bpftime_careful_prctl_hook");
++int pthread_setname_np(pthread_t thread, const char *name)
++	EXPORT_ALIAS("bpftime_careful_pthread_setname_np_hook");
++pid_t _Fork(void) EXPORT_ALIAS("bpftime_careful__Fork_hook");
++int clone(int (*fn)(void *), void *stack, int flags, void *arg, ...)
++	EXPORT_ALIAS("bpftime_careful_clone_hook");
++int __clone(int (*fn)(void *), void *stack, int flags, void *arg, ...)
++	EXPORT_ALIAS("bpftime_careful_clone_hook");
++int posix_spawn(pid_t *restrict pid, const char *restrict path,
++		const posix_spawn_file_actions_t *restrict fa,
++		const posix_spawnattr_t *restrict attr,
++		char *const argv[restrict], char *const envp[restrict])
++	EXPORT_ALIAS("bpftime_careful_posix_spawn_hook");
++int posix_spawnp(pid_t *restrict pid, const char *restrict file,
++		 const posix_spawn_file_actions_t *restrict fa,
++		 const posix_spawnattr_t *restrict attr,
++		 char *const argv[restrict], char *const envp[restrict])
++	EXPORT_ALIAS("bpftime_careful_posix_spawnp_hook");
++int pidfd_spawn(int *restrict pidfd, const char *restrict path,
++		const posix_spawn_file_actions_t *restrict fa,
++		const posix_spawnattr_t *restrict attr,
++		char *const argv[restrict], char *const envp[restrict])
++	EXPORT_ALIAS("bpftime_careful_pidfd_spawn_hook");
++int pidfd_spawnp(int *restrict pidfd, const char *restrict file,
++		 const posix_spawn_file_actions_t *restrict fa,
++		 const posix_spawnattr_t *restrict attr,
++		 char *const argv[restrict], char *const envp[restrict])
++	EXPORT_ALIAS("bpftime_careful_pidfd_spawnp_hook");
++int system(const char *command) EXPORT_ALIAS("bpftime_careful_system_hook");
++FILE *popen(const char *command, const char *modes)
++	EXPORT_ALIAS("bpftime_careful_popen_hook");
++FILE *_IO_popen(const char *command, const char *modes)
++	EXPORT_ALIAS("bpftime_careful_popen_hook");
++
++// Resolves the real vfork for the stub when it runs before the constructor.
++HIDDEN void *bpftime_careful_resolve_vfork(void)
++{
++	return careful_real(&bpftime_careful_real_vfork, "vfork");
++}
++
++// vfork/__vfork: the child runs on the caller's stack until it execs or exits,
++// so the interposer must have no frame when it enters libc's vfork: it bumps
++// the epoch (careful mode) and jumps to libc's vfork, which returns to our
++// caller. Clobbers only rax and the flags, or, on the first call before the
++// constructor, the caller-saved registers of a call (vfork takes no
++// arguments). If libc's vfork cannot be found it jumps to fork, which POSIX
++// allows as a vfork implementation. bpftime_careful_vfork_hook is a hidden
++// name for the same address, for the binding check. A signal handler between
++// the bump and the vfork system call could still cache the parent's identity
++// for the child (a window of a few instructions; the C interposers close it
++// with bpftime_careful_spawning).
++#if defined(__x86_64__)
++__asm__(".text\n"
++	".globl vfork\n"
++	".type vfork, @function\n"
++	".globl __vfork\n"
++	".type __vfork, @function\n"
++	".globl bpftime_careful_vfork_hook\n"
++	".hidden bpftime_careful_vfork_hook\n"
++	".type bpftime_careful_vfork_hook, @function\n"
++	".p2align 4\n"
++	"vfork:\n"
++	"__vfork:\n"
++	"bpftime_careful_vfork_hook:\n"
++	"	endbr64\n"
++	"	movq bpftime_careful_mode@GOTPCREL(%rip), %rax\n"
++	"	cmpb $0, (%rax)\n"
++	"	je 1f\n"
++	"	movq bpftime_identity_epoch@GOTPCREL(%rip), %rax\n"
++	"	lock incq (%rax)\n"
++	"1:\n"
++	"	movq bpftime_careful_real_vfork(%rip), %rax\n"
++	"	testq %rax, %rax\n"
++	"	jz 2f\n"
++	"	jmp *%rax\n"
++	"2:\n"
++	"	subq $8, %rsp\n"
++	"	call bpftime_careful_resolve_vfork\n"
++	"	addq $8, %rsp\n"
++	"	testq %rax, %rax\n"
++	"	jz 3f\n"
++	"	jmp *%rax\n"
++	"3:\n"
++	"	jmp fork@PLT\n"
++	".size vfork, .-vfork\n"
++	".size __vfork, .-__vfork\n"
++	".size bpftime_careful_vfork_hook, .-bpftime_careful_vfork_hook\n");
++#define CAREFUL_HAVE_VFORK 1
++extern char bpftime_careful_vfork_hook[] HIDDEN;
++#else
++#define CAREFUL_HAVE_VFORK 0
++#endif
++
++struct careful_entry {
++	const char *name;
++	void **real;
++	void *hook;
++	bool optional; // may be missing from an older libc
++};
++
++static const struct careful_entry careful_entries[] = {
++	{ "prctl", &real_prctl, (void *)bpftime_careful_prctl_hook, false },
++	{ "pthread_setname_np", &real_pthread_setname_np,
++	  (void *)bpftime_careful_pthread_setname_np_hook, false },
++	{ "_Fork", &real__Fork, (void *)bpftime_careful__Fork_hook, true },
++	{ "clone", &real_clone, (void *)bpftime_careful_clone_hook, false },
++	{ "__clone", &real_clone, (void *)bpftime_careful_clone_hook, false },
++	{ "posix_spawn", &real_posix_spawn,
++	  (void *)bpftime_careful_posix_spawn_hook, false },
++	{ "posix_spawnp", &real_posix_spawnp,
++	  (void *)bpftime_careful_posix_spawnp_hook, false },
++	{ "pidfd_spawn", &real_pidfd_spawn,
++	  (void *)bpftime_careful_pidfd_spawn_hook, true },
++	{ "pidfd_spawnp", &real_pidfd_spawnp,
++	  (void *)bpftime_careful_pidfd_spawnp_hook, true },
++	{ "system", &real_system, (void *)bpftime_careful_system_hook, false },
++	{ "popen", &real_popen, (void *)bpftime_careful_popen_hook, false },
++	{ "_IO_popen", &real_popen, (void *)bpftime_careful_popen_hook, true },
++#if CAREFUL_HAVE_VFORK
++	{ "vfork", &bpftime_careful_real_vfork,
++	  (void *)bpftime_careful_vfork_hook, false },
++	{ "__vfork", &bpftime_careful_real_vfork,
++	  (void *)bpftime_careful_vfork_hook, true },
++#endif
++};
++
++// Resolve every real function early, so that the interposers do not call
++// dlsym later (in a signal handler or a vfork child).
++__attribute__((constructor)) static void careful_resolve_all(void)
++{
++	for (size_t i = 0; i < sizeof(careful_entries) / sizeof(careful_entries[0]);
++	     i++) {
++		// __clone/__vfork/_IO_popen share the slot of clone/vfork/popen,
++		// which is resolved by its public name.
++		if (__atomic_load_n(careful_entries[i].real, __ATOMIC_ACQUIRE))
++			continue;
++		careful_real(careful_entries[i].real, careful_entries[i].name);
++	}
++}
++
++// Resolves the real functions and, in careful mode, enables the identity and
++// comm caches only if the process binds every interposer. Returns whether
++// they are bound.
++bool bpftime_agent_setup_careful(void)
++{
++	careful_resolve_all();
++	bool bound = true;
++	for (size_t i = 0; i < sizeof(careful_entries) / sizeof(careful_entries[0]);
++	     i++) {
++		const struct careful_entry *e = &careful_entries[i];
++		void *real = __atomic_load_n(e->real, __ATOMIC_ACQUIRE);
++		if (e->optional && real == NULL)
++			continue; // this libc has no such function
++		bound = bound && real && dlsym(RTLD_DEFAULT, e->name) == e->hook;
++	}
++#if !CAREFUL_HAVE_VFORK
++	// No vfork interposer on this architecture yet: a vfork child would
++	// run on its parent's cached identity.
++	bound = false;
++#endif
++	if (bpftime_careful_mode) {
++		if (bound)
++			bpftime_identity_enable_cache();
++		else
++			bpftime_identity_disable_cache();
++		bpftime_careful_comm_set_cache_enabled(bound);
++	}
++	return bound;
++}
+diff --git a/runtime/agent/credential_hooks.cpp b/runtime/agent/credential_hooks.cpp
+index ebd2c66d..1e7056ff 100644
+--- a/runtime/agent/credential_hooks.cpp
++++ b/runtime/agent/credential_hooks.cpp
+@@ -12,8 +12,22 @@
+ #include <dlfcn.h>
+ #include <sys/types.h>
+ 
++// Dnext careful mode (careful_hooks.c): a vfork-like child that changes its
++// credentials shares the process-wide cache with its parent; turn the cache
++// off for good rather than let either side cache the other's ids.
++extern "C" bool bpftime_careful_mode;
++extern "C" bool bpftime_identity_in_own_process(void);
++
+ namespace
+ {
++inline void credentials_changed()
++{
++	if (__builtin_expect(bpftime_careful_mode, 0) &&
++	    !bpftime_identity_in_own_process())
++		bpftime_set_credential_cache_enabled(false);
++	bpftime_invalidate_credential_cache();
++}
++
+ template <class F> F real_function(std::atomic<void *> &slot, const char *name)
+ {
+ 	auto fn = slot.load(std::memory_order_acquire);
+@@ -39,7 +53,7 @@ template <class F> F real_function(std::atomic<void *> &slot, const char *name)
+ 			ret = fn args;                                         \
+ 		else                                                           \
+ 			errno = ENOSYS;                                        \
+-		bpftime_invalidate_credential_cache();                         \
++		credentials_changed();                                         \
+ 		return ret;                                                    \
+ 	}                                                                      \
+ 	extern "C" __attribute__((visibility("default"),                       \
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index a159ec43..18b5f904 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -66,6 +66,9 @@
+ #include <utility>
+ #include <bpftime_shm_internal.hpp>
+ #include "producer_identity.hpp"
++#if __linux__
++#include <sys/prctl.h>
++#endif
+ #include <chrono>
+ #include <thread>
+ 
+@@ -156,6 +159,7 @@ static const int probe_access_atfork_status = bpftime::register_fork_handlers(
+ 
+ uint64_t bpftime_override_return(uint64_t ctx, uint64_t value);
+ uint64_t bpftime_set_retval(uint64_t retval);
++void bpftime_helpers_after_raw_fork_child(void);
+ 
+ } // extern "C"
+ 
+@@ -737,6 +741,12 @@ uint64_t bpf_get_current_uid_gid(uint64_t, uint64_t, uint64_t, uint64_t,
+ 		return value;
+ 	auto generation = credential_generation.load(std::memory_order_acquire);
+ 	value = query_credentials();
++	// Careful mode: a vfork-like child shares this process's memory and
++	// may have other credentials (it called setuid before exec); it must
++	// not fill the parent's cache.
++	if (__builtin_expect(bpftime_careful_mode, 0) &&
++	    !bpftime_identity_in_own_process())
++		return value;
+ 	auto empty = credentials_unknown;
+ 	cached_credentials.compare_exchange_strong(empty, value,
+ 						   std::memory_order_acq_rel);
+@@ -841,9 +851,102 @@ const int current_comm_atfork_status =
+ } // namespace
+ #endif
+ 
++// Dnext careful mode (N5a): the calling thread's comm, as the kernel helper
++// returns it (TASK_COMM_LEN 16, at most 15 characters, NUL-padded to size),
++// cached per thread. An entry is valid while its generation equals
++// careful_comm_epoch. The agent's prctl(PR_SET_NAME) and pthread_setname_np
++// interposers bracket every rename with rename_begin/rename_end: the entry
++// is not refilled in between (probes on the rename path, signal handlers),
++// and rename_end bumps the epoch, so a refill that read the name before the
++// rename ended is stale at once. Refills read the name with
++// prctl(PR_GET_NAME): no allocation, async-signal-safe. Nothing is cached
++// without bound interposers, in a TLS block shared with a clone, while the
++// thread spawns a TLS-sharing child, or in such a child (vfork-like: not
++// this process).
++#if __linux__
++namespace
++{
++struct careful_comm_entry {
++	char comm[16];
++	uint64_t gen; // 0: empty
++	unsigned renaming;
++};
++__thread careful_comm_entry careful_comm_tls;
++std::atomic<uint64_t> careful_comm_epoch{ 1 };
++std::atomic<bool> careful_comm_cache_enabled{ false };
++
++void careful_copy_comm(char *buf, uint64_t size, const char *comm)
++{
++	if (size == 0)
++		return;
++	const size_t n = size < 16 ? (size_t)size : 16;
++	memset(buf, 0, (size_t)size);
++	memcpy(buf, comm, n);
++	buf[n - 1] = '\0';
++}
++
++// Out of line and cold: the switch-off path of bpftime_get_current_comm stays
++// as it was.
++[[gnu::noinline, gnu::cold]] uint64_t careful_get_current_comm(uint64_t buf,
++							     uint64_t size)
++{
++	careful_comm_entry &e = careful_comm_tls;
++	const uint64_t epoch =
++		careful_comm_epoch.load(std::memory_order_acquire);
++	if (__builtin_expect(e.gen == epoch, 1)) {
++		careful_copy_comm((char *)(uintptr_t)buf, size, e.comm);
++		return 0;
++	}
++	char comm[16] = {};
++	if (prctl(PR_GET_NAME, comm, 0, 0, 0) != 0) {
++		if (size)
++			memset((void *)(uintptr_t)buf, 0, (size_t)size);
++		return (uint64_t)(int64_t)-EINVAL;
++	}
++	comm[15] = '\0';
++	if (careful_comm_cache_enabled.load(std::memory_order_relaxed) &&
++	    e.renaming == 0 && bpftime_careful_spawning == 0 &&
++	    !bpftime_identity_tls_shared() &&
++	    bpftime_identity_in_own_process()) {
++		memcpy(e.comm, comm, sizeof(e.comm));
++		// The epoch read before the name: a rename that ended after the
++		// read bumped it, so this entry is stale at once.
++		e.gen = epoch;
++	}
++	careful_copy_comm((char *)(uintptr_t)buf, size, comm);
++	return 0;
++}
++} // namespace
++
++extern "C" void bpftime_careful_comm_set_cache_enabled(bool enabled)
++{
++	careful_comm_epoch.fetch_add(1, std::memory_order_acq_rel);
++	careful_comm_cache_enabled.store(enabled, std::memory_order_release);
++}
++
++// Around a rename of this thread or (other) of another thread of this
++// process. Async-signal-safe.
++extern "C" void bpftime_careful_comm_rename_begin(void)
++{
++	careful_comm_tls.renaming++;
++	careful_comm_tls.gen = 0;
++}
++
++extern "C" void bpftime_careful_comm_rename_end(void)
++{
++	careful_comm_tls.gen = 0;
++	careful_comm_epoch.fetch_add(1, std::memory_order_acq_rel);
++	careful_comm_tls.renaming--;
++}
++#endif
++
+ uint64_t bpftime_get_current_comm(uint64_t buf, uint64_t size, uint64_t,
+ 				  uint64_t, uint64_t)
+ {
++#if __linux__
++	if (__builtin_expect(bpftime_careful_mode, 0))
++		return careful_get_current_comm(buf, size);
++#endif
+ #if __linux__
+ 	// If the fork handler could not be registered, a forked child might keep
+ 	// an in-progress once word, so bypass the cache and resolve every call
+@@ -2446,3 +2549,22 @@ std::map<int32_t, verifier::BpftimeHelperProrotype> get_ufunc_helper_protos()
+ #endif
+ 
+ } // namespace bpftime
++
++// Dnext careful mode: the child of a raw _Fork (or of a clone without
++// CLONE_VM) runs no fork handlers; reset what the handlers in this file
++// reset: the pid probe_read/probe_write target, the read-ahead window and the
++// host NSpid cache. Async-signal-safe.
++extern "C" void bpftime_helpers_after_raw_fork_child(void)
++{
++#if __linux__ && \
++	(defined(ENABLE_PROBE_READ_CHECK) || defined(ENABLE_PROBE_WRITE_CHECK))
++	probe_access_pid = (pid_t)syscall(SYS_getpid);
++#if defined(ENABLE_PROBE_READ_CHECK)
++	probe_read_ahead_invalidate();
++#endif
++#endif
++#if __linux__
++	host_procfs_state.store(-1, std::memory_order_relaxed);
++	host_identity_cache = { -1, -1, 0 };
++#endif
++}
+diff --git a/runtime/src/handler/perf_event_handler.cpp b/runtime/src/handler/perf_event_handler.cpp
+index bc61a31a..2ad09755 100644
+--- a/runtime/src/handler/perf_event_handler.cpp
++++ b/runtime/src/handler/perf_event_handler.cpp
+@@ -205,6 +205,12 @@ const int shard_cache_atfork_status = register_fork_handlers(
+ 	nullptr, nullptr, clear_software_perf_event_shard_cache);
+ } // namespace
+ 
++// Dnext careful mode: the child of a raw _Fork, which runs no fork handlers.
++extern "C" void bpftime_perf_after_raw_fork_child(void)
++{
++	clear_software_perf_event_shard_cache();
++}
++
+ #if defined(BPFTIME_UNIT_TESTING)
+ size_t cached_software_perf_event_shard_count()
+ {
+diff --git a/runtime/src/producer_identity.cpp b/runtime/src/producer_identity.cpp
+index cefd8c2f..5ebcae37 100644
+--- a/runtime/src/producer_identity.cpp
++++ b/runtime/src/producer_identity.cpp
+@@ -3,6 +3,7 @@
+ #include <atomic>
+ #include <cerrno>
+ #include <cstdio>
++#include <cstdlib>
+ #include <cstring>
+ #include <ctime>
+ #include <pthread.h>
+@@ -17,6 +18,18 @@ extern "C" {
+ // and no fork handler runs for it; identities cached before the bump are
+ // checked again. Exported for the transformer (agent.version).
+ __attribute__((visibility("default"))) uint64_t bpftime_identity_epoch = 0;
++
++// Dnext careful mode switch (see producer_identity.hpp). `used`: the agent's
++// vfork stub reads it from asm, which LTO does not see.
++__attribute__((used)) bool bpftime_careful_mode = [] {
++	const char *e = getenv("BPFTIME_CAREFUL");
++	return e != nullptr && e[0] == '1';
++}();
++// Careful mode: nonzero while this thread is inside posix_spawn, system,
++// popen or a CLONE_VFORK clone. The child shares this TLS, so a refill there
++// (a signal handler or a probe between the epoch bump and the clone) must not
++// cache the parent's identity or comm for it.
++__thread unsigned bpftime_careful_spawning = 0;
+ }
+ 
+ namespace bpftime
+@@ -33,6 +46,15 @@ namespace
+ int process_pid = getpid();
+ // UINT64_MAX: not read yet.
+ std::atomic<uint64_t> cached_producer_namespace{ UINT64_MAX };
++// Careful mode: this thread's TLS is shared with a clone (never reset), and
++// "cache nothing" when the careful interposers are not bound.
++__thread bool tls_shared = false;
++// Careful mode caches identities only after the agent found its interposers
++// bound (bpftime_identity_enable_cache); hosts without the agent never do.
++std::atomic<bool> identity_cache_disabled{ bpftime_careful_mode };
++// Process-wide in careful mode after a CLONE_NEWPID|CLONE_VM clone: parent
++// and child share the cache but live in different pid namespaces.
++std::atomic<bool> pid_namespace_cache_disabled{ false };
+ const int producer_identity_atfork_status =
+ 	register_fork_handlers(nullptr, nullptr, [] {
+ 		process_pid = getpid();
+@@ -129,7 +151,10 @@ bool is_thread_gone(int pid, int64_t tid)
+ uint64_t producer_pid_namespace()
+ {
+ 	uint64_t ns = cached_producer_namespace.load(std::memory_order_relaxed);
+-	if (ns == UINT64_MAX || producer_identity_atfork_status != 0) {
++	if (ns == UINT64_MAX || producer_identity_atfork_status != 0 ||
++	    __builtin_expect(pid_namespace_cache_disabled.load(
++				     std::memory_order_relaxed),
++			     0)) {
+ 		ns = current_pid_namespace();
+ 		cached_producer_namespace.store(ns, std::memory_order_relaxed);
+ 	}
+@@ -144,6 +169,12 @@ void identity_detail::read_identity(int &pid, int64_t &tid)
+ 	tid = current_thread_id();
+ 	if (producer_identity_atfork_status != 0)
+ 		return;
++	// Careful mode: nothing is cached in a TLS block shared with a clone,
++	// or when the interposers that keep the cache correct are not bound.
++	if (__builtin_expect(bpftime_careful_mode, 0) &&
++	    (tls_shared || bpftime_careful_spawning ||
++	     identity_cache_disabled.load(std::memory_order_relaxed)))
++		return;
+ 	// Another pid than the process's: a vfork child, whose ids are not
+ 	// this thread's. Cache only the thread's own.
+ 	if (pid == process_pid) {
+@@ -153,4 +184,67 @@ void identity_detail::read_identity(int &pid, int64_t &tid)
+ 			__atomic_load_n(&bpftime_identity_epoch, __ATOMIC_RELAXED);
+ 	}
+ }
++
+ } // namespace bpftime
++
++using namespace bpftime;
++using namespace bpftime::identity_detail;
++
++extern "C" void bpftime_identity_bump_epoch(void)
++{
++	__atomic_fetch_add(&bpftime_identity_epoch, 1, __ATOMIC_SEQ_CST);
++}
++
++extern "C" void bpftime_perf_after_raw_fork_child(void);
++extern "C" void bpftime_helpers_after_raw_fork_child(void);
++
++extern "C" void bpftime_identity_after_raw_fork_child(void)
++{
++	process_pid = (int)syscall(SYS_getpid);
++	cache.pid = -1;
++	cache.tid = -1;
++	bpftime_careful_spawning = 0;
++	cached_producer_namespace.store(UINT64_MAX, std::memory_order_relaxed);
++	// What the other fork child handlers reset that a raw child needs:
++	// perf shard cache, probe_read/write target pid, host NSpid cache.
++	bpftime_perf_after_raw_fork_child();
++	bpftime_helpers_after_raw_fork_child();
++}
++
++extern "C" void bpftime_identity_mark_tls_shared(void)
++{
++	tls_shared = true;
++	cache.pid = -1;
++	cache.tid = -1;
++}
++
++extern "C" bool bpftime_identity_tls_shared(void)
++{
++	return tls_shared;
++}
++
++extern "C" void bpftime_identity_disable_pid_namespace_cache(void)
++{
++	pid_namespace_cache_disabled.store(true, std::memory_order_relaxed);
++	cached_producer_namespace.store(UINT64_MAX, std::memory_order_relaxed);
++}
++
++extern "C" void bpftime_identity_disable_cache(void)
++{
++	identity_cache_disabled.store(true, std::memory_order_relaxed);
++	bpftime_identity_bump_epoch();
++}
++
++extern "C" void bpftime_identity_enable_cache(void)
++{
++	identity_cache_disabled.store(false, std::memory_order_relaxed);
++	bpftime_identity_bump_epoch();
++}
++
++extern "C" bool bpftime_identity_in_own_process(void)
++{
++	int pid;
++	int64_t tid;
++	current_producer_identity(pid, tid);
++	return pid == process_pid;
++}
+diff --git a/runtime/src/producer_identity.hpp b/runtime/src/producer_identity.hpp
+index 450d0a5a..76df51d5 100644
+--- a/runtime/src/producer_identity.hpp
++++ b/runtime/src/producer_identity.hpp
+@@ -4,6 +4,45 @@
+ 
+ extern "C" uint64_t bpftime_identity_epoch;
+ 
++// Dnext careful mode (BPFTIME_CAREFUL=1, read once at load: nginx clears its
++// workers' environment, which inherit this). Off (the default), Tern behaves
++// as before and the agent's careful interposers only forward to libc. On, the
++// interposers (runtime/agent/careful_hooks.c) keep the per-thread caches of
++// identity (pid, tid) and comm correct across the libc calls that change them:
++// vfork, _Fork, clone, posix_spawn(p), pidfd_spawn(p), system, popen;
++// prctl(PR_SET_NAME), pthread_setname_np. Changes made by raw system calls
++// bypassing libc (including syscall(2)), and writes to
++// /proc/<pid>/task/<tid>/comm, are not observed.
++extern "C" bool bpftime_careful_mode;
++
++// Careful mode, called by the agent's interposers (careful_hooks.c; C, so
++// that libc's prototypes can be redeclared as aliases) and the helpers. All
++// async-signal-safe.
++extern "C" {
++// Makes every thread's cached identity checked again (an epoch bump).
++void bpftime_identity_bump_epoch(void);
++// In the child of a raw _Fork (no fork handlers run): this process's pid is
++// the child's, and the caches are cleared as the fork child handler does.
++void bpftime_identity_after_raw_fork_child(void);
++// The calling thread's TLS is about to be shared with a clone (CLONE_VM
++// without CLONE_SETTLS or CLONE_VFORK): neither may cache an identity or a
++// comm in it from now on. Permanent for this TLS block.
++void bpftime_identity_mark_tls_shared(void);
++bool bpftime_identity_tls_shared(void);
++// From now on the pid namespace is read on every call (after a
++// CLONE_NEWPID|CLONE_VM clone, which shares the cache across namespaces).
++void bpftime_identity_disable_pid_namespace_cache(void);
++// Careful mode starts with identities uncached; the agent enables the cache
++// once it found its interposers bound, or keeps it disabled.
++void bpftime_identity_disable_cache(void);
++void bpftime_identity_enable_cache(void);
++// Nonzero while this thread spawns a child that shares its TLS.
++extern __thread unsigned bpftime_careful_spawning;
++// Whether the calling thread runs in this process (not in a vfork-like
++// child that shares its memory).
++bool bpftime_identity_in_own_process(void);
++}
++
+ namespace bpftime
+ {
+ namespace identity_detail
+-- 
+2.47.3
+
