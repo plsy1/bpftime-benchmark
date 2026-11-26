@@ -837,6 +837,13 @@ std::string line_statement(const std::string &line)
 	return s;
 }
 
+// a line whose last token is a guard (@p, @!p): it guards the next line
+bool ends_in_guard(const std::string &line)
+{
+	static const std::regex g(R"((?:^|[;{}:\s])@\s*!?\s*%?[\w$]+$)");
+	return std::regex_search(trim(strip_comments(line)), g);
+}
+
 bool is_ret_line(const std::string &line)
 {
 	static const std::regex r(
@@ -883,7 +890,8 @@ byvalue_plan plan_by_value(const std::string &fbody,
 			  " bytes");
 	// the rewrite works on lines: every statement it reads must be what
 	// the line shows. No block comments, no directive glued to a
-	// statement (.loc without ';'), no guard on a line of its own.
+	// statement (.loc without ';'), no line ending in a guard (alone or
+	// after another statement: it guards what the next line holds).
 	if (fbody.find("/*") != std::string::npos)
 		return no("a block comment");
 	{
@@ -893,13 +901,11 @@ byvalue_plan plan_by_value(const std::string &fbody,
 			if (!p.text.empty() && p.text[0] == '.' &&
 			    !std::regex_match(p.text, decl))
 				return no("a directive glued to a statement");
-		static const std::regex lone_guard(R"(^@\s*!?\s*%?[\w$]+$)");
 		std::istringstream in(fbody);
 		std::string line;
 		while (std::getline(in, line))
-			if (std::regex_match(trim(strip_comments(line)),
-					     lone_guard))
-				return no("a guard on a line of its own");
+			if (ends_in_guard(line))
+				return no("a line ending in a guard");
 	}
 	static const std::regex helper(R"(_bpf_helper_ext_(\d{4})\b)");
 	static const std::regex p1(
@@ -1347,11 +1353,19 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 				R"(^\s*(?:[%$A-Za-z_][\w$]*\s*:\s*)?(?:@\s*!?\s*%?[\w$]+\s*)?$)");
 			static const std::regex word(R"(^call\s+$)");
 			std::istringstream in(inner);
-			std::string line, n;
+			std::string line, n, prev;
 			size_t c, a, s;
 			while (std::getline(in, line)) {
+				const bool guard_before = ends_in_guard(prev);
+				prev = line;
 				if (!find_call(line, &c, &a, &s, &n))
 					continue;
+				// the area's address or the word is formed at the
+				// start of the call's line: a guard ending the line
+				// before would take it and leave the call unguarded
+				if (guard_before)
+					fail("a call of " + n +
+					     " whose guard is on the line before");
 				called.insert(n);
 				const std::string rest =
 					trim(strip_comments(line.substr(s + 1)));

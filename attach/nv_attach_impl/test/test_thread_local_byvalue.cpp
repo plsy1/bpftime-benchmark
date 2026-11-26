@@ -382,7 +382,10 @@ TEST_CASE("Any other form keeps the area in memory for the whole kernel",
 		  "block comment" },
 		{ "guard on a line of its own before a ret",
 		  entry(KEY0, "\t@%p1\n\tret;\n"), ok_exit, m, 8,
-		  "guard on a line of its own" },
+		  "ending in a guard" },
+		{ "guard ending the line before a ret",
+		  entry(KEY0, "\tshr.u64 \t%rd20, %rd14, 32; @%p1\n\tret;\n"),
+		  ok_exit, m, 8, "ending in a guard" },
 		{ "compare with another register",
 		  entry(KEY0, "\tsetp.eq.s64 \t%p2, %rd9, %rd14;\n"), ok_exit, m,
 		  8, "other than a compare" },
@@ -438,6 +441,19 @@ TEST_CASE("Any other form keeps the area in memory for the whole kernel",
 		REQUIRE(has(out, "%bpftime_tl_in"));
 		REQUIRE_FALSE(has(out, "%bptv_"));
 	}
+}
+
+TEST_CASE("A probe call whose guard ends the line before is refused, in either form",
+	  "[tl-byvalue]")
+{
+	const std::string k = kernel("\tmov.u32 \t%r2, 1; @%p1\n    call __probe_func__kern;\n");
+	const std::string k2 = kernel("\t@!%p1\n    call __probe_func__kern;\n");
+	thread_local_routing_stats st;
+	// by value
+	REQUIRE_THROWS(route(HEAD + exit_fn() + entry() + k, st));
+	REQUIRE_THROWS(route(HEAD + exit_fn() + entry() + k2, st));
+	// the address form (a 24-byte area) refuses it too
+	REQUIRE_THROWS(route(HEAD + exit_fn() + entry() + k, st, { tl(4, 16) }, 24));
 }
 
 TEST_CASE("A by-value function called outside its kernel is refused",
