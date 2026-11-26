@@ -492,6 +492,24 @@ The thread-local area passed by value, the candidate left on 11-18 (`proto/map-m
   inputs and two older fd and register-count bugs; all fixed, and one more line form of the same
   kind found while checking the fixes.
 
+## 11-26: hash maps from GPU probes, the current state
+
+The map model has only array-shaped maps; before designing hash maps, what a GPU probe gets today
+was measured (results `gpu/hash-current-20261126`; a read-only survey first, rules before the runs).
+
+- **What it is:** on the Orin every lookup, update and delete of a hash map from a GPU probe is a
+  host call through one request slot and one CPU watcher thread; the GPU hash map type (1501) is
+  created as an ordinary hash map here (its device implementation is x86-only).
+- **Cost:** 10-13 us per operation back to back (any operation: it is the round trip), about
+  18-21 us when calls are sparse, with or without CUDA graphs. On llama.cpp: rms_norm with one
+  lookup per thread makes a 32-token prefill 341-351 times slower (the 11-13 census measured 307
+  times, 10.8 us per call); one call per block on rms_norm costs 44%; one call per launch on the
+  four kernels adds about 10 points on tg128 over the same probe without the hash call.
+- **Correctness:** keys inserted beforehand or one writer per key count exactly; the examples'
+  first-touch counter idiom loses every increment whose lookup missed before the first insert was
+  served (thousands per key at one call per thread), and lookup-then-update (cuda-counter's sum)
+  loses about half.
+
 ## Where it stands (11-18)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
