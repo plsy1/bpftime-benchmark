@@ -1,0 +1,1218 @@
+From 1d95c1604099a3e99cdac3bd0517762283ba5329 Mon Sep 17 00:00:00 2001
+From: jetson <jetson@orin-nano.tail52323b.ts.net>
+Date: Thu, 26 Nov 2026 16:04:18 +0900
+Subject: [PATCH 1/2] nv_attach: the thread-local area by value where its
+ probes allow it
+
+A kernel whose probe functions reach the thread-local area (1530) only
+through constant-key lookups and 32-bit loads and stores with 64-bit
+registers keeps the area (at most 16 bytes) in a .local slot of its own
+and passes its 8-byte words by value: a probe function that accesses the
+area takes them as .param inputs, one that writes it also returns them.
+Inside, the area is .b32 halves, a lookup the non-null constant 1, a load
+cvt.u64.u32 and a store cvt.u32.u64 of its half; the halves are packed and
+returned before every ret. The kernel loads the words before each call
+and stores what a writing function returns (with the call's predicate).
+
+Eligibility is an allowlist, decided once per probe function
+(plan_by_value) and used by both the kernel and the function rewrite:
+every map helper call must name its map with a constant; a thread-local
+map may only be looked up, with a constant key the program just stored
+(forwarded_key, a single mov of a plain decimal), in range; every statement
+the tokenizer finds mentioning a lookup's result must be its definition, a
+compare with 0, or such an access inside the value, unguarded, on a line of
+its own; every ret on a line of its own. Anything else in any probe
+function of a kernel keeps the area in memory for that kernel, with the
+reason logged ("Thread-local area kept in memory"). Map calls with a
+constant fd of another type get 0 for the area (helpers 1-3 read it for
+thread-local maps only). A kernel none of whose probes reaches the area
+gets no area at all.
+
+Basis: .local is the thread's own (PTX ISA 5.1.5) and the area's address
+never leaves the rewritten accesses; device function inputs and returns
+are .param, returns written with st.param (5.1.6.4, 7.1); ld/st with a
+wider register zero-extend a load and store the low bits (9.4.1), as
+cvt.u64.u32 and cvt.u32.u64 do (6.5.1). The halves' order in a word is
+packed and unpacked only by this code.
+
+Measured first as a hand-written form of n70's lat_mmvq PTX (passes v1/v2,
+tg128, mul_mat_vec_q probed): 0.021-0.024 ns per thread less than the area
+in memory, 54.3 -> 55.9 t/s; the built pass emits that text byte for byte.
+pt_victim: seven tools exact as before (lat by value; carry and tlatomic
+keep the area: carry stores its keys with one vector store, so they are not
+forwarded; tlatomic's area is 24 bytes) and a new one-value carry tool
+(carry1) by value, 0 mismatches over 3.88M thread executions; with the
+halves swapped in one exit (override) it reports every exit of that kernel.
+Unit tests: [tl-byvalue], 7 cases. The sum-map test whose probe does not
+use its thread-local map now expects no area (nothing to pass).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ attach/nv_attach_impl/nv_attach_impl.cpp      |   7 +
+ .../nv_thread_local_routing.cpp               | 556 ++++++++++++++++--
+ .../nv_thread_local_routing.hpp               |  31 +
+ attach/nv_attach_impl/test/CMakeLists.txt     |   1 +
+ .../test/test_sum_map_routing.cpp             |  12 +-
+ .../test/test_thread_local_byvalue.cpp        | 403 +++++++++++++
+ 6 files changed, 949 insertions(+), 61 deletions(-)
+ create mode 100644 attach/nv_attach_impl/test/test_thread_local_byvalue.cpp
+
+diff --git a/attach/nv_attach_impl/nv_attach_impl.cpp b/attach/nv_attach_impl/nv_attach_impl.cpp
+index e43e002d..d911add3 100644
+--- a/attach/nv_attach_impl/nv_attach_impl.cpp
++++ b/attach/nv_attach_impl/nv_attach_impl.cpp
+@@ -1055,6 +1055,13 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
+ 		st.unrouted_functions, st.helper_calls_given_zero,
+ 		st.guarded_atomics, st.sum_lookups, st.global_atomics,
+ 		st.keys_forwarded);
++	SPDLOG_INFO(
++		"Thread-local area by value in {}: {} kernels, {} probe functions, {} lookups made constant, {} accesses made register moves, {} kernels kept the area in memory",
++		file_name, st.byvalue_kernels, st.byvalue_functions,
++		st.byvalue_lookups, st.byvalue_accesses,
++		st.byvalue_fallbacks.size());
++	for (const auto &why : st.byvalue_fallbacks)
++		SPDLOG_INFO("Thread-local area kept in memory: {}", why);
+ 	return out;
+ }
+ 
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.cpp b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+index ea6c5677..2e908fe5 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.cpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+@@ -798,11 +798,289 @@ std::string sum_lookup(const sum_map_desc &d, long long fd, int n,
+ 	return o.str();
+ }
+ 
++// The thread-local area by value (see the header). Only what `lat` runs on
++// the device is rewritten: 32-bit loads and stores at 4-byte offsets of a
++// value, with 64-bit registers. Anything else keeps the area in memory.
++constexpr uint64_t BYVALUE_MAX_BYTES = 16;
++const char *TV_SYM = "__bpftime_tv";
++const char *TV_ARG = "%bpftime_tv_a";
++const char *TV_RET = "%bpftime_tv_r";
++
++struct byvalue_plan {
++	bool ok = false;
++	std::string why; // why not
++	bool reads = false;
++	bool writes = false;
++	// a lookup's result register -> its value's byte offset in the area
++	std::map<std::string, uint64_t> pointers;
++	// an access (statement text) -> the register move replacing it
++	std::map<std::string, std::string> moves;
++	// accesses per statement text, each on a line of its own
++	std::map<std::string, int> access_lines;
++};
++
++// a statement on a line of its own: the line without its comment, trimmed,
++// without the ';'; empty when the line is not exactly one statement
++std::string line_statement(const std::string &line)
++{
++	std::string s = trim(strip_comments(line));
++	if (s.empty() || s.back() != ';')
++		return "";
++	s = trim(s.substr(0, s.size() - 1));
++	if (s.find(';') != std::string::npos)
++		return "";
++	return s;
++}
++
++bool is_ret_line(const std::string &line)
++{
++	static const std::regex r(
++		R"(^\s*(?:@\s*!?\s*%?[\w$]+\s+)?ret(?:\.uni)?\s*;\s*$)");
++	return std::regex_match(trim(strip_comments(line)) , r);
++}
++
++// a register written once, by a mov of a plain decimal that fits 32 bits
++bool constant_key(const std::string &body, const std::string &reg,
++		  long long *v)
++{
++	std::string def;
++	if (reg.empty() || reg[0] != '%' || count_defs(body, reg, &def) != 1)
++		return false;
++	static const std::regex mv(
++		R"(^mov\.[ubs](?:32|64)\s+(%[\w$]+)\s*,\s*(0|[1-9]\d{0,9})$)");
++	std::smatch m;
++	if (!std::regex_match(def, m, mv) || m[1] != reg)
++		return false;
++	*v = std::stoll(m[2]);
++	return *v <= 0xffffffffLL;
++}
++
++// Whether a probe function can take the area by value, and how. Fail
++// closed: every map helper call must name its map with a constant; a
++// thread-local map may only be looked up (helper 1), with a constant key
++// the program just stored (forwarded_key), in range; every statement the
++// tokenizer finds mentioning such a lookup's result must be its definition
++// in the call block, a compare with 0, or a 32-bit load or store through it
++// at a 4-byte offset inside the value with a 64-bit register, unguarded, on
++// a line of its own; every ret must be on a line of its own.
++byvalue_plan plan_by_value(const std::string &fbody,
++			   const std::map<long long, thread_local_map_desc> &maps,
++			   uint64_t area_bytes)
++{
++	byvalue_plan pl;
++	auto no = [&](const std::string &why) {
++		pl.ok = false;
++		pl.why = why;
++		return pl;
++	};
++	if (area_bytes > BYVALUE_MAX_BYTES)
++		return no("the area has " + std::to_string(area_bytes) +
++			  " bytes");
++	static const std::regex helper(R"(_bpf_helper_ext_(\d{4})\b)");
++	static const std::regex p1(
++		R"(st\.param\.b64\s+\[param1\+0\],\s*([^;]+);)");
++	static const std::regex retval(
++		R"(ld\.param\.b64\s+(%[\w$]+),\s*\[retval0\+0\];)");
++	std::map<std::string, uint64_t> value_size;
++	size_t pos = 0;
++	for (;;) {
++		size_t b = fbody.find("{ // callseq ", pos);
++		if (b == std::string::npos)
++			break;
++		{
++			size_t ls = fbody.rfind('\n', b);
++			ls = ls == std::string::npos ? 0 : ls + 1;
++			if (fbody.find_first_not_of(" \t", ls) != b) {
++				pos = b + 1;
++				continue;
++			}
++		}
++		size_t close = fbody.find("} // callseq ", b);
++		if (close == std::string::npos)
++			return no("an unterminated call block");
++		size_t e = fbody.find('\n', close);
++		e = (e == std::string::npos) ? fbody.size() : e + 1;
++		const std::string block = fbody.substr(b, e - b);
++		pos = e;
++		std::smatch hm;
++		if (!std::regex_search(block, hm, helper))
++			continue;
++		const int id = std::stoi(hm[1]);
++		if (id < 1 || id > 3)
++			continue;
++		long long fd = -1;
++		if (!constant_fd(fbody, block, &fd))
++			return no("a map call whose map is not a constant");
++		auto tl = maps.find(fd);
++		if (tl == maps.end())
++			continue; // helpers 1-3 read the area for thread-local
++				  // maps only (default_trampoline.cu)
++		if (id != 1)
++			return no("an update or delete of a thread-local map");
++		std::smatch km, rm;
++		if (!plain_call_block(block) ||
++		    !std::regex_search(block, km, p1) ||
++		    !std::regex_search(block, rm, retval))
++			return no("a thread-local lookup of another shape");
++		int fw = 0;
++		const std::string fwd =
++			forwarded_key(fbody, b, trim(km[1]), &fw);
++		long long key = 0;
++		if (fwd.empty() || !constant_key(fbody, fwd, &key))
++			return no("a thread-local key that is not a constant");
++		const auto &d = tl->second;
++		if ((uint64_t)key >= d.max_entries)
++			return no("a constant key out of range");
++		const std::string dst = rm[1];
++		if (count_defs(fbody, dst) != 1 || pl.pointers.count(dst))
++			return no("a lookup result written more than once");
++		pl.pointers[dst] = d.offset + (uint64_t)key * d.value_size;
++		value_size[dst] = d.value_size;
++	}
++	static const std::regex def(
++		R"(^ld\.param\.b64\s+(%[\w$]+)\s*,\s*\[retval0\+0\]$)");
++	static const std::regex cmp0(
++		R"(^setp\.(?:eq|ne)\.[bsu]64\s+%[\w$]+\s*,\s*(%[\w$]+)\s*,\s*0$)");
++	static const std::regex cmp0r(
++		R"(^setp\.(?:eq|ne)\.[bsu]64\s+%[\w$]+\s*,\s*0\s*,\s*(%[\w$]+)$)");
++	static const std::regex ld32(
++		R"(^ld\.[ub]32\s+(%[\w$]+)\s*,\s*\[\s*(%[\w$]+)\s*(?:\+\s*(0|[1-9]\d{0,9}))?\s*\]$)");
++	static const std::regex st32(
++		R"(^st\.[ub]32\s+\[\s*(%[\w$]+)\s*(?:\+\s*(0|[1-9]\d{0,9}))?\s*\]\s*,\s*(%[\w$]+)$)");
++	int rets = 0;
++	for (const auto &p : pieces(fbody)) {
++		const std::string &s = p.text;
++		std::string op, rest;
++		split_op(s, &op, &rest);
++		if (op == "ret" || op == "ret.uni")
++			rets++;
++		if (op == "exit")
++			return no("an exit in a probe function");
++		std::vector<std::string> regs;
++		registers_in(s, &regs);
++		std::string hit;
++		for (const auto &r : regs) {
++			if (!pl.pointers.count(r))
++				continue;
++			if (!hit.empty() && hit != r)
++				return no("two lookup results in one statement");
++			hit = r;
++		}
++		if (hit.empty())
++			continue;
++		std::smatch m;
++		if (std::regex_match(s, m, def) && m[1] == hit)
++			continue; // in the call block the lookup replaces
++		if (!p.guarded && ((std::regex_match(s, m, cmp0) && m[1] == hit) ||
++				   (std::regex_match(s, m, cmp0r) && m[1] == hit)))
++			continue;
++		// a brace or a label before it (a scope, a branch target) does
++		// not change a register move; a guard would
++		if (p.guarded)
++			return no("a guarded use of a lookup result");
++		bool load;
++		std::string other;
++		long long off = 0;
++		if (std::regex_match(s, m, ld32) && m[2] == hit) {
++			load = true;
++			other = m[1];
++			off = m[3].matched ? std::stoll(m[3]) : 0;
++		} else if (std::regex_match(s, m, st32) && m[1] == hit) {
++			load = false;
++			other = m[3];
++			off = m[2].matched ? std::stoll(m[2]) : 0;
++		} else {
++			return no("a use of a lookup result other than a compare "
++				  "with 0 or a 32-bit access: " +
++				  s);
++		}
++		const uint64_t byte = pl.pointers[hit] + (uint64_t)off;
++		if (off % 4 != 0 || (uint64_t)off + 4 > value_size[hit] ||
++		    byte % 4 != 0)
++			return no("an access outside its value or not at a 4-byte "
++				  "offset");
++		if (reg_width(fbody, other) != 64)
++			return no("an access with a register that is not 64-bit");
++		const std::string half = "%bptv_h" + std::to_string(byte / 4);
++		pl.moves[s] = load ? "cvt.u64.u32 \t" + other + ", " + half :
++				     "cvt.u32.u64 \t" + half + ", " + other;
++		(load ? pl.reads : pl.writes) = true;
++		pl.access_lines[s]++;
++	}
++	// each access and each ret on a line of its own, to be rewritten
++	std::map<std::string, int> on_lines;
++	int ret_lines = 0;
++	{
++		std::istringstream in(fbody);
++		std::string line;
++		while (std::getline(in, line)) {
++			const std::string s = line_statement(line);
++			if (pl.access_lines.count(s))
++				on_lines[s]++;
++			if (is_ret_line(line))
++				ret_lines++;
++		}
++	}
++	if (on_lines != pl.access_lines)
++		return no("an access not on a line of its own");
++	if (ret_lines != rets)
++		return no("a ret not on a line of its own");
++	pl.ok = true;
++	return pl;
++}
++
++// the halves of the area's words: packed into the return parameters before
++// every ret (a function that writes the area)
++std::string tv_give_back(const std::string &fname, uint64_t words)
++{
++	std::string o;
++	for (uint64_t w = 0; w < words; w++)
++		o += "\tmov.b64 \t%bptv_x, {%bptv_h" + std::to_string(2 * w) +
++		     ", %bptv_h" + std::to_string(2 * w + 1) +
++		     "};\n\tst.param.b64 \t[" + fname + "_bpftime_tv_r" +
++		     std::to_string(w) + "], %bptv_x;\n";
++	return o;
++}
++
++// the accesses as register moves, and the area handed back before each ret
++std::string by_value_rewrite(const std::string &body, const byvalue_plan &pl,
++			     const std::string &fname, uint64_t words,
++			     int *accesses)
++{
++	std::istringstream in(body);
++	std::string line, out;
++	int done = 0;
++	while (std::getline(in, line)) {
++		const std::string s = line_statement(line);
++		auto mv = pl.moves.find(s);
++		if (mv != pl.moves.end()) {
++			out += line.substr(0, line.find_first_not_of(" \t")) +
++			       mv->second + ";\n";
++			done++;
++			continue;
++		}
++		if (pl.writes && is_ret_line(line))
++			out += tv_give_back(fname, words);
++		out += line + "\n";
++	}
++	int want = 0;
++	for (const auto &[s, n] : pl.access_lines)
++		want += n;
++	if (done != want)
++		fail("by-value rewrite of " + fname + " missed an access");
++	// getline dropped the body's last newline state
++	if (!body.empty() && body.back() != '\n' && !out.empty())
++		out.pop_back();
++	*accesses += done;
++	return out;
++}
++
+ std::string route_function_body(
+ 	const std::string &fbody, bool routed,
+ 	const std::map<long long, thread_local_map_desc> &maps,
+ 	const std::map<long long, sum_map_desc> &sums,
+-	thread_local_routing_stats &st, const std::string &fname)
++	thread_local_routing_stats &st, const std::string &fname,
++	const byvalue_plan *byvalue = nullptr)
+ {
+ 	static const std::regex p1(
+ 		R"(st\.param\.b64\s+\[param1\+0\],\s*([^;]+);)");
+@@ -876,6 +1154,19 @@ std::string route_function_body(
+ 			st.sum_lookups++;
+ 			continue;
+ 		}
++		if (byvalue && id == 1 && tl != maps.end()) {
++			// a non-null constant: every access through it is a
++			// register move (plan_by_value)
++			std::smatch rm;
++			if (!std::regex_search(block, rm, ret) ||
++			    !byvalue->pointers.count(rm[1].str()))
++				fail("by-value lookup not planned in " + fname);
++			out += "mov.u64 \t" + rm[1].str() +
++			       ", 1; // bpftime thread-local lookup by value, map " +
++			       std::to_string(fd) + "\n";
++			st.byvalue_lookups++;
++			continue;
++		}
+ 		if (routed && id == 1 && tl != maps.end()) {
+ 			if (!plain_call_block(block))
+ 				fail("unexpected instructions in a helper call of " +
+@@ -966,9 +1257,22 @@ std::string route_thread_local_maps(const std::string &ptx_in,
+ 	std::string ptx = ptx_in;
+ 	std::set<std::string> kernels(kernels_in.begin(), kernels_in.end());
+ 
++	// 0. which probe functions can take the area by value
++	std::map<std::string, byvalue_plan> plans;
++	if (!descs.empty()) {
++		for (const auto &f : find_probe_functions(ptx)) {
++			const std::string fbody = ptx.substr(
++				f.body_open + 1, f.body_end - 1 - f.body_open - 1);
++			plans[f.name] = plan_by_value(fbody, maps, area_bytes);
++		}
++	}
++	const uint64_t words = area_bytes / 8;
++
+ 	// 1. kernels: the area, its zeroing, the address at every probe call
+-	// (only with a thread-local map)
++	// (only with a thread-local map); or, when every probe function the
++	// kernel calls can take it by value, a .local slot and the words
+ 	std::set<std::string> routed_functions;
++	std::map<std::string, const byvalue_plan *> byvalue_functions;
+ 	if (descs.empty())
+ 		kernels.clear();
+ 	for (const auto &k : kernels) {
+@@ -981,63 +1285,137 @@ std::string route_thread_local_maps(const std::string &ptx_in,
+ 			fail("kernel without a body: " + k);
+ 		const std::string names[] = { "__probe_func__" + k,
+ 					      "__retprobe_func__" + k };
+-		std::istringstream in(text.substr(open + 1));
+-		std::string line, body;
+-		int sites = 0;
+-		std::set<std::string> called;
+-		while (std::getline(in, line)) {
+-			bool done = false;
++		// a probe call on a line: where "call" starts, where the name
++		// ends, where its ';' is
++		auto find_call = [&](const std::string &line, size_t *c,
++				     size_t *after, size_t *semi,
++				     std::string *name) {
+ 			for (const auto &n : names) {
+ 				size_t at = line.find(n);
+ 				if (at == std::string::npos)
+ 					continue;
+-				size_t after = at + n.size();
+-				size_t semi =
+-					line.find_first_not_of(" \t", after);
+-				if (semi == std::string::npos ||
+-				    line[semi] != ';')
++				size_t a = at + n.size();
++				size_t s = line.find_first_not_of(" \t", a);
++				if (s == std::string::npos || line[s] != ';')
+ 					continue; // a longer name
+-				size_t c = line.rfind("call", at);
+-				if (c == std::string::npos)
+-					fail("probe name outside a call in " +
+-					     k);
+-				// what precedes "call": spaces, a label, a
+-				// predicate; the area's address is formed
+-				// after the label and before the predicate
+-				std::string head = line.substr(0, c);
+-				size_t pred = head.find('@');
+-				std::string before = pred == std::string::npos ?
+-							     head :
+-							     head.substr(0, pred);
+-				std::string predicate =
+-					pred == std::string::npos ?
+-						"" :
+-						head.substr(pred);
+-				std::string indent = "\t";
+-				body += before + "cvta.local.u64 \t" +
+-					AREA_REG + ", " + AREA_SYM + ";\n" +
+-					indent + predicate +
+-					line.substr(c, after - c) + ", (" +
+-					AREA_REG + ")" + line.substr(semi) +
+-					"\n";
+-				sites++;
+-				called.insert(n);
+-				done = true;
++				size_t cc = line.rfind("call", at);
++				if (cc == std::string::npos)
++					fail("probe name outside a call in " + k);
++				*c = cc;
++				*after = a;
++				*semi = s;
++				*name = n;
++				return true;
++			}
++			return false;
++		};
++		const std::string inner = text.substr(open + 1);
++		std::set<std::string> called;
++		{
++			std::istringstream in(inner);
++			std::string line, n;
++			size_t c, a, s;
++			while (std::getline(in, line))
++				if (find_call(line, &c, &a, &s, &n))
++					called.insert(n);
++		}
++		if (called.empty())
++			continue;
++		// by value only when every probe function it calls can take it
++		bool by_value = true;
++		for (const auto &n : called) {
++			auto p = plans.find(n);
++			if (p == plans.end() || !p->second.ok) {
++				by_value = false;
++				st.byvalue_fallbacks.push_back(
++					n + ": " +
++					(p == plans.end() ? "no definition" :
++							    p->second.why));
+ 				break;
+ 			}
+-			if (!done)
++		}
++		std::istringstream in(inner);
++		std::string line, body;
++		int sites = 0;
++		while (std::getline(in, line)) {
++			size_t c = 0, after = 0, semi = 0;
++			std::string n;
++			if (!find_call(line, &c, &after, &semi, &n)) {
++				body += line + "\n";
++				continue;
++			}
++			sites++;
++			// what precedes "call": spaces, a label, a predicate;
++			// what the call needs is formed after the label and
++			// before the predicate
++			std::string head = line.substr(0, c);
++			size_t pred = head.find('@');
++			std::string before = pred == std::string::npos ?
++						     head :
++						     head.substr(0, pred);
++			std::string predicate = pred == std::string::npos ?
++							"" :
++							head.substr(pred);
++			std::string indent = "\t";
++			if (!by_value) {
++				body += before + "cvta.local.u64 \t" + AREA_REG +
++					", " + AREA_SYM + ";\n" + indent +
++					predicate + line.substr(c, after - c) +
++					", (" + AREA_REG + ")" +
++					line.substr(semi) + "\n";
++				continue;
++			}
++			const byvalue_plan &pl = plans.at(n);
++			const bool takes = pl.reads || pl.writes;
++			if (!takes) {
+ 				body += line + "\n";
++				continue;
++			}
++			std::string args, rets;
++			for (uint64_t w = 0; w < words; w++) {
++				const std::string W = std::to_string(w);
++				body += (w == 0 ? before : indent) +
++					"ld.local.u64 \t" + TV_ARG + W + ", [" +
++					TV_SYM + "+" + std::to_string(8 * w) +
++					"];\n";
++				args += (w ? ", " : "") + std::string(TV_ARG) + W;
++				rets += (w ? ", " : "") + std::string(TV_RET) + W;
++			}
++			const size_t at = after - n.size();
++			body += indent + predicate + line.substr(c, at - c) +
++				(pl.writes ? "(" + rets + "), " : "") + n +
++				", (" + args + ")" + line.substr(semi) + "\n";
++			if (pl.writes)
++				for (uint64_t w = 0; w < words; w++)
++					body += indent + predicate +
++						"st.local.u64 \t[" + TV_SYM +
++						"+" + std::to_string(8 * w) + "], " +
++						TV_RET + std::to_string(w) + ";\n";
+ 		}
+-		if (sites == 0)
+-			continue;
++		bool takes_any = false;
++		for (const auto &n : called)
++			takes_any = takes_any || (by_value &&
++						  (plans.at(n).reads ||
++						   plans.at(n).writes));
+ 		std::ostringstream decl;
+-		decl << "\n\t.local .align 16 .b8 \t" << AREA_SYM << "["
+-		     << area_bytes << "];\n\t.reg .b64 \t" << AREA_REG
+-		     << ";\n\tcvta.local.u64 \t" << AREA_REG << ", "
+-		     << AREA_SYM << ";\n";
+-		for (uint64_t off = 0; off < area_bytes; off += 8)
+-			decl << "\tst.u64 \t[" << AREA_REG << "+" << off
+-			     << "], 0;\n";
++		if (by_value && !takes_any) {
++			// no probe function reaches the area: none in the kernel
++		} else if (by_value) {
++			decl << "\n\t.local .align 8 .b8 \t" << TV_SYM << "["
++			     << area_bytes << "];\n\t.reg .b64 \t" << TV_ARG << "<"
++			     << words << ">, " << TV_RET << "<" << words << ">;\n";
++			for (uint64_t off = 0; off < area_bytes; off += 8)
++				decl << "\tst.local.u64 \t[" << TV_SYM << "+" << off
++				     << "], 0;\n";
++		} else {
++			decl << "\n\t.local .align 16 .b8 \t" << AREA_SYM << "["
++			     << area_bytes << "];\n\t.reg .b64 \t" << AREA_REG
++			     << ";\n\tcvta.local.u64 \t" << AREA_REG << ", "
++			     << AREA_SYM << ";\n";
++			for (uint64_t off = 0; off < area_bytes; off += 8)
++				decl << "\tst.u64 \t[" << AREA_REG << "+" << off
++				     << "], 0;\n";
++		}
+ 		std::string new_text = text.substr(0, open + 1) + decl.str() +
+ 				       body;
+ 		// getline dropped the text's last newline state: keep the
+@@ -1048,12 +1426,23 @@ std::string route_thread_local_maps(const std::string &ptx_in,
+ 		ptx = ptx.substr(0, kb) + new_text + ptx.substr(ke);
+ 		st.kernels++;
+ 		st.call_sites += sites;
+-		for (auto &n : called)
+-			routed_functions.insert(n);
++		if (by_value)
++			st.byvalue_kernels++;
++		for (auto &n : called) {
++			if (by_value)
++				byvalue_functions[n] = &plans.at(n);
++			else
++				routed_functions.insert(n);
++		}
+ 	}
+ 
+-	// every call of a routed function must have been rewritten
+-	for (const auto &f : routed_functions) {
++	// every call of a function that now takes the area (by address or
++	// by value) must have been rewritten
++	std::set<std::string> taking = routed_functions;
++	for (const auto &[n, pl] : byvalue_functions)
++		if (pl->reads || pl->writes)
++			taking.insert(n);
++	for (const auto &f : taking) {
+ 		size_t pos = 0;
+ 		while ((pos = ptx.find(f, pos)) != std::string::npos) {
+ 			size_t after = pos + f.size();
+@@ -1075,14 +1464,59 @@ std::string route_thread_local_maps(const std::string &ptx_in,
+ 	for (auto it = funcs.rbegin(); it != funcs.rend(); ++it) {
+ 		const auto &f = *it;
+ 		bool routed = routed_functions.count(f.name) > 0;
++		auto bv = byvalue_functions.find(f.name);
+ 		std::string fbody = ptx.substr(f.body_open + 1,
+ 					       f.body_end - 1 - f.body_open - 1);
+-		std::string nbody = route_function_body(fbody, routed, maps,
+-							sums, st, f.name);
+ 		std::string params = trim(ptx.substr(
+ 			f.params_open + 1, f.params_close - f.params_open - 1));
++		size_t name_at = f.params_open;
++		std::string ret_list;
+ 		std::string head;
+-		if (routed) {
++		std::string nbody;
++		if (bv != byvalue_functions.end()) {
++			const byvalue_plan &pl = *bv->second;
++			nbody = route_function_body(fbody, false, maps, sums, st,
++						    f.name, &pl);
++			nbody = by_value_rewrite(nbody, pl, f.name, words,
++						 &st.byvalue_accesses);
++			if (!params.empty())
++				fail(f.name + " already has parameters");
++			head = ptx.substr(f.params_open,
++					  f.params_close + 1 - f.params_open);
++			if (pl.reads || pl.writes) {
++				std::string args, pro;
++				pro = "\n\t.reg .b32 \t%bptv_h<" +
++				      std::to_string(2 * words) +
++				      ">;\n\t.reg .b64 \t%bptv_x;";
++				for (uint64_t w = 0; w < words; w++) {
++					const std::string W = std::to_string(w);
++					args += (w ? ",\n" : "") +
++						std::string("\t.param .b64 ") +
++						f.name + "_bpftime_tv_a" + W;
++					ret_list += (w ? ", " : "") +
++						    std::string(".param .b64 ") +
++						    f.name + "_bpftime_tv_r" + W;
++					pro += "\n\tld.param.b64 \t%bptv_x, [" +
++					       f.name + "_bpftime_tv_a" + W +
++					       "];\n\tmov.b64 \t{%bptv_h" +
++					       std::to_string(2 * w) +
++					       ", %bptv_h" +
++					       std::to_string(2 * w + 1) +
++					       "}, %bptv_x;";
++				}
++				head = "(\n" + args + "\n)";
++				nbody = pro + nbody;
++				if (!pl.writes)
++					ret_list.clear();
++			}
++			name_at = ptx.rfind(f.name, f.params_open);
++			if (name_at == std::string::npos || name_at < f.header)
++				fail("no name before the parameters of " +
++				     f.name);
++			st.byvalue_functions++;
++		} else if (routed) {
++			nbody = route_function_body(fbody, true, maps, sums, st,
++						    f.name);
+ 			if (!params.empty())
+ 				fail(f.name + " already has parameters");
+ 			head = "(\n\t.param .b64 " + f.name + "_bpftime_tl\n)";
+@@ -1091,14 +1525,20 @@ std::string route_thread_local_maps(const std::string &ptx_in,
+ 				f.name + "_bpftime_tl];" + nbody;
+ 			st.routed_functions++;
+ 		} else {
++			nbody = route_function_body(fbody, false, maps, sums, st,
++						    f.name);
+ 			head = ptx.substr(f.params_open,
+ 					  f.params_close + 1 - f.params_open);
+ 			st.unrouted_functions++;
+ 		}
+ 		std::string between = ptx.substr(
+ 			f.params_close + 1, f.body_open - f.params_close - 1);
+-		ptx = ptx.substr(0, f.params_open) + head + between + "{" +
+-		      nbody + "}" + ptx.substr(f.body_end);
++		std::string lead = ptx.substr(0, f.params_open);
++		if (!ret_list.empty())
++			lead = ptx.substr(0, name_at) + "(" + ret_list + ") " +
++			       ptx.substr(name_at, f.params_open - name_at);
++		ptx = lead + head + between + "{" + nbody + "}" +
++		      ptx.substr(f.body_end);
+ 	}
+ 	for (const auto &f : routed_functions) {
+ 		bool found = false;
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.hpp b/attach/nv_attach_impl/nv_thread_local_routing.hpp
+index 3629ea97..f2098ecc 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.hpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.hpp
+@@ -41,6 +41,31 @@ struct thread_local_map_desc {
+ // lookup otherwise; measured 0.028 ns per thread on mul_mat_vec_q, the
+ // three lookups of `lat`).
+ //
++// By value (2026-11-26): a kernel whose probe functions reach the area only
++// through lookups of thread-local maps with constant keys the program just
++// stored, and use each lookup's result only in compares with 0 and in 32-bit
++// loads and stores at 4-byte offsets inside the value (64-bit registers), on
++// lines of their own, keeps the area (at most 16 bytes) in a .local slot of
++// its own instead and passes its 8-byte words by value: a probe function
++// that accesses the area takes them as parameters, one that writes it also
++// returns them; inside, the area is .b32 halves, a lookup a non-null
++// constant, a load cvt.u64.u32 and a store cvt.u32.u64 of the half. Any other
++// form, in any probe function of the kernel, keeps the area in memory for the
++// whole kernel (byvalue_fallbacks says why). Map calls with a constant fd of
++// another map type get 0 for the area (helpers 1-3 read it for thread-local
++// maps only). Measured on mul_mat_vec_q with `lat` (the text this pass
++// emits, through the debug override): 0.021-0.024 ns per thread less than
++// the area in memory, 54.3 -> 55.9 t/s on tg128.
++//
++// Correctness rests on, besides the above: the area is the thread's own
++// (.local, PTX ISA 5.1.5) and its address never leaves the probe functions'
++// rewritten accesses, so its bytes can live in registers; function input
++// and return parameters are .param (5.1.6, 5.1.6.4: return parameters
++// written with st.param; 7.1 call); ld/st with a register wider than the
++// type zero-extend a load and store the low bits (9.4.1), as cvt.u64.u32 and
++// cvt.u32.u64 do (6.5.1, zext and chop). The halves are packed and unpacked
++// only by this code, so their order inside a word is never observed.
++//
+ // Sum maps (1531): a lookup with a constant map fd, in any probe function,
+ // becomes the calling thread's shard address of the key (as the
+ // trampoline's sum_array_offset computes it), with the map's geometry and
+@@ -74,6 +99,12 @@ struct thread_local_routing_stats {
+ 	int sum_lookups = 0;	   // constant-fd 1531 lookups made inline
+ 	int global_atomics = 0;	   // atomics on such a lookup's address
+ 	int keys_forwarded = 0;	   // inline lookups given the stored key
++	int byvalue_kernels = 0;   // kernels passing the area by value
++	int byvalue_functions = 0; // probe functions taking it by value
++	int byvalue_lookups = 0;   // lookups made a constant
++	int byvalue_accesses = 0;  // accesses made register moves
++	// why a kernel kept the area in memory (function: reason)
++	std::vector<std::string> byvalue_fallbacks;
+ };
+ 
+ // Throws std::runtime_error when the PTX does not have the expected shape;
+diff --git a/attach/nv_attach_impl/test/CMakeLists.txt b/attach/nv_attach_impl/test/CMakeLists.txt
+index 0aac82fd..a3993fe7 100644
+--- a/attach/nv_attach_impl/test/CMakeLists.txt
++++ b/attach/nv_attach_impl/test/CMakeLists.txt
+@@ -7,6 +7,7 @@ set(TEST_SOURCES
+     test_late_path.cpp
+     test_robustness.cpp
+     test_sum_map_routing.cpp
++    test_thread_local_byvalue.cpp
+     # test_kernel_finder.cpp
+ )
+ add_executable(bpftime_nv_attach_tests ${TEST_SOURCES})
+diff --git a/attach/nv_attach_impl/test/test_sum_map_routing.cpp b/attach/nv_attach_impl/test/test_sum_map_routing.cpp
+index a315be71..7a59632d 100644
+--- a/attach/nv_attach_impl/test/test_sum_map_routing.cpp
++++ b/attach/nv_attach_impl/test/test_sum_map_routing.cpp
+@@ -316,7 +316,8 @@ TEST_CASE("Without a thread-local map kernels are not routed and helpers get 0",
+ 	REQUIRE(has(out, "st.param.b64 \t[param4+0], 0;"));
+ 	REQUIRE_FALSE(has(out, "[param4+0], %rd12;"));
+ 	REQUIRE_FALSE(has(out, "__bpftime_tl"));
+-	// with one, the kernel gets the area and the probe its parameter
++	// with one that the probe does not use, nothing reaches the area: the
++	// kernel and the probe keep their form (by value, nothing to pass)
+ 	thread_local_map_desc tl;
+ 	tl.fd = 4;
+ 	tl.offset = 0;
+@@ -326,8 +327,13 @@ TEST_CASE("Without a thread-local map kernels are not routed and helpers get 0",
+ 	auto out2 = route_thread_local_maps(probe("", "14") + kernel, { K },
+ 					    { tl }, 8, &st2, { sum14() });
+ 	REQUIRE(st2.kernels == 1);
+-	REQUIRE(st2.routed_functions == 1);
+-	REQUIRE(has(out2, "__bpftime_tl"));
++	REQUIRE(st2.routed_functions == 0);
++	REQUIRE(st2.byvalue_kernels == 1);
++	REQUIRE(st2.byvalue_functions == 1);
++	REQUIRE(has(out2, kernel));
++	REQUIRE(has(out2, ".visible .func __retprobe_func__kern()"));
++	REQUIRE_FALSE(has(out2, "__bpftime_tl"));
++	REQUIRE_FALSE(has(out2, "__bpftime_tv"));
+ 	REQUIRE(st2.sum_lookups == 1);
+ 	REQUIRE(st2.global_atomics == 1);
+ }
+diff --git a/attach/nv_attach_impl/test/test_thread_local_byvalue.cpp b/attach/nv_attach_impl/test/test_thread_local_byvalue.cpp
+new file mode 100644
+index 00000000..04648591
+--- /dev/null
++++ b/attach/nv_attach_impl/test/test_thread_local_byvalue.cpp
+@@ -0,0 +1,403 @@
++#include "catch2/catch_test_macros.hpp"
++#include "nv_thread_local_routing.hpp"
++#include <string>
++#include <vector>
++
++using namespace bpftime::attach;
++
++// The thread-local area by value (2026-11-26): a kernel whose probe
++// functions reach the area only through constant-key lookups and 32-bit
++// accesses with 64-bit registers passes it by value; any other form keeps
++// the area in memory for the whole kernel.
++namespace
++{
++const char *K = "kern";
++const std::string ENTRY = "__probe_func__kern";
++const std::string EXIT = "__retprobe_func__kern";
++
++bool has(const std::string &s, const std::string &x)
++{
++	return s.find(x) != std::string::npos;
++}
++
++size_t count(const std::string &s, const std::string &x)
++{
++	size_t n = 0;
++	for (size_t p = s.find(x); p != std::string::npos; p = s.find(x, p + 1))
++		n++;
++	return n;
++}
++
++thread_local_map_desc tl(int fd = 4, uint64_t offset = 0, uint64_t entries = 1)
++{
++	thread_local_map_desc d;
++	d.fd = fd;
++	d.offset = offset;
++	d.value_size = 8;
++	d.max_entries = entries;
++	return d;
++}
++
++std::string call_block(int seq, const std::string &helper,
++		       const std::string &p0, const std::string &p1,
++		       const std::string &ret)
++{
++	return "\t{ // callseq " + std::to_string(seq) +
++	       ", 0\n"
++	       "\t.reg .b32 temp_param_reg;\n"
++	       "\t.param .b64 param0;\n"
++	       "\tst.param.b64 \t[param0+0], " +
++	       p0 +
++	       ";\n"
++	       "\t.param .b64 param1;\n"
++	       "\tst.param.b64 \t[param1+0], " +
++	       p1 +
++	       ";\n"
++	       "\t.param .b64 param2;\n"
++	       "\tst.param.b64 \t[param2+0], %rd11;\n"
++	       "\t.param .b64 param3;\n"
++	       "\tst.param.b64 \t[param3+0], %rd12;\n"
++	       "\t.param .b64 param4;\n"
++	       "\tst.param.b64 \t[param4+0], %rd13;\n"
++	       "\t.param .b64 retval0;\n"
++	       "\tcall.uni (retval0), \n\t" +
++	       helper +
++	       ", \n\t(\n"
++	       "\tparam0, \n\tparam1, \n\tparam2, \n\tparam3, \n\tparam4\n\t);\n"
++	       "\tld.param.b64 \t" +
++	       ret +
++	       ", [retval0+0];\n"
++	       "\t} // callseq " +
++	       std::to_string(seq) + "\n";
++}
++
++// the gate every probe function starts with, and llvmbpf's frame
++std::string start(const std::string &name)
++{
++	return ".visible .func " + name +
++	       "()\n{\n"
++	       "\t{\n"
++	       "\t.reg .pred \t%bpftime_off;\n"
++	       "\t.reg .b32 \t%bpftime_on;\n"
++	       "\tld.global.u32 \t%bpftime_on, [__bpftime_probes_enabled];\n"
++	       "\tsetp.eq.s32 \t%bpftime_off, %bpftime_on, 0;\n"
++	       "\t@%bpftime_off ret;\n"
++	       "\t}\n"
++	       "\t.local .align 8 .b8 \t__local_depot0[592];\n"
++	       "\t.reg .b64 \t%SP;\n"
++	       "\t.reg .b64 \t%SPL;\n"
++	       "\t.reg .pred \t%p<11>;\n"
++	       "\t.reg .b32 \t%r<8>;\n"
++	       "\t.reg .b64 \t%rd<58>;\n\n"
++	       "\tmov.u64 \t%SPL, __local_depot0;\n"
++	       "\tcvta.local.u64 \t%SP, %SPL;\n"
++	       "\tadd.u64 \t%rd3, %SP, 0;\n"
++	       "\tadd.u64 \t%rd4, %SPL, 0;\n";
++}
++
++// a constant-key lookup of map `fd` into `ret`, the key stored just before
++std::string lookup(const std::string &key_def, const std::string &ret,
++		   const std::string &fd = "4", int seq = 9)
++{
++	return key_def + "\tst.local.u32 \t[%rd4+508], %r1;\n"
++			 "\tadd.s64 \t%rd1, %rd3, 508;\n"
++			 "\tmov.u64 \t%rd5, " +
++	       fd + ";\n" +
++	       call_block(seq, "_bpf_helper_ext_0001", "%rd5", "%rd1", ret);
++}
++
++const std::string KEY0 = "\tmov.u32 \t%r1, 0;\n";
++
++// lat's entry: the time into the 8 bytes, as two 32-bit stores
++std::string entry(const std::string &key_def = KEY0,
++		  const std::string &uses = "", const std::string &fd = "4")
++{
++	return start(ENTRY) + lookup(key_def, "%rd9", fd) +
++	       "\tsetp.eq.s64 \t%p1, %rd9, 0;\n"
++	       "\t@%p1 bra \t$L__BB0_2;\n" +
++	       call_block(10, "_bpf_helper_ext_0502", "%rd5", "%rd1", "%rd14") +
++	       uses +
++	       "\tst.u32 \t[%rd9], %rd14;\n"
++	       "\tshr.u64 \t%rd16, %rd14, 32;\n"
++	       "\tst.u32 \t[%rd9+4], %rd16;\n"
++	       "$L__BB0_2:\n"
++	       "\tret;\n\n}\n";
++}
++
++// lat's exit: the start read back as two 32-bit loads, twice
++std::string exit_fn(const std::string &uses = "")
++{
++	return start(EXIT) + lookup(KEY0, "%rd15") +
++	       "\tsetp.eq.s64 \t%p1, %rd15, 0;\n"
++	       "\t@%p1 bra \t$L__BB0_3;\n"
++	       "\tld.u32 \t%rd17, [%rd15];\n"
++	       "\tld.u32 \t%rd18, [%rd15+4];\n"
++	       "\tshl.b64 \t%rd19, %rd18, 32;\n"
++	       "\tor.b64 \t%rd40, %rd19, %rd17;\n" +
++	       uses +
++	       "\tld.u32 \t%rd26, [%rd15];\n"
++	       "\tld.u32 \t%rd27, [%rd15+4];\n"
++	       "$L__BB0_3:\n"
++	       "\tret;\n\n}\n";
++}
++
++std::string kernel(const std::string &entry_call = "    call __probe_func__kern;\n",
++		   const std::string &exit_call = "$L__BB1_9:\ncall __retprobe_func__kern;\n")
++{
++	return ".visible .entry kern()\n{\n" + entry_call +
++	       "\t.reg .pred %p<3>;\n\tmov.u32 \t%r1, 1;\n" + exit_call +
++	       "\tret;\n}\n";
++}
++
++const std::string HEAD = ".version 8.1\n.target sm_87\n.address_size 64\n";
++
++std::string route(const std::string &ptx, thread_local_routing_stats &st,
++		  std::vector<thread_local_map_desc> maps = { tl() },
++		  uint64_t area = 8)
++{
++	return route_thread_local_maps(ptx, { K }, maps, area, &st, {});
++}
++
++std::string why(const thread_local_routing_stats &st)
++{
++	return st.byvalue_fallbacks.empty() ? "" : st.byvalue_fallbacks[0];
++}
++
++// the memory form: the area's address passed to every probe function
++bool memory_form(const std::string &out)
++{
++	return has(out, "\t.local .align 16 .b8 \t__bpftime_tl[") &&
++	       has(out, ", (%bpftime_tl);") && !has(out, "__bpftime_tv");
++}
++} // namespace
++
++TEST_CASE("lat's probes take the thread-local area by value", "[tl-byvalue]")
++{
++	thread_local_routing_stats st;
++	auto out = route(HEAD + exit_fn() + entry() + kernel(), st);
++	INFO(why(st));
++	REQUIRE(st.byvalue_kernels == 1);
++	REQUIRE(st.byvalue_functions == 2);
++	REQUIRE(st.byvalue_lookups == 2);
++	REQUIRE(st.byvalue_accesses == 6);
++	REQUIRE(st.byvalue_fallbacks.empty());
++	REQUIRE(st.routed_functions == 0);
++	// the kernel: a .local slot, zeroed, the word around each call
++	REQUIRE(has(out, ".visible .entry kern()\n{\n"
++			 "\t.local .align 8 .b8 \t__bpftime_tv[8];\n"
++			 "\t.reg .b64 \t%bpftime_tv_a<1>, %bpftime_tv_r<1>;\n"
++			 "\tst.local.u64 \t[__bpftime_tv+0], 0;\n\n"
++			 "    ld.local.u64 \t%bpftime_tv_a0, [__bpftime_tv+0];\n"
++			 "\tcall (%bpftime_tv_r0), __probe_func__kern, (%bpftime_tv_a0);\n"
++			 "\tst.local.u64 \t[__bpftime_tv+0], %bpftime_tv_r0;\n"));
++	REQUIRE(has(out, "$L__BB1_9:\n"
++			 "ld.local.u64 \t%bpftime_tv_a0, [__bpftime_tv+0];\n"
++			 "\tcall __retprobe_func__kern, (%bpftime_tv_a0);\n"
++			 "\tret;\n"));
++	REQUIRE_FALSE(has(out, "__bpftime_tl"));
++	// the entry writes: the word in and out; the halves given back before
++	// both rets
++	const std::string give_back =
++		"\tmov.b64 \t%bptv_x, {%bptv_h0, %bptv_h1};\n"
++		"\tst.param.b64 \t[__probe_func__kern_bpftime_tv_r0], %bptv_x;\n";
++	REQUIRE(has(out, ".visible .func (.param .b64 __probe_func__kern_bpftime_tv_r0) "
++			 "__probe_func__kern(\n"
++			 "\t.param .b64 __probe_func__kern_bpftime_tv_a0\n)\n{\n"
++			 "\t.reg .b32 \t%bptv_h<2>;\n"
++			 "\t.reg .b64 \t%bptv_x;\n"
++			 "\tld.param.b64 \t%bptv_x, [__probe_func__kern_bpftime_tv_a0];\n"
++			 "\tmov.b64 \t{%bptv_h0, %bptv_h1}, %bptv_x;\n"
++			 "\t{\n"));
++	REQUIRE(has(out, give_back + "\t@%bpftime_off ret;\n"));
++	REQUIRE(has(out, "$L__BB0_2:\n" + give_back + "\tret;\n"));
++	REQUIRE(has(out, "\tmov.u64 \t%rd9, 1; // bpftime thread-local lookup by value, map 4\n"));
++	REQUIRE(has(out, "\tcvt.u32.u64 \t%bptv_h0, %rd14;\n"
++			 "\tshr.u64 \t%rd16, %rd14, 32;\n"
++			 "\tcvt.u32.u64 \t%bptv_h1, %rd16;\n"));
++	// the exit only reads: the word in, nothing back
++	REQUIRE(has(out, ".visible .func __retprobe_func__kern(\n"
++			 "\t.param .b64 __retprobe_func__kern_bpftime_tv_a0\n)\n{\n"));
++	REQUIRE_FALSE(has(out, "__retprobe_func__kern_bpftime_tv_r0"));
++	REQUIRE(has(out, "\tcvt.u64.u32 \t%rd17, %bptv_h0;\n"
++			 "\tcvt.u64.u32 \t%rd18, %bptv_h1;\n"));
++	REQUIRE(has(out, "\tcvt.u64.u32 \t%rd26, %bptv_h0;\n"
++			 "\tcvt.u64.u32 \t%rd27, %bptv_h1;\n"));
++	REQUIRE(count(out, "st.param.b64 \t[__probe_func__kern_bpftime_tv_r0]") == 2);
++	// nothing reaches memory through the constant any more
++	REQUIRE_FALSE(has(out, "[%rd9"));
++	REQUIRE_FALSE(has(out, "[%rd15"));
++	REQUIRE_FALSE(has(out, "%bpftime_tl_in"));
++	REQUIRE_FALSE(has(out, "_bpf_helper_ext_0001"));
++}
++
++TEST_CASE("The second word of a 16-byte area is two more halves", "[tl-byvalue]")
++{
++	thread_local_routing_stats st;
++	// map 4's value at bytes 8-15
++	auto out = route(HEAD + exit_fn() + entry() + kernel(), st, { tl(4, 8) },
++			 16);
++	INFO(why(st));
++	REQUIRE(st.byvalue_kernels == 1);
++	REQUIRE(has(out, "\t.local .align 8 .b8 \t__bpftime_tv[16];\n"
++			 "\t.reg .b64 \t%bpftime_tv_a<2>, %bpftime_tv_r<2>;\n"
++			 "\tst.local.u64 \t[__bpftime_tv+0], 0;\n"
++			 "\tst.local.u64 \t[__bpftime_tv+8], 0;\n"));
++	REQUIRE(has(out, "    ld.local.u64 \t%bpftime_tv_a0, [__bpftime_tv+0];\n"
++			 "\tld.local.u64 \t%bpftime_tv_a1, [__bpftime_tv+8];\n"
++			 "\tcall (%bpftime_tv_r0, %bpftime_tv_r1), __probe_func__kern, "
++			 "(%bpftime_tv_a0, %bpftime_tv_a1);\n"
++			 "\tst.local.u64 \t[__bpftime_tv+0], %bpftime_tv_r0;\n"
++			 "\tst.local.u64 \t[__bpftime_tv+8], %bpftime_tv_r1;\n"));
++	REQUIRE(has(out, ".visible .func (.param .b64 __probe_func__kern_bpftime_tv_r0, "
++			 ".param .b64 __probe_func__kern_bpftime_tv_r1) __probe_func__kern(\n"
++			 "\t.param .b64 __probe_func__kern_bpftime_tv_a0,\n"
++			 "\t.param .b64 __probe_func__kern_bpftime_tv_a1\n)"));
++	REQUIRE(has(out, "\t.reg .b32 \t%bptv_h<4>;\n"));
++	REQUIRE(has(out, "\tmov.b64 \t{%bptv_h2, %bptv_h3}, %bptv_x;\n"));
++	REQUIRE(has(out, "\tcvt.u32.u64 \t%bptv_h2, %rd14;\n"));
++	REQUIRE(has(out, "\tcvt.u32.u64 \t%bptv_h3, %rd16;\n"));
++	REQUIRE(has(out, "\tcvt.u64.u32 \t%rd17, %bptv_h2;\n"));
++	REQUIRE(has(out, "\tst.param.b64 \t[__probe_func__kern_bpftime_tv_r1], %bptv_x;\n"));
++}
++
++TEST_CASE("A call site keeps its label and predicate", "[tl-byvalue]")
++{
++	thread_local_routing_stats st;
++	auto out = route(HEAD + exit_fn() + entry() +
++				 kernel("$L__BB1_1: @%p2 call __probe_func__kern;\n",
++					"\t@!%p1 call __retprobe_func__kern;\n"),
++			 st);
++	INFO(why(st));
++	REQUIRE(st.byvalue_kernels == 1);
++	// the load unguarded after the label, call and write-back guarded
++	REQUIRE(has(out, "$L__BB1_1: ld.local.u64 \t%bpftime_tv_a0, [__bpftime_tv+0];\n"
++			 "\t@%p2 call (%bpftime_tv_r0), __probe_func__kern, (%bpftime_tv_a0);\n"
++			 "\t@%p2 st.local.u64 \t[__bpftime_tv+0], %bpftime_tv_r0;\n"));
++	REQUIRE(has(out, "\tld.local.u64 \t%bpftime_tv_a0, [__bpftime_tv+0];\n"
++			 "\t@!%p1 call __retprobe_func__kern, (%bpftime_tv_a0);\n"));
++}
++
++TEST_CASE("A probe function that never touches the area takes nothing", "[tl-byvalue]")
++{
++	thread_local_routing_stats st;
++	// the exit only tests its lookup for NULL
++	std::string ex = start(EXIT) + lookup(KEY0, "%rd15") +
++			 "\tsetp.ne.s64 \t%p1, %rd15, 0;\n"
++			 "\tret;\n\n}\n";
++	auto out = route(HEAD + ex + entry() + kernel(), st);
++	INFO(why(st));
++	REQUIRE(st.byvalue_kernels == 1);
++	REQUIRE(has(out, "$L__BB1_9:\ncall __retprobe_func__kern;\n"));
++	REQUIRE(has(out, ".visible .func __retprobe_func__kern()\n{"));
++	REQUIRE(has(out, "\tmov.u64 \t%rd15, 1; // bpftime thread-local lookup by value, map 4\n"));
++	REQUIRE(has(out, "\tsetp.ne.s64 \t%p1, %rd15, 0;\n"));
++}
++
++TEST_CASE("Calls on other maps get 0 for the area", "[tl-byvalue]")
++{
++	thread_local_routing_stats st;
++	// the entry also looks up map 7 (not thread-local) with a constant fd
++	std::string uses = "\tmov.u64 \t%rd20, 7;\n" +
++			   call_block(11, "_bpf_helper_ext_0001", "%rd20", "%rd1",
++				      "%rd21");
++	auto out = route(HEAD + exit_fn() + entry(KEY0, uses) + kernel(), st);
++	INFO(why(st));
++	REQUIRE(st.byvalue_kernels == 1);
++	REQUIRE(has(out, "\tst.param.b64 \t[param4+0], 0;\n"));
++	REQUIRE(has(out, "_bpf_helper_ext_0001"));
++}
++
++TEST_CASE("Any other form keeps the area in memory for the whole kernel",
++	  "[tl-byvalue]")
++{
++	struct form {
++		const char *what;
++		std::string entry_fn, exit_fn;
++		std::vector<thread_local_map_desc> maps;
++		uint64_t area;
++	};
++	const std::string ok_exit = exit_fn();
++	const std::vector<thread_local_map_desc> m = { tl() };
++	const std::vector<form> forms = {
++		{ "key loaded, not a constant",
++		  entry("\tld.u32 \t%r1, [%rd3+16];\n"), ok_exit, m, 8 },
++		{ "key out of range", entry("\tmov.u32 \t%r1, 1;\n"), ok_exit, m,
++		  8 },
++		{ "key in octal", entry("\tmov.u32 \t%r1, 00;\n"), ok_exit, m, 8 },
++		{ "result copied", entry(KEY0, "\tmov.u64 \t%rd20, %rd9;\n"),
++		  ok_exit, m, 8 },
++		{ "result stored to memory",
++		  entry(KEY0, "\tst.u64 \t[%rd3+16], %rd9;\n"), ok_exit, m, 8 },
++		{ "atomic through the result",
++		  entry(KEY0, "\tatom.add.u64 \t%rd20, [%rd9], 1;\n"), ok_exit, m,
++		  8 },
++		{ "64-bit access", entry(KEY0, "\tst.u64 \t[%rd9], %rd14;\n"),
++		  ok_exit, m, 8 },
++		{ "32-bit register", entry(KEY0, "\tst.u32 \t[%rd9], %r3;\n"),
++		  ok_exit, m, 8 },
++		{ "8-bit access", entry(KEY0, "\tst.u8 \t[%rd9], %rd14;\n"),
++		  ok_exit, m, 8 },
++		{ "signed load", entry(KEY0, "\tld.s32 \t%rd20, [%rd9];\n"),
++		  ok_exit, m, 8 },
++		{ "offset past the value",
++		  entry(KEY0, "\tst.u32 \t[%rd9+8], %rd14;\n"), ok_exit, m, 8 },
++		{ "offset not 4-aligned",
++		  entry(KEY0, "\tst.u32 \t[%rd9+2], %rd14;\n"), ok_exit, m, 8 },
++		{ "guarded access",
++		  entry(KEY0, "\t@%p1 st.u32 \t[%rd9], %rd14;\n"), ok_exit, m, 8 },
++		{ "two statements on a line",
++		  entry(KEY0, "\tst.u32 \t[%rd9], %rd14; shr.u64 \t%rd20, %rd14, 1;\n"),
++		  ok_exit, m, 8 },
++		{ "labelled access",
++		  entry(KEY0, "$L__BB0_7: st.u32 \t[%rd9], %rd14;\n"), ok_exit, m,
++		  8 },
++		{ "compare with another register",
++		  entry(KEY0, "\tsetp.eq.s64 \t%p2, %rd9, %rd14;\n"), ok_exit, m,
++		  8 },
++		{ "a directive glued to an access",
++		  entry(KEY0, "\t.loc 1 5 3\n\tst.u32 \t[%rd9], %rd14;\n"), ok_exit,
++		  m, 8 },
++		{ "update of the thread-local map",
++		  entry(KEY0, call_block(12, "_bpf_helper_ext_0002", "%rd5",
++					 "%rd1", "%rd22")),
++		  ok_exit, m, 8 },
++		{ "map fd not a constant",
++		  entry(KEY0, call_block(12, "_bpf_helper_ext_0001", "%rd30",
++					 "%rd1", "%rd22")),
++		  ok_exit, m, 8 },
++		{ "ret with a label on its line", entry(), [] {
++			  std::string e = exit_fn();
++			  e.replace(e.find("$L__BB0_3:\n\tret;"),
++				    std::string("$L__BB0_3:\n\tret;").size(),
++				    "$L__BB0_3: ret;");
++			  return e;
++		  }(),
++		  m, 8 },
++		{ "area larger than 16 bytes", entry(), ok_exit, { tl(4, 16) },
++		  24 },
++		{ "only the exit not eligible", entry(),
++		  exit_fn("\tld.u32 \t%r3, [%rd15];\n"), m, 8 },
++	};
++	for (const auto &f : forms) {
++		INFO(f.what);
++		thread_local_routing_stats st;
++		std::string ptx = HEAD + f.exit_fn + f.entry_fn + kernel();
++		auto out = route(ptx, st, f.maps, f.area);
++		REQUIRE(st.byvalue_kernels == 0);
++		REQUIRE(st.byvalue_functions == 0);
++		REQUIRE(st.byvalue_fallbacks.size() == 1);
++		REQUIRE(st.routed_functions == 2);
++		REQUIRE(memory_form(out));
++		REQUIRE(has(out, "%bpftime_tl_in"));
++		REQUIRE_FALSE(has(out, "%bptv_"));
++	}
++}
++
++TEST_CASE("A by-value function called outside its kernel is refused",
++	  "[tl-byvalue]")
++{
++	thread_local_routing_stats st;
++	std::string other = ".visible .entry other()\n{\n"
++			    "\tcall __probe_func__kern;\n\tret;\n}\n";
++	REQUIRE_THROWS(route(HEAD + exit_fn() + entry() + kernel() + other, st));
++}
+-- 
+2.43.0
+

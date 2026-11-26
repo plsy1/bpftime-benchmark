@@ -1,0 +1,601 @@
+From c423534740278b8c71ba81d15edd0e6069af51dd Mon Sep 17 00:00:00 2001
+From: jetson <jetson@orin-nano.tail52323b.ts.net>
+Date: Thu, 26 Nov 2026 17:18:11 +0900
+Subject: [PATCH 2/2] nv_attach: by-value fixes after review (one word, line
+ forms, decimal fds)
+
+An independent review of 1d95c160 (three lenses; another agent traced each
+finding on its input): 14 findings, 13 confirmed, one refuted as a test
+remark (taken anyway). None is reachable from llvmbpf's output in the
+dumps (lat_mmvq, lat four kernels, carry, carry1), except as noted.
+
+- A 9-16 byte area whose probe writes got two .param return values; a
+  device function returns at most one (PTX ISA 7.1.1), so ptxas would
+  refuse the module and it would run unprobed. Reachable by ordinary
+  output (a 16-byte value, two 8-byte maps). By value is now one word
+  (8 bytes); larger areas keep the address form.
+- The rewrite works on lines, so text the line scan reads differently from
+  the tokenizer now keeps the address form: a block comment, a directive
+  glued to a statement (.loc), a guard on a line of its own (it would have
+  moved onto the give-back and left the ret unguarded), a kernel probe
+  call sharing its line (a trailing branch skipped the write-back; text
+  before a guard was repeated).
+- A lookup result stored into its own value passed and stored 1.
+- Pre-existing, also in the address form: constant_fd read 010 (octal 8)
+  as 10 and took a mov out of a comment; it now takes a plain decimal, as
+  an immediate or a register's only definition found by statement.
+  build_index skipped redux.sync and stacksave as non-writing (prefix
+  match on "red" and "st"); it now matches the whole base mnemonic.
+- Stats: kernels whose probes never reach the area (no area, nothing
+  passed) are counted apart; the log lines say so. Header and trampoline
+  comments describe both forms; the header no longer says every map call
+  is checked (helpers 1-3 are) or that compares are line-checked.
+- Tests: every fallback row asserts its reason; new rows for joined
+  lookup results, a result loaded through itself, a 16-byte area, octal
+  fds, redux.sync/stacksave, block comments, a lone guard, .loc before a
+  ret, an unaligned value, calls sharing a line, a result stored into its
+  own value; a fd mov in a comment no longer misleads. 27 routing cases,
+  566 assertions.
+
+lat_mmvq's and the four-kernel lat's generated PTX are byte-identical to
+1d95c160's (81ea6349...; 64981fbd/ce601e2b/ce6f2d69), so passes t1/t2
+stand; fallback tools' PTX (carry, tlatomic, hist, latold) is still
+identical to the address-form build's; eight pt_victim tools exact.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ attach/nv_attach_impl/nv_attach_impl.cpp      |   5 +-
+ .../nv_thread_local_routing.cpp               |  98 +++++++---
+ .../nv_thread_local_routing.hpp               |  48 +++--
+ .../test/test_sum_map_routing.cpp             |   5 +-
+ .../test/test_thread_local_byvalue.cpp        | 167 +++++++++++-------
+ .../trampoline/default_trampoline.cu          |  10 +-
+ 6 files changed, 225 insertions(+), 108 deletions(-)
+
+diff --git a/attach/nv_attach_impl/nv_attach_impl.cpp b/attach/nv_attach_impl/nv_attach_impl.cpp
+index d911add3..a3057928 100644
+--- a/attach/nv_attach_impl/nv_attach_impl.cpp
++++ b/attach/nv_attach_impl/nv_attach_impl.cpp
+@@ -1049,16 +1049,17 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
+ 	auto out =
+ 		route_thread_local_maps(ptx, kernels, descs, area, &st, sums);
+ 	SPDLOG_INFO(
+-		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0), {} generic atomics guarded; sum maps: {} lookups inline, {} atomics on their values made global; {} lookup keys forwarded",
++		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} probe functions given the area's address ({} lookups made direct, {} helper calls given the area), {} other probe functions, by value among them ({} helper calls given 0), {} generic atomics guarded; sum maps: {} lookups inline, {} atomics on their values made global; {} lookup keys forwarded",
+ 		file_name, area, st.kernels, st.call_sites, st.routed_functions,
+ 		st.direct_lookups, st.helper_calls_given_area,
+ 		st.unrouted_functions, st.helper_calls_given_zero,
+ 		st.guarded_atomics, st.sum_lookups, st.global_atomics,
+ 		st.keys_forwarded);
+ 	SPDLOG_INFO(
+-		"Thread-local area by value in {}: {} kernels, {} probe functions, {} lookups made constant, {} accesses made register moves, {} kernels kept the area in memory",
++		"Thread-local area by value in {}: {} kernels ({} probe functions take it), {} lookups made constant, {} accesses made register moves; {} kernels whose probes never reach it ({} probe functions, no area); {} kernels kept the area in memory",
+ 		file_name, st.byvalue_kernels, st.byvalue_functions,
+ 		st.byvalue_lookups, st.byvalue_accesses,
++		st.area_unused_kernels, st.area_unused_functions,
+ 		st.byvalue_fallbacks.size());
+ 	for (const auto &why : st.byvalue_fallbacks)
+ 		SPDLOG_INFO("Thread-local area kept in memory: {}", why);
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.cpp b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+index 2e908fe5..cbffb38a 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.cpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.cpp
+@@ -291,9 +291,12 @@ body_index build_index(const std::string &body)
+ 		} else {
+ 			std::string op, rest;
+ 			split_op(st, &op, &rest);
+-			if (op.rfind("st", 0) == 0 || op.rfind("red", 0) == 0 ||
+-			    op.rfind("bra", 0) == 0 || op == "ret" ||
+-			    op == "exit" || op == "trap")
++			// stores, reductions, branches: by the whole base
++			// mnemonic (stacksave and redux.sync write a register)
++			static const std::set<std::string> writes_none = {
++				"st", "red", "bra", "ret", "exit", "trap"
++			};
++			if (writes_none.count(op.substr(0, op.find('.'))))
+ 				continue;
+ 			int depth = 0;
+ 			size_t end = rest.size();
+@@ -534,24 +537,24 @@ bool constant_fd(const std::string &fbody, const std::string &block,
+ 	std::smatch m;
+ 	if (!std::regex_search(block, m, p0))
+ 		return false;
++	// a plain decimal (PTX reads 010 as octal and 0x.. as hex), as an
++	// immediate or as the only definition of a register, a mov (found by
++	// statement, so a mov inside a comment does not count)
++	static const std::regex dec(R"(^-?(?:0|[1-9]\d{0,17})$)");
+ 	std::string arg = trim(m[1]);
+-	if (parse_int(arg, fd))
+-		return true;
++	if (std::regex_match(arg, dec))
++		return parse_int(arg, fd);
+ 	if (arg.empty() || arg[0] != '%')
+ 		return false;
+-	// a register written by one statement only, a mov of an integer
+-	if (count_defs(fbody, arg) != 1)
++	std::string def;
++	if (count_defs(fbody, arg, &def) != 1)
+ 		return false;
+-	std::regex def(R"(mov\.[ubs]64\s+)" + std::regex_replace(
+-						   arg, std::regex(R"([$%.])"),
+-						   R"(\$&)") +
+-		       R"(\s*,\s*(-?\d+)\s*;)");
++	static const std::regex mv(
++		R"(^mov\.[ubs]64\s+(%[\w$]+)\s*,\s*(-?(?:0|[1-9]\d{0,17}))$)");
+ 	std::smatch dm;
+-	if (!std::regex_search(fbody, dm, def))
++	if (!std::regex_match(def, dm, mv) || dm[1] != arg)
+ 		return false;
+-	long long val = std::stoll(dm[1]);
+-	*fd = val;
+-	return true;
++	return parse_int(dm[2], fd);
+ }
+ 
+ // A generic atom/red whose address lies in the local window is undefined
+@@ -801,7 +804,9 @@ std::string sum_lookup(const sum_map_desc &d, long long fd, int n,
+ // The thread-local area by value (see the header). Only what `lat` runs on
+ // the device is rewritten: 32-bit loads and stores at 4-byte offsets of a
+ // value, with 64-bit registers. Anything else keeps the area in memory.
+-constexpr uint64_t BYVALUE_MAX_BYTES = 16;
++// One word: a function that writes the area returns it, and a device
++// function has at most one return value (PTX ISA 7.1.1, sm_20 and later).
++constexpr uint64_t BYVALUE_MAX_BYTES = 8;
+ const char *TV_SYM = "__bpftime_tv";
+ const char *TV_ARG = "%bpftime_tv_a";
+ const char *TV_RET = "%bpftime_tv_r";
+@@ -876,6 +881,26 @@ byvalue_plan plan_by_value(const std::string &fbody,
+ 	if (area_bytes > BYVALUE_MAX_BYTES)
+ 		return no("the area has " + std::to_string(area_bytes) +
+ 			  " bytes");
++	// the rewrite works on lines: every statement it reads must be what
++	// the line shows. No block comments, no directive glued to a
++	// statement (.loc without ';'), no guard on a line of its own.
++	if (fbody.find("/*") != std::string::npos)
++		return no("a block comment");
++	{
++		static const std::regex decl(
++			R"(^\.(?:reg|local|shared|param|const|global|pragma)\s[^\n]*$)");
++		for (const auto &p : pieces(fbody))
++			if (!p.text.empty() && p.text[0] == '.' &&
++			    !std::regex_match(p.text, decl))
++				return no("a directive glued to a statement");
++		static const std::regex lone_guard(R"(^@\s*!?\s*%?[\w$]+$)");
++		std::istringstream in(fbody);
++		std::string line;
++		while (std::getline(in, line))
++			if (std::regex_match(trim(strip_comments(line)),
++					     lone_guard))
++				return no("a guard on a line of its own");
++	}
+ 	static const std::regex helper(R"(_bpf_helper_ext_(\d{4})\b)");
+ 	static const std::regex p1(
+ 		R"(st\.param\.b64\s+\[param1\+0\],\s*([^;]+);)");
+@@ -994,6 +1019,8 @@ byvalue_plan plan_by_value(const std::string &fbody,
+ 				  "with 0 or a 32-bit access: " +
+ 				  s);
+ 		}
++		if (other == hit)
++			return no("a lookup result stored into its own value");
+ 		const uint64_t byte = pl.pointers[hit] + (uint64_t)off;
+ 		if (off % 4 != 0 || (uint64_t)off + 4 > value_size[hit] ||
+ 		    byte % 4 != 0)
+@@ -1311,19 +1338,43 @@ std::string route_thread_local_maps(const std::string &ptx_in,
+ 		};
+ 		const std::string inner = text.substr(open + 1);
+ 		std::set<std::string> called;
++		// by value needs each probe call alone on its line: a label, a
++		// guard, "call name;" (the write-back follows the call and takes
++		// its guard)
++		std::string shared_line;
+ 		{
++			static const std::regex lead(
++				R"(^\s*(?:[%$A-Za-z_][\w$]*\s*:\s*)?(?:@\s*!?\s*%?[\w$]+\s*)?$)");
++			static const std::regex word(R"(^call\s+$)");
+ 			std::istringstream in(inner);
+ 			std::string line, n;
+ 			size_t c, a, s;
+-			while (std::getline(in, line))
+-				if (find_call(line, &c, &a, &s, &n))
+-					called.insert(n);
++			while (std::getline(in, line)) {
++				if (!find_call(line, &c, &a, &s, &n))
++					continue;
++				called.insert(n);
++				const std::string rest =
++					trim(strip_comments(line.substr(s + 1)));
++				if (!std::regex_match(line.substr(0, c), lead) ||
++				    !std::regex_match(
++					    line.substr(c, a - n.size() - c),
++					    word) ||
++				    !rest.empty())
++					shared_line = n;
++			}
+ 		}
+ 		if (called.empty())
+ 			continue;
+ 		// by value only when every probe function it calls can take it
+ 		bool by_value = true;
++		if (!shared_line.empty()) {
++			by_value = false;
++			st.byvalue_fallbacks.push_back(
++				shared_line + ": a call of it shares its line");
++		}
+ 		for (const auto &n : called) {
++			if (!by_value)
++				break;
+ 			auto p = plans.find(n);
+ 			if (p == plans.end() || !p->second.ok) {
+ 				by_value = false;
+@@ -1426,8 +1477,10 @@ std::string route_thread_local_maps(const std::string &ptx_in,
+ 		ptx = ptx.substr(0, kb) + new_text + ptx.substr(ke);
+ 		st.kernels++;
+ 		st.call_sites += sites;
+-		if (by_value)
++		if (by_value && takes_any)
+ 			st.byvalue_kernels++;
++		else if (by_value)
++			st.area_unused_kernels++;
+ 		for (auto &n : called) {
+ 			if (by_value)
+ 				byvalue_functions[n] = &plans.at(n);
+@@ -1513,7 +1566,10 @@ std::string route_thread_local_maps(const std::string &ptx_in,
+ 			if (name_at == std::string::npos || name_at < f.header)
+ 				fail("no name before the parameters of " +
+ 				     f.name);
+-			st.byvalue_functions++;
++			if (pl.reads || pl.writes)
++				st.byvalue_functions++;
++			else
++				st.area_unused_functions++;
+ 		} else if (routed) {
+ 			nbody = route_function_body(fbody, true, maps, sums, st,
+ 						    f.name);
+diff --git a/attach/nv_attach_impl/nv_thread_local_routing.hpp b/attach/nv_attach_impl/nv_thread_local_routing.hpp
+index f2098ecc..17c3cd15 100644
+--- a/attach/nv_attach_impl/nv_thread_local_routing.hpp
++++ b/attach/nv_attach_impl/nv_thread_local_routing.hpp
+@@ -1,14 +1,15 @@
+ #ifndef _BPFTIME_NV_THREAD_LOCAL_ROUTING_HPP
+ #define _BPFTIME_NV_THREAD_LOCAL_ROUTING_HPP
+-// Thread-local maps (1530, prototype proto/map-model): every probed kernel
+-// gets a kernel-scope .local area, zeroed when the kernel starts, whose
+-// generic address (cvta.local) is passed to each of its probe functions as
+-// their one parameter. In a probe function, a lookup of a thread-local map
+-// with a constant map fd becomes the address itself (key bounds checked);
++// Thread-local maps (1530, prototype proto/map-model): a probed kernel
++// keeps the thread-local area, zeroed when the kernel starts, either by
++// value (below) or as a kernel-scope .local area whose generic address
++// (cvta.local) is passed to each of its probe functions as their one
++// parameter. In the address form, a lookup of a thread-local map with a
++// constant map fd becomes the address itself (key bounds checked), and
+ // every other map helper call (1, 2, 3) gets the address as its last
+ // argument (eBPF r5), which the trampoline uses for thread-local maps. Probe
+-// functions no routed kernel calls (memcapture) pass 0 there: their
+-// thread-local lookups return NULL.
++// functions no routed kernel calls (memcapture), and probe functions by
++// value, pass 0 there: the trampoline's thread-local lookups return NULL.
+ //
+ // Correctness rests on: .local is the thread's own storage for the kernel's
+ // run (PTX ISA 5.1.5; CUDA programming guide: local memory, scope thread,
+@@ -42,18 +43,25 @@ struct thread_local_map_desc {
+ // three lookups of `lat`).
+ //
+ // By value (2026-11-26): a kernel whose probe functions reach the area only
+-// through lookups of thread-local maps with constant keys the program just
+-// stored, and use each lookup's result only in compares with 0 and in 32-bit
+-// loads and stores at 4-byte offsets inside the value (64-bit registers), on
+-// lines of their own, keeps the area (at most 16 bytes) in a .local slot of
+-// its own instead and passes its 8-byte words by value: a probe function
+-// that accesses the area takes them as parameters, one that writes it also
+-// returns them; inside, the area is .b32 halves, a lookup a non-null
+-// constant, a load cvt.u64.u32 and a store cvt.u32.u64 of the half. Any other
+-// form, in any probe function of the kernel, keeps the area in memory for the
+-// whole kernel (byvalue_fallbacks says why). Map calls with a constant fd of
+-// another map type get 0 for the area (helpers 1-3 read it for thread-local
+-// maps only). Measured on mul_mat_vec_q with `lat` (the text this pass
++// through lookups of thread-local maps (helper 1) with constant keys the
++// program just stored, whose other map lookups, updates and deletes (helpers
++// 1-3) name their map with a constant, and which use each lookup's result
++// only in compares with 0 and in 32-bit loads and stores at 4-byte offsets
++// inside the value with 64-bit registers (unguarded, each on a line of its
++// own, never storing the result itself), keeps the area (one 8-byte word:
++// a writing function returns it, and a device function returns at most one
++// value, PTX ISA 7.1.1) in a .local slot of its own instead and passes it by
++// value: a probe function that accesses the area takes it as a parameter,
++// one that writes it also returns it; inside, the area is two .b32 halves, a
++// lookup the non-null constant 1, a load cvt.u64.u32 and a store
++// cvt.u32.u64 of the half. The rewrite works on lines, so a function with a
++// block comment, a directive glued to a statement or a guard on a line of
++// its own, and a kernel whose probe call shares its line, keep the address
++// form. Any other form, in any probe function of the kernel, keeps the
++// address form for the whole kernel (byvalue_fallbacks says why). Map calls
++// with a constant fd of another map type get 0 for the area (helpers 1-3
++// read it for thread-local maps only). A kernel whose probes never reach
++// the area gets none. Measured on mul_mat_vec_q with `lat` (the text this pass
+ // emits, through the debug override): 0.021-0.024 ns per thread less than
+ // the area in memory, 54.3 -> 55.9 t/s on tg128.
+ //
+@@ -101,6 +109,8 @@ struct thread_local_routing_stats {
+ 	int keys_forwarded = 0;	   // inline lookups given the stored key
+ 	int byvalue_kernels = 0;   // kernels passing the area by value
+ 	int byvalue_functions = 0; // probe functions taking it by value
++	int area_unused_kernels = 0;   // kernels whose probes never reach it
++	int area_unused_functions = 0; // their probe functions (no area)
+ 	int byvalue_lookups = 0;   // lookups made a constant
+ 	int byvalue_accesses = 0;  // accesses made register moves
+ 	// why a kernel kept the area in memory (function: reason)
+diff --git a/attach/nv_attach_impl/test/test_sum_map_routing.cpp b/attach/nv_attach_impl/test/test_sum_map_routing.cpp
+index 7a59632d..b8c20623 100644
+--- a/attach/nv_attach_impl/test/test_sum_map_routing.cpp
++++ b/attach/nv_attach_impl/test/test_sum_map_routing.cpp
+@@ -328,8 +328,9 @@ TEST_CASE("Without a thread-local map kernels are not routed and helpers get 0",
+ 					    { tl }, 8, &st2, { sum14() });
+ 	REQUIRE(st2.kernels == 1);
+ 	REQUIRE(st2.routed_functions == 0);
+-	REQUIRE(st2.byvalue_kernels == 1);
+-	REQUIRE(st2.byvalue_functions == 1);
++	REQUIRE(st2.byvalue_kernels == 0);
++	REQUIRE(st2.area_unused_kernels == 1);
++	REQUIRE(st2.area_unused_functions == 1);
+ 	REQUIRE(has(out2, kernel));
+ 	REQUIRE(has(out2, ".visible .func __retprobe_func__kern()"));
+ 	REQUIRE_FALSE(has(out2, "__bpftime_tl"));
+diff --git a/attach/nv_attach_impl/test/test_thread_local_byvalue.cpp b/attach/nv_attach_impl/test/test_thread_local_byvalue.cpp
+index 04648591..f26c3a06 100644
+--- a/attach/nv_attach_impl/test/test_thread_local_byvalue.cpp
++++ b/attach/nv_attach_impl/test/test_thread_local_byvalue.cpp
+@@ -230,36 +230,6 @@ TEST_CASE("lat's probes take the thread-local area by value", "[tl-byvalue]")
+ 	REQUIRE_FALSE(has(out, "_bpf_helper_ext_0001"));
+ }
+ 
+-TEST_CASE("The second word of a 16-byte area is two more halves", "[tl-byvalue]")
+-{
+-	thread_local_routing_stats st;
+-	// map 4's value at bytes 8-15
+-	auto out = route(HEAD + exit_fn() + entry() + kernel(), st, { tl(4, 8) },
+-			 16);
+-	INFO(why(st));
+-	REQUIRE(st.byvalue_kernels == 1);
+-	REQUIRE(has(out, "\t.local .align 8 .b8 \t__bpftime_tv[16];\n"
+-			 "\t.reg .b64 \t%bpftime_tv_a<2>, %bpftime_tv_r<2>;\n"
+-			 "\tst.local.u64 \t[__bpftime_tv+0], 0;\n"
+-			 "\tst.local.u64 \t[__bpftime_tv+8], 0;\n"));
+-	REQUIRE(has(out, "    ld.local.u64 \t%bpftime_tv_a0, [__bpftime_tv+0];\n"
+-			 "\tld.local.u64 \t%bpftime_tv_a1, [__bpftime_tv+8];\n"
+-			 "\tcall (%bpftime_tv_r0, %bpftime_tv_r1), __probe_func__kern, "
+-			 "(%bpftime_tv_a0, %bpftime_tv_a1);\n"
+-			 "\tst.local.u64 \t[__bpftime_tv+0], %bpftime_tv_r0;\n"
+-			 "\tst.local.u64 \t[__bpftime_tv+8], %bpftime_tv_r1;\n"));
+-	REQUIRE(has(out, ".visible .func (.param .b64 __probe_func__kern_bpftime_tv_r0, "
+-			 ".param .b64 __probe_func__kern_bpftime_tv_r1) __probe_func__kern(\n"
+-			 "\t.param .b64 __probe_func__kern_bpftime_tv_a0,\n"
+-			 "\t.param .b64 __probe_func__kern_bpftime_tv_a1\n)"));
+-	REQUIRE(has(out, "\t.reg .b32 \t%bptv_h<4>;\n"));
+-	REQUIRE(has(out, "\tmov.b64 \t{%bptv_h2, %bptv_h3}, %bptv_x;\n"));
+-	REQUIRE(has(out, "\tcvt.u32.u64 \t%bptv_h2, %rd14;\n"));
+-	REQUIRE(has(out, "\tcvt.u32.u64 \t%bptv_h3, %rd16;\n"));
+-	REQUIRE(has(out, "\tcvt.u64.u32 \t%rd17, %bptv_h2;\n"));
+-	REQUIRE(has(out, "\tst.param.b64 \t[__probe_func__kern_bpftime_tv_r1], %bptv_x;\n"));
+-}
+-
+ TEST_CASE("A call site keeps its label and predicate", "[tl-byvalue]")
+ {
+ 	thread_local_routing_stats st;
+@@ -289,10 +259,25 @@ TEST_CASE("A probe function that never touches the area takes nothing", "[tl-byv
+ 	REQUIRE(st.byvalue_kernels == 1);
+ 	REQUIRE(has(out, "$L__BB1_9:\ncall __retprobe_func__kern;\n"));
+ 	REQUIRE(has(out, ".visible .func __retprobe_func__kern()\n{"));
++	REQUIRE(st.byvalue_functions == 1);
++	REQUIRE(st.area_unused_functions == 1);
+ 	REQUIRE(has(out, "\tmov.u64 \t%rd15, 1; // bpftime thread-local lookup by value, map 4\n"));
+ 	REQUIRE(has(out, "\tsetp.ne.s64 \t%p1, %rd15, 0;\n"));
+ }
+ 
++TEST_CASE("A map fd is read from its mov, not from a comment", "[tl-byvalue]")
++{
++	thread_local_routing_stats st;
++	std::string e = entry();
++	const std::string fd = "\tmov.u64 \t%rd5, 4;\n";
++	e.replace(e.find(fd), fd.size(), "\t// mov.u64 \t%rd5, 7;\n" + fd);
++	auto out = route(HEAD + exit_fn() + e + kernel(), st);
++	INFO(why(st));
++	REQUIRE(st.byvalue_kernels == 1);
++	REQUIRE(st.byvalue_lookups == 2);
++	REQUIRE_FALSE(has(out, "_bpf_helper_ext_0001"));
++}
++
+ TEST_CASE("Calls on other maps get 0 for the area", "[tl-byvalue]")
+ {
+ 	thread_local_routing_stats st;
+@@ -315,74 +300,136 @@ TEST_CASE("Any other form keeps the area in memory for the whole kernel",
+ 		std::string entry_fn, exit_fn;
+ 		std::vector<thread_local_map_desc> maps;
+ 		uint64_t area;
++		const char *why;
++		std::string kern = kernel();
+ 	};
+ 	const std::string ok_exit = exit_fn();
+ 	const std::vector<thread_local_map_desc> m = { tl() };
++	const std::string lookup2 =
++		"\tmov.u32 \t%r2, 0;\n\tst.local.u32 \t[%rd4+504], %r2;\n"
++		"\tadd.s64 \t%rd6, %rd3, 504;\n" +
++		call_block(12, "_bpf_helper_ext_0001", "%rd5", "%rd6", "%rd9");
++	auto with_extra_in_block = [] {
++		std::string e = entry();
++		const std::string at = "\t.reg .b32 temp_param_reg;\n";
++		e.insert(e.find(at) + at.size(), "\tadd.s64 \t%rd30, %rd31, 1;\n");
++		return e;
++	};
++	auto exit_ret = [](const std::string &with) {
++		std::string e = exit_fn();
++		const std::string r = "$L__BB0_3:\n\tret;";
++		e.replace(e.find(r), r.size(), with);
++		return e;
++	};
+ 	const std::vector<form> forms = {
+ 		{ "key loaded, not a constant",
+-		  entry("\tld.u32 \t%r1, [%rd3+16];\n"), ok_exit, m, 8 },
++		  entry("\tld.u32 \t%r1, [%rd3+16];\n"), ok_exit, m, 8,
++		  "key that is not a constant" },
+ 		{ "key out of range", entry("\tmov.u32 \t%r1, 1;\n"), ok_exit, m,
+-		  8 },
+-		{ "key in octal", entry("\tmov.u32 \t%r1, 00;\n"), ok_exit, m, 8 },
++		  8, "out of range" },
++		{ "key in octal", entry("\tmov.u32 \t%r1, 00;\n"), ok_exit, m, 8,
++		  "not a constant" },
++		{ "key written again by redux.sync",
++		  entry(KEY0, "\tredux.sync.add.u32 \t%r1, %r5, -1;\n"), ok_exit,
++		  m, 8, "not a constant" },
++		{ "key written again by stacksave",
++		  entry(KEY0, "\tstacksave.u32 \t%r1;\n"), ok_exit, m, 8,
++		  "not a constant" },
++		{ "map fd in octal", entry(KEY0, "", "010"), ok_exit, m, 8,
++		  "map is not a constant" },
+ 		{ "result copied", entry(KEY0, "\tmov.u64 \t%rd20, %rd9;\n"),
+-		  ok_exit, m, 8 },
++		  ok_exit, m, 8, "other than a compare" },
+ 		{ "result stored to memory",
+-		  entry(KEY0, "\tst.u64 \t[%rd3+16], %rd9;\n"), ok_exit, m, 8 },
++		  entry(KEY0, "\tst.u64 \t[%rd3+16], %rd9;\n"), ok_exit, m, 8,
++		  "other than a compare" },
++		{ "result stored into its own value",
++		  entry(KEY0, "\tst.u32 \t[%rd9], %rd9;\n"), ok_exit, m, 8,
++		  "into its own value" },
++		{ "results of two lookups joined in one register",
++		  entry(KEY0, lookup2), ok_exit, m, 8, "written more than once" },
++		{ "result loaded through itself",
++		  entry(KEY0, "\tld.u32 \t%rd9, [%rd9];\n"), ok_exit, m, 8,
++		  "written more than once" },
+ 		{ "atomic through the result",
+ 		  entry(KEY0, "\tatom.add.u64 \t%rd20, [%rd9], 1;\n"), ok_exit, m,
+-		  8 },
++		  8, "other than a compare" },
+ 		{ "64-bit access", entry(KEY0, "\tst.u64 \t[%rd9], %rd14;\n"),
+-		  ok_exit, m, 8 },
++		  ok_exit, m, 8, "other than a compare" },
+ 		{ "32-bit register", entry(KEY0, "\tst.u32 \t[%rd9], %r3;\n"),
+-		  ok_exit, m, 8 },
++		  ok_exit, m, 8, "not 64-bit" },
+ 		{ "8-bit access", entry(KEY0, "\tst.u8 \t[%rd9], %rd14;\n"),
+-		  ok_exit, m, 8 },
++		  ok_exit, m, 8, "other than a compare" },
+ 		{ "signed load", entry(KEY0, "\tld.s32 \t%rd20, [%rd9];\n"),
+-		  ok_exit, m, 8 },
++		  ok_exit, m, 8, "other than a compare" },
+ 		{ "offset past the value",
+-		  entry(KEY0, "\tst.u32 \t[%rd9+8], %rd14;\n"), ok_exit, m, 8 },
++		  entry(KEY0, "\tst.u32 \t[%rd9+8], %rd14;\n"), ok_exit, m, 8,
++		  "outside its value" },
+ 		{ "offset not 4-aligned",
+-		  entry(KEY0, "\tst.u32 \t[%rd9+2], %rd14;\n"), ok_exit, m, 8 },
++		  entry(KEY0, "\tst.u32 \t[%rd9+2], %rd14;\n"), ok_exit, m, 8,
++		  "not at a 4-byte" },
++		{ "value not 4-aligned in the area", entry(), ok_exit, { tl(4, 2) },
++		  8, "not at a 4-byte" },
+ 		{ "guarded access",
+-		  entry(KEY0, "\t@%p1 st.u32 \t[%rd9], %rd14;\n"), ok_exit, m, 8 },
++		  entry(KEY0, "\t@%p1 st.u32 \t[%rd9], %rd14;\n"), ok_exit, m, 8,
++		  "guarded use" },
+ 		{ "two statements on a line",
+ 		  entry(KEY0, "\tst.u32 \t[%rd9], %rd14; shr.u64 \t%rd20, %rd14, 1;\n"),
+-		  ok_exit, m, 8 },
++		  ok_exit, m, 8, "not on a line of its own" },
+ 		{ "labelled access",
+ 		  entry(KEY0, "$L__BB0_7: st.u32 \t[%rd9], %rd14;\n"), ok_exit, m,
+-		  8 },
++		  8, "not on a line of its own" },
++		{ "block comment", entry(KEY0, "\t/* note */\n"), ok_exit, m, 8,
++		  "block comment" },
++		{ "guard on a line of its own before a ret",
++		  entry(KEY0, "\t@%p1\n\tret;\n"), ok_exit, m, 8,
++		  "guard on a line of its own" },
+ 		{ "compare with another register",
+ 		  entry(KEY0, "\tsetp.eq.s64 \t%p2, %rd9, %rd14;\n"), ok_exit, m,
+-		  8 },
++		  8, "other than a compare" },
+ 		{ "a directive glued to an access",
+ 		  entry(KEY0, "\t.loc 1 5 3\n\tst.u32 \t[%rd9], %rd14;\n"), ok_exit,
+-		  m, 8 },
++		  m, 8, "directive glued" },
++		{ "a directive glued to a ret", entry(),
++		  exit_ret("$L__BB0_3:\n\t.loc 1 5 3\n\tret;"), m, 8,
++		  "directive glued" },
+ 		{ "update of the thread-local map",
+ 		  entry(KEY0, call_block(12, "_bpf_helper_ext_0002", "%rd5",
+ 					 "%rd1", "%rd22")),
+-		  ok_exit, m, 8 },
++		  ok_exit, m, 8, "update or delete" },
+ 		{ "map fd not a constant",
+ 		  entry(KEY0, call_block(12, "_bpf_helper_ext_0001", "%rd30",
+ 					 "%rd1", "%rd22")),
+-		  ok_exit, m, 8 },
+-		{ "ret with a label on its line", entry(), [] {
+-			  std::string e = exit_fn();
+-			  e.replace(e.find("$L__BB0_3:\n\tret;"),
+-				    std::string("$L__BB0_3:\n\tret;").size(),
+-				    "$L__BB0_3: ret;");
+-			  return e;
+-		  }(),
+-		  m, 8 },
++		  ok_exit, m, 8, "map is not a constant" },
++		{ "ret with a label on its line", entry(),
++		  exit_ret("$L__BB0_3: ret;"), m, 8, "ret not on a line" },
++		{ "a 16-byte area (a writer would return two values)", entry(),
++		  ok_exit, { tl(4, 8) }, 16, "the area has 16 bytes" },
+ 		{ "area larger than 16 bytes", entry(), ok_exit, { tl(4, 16) },
+-		  24 },
++		  24, "the area has 24 bytes" },
+ 		{ "only the exit not eligible", entry(),
+-		  exit_fn("\tld.u32 \t%r3, [%rd15];\n"), m, 8 },
++		  exit_fn("\tld.u32 \t%r3, [%rd15];\n"), m, 8, "not 64-bit" },
++		{ "a probe call sharing its line with a branch", entry(), ok_exit, m,
++		  8, "shares its line",
++		  kernel("    call __probe_func__kern; @%p1 bra $L__BB1_9;\n") },
++		{ "a probe call after another statement on its line", entry(),
++		  ok_exit, m, 8, "shares its line",
++		  kernel("\tmov.u32 \t%r2, 1; @%p1 call __probe_func__kern;\n") },
+ 	};
++	// a lookup call block holding more than the call: not by value, and the
++	// address form refuses the module (plain_call_block), as before
++	{
++		thread_local_routing_stats st;
++		REQUIRE_THROWS(route(HEAD + ok_exit + with_extra_in_block() +
++					     kernel(),
++				     st));
++	}
+ 	for (const auto &f : forms) {
+ 		INFO(f.what);
+ 		thread_local_routing_stats st;
+-		std::string ptx = HEAD + f.exit_fn + f.entry_fn + kernel();
++		std::string ptx = HEAD + f.exit_fn + f.entry_fn + f.kern;
+ 		auto out = route(ptx, st, f.maps, f.area);
++		INFO(why(st));
++		REQUIRE(has(why(st), f.why));
+ 		REQUIRE(st.byvalue_kernels == 0);
+ 		REQUIRE(st.byvalue_functions == 0);
+ 		REQUIRE(st.byvalue_fallbacks.size() == 1);
+diff --git a/attach/nv_attach_impl/trampoline/default_trampoline.cu b/attach/nv_attach_impl/trampoline/default_trampoline.cu
+index 5ef43e6f..db4aaee5 100644
+--- a/attach/nv_attach_impl/trampoline/default_trampoline.cu
++++ b/attach/nv_attach_impl/trampoline/default_trampoline.cu
+@@ -242,10 +242,12 @@ static __device__ __forceinline__ unsigned int current_smid()
+ }
+ 
+ // 1530: the calling thread's own copy of entry idx, in its thread-local area
+-// (a kernel-scope .local the agent's routing adds to every probed kernel and
+-// zeroes when the kernel starts), whose generic address the routing passes as
+-// the helper's last argument. Probe functions the routing did not reach pass
+-// 0 there: NULL. extra_buffer holds the map's offset in the area.
++// (in the routing's address form, a kernel-scope .local it adds to a probed
++// kernel and zeroes when the kernel starts), whose generic address the
++// routing passes as the helper's last argument. Probe functions the routing
++// did not reach, and those it gives the area by value (it makes their
++// thread-local lookups itself), pass 0 there: NULL. extra_buffer holds the
++// map's offset in the area.
+ static __device__ void *thread_local_offset(uint64_t idx,
+ 					    const MapBasicInfo &info,
+ 					    uint64_t area)
+-- 
+2.43.0
+
