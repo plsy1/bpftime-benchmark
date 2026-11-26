@@ -45,6 +45,7 @@ H2 additions (inactive unless used):
 import argparse, hashlib, json, os, random, re, signal, subprocess, sys, time
 
 BENCH = '/bench'
+LOG_SKIPPED = 0  # E7: non-request lines in the last access log parsed
 URL = 'https://127.0.0.1:4043/index.html'
 SWITCHES = {
     'NO_PIN': {'BPFTIME_DIAG_NO_PIN': '1'},
@@ -117,7 +118,7 @@ def write_payload(size):
 
 
 def kill_all():
-    for pat in ('^nginx$', '^sslsniff', '^wrk$'):
+    for pat in ('^nginx$', '^sslsniff', '^wrk$', '^haproxy$'):
         sh('pkill', '-9', pat)
     time.sleep(0.3)
 
@@ -133,7 +134,7 @@ def leftovers():
         except OSError:
             continue
         b = os.path.basename(exe)
-        if b in ('nginx', 'wrk') or b.startswith('sslsniff'):
+        if b in ('nginx', 'wrk', 'haproxy') or b.startswith('sslsniff'):
             hits.append((int(pid), exe))
     return hits
 
@@ -178,6 +179,77 @@ def start_nginx(cpus, env=None, nworkers=1, conf='nginx.conf'):
         assert p.poll() is None, 'nginx exited'
         time.sleep(0.2)
     raise RuntimeError('nginx not ready')
+
+
+def start_haproxy(cpus, env, conf, nthreads):
+    """E7: HAProxy in the foreground (-db, one process, nthreads threads); its stdout is the access log.
+    Returns (process, pid) like a 1-worker nginx, so -p, perf -p and the per-process metrics apply as they are."""
+    for f in ('access.log', 'error.log', 'haproxy.sock'):
+        try:
+            os.remove(f'{BENCH}/{f}')
+        except FileNotFoundError:
+            pass
+    logf = open(f'{BENCH}/access.log', 'w')
+    errf = open(f'{BENCH}/error.log', 'w')
+    p = subprocess.Popen(['haproxy', '-db', '-f', f'{BENCH}/{conf}'], env=env, stdout=logf, stderr=errf,
+                         start_new_session=True, **affinity(cpus))
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        r = sh('curl', '-k', '-s', '-o', '/dev/null', '-w', '%{http_code}', URL)
+        if r.stdout == '200':
+            comms = []
+            for t in os.listdir(f'/proc/{p.pid}/task'):
+                try:
+                    comms.append(open(f'/proc/{p.pid}/task/{t}/comm').read().strip())
+                except OSError:
+                    pass
+            # bpftime's agent adds threads of its own to the process; count HAProxy's by name
+            assert comms.count('haproxy') >= nthreads, f'haproxy threads {comms} < {nthreads}'
+            return p, p.pid
+        assert p.poll() is None, 'haproxy exited: ' + open(f'{BENCH}/error.log').read()[-500:]
+        time.sleep(0.2)
+    raise RuntimeError('haproxy not ready')
+
+
+def haproxy_info():
+    """E7: 'show info' from the stats socket (CumReq, CumSslConns, ...), or {} if unavailable."""
+    import socket
+    try:
+        c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        c.settimeout(2)
+        c.connect(f'{BENCH}/haproxy.sock')
+        c.sendall(b'show info\n')
+        data = b''
+        while True:
+            b = c.recv(65536)
+            if not b:
+                break
+            data += b
+        c.close()
+        return dict(l.split(': ', 1) for l in data.decode(errors='replace').splitlines() if ': ' in l)
+    except OSError:
+        return {}
+
+
+def thread_ns(pid):
+    """E7: {tid: schedstat run ns} for every thread of a process."""
+    out = {}
+    try:
+        for t in os.listdir(f'/proc/{pid}/task'):
+            try:
+                out[t] = int(open(f'/proc/{pid}/task/{t}/schedstat').read().split()[0])
+            except (OSError, ValueError, IndexError):
+                pass
+    except OSError:
+        pass
+    return out
+
+
+def start_server(pol, env, nworkers, conf):
+    """nginx (default, unchanged) or, for a policy with server = haproxy, HAProxy (E7)."""
+    if pol.get('server', 'nginx') == 'nginx':
+        return start_nginx(pol['nginx'], env, nworkers, conf)
+    return start_haproxy(pol['nginx'], env, pol['server_conf'], pol.get('server_threads', 1))
 
 
 def stop(p):
@@ -294,6 +366,8 @@ def shm_bytes():
 
 
 def parse_access_log():
+    global LOG_SKIPPED
+    LOG_SKIPPED = 0
     req = 0
     nbytes = 0
     status_bad = 0
@@ -302,6 +376,9 @@ def parse_access_log():
             f = line.split()
             if len(f) < 2:
                 continue
+            if not (len(f[0]) == 3 and f[0].isdigit() and f[1].isdigit()):
+                LOG_SKIPPED += 1
+                continue  # E7: HAProxy also logs connection errors ("... Connection closed during SSL handshake")
             req += 1
             nbytes += int(f[1])
             if f[0] != '200':
@@ -496,9 +573,9 @@ def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None):
     sniff_cpu = None
     try:
         if base == 'B':
-            nginx, worker = start_nginx(pol['nginx'], None, NW, NCONF)
+            nginx, worker = start_server(pol, None, NW, NCONF)
         elif base == 'K':
-            nginx, worker = start_nginx(pol['nginx'], None, NW, NCONF)
+            nginx, worker = start_server(pol, None, NW, NCONF)
             env = dict(base_env, **leg['env'])  # E15: loader env such as SSLSNIFF_PB_WAKEUP
             if leg['stage'] == 'S4lat':
                 env = dict(base_env, SSLSNIFF_LAT_ANCHOR='usr2', **leg['env'])  # H2
@@ -524,13 +601,15 @@ def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None):
             time.sleep(2)
             assert sniff.poll() is None, 'bpftime sslsniff exited'
             env = dict(base_env, LD_PRELOAD=f'{build}/libbpftime-agent.so', **leg['env'])
-            nginx, worker = start_nginx(pol['nginx'], env, NW, NCONF)
+            nginx, worker = start_server(pol, env, NW, NCONF)
         cpus = sorted(set(pol['nginx'] + pol['sniff'] + pol['wrk']))
         t0 = cpu_times()
         w0 = agg(proc_cpu_s, worker)
         s0 = proc_cpu_s(sniff.pid) if sniff else None
         wns0, sns0 = agg(task_schedstat_ns, worker), task_schedstat_ns(sniff.pid if sniff else None)
         mig0 = agg(nr_migrations, worker)
+        srv = pol.get('server', 'nginx')
+        tns0 = thread_ns(worker) if srv != 'nginx' else None
         irq0 = irq_counts()
         perfp = None
         if PERF['mode']:
@@ -588,6 +667,12 @@ def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None):
         s1 = proc_cpu_s(sniff.pid) if sniff else None
         wns1, sns1 = agg(task_schedstat_ns, worker), task_schedstat_ns(sniff.pid if sniff else None)
         mig1 = agg(nr_migrations, worker)
+        if srv != 'nginx':  # E7: per-thread run time over the measured window, server counters
+            tns1 = thread_ns(worker)
+            row['server'] = srv
+            row['server_thread_cpu_ns'] = {t: tns1[t] - tns0[t] for t in tns1 if t in tns0}
+            info = haproxy_info()
+            row['haproxy_info'] = {k: info.get(k) for k in ('CumReq', 'CumConns', 'CumSslConns', 'Nbthread', 'Version')}
         irq1 = irq_counts()
         row['busy_all'] = busy(t0, t1, sorted(t1))
         row['nginx_cpu_ns'] = (wns1 - wns0) if None not in (wns0, wns1) else None
@@ -627,6 +712,18 @@ def run_leg(cfg, leg, conns, secs, threads, capdir, rate=None):
         kill_all()
         remove_shm(cfg, base)
     req_nginx, bytes_nginx, bad = parse_access_log()
+    cum = (row.get('haproxy_info') or {}).get('CumReq')
+    if cum is not None and req_nginx:
+        # E7: HAProxy drops log lines when stdout cannot keep up (several threads); take CumReq as the request count
+        # and scale bytes per logged request. CumReq exceeds the logged requests by exactly 1 in every H7a/H7b row;
+        # subtracting LOG_SKIPPED (always 1 there: a failed-handshake line) gives the right count, but the extra 1 is
+        # more likely the stats-socket "show info" stream itself (unconfirmed). Revisit if LOG_SKIPPED != 1.
+        req_srv = int(cum) - LOG_SKIPPED
+        row.update(req_log=req_nginx, bytes_log=bytes_nginx, log_skipped=LOG_SKIPPED, req_server=req_srv,
+                   log_dropped=max(0, req_srv - req_nginx))
+        if req_srv > req_nginx:
+            bytes_nginx = round(bytes_nginx * req_srv / req_nginx)
+            req_nginx = req_srv
     row.update(req_nginx=req_nginx, bytes_nginx=bytes_nginx, nginx_non200=bad)
     cnt, stats = None, []
     for line in open(errpath, errors='replace'):

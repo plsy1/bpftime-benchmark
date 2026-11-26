@@ -34,12 +34,15 @@ session's check/exit files. Capture directories (cap/) stay on the NUC.
 | I2churn-20261126-try1 | map churn on 1/2/4/8 threads | SUMMARY.md |
 | I2N-20261126-try1 | nginx with 2 workers (policy W2) | SUMMARY.md |
 | N7-20261126-try1 | Fig. 1 stage ladder with real builds | SUMMARY.md |
+| H7a-20261126-try1 | E7a: HAProxy 1 thread, 16 B and 4 KiB | SUMMARY.md |
+| H7b-20261126-try1 | E7b: HAProxy 4 threads; Q1 Dn730f/OlL3 1.053 → not met | SUMMARY.md |
 
 Deviations and notes:
 - 2026-11-26 00:27:05–12: an ssh from the Jetson session overlapped I3 round 2 rep 9 leg K (I3 DEVIATIONS.md; no
   effect on the readings). Since then every status message to the Jetson states the NUC's state.
 - Harness changes during the campaign, each with a `.pre-*` backup on the NUC: policy C (I9), stage S4pb (I4), stage
   S4mp and multi-worker nginx (I2, `nginx-2w.conf`, policy W2); the single-worker path is unchanged.
+- E7 (H7a/H7b): HAProxy image bpftime-ssl-haproxy:x86-20261126 (R/docker-haproxy); harness server interface (run_paper.py vs .pre-e7); policy H4 uses CPUs of PREREG-2 §6's non-measured set, so its noisy_core check uses {5, 15} (post hoc). session.sh now logs every pinned CPU (.pre-pinlog).
 - churnloop's thread cap was raised 6 → 16 for I2 (`churn/src/CHANGES-I2.txt`; target_func code identical to E11's).
 - 2026-11-26 05:14–07:15: the CPU pin restore after I2churn failed (run-i2.sh listed SMT siblings; duplicate entries in
   pin-state.txt), leaving CPUs 0, 1, 3, 5, 7 at a fixed 3.5 GHz with C-states ≥ 2 off during I2N and N7 (measured CPUs

@@ -1,0 +1,5 @@
+# E7a (eval plan L448-450), named H7a here (exp E7/E7c already exist): HAProxy nbthread=1 (policy H1: one thread under
+# the mask {2,6} like nginx policy M; consumer 4; wrk 8-11), image bpftime-ssl-haproxy:x86-20261126. 16 B and 4 KiB.
+# O only for delivery (16 B). Kb = K+SSLSNIFF_PB_WAKEUP=32.
+--exp H7a --round 0 --payload 16 --reps 11 --warmup 1 --legs B#H1,K#H1,K#H1+SSLSNIFF_PB_WAKEUP=32,L3port#H1,Ol#H1,Olpc#H1,OlL3x730#H1,OlL3x730pc#H1,Dn#H1,Dnpc#H1,Dxn#H1+BPFTIME_DIAG_EXACT=1,Dnpc#H1+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32,O#H1
+--exp H7a --round 1 --payload 4096 --reps 10 --legs B#H1,K#H1,K#H1+SSLSNIFF_PB_WAKEUP=32,L3port#H1,Ol#H1,Olpc#H1,OlL3x730#H1,OlL3x730pc#H1,Dn#H1,Dnpc#H1,Dxn#H1+BPFTIME_DIAG_EXACT=1,Dnpc#H1+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32

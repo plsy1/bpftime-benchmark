@@ -14,9 +14,10 @@ H=$R/harness
 exec 9>"$R/.measure.lock"
 flock -n 9 || { echo "refusing: build or another session holds the measurement lock"; exit 3; }
 OUT=$R/raw/$SID
-IMAGE=bpftime-ssl-nginx:x86-20261026
+IMAGE=${PAPER_IMAGE:-bpftime-ssl-nginx:x86-20261026}  # E7: PAPER_IMAGE=bpftime-ssl-haproxy:x86-20261126 (frozen image + haproxy)
 NAME=paper-x86
 PINS=(${PAPER_PINS:-2:3500000 4:3500000 6:3500000 8:2500000 9:2500000 10:2500000 11:2500000})
+PCPUS=("${PINS[@]%%:*}")  # CPUs pinned this session (logged by show / freq-log)
 TSC=2112
 mkdir "$OUT"
 LOG=$OUT/log; mkdir "$LOG"
@@ -30,7 +31,7 @@ finish()
     sudo -n docker rm -f "$NAME" >>"$LOG/cleanup.log" 2>&1 || true
     if [ -n "$FREQLOG_PID" ]; then sudo -n kill "$FREQLOG_PID" 2>/dev/null || true; fi
     if [ -e "$LOG/pin-state.txt" ]; then "$H/pin-cpus.sh" restore "$LOG/pin-state.txt" || status=99; fi
-    "$H/pin-cpus.sh" show 2 4 6 8 9 10 11 >"$LOG/pin-restored.txt" 2>&1 || true
+    "$H/pin-cpus.sh" show "${PCPUS[@]}" >"$LOG/pin-restored.txt" 2>&1 || true
     for p in "${CLAUDE_PIDS[@]}"; do taskset -apc 0-15 "$p" >/dev/null 2>&1 || true; done
     sudo -n chown -R "$(id -u):$(id -g)" "$OUT" 2>/dev/null || true
     printf '%s\n' "$status" >"$LOG/exit-status.txt"
@@ -55,7 +56,7 @@ for pid in os.listdir('/proc'):
     try: exe = os.readlink(f'/proc/{pid}/exe')
     except OSError: continue
     b = os.path.basename(exe)
-    if b in ('nginx', 'wrk', 'test', 'uprobe', 'memleak', 'bpftrace', 'java') or b.startswith(('sslsniff', 'bpftime')):
+    if b in ('nginx', 'wrk', 'test', 'uprobe', 'memleak', 'bpftrace', 'java', 'haproxy') or b.startswith(('sslsniff', 'bpftime')):
         bad.append((pid, exe))
 if bad: sys.exit(f'leftover processes: {bad}')
 PY
@@ -80,14 +81,14 @@ for p in "${CLAUDE_PIDS[@]}"; do taskset -apc 12-14 "$p" >>"$LOG/claude-taskset.
 taskset -pc 12-14 $$ >/dev/null
 
 "$H/pin-cpus.sh" pin "$LOG/pin-state.txt" "${PINS[@]}"
-"$H/pin-cpus.sh" show 2 4 6 8 9 10 11 >"$LOG/pin-pinned.txt"
+"$H/pin-cpus.sh" show "${PCPUS[@]}" >"$LOG/pin-pinned.txt"
 sudo -n modprobe msr
 for try in $(seq 15); do
     sudo -n python3 "$H/busy-check.py" "$TSC" "${PINS[@]}" >>"$LOG/check-before.txt" && break
     test "$try" -lt 15
 done
 top -bn2 -d2 | awk '/^top -/{n++} n==2' | sed -n '1,20p' >"$LOG/top-before.txt"
-sudo -n python3 "$H/freq-log.py" 15 "$TSC" 2 4 6 8 9 10 11 >"$LOG/freq-log.txt" 2>&1 &
+sudo -n python3 "$H/freq-log.py" 15 "$TSC" "${PCPUS[@]}" >"$LOG/freq-log.txt" 2>&1 &
 FREQLOG_PID=$!
 
 sudo -n docker run -d --name "$NAME" --privileged --pid=host --shm-size=1g -v /sys:/sys \

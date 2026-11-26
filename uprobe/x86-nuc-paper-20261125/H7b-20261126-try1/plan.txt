@@ -1,0 +1,6 @@
+# E7b (eval plan L451-455), named H7b: HAProxy nbthread=4 (policy H4: threads cpu-mapped to 2,3,6,7 = 2 P cores with
+# SMT; consumer 4; wrk on 0,1,8-11 with 6 threads, widened from 8-11 after the smoke showed 4 E-core wrk threads
+# saturating at B). Dn730 replaced by Dn730f (PREREG-2b). Q1 (eval plan L462): Dn730f / OlL3 here.
+--exp H7b --round 0 --payload 16 --reps 11 --warmup 1 --legs B#H4,K#H4,K#H4+SSLSNIFF_PB_WAKEUP=32,Ol#H4,OlL3#H4,OlL3x730#H4,Dn#H4,Dn730f#H4,Dnpc#H4
+--exp H7b --round 1 --payload 16 --reps 10 --legs B#H4,K#H4,K#H4+SSLSNIFF_PB_WAKEUP=32,Ol#H4,OlL3#H4,OlL3x730#H4,Dn#H4,Dn730f#H4,Dnpc#H4
+--exp H7b --round 2 --payload 16 --reps 3 --secs 20 --perf-mode sc --legs K#H4,K#H4+SSLSNIFF_PB_WAKEUP=32,Ol#H4,OlL3#H4,OlL3x730#H4,Dn#H4,Dn730f#H4,Dnpc#H4
