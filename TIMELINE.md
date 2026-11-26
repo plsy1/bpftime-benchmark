@@ -455,6 +455,24 @@ calls, the switch, the timer helpers, the log2) are left as they are (user: tool
   the shape would run at 57.2 t/s (-16%). Carrying the start by value instead of through the
   thread-local area saves 0.015-0.021 (a candidate, not built).
 
+## 11-26: the prototype on the current dev; upstream not followed for now
+
+Official bpftime now moves about 20 commits a day (60+ a week since 11-09), most of them on the
+locks of the map handler, shared memory, ringbuf and agent start-up, where the dev stack changes
+the most; a trial merge of the 44 commits after 70f7bc1f into dev conflicted in 30 files. Dev
+stays on official 70f7bc1f (`dev/uprobe-official-70f7bc1f3363`) until we choose to follow again
+(user); a manual daily run against 35015537 was stopped before its migration, nothing kept.
+
+- **Prototype moved** onto that dev (`proto/map-model-70f7bc1f`; results
+  `gpu/map-model-move-70f7bc1f-20261126`): one conflict (upstream's early return for modules
+  without a trampoline, where the routing pass is called), resolved to the same behavior.
+- **Same code, same numbers:** the generated PTX is identical but for `callseq` comment numbers,
+  which ptxas ignores; unit tests and seven pt_victim tools exact; tg128 with mul_mat_vec_q probed
+  54.5 t/s on both bases, 0.148 ns per thread, difference 0.0000-0.0001 ns.
+- **Found on dev itself:** the CUDA test `[ptx-failure]` fails on the new dev without the
+  prototype too: since upstream skips modules without probes, its broken module is never
+  compiled. The test needs a module with a probe.
+
 ## Where it stands (11-18)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
