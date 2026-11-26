@@ -1,14 +1,15 @@
 #ifndef _BPFTIME_NV_THREAD_LOCAL_ROUTING_HPP
 #define _BPFTIME_NV_THREAD_LOCAL_ROUTING_HPP
-// Thread-local maps (1530, prototype proto/map-model): every probed kernel
-// gets a kernel-scope .local area, zeroed when the kernel starts, whose
-// generic address (cvta.local) is passed to each of its probe functions as
-// their one parameter. In a probe function, a lookup of a thread-local map
-// with a constant map fd becomes the address itself (key bounds checked);
+// Thread-local maps (1530, prototype proto/map-model): a probed kernel
+// keeps the thread-local area, zeroed when the kernel starts, either by
+// value (below) or as a kernel-scope .local area whose generic address
+// (cvta.local) is passed to each of its probe functions as their one
+// parameter. In the address form, a lookup of a thread-local map with a
+// constant map fd becomes the address itself (key bounds checked), and
 // every other map helper call (1, 2, 3) gets the address as its last
 // argument (eBPF r5), which the trampoline uses for thread-local maps. Probe
-// functions no routed kernel calls (memcapture) pass 0 there: their
-// thread-local lookups return NULL.
+// functions no routed kernel calls (memcapture), and probe functions by
+// value, pass 0 there: the trampoline's thread-local lookups return NULL.
 //
 // Correctness rests on: .local is the thread's own storage for the kernel's
 // run (PTX ISA 5.1.5; CUDA programming guide: local memory, scope thread,
@@ -42,18 +43,25 @@ struct thread_local_map_desc {
 // three lookups of `lat`).
 //
 // By value (2026-11-26): a kernel whose probe functions reach the area only
-// through lookups of thread-local maps with constant keys the program just
-// stored, and use each lookup's result only in compares with 0 and in 32-bit
-// loads and stores at 4-byte offsets inside the value (64-bit registers), on
-// lines of their own, keeps the area (at most 16 bytes) in a .local slot of
-// its own instead and passes its 8-byte words by value: a probe function
-// that accesses the area takes them as parameters, one that writes it also
-// returns them; inside, the area is .b32 halves, a lookup a non-null
-// constant, a load cvt.u64.u32 and a store cvt.u32.u64 of the half. Any other
-// form, in any probe function of the kernel, keeps the area in memory for the
-// whole kernel (byvalue_fallbacks says why). Map calls with a constant fd of
-// another map type get 0 for the area (helpers 1-3 read it for thread-local
-// maps only). Measured on mul_mat_vec_q with `lat` (the text this pass
+// through lookups of thread-local maps (helper 1) with constant keys the
+// program just stored, whose other map lookups, updates and deletes (helpers
+// 1-3) name their map with a constant, and which use each lookup's result
+// only in compares with 0 and in 32-bit loads and stores at 4-byte offsets
+// inside the value with 64-bit registers (unguarded, each on a line of its
+// own, never storing the result itself), keeps the area (one 8-byte word:
+// a writing function returns it, and a device function returns at most one
+// value, PTX ISA 7.1.1) in a .local slot of its own instead and passes it by
+// value: a probe function that accesses the area takes it as a parameter,
+// one that writes it also returns it; inside, the area is two .b32 halves, a
+// lookup the non-null constant 1, a load cvt.u64.u32 and a store
+// cvt.u32.u64 of the half. The rewrite works on lines, so a function with a
+// block comment, a directive glued to a statement or a guard on a line of
+// its own, and a kernel whose probe call shares its line, keep the address
+// form. Any other form, in any probe function of the kernel, keeps the
+// address form for the whole kernel (byvalue_fallbacks says why). Map calls
+// with a constant fd of another map type get 0 for the area (helpers 1-3
+// read it for thread-local maps only). A kernel whose probes never reach
+// the area gets none. Measured on mul_mat_vec_q with `lat` (the text this pass
 // emits, through the debug override): 0.021-0.024 ns per thread less than
 // the area in memory, 54.3 -> 55.9 t/s on tg128.
 //
@@ -101,6 +109,8 @@ struct thread_local_routing_stats {
 	int keys_forwarded = 0;	   // inline lookups given the stored key
 	int byvalue_kernels = 0;   // kernels passing the area by value
 	int byvalue_functions = 0; // probe functions taking it by value
+	int area_unused_kernels = 0;   // kernels whose probes never reach it
+	int area_unused_functions = 0; // their probe functions (no area)
 	int byvalue_lookups = 0;   // lookups made a constant
 	int byvalue_accesses = 0;  // accesses made register moves
 	// why a kernel kept the area in memory (function: reason)

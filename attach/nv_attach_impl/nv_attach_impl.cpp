@@ -1049,16 +1049,17 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
 	auto out =
 		route_thread_local_maps(ptx, kernels, descs, area, &st, sums);
 	SPDLOG_INFO(
-		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} routed probe functions ({} lookups made direct, {} helper calls given the area), {} other probe functions ({} helper calls given 0), {} generic atomics guarded; sum maps: {} lookups inline, {} atomics on their values made global; {} lookup keys forwarded",
+		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} probe functions given the area's address ({} lookups made direct, {} helper calls given the area), {} other probe functions, by value among them ({} helper calls given 0), {} generic atomics guarded; sum maps: {} lookups inline, {} atomics on their values made global; {} lookup keys forwarded",
 		file_name, area, st.kernels, st.call_sites, st.routed_functions,
 		st.direct_lookups, st.helper_calls_given_area,
 		st.unrouted_functions, st.helper_calls_given_zero,
 		st.guarded_atomics, st.sum_lookups, st.global_atomics,
 		st.keys_forwarded);
 	SPDLOG_INFO(
-		"Thread-local area by value in {}: {} kernels, {} probe functions, {} lookups made constant, {} accesses made register moves, {} kernels kept the area in memory",
+		"Thread-local area by value in {}: {} kernels ({} probe functions take it), {} lookups made constant, {} accesses made register moves; {} kernels whose probes never reach it ({} probe functions, no area); {} kernels kept the area in memory",
 		file_name, st.byvalue_kernels, st.byvalue_functions,
 		st.byvalue_lookups, st.byvalue_accesses,
+		st.area_unused_kernels, st.area_unused_functions,
 		st.byvalue_fallbacks.size());
 	for (const auto &why : st.byvalue_fallbacks)
 		SPDLOG_INFO("Thread-local area kept in memory: {}", why);

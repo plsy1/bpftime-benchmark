@@ -230,36 +230,6 @@ TEST_CASE("lat's probes take the thread-local area by value", "[tl-byvalue]")
 	REQUIRE_FALSE(has(out, "_bpf_helper_ext_0001"));
 }
 
-TEST_CASE("The second word of a 16-byte area is two more halves", "[tl-byvalue]")
-{
-	thread_local_routing_stats st;
-	// map 4's value at bytes 8-15
-	auto out = route(HEAD + exit_fn() + entry() + kernel(), st, { tl(4, 8) },
-			 16);
-	INFO(why(st));
-	REQUIRE(st.byvalue_kernels == 1);
-	REQUIRE(has(out, "\t.local .align 8 .b8 \t__bpftime_tv[16];\n"
-			 "\t.reg .b64 \t%bpftime_tv_a<2>, %bpftime_tv_r<2>;\n"
-			 "\tst.local.u64 \t[__bpftime_tv+0], 0;\n"
-			 "\tst.local.u64 \t[__bpftime_tv+8], 0;\n"));
-	REQUIRE(has(out, "    ld.local.u64 \t%bpftime_tv_a0, [__bpftime_tv+0];\n"
-			 "\tld.local.u64 \t%bpftime_tv_a1, [__bpftime_tv+8];\n"
-			 "\tcall (%bpftime_tv_r0, %bpftime_tv_r1), __probe_func__kern, "
-			 "(%bpftime_tv_a0, %bpftime_tv_a1);\n"
-			 "\tst.local.u64 \t[__bpftime_tv+0], %bpftime_tv_r0;\n"
-			 "\tst.local.u64 \t[__bpftime_tv+8], %bpftime_tv_r1;\n"));
-	REQUIRE(has(out, ".visible .func (.param .b64 __probe_func__kern_bpftime_tv_r0, "
-			 ".param .b64 __probe_func__kern_bpftime_tv_r1) __probe_func__kern(\n"
-			 "\t.param .b64 __probe_func__kern_bpftime_tv_a0,\n"
-			 "\t.param .b64 __probe_func__kern_bpftime_tv_a1\n)"));
-	REQUIRE(has(out, "\t.reg .b32 \t%bptv_h<4>;\n"));
-	REQUIRE(has(out, "\tmov.b64 \t{%bptv_h2, %bptv_h3}, %bptv_x;\n"));
-	REQUIRE(has(out, "\tcvt.u32.u64 \t%bptv_h2, %rd14;\n"));
-	REQUIRE(has(out, "\tcvt.u32.u64 \t%bptv_h3, %rd16;\n"));
-	REQUIRE(has(out, "\tcvt.u64.u32 \t%rd17, %bptv_h2;\n"));
-	REQUIRE(has(out, "\tst.param.b64 \t[__probe_func__kern_bpftime_tv_r1], %bptv_x;\n"));
-}
-
 TEST_CASE("A call site keeps its label and predicate", "[tl-byvalue]")
 {
 	thread_local_routing_stats st;
@@ -289,8 +259,23 @@ TEST_CASE("A probe function that never touches the area takes nothing", "[tl-byv
 	REQUIRE(st.byvalue_kernels == 1);
 	REQUIRE(has(out, "$L__BB1_9:\ncall __retprobe_func__kern;\n"));
 	REQUIRE(has(out, ".visible .func __retprobe_func__kern()\n{"));
+	REQUIRE(st.byvalue_functions == 1);
+	REQUIRE(st.area_unused_functions == 1);
 	REQUIRE(has(out, "\tmov.u64 \t%rd15, 1; // bpftime thread-local lookup by value, map 4\n"));
 	REQUIRE(has(out, "\tsetp.ne.s64 \t%p1, %rd15, 0;\n"));
+}
+
+TEST_CASE("A map fd is read from its mov, not from a comment", "[tl-byvalue]")
+{
+	thread_local_routing_stats st;
+	std::string e = entry();
+	const std::string fd = "\tmov.u64 \t%rd5, 4;\n";
+	e.replace(e.find(fd), fd.size(), "\t// mov.u64 \t%rd5, 7;\n" + fd);
+	auto out = route(HEAD + exit_fn() + e + kernel(), st);
+	INFO(why(st));
+	REQUIRE(st.byvalue_kernels == 1);
+	REQUIRE(st.byvalue_lookups == 2);
+	REQUIRE_FALSE(has(out, "_bpf_helper_ext_0001"));
 }
 
 TEST_CASE("Calls on other maps get 0 for the area", "[tl-byvalue]")
@@ -315,74 +300,136 @@ TEST_CASE("Any other form keeps the area in memory for the whole kernel",
 		std::string entry_fn, exit_fn;
 		std::vector<thread_local_map_desc> maps;
 		uint64_t area;
+		const char *why;
+		std::string kern = kernel();
 	};
 	const std::string ok_exit = exit_fn();
 	const std::vector<thread_local_map_desc> m = { tl() };
+	const std::string lookup2 =
+		"\tmov.u32 \t%r2, 0;\n\tst.local.u32 \t[%rd4+504], %r2;\n"
+		"\tadd.s64 \t%rd6, %rd3, 504;\n" +
+		call_block(12, "_bpf_helper_ext_0001", "%rd5", "%rd6", "%rd9");
+	auto with_extra_in_block = [] {
+		std::string e = entry();
+		const std::string at = "\t.reg .b32 temp_param_reg;\n";
+		e.insert(e.find(at) + at.size(), "\tadd.s64 \t%rd30, %rd31, 1;\n");
+		return e;
+	};
+	auto exit_ret = [](const std::string &with) {
+		std::string e = exit_fn();
+		const std::string r = "$L__BB0_3:\n\tret;";
+		e.replace(e.find(r), r.size(), with);
+		return e;
+	};
 	const std::vector<form> forms = {
 		{ "key loaded, not a constant",
-		  entry("\tld.u32 \t%r1, [%rd3+16];\n"), ok_exit, m, 8 },
+		  entry("\tld.u32 \t%r1, [%rd3+16];\n"), ok_exit, m, 8,
+		  "key that is not a constant" },
 		{ "key out of range", entry("\tmov.u32 \t%r1, 1;\n"), ok_exit, m,
-		  8 },
-		{ "key in octal", entry("\tmov.u32 \t%r1, 00;\n"), ok_exit, m, 8 },
+		  8, "out of range" },
+		{ "key in octal", entry("\tmov.u32 \t%r1, 00;\n"), ok_exit, m, 8,
+		  "not a constant" },
+		{ "key written again by redux.sync",
+		  entry(KEY0, "\tredux.sync.add.u32 \t%r1, %r5, -1;\n"), ok_exit,
+		  m, 8, "not a constant" },
+		{ "key written again by stacksave",
+		  entry(KEY0, "\tstacksave.u32 \t%r1;\n"), ok_exit, m, 8,
+		  "not a constant" },
+		{ "map fd in octal", entry(KEY0, "", "010"), ok_exit, m, 8,
+		  "map is not a constant" },
 		{ "result copied", entry(KEY0, "\tmov.u64 \t%rd20, %rd9;\n"),
-		  ok_exit, m, 8 },
+		  ok_exit, m, 8, "other than a compare" },
 		{ "result stored to memory",
-		  entry(KEY0, "\tst.u64 \t[%rd3+16], %rd9;\n"), ok_exit, m, 8 },
+		  entry(KEY0, "\tst.u64 \t[%rd3+16], %rd9;\n"), ok_exit, m, 8,
+		  "other than a compare" },
+		{ "result stored into its own value",
+		  entry(KEY0, "\tst.u32 \t[%rd9], %rd9;\n"), ok_exit, m, 8,
+		  "into its own value" },
+		{ "results of two lookups joined in one register",
+		  entry(KEY0, lookup2), ok_exit, m, 8, "written more than once" },
+		{ "result loaded through itself",
+		  entry(KEY0, "\tld.u32 \t%rd9, [%rd9];\n"), ok_exit, m, 8,
+		  "written more than once" },
 		{ "atomic through the result",
 		  entry(KEY0, "\tatom.add.u64 \t%rd20, [%rd9], 1;\n"), ok_exit, m,
-		  8 },
+		  8, "other than a compare" },
 		{ "64-bit access", entry(KEY0, "\tst.u64 \t[%rd9], %rd14;\n"),
-		  ok_exit, m, 8 },
+		  ok_exit, m, 8, "other than a compare" },
 		{ "32-bit register", entry(KEY0, "\tst.u32 \t[%rd9], %r3;\n"),
-		  ok_exit, m, 8 },
+		  ok_exit, m, 8, "not 64-bit" },
 		{ "8-bit access", entry(KEY0, "\tst.u8 \t[%rd9], %rd14;\n"),
-		  ok_exit, m, 8 },
+		  ok_exit, m, 8, "other than a compare" },
 		{ "signed load", entry(KEY0, "\tld.s32 \t%rd20, [%rd9];\n"),
-		  ok_exit, m, 8 },
+		  ok_exit, m, 8, "other than a compare" },
 		{ "offset past the value",
-		  entry(KEY0, "\tst.u32 \t[%rd9+8], %rd14;\n"), ok_exit, m, 8 },
+		  entry(KEY0, "\tst.u32 \t[%rd9+8], %rd14;\n"), ok_exit, m, 8,
+		  "outside its value" },
 		{ "offset not 4-aligned",
-		  entry(KEY0, "\tst.u32 \t[%rd9+2], %rd14;\n"), ok_exit, m, 8 },
+		  entry(KEY0, "\tst.u32 \t[%rd9+2], %rd14;\n"), ok_exit, m, 8,
+		  "not at a 4-byte" },
+		{ "value not 4-aligned in the area", entry(), ok_exit, { tl(4, 2) },
+		  8, "not at a 4-byte" },
 		{ "guarded access",
-		  entry(KEY0, "\t@%p1 st.u32 \t[%rd9], %rd14;\n"), ok_exit, m, 8 },
+		  entry(KEY0, "\t@%p1 st.u32 \t[%rd9], %rd14;\n"), ok_exit, m, 8,
+		  "guarded use" },
 		{ "two statements on a line",
 		  entry(KEY0, "\tst.u32 \t[%rd9], %rd14; shr.u64 \t%rd20, %rd14, 1;\n"),
-		  ok_exit, m, 8 },
+		  ok_exit, m, 8, "not on a line of its own" },
 		{ "labelled access",
 		  entry(KEY0, "$L__BB0_7: st.u32 \t[%rd9], %rd14;\n"), ok_exit, m,
-		  8 },
+		  8, "not on a line of its own" },
+		{ "block comment", entry(KEY0, "\t/* note */\n"), ok_exit, m, 8,
+		  "block comment" },
+		{ "guard on a line of its own before a ret",
+		  entry(KEY0, "\t@%p1\n\tret;\n"), ok_exit, m, 8,
+		  "guard on a line of its own" },
 		{ "compare with another register",
 		  entry(KEY0, "\tsetp.eq.s64 \t%p2, %rd9, %rd14;\n"), ok_exit, m,
-		  8 },
+		  8, "other than a compare" },
 		{ "a directive glued to an access",
 		  entry(KEY0, "\t.loc 1 5 3\n\tst.u32 \t[%rd9], %rd14;\n"), ok_exit,
-		  m, 8 },
+		  m, 8, "directive glued" },
+		{ "a directive glued to a ret", entry(),
+		  exit_ret("$L__BB0_3:\n\t.loc 1 5 3\n\tret;"), m, 8,
+		  "directive glued" },
 		{ "update of the thread-local map",
 		  entry(KEY0, call_block(12, "_bpf_helper_ext_0002", "%rd5",
 					 "%rd1", "%rd22")),
-		  ok_exit, m, 8 },
+		  ok_exit, m, 8, "update or delete" },
 		{ "map fd not a constant",
 		  entry(KEY0, call_block(12, "_bpf_helper_ext_0001", "%rd30",
 					 "%rd1", "%rd22")),
-		  ok_exit, m, 8 },
-		{ "ret with a label on its line", entry(), [] {
-			  std::string e = exit_fn();
-			  e.replace(e.find("$L__BB0_3:\n\tret;"),
-				    std::string("$L__BB0_3:\n\tret;").size(),
-				    "$L__BB0_3: ret;");
-			  return e;
-		  }(),
-		  m, 8 },
+		  ok_exit, m, 8, "map is not a constant" },
+		{ "ret with a label on its line", entry(),
+		  exit_ret("$L__BB0_3: ret;"), m, 8, "ret not on a line" },
+		{ "a 16-byte area (a writer would return two values)", entry(),
+		  ok_exit, { tl(4, 8) }, 16, "the area has 16 bytes" },
 		{ "area larger than 16 bytes", entry(), ok_exit, { tl(4, 16) },
-		  24 },
+		  24, "the area has 24 bytes" },
 		{ "only the exit not eligible", entry(),
-		  exit_fn("\tld.u32 \t%r3, [%rd15];\n"), m, 8 },
+		  exit_fn("\tld.u32 \t%r3, [%rd15];\n"), m, 8, "not 64-bit" },
+		{ "a probe call sharing its line with a branch", entry(), ok_exit, m,
+		  8, "shares its line",
+		  kernel("    call __probe_func__kern; @%p1 bra $L__BB1_9;\n") },
+		{ "a probe call after another statement on its line", entry(),
+		  ok_exit, m, 8, "shares its line",
+		  kernel("\tmov.u32 \t%r2, 1; @%p1 call __probe_func__kern;\n") },
 	};
+	// a lookup call block holding more than the call: not by value, and the
+	// address form refuses the module (plain_call_block), as before
+	{
+		thread_local_routing_stats st;
+		REQUIRE_THROWS(route(HEAD + ok_exit + with_extra_in_block() +
+					     kernel(),
+				     st));
+	}
 	for (const auto &f : forms) {
 		INFO(f.what);
 		thread_local_routing_stats st;
-		std::string ptx = HEAD + f.exit_fn + f.entry_fn + kernel();
+		std::string ptx = HEAD + f.exit_fn + f.entry_fn + f.kern;
 		auto out = route(ptx, st, f.maps, f.area);
+		INFO(why(st));
+		REQUIRE(has(why(st), f.why));
 		REQUIRE(st.byvalue_kernels == 0);
 		REQUIRE(st.byvalue_functions == 0);
 		REQUIRE(st.byvalue_fallbacks.size() == 1);

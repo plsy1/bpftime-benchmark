@@ -291,9 +291,12 @@ body_index build_index(const std::string &body)
 		} else {
 			std::string op, rest;
 			split_op(st, &op, &rest);
-			if (op.rfind("st", 0) == 0 || op.rfind("red", 0) == 0 ||
-			    op.rfind("bra", 0) == 0 || op == "ret" ||
-			    op == "exit" || op == "trap")
+			// stores, reductions, branches: by the whole base
+			// mnemonic (stacksave and redux.sync write a register)
+			static const std::set<std::string> writes_none = {
+				"st", "red", "bra", "ret", "exit", "trap"
+			};
+			if (writes_none.count(op.substr(0, op.find('.'))))
 				continue;
 			int depth = 0;
 			size_t end = rest.size();
@@ -534,24 +537,24 @@ bool constant_fd(const std::string &fbody, const std::string &block,
 	std::smatch m;
 	if (!std::regex_search(block, m, p0))
 		return false;
+	// a plain decimal (PTX reads 010 as octal and 0x.. as hex), as an
+	// immediate or as the only definition of a register, a mov (found by
+	// statement, so a mov inside a comment does not count)
+	static const std::regex dec(R"(^-?(?:0|[1-9]\d{0,17})$)");
 	std::string arg = trim(m[1]);
-	if (parse_int(arg, fd))
-		return true;
+	if (std::regex_match(arg, dec))
+		return parse_int(arg, fd);
 	if (arg.empty() || arg[0] != '%')
 		return false;
-	// a register written by one statement only, a mov of an integer
-	if (count_defs(fbody, arg) != 1)
+	std::string def;
+	if (count_defs(fbody, arg, &def) != 1)
 		return false;
-	std::regex def(R"(mov\.[ubs]64\s+)" + std::regex_replace(
-						   arg, std::regex(R"([$%.])"),
-						   R"(\$&)") +
-		       R"(\s*,\s*(-?\d+)\s*;)");
+	static const std::regex mv(
+		R"(^mov\.[ubs]64\s+(%[\w$]+)\s*,\s*(-?(?:0|[1-9]\d{0,17}))$)");
 	std::smatch dm;
-	if (!std::regex_search(fbody, dm, def))
+	if (!std::regex_match(def, dm, mv) || dm[1] != arg)
 		return false;
-	long long val = std::stoll(dm[1]);
-	*fd = val;
-	return true;
+	return parse_int(dm[2], fd);
 }
 
 // A generic atom/red whose address lies in the local window is undefined
@@ -801,7 +804,9 @@ std::string sum_lookup(const sum_map_desc &d, long long fd, int n,
 // The thread-local area by value (see the header). Only what `lat` runs on
 // the device is rewritten: 32-bit loads and stores at 4-byte offsets of a
 // value, with 64-bit registers. Anything else keeps the area in memory.
-constexpr uint64_t BYVALUE_MAX_BYTES = 16;
+// One word: a function that writes the area returns it, and a device
+// function has at most one return value (PTX ISA 7.1.1, sm_20 and later).
+constexpr uint64_t BYVALUE_MAX_BYTES = 8;
 const char *TV_SYM = "__bpftime_tv";
 const char *TV_ARG = "%bpftime_tv_a";
 const char *TV_RET = "%bpftime_tv_r";
@@ -876,6 +881,26 @@ byvalue_plan plan_by_value(const std::string &fbody,
 	if (area_bytes > BYVALUE_MAX_BYTES)
 		return no("the area has " + std::to_string(area_bytes) +
 			  " bytes");
+	// the rewrite works on lines: every statement it reads must be what
+	// the line shows. No block comments, no directive glued to a
+	// statement (.loc without ';'), no guard on a line of its own.
+	if (fbody.find("/*") != std::string::npos)
+		return no("a block comment");
+	{
+		static const std::regex decl(
+			R"(^\.(?:reg|local|shared|param|const|global|pragma)\s[^\n]*$)");
+		for (const auto &p : pieces(fbody))
+			if (!p.text.empty() && p.text[0] == '.' &&
+			    !std::regex_match(p.text, decl))
+				return no("a directive glued to a statement");
+		static const std::regex lone_guard(R"(^@\s*!?\s*%?[\w$]+$)");
+		std::istringstream in(fbody);
+		std::string line;
+		while (std::getline(in, line))
+			if (std::regex_match(trim(strip_comments(line)),
+					     lone_guard))
+				return no("a guard on a line of its own");
+	}
 	static const std::regex helper(R"(_bpf_helper_ext_(\d{4})\b)");
 	static const std::regex p1(
 		R"(st\.param\.b64\s+\[param1\+0\],\s*([^;]+);)");
@@ -994,6 +1019,8 @@ byvalue_plan plan_by_value(const std::string &fbody,
 				  "with 0 or a 32-bit access: " +
 				  s);
 		}
+		if (other == hit)
+			return no("a lookup result stored into its own value");
 		const uint64_t byte = pl.pointers[hit] + (uint64_t)off;
 		if (off % 4 != 0 || (uint64_t)off + 4 > value_size[hit] ||
 		    byte % 4 != 0)
@@ -1311,19 +1338,43 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 		};
 		const std::string inner = text.substr(open + 1);
 		std::set<std::string> called;
+		// by value needs each probe call alone on its line: a label, a
+		// guard, "call name;" (the write-back follows the call and takes
+		// its guard)
+		std::string shared_line;
 		{
+			static const std::regex lead(
+				R"(^\s*(?:[%$A-Za-z_][\w$]*\s*:\s*)?(?:@\s*!?\s*%?[\w$]+\s*)?$)");
+			static const std::regex word(R"(^call\s+$)");
 			std::istringstream in(inner);
 			std::string line, n;
 			size_t c, a, s;
-			while (std::getline(in, line))
-				if (find_call(line, &c, &a, &s, &n))
-					called.insert(n);
+			while (std::getline(in, line)) {
+				if (!find_call(line, &c, &a, &s, &n))
+					continue;
+				called.insert(n);
+				const std::string rest =
+					trim(strip_comments(line.substr(s + 1)));
+				if (!std::regex_match(line.substr(0, c), lead) ||
+				    !std::regex_match(
+					    line.substr(c, a - n.size() - c),
+					    word) ||
+				    !rest.empty())
+					shared_line = n;
+			}
 		}
 		if (called.empty())
 			continue;
 		// by value only when every probe function it calls can take it
 		bool by_value = true;
+		if (!shared_line.empty()) {
+			by_value = false;
+			st.byvalue_fallbacks.push_back(
+				shared_line + ": a call of it shares its line");
+		}
 		for (const auto &n : called) {
+			if (!by_value)
+				break;
 			auto p = plans.find(n);
 			if (p == plans.end() || !p->second.ok) {
 				by_value = false;
@@ -1426,8 +1477,10 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 		ptx = ptx.substr(0, kb) + new_text + ptx.substr(ke);
 		st.kernels++;
 		st.call_sites += sites;
-		if (by_value)
+		if (by_value && takes_any)
 			st.byvalue_kernels++;
+		else if (by_value)
+			st.area_unused_kernels++;
 		for (auto &n : called) {
 			if (by_value)
 				byvalue_functions[n] = &plans.at(n);
@@ -1513,7 +1566,10 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 			if (name_at == std::string::npos || name_at < f.header)
 				fail("no name before the parameters of " +
 				     f.name);
-			st.byvalue_functions++;
+			if (pl.reads || pl.writes)
+				st.byvalue_functions++;
+			else
+				st.area_unused_functions++;
 		} else if (routed) {
 			nbody = route_function_body(fbody, true, maps, sums, st,
 						    f.name);

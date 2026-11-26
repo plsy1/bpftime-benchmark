@@ -242,10 +242,12 @@ static __device__ __forceinline__ unsigned int current_smid()
 }
 
 // 1530: the calling thread's own copy of entry idx, in its thread-local area
-// (a kernel-scope .local the agent's routing adds to every probed kernel and
-// zeroes when the kernel starts), whose generic address the routing passes as
-// the helper's last argument. Probe functions the routing did not reach pass
-// 0 there: NULL. extra_buffer holds the map's offset in the area.
+// (in the routing's address form, a kernel-scope .local it adds to a probed
+// kernel and zeroes when the kernel starts), whose generic address the
+// routing passes as the helper's last argument. Probe functions the routing
+// did not reach, and those it gives the area by value (it makes their
+// thread-local lookups itself), pass 0 there: NULL. extra_buffer holds the
+// map's offset in the area.
 static __device__ void *thread_local_offset(uint64_t idx,
 					    const MapBasicInfo &info,
 					    uint64_t area)
