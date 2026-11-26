@@ -1,0 +1,43 @@
+ 1:  e3f4e18f !  1:  1a2e9f8a nv_attach: per-thread map model prototype (thread-local, sum and device per-thread maps)
+    @@ attach/nv_attach_impl/nv_attach_impl.cpp: nv_attach_impl::extract_ptxs(std::vect
+      nv_attach_impl::hack_fatbin(std::map<std::string, std::string> all_ptx)
+      {
+     @@ attach/nv_attach_impl/nv_attach_impl.cpp: nv_attach_impl::hack_fatbin(std::map<std::string, std::string> all_ptx)
+    - 						resp.modified;
+    - 				}
+      			}
+    -+			if (should_add_trampoline && this->map_basic_info)
+    + 			if (!should_add_trampoline)
+    + 				return;
+    ++			if (this->map_basic_info)
+     +				current_ptx = route_thread_local_maps_of_module(
+     +					current_ptx, file_name);
+    - 			if (should_add_trampoline) {
+    - 				current_ptx =
+    - 					ptxpass::filter_out_version_headers_ptx(
+    + 			current_ptx = ptxpass::filter_out_version_headers_ptx(
+    + 				wrap_ptx_with_trampoline(current_ptx));
+    + 			std::lock_guard<std::mutex> _guard(map_mutex);
+     
+      ## attach/nv_attach_impl/nv_attach_impl.hpp ##
+     @@ attach/nv_attach_impl/nv_attach_impl.hpp: class nv_attach_impl final : public base_attach_impl {
+ 2:  c2826dbc =  2:  246beb42 nv_attach: GPU map delivery schedules each map apart (sum maps 20 ms, per-thread maps 1 s)
+ 3:  606e74a5 !  3:  5d42d04d nv_attach: map-model prototype fixes after review (atomics on local values, lifetime, delivery semantics)
+    @@ attach/nv_attach_impl/nv_attach_impl.cpp: nv_attach_impl::nv_attach_impl(bool su
+     +			  (gpointer)&cuda_driver_function__cuEventSynchronize,
+     +			  hook_state.orig_cu_event_synchronize);
+      	gum_interceptor_end_transaction(interceptor);
+    + 	transaction_open = false;
+      
+    - 	nv_attach_set_active_impl(this);
+     @@ attach/nv_attach_impl/nv_attach_impl.cpp: nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
+      		d.fd = (int)i;
+      		d.offset = (uint64_t)(uintptr_t)m.extra_buffer;
+ 4:  c940870b =  4:  756a43d6 nv_attach: the agent's own synchronizations do not count as the application's
+ 5:  c27412f4 =  5:  41eea89e nv_attach: debug-only PTX dump and override for measurements
+ 6:  026f490f =  6:  94859e3c nv_attach: sum-map lookups inline, their adds on the global state space
+ 7:  00f12354 =  7:  826b3c39 nv_attach: sum-map routing fixes after review (fail-closed definitions, no-copy maps, 64-bit adds)
+ 8:  0890dbdd =  8:  8f20054f nv_attach: map lookups take the key the program stored; definitions after .loc fail closed
+ 9:  1fee25d1 =  9:  a04a6dda nv_attach: no key forwarding across a guarded store, call, atomic or reduction
+10:  7e5861b9 = 10:  ba8b1bf0 nv_attach: map lowering fixes after the final review (forwarding fails closed, 1532 adds global)
+11:  662bd83e = 11:  33d5a3d8 nv_attach: key forwarding on an allowlist; one string-aware tokenizer; widths from .reg

@@ -1,0 +1,36 @@
+## plain dev c71a9987 (no prototype), bpftime_nv_attach_tests '[ptx-failure]'
+Filters: [ptx-failure]
+Randomness seeded to: 396737417
+[2026-11-26 14:42:37.349] [info] [nv_attach_impl.cpp:329] Starting nv_attach_impl
+[2026-11-26 14:42:37.349] [info] [nv_attach_impl.cpp:337] nv_attach_impl: late attach: patched copies of loaded fatbins, launches redirected by kernel name
+[2026-11-26 14:42:37.358] [info] [nv_attach_impl.cpp:572] Parsing bundled libraries: /tmp/claude-2002/-home-jetson-src/548cc3e6-4b28-4a87-b830-6e00c1ee829e/scratchpad/dev70-check-a/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so:/tmp/claude-2002/-home-jetson-src/548cc3e6-4b28-4a87-b830-6e00c1ee829e/scratchpad/dev70-check-a/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so:/tmp/claude-2002/-home-jetson-src/548cc3e6-4b28-4a87-b830-6e00c1ee829e/scratchpad/dev70-check-a/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-26 14:42:37.358] [info] [nv_attach_impl.cpp:578] Found path: /tmp/claude-2002/-home-jetson-src/548cc3e6-4b28-4a87-b830-6e00c1ee829e/scratchpad/dev70-check-a/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so, executing..
+[2026-11-26 14:42:37.414] [info] [nv_attach_impl.cpp:607] Retrived config of /tmp/claude-2002/-home-jetson-src/548cc3e6-4b28-4a87-b830-6e00c1ee829e/scratchpad/dev70-check-a/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so
+[2026-11-26 14:42:37.414] [info] [nv_attach_impl.cpp:578] Found path: /tmp/claude-2002/-home-jetson-src/548cc3e6-4b28-4a87-b830-6e00c1ee829e/scratchpad/dev70-check-a/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so, executing..
+[2026-11-26 14:42:37.470] [info] [nv_attach_impl.cpp:607] Retrived config of /tmp/claude-2002/-home-jetson-src/548cc3e6-4b28-4a87-b830-6e00c1ee829e/scratchpad/dev70-check-a/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so
+[2026-11-26 14:42:37.470] [info] [nv_attach_impl.cpp:578] Found path: /tmp/claude-2002/-home-jetson-src/548cc3e6-4b28-4a87-b830-6e00c1ee829e/scratchpad/dev70-check-a/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so, executing..
+[2026-11-26 14:42:37.523] [info] [nv_attach_impl.cpp:607] Retrived config of /tmp/claude-2002/-home-jetson-src/548cc3e6-4b28-4a87-b830-6e00c1ee829e/scratchpad/dev70-check-a/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-26 14:42:37.582] [info] [nv_attach_fatbin_record.cpp:217] Loading & patching current fatbin..
+[2026-11-26 14:42:37.582] [info] [nv_attach_impl.cpp:997] Patching PTX: broken.1.sm_87.ptx
+[2026-11-26 14:42:37.589] [info] [nv_attach_utils.cpp:137] Auto-detected GPU SM arch: sm_87 (compute capability 8.7)
+[2026-11-26 14:42:37.589] [info] [nv_attach_fatbin_record.cpp:111] Compiling PTXs with sm_arch sm_87
+[2026-11-26 14:42:37.589] [info] [nv_attach_fatbin_record.cpp:116] Compiler version: 13.2
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_nv_attach_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+A PTX compile error reaches the caller instead of ending the process
+-------------------------------------------------------------------------------
+/tmp/claude-2002/-home-jetson-src/548cc3e6-4b28-4a87-b830-6e00c1ee829e/scratchpad/dev70-check-a/attach/nv_attach_impl/test/test_ptx_failure.cpp:13
+...............................................................................
+
+/tmp/claude-2002/-home-jetson-src/548cc3e6-4b28-4a87-b830-6e00c1ee829e/scratchpad/dev70-check-a/attach/nv_attach_impl/test/test_ptx_failure.cpp:25: FAILED:
+  REQUIRE_THROWS_AS( rec.try_loading_ptxs(impl), std::runtime_error )
+because no exception was thrown where one was expected:
+
+===============================================================================
+test cases: 1 | 1 failed
+assertions: 1 | 1 failed
+
