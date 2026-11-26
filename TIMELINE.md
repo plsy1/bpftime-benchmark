@@ -473,6 +473,25 @@ stays on official 70f7bc1f (`dev/uprobe-official-70f7bc1f3363`) until we choose 
   prototype too: since upstream skips modules without probes, its broken module is never
   compiled. The test needs a module with a probe.
 
+## 11-26: the start by value
+
+The thread-local area passed by value, the candidate left on 11-18 (`proto/map-model-70f7bc1f`,
+1d95c160, review fixes c4235347 and 7d02d677; results `gpu/map-model-byvalue-20261126`).
+
+- **What:** where a kernel's probes reach the thread-local area only as `lat` does (constant-key
+  lookups, 32-bit loads and stores, one 8-byte word), the kernel keeps it in a `.local` slot and
+  passes it to its probes as a parameter; a probe that writes it returns it. Inside, the area is
+  two registers. Anything else keeps the address form for that kernel, with the reason logged.
+- **Measured:** the text the pass emits was timed first as a hand-written form (0.021-0.024 ns per
+  thread saved), then built (byte-identical): tg128 with mul_mat_vec_q probed 54.25 -> 56.1 t/s
+  (20% -> 17.2-17.5%), four kernels 20.5% -> 18.1-18.2%, pp512 unchanged, counts exact.
+- **Checked:** a one-value tool compares every bit at the exit (0 mismatches over 3.9M thread
+  executions; with the halves swapped it reports every exit). An independent review found 14
+  issues, 13 confirmed: one reachable from ordinary output (a 16-byte area with a writing probe
+  would get two return values, which ptxas refuses; now one word only), the rest hypothetical
+  inputs and two older fd and register-count bugs; all fixed, and one more line form of the same
+  kind found while checking the fixes.
+
 ## Where it stands (11-18)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
@@ -495,8 +514,9 @@ stays on official 70f7bc1f (`dev/uprobe-official-70f7bc1f3363`) until we choose 
   brings the map's part to about 0.014 and the shape to about 12% (59.6 t/s). The map side is
   now built (sum-map adds global, lookup keys forwarded): 0.147-0.149 ns per thread, about 20%
   on tg128 (54.5 t/s) and 21% with four kernels. Of that the map is 0.035 and the tool's and
-  framework's parts 0.110-0.114; carrying the start by value would save 0.015-0.021 more (not
-  built). Not built: per-record output.
+  framework's parts 0.110-0.114; carrying the start by value saved 0.015-0.021 more in
+  hand-written forms, and built on 11-26 0.025 ns (56.1 t/s, -17.2 to -17.5%). Not built:
+  per-record output.
 - Open: Gum's per-function usage counter under many threads; the agent's own load time (about
   9 ms); the CUDA late path (`bpftime attach` to a running GPU process; 5–9 µs per launch slower
   than official's); fixes not yet offered upstream.
