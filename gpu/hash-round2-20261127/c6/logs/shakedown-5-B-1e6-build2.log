@@ -1,0 +1,52 @@
+### shakedown-5-B-1e6-build2: build/c6_B --target 1000000
+### queued 2026-11-26T23:50:08+09:00 cpu5_khz=1728000 gpu_hz=1020000000
+### sha256 de9188703ba455e9ae608e271449e37aa111f6659df0f824df491d574944d193 build/c6_B
+### sha256 33aebe5cad10fa95a70615d14bba8e52842b1c702c5a9f5405bad5f862061f18 src/c6.cu
+### other GPU test processes before the run (c4_|c5_|c6_|llama|pt_victim):
+### lock held 2026-11-26T23:50:08+09:00 gpu_hz=1020000000
+C6 variant=B publish=st.relaxed.gpu.global.b64 reader=fence.acq_rel.gpu order=add-then-flag
+device="Orin" sm_87 SMs=8 l2=4194304 B
+kernel regs=28 local=0 B; occupancy=12 blocks/SM x 8 SMs = 96 resident blocks of 128 threads
+params: target=1000000 instances, time limit=600 s, test blocks=64 (256 warps, 128 pairs, lane 0 only), stress blocks=32 (4096 threads), rounds/launch=256 (32768 instances/launch), writer delay=[0,1024) cycles, seed=0xc6c6
+caps: reader spin 1048576 polls, writer wait 1048576 polls, barrier 1048576 polls, stress 4194304 ops
+layout: data=0x19f032000 flag=0x19f432000 (4194304 B each, page-aligned=yes, disjoint=yes), cell stride 128 B, stress=0x19f832000 (16777216 B, 131072 lines), ctl 16640 B
+=== summary variant=B ===
+stop: instance target (instances 1000064 of target 1000000, wall 0.2 s of 600 s)
+launches=31 instances=1000064 wall_s=0.17
+counter inst_same_sm           118711
+counter inst_diff_sm           881353
+counter strong_same_sm         118711
+counter strong_diff_sm         881353
+counter weak_same_sm           0
+counter weak_diff_sm           0
+counter timeout_same_sm        0
+counter timeout_diff_sm        0
+counter bad_flag               0
+counter bad_data               0
+counter missing_record         0
+counter final_not_1            0
+counter saw0_then_1            816892
+counter seen_on_first_poll     183172
+counter polls_sum_seen         2131386
+counter smid_bad               0
+counter writer_wait_timeouts   0
+counter barrier_timeouts       0
+counter stress_hit_op_cap      0
+counter stress_ops             96186368
+counter pair_same_block        0
+instances: launched=1000064 flag_seen=1000064 timeouts=0 (same-SM 0, diff-SM 0)
+by SM: same-SM instances=118711 weak=0 | diff-SM instances=881353 weak=0
+mean polls per flag-seen instance=2.13
+final scan: nonzero data/flag words after the last reset=0
+SM pair matrix (row writer SM, column reader SM): instances / weak
+  w0  r0:12677/0 r1:13834/0 r2:16015/0 r3:19722/0 r4:15247/0 r5:12564/0 r6:19722/0 r7:19077/0
+  w1  r0:17418/0 r1:14213/0 r2:15759/0 r3:14223/0 r4:20500/0 r5:15882/0 r6:19712/0 r7:17551/0
+  w2  r0:13967/0 r1:14602/0 r2:14602/0 r3:17684/0 r4:15616/0 r5:18176/0 r6:16394/0 r7:14090/0
+  w3  r0:14981/0 r1:11520/0 r2:13455/0 r3:17418/0 r4:12431/0 r5:13312/0 r6:11786/0 r7:16015/0
+  w4  r0:19210/0 r1:17172/0 r2:15493/0 r3:15237/0 r4:15759/0 r5:16640/0 r6:19087/0 r7:14725/0
+  w5  r0:13445/0 r1:14725/0 r2:18831/0 r3:15626/0 r4:11274/0 r5:16261/0 r6:18329/0 r7:18186/0
+  w6  r0:13578/0 r1:13312/0 r2:15872/0 r3:17551/0 r4:12800/0 r5:15769/0 r6:14213/0 r7:12298/0
+  w7  r0:15882/0 r1:15380/0 r2:14858/0 r3:21637/0 r4:13066/0 r5:14735/0 r6:15380/0 r7:13568/0
+weak outcomes logged=0 (first 0 kept)
+RESULT variant=B instances=1000064 flag_seen=1000064 weak=0 (same-SM 0, diff-SM 0) timeouts=0 wall_s=0.17 harness_error=0 exit=0
+### exit=0 outer_wall_s=.288305889 end 2026-11-26T23:50:08+09:00

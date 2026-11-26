@@ -1,0 +1,26 @@
+### f0-proto-perthread-48: ./build/c5_proto --keys 0 --max 48
+C5 build=protocol-v2 FAULT=0 device="Orin" sm_87 SMs=8
+config max_entries=48 S=128 logS=7 rows_cap=128 keys=1000000 (one per thread) threads=1000000 grid=3907x256 launches=10 trials=1 reader=0 prefill=0 seed0=0x0123456789abcdef wait_bound_ns=100000
+attempts per key per launch: min=1 max=1; keys with attempts=1000000 (K = 1000 + 7919*j mod 2^32)
+
+=== trial 0 seed=0x0123456789abcdef ===
+dir: nonempty=128 live=48 refused=80 claiming=0 (max_entries 48, S 128, expected live 48) count=128
+dir shape: keys off home=0 max probe distance=0
+totals: attempts=10000000 prefill=0 delivered=480 EEXIST=0 E2BIG=9999520 unstable=0 | all rows=480 rows behind live headers=480
+branches: lost_same_key=0 lost_other_key=7827 walk_saw_claiming=0 waits=0 wait_sleeps=0 wait_max_ns=0 givebacks=0 e2big_precheck=0 precheck_slot_taken=275 e2big_refused_winner=80 e2big_saw_refused=720 e2big_fulldir=9998720 fulldir_unstable=0 insert_fullwalk=9998720 lookup_fullwalk=9987259 eexist_then_null=0 unstable_then_null=0 row_overflow=0 key_changed=0
+kernel span: first block start -> last block end = 433.384 ms (10 launches)
+per launch (EEXIST/E2BIG/won/unstable): L1 0/999952/48/0 L2 0/999952/0/0 L3 0/999952/0/0 L4 0/999952/0/0 L5 0/999952/0/0 L6 0/999952/0/0 L7 0/999952/0/0 L8 0/999952/0/0 L9 0/999952/0/0 L10 0/999952/0/0
+longest wait requested_ns=0
+violations: none
+
+=== summary build=protocol-v2 max_entries=48 keys=1000000 trials=1 ===
+trials_with_violation=0/1
+violations by kind: none
+counted: EEXIST=0 E2BIG=9999520 unstable=0 eexist_then_null=0 unstable_then_null=0
+per trial: EEXIST min=0 max=0, E2BIG min=9999520 max=9999520, live min=48 max=48 (expected 48)
+refused slots: sum=80 max per trial=80
+branches: lost_same_key=0 lost_other_key=7827 walk_saw_claiming=0 waits=0 wait_sleeps=0 givebacks=0 e2big_precheck=0 precheck_slot_taken=275 e2big_refused_winner=80 e2big_saw_refused=720 e2big_fulldir=9998720 fulldir_unstable=0 insert_fullwalk=9998720 lookup_fullwalk=9987259
+longest wait: elapsed_ns=0 requested_ns=0 (bound 100000)
+dir: keys off home (sum over trials)=0 max probe distance=0
+RESULT CLEAN
+### exit=0 wall_s=.675432464

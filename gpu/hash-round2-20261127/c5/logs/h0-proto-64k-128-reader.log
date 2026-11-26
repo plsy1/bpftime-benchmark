@@ -1,0 +1,93 @@
+### h0-proto-64k-128-reader: ./build/c5_proto --max 128 --reader 1
+C5 build=protocol-v2 FAULT=0 device="Orin" sm_87 SMs=8
+config max_entries=128 S=256 logS=8 rows_cap=256 keys=64 threads=1000000 grid=3907x256 launches=10 trials=1 reader=1 prefill=0 seed0=0x0123456789abcdef wait_bound_ns=100000
+attempts per key per launch: min=15624 max=15626; keys with attempts=64 (K = 1000 + 7919*j mod 2^32)
+
+=== trial 0 seed=0x0123456789abcdef ===
+dir: nonempty=64 live=64 refused=0 claiming=0 (max_entries 128, S 256, expected live 64) count=64
+dir shape: keys off home=5 max probe distance=1
+totals: attempts=10000000 prefill=0 delivered=9989824 EEXIST=10176 E2BIG=0 unstable=0 | all rows=9989824 rows behind live headers=9989824
+branches: lost_same_key=6694 lost_other_key=521 walk_saw_claiming=3452 waits=10146 wait_sleeps=2292 wait_max_ns=53760 givebacks=0 e2big_precheck=0 precheck_slot_taken=0 e2big_refused_winner=0 e2big_saw_refused=0 e2big_fulldir=0 fulldir_unstable=0 insert_fullwalk=0 lookup_fullwalk=0 eexist_then_null=0 unstable_then_null=0 row_overflow=0 key_changed=0
+kernel span: first block start -> last block end = 6.706 ms (10 launches)
+reader: start_before_inserters=1 polls=117423 seen_claiming=133 transitions_seen=64 min_sum_at_transition=346 live_checks=9191 zero_sum=0 decrease=0 sum_changes=9127 timed_out=0
+per launch (EEXIST/E2BIG/won/unstable): L1 10176/0/64/0 L2 0/0/0/0 L3 0/0/0/0 L4 0/0/0/0 L5 0/0/0/0 L6 0/0/0/0 L7 0/0/0/0 L8 0/0/0/0 L9 0/0/0/0 L10 0/0/0/0
+longest wait requested_ns=1984
+per key: j K slots slot home dist row state attempts delivered EEXIST(live/waited/unstable) E2BIG hits won ok
+   0       1000 1  225  225   0    7 live  156260  156100    160(0/160/0)       0  156099 1 ok
+   1       8919 1   81   81   0   12 live  156250  156092    158(1/157/0)       0  156091 1 ok
+   2      16838 1  151  151   0   45 live  156260  156100    160(0/160/0)       0  156099 1 ok
+   3      24757 1    7    7   0    1 live  156240  156080    160(1/159/0)       0  156079 1 ok
+   4      32676 1  215  215   0   55 live  156250  156091    159(0/159/0)       0  156090 1 ok
+   5      40595 1  137  137   0   39 live  156250  156092    158(0/158/0)       0  156091 1 ok
+   6      48514 1  141  141   0   21 live  156260  156099    161(0/161/0)       0  156098 1 ok
+   7      56433 1   63   63   0   17 live  156250  156092    158(0/158/0)       0  156091 1 ok
+   8      64352 1  254  254   0   31 live  156250  156091    159(0/159/0)       0  156090 1 ok
+   9      72271 1  234  234   0    4 live  156250  156092    158(1/157/0)       0  156091 1 ok
+  10      80190 1  123  123   0   57 live  156240  156081    159(0/159/0)       0  156080 1 ok
+  11      88109 1  160  160   0   43 live  156250  156090    160(0/160/0)       0  156089 1 ok
+  12      96028 1  237  237   0   26 live  156250  156092    158(0/158/0)       0  156091 1 ok
+  13     103947 1   18   18   0   53 live  156260  156100    160(0/160/0)       0  156099 1 ok
+  14     111866 1  163  163   0   34 live  156240  156082    158(0/158/0)       0  156081 1 ok
+  15     119785 1  166  166   0    8 live  156260  156100    160(0/160/0)       0  156099 1 ok
+  16     127704 1   21   21   0   13 live  156240  156082    158(1/157/0)       0  156081 1 ok
+  17     135623 1   92   92   0   47 live  156250  156090    160(0/160/0)       0  156089 1 ok
+  18     143542 1  203  203   0   29 live  156250  156092    158(0/158/0)       0  156091 1 ok
+  19     151461 1  222  222   0   56 live  156260  156101    159(0/159/0)       0  156100 1 ok
+  20     159380 1   78   78   0   41 live  156240  156081    159(0/159/0)       0  156080 1 ok
+  21     167299 1  148  148   0   23 live  156250  156091    159(0/159/0)       0  156090 1 ok
+  22     175218 1    5    4   1   59 live  156250  156091    159(6/153/0)       0  156090 1 ok
+  23     183137 1    6    6   0   50 live  156260  156100    160(0/160/0)       0  156099 1 ok
+  24     191056 1  117  117   0    6 live  156240  156083    157(1/156/0)       0  156082 1 ok
+  25     198975 1  131  131   0   58 live  156250  156090    160(0/160/0)       0  156089 1 ok
+  26     206894 1  100  100   0   16 live  156250  156091    159(0/159/0)       0  156090 1 ok
+  27     214813 1  245  245   0   27 live  156250  156091    159(0/159/0)       0  156090 1 ok
+  28     222732 1  214  214   0    0 live  156250  156091    159(0/159/0)       0  156090 1 ok
+  29     230651 1  171  171   0   35 live  156250  156092    158(0/158/0)       0  156091 1 ok
+  30     238570 1  106  106   0   38 live  156250  156090    160(0/160/0)       0  156089 1 ok
+  31     246489 1   28   28   0   20 live  156250  156091    159(0/159/0)       0  156090 1 ok
+  32     254408 1   32   32   0    9 live  156250  156091    159(0/159/0)       0  156090 1 ok
+  33     262327 1  161  160   1   62 live  156250  156091    159(1/158/0)       0  156090 1 ok
+  34     270246 1  113  112   1   60 live  156250  156091    159(6/153/0)       0  156090 1 ok
+  35     278165 1  224  224   0   15 live  156250  156092    158(0/158/0)       0  156091 1 ok
+  36     286084 1   38   38   0   25 live  156260  156099    161(0/161/0)       0  156098 1 ok
+  37     294003 1  150  150   0   18 live  156250  156092    158(1/157/0)       0  156091 1 ok
+  38     301922 1  152  152   0   52 live  156240  156081    159(0/159/0)       0  156080 1 ok
+  39     309841 1    8    7   1   63 live  156260  156100    160(1/159/0)       0  156099 1 ok
+  40     317760 1   79   78   1   61 live  156240  156082    158(6/152/0)       0  156081 1 ok
+  41     325679 1  247  247   0   46 live  156250  156090    160(0/160/0)       0  156089 1 ok
+  42     333598 1  135  135   0   28 live  156260  156102    158(0/158/0)       0  156101 1 ok
+  43     341517 1  104  104   0    2 live  156250  156091    159(0/159/0)       0  156090 1 ok
+  44     349436 1   61   61   0   36 live  156250  156091    159(0/159/0)       0  156090 1 ok
+  45     357355 1  252  252   0   40 live  156240  156081    159(0/159/0)       0  156080 1 ok
+  46     365274 1  175  175   0   22 live  156250  156091    159(0/159/0)       0  156090 1 ok
+  47     373193 1  178  178   0   49 live  156260  156100    160(0/160/0)       0  156099 1 ok
+  48     381112 1  101  101   0   32 live  156240  156083    157(0/157/0)       0  156082 1 ok
+  49     389031 1   53   53   0    5 live  156260  156100    160(0/160/0)       0  156099 1 ok
+  50     396950 1  231  231   0   11 live  156240  156082    158(1/157/0)       0  156081 1 ok
+  51     404869 1  235  235   0   44 live  156250  156090    160(0/160/0)       0  156089 1 ok
+  52     412788 1  157  157   0   19 live  156250  156092    158(1/157/0)       0  156091 1 ok
+  53     420707 1   93   93   0   54 live  156250  156090    160(0/160/0)       0  156089 1 ok
+  54     428626 1   15   15   0   37 live  156250  156091    159(0/159/0)       0  156090 1 ok
+  55     436545 1   19   19   0   10 live  156260  156101    159(1/158/0)       0  156100 1 ok
+  56     444464 1  197  197   0   48 live  156240  156081    159(0/159/0)       0  156080 1 ok
+  57     452383 1   75   75   0   30 live  156250  156092    158(0/158/0)       0  156091 1 ok
+  58     460302 1  112  112   0    3 live  156250  156091    159(1/158/0)       0  156090 1 ok
+  59     468221 1    1    1   0   14 live  156250  156091    159(0/159/0)       0  156090 1 ok
+  60     476140 1    4    4   0   42 live  156250  156091    159(0/159/0)       0  156090 1 ok
+  61     484059 1  115  115   0   24 live  156240  156081    159(0/159/0)       0  156080 1 ok
+  62     491978 1  186  186   0   51 live  156260  156100    160(0/160/0)       0  156099 1 ok
+  63     499897 1   41   41   0   33 live  156240  156082    158(0/158/0)       0  156081 1 ok
+violations: none
+
+=== summary build=protocol-v2 max_entries=128 keys=64 trials=1 ===
+trials_with_violation=0/1
+violations by kind: none
+counted: EEXIST=10176 E2BIG=0 unstable=0 eexist_then_null=0 unstable_then_null=0
+per trial: EEXIST min=10176 max=10176, E2BIG min=0 max=0, live min=64 max=64 (expected 64)
+refused slots: sum=0 max per trial=0
+branches: lost_same_key=6694 lost_other_key=521 walk_saw_claiming=3452 waits=10146 wait_sleeps=2292 givebacks=0 e2big_precheck=0 precheck_slot_taken=0 e2big_refused_winner=0 e2big_saw_refused=0 e2big_fulldir=0 fulldir_unstable=0 insert_fullwalk=0 lookup_fullwalk=0
+longest wait: elapsed_ns=53760 requested_ns=1984 (bound 100000)
+dir: keys off home (sum over trials)=5 max probe distance=1
+reader: trials_with_overlap=1 polls=117423 seen_claiming=133 transitions_seen=64 live_checks=9191 zero_sum=0 decrease=0 sum_changes=9127 timed_out=0 min_sum_at_transition_over_trials=346
+RESULT CLEAN
+### exit=0 wall_s=.154531362

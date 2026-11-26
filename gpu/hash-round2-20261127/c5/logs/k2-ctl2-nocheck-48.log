@@ -1,0 +1,2042 @@
+### k2-ctl2-nocheck-48: ./build/c5_ctl2-nocheck --max 48 --trials 201 --detail 1
+C5 build=ctl2-no-count-check FAULT=2 device="Orin" sm_87 SMs=8
+config max_entries=48 S=128 logS=7 rows_cap=128 keys=64 threads=1000000 grid=3907x256 launches=10 trials=201 reader=0 prefill=0 seed0=0x0123456789abcdef wait_bound_ns=100000
+attempts per key per launch: min=15624 max=15626; keys with attempts=64 (K = 1000 + 7919*j mod 2^32)
+
+=== trial 0 seed=0x0123456789abcdef ===
+dir: nonempty=56 live=56 refused=0 claiming=0 (max_entries 48, S 128, expected live 48) count=56
+dir shape: keys off home=5 max probe distance=1
+totals: attempts=10000000 prefill=0 delivered=8739296 EEXIST=10694 E2BIG=1250010 unstable=0 | all rows=8739296 rows behind live headers=8739296
+branches: lost_same_key=6262 lost_other_key=1605 walk_saw_claiming=3524 waits=9786 wait_sleeps=1739 wait_max_ns=64320 givebacks=0 e2big_precheck=1250010 precheck_slot_taken=780 e2big_refused_winner=0 e2big_saw_refused=0 e2big_fulldir=0 fulldir_unstable=0 insert_fullwalk=0 lookup_fullwalk=0 eexist_then_null=0 unstable_then_null=0 row_overflow=0 key_changed=0
+kernel span: first block start -> last block end = 11.121 ms (10 launches)
+per launch (EEXIST/E2BIG/won/unstable): L1 10694/125001/56/0 L2 0/125001/0/0 L3 0/125001/0/0 L4 0/125001/0/0 L5 0/125001/0/0 L6 0/125001/0/0 L7 0/125001/0/0 L8 0/125001/0/0 L9 0/125001/0/0 L10 0/125001/0/0
+longest wait requested_ns=4032
+per key: j K slots slot home dist row state attempts delivered EEXIST(live/waited/unstable) E2BIG hits won ok
+   0       1000 1  112  112   0   17 live  156260  156068    192(21/171/0)       0  156067 1 ok
+   1       8919 1   40   40   0   26 live  156250  156060    190(18/172/0)       0  156059 1 ok
+   2      16838 1   75   75   0    0 live  156260  156069    191(27/164/0)       0  156068 1 ok
+   3      24757 1    4    3   1   54 live  156240  156048    192(0/192/0)       0  156047 1 ok
+   4      32676 1  108  107   1   52 live  156250  156059    191(71/120/0)       0  156058 1 ok
+   5      40595 1   68   68   0   50 live  156250  156060    190(3/187/0)       0  156059 1 ok
+   6      48514 1   70   70   0   38 live  156260  156067    193(7/186/0)       0  156066 1 ok
+   7      56433 1   31   31   0   29 live  156250  156060    190(18/172/0)       0  156059 1 ok
+   8      64352 1  127  127   0   45 live  156250  156058    192(6/186/0)       0  156057 1 ok
+   9      72271 1  117  117   0   16 live  156250  156060    190(16/174/0)       0  156059 1 ok
+  10      80190 1   61   61   0   34 live  156240  156049    191(4/187/0)       0  156048 1 ok
+  11      88109 0   -1   80  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+  12      96028 1  118  118   0   42 live  156250  156060    190(5/185/0)       0  156059 1 ok
+  13     103947 0   -1    9  -1   -1 none  156260       0      0(0/0/0)  156260       0 0 ok
+  14     111866 1   81   81   0   48 live  156240  156049    191(6/185/0)       0  156048 1 ok
+  15     119785 1   83   83   0   36 live  156260  156068    192(5/187/0)       0  156067 1 ok
+  16     127704 1   10   10   0   27 live  156240  156050    190(14/176/0)       0  156049 1 ok
+  17     135623 1   46   46   0    2 live  156250  156059    191(22/169/0)       0  156058 1 ok
+  18     143542 1  101  101   0   44 live  156250  156059    191(2/189/0)       0  156058 1 ok
+  19     151461 1  111  111   0   12 live  156260  156069    191(26/165/0)       0  156068 1 ok
+  20     159380 1   39   39   0   22 live  156240  156049    191(17/174/0)       0  156048 1 ok
+  21     167299 1   74   74   0   39 live  156250  156059    191(6/185/0)       0  156058 1 ok
+  22     175218 1    2    2   0   11 live  156250  156060    190(23/167/0)       0  156059 1 ok
+  23     183137 1    3    3   0    5 live  156260  156068    192(25/167/0)       0  156067 1 ok
+  24     191056 1   58   58   0    7 live  156240  156050    190(25/165/0)       0  156049 1 ok
+  25     198975 1   65   65   0   25 live  156250  156059    191(20/171/0)       0  156058 1 ok
+  26     206894 1   51   50   1   53 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  27     214813 1  122  122   0    8 live  156250  156059    191(29/162/0)       0  156058 1 ok
+  28     222732 1  107  107   0    6 live  156250  156059    191(19/172/0)       0  156058 1 ok
+  29     230651 1   85   85   0   20 live  156250  156059    191(16/175/0)       0  156058 1 ok
+  30     238570 1   53   53   0   18 live  156250  156059    191(25/166/0)       0  156058 1 ok
+  31     246489 1   14   14   0   28 live  156250  156059    191(13/178/0)       0  156058 1 ok
+  32     254408 1   16   16   0    4 live  156250  156059    191(25/166/0)       0  156058 1 ok
+  33     262327 1   80   80   0   32 live  156250  156059    191(18/173/0)       0  156058 1 ok
+  34     270246 1   56   56   0   33 live  156250  156059    191(7/184/0)       0  156058 1 ok
+  35     278165 1  113  112   1   55 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  36     286084 1   19   19   0   41 live  156260  156068    192(6/186/0)       0  156067 1 ok
+  37     294003 0   -1   75  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+  38     301922 1   76   76   0   14 live  156240  156050    190(23/167/0)       0  156049 1 ok
+  39     309841 0   -1    3  -1   -1 none  156260       0      0(0/0/0)  156260       0 0 ok
+  40     317760 0   -1   39  -1   -1 none  156240       0      0(0/0/0)  156240       0 0 ok
+  41     325679 1  123  123   0    1 live  156250  156059    191(19/172/0)       0  156058 1 ok
+  42     333598 1   67   67   0   43 live  156260  156068    192(7/185/0)       0  156067 1 ok
+  43     341517 1   52   52   0   15 live  156250  156060    190(19/171/0)       0  156059 1 ok
+  44     349436 1   30   30   0   21 live  156250  156058    192(16/176/0)       0  156057 1 ok
+  45     357355 1  126  126   0   19 live  156240  156049    191(25/166/0)       0  156048 1 ok
+  46     365274 1   87   87   0   30 live  156250  156060    190(11/179/0)       0  156059 1 ok
+  47     373193 1   89   89   0   10 live  156260  156068    192(24/168/0)       0  156067 1 ok
+  48     381112 1   50   50   0   46 live  156240  156050    190(4/186/0)       0  156049 1 ok
+  49     389031 1   26   26   0   35 live  156260  156069    191(6/185/0)       0  156068 1 ok
+  50     396950 1  115  115   0   24 live  156240  156049    191(18/173/0)       0  156048 1 ok
+  51     404869 0   -1  117  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+  52     412788 1   78   78   0   31 live  156250  156060    190(15/175/0)       0  156059 1 ok
+  53     420707 1   47   46   1   51 live  156250  156058    192(73/119/0)       0  156057 1 ok
+  54     428626 1    7    7   0   49 live  156250  156059    191(2/189/0)       0  156058 1 ok
+  55     436545 1    9    9   0   37 live  156260  156069    191(7/184/0)       0  156068 1 ok
+  56     444464 1   98   98   0    3 live  156240  156049    191(20/171/0)       0  156048 1 ok
+  57     452383 1   37   37   0    9 live  156250  156060    190(27/163/0)       0  156059 1 ok
+  58     460302 0   -1   56  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+  59     468221 1    0    0   0   23 live  156250  156059    191(17/174/0)       0  156058 1 ok
+  60     476140 0   -1    2  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+  61     484059 1   57   57   0   40 live  156240  156049    191(5/186/0)       0  156048 1 ok
+  62     491978 1   93   93   0   13 live  156260  156069    191(19/172/0)       0  156068 1 ok
+  63     499897 1   20   20   0   47 live  156240  156049    191(6/185/0)       0  156048 1 ok
+violations: live_gt_max=1 live_ne_expected=1 row_out_of_range=8
+  note: slot 4 key j=3: row 54 >= max_entries
+  note: slot 7 key j=54: row 49 >= max_entries
+  note: slot 47 key j=53: row 51 >= max_entries
+  note: slot 51 key j=26: row 53 >= max_entries
+  note: slot 68 key j=5: row 50 >= max_entries
+  note: slot 81 key j=14: row 48 >= max_entries
+  note: slot 108 key j=4: row 52 >= max_entries
+  note: slot 113 key j=35: row 55 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+
+=== trial 1 seed=0x9804297cc374ca1a ===
+dir: nonempty=51 live=51 refused=0 claiming=0 (max_entries 48, S 128, expected live 48) count=51
+dir shape: keys off home=0 max probe distance=0
+totals: attempts=10000000 prefill=0 delivered=7959010 EEXIST=9740 E2BIG=2031250 unstable=0 | all rows=7959010 rows behind live headers=7959010
+branches: lost_same_key=5741 lost_other_key=1465 walk_saw_claiming=3286 waits=9027 wait_sleeps=302 wait_max_ns=55232 givebacks=0 e2big_precheck=2031250 precheck_slot_taken=284 e2big_refused_winner=0 e2big_saw_refused=0 e2big_fulldir=0 fulldir_unstable=0 insert_fullwalk=0 lookup_fullwalk=0 eexist_then_null=0 unstable_then_null=0 row_overflow=0 key_changed=0
+kernel span: first block start -> last block end = 11.506 ms (10 launches)
+per launch (EEXIST/E2BIG/won/unstable): L1 9740/203125/51/0 L2 0/203125/0/0 L3 0/203125/0/0 L4 0/203125/0/0 L5 0/203125/0/0 L6 0/203125/0/0 L7 0/203125/0/0 L8 0/203125/0/0 L9 0/203125/0/0 L10 0/203125/0/0
+longest wait requested_ns=64
+per key: j K slots slot home dist row state attempts delivered EEXIST(live/waited/unstable) E2BIG hits won ok
+   0       1000 1   72   72   0   23 live  156260  156068    192(21/171/0)       0  156067 1 ok
+   1       8919 1   53   53   0    8 live  156250  156060    190(17/173/0)       0  156059 1 ok
+   2      16838 1   68   68   0   35 live  156260  156069    191(1/190/0)       0  156068 1 ok
+   3      24757 0   -1   56  -1   -1 none  156240       0      0(0/0/0)  156240       0 0 ok
+   4      32676 1   12   12   0   45 live  156250  156059    191(2/189/0)       0  156058 1 ok
+   5      40595 1   40   40   0   16 live  156250  156060    190(21/169/0)       0  156059 1 ok
+   6      48514 1   22   22   0   50 live  156260  156067    193(4/189/0)       0  156066 1 ok
+   7      56433 0   -1   43  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+   8      64352 1   59   59   0   40 live  156250  156058    192(8/184/0)       0  156057 1 ok
+   9      72271 1   67   67   0   14 live  156250  156060    190(24/166/0)       0  156059 1 ok
+  10      80190 0   -1  106  -1   -1 none  156240       0      0(0/0/0)  156240       0 0 ok
+  11      88109 1   70   70   0   32 live  156250  156058    192(0/192/0)       0  156057 1 ok
+  12      96028 1   75   75   0   11 live  156250  156060    190(22/168/0)       0  156059 1 ok
+  13     103947 1   46   46   0    2 live  156260  156069    191(20/171/0)       0  156068 1 ok
+  14     111866 1   85   85   0   43 live  156240  156049    191(0/191/0)       0  156048 1 ok
+  15     119785 0   -1   66  -1   -1 none  156260       0      0(0/0/0)  156260       0 0 ok
+  16     127704 0   -1  122  -1   -1 none  156240       0      0(0/0/0)  156240       0 0 ok
+  17     135623 1   56   56   0   37 live  156250  156059    191(4/187/0)       0  156058 1 ok
+  18     143542 1  111  111   0   27 live  156250  156059    191(21/170/0)       0  156058 1 ok
+  19     151461 0   -1   33  -1   -1 none  156260       0      0(0/0/0)  156260       0 0 ok
+  20     159380 1   89   89   0   18 live  156240  156049    191(17/174/0)       0  156048 1 ok
+  21     167299 0   -1   43  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+  22     175218 1   99   99   0   25 live  156250  156060    190(23/167/0)       0  156059 1 ok
+  23     183137 1   80   80   0   42 live  156260  156068    192(0/192/0)       0  156067 1 ok
+  24     191056 1    8    8   0   28 live  156240  156050    190(22/168/0)       0  156049 1 ok
+  25     198975 1  127  127   0    7 live  156250  156059    191(21/170/0)       0  156058 1 ok
+  26     206894 1  126  126   0   34 live  156250  156059    191(4/187/0)       0  156058 1 ok
+  27     214813 0   -1   96  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+  28     222732 1   95   95   0   22 live  156250  156059    191(21/170/0)       0  156058 1 ok
+  29     230651 1  106  106   0    3 live  156250  156059    191(15/176/0)       0  156058 1 ok
+  30     238570 1  122  122   0   15 live  156250  156059    191(22/169/0)       0  156058 1 ok
+  31     246489 1   15   15   0   49 live  156250  156059    191(1/190/0)       0  156058 1 ok
+  32     254408 1  125  125   0   39 live  156250  156059    191(3/188/0)       0  156058 1 ok
+  33     262327 1   30   30   0   13 live  156250  156059    191(23/168/0)       0  156058 1 ok
+  34     270246 1  114  114   0    5 live  156250  156059    191(21/170/0)       0  156058 1 ok
+  35     278165 1  102  102   0   31 live  156250  156059    191(20/171/0)       0  156058 1 ok
+  36     286084 1  117  117   0   19 live  156260  156068    192(21/171/0)       0  156067 1 ok
+  37     294003 1  112  112   0   26 live  156250  156059    191(18/173/0)       0  156058 1 ok
+  38     301922 1   33   33   0    1 live  156240  156050    190(15/175/0)       0  156049 1 ok
+  39     309841 0   -1   21  -1   -1 none  156260       0      0(0/0/0)  156260       0 0 ok
+  40     317760 1   36   36   0    9 live  156240  156051    189(20/169/0)       0  156050 1 ok
+  41     325679 1   17   17   0   20 live  156250  156059    191(19/172/0)       0  156058 1 ok
+  42     333598 1   49   49   0   36 live  156260  156068    192(5/187/0)       0  156067 1 ok
+  43     341517 1  107  107   0    0 live  156250  156060    190(21/169/0)       0  156059 1 ok
+  44     349436 1   52   52   0    4 live  156250  156058    192(21/171/0)       0  156057 1 ok
+  45     357355 1    7    7   0   17 live  156240  156049    191(16/175/0)       0  156048 1 ok
+  46     365274 1   96   96   0   24 live  156250  156060    190(19/171/0)       0  156059 1 ok
+  47     373193 1   10   10   0   41 live  156260  156068    192(1/191/0)       0  156067 1 ok
+  48     381112 0   -1   99  -1   -1 none  156240       0      0(0/0/0)  156240       0 0 ok
+  49     389031 1  108  108   0    6 live  156260  156069    191(23/168/0)       0  156068 1 ok
+  50     396950 1   63   63   0   47 live  156240  156049    191(5/186/0)       0  156048 1 ok
+  51     404869 1  105  105   0   33 live  156250  156058    192(4/188/0)       0  156057 1 ok
+  52     412788 1   66   66   0   12 live  156250  156060    190(22/168/0)       0  156059 1 ok
+  53     420707 1   21   21   0   44 live  156250  156058    192(2/190/0)       0  156057 1 ok
+  54     428626 1  110  110   0   30 live  156250  156059    191(23/168/0)       0  156058 1 ok
+  55     436545 1   24   24   0   48 live  156260  156069    191(3/188/0)       0  156068 1 ok
+  56     444464 1  113  113   0   21 live  156240  156049    191(23/168/0)       0  156048 1 ok
+  57     452383 1   43   43   0   38 live  156250  156060    190(5/185/0)       0  156059 1 ok
+  58     460302 0   -1   68  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+  59     468221 1   39   39   0   46 live  156250  156059    191(3/188/0)       0  156058 1 ok
+  60     476140 0   -1   89  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+  61     484059 1   84   84   0   10 live  156240  156049    191(24/167/0)       0  156048 1 ok
+  62     491978 0   -1   99  -1   -1 none  156260       0      0(0/0/0)  156260       0 0 ok
+  63     499897 1   87   87   0   29 live  156240  156049    191(22/169/0)       0  156048 1 ok
+violations: live_gt_max=1 live_ne_expected=1 row_out_of_range=3
+  note: slot 15 key j=31: row 49 >= max_entries
+  note: slot 22 key j=6: row 50 >= max_entries
+  note: slot 24 key j=55: row 48 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+
+=== trial 2 seed=0xaf8d95523beccaa2 ===
+dir: nonempty=52 live=52 refused=0 claiming=0 (max_entries 48, S 128, expected live 48) count=52
+dir shape: keys off home=0 max probe distance=0
+totals: attempts=10000000 prefill=0 delivered=8115048 EEXIST=9932 E2BIG=1875020 unstable=0 | all rows=8115048 rows behind live headers=8115048
+branches: lost_same_key=6540 lost_other_key=1521 walk_saw_claiming=3075 waits=9615 wait_sleeps=1740 wait_max_ns=67232 givebacks=0 e2big_precheck=1875020 precheck_slot_taken=226 e2big_refused_winner=0 e2big_saw_refused=0 e2big_fulldir=0 fulldir_unstable=0 insert_fullwalk=0 lookup_fullwalk=0 eexist_then_null=0 unstable_then_null=0 row_overflow=0 key_changed=0
+kernel span: first block start -> last block end = 11.184 ms (10 launches)
+per launch (EEXIST/E2BIG/won/unstable): L1 9932/187502/52/0 L2 0/187502/0/0 L3 0/187502/0/0 L4 0/187502/0/0 L5 0/187502/0/0 L6 0/187502/0/0 L7 0/187502/0/0 L8 0/187502/0/0 L9 0/187502/0/0 L10 0/187502/0/0
+longest wait requested_ns=64
+per key: j K slots slot home dist row state attempts delivered EEXIST(live/waited/unstable) E2BIG hits won ok
+   0       1000 1   10   10   0   19 live  156260  156068    192(0/192/0)       0  156067 1 ok
+   1       8919 1   47   47   0   47 live  156250  156060    190(5/185/0)       0  156059 1 ok
+   2      16838 0   -1   91  -1   -1 none  156260       0      0(0/0/0)  156260       0 0 ok
+   3      24757 1  107  107   0    5 live  156240  156048    192(23/169/0)       0  156047 1 ok
+   4      32676 1   92   92   0   12 live  156250  156059    191(1/190/0)       0  156058 1 ok
+   5      40595 1   35   35   0   39 live  156250  156060    190(4/186/0)       0  156059 1 ok
+   6      48514 1   45   45   0   23 live  156260  156067    193(4/189/0)       0  156066 1 ok
+   7      56433 0   -1  123  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+   8      64352 1   39   39   0   30 live  156250  156058    192(4/188/0)       0  156057 1 ok
+   9      72271 1  103  103   0   31 live  156250  156060    190(3/187/0)       0  156059 1 ok
+  10      80190 0   -1   43  -1   -1 none  156240       0      0(0/0/0)  156240       0 0 ok
+  11      88109 1   36   36   0   44 live  156250  156058    192(2/190/0)       0  156057 1 ok
+  12      96028 1   82   82   0   25 live  156250  156060    190(3/187/0)       0  156059 1 ok
+  13     103947 0   -1   83  -1   -1 none  156260       0      0(0/0/0)  156260       0 0 ok
+  14     111866 1  122  122   0   36 live  156240  156049    191(6/185/0)       0  156048 1 ok
+  15     119785 0   -1    4  -1   -1 none  156260       0      0(0/0/0)  156260       0 0 ok
+  16     127704 1  102  102   0    8 live  156240  156050    190(22/168/0)       0  156049 1 ok
+  17     135623 1   79   79   0   49 live  156250  156059    191(1/190/0)       0  156058 1 ok
+  18     143542 0   -1   35  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+  19     151461 1  113  113   0   14 live  156260  156069    191(2/189/0)       0  156068 1 ok
+  20     159380 1   83   83   0   41 live  156240  156049    191(2/189/0)       0  156048 1 ok
+  21     167299 0   -1   66  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+  22     175218 1   50   50   0    2 live  156250  156060    190(26/164/0)       0  156059 1 ok
+  23     183137 0   -1   60  -1   -1 none  156260       0      0(0/0/0)  156260       0 0 ok
+  24     191056 1   30   30   0   33 live  156240  156050    190(0/190/0)       0  156049 1 ok
+  25     198975 1   64   64   0   18 live  156250  156059    191(1/190/0)       0  156058 1 ok
+  26     206894 1   91   91   0   46 live  156250  156059    191(4/187/0)       0  156058 1 ok
+  27     214813 1  104  104   0   27 live  156250  156059    191(4/187/0)       0  156058 1 ok
+  28     222732 1    3    3   0   11 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  29     230651 1   15   15   0   38 live  156250  156059    191(2/189/0)       0  156058 1 ok
+  30     238570 1   59   59   0   22 live  156250  156059    191(3/188/0)       0  156058 1 ok
+  31     246489 1  123  123   0    0 live  156250  156059    191(25/166/0)       0  156058 1 ok
+  32     254408 1    5    5   0   50 live  156250  156059    191(1/190/0)       0  156058 1 ok
+  33     262327 1   81   81   0   29 live  156250  156059    191(4/187/0)       0  156058 1 ok
+  34     270246 1   66   66   0   16 live  156250  156059    191(1/190/0)       0  156058 1 ok
+  35     278165 1   96   96   0   43 live  156250  156059    191(5/186/0)       0  156058 1 ok
+  36     286084 1   12   12   0   24 live  156260  156068    192(2/190/0)       0  156067 1 ok
+  37     294003 1   63   63   0    3 live  156250  156059    191(21/170/0)       0  156058 1 ok
+  38     301922 1   13   13   0    9 live  156240  156050    190(14/176/0)       0  156049 1 ok
+  39     309841 1   43   43   0   35 live  156260  156067    193(3/190/0)       0  156066 1 ok
+  40     317760 1   87   87   0   20 live  156240  156051    189(2/187/0)       0  156050 1 ok
+  41     325679 1  110  110   0   48 live  156250  156059    191(2/189/0)       0  156058 1 ok
+  42     333598 1   56   56   0   28 live  156260  156068    192(4/188/0)       0  156067 1 ok
+  43     341517 1   16   16   0   13 live  156250  156060    190(0/190/0)       0  156059 1 ok
+  44     349436 1   89   89   0    6 live  156250  156058    192(22/170/0)       0  156057 1 ok
+  45     357355 1   72   72   0   40 live  156240  156049    191(1/190/0)       0  156048 1 ok
+  46     365274 1   76   76   0    1 live  156250  156060    190(24/166/0)       0  156059 1 ok
+  47     373193 1   18   18   0   51 live  156260  156068    192(1/191/0)       0  156067 1 ok
+  48     381112 1    8    8   0   32 live  156240  156050    190(0/190/0)       0  156049 1 ok
+  49     389031 1   60   60   0   17 live  156260  156069    191(4/187/0)       0  156068 1 ok
+  50     396950 1   57   57   0   45 live  156240  156049    191(5/186/0)       0  156048 1 ok
+  51     404869 1  127  127   0   26 live  156250  156058    192(3/189/0)       0  156057 1 ok
+  52     412788 1   17   17   0    4 live  156250  156060    190(21/169/0)       0  156059 1 ok
+  53     420707 1    0    0   0   10 live  156250  156058    192(0/192/0)       0  156057 1 ok
+  54     428626 1    4    4   0   37 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  55     436545 1   74   74   0   21 live  156260  156069    191(1/190/0)       0  156068 1 ok
+  56     444464 0   -1   64  -1   -1 none  156240       0      0(0/0/0)  156240       0 0 ok
+  57     452383 0   -1   50  -1   -1 none  156250       0      0(0/0/0)  156250       0 0 ok
+  58     460302 1  105  105   0   15 live  156250  156059    191(2/189/0)       0  156058 1 ok
+  59     468221 1   77   77   0    7 live  156250  156059    191(21/170/0)       0  156058 1 ok
+  60     476140 1   26   26   0   42 live  156250  156059    191(1/190/0)       0  156058 1 ok
+  61     484059 0   -1   64  -1   -1 none  156240       0      0(0/0/0)  156240       0 0 ok
+  62     491978 0   -1  107  -1   -1 none  156260       0      0(0/0/0)  156260       0 0 ok
+  63     499897 1  124  124   0   34 live  156240  156049    191(5/186/0)       0  156048 1 ok
+violations: live_gt_max=1 live_ne_expected=1 row_out_of_range=4
+  note: slot 5 key j=32: row 50 >= max_entries
+  note: slot 18 key j=47: row 51 >= max_entries
+  note: slot 79 key j=17: row 49 >= max_entries
+  note: slot 110 key j=41: row 48 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 3 seed=0xcb4e5f6a912dcef8 live=51 refused=0 claiming=0 EEXIST=9743 E2BIG=2031230 unstable=0 lost_same=5225 lost_other=3335 waits=8438 precheck_taken=10 fulldir=0/0 maxd=4 viol=5
+  note: slot 78 key j=0: row 50 >= max_entries
+  note: slot 84 key j=20: row 48 >= max_entries
+  note: slot 113 key j=25: row 49 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 4 seed=0x4efc6dca531fa60f live=53 refused=0 claiming=0 EEXIST=10120 E2BIG=1718750 unstable=0 lost_same=5571 lost_other=1147 waits=8544 precheck_taken=614 fulldir=0/0 maxd=0 viol=7
+  note: slot 21 key j=60: row 52 >= max_entries
+  note: slot 34 key j=45: row 50 >= max_entries
+  note: slot 60 key j=21: row 51 >= max_entries
+  note: slot 73 key j=6: row 49 >= max_entries
+  note: slot 97 key j=30: row 48 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 5 seed=0x0ee9e6317f5734c2 live=49 refused=0 claiming=0 EEXIST=9362 E2BIG=2343720 unstable=0 lost_same=5582 lost_other=1706 waits=8442 precheck_taken=404 fulldir=0/0 maxd=0 viol=3
+  note: slot 101 key j=35: row 48 >= max_entries
+  note: live slots 49 > max_entries 48
+  note: live slots 49 != min(keys 64, max_entries 48)
+trial 6 seed=0x427003011abcd77e live=53 refused=0 claiming=0 EEXIST=10127 E2BIG=1718750 unstable=0 lost_same=7045 lost_other=2367 waits=9834 precheck_taken=2 fulldir=0/0 maxd=1 viol=7
+  note: slot 17 key j=35: row 52 >= max_entries
+  note: slot 70 key j=19: row 49 >= max_entries
+  note: slot 78 key j=63: row 51 >= max_entries
+  note: slot 98 key j=50: row 50 >= max_entries
+  note: slot 124 key j=15: row 48 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 7 seed=0x790fd4e2a886681a live=55 refused=0 claiming=0 EEXIST=10509 E2BIG=1406230 unstable=0 lost_same=6433 lost_other=1056 waits=9336 precheck_taken=261 fulldir=0/0 maxd=0 viol=9
+  note: slot 35 key j=53: row 50 >= max_entries
+  note: slot 37 key j=14: row 49 >= max_entries
+  note: slot 46 key j=62: row 48 >= max_entries
+  note: slot 54 key j=29: row 51 >= max_entries
+  note: slot 55 key j=1: row 53 >= max_entries
+  note: slot 60 key j=50: row 52 >= max_entries
+  note: slot 97 key j=41: row 54 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 8 seed=0x785b7cd8b86f18f9 live=59 refused=0 claiming=0 EEXIST=11272 E2BIG=781240 unstable=0 lost_same=7073 lost_other=581 waits=10259 precheck_taken=691 fulldir=0/0 maxd=0 viol=13
+  note: slot 0 key j=54: row 56 >= max_entries
+  note: slot 5 key j=33: row 49 >= max_entries
+  note: slot 11 key j=57: row 48 >= max_entries
+  note: slot 19 key j=29: row 57 >= max_entries
+  note: slot 24 key j=14: row 55 >= max_entries
+  note: slot 32 key j=23: row 52 >= max_entries
+  note: slot 36 key j=8: row 50 >= max_entries
+  note: slot 72 key j=39: row 54 >= max_entries
+  note: slot 81 key j=63: row 53 >= max_entries
+  note: slot 85 key j=48: row 51 >= max_entries
+  note: slot 91 key j=44: row 58 >= max_entries
+  note: live slots 59 > max_entries 48
+  note: live slots 59 != min(keys 64, max_entries 48)
+trial 9 seed=0xa5002a5e19b416ec live=56 refused=0 claiming=0 EEXIST=10695 E2BIG=1250000 unstable=0 lost_same=6927 lost_other=2275 waits=10019 precheck_taken=0 fulldir=0/0 maxd=1 viol=10
+  note: slot 11 key j=8: row 54 >= max_entries
+  note: slot 59 key j=40: row 49 >= max_entries
+  note: slot 62 key j=29: row 55 >= max_entries
+  note: slot 72 key j=30: row 51 >= max_entries
+  note: slot 89 key j=63: row 50 >= max_entries
+  note: slot 96 key j=25: row 48 >= max_entries
+  note: slot 106 key j=36: row 53 >= max_entries
+  note: slot 126 key j=45: row 52 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 10 seed=0xb9a4d2fb2a6ebc3f live=61 refused=0 claiming=0 EEXIST=11649 E2BIG=468770 unstable=0 lost_same=6848 lost_other=2311 waits=11322 precheck_taken=48 fulldir=0/0 maxd=1 viol=15
+  note: slot 4 key j=41: row 55 >= max_entries
+  note: slot 31 key j=27: row 53 >= max_entries
+  note: slot 35 key j=14: row 54 >= max_entries
+  note: slot 37 key j=34: row 56 >= max_entries
+  note: slot 43 key j=6: row 58 >= max_entries
+  note: slot 53 key j=22: row 48 >= max_entries
+  note: slot 67 key j=54: row 57 >= max_entries
+  note: slot 77 key j=60: row 59 >= max_entries
+  note: slot 89 key j=39: row 51 >= max_entries
+  note: slot 95 key j=47: row 52 >= max_entries
+  note: slot 105 key j=52: row 50 >= max_entries
+  note: slot 122 key j=57: row 60 >= max_entries
+  note: slot 126 key j=37: row 49 >= max_entries
+  note: live slots 61 > max_entries 48
+  note: live slots 61 != min(keys 64, max_entries 48)
+trial 11 seed=0xd9e8d93ca22dbb55 live=56 refused=0 claiming=0 EEXIST=10699 E2BIG=1249960 unstable=0 lost_same=6230 lost_other=2595 waits=9923 precheck_taken=23 fulldir=0/0 maxd=1 viol=10
+  note: slot 33 key j=42: row 52 >= max_entries
+  note: slot 37 key j=63: row 53 >= max_entries
+  note: slot 41 key j=55: row 48 >= max_entries
+  note: slot 75 key j=35: row 54 >= max_entries
+  note: slot 93 key j=57: row 49 >= max_entries
+  note: slot 102 key j=50: row 55 >= max_entries
+  note: slot 111 key j=59: row 50 >= max_entries
+  note: slot 114 key j=46: row 51 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 12 seed=0x67ae851c7e9b68a0 live=53 refused=0 claiming=0 EEXIST=10124 E2BIG=1718760 unstable=0 lost_same=7398 lost_other=1548 waits=9412 precheck_taken=536 fulldir=0/0 maxd=0 viol=7
+  note: slot 11 key j=0: row 50 >= max_entries
+  note: slot 30 key j=55: row 52 >= max_entries
+  note: slot 32 key j=58: row 49 >= max_entries
+  note: slot 72 key j=15: row 51 >= max_entries
+  note: slot 127 key j=19: row 48 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 13 seed=0xc84cba35065c962c live=58 refused=0 claiming=0 EEXIST=11079 E2BIG=937500 unstable=0 lost_same=7256 lost_other=1051 waits=10231 precheck_taken=602 fulldir=0/0 maxd=1 viol=12
+  note: slot 3 key j=48: row 57 >= max_entries
+  note: slot 9 key j=59: row 50 >= max_entries
+  note: slot 42 key j=10: row 51 >= max_entries
+  note: slot 55 key j=25: row 53 >= max_entries
+  note: slot 57 key j=19: row 49 >= max_entries
+  note: slot 95 key j=50: row 52 >= max_entries
+  note: slot 96 key j=16: row 55 >= max_entries
+  note: slot 104 key j=9: row 56 >= max_entries
+  note: slot 120 key j=1: row 54 >= max_entries
+  note: slot 124 key j=44: row 48 >= max_entries
+  note: live slots 58 > max_entries 48
+  note: live slots 58 != min(keys 64, max_entries 48)
+trial 14 seed=0x835e0382856978e7 live=57 refused=0 claiming=0 EEXIST=10886 E2BIG=1093730 unstable=0 lost_same=7706 lost_other=943 waits=10048 precheck_taken=503 fulldir=0/0 maxd=0 viol=11
+  note: slot 10 key j=30: row 54 >= max_entries
+  note: slot 19 key j=26: row 56 >= max_entries
+  note: slot 62 key j=42: row 48 >= max_entries
+  note: slot 69 key j=39: row 53 >= max_entries
+  note: slot 83 key j=5: row 55 >= max_entries
+  note: slot 84 key j=48: row 52 >= max_entries
+  note: slot 90 key j=9: row 51 >= max_entries
+  note: slot 93 key j=18: row 49 >= max_entries
+  note: slot 102 key j=58: row 50 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 15 seed=0x3b103bb04cb7b607 live=55 refused=0 claiming=0 EEXIST=10504 E2BIG=1406250 unstable=0 lost_same=6055 lost_other=977 waits=9791 precheck_taken=98 fulldir=0/0 maxd=0 viol=9
+  note: slot 5 key j=54: row 54 >= max_entries
+  note: slot 14 key j=24: row 52 >= max_entries
+  note: slot 16 key j=48: row 51 >= max_entries
+  note: slot 26 key j=39: row 53 >= max_entries
+  note: slot 83 key j=9: row 50 >= max_entries
+  note: slot 85 key j=33: row 49 >= max_entries
+  note: slot 93 key j=58: row 48 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 16 seed=0xbe7a9a5acf30b217 live=58 refused=0 claiming=0 EEXIST=11078 E2BIG=937520 unstable=0 lost_same=7399 lost_other=2605 waits=10377 precheck_taken=66 fulldir=0/0 maxd=1 viol=12
+  note: slot 8 key j=12: row 51 >= max_entries
+  note: slot 16 key j=26: row 54 >= max_entries
+  note: slot 19 key j=4: row 48 >= max_entries
+  note: slot 42 key j=47: row 57 >= max_entries
+  note: slot 82 key j=41: row 55 >= max_entries
+  note: slot 87 key j=35: row 49 >= max_entries
+  note: slot 93 key j=3: row 52 >= max_entries
+  note: slot 113 key j=58: row 53 >= max_entries
+  note: slot 118 key j=17: row 56 >= max_entries
+  note: slot 124 key j=22: row 50 >= max_entries
+  note: live slots 58 > max_entries 48
+  note: live slots 58 != min(keys 64, max_entries 48)
+trial 17 seed=0xd157e23c309f8624 live=56 refused=0 claiming=0 EEXIST=10695 E2BIG=1249990 unstable=0 lost_same=7198 lost_other=3031 waits=10045 precheck_taken=119 fulldir=0/0 maxd=1 viol=10
+  note: slot 1 key j=1: row 51 >= max_entries
+  note: slot 29 key j=46: row 52 >= max_entries
+  note: slot 35 key j=10: row 50 >= max_entries
+  note: slot 50 key j=43: row 54 >= max_entries
+  note: slot 76 key j=22: row 53 >= max_entries
+  note: slot 84 key j=35: row 49 >= max_entries
+  note: slot 86 key j=53: row 48 >= max_entries
+  note: slot 96 key j=9: row 55 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 18 seed=0xb2147171717491c7 live=51 refused=0 claiming=0 EEXIST=9740 E2BIG=2031240 unstable=0 lost_same=6493 lost_other=1668 waits=9225 precheck_taken=501 fulldir=0/0 maxd=0 viol=5
+  note: slot 41 key j=24: row 48 >= max_entries
+  note: slot 60 key j=30: row 50 >= max_entries
+  note: slot 66 key j=39: row 49 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 19 seed=0xba57d1c188012b21 live=49 refused=0 claiming=0 EEXIST=9355 E2BIG=2343750 unstable=0 lost_same=5586 lost_other=1706 waits=8815 precheck_taken=436 fulldir=0/0 maxd=0 viol=3
+  note: slot 64 key j=41: row 48 >= max_entries
+  note: live slots 49 > max_entries 48
+  note: live slots 49 != min(keys 64, max_entries 48)
+trial 20 seed=0x4a3b69e8adc055b0 live=57 refused=0 claiming=0 EEXIST=10889 E2BIG=1093731 unstable=0 lost_same=6419 lost_other=1761 waits=9653 precheck_taken=1168 fulldir=0/0 maxd=1 viol=12
+  note: slot 10 key j=45: row 53 >= max_entries
+  note: slot 25 key j=7: row 55 >= max_entries
+  note: slot 27 key j=63: row 51 >= max_entries
+  note: slot 68 key j=13: row 56 >= max_entries
+  note: slot 71 key j=11: row 54 >= max_entries
+  note: slot 75 key j=30: row 52 >= max_entries
+  note: slot 81 key j=55: row 50 >= max_entries
+  note: slot 95 key j=15: row 49 >= max_entries
+  note: slot 124 key j=39: row 48 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+  note: key j=55: E2BIG 1 but the key is live
+trial 21 seed=0xd32c2aa92f8147bf live=49 refused=0 claiming=0 EEXIST=9359 E2BIG=2343750 unstable=0 lost_same=5436 lost_other=1674 waits=8482 precheck_taken=291 fulldir=0/0 maxd=0 viol=3
+  note: slot 65 key j=33: row 48 >= max_entries
+  note: live slots 49 > max_entries 48
+  note: live slots 49 != min(keys 64, max_entries 48)
+trial 22 seed=0x2807981d85e12714 live=48 refused=0 claiming=0 EEXIST=9166 E2BIG=2500030 unstable=0 lost_same=5143 lost_other=1739 waits=8204 precheck_taken=294 fulldir=0/0 maxd=0 viol=0
+trial 23 seed=0xa0f6fe5e162b59b5 live=57 refused=0 claiming=0 EEXIST=10891 E2BIG=1093740 unstable=0 lost_same=6562 lost_other=817 waits=9805 precheck_taken=548 fulldir=0/0 maxd=0 viol=11
+  note: slot 5 key j=18: row 52 >= max_entries
+  note: slot 7 key j=29: row 56 >= max_entries
+  note: slot 12 key j=23: row 55 >= max_entries
+  note: slot 17 key j=8: row 54 >= max_entries
+  note: slot 18 key j=51: row 49 >= max_entries
+  note: slot 37 key j=27: row 50 >= max_entries
+  note: slot 56 key j=36: row 48 >= max_entries
+  note: slot 74 key j=57: row 53 >= max_entries
+  note: slot 94 key j=3: row 51 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 24 seed=0xfa1d34af1999a9da live=48 refused=0 claiming=0 EEXIST=9170 E2BIG=2499980 unstable=0 lost_same=5938 lost_other=1999 waits=8452 precheck_taken=526 fulldir=0/0 maxd=0 viol=0
+trial 25 seed=0x20c0552c9b160239 live=54 refused=0 claiming=0 EEXIST=10312 E2BIG=1562520 unstable=0 lost_same=5896 lost_other=1091 waits=9374 precheck_taken=435 fulldir=0/0 maxd=0 viol=8
+  note: slot 2 key j=28: row 51 >= max_entries
+  note: slot 6 key j=43: row 53 >= max_entries
+  note: slot 24 key j=4: row 52 >= max_entries
+  note: slot 26 key j=37: row 49 >= max_entries
+  note: slot 33 key j=62: row 48 >= max_entries
+  note: slot 66 key j=13: row 50 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 26 seed=0xbbdca5eb35b0975e live=52 refused=0 claiming=0 EEXIST=9934 E2BIG=1874970 unstable=0 lost_same=5719 lost_other=1321 waits=8979 precheck_taken=468 fulldir=0/0 maxd=0 viol=6
+  note: slot 10 key j=53: row 50 >= max_entries
+  note: slot 43 key j=14: row 49 >= max_entries
+  note: slot 56 key j=29: row 51 >= max_entries
+  note: slot 64 key j=38: row 48 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 27 seed=0x21d9343e5300cb15 live=50 refused=0 claiming=0 EEXIST=9552 E2BIG=2187470 unstable=0 lost_same=5250 lost_other=1473 waits=8121 precheck_taken=340 fulldir=0/0 maxd=0 viol=4
+  note: slot 11 key j=35: row 48 >= max_entries
+  note: slot 61 key j=10: row 49 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 28 seed=0xd1c8f6e5331d28dd live=64 refused=0 claiming=0 EEXIST=12222 E2BIG=2 unstable=0 lost_same=7052 lost_other=865 waits=11421 precheck_taken=926 fulldir=0/0 maxd=1 viol=20
+  note: slot 6 key j=48: row 53 >= max_entries
+  note: slot 9 key j=57: row 52 >= max_entries
+  note: slot 14 key j=63: row 54 >= max_entries
+  note: slot 29 key j=13: row 61 >= max_entries
+  note: slot 55 key j=52: row 50 >= max_entries
+  note: slot 58 key j=27: row 51 >= max_entries
+  note: slot 64 key j=29: row 56 >= max_entries
+  note: slot 65 key j=20: row 59 >= max_entries
+  note: slot 74 key j=61: row 48 >= max_entries
+  note: slot 84 key j=12: row 49 >= max_entries
+  note: slot 89 key j=14: row 55 >= max_entries
+  note: slot 91 key j=19: row 63 >= max_entries
+  note: slot 103 key j=54: row 57 >= max_entries
+  note: slot 116 key j=4: row 62 >= max_entries
+  note: slot 119 key j=26: row 60 >= max_entries
+  note: slot 126 key j=45: row 58 >= max_entries
+  note: live slots 64 > max_entries 48
+  note: live slots 64 != min(keys 64, max_entries 48)
+  note: key j=20: E2BIG 1 but the key is live
+  note: key j=54: E2BIG 1 but the key is live
+trial 29 seed=0x40cdbcc59dd33981 live=55 refused=0 claiming=0 EEXIST=10506 E2BIG=1406250 unstable=0 lost_same=6975 lost_other=3588 waits=9936 precheck_taken=5 fulldir=0/0 maxd=1 viol=9
+  note: slot 3 key j=42: row 51 >= max_entries
+  note: slot 23 key j=61: row 50 >= max_entries
+  note: slot 43 key j=17: row 52 >= max_entries
+  note: slot 59 key j=14: row 54 >= max_entries
+  note: slot 77 key j=63: row 53 >= max_entries
+  note: slot 83 key j=21: row 49 >= max_entries
+  note: slot 111 key j=15: row 48 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 30 seed=0x2ea4f65dfe29c669 live=48 refused=0 claiming=0 EEXIST=9169 E2BIG=2499970 unstable=0 lost_same=5037 lost_other=1672 waits=8035 precheck_taken=406 fulldir=0/0 maxd=0 viol=0
+trial 31 seed=0xca549f6d2ab52fdd live=53 refused=0 claiming=0 EEXIST=10125 E2BIG=1718750 unstable=0 lost_same=6446 lost_other=1331 waits=9467 precheck_taken=418 fulldir=0/0 maxd=0 viol=7
+  note: slot 20 key j=19: row 51 >= max_entries
+  note: slot 45 key j=4: row 50 >= max_entries
+  note: slot 90 key j=28: row 49 >= max_entries
+  note: slot 94 key j=62: row 48 >= max_entries
+  note: slot 124 key j=59: row 52 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 32 seed=0xc7e8e9133cd6f98b live=58 refused=0 claiming=0 EEXIST=11079 E2BIG=937480 unstable=0 lost_same=6986 lost_other=872 waits=10381 precheck_taken=478 fulldir=0/0 maxd=1 viol=12
+  note: slot 6 key j=45: row 54 >= max_entries
+  note: slot 19 key j=36: row 56 >= max_entries
+  note: slot 47 key j=21: row 55 >= max_entries
+  note: slot 49 key j=15: row 51 >= max_entries
+  note: slot 69 key j=6: row 53 >= max_entries
+  note: slot 72 key j=55: row 52 >= max_entries
+  note: slot 75 key j=39: row 50 >= max_entries
+  note: slot 78 key j=0: row 57 >= max_entries
+  note: slot 97 key j=24: row 49 >= max_entries
+  note: slot 99 key j=49: row 48 >= max_entries
+  note: live slots 58 > max_entries 48
+  note: live slots 58 != min(keys 64, max_entries 48)
+trial 33 seed=0x8b8dae30669c7bff live=55 refused=0 claiming=0 EEXIST=10503 E2BIG=1406290 unstable=0 lost_same=7014 lost_other=1608 waits=9511 precheck_taken=661 fulldir=0/0 maxd=1 viol=9
+  note: slot 7 key j=23: row 50 >= max_entries
+  note: slot 14 key j=32: row 49 >= max_entries
+  note: slot 15 key j=2: row 48 >= max_entries
+  note: slot 74 key j=33: row 53 >= max_entries
+  note: slot 76 key j=9: row 54 >= max_entries
+  note: slot 85 key j=59: row 51 >= max_entries
+  note: slot 89 key j=12: row 52 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 34 seed=0x7640ff1c754979d8 live=48 refused=0 claiming=0 EEXIST=9170 E2BIG=2499980 unstable=0 lost_same=5469 lost_other=1788 waits=8554 precheck_taken=313 fulldir=0/0 maxd=0 viol=0
+trial 35 seed=0xb01663504fb77c68 live=50 refused=0 claiming=0 EEXIST=9551 E2BIG=2187500 unstable=0 lost_same=6681 lost_other=1880 waits=8662 precheck_taken=558 fulldir=0/0 maxd=0 viol=4
+  note: slot 22 key j=39: row 48 >= max_entries
+  note: slot 31 key j=54: row 49 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 36 seed=0x72650d5d691f1ec8 live=57 refused=0 claiming=0 EEXIST=10884 E2BIG=1093760 unstable=0 lost_same=6610 lost_other=797 waits=10279 precheck_taken=428 fulldir=0/0 maxd=0 viol=11
+  note: slot 3 key j=45: row 48 >= max_entries
+  note: slot 40 key j=1: row 51 >= max_entries
+  note: slot 42 key j=20: row 49 >= max_entries
+  note: slot 43 key j=53: row 55 >= max_entries
+  note: slot 84 key j=35: row 50 >= max_entries
+  note: slot 92 key j=17: row 53 >= max_entries
+  note: slot 109 key j=41: row 52 >= max_entries
+  note: slot 117 key j=4: row 56 >= max_entries
+  note: slot 126 key j=32: row 54 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 37 seed=0x2984e0ee76256508 live=53 refused=0 claiming=0 EEXIST=10121 E2BIG=1718780 unstable=0 lost_same=5853 lost_other=1204 waits=9442 precheck_taken=409 fulldir=0/0 maxd=0 viol=7
+  note: slot 3 key j=34: row 49 >= max_entries
+  note: slot 6 key j=6: row 52 >= max_entries
+  note: slot 35 key j=24: row 51 >= max_entries
+  note: slot 88 key j=58: row 48 >= max_entries
+  note: slot 112 key j=9: row 50 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 38 seed=0x4acc5b16e92dbc8d live=51 refused=0 claiming=0 EEXIST=9745 E2BIG=2031200 unstable=0 lost_same=5658 lost_other=1426 waits=8831 precheck_taken=435 fulldir=0/0 maxd=0 viol=5
+  note: slot 17 key j=7: row 50 >= max_entries
+  note: slot 75 key j=56: row 48 >= max_entries
+  note: slot 110 key j=32: row 49 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 39 seed=0xeec0633828f2598e live=54 refused=0 claiming=0 EEXIST=10314 E2BIG=1562500 unstable=0 lost_same=5947 lost_other=2517 waits=9682 precheck_taken=121 fulldir=0/0 maxd=1 viol=8
+  note: slot 4 key j=57: row 48 >= max_entries
+  note: slot 11 key j=34: row 53 >= max_entries
+  note: slot 62 key j=8: row 49 >= max_entries
+  note: slot 70 key j=53: row 52 >= max_entries
+  note: slot 105 key j=13: row 51 >= max_entries
+  note: slot 122 key j=32: row 50 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 40 seed=0x6888bfb369483742 live=52 refused=0 claiming=0 EEXIST=9930 E2BIG=1875030 unstable=0 lost_same=5422 lost_other=1240 waits=9035 precheck_taken=380 fulldir=0/0 maxd=0 viol=6
+  note: slot 53 key j=46: row 49 >= max_entries
+  note: slot 58 key j=25: row 48 >= max_entries
+  note: slot 78 key j=18: row 51 >= max_entries
+  note: slot 83 key j=61: row 50 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 41 seed=0x42932c6b88aac8b8 live=50 refused=0 claiming=0 EEXIST=9549 E2BIG=2187520 unstable=0 lost_same=5552 lost_other=2011 waits=9023 precheck_taken=3 fulldir=0/0 maxd=1 viol=4
+  note: slot 64 key j=61: row 48 >= max_entries
+  note: slot 81 key j=63: row 49 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 42 seed=0x55afcccd9ce99686 live=54 refused=0 claiming=0 EEXIST=10312 E2BIG=1562520 unstable=0 lost_same=6172 lost_other=1141 waits=9332 precheck_taken=603 fulldir=0/0 maxd=0 viol=8
+  note: slot 35 key j=34: row 48 >= max_entries
+  note: slot 51 key j=55: row 51 >= max_entries
+  note: slot 89 key j=6: row 52 >= max_entries
+  note: slot 102 key j=21: row 53 >= max_entries
+  note: slot 121 key j=49: row 50 >= max_entries
+  note: slot 127 key j=9: row 49 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 43 seed=0x0057af2bea88309c live=51 refused=0 claiming=0 EEXIST=9740 E2BIG=2031250 unstable=0 lost_same=5767 lost_other=1474 waits=8985 precheck_taken=275 fulldir=0/0 maxd=0 viol=5
+  note: slot 36 key j=55: row 48 >= max_entries
+  note: slot 55 key j=46: row 50 >= max_entries
+  note: slot 100 key j=6: row 49 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 44 seed=0x284894a9ee311471 live=50 refused=0 claiming=0 EEXIST=9550 E2BIG=2187510 unstable=0 lost_same=5870 lost_other=1623 waits=8548 precheck_taken=758 fulldir=0/0 maxd=0 viol=4
+  note: slot 22 key j=46: row 48 >= max_entries
+  note: slot 33 key j=62: row 49 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 45 seed=0x7e4450d401031220 live=57 refused=0 claiming=0 EEXIST=10886 E2BIG=1093740 unstable=0 lost_same=6695 lost_other=814 waits=10068 precheck_taken=568 fulldir=0/0 maxd=0 viol=11
+  note: slot 1 key j=61: row 52 >= max_entries
+  note: slot 23 key j=6: row 50 >= max_entries
+  note: slot 48 key j=21: row 51 >= max_entries
+  note: slot 65 key j=36: row 53 >= max_entries
+  note: slot 71 key j=55: row 48 >= max_entries
+  note: slot 80 key j=12: row 54 >= max_entries
+  note: slot 106 key j=27: row 55 >= max_entries
+  note: slot 116 key j=30: row 49 >= max_entries
+  note: slot 123 key j=42: row 56 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 46 seed=0x7fc630987b4b7664 live=59 refused=0 claiming=0 EEXIST=11270 E2BIG=781260 unstable=0 lost_same=5970 lost_other=1369 waits=9885 precheck_taken=990 fulldir=0/0 maxd=1 viol=13
+  note: slot 1 key j=29: row 53 >= max_entries
+  note: slot 36 key j=34: row 58 >= max_entries
+  note: slot 40 key j=32: row 51 >= max_entries
+  note: slot 43 key j=11: row 54 >= max_entries
+  note: slot 50 key j=26: row 48 >= max_entries
+  note: slot 78 key j=22: row 57 >= max_entries
+  note: slot 84 key j=54: row 52 >= max_entries
+  note: slot 96 key j=41: row 55 >= max_entries
+  note: slot 97 key j=2: row 49 >= max_entries
+  note: slot 98 key j=56: row 56 >= max_entries
+  note: slot 106 key j=17: row 50 >= max_entries
+  note: live slots 59 > max_entries 48
+  note: live slots 59 != min(keys 64, max_entries 48)
+trial 47 seed=0xe96e78c41bc55cfd live=52 refused=0 claiming=0 EEXIST=9938 E2BIG=1874970 unstable=0 lost_same=6202 lost_other=1846 waits=8979 precheck_taken=844 fulldir=0/0 maxd=1 viol=6
+  note: slot 3 key j=28: row 48 >= max_entries
+  note: slot 48 key j=55: row 51 >= max_entries
+  note: slot 79 key j=59: row 49 >= max_entries
+  note: slot 107 key j=25: row 50 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 48 seed=0x82c121de7362d5a2 live=56 refused=0 claiming=0 EEXIST=10696 E2BIG=1250000 unstable=0 lost_same=6573 lost_other=2320 waits=9958 precheck_taken=1 fulldir=0/0 maxd=1 viol=10
+  note: slot 9 key j=20: row 53 >= max_entries
+  note: slot 21 key j=33: row 51 >= max_entries
+  note: slot 39 key j=40: row 50 >= max_entries
+  note: slot 63 key j=59: row 48 >= max_entries
+  note: slot 76 key j=45: row 52 >= max_entries
+  note: slot 86 key j=4: row 49 >= max_entries
+  note: slot 118 key j=41: row 54 >= max_entries
+  note: slot 121 key j=22: row 55 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 49 seed=0x5d7d98eee8688fa6 live=62 refused=0 claiming=0 EEXIST=11842 E2BIG=312510 unstable=0 lost_same=6863 lost_other=982 waits=10989 precheck_taken=832 fulldir=0/0 maxd=1 viol=16
+  note: slot 2 key j=63: row 61 >= max_entries
+  note: slot 9 key j=54: row 53 >= max_entries
+  note: slot 13 key j=9: row 50 >= max_entries
+  note: slot 15 key j=35: row 54 >= max_entries
+  note: slot 23 key j=58: row 48 >= max_entries
+  note: slot 26 key j=7: row 57 >= max_entries
+  note: slot 27 key j=24: row 51 >= max_entries
+  note: slot 40 key j=2: row 59 >= max_entries
+  note: slot 48 key j=39: row 52 >= max_entries
+  note: slot 76 key j=21: row 60 >= max_entries
+  note: slot 94 key j=33: row 49 >= max_entries
+  note: slot 100 key j=16: row 56 >= max_entries
+  note: slot 103 key j=50: row 55 >= max_entries
+  note: slot 109 key j=48: row 58 >= max_entries
+  note: live slots 62 > max_entries 48
+  note: live slots 62 != min(keys 64, max_entries 48)
+trial 50 seed=0x9807e19cf049bb78 live=61 refused=0 claiming=0 EEXIST=11650 E2BIG=468760 unstable=0 lost_same=6559 lost_other=438 waits=10996 precheck_taken=209 fulldir=0/0 maxd=1 viol=15
+  note: slot 15 key j=53: row 51 >= max_entries
+  note: slot 19 key j=34: row 57 >= max_entries
+  note: slot 40 key j=6: row 59 >= max_entries
+  note: slot 48 key j=0: row 58 >= max_entries
+  note: slot 52 key j=38: row 49 >= max_entries
+  note: slot 59 key j=62: row 48 >= max_entries
+  note: slot 69 key j=59: row 56 >= max_entries
+  note: slot 72 key j=28: row 52 >= max_entries
+  note: slot 91 key j=31: row 60 >= max_entries
+  note: slot 102 key j=43: row 54 >= max_entries
+  note: slot 109 key j=13: row 50 >= max_entries
+  note: slot 117 key j=19: row 55 >= max_entries
+  note: slot 121 key j=4: row 53 >= max_entries
+  note: live slots 61 > max_entries 48
+  note: live slots 61 != min(keys 64, max_entries 48)
+trial 51 seed=0x7f1894650c4c4597 live=60 refused=0 claiming=0 EEXIST=11459 E2BIG=624980 unstable=0 lost_same=7038 lost_other=1142 waits=10326 precheck_taken=994 fulldir=0/0 maxd=1 viol=14
+  note: slot 4 key j=1: row 51 >= max_entries
+  note: slot 6 key j=34: row 49 >= max_entries
+  note: slot 7 key j=31: row 58 >= max_entries
+  note: slot 10 key j=50: row 50 >= max_entries
+  note: slot 15 key j=16: row 53 >= max_entries
+  note: slot 28 key j=59: row 48 >= max_entries
+  note: slot 71 key j=44: row 57 >= max_entries
+  note: slot 78 key j=55: row 54 >= max_entries
+  note: slot 106 key j=0: row 56 >= max_entries
+  note: slot 108 key j=43: row 55 >= max_entries
+  note: slot 120 key j=40: row 52 >= max_entries
+  note: slot 127 key j=33: row 59 >= max_entries
+  note: live slots 60 > max_entries 48
+  note: live slots 60 != min(keys 64, max_entries 48)
+trial 52 seed=0x9a5a6e931b385c95 live=54 refused=0 claiming=0 EEXIST=10313 E2BIG=1562500 unstable=0 lost_same=5904 lost_other=1092 waits=9321 precheck_taken=221 fulldir=0/0 maxd=0 viol=8
+  note: slot 49 key j=0: row 51 >= max_entries
+  note: slot 54 key j=39: row 52 >= max_entries
+  note: slot 62 key j=34: row 48 >= max_entries
+  note: slot 88 key j=24: row 50 >= max_entries
+  note: slot 92 key j=30: row 53 >= max_entries
+  note: slot 117 key j=9: row 49 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 53 seed=0xb928f242015bd064 live=57 refused=0 claiming=0 EEXIST=10889 E2BIG=1093750 unstable=0 lost_same=7752 lost_other=956 waits=10292 precheck_taken=485 fulldir=0/0 maxd=0 viol=11
+  note: slot 4 key j=0: row 50 >= max_entries
+  note: slot 5 key j=30: row 54 >= max_entries
+  note: slot 13 key j=15: row 52 >= max_entries
+  note: slot 48 key j=49: row 48 >= max_entries
+  note: slot 53 key j=39: row 51 >= max_entries
+  note: slot 69 key j=24: row 49 >= max_entries
+  note: slot 78 key j=54: row 53 >= max_entries
+  note: slot 87 key j=36: row 56 >= max_entries
+  note: slot 96 key j=21: row 55 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 54 seed=0x0c968bba652d857c live=56 refused=0 claiming=0 EEXIST=10694 E2BIG=1250001 unstable=0 lost_same=5359 lost_other=1359 waits=9869 precheck_taken=721 fulldir=0/0 maxd=1 viol=11
+  note: slot 20 key j=14: row 48 >= max_entries
+  note: slot 41 key j=29: row 50 >= max_entries
+  note: slot 62 key j=21: row 55 >= max_entries
+  note: slot 79 key j=30: row 54 >= max_entries
+  note: slot 88 key j=22: row 52 >= max_entries
+  note: slot 98 key j=39: row 53 >= max_entries
+  note: slot 112 key j=4: row 51 >= max_entries
+  note: slot 125 key j=53: row 49 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+  note: key j=4: E2BIG 1 but the key is live
+trial 55 seed=0x80662acddd4621a6 live=53 refused=0 claiming=0 EEXIST=10124 E2BIG=1718760 unstable=0 lost_same=6921 lost_other=2637 waits=9710 precheck_taken=39 fulldir=0/0 maxd=1 viol=7
+  note: slot 35 key j=29: row 52 >= max_entries
+  note: slot 44 key j=49: row 48 >= max_entries
+  note: slot 92 key j=27: row 51 >= max_entries
+  note: slot 110 key j=39: row 49 >= max_entries
+  note: slot 117 key j=61: row 50 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 56 seed=0x92e6c28f1f311a0f live=49 refused=0 claiming=0 EEXIST=9358 E2BIG=2343740 unstable=0 lost_same=6902 lost_other=2125 waits=8726 precheck_taken=295 fulldir=0/0 maxd=0 viol=3
+  note: slot 92 key j=60: row 48 >= max_entries
+  note: live slots 49 > max_entries 48
+  note: live slots 49 != min(keys 64, max_entries 48)
+trial 57 seed=0xed317d92cb9327e1 live=56 refused=0 claiming=0 EEXIST=10698 E2BIG=1250000 unstable=0 lost_same=7113 lost_other=2304 waits=10342 precheck_taken=118 fulldir=0/0 maxd=1 viol=10
+  note: slot 28 key j=54: row 53 >= max_entries
+  note: slot 42 key j=20: row 55 >= max_entries
+  note: slot 48 key j=12: row 49 >= max_entries
+  note: slot 58 key j=23: row 50 >= max_entries
+  note: slot 74 key j=59: row 51 >= max_entries
+  note: slot 78 key j=1: row 52 >= max_entries
+  note: slot 89 key j=5: row 54 >= max_entries
+  note: slot 117 key j=36: row 48 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 58 seed=0x53030205ac2b8ebc live=53 refused=0 claiming=0 EEXIST=10123 E2BIG=1718740 unstable=0 lost_same=7088 lost_other=2749 waits=9735 precheck_taken=0 fulldir=0/0 maxd=1 viol=7
+  note: slot 4 key j=29: row 50 >= max_entries
+  note: slot 70 key j=49: row 52 >= max_entries
+  note: slot 88 key j=37: row 51 >= max_entries
+  note: slot 94 key j=32: row 48 >= max_entries
+  note: slot 104 key j=53: row 49 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 59 seed=0x7d54ba4338c5b702 live=53 refused=0 claiming=0 EEXIST=10125 E2BIG=1718770 unstable=0 lost_same=5710 lost_other=1186 waits=8738 precheck_taken=615 fulldir=0/0 maxd=0 viol=7
+  note: slot 2 key j=52: row 49 >= max_entries
+  note: slot 34 key j=33: row 51 >= max_entries
+  note: slot 40 key j=49: row 52 >= max_entries
+  note: slot 43 key j=3: row 50 >= max_entries
+  note: slot 113 key j=13: row 48 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 60 seed=0xcd2829a90861ab89 live=49 refused=0 claiming=0 EEXIST=9358 E2BIG=2343740 unstable=0 lost_same=4987 lost_other=1530 waits=8057 precheck_taken=448 fulldir=0/0 maxd=0 viol=3
+  note: slot 25 key j=29: row 48 >= max_entries
+  note: live slots 49 > max_entries 48
+  note: live slots 49 != min(keys 64, max_entries 48)
+trial 61 seed=0xfd213cf3fc76ec8b live=60 refused=0 claiming=0 EEXIST=11460 E2BIG=624980 unstable=0 lost_same=7295 lost_other=1357 waits=10473 precheck_taken=1099 fulldir=0/0 maxd=1 viol=14
+  note: slot 20 key j=52: row 48 >= max_entries
+  note: slot 21 key j=18: row 54 >= max_entries
+  note: slot 31 key j=10: row 59 >= max_entries
+  note: slot 50 key j=3: row 50 >= max_entries
+  note: slot 68 key j=53: row 57 >= max_entries
+  note: slot 69 key j=19: row 51 >= max_entries
+  note: slot 77 key j=28: row 49 >= max_entries
+  note: slot 81 key j=59: row 58 >= max_entries
+  note: slot 84 key j=9: row 52 >= max_entries
+  note: slot 87 key j=55: row 53 >= max_entries
+  note: slot 92 key j=0: row 55 >= max_entries
+  note: slot 105 key j=2: row 56 >= max_entries
+  note: live slots 60 > max_entries 48
+  note: live slots 60 != min(keys 64, max_entries 48)
+trial 62 seed=0x8a8dadeafe005360 live=58 refused=0 claiming=0 EEXIST=11081 E2BIG=937480 unstable=0 lost_same=6001 lost_other=626 waits=9603 precheck_taken=396 fulldir=0/0 maxd=0 viol=12
+  note: slot 0 key j=5: row 48 >= max_entries
+  note: slot 9 key j=39: row 49 >= max_entries
+  note: slot 11 key j=3: row 57 >= max_entries
+  note: slot 22 key j=54: row 50 >= max_entries
+  note: slot 23 key j=41: row 53 >= max_entries
+  note: slot 25 key j=47: row 55 >= max_entries
+  note: slot 29 key j=32: row 54 >= max_entries
+  note: slot 87 key j=26: row 52 >= max_entries
+  note: slot 91 key j=60: row 51 >= max_entries
+  note: slot 93 key j=22: row 56 >= max_entries
+  note: live slots 58 > max_entries 48
+  note: live slots 58 != min(keys 64, max_entries 48)
+trial 63 seed=0x8dda38d6573ca3e6 live=55 refused=0 claiming=0 EEXIST=10505 E2BIG=1406230 unstable=0 lost_same=6118 lost_other=1023 waits=9339 precheck_taken=735 fulldir=0/0 maxd=0 viol=9
+  note: slot 0 key j=19: row 54 >= max_entries
+  note: slot 30 key j=28: row 51 >= max_entries
+  note: slot 40 key j=38: row 49 >= max_entries
+  note: slot 75 key j=62: row 48 >= max_entries
+  note: slot 85 key j=44: row 53 >= max_entries
+  note: slot 119 key j=13: row 50 >= max_entries
+  note: slot 123 key j=4: row 52 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 64 seed=0x818a99c3197083ce live=54 refused=0 claiming=0 EEXIST=10316 E2BIG=1562490 unstable=0 lost_same=5460 lost_other=967 waits=9056 precheck_taken=281 fulldir=0/0 maxd=0 viol=8
+  note: slot 0 key j=57: row 51 >= max_entries
+  note: slot 3 key j=23: row 53 >= max_entries
+  note: slot 40 key j=42: row 49 >= max_entries
+  note: slot 59 key j=17: row 50 >= max_entries
+  note: slot 79 key j=27: row 48 >= max_entries
+  note: slot 87 key j=32: row 52 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 65 seed=0x7a68b70da5b6b972 live=52 refused=0 claiming=0 EEXIST=9934 E2BIG=1875000 unstable=0 lost_same=6248 lost_other=1438 waits=8670 precheck_taken=827 fulldir=0/0 maxd=0 viol=6
+  note: slot 16 key j=45: row 48 >= max_entries
+  note: slot 26 key j=2: row 49 >= max_entries
+  note: slot 69 key j=17: row 50 >= max_entries
+  note: slot 73 key j=38: row 51 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 66 seed=0xb34cf32327edeb19 live=52 refused=0 claiming=0 EEXIST=9933 E2BIG=1875010 unstable=0 lost_same=5747 lost_other=1334 waits=8590 precheck_taken=435 fulldir=0/0 maxd=0 viol=6
+  note: slot 17 key j=18: row 49 >= max_entries
+  note: slot 60 key j=9: row 51 >= max_entries
+  note: slot 74 key j=28: row 48 >= max_entries
+  note: slot 92 key j=58: row 50 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 67 seed=0x0f9064ec2375f839 live=54 refused=0 claiming=0 EEXIST=10315 E2BIG=1562490 unstable=0 lost_same=5782 lost_other=2024 waits=9346 precheck_taken=24 fulldir=0/0 maxd=1 viol=8
+  note: slot 18 key j=39: row 49 >= max_entries
+  note: slot 30 key j=55: row 52 >= max_entries
+  note: slot 45 key j=54: row 48 >= max_entries
+  note: slot 62 key j=48: row 53 >= max_entries
+  note: slot 93 key j=13: row 50 >= max_entries
+  note: slot 114 key j=34: row 51 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 68 seed=0xffe3edd99b8b4e47 live=52 refused=0 claiming=0 EEXIST=9932 E2BIG=1874990 unstable=0 lost_same=5361 lost_other=1654 waits=9120 precheck_taken=664 fulldir=0/0 maxd=1 viol=6
+  note: slot 11 key j=37: row 49 >= max_entries
+  note: slot 20 key j=45: row 50 >= max_entries
+  note: slot 21 key j=57: row 48 >= max_entries
+  note: slot 65 key j=51: row 51 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 69 seed=0x635266978a5eb4b6 live=52 refused=0 claiming=0 EEXIST=9927 E2BIG=1875020 unstable=0 lost_same=6929 lost_other=1610 waits=9244 precheck_taken=529 fulldir=0/0 maxd=0 viol=6
+  note: slot 13 key j=52: row 51 >= max_entries
+  note: slot 86 key j=61: row 50 >= max_entries
+  note: slot 89 key j=22: row 49 >= max_entries
+  note: slot 107 key j=7: row 48 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 70 seed=0xcfab227a89f8926c live=48 refused=0 claiming=0 EEXIST=9164 E2BIG=2500020 unstable=0 lost_same=5497 lost_other=1803 waits=8711 precheck_taken=367 fulldir=0/0 maxd=0 viol=0
+trial 71 seed=0x242178eaf6091474 live=57 refused=0 claiming=0 EEXIST=10888 E2BIG=1093760 unstable=0 lost_same=6623 lost_other=1553 waits=10008 precheck_taken=1291 fulldir=0/0 maxd=1 viol=11
+  note: slot 0 key j=23: row 56 >= max_entries
+  note: slot 3 key j=41: row 50 >= max_entries
+  note: slot 43 key j=53: row 52 >= max_entries
+  note: slot 55 key j=15: row 53 >= max_entries
+  note: slot 64 key j=32: row 51 >= max_entries
+  note: slot 66 key j=31: row 55 >= max_entries
+  note: slot 95 key j=11: row 49 >= max_entries
+  note: slot 115 key j=51: row 54 >= max_entries
+  note: slot 117 key j=60: row 48 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 72 seed=0xf1032b859fc413ee live=56 refused=0 claiming=0 EEXIST=10693 E2BIG=1250010 unstable=0 lost_same=6000 lost_other=2724 waits=9870 precheck_taken=31 fulldir=0/0 maxd=1 viol=10
+  note: slot 6 key j=42: row 54 >= max_entries
+  note: slot 11 key j=5: row 48 >= max_entries
+  note: slot 19 key j=57: row 55 >= max_entries
+  note: slot 26 key j=18: row 51 >= max_entries
+  note: slot 59 key j=59: row 49 >= max_entries
+  note: slot 61 key j=34: row 53 >= max_entries
+  note: slot 74 key j=49: row 52 >= max_entries
+  note: slot 126 key j=31: row 50 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 73 seed=0x53fceefb982f8983 live=52 refused=0 claiming=0 EEXIST=9928 E2BIG=1874992 unstable=0 lost_same=5565 lost_other=1671 waits=9005 precheck_taken=695 fulldir=0/0 maxd=1 viol=7
+  note: slot 61 key j=55: row 50 >= max_entries
+  note: slot 65 key j=22: row 49 >= max_entries
+  note: slot 116 key j=16: row 48 >= max_entries
+  note: slot 126 key j=52: row 51 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+  note: key j=52: E2BIG 2 but the key is live
+trial 74 seed=0x9dd97ecd2e8bfa30 live=50 refused=0 claiming=0 EEXIST=9550 E2BIG=2187500 unstable=0 lost_same=6485 lost_other=2590 waits=9352 precheck_taken=121 fulldir=0/0 maxd=1 viol=4
+  note: slot 71 key j=20: row 48 >= max_entries
+  note: slot 90 key j=26: row 49 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 75 seed=0x881edb5bbb366787 live=53 refused=0 claiming=0 EEXIST=10124 E2BIG=1718760 unstable=0 lost_same=5997 lost_other=1496 waits=9195 precheck_taken=372 fulldir=0/0 maxd=1 viol=7
+  note: slot 28 key j=41: row 49 >= max_entries
+  note: slot 34 key j=3: row 51 >= max_entries
+  note: slot 40 key j=16: row 50 >= max_entries
+  note: slot 48 key j=59: row 48 >= max_entries
+  note: slot 64 key j=45: row 52 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 76 seed=0x745a30a3af5b4e00 live=52 refused=0 claiming=0 EEXIST=9929 E2BIG=1875000 unstable=0 lost_same=6944 lost_other=3554 waits=9405 precheck_taken=0 fulldir=0/0 maxd=1 viol=6
+  note: slot 43 key j=11: row 50 >= max_entries
+  note: slot 49 key j=53: row 51 >= max_entries
+  note: slot 79 key j=63: row 48 >= max_entries
+  note: slot 87 key j=20: row 49 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 77 seed=0x01230f3a9a54f039 live=54 refused=0 claiming=0 EEXIST=10313 E2BIG=1562493 unstable=0 lost_same=5956 lost_other=1514 waits=9914 precheck_taken=594 fulldir=0/0 maxd=1 viol=10
+  note: slot 1 key j=48: row 49 >= max_entries
+  note: slot 24 key j=39: row 50 >= max_entries
+  note: slot 60 key j=17: row 53 >= max_entries
+  note: slot 66 key j=42: row 52 >= max_entries
+  note: slot 91 key j=18: row 48 >= max_entries
+  note: slot 96 key j=63: row 51 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+  note: key j=17: E2BIG 1 but the key is live
+  note: key j=42: E2BIG 2 but the key is live
+trial 78 seed=0xb298de97eb44d234 live=48 refused=0 claiming=0 EEXIST=9167 E2BIG=2500010 unstable=0 lost_same=6469 lost_other=2127 waits=8473 precheck_taken=643 fulldir=0/0 maxd=0 viol=0
+trial 79 seed=0xaac2764cbfdde441 live=54 refused=0 claiming=0 EEXIST=10317 E2BIG=1562500 unstable=0 lost_same=5396 lost_other=1515 waits=9300 precheck_taken=551 fulldir=0/0 maxd=1 viol=8
+  note: slot 41 key j=51: row 52 >= max_entries
+  note: slot 49 key j=6: row 51 >= max_entries
+  note: slot 56 key j=17: row 48 >= max_entries
+  note: slot 64 key j=23: row 53 >= max_entries
+  note: slot 103 key j=32: row 49 >= max_entries
+  note: slot 107 key j=34: row 50 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 80 seed=0xccc59267e6903c21 live=60 refused=0 claiming=0 EEXIST=11460 E2BIG=625010 unstable=0 lost_same=6410 lost_other=1953 waits=10358 precheck_taken=1344 fulldir=0/0 maxd=1 viol=14
+  note: slot 10 key j=26: row 55 >= max_entries
+  note: slot 27 key j=24: row 52 >= max_entries
+  note: slot 44 key j=14: row 49 >= max_entries
+  note: slot 61 key j=21: row 50 >= max_entries
+  note: slot 64 key j=25: row 58 >= max_entries
+  note: slot 65 key j=55: row 48 >= max_entries
+  note: slot 70 key j=44: row 54 >= max_entries
+  note: slot 95 key j=6: row 53 >= max_entries
+  note: slot 98 key j=10: row 57 >= max_entries
+  note: slot 101 key j=31: row 51 >= max_entries
+  note: slot 115 key j=17: row 56 >= max_entries
+  note: slot 118 key j=0: row 59 >= max_entries
+  note: live slots 60 > max_entries 48
+  note: live slots 60 != min(keys 64, max_entries 48)
+trial 81 seed=0x69959f4bc7a97a30 live=58 refused=0 claiming=0 EEXIST=11079 E2BIG=937471 unstable=0 lost_same=7102 lost_other=1284 waits=10634 precheck_taken=701 fulldir=0/0 maxd=1 viol=13
+  note: slot 22 key j=30: row 55 >= max_entries
+  note: slot 60 key j=12: row 48 >= max_entries
+  note: slot 64 key j=58: row 52 >= max_entries
+  note: slot 67 key j=52: row 56 >= max_entries
+  note: slot 68 key j=43: row 50 >= max_entries
+  note: slot 69 key j=36: row 54 >= max_entries
+  note: slot 71 key j=37: row 57 >= max_entries
+  note: slot 72 key j=28: row 49 >= max_entries
+  note: slot 91 key j=33: row 53 >= max_entries
+  note: slot 95 key j=18: row 51 >= max_entries
+  note: live slots 58 > max_entries 48
+  note: live slots 58 != min(keys 64, max_entries 48)
+  note: key j=37: E2BIG 1 but the key is live
+trial 82 seed=0x3d2e5a31e09212bc live=51 refused=0 claiming=0 EEXIST=9740 E2BIG=2031280 unstable=0 lost_same=5528 lost_other=1407 waits=8851 precheck_taken=290 fulldir=0/0 maxd=0 viol=5
+  note: slot 14 key j=1: row 49 >= max_entries
+  note: slot 51 key j=16: row 50 >= max_entries
+  note: slot 71 key j=50: row 48 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 83 seed=0xa5b350cf7e9ad14f live=50 refused=0 claiming=0 EEXIST=9550 E2BIG=2187490 unstable=0 lost_same=5789 lost_other=1636 waits=8732 precheck_taken=619 fulldir=0/0 maxd=0 viol=4
+  note: slot 20 key j=7: row 49 >= max_entries
+  note: slot 49 key j=32: row 48 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 84 seed=0x8087a27f8782cd68 live=56 refused=0 claiming=0 EEXIST=10696 E2BIG=1250010 unstable=0 lost_same=7446 lost_other=2607 waits=10365 precheck_taken=66 fulldir=0/0 maxd=1 viol=10
+  note: slot 3 key j=31: row 53 >= max_entries
+  note: slot 9 key j=63: row 51 >= max_entries
+  note: slot 74 key j=34: row 49 >= max_entries
+  note: slot 100 key j=35: row 50 >= max_entries
+  note: slot 102 key j=37: row 55 >= max_entries
+  note: slot 110 key j=44: row 52 >= max_entries
+  note: slot 119 key j=18: row 48 >= max_entries
+  note: slot 124 key j=24: row 54 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 85 seed=0x6b8795a4ee1b80b9 live=54 refused=0 claiming=0 EEXIST=10316 E2BIG=1562490 unstable=0 lost_same=5869 lost_other=2238 waits=9586 precheck_taken=66 fulldir=0/0 maxd=1 viol=8
+  note: slot 26 key j=23: row 53 >= max_entries
+  note: slot 55 key j=12: row 51 >= max_entries
+  note: slot 66 key j=55: row 50 >= max_entries
+  note: slot 75 key j=4: row 49 >= max_entries
+  note: slot 86 key j=47: row 48 >= max_entries
+  note: slot 98 key j=42: row 52 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 86 seed=0xd119228c34804097 live=51 refused=0 claiming=0 EEXIST=9741 E2BIG=2031220 unstable=0 lost_same=6733 lost_other=1673 waits=9237 precheck_taken=516 fulldir=0/0 maxd=0 viol=5
+  note: slot 15 key j=37: row 50 >= max_entries
+  note: slot 43 key j=32: row 49 >= max_entries
+  note: slot 108 key j=56: row 48 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 87 seed=0x3bd7e0e92b8e3ed1 live=50 refused=0 claiming=0 EEXIST=9549 E2BIG=2187500 unstable=0 lost_same=5222 lost_other=1498 waits=8612 precheck_taken=551 fulldir=0/0 maxd=0 viol=4
+  note: slot 21 key j=60: row 48 >= max_entries
+  note: slot 112 key j=35: row 49 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 88 seed=0xa834f10cd9ab7dbf live=54 refused=0 claiming=0 EEXIST=10317 E2BIG=1562520 unstable=0 lost_same=6287 lost_other=1746 waits=9306 precheck_taken=827 fulldir=0/0 maxd=1 viol=8
+  note: slot 67 key j=49: row 52 >= max_entries
+  note: slot 79 key j=31: row 48 >= max_entries
+  note: slot 83 key j=22: row 49 >= max_entries
+  note: slot 89 key j=63: row 53 >= max_entries
+  note: slot 95 key j=39: row 50 >= max_entries
+  note: slot 107 key j=50: row 51 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 89 seed=0x880465dcc56bd5b8 live=59 refused=0 claiming=0 EEXIST=11248 E2BIG=781252 unstable=0 lost_same=6057 lost_other=1010 waits=10150 precheck_taken=673 fulldir=0/0 maxd=1 viol=17
+  note: slot 0 key j=31: row 49 >= max_entries
+  note: slot 13 key j=28: row 54 >= max_entries
+  note: slot 23 key j=25: row 56 >= max_entries
+  note: slot 72 key j=42: row 58 >= max_entries
+  note: slot 77 key j=22: row 52 >= max_entries
+  note: slot 85 key j=7: row 50 >= max_entries
+  note: slot 87 key j=52: row 53 >= max_entries
+  note: slot 88 key j=27: row 57 >= max_entries
+  note: slot 100 key j=56: row 48 >= max_entries
+  note: slot 108 key j=19: row 55 >= max_entries
+  note: slot 111 key j=46: row 51 >= max_entries
+  note: live slots 59 > max_entries 48
+  note: live slots 59 != min(keys 64, max_entries 48)
+  note: key j=19: E2BIG 6 but the key is live
+  note: key j=25: E2BIG 8 but the key is live
+  note: key j=27: E2BIG 3 but the key is live
+  note: key j=42: E2BIG 5 but the key is live
+trial 90 seed=0xfc38ed1d273f6342 live=53 refused=0 claiming=0 EEXIST=10122 E2BIG=1718760 unstable=0 lost_same=6785 lost_other=2550 waits=9670 precheck_taken=199 fulldir=0/0 maxd=1 viol=7
+  note: slot 9 key j=56: row 52 >= max_entries
+  note: slot 31 key j=14: row 48 >= max_entries
+  note: slot 57 key j=47: row 51 >= max_entries
+  note: slot 69 key j=35: row 49 >= max_entries
+  note: slot 97 key j=19: row 50 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 91 seed=0xb69c4cf9143b79c4 live=59 refused=0 claiming=0 EEXIST=11268 E2BIG=781260 unstable=0 lost_same=6507 lost_other=547 waits=10386 precheck_taken=220 fulldir=0/0 maxd=0 viol=13
+  note: slot 9 key j=53: row 54 >= max_entries
+  note: slot 12 key j=37: row 52 >= max_entries
+  note: slot 33 key j=13: row 53 >= max_entries
+  note: slot 80 key j=7: row 49 >= max_entries
+  note: slot 82 key j=4: row 56 >= max_entries
+  note: slot 91 key j=19: row 58 >= max_entries
+  note: slot 100 key j=43: row 57 >= max_entries
+  note: slot 103 key j=47: row 50 >= max_entries
+  note: slot 112 key j=62: row 51 >= max_entries
+  note: slot 116 key j=28: row 55 >= max_entries
+  note: slot 120 key j=32: row 48 >= max_entries
+  note: live slots 59 > max_entries 48
+  note: live slots 59 != min(keys 64, max_entries 48)
+trial 92 seed=0x370fc9e18d26a90f live=53 refused=0 claiming=0 EEXIST=10125 E2BIG=1718760 unstable=0 lost_same=6189 lost_other=1271 waits=9339 precheck_taken=373 fulldir=0/0 maxd=0 viol=7
+  note: slot 25 key j=9: row 51 >= max_entries
+  note: slot 69 key j=58: row 49 >= max_entries
+  note: slot 104 key j=33: row 50 >= max_entries
+  note: slot 117 key j=18: row 48 >= max_entries
+  note: slot 121 key j=49: row 52 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 93 seed=0x1f77b596e939e2c7 live=53 refused=0 claiming=0 EEXIST=10120 E2BIG=1718770 unstable=0 lost_same=6030 lost_other=1249 waits=9188 precheck_taken=572 fulldir=0/0 maxd=0 viol=7
+  note: slot 3 key j=46: row 51 >= max_entries
+  note: slot 15 key j=22: row 52 >= max_entries
+  note: slot 67 key j=40: row 48 >= max_entries
+  note: slot 70 key j=16: row 49 >= max_entries
+  note: slot 81 key j=6: row 50 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 94 seed=0x62049d8f202b3bc4 live=57 refused=0 claiming=0 EEXIST=10889 E2BIG=1093730 unstable=0 lost_same=6478 lost_other=1354 waits=9938 precheck_taken=1092 fulldir=0/0 maxd=1 viol=11
+  note: slot 44 key j=39: row 53 >= max_entries
+  note: slot 67 key j=19: row 52 >= max_entries
+  note: slot 80 key j=32: row 48 >= max_entries
+  note: slot 82 key j=22: row 50 >= max_entries
+  note: slot 93 key j=28: row 51 >= max_entries
+  note: slot 97 key j=47: row 49 >= max_entries
+  note: slot 98 key j=21: row 56 >= max_entries
+  note: slot 111 key j=10: row 54 >= max_entries
+  note: slot 120 key j=25: row 55 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 95 seed=0x307d8395ee64499c live=52 refused=0 claiming=0 EEXIST=9928 E2BIG=1875000 unstable=0 lost_same=5466 lost_other=1245 waits=9068 precheck_taken=266 fulldir=0/0 maxd=0 viol=6
+  note: slot 4 key j=56: row 48 >= max_entries
+  note: slot 61 key j=32: row 49 >= max_entries
+  note: slot 63 key j=7: row 50 >= max_entries
+  note: slot 74 key j=47: row 51 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 96 seed=0x379072524049ac9f live=54 refused=0 claiming=0 EEXIST=10316 E2BIG=1562480 unstable=0 lost_same=6602 lost_other=1216 waits=9371 precheck_taken=394 fulldir=0/0 maxd=0 viol=8
+  note: slot 25 key j=47: row 49 >= max_entries
+  note: slot 27 key j=41: row 48 >= max_entries
+  note: slot 39 key j=15: row 52 >= max_entries
+  note: slot 46 key j=43: row 53 >= max_entries
+  note: slot 97 key j=22: row 50 >= max_entries
+  note: slot 114 key j=13: row 51 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 97 seed=0x7840e8f5acb63c8e live=51 refused=0 claiming=0 EEXIST=9740 E2BIG=2031250 unstable=0 lost_same=6339 lost_other=1606 waits=9134 precheck_taken=381 fulldir=0/0 maxd=0 viol=5
+  note: slot 6 key j=0: row 48 >= max_entries
+  note: slot 40 key j=39: row 49 >= max_entries
+  note: slot 49 key j=5: row 50 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 98 seed=0x7ae0d1148d244206 live=54 refused=0 claiming=0 EEXIST=10312 E2BIG=1562480 unstable=0 lost_same=7331 lost_other=1373 waits=9424 precheck_taken=500 fulldir=0/0 maxd=0 viol=8
+  note: slot 29 key j=15: row 49 >= max_entries
+  note: slot 72 key j=40: row 48 >= max_entries
+  note: slot 80 key j=21: row 51 >= max_entries
+  note: slot 83 key j=12: row 53 >= max_entries
+  note: slot 84 key j=30: row 50 >= max_entries
+  note: slot 85 key j=61: row 52 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 99 seed=0xd497e88804af60ae live=54 refused=0 claiming=0 EEXIST=10315 E2BIG=1562500 unstable=0 lost_same=6807 lost_other=2392 waits=9846 precheck_taken=20 fulldir=0/0 maxd=1 viol=8
+  note: slot 6 key j=53: row 52 >= max_entries
+  note: slot 50 key j=44: row 53 >= max_entries
+  note: slot 53 key j=54: row 50 >= max_entries
+  note: slot 92 key j=8: row 51 >= max_entries
+  note: slot 97 key j=39: row 49 >= max_entries
+  note: slot 109 key j=19: row 48 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 100 seed=0x9313801f86131dc6 live=57 refused=0 claiming=0 EEXIST=10887 E2BIG=1093750 unstable=0 lost_same=6480 lost_other=2112 waits=10139 precheck_taken=126 fulldir=0/0 maxd=1 viol=11
+  note: slot 17 key j=45: row 48 >= max_entries
+  note: slot 19 key j=44: row 53 >= max_entries
+  note: slot 28 key j=1: row 56 >= max_entries
+  note: slot 73 key j=52: row 50 >= max_entries
+  note: slot 91 key j=20: row 54 >= max_entries
+  note: slot 97 key j=6: row 51 >= max_entries
+  note: slot 100 key j=48: row 52 >= max_entries
+  note: slot 108 key j=35: row 55 >= max_entries
+  note: slot 110 key j=60: row 49 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 101 seed=0xa01e28d1be40ef56 live=48 refused=0 claiming=0 EEXIST=9174 E2BIG=2500020 unstable=0 lost_same=6373 lost_other=2107 waits=8487 precheck_taken=479 fulldir=0/0 maxd=0 viol=0
+trial 102 seed=0xdcfd8b0ed601b260 live=51 refused=0 claiming=0 EEXIST=9740 E2BIG=2031260 unstable=0 lost_same=6403 lost_other=1630 waits=8691 precheck_taken=745 fulldir=0/0 maxd=0 viol=5
+  note: slot 8 key j=30: row 50 >= max_entries
+  note: slot 91 key j=55: row 49 >= max_entries
+  note: slot 106 key j=15: row 48 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 103 seed=0xf039c7bd4556e9c9 live=57 refused=0 claiming=0 EEXIST=10887 E2BIG=1093750 unstable=0 lost_same=6446 lost_other=781 waits=9520 precheck_taken=1001 fulldir=0/0 maxd=0 viol=11
+  note: slot 5 key j=45: row 49 >= max_entries
+  note: slot 24 key j=26: row 55 >= max_entries
+  note: slot 52 key j=60: row 51 >= max_entries
+  note: slot 62 key j=5: row 48 >= max_entries
+  note: slot 80 key j=35: row 52 >= max_entries
+  note: slot 96 key j=2: row 56 >= max_entries
+  note: slot 105 key j=11: row 53 >= max_entries
+  note: slot 110 key j=20: row 50 >= max_entries
+  note: slot 127 key j=50: row 54 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 104 seed=0xaf6a12f1e7b0f7e3 live=50 refused=0 claiming=0 EEXIST=9550 E2BIG=2187520 unstable=0 lost_same=5358 lost_other=1513 waits=8431 precheck_taken=625 fulldir=0/0 maxd=0 viol=4
+  note: slot 73 key j=10: row 49 >= max_entries
+  note: slot 88 key j=34: row 48 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 105 seed=0xdf65b3b1e37eb831 live=57 refused=0 claiming=0 EEXIST=10872 E2BIG=1093781 unstable=0 lost_same=6988 lost_other=1297 waits=10215 precheck_taken=677 fulldir=0/0 maxd=1 viol=14
+  note: slot 2 key j=13: row 49 >= max_entries
+  note: slot 8 key j=28: row 51 >= max_entries
+  note: slot 19 key j=44: row 54 >= max_entries
+  note: slot 20 key j=43: row 53 >= max_entries
+  note: slot 36 key j=53: row 50 >= max_entries
+  note: slot 41 key j=8: row 56 >= max_entries
+  note: slot 89 key j=40: row 55 >= max_entries
+  note: slot 120 key j=4: row 52 >= max_entries
+  note: slot 122 key j=7: row 48 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+  note: key j=8: E2BIG 3 but the key is live
+  note: key j=40: E2BIG 5 but the key is live
+  note: key j=44: E2BIG 3 but the key is live
+trial 106 seed=0xdc5d64fd7ab90d1c live=54 refused=0 claiming=0 EEXIST=10315 E2BIG=1562490 unstable=0 lost_same=5518 lost_other=1020 waits=9450 precheck_taken=270 fulldir=0/0 maxd=0 viol=8
+  note: slot 1 key j=35: row 51 >= max_entries
+  note: slot 74 key j=2: row 53 >= max_entries
+  note: slot 78 key j=11: row 52 >= max_entries
+  note: slot 98 key j=45: row 48 >= max_entries
+  note: slot 107 key j=20: row 49 >= max_entries
+  note: slot 127 key j=60: row 50 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 107 seed=0x7daded4f2b7bbcf1 live=54 refused=0 claiming=0 EEXIST=10316 E2BIG=1562480 unstable=0 lost_same=5955 lost_other=1112 waits=9222 precheck_taken=584 fulldir=0/0 maxd=0 viol=8
+  note: slot 12 key j=25: row 52 >= max_entries
+  note: slot 21 key j=50: row 51 >= max_entries
+  note: slot 77 key j=19: row 49 >= max_entries
+  note: slot 90 key j=1: row 53 >= max_entries
+  note: slot 92 key j=44: row 48 >= max_entries
+  note: slot 125 key j=34: row 50 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 108 seed=0x615488cc79203ef6 live=54 refused=0 claiming=0 EEXIST=10314 E2BIG=1562481 unstable=0 lost_same=6791 lost_other=1409 waits=9280 precheck_taken=1024 fulldir=0/0 maxd=1 viol=9
+  note: slot 12 key j=44: row 52 >= max_entries
+  note: slot 13 key j=18: row 48 >= max_entries
+  note: slot 43 key j=29: row 53 >= max_entries
+  note: slot 57 key j=57: row 49 >= max_entries
+  note: slot 84 key j=5: row 51 >= max_entries
+  note: slot 100 key j=54: row 50 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+  note: key j=29: E2BIG 1 but the key is live
+trial 109 seed=0xc9e5f8599582c360 live=52 refused=0 claiming=0 EEXIST=9930 E2BIG=1875030 unstable=0 lost_same=5403 lost_other=1242 waits=8844 precheck_taken=212 fulldir=0/0 maxd=0 viol=6
+  note: slot 67 key j=1: row 48 >= max_entries
+  note: slot 71 key j=46: row 51 >= max_entries
+  note: slot 83 key j=6: row 50 >= max_entries
+  note: slot 126 key j=40: row 49 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 110 seed=0x933d6bb65e9d1c63 live=58 refused=0 claiming=0 EEXIST=11079 E2BIG=937490 unstable=0 lost_same=7006 lost_other=3248 waits=10209 precheck_taken=31 fulldir=0/0 maxd=1 viol=12
+  note: slot 5 key j=9: row 48 >= max_entries
+  note: slot 8 key j=63: row 54 >= max_entries
+  note: slot 19 key j=17: row 56 >= max_entries
+  note: slot 39 key j=55: row 50 >= max_entries
+  note: slot 56 key j=40: row 49 >= max_entries
+  note: slot 79 key j=61: row 53 >= max_entries
+  note: slot 96 key j=7: row 57 >= max_entries
+  note: slot 102 key j=23: row 52 >= max_entries
+  note: slot 107 key j=21: row 51 >= max_entries
+  note: slot 124 key j=36: row 55 >= max_entries
+  note: live slots 58 > max_entries 48
+  note: live slots 58 != min(keys 64, max_entries 48)
+trial 111 seed=0x618a213040dfabc8 live=61 refused=0 claiming=0 EEXIST=11652 E2BIG=468730 unstable=0 lost_same=7975 lost_other=679 waits=10884 precheck_taken=455 fulldir=0/0 maxd=1 viol=15
+  note: slot 2 key j=23: row 53 >= max_entries
+  note: slot 9 key j=27: row 48 >= max_entries
+  note: slot 10 key j=2: row 49 >= max_entries
+  note: slot 17 key j=59: row 56 >= max_entries
+  note: slot 27 key j=57: row 51 >= max_entries
+  note: slot 44 key j=17: row 50 >= max_entries
+  note: slot 53 key j=16: row 58 >= max_entries
+  note: slot 77 key j=56: row 60 >= max_entries
+  note: slot 92 key j=50: row 57 >= max_entries
+  note: slot 94 key j=44: row 55 >= max_entries
+  note: slot 113 key j=8: row 52 >= max_entries
+  note: slot 126 key j=37: row 59 >= max_entries
+  note: slot 127 key j=29: row 54 >= max_entries
+  note: live slots 61 > max_entries 48
+  note: live slots 61 != min(keys 64, max_entries 48)
+trial 112 seed=0xda4d53ff962bd6d5 live=53 refused=0 claiming=0 EEXIST=10129 E2BIG=1718750 unstable=0 lost_same=5892 lost_other=1220 waits=9542 precheck_taken=367 fulldir=0/0 maxd=0 viol=7
+  note: slot 28 key j=44: row 50 >= max_entries
+  note: slot 107 key j=10: row 52 >= max_entries
+  note: slot 110 key j=23: row 49 >= max_entries
+  note: slot 115 key j=8: row 48 >= max_entries
+  note: slot 117 key j=59: row 51 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 113 seed=0xf729e63913f492b3 live=56 refused=0 claiming=0 EEXIST=10694 E2BIG=1250000 unstable=0 lost_same=7218 lost_other=2364 waits=10172 precheck_taken=5 fulldir=0/0 maxd=1 viol=10
+  note: slot 17 key j=1: row 55 >= max_entries
+  note: slot 28 key j=17: row 51 >= max_entries
+  note: slot 80 key j=39: row 48 >= max_entries
+  note: slot 93 key j=25: row 50 >= max_entries
+  note: slot 95 key j=53: row 49 >= max_entries
+  note: slot 110 key j=10: row 53 >= max_entries
+  note: slot 112 key j=29: row 52 >= max_entries
+  note: slot 116 key j=50: row 54 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 114 seed=0xc9b39f5b3902a865 live=56 refused=0 claiming=0 EEXIST=10699 E2BIG=1249960 unstable=0 lost_same=5541 lost_other=1409 waits=9318 precheck_taken=722 fulldir=0/0 maxd=1 viol=10
+  note: slot 6 key j=25: row 48 >= max_entries
+  note: slot 9 key j=36: row 55 >= max_entries
+  note: slot 12 key j=34: row 53 >= max_entries
+  note: slot 14 key j=47: row 52 >= max_entries
+  note: slot 18 key j=22: row 50 >= max_entries
+  note: slot 36 key j=32: row 51 >= max_entries
+  note: slot 39 key j=30: row 54 >= max_entries
+  note: slot 65 key j=7: row 49 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 115 seed=0xc19e944899591b5d live=55 refused=0 claiming=0 EEXIST=10509 E2BIG=1406230 unstable=0 lost_same=7656 lost_other=2951 waits=10297 precheck_taken=45 fulldir=0/0 maxd=1 viol=9
+  note: slot 1 key j=54: row 49 >= max_entries
+  note: slot 11 key j=43: row 53 >= max_entries
+  note: slot 35 key j=63: row 48 >= max_entries
+  note: slot 42 key j=50: row 51 >= max_entries
+  note: slot 69 key j=31: row 52 >= max_entries
+  note: slot 97 key j=17: row 54 >= max_entries
+  note: slot 127 key j=35: row 50 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 116 seed=0xacbaed738cb6b02b live=57 refused=0 claiming=0 EEXIST=10890 E2BIG=1093740 unstable=0 lost_same=6728 lost_other=802 waits=9865 precheck_taken=561 fulldir=0/0 maxd=0 viol=11
+  note: slot 22 key j=17: row 48 >= max_entries
+  note: slot 62 key j=53: row 55 >= max_entries
+  note: slot 66 key j=57: row 49 >= max_entries
+  note: slot 78 key j=48: row 51 >= max_entries
+  note: slot 93 key j=29: row 56 >= max_entries
+  note: slot 105 key j=23: row 52 >= max_entries
+  note: slot 114 key j=14: row 54 >= max_entries
+  note: slot 117 key j=38: row 53 >= max_entries
+  note: slot 126 key j=8: row 50 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 117 seed=0x4786463e868e26f9 live=55 refused=0 claiming=0 EEXIST=10509 E2BIG=1406250 unstable=0 lost_same=6775 lost_other=1091 waits=9739 precheck_taken=371 fulldir=0/0 maxd=0 viol=9
+  note: slot 14 key j=59: row 52 >= max_entries
+  note: slot 31 key j=19: row 51 >= max_entries
+  note: slot 44 key j=4: row 49 >= max_entries
+  note: slot 50 key j=28: row 48 >= max_entries
+  note: slot 85 key j=25: row 54 >= max_entries
+  note: slot 98 key j=10: row 53 >= max_entries
+  note: slot 121 key j=44: row 50 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 118 seed=0x2ece224ca7e81809 live=56 refused=0 claiming=0 EEXIST=10695 E2BIG=1250010 unstable=0 lost_same=7382 lost_other=3513 waits=10070 precheck_taken=0 fulldir=0/0 maxd=1 viol=10
+  note: slot 3 key j=39: row 49 >= max_entries
+  note: slot 20 key j=21: row 50 >= max_entries
+  note: slot 23 key j=61: row 55 >= max_entries
+  note: slot 26 key j=34: row 48 >= max_entries
+  note: slot 43 key j=55: row 54 >= max_entries
+  note: slot 60 key j=40: row 53 >= max_entries
+  note: slot 80 key j=36: row 51 >= max_entries
+  note: slot 94 key j=19: row 52 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 119 seed=0x963cdb58545eb6d0 live=58 refused=0 claiming=0 EEXIST=11079 E2BIG=937490 unstable=0 lost_same=6395 lost_other=662 waits=10443 precheck_taken=255 fulldir=0/0 maxd=0 viol=12
+  note: slot 25 key j=42: row 55 >= max_entries
+  note: slot 28 key j=3: row 54 >= max_entries
+  note: slot 29 key j=22: row 50 >= max_entries
+  note: slot 62 key j=6: row 49 >= max_entries
+  note: slot 70 key j=18: row 56 >= max_entries
+  note: slot 79 key j=33: row 57 >= max_entries
+  note: slot 100 key j=61: row 51 >= max_entries
+  note: slot 102 key j=12: row 52 >= max_entries
+  note: slot 111 key j=27: row 53 >= max_entries
+  note: slot 115 key j=55: row 48 >= max_entries
+  note: live slots 58 > max_entries 48
+  note: live slots 58 != min(keys 64, max_entries 48)
+trial 120 seed=0x912d892ed35da62f live=58 refused=0 claiming=0 EEXIST=11079 E2BIG=937500 unstable=0 lost_same=5455 lost_other=1234 waits=10732 precheck_taken=593 fulldir=0/0 maxd=1 viol=12
+  note: slot 3 key j=41: row 54 >= max_entries
+  note: slot 11 key j=7: row 55 >= max_entries
+  note: slot 16 key j=63: row 48 >= max_entries
+  note: slot 19 key j=9: row 52 >= max_entries
+  note: slot 34 key j=60: row 53 >= max_entries
+  note: slot 42 key j=23: row 56 >= max_entries
+  note: slot 75 key j=39: row 49 >= max_entries
+  note: slot 78 key j=14: row 50 >= max_entries
+  note: slot 79 key j=2: row 57 >= max_entries
+  note: slot 112 key j=5: row 51 >= max_entries
+  note: live slots 58 > max_entries 48
+  note: live slots 58 != min(keys 64, max_entries 48)
+trial 121 seed=0x24f8783c4961f706 live=58 refused=0 claiming=0 EEXIST=11076 E2BIG=937520 unstable=0 lost_same=8013 lost_other=1324 waits=10745 precheck_taken=458 fulldir=0/0 maxd=1 viol=12
+  note: slot 1 key j=36: row 52 >= max_entries
+  note: slot 8 key j=40: row 57 >= max_entries
+  note: slot 22 key j=61: row 51 >= max_entries
+  note: slot 28 key j=27: row 53 >= max_entries
+  note: slot 30 key j=48: row 55 >= max_entries
+  note: slot 54 key j=45: row 49 >= max_entries
+  note: slot 65 key j=21: row 50 >= max_entries
+  note: slot 69 key j=6: row 48 >= max_entries
+  note: slot 88 key j=57: row 54 >= max_entries
+  note: slot 119 key j=60: row 56 >= max_entries
+  note: live slots 58 > max_entries 48
+  note: live slots 58 != min(keys 64, max_entries 48)
+trial 122 seed=0x9d678c35dbb95efe live=50 refused=0 claiming=0 EEXIST=9544 E2BIG=2187550 unstable=0 lost_same=5527 lost_other=1557 waits=8764 precheck_taken=387 fulldir=0/0 maxd=0 viol=4
+  note: slot 27 key j=56: row 48 >= max_entries
+  note: slot 99 key j=32: row 49 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 123 seed=0x288dc97899c867e1 live=56 refused=0 claiming=0 EEXIST=10697 E2BIG=1249991 unstable=0 lost_same=6675 lost_other=1870 waits=10131 precheck_taken=1115 fulldir=0/0 maxd=1 viol=11
+  note: slot 69 key j=53: row 50 >= max_entries
+  note: slot 78 key j=35: row 49 >= max_entries
+  note: slot 79 key j=14: row 48 >= max_entries
+  note: slot 81 key j=24: row 53 >= max_entries
+  note: slot 93 key j=16: row 51 >= max_entries
+  note: slot 109 key j=49: row 54 >= max_entries
+  note: slot 121 key j=11: row 55 >= max_entries
+  note: slot 127 key j=52: row 52 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+  note: key j=11: E2BIG 1 but the key is live
+trial 124 seed=0x5db50a9e7f3ae8cc live=52 refused=0 claiming=0 EEXIST=9933 E2BIG=1875010 unstable=0 lost_same=5033 lost_other=1121 waits=8611 precheck_taken=492 fulldir=0/0 maxd=0 viol=6
+  note: slot 7 key j=6: row 48 >= max_entries
+  note: slot 24 key j=21: row 50 >= max_entries
+  note: slot 64 key j=45: row 49 >= max_entries
+  note: slot 88 key j=60: row 51 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 125 seed=0x236a1393efd831ca live=49 refused=0 claiming=0 EEXIST=9357 E2BIG=2343760 unstable=0 lost_same=5165 lost_other=2699 waits=8353 precheck_taken=0 fulldir=0/0 maxd=1 viol=3
+  note: slot 29 key j=40: row 48 >= max_entries
+  note: live slots 49 > max_entries 48
+  note: live slots 49 != min(keys 64, max_entries 48)
+trial 126 seed=0x6f2e94d47d212451 live=56 refused=0 claiming=0 EEXIST=10696 E2BIG=1249980 unstable=0 lost_same=7004 lost_other=2723 waits=10419 precheck_taken=60 fulldir=0/0 maxd=1 viol=10
+  note: slot 25 key j=18: row 49 >= max_entries
+  note: slot 37 key j=17: row 55 >= max_entries
+  note: slot 46 key j=2: row 54 >= max_entries
+  note: slot 49 key j=45: row 52 >= max_entries
+  note: slot 57 key j=30: row 51 >= max_entries
+  note: slot 77 key j=49: row 50 >= max_entries
+  note: slot 83 key j=60: row 53 >= max_entries
+  note: slot 111 key j=32: row 48 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 127 seed=0x4f6b7b300d97e99b live=55 refused=0 claiming=0 EEXIST=10505 E2BIG=1406250 unstable=0 lost_same=5633 lost_other=1710 waits=9046 precheck_taken=1311 fulldir=0/0 maxd=1 viol=9
+  note: slot 0 key j=16: row 52 >= max_entries
+  note: slot 13 key j=2: row 49 >= max_entries
+  note: slot 19 key j=23: row 50 >= max_entries
+  note: slot 29 key j=22: row 54 >= max_entries
+  note: slot 75 key j=47: row 48 >= max_entries
+  note: slot 102 key j=10: row 51 >= max_entries
+  note: slot 112 key j=6: row 53 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 128 seed=0xd8a7a1700aec031b live=51 refused=0 claiming=0 EEXIST=9737 E2BIG=2031240 unstable=0 lost_same=5689 lost_other=1423 waits=8727 precheck_taken=435 fulldir=0/0 maxd=0 viol=5
+  note: slot 44 key j=23: row 49 >= max_entries
+  note: slot 88 key j=48: row 48 >= max_entries
+  note: slot 93 key j=5: row 50 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 129 seed=0x85abfeae2cd8d4f9 live=53 refused=0 claiming=0 EEXIST=10122 E2BIG=1718740 unstable=0 lost_same=7282 lost_other=1521 waits=9133 precheck_taken=843 fulldir=0/0 maxd=0 viol=7
+  note: slot 27 key j=48: row 50 >= max_entries
+  note: slot 37 key j=58: row 48 >= max_entries
+  note: slot 81 key j=24: row 51 >= max_entries
+  note: slot 87 key j=15: row 52 >= max_entries
+  note: slot 108 key j=33: row 49 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 130 seed=0x6aa83ab435db8b36 live=50 refused=0 claiming=0 EEXIST=9552 E2BIG=2187490 unstable=0 lost_same=5324 lost_other=1493 waits=8571 precheck_taken=188 fulldir=0/0 maxd=0 viol=4
+  note: slot 17 key j=2: row 48 >= max_entries
+  note: slot 93 key j=57: row 49 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 131 seed=0x2960946bee6b7a7f live=50 refused=0 claiming=0 EEXIST=9551 E2BIG=2187500 unstable=0 lost_same=6566 lost_other=2509 waits=9294 precheck_taken=0 fulldir=0/0 maxd=1 viol=4
+  note: slot 15 key j=20: row 48 >= max_entries
+  note: slot 88 key j=59: row 49 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 132 seed=0x235ea360cfb17314 live=53 refused=0 claiming=0 EEXIST=10121 E2BIG=1718740 unstable=0 lost_same=6223 lost_other=3367 waits=9557 precheck_taken=0 fulldir=0/0 maxd=1 viol=7
+  note: slot 8 key j=21: row 48 >= max_entries
+  note: slot 36 key j=30: row 52 >= max_entries
+  note: slot 40 key j=15: row 51 >= max_entries
+  note: slot 103 key j=60: row 50 >= max_entries
+  note: slot 113 key j=24: row 49 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 133 seed=0x9569875b1af5f8f2 live=53 refused=0 claiming=0 EEXIST=10123 E2BIG=1718740 unstable=0 lost_same=5632 lost_other=1183 waits=9393 precheck_taken=358 fulldir=0/0 maxd=0 viol=7
+  note: slot 15 key j=21: row 50 >= max_entries
+  note: slot 19 key j=6: row 48 >= max_entries
+  note: slot 21 key j=45: row 49 >= max_entries
+  note: slot 27 key j=57: row 52 >= max_entries
+  note: slot 31 key j=42: row 51 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 134 seed=0xbce80de448d9081d live=58 refused=0 claiming=0 EEXIST=11077 E2BIG=937510 unstable=0 lost_same=7737 lost_other=805 waits=10453 precheck_taken=537 fulldir=0/0 maxd=0 viol=12
+  note: slot 5 key j=40: row 53 >= max_entries
+  note: slot 10 key j=25: row 52 >= max_entries
+  note: slot 18 key j=10: row 50 >= max_entries
+  note: slot 20 key j=46: row 56 >= max_entries
+  note: slot 55 key j=50: row 51 >= max_entries
+  note: slot 59 key j=22: row 57 >= max_entries
+  note: slot 92 key j=59: row 48 >= max_entries
+  note: slot 96 key j=31: row 55 >= max_entries
+  note: slot 105 key j=16: row 54 >= max_entries
+  note: slot 106 key j=34: row 49 >= max_entries
+  note: live slots 58 > max_entries 48
+  note: live slots 58 != min(keys 64, max_entries 48)
+trial 135 seed=0x219fb56f139869fd live=51 refused=0 claiming=0 EEXIST=9740 E2BIG=2031270 unstable=0 lost_same=5727 lost_other=1446 waits=8743 precheck_taken=561 fulldir=0/0 maxd=0 viol=5
+  note: slot 4 key j=20: row 49 >= max_entries
+  note: slot 22 key j=5: row 48 >= max_entries
+  note: slot 89 key j=35: row 50 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 136 seed=0x83fd412fcfeb8772 live=57 refused=0 claiming=0 EEXIST=10884 E2BIG=1093750 unstable=0 lost_same=7341 lost_other=1712 waits=9936 precheck_taken=917 fulldir=0/0 maxd=1 viol=11
+  note: slot 3 key j=14: row 52 >= max_entries
+  note: slot 9 key j=20: row 50 >= max_entries
+  note: slot 17 key j=39: row 49 >= max_entries
+  note: slot 39 key j=44: row 56 >= max_entries
+  note: slot 50 key j=8: row 55 >= max_entries
+  note: slot 73 key j=36: row 54 >= max_entries
+  note: slot 95 key j=26: row 51 >= max_entries
+  note: slot 99 key j=63: row 48 >= max_entries
+  note: slot 127 key j=60: row 53 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 137 seed=0x11b3b88ebf6ebaa5 live=53 refused=0 claiming=0 EEXIST=10122 E2BIG=1718790 unstable=0 lost_same=5666 lost_other=1583 waits=9436 precheck_taken=568 fulldir=0/0 maxd=1 viol=7
+  note: slot 62 key j=25: row 49 >= max_entries
+  note: slot 80 key j=52: row 51 >= max_entries
+  note: slot 83 key j=28: row 52 >= max_entries
+  note: slot 87 key j=50: row 50 >= max_entries
+  note: slot 94 key j=43: row 48 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 138 seed=0xc86c6067aa66119e live=51 refused=0 claiming=0 EEXIST=9742 E2BIG=2031250 unstable=0 lost_same=6765 lost_other=2512 waits=9276 precheck_taken=4 fulldir=0/0 maxd=1 viol=5
+  note: slot 55 key j=49: row 48 >= max_entries
+  note: slot 73 key j=42: row 49 >= max_entries
+  note: slot 83 key j=15: row 50 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 139 seed=0x3f4eeb36c63928ac live=52 refused=0 claiming=0 EEXIST=9936 E2BIG=1874980 unstable=0 lost_same=6193 lost_other=1440 waits=8517 precheck_taken=947 fulldir=0/0 maxd=0 viol=6
+  note: slot 29 key j=7: row 49 >= max_entries
+  note: slot 68 key j=22: row 50 >= max_entries
+  note: slot 77 key j=32: row 48 >= max_entries
+  note: slot 89 key j=37: row 51 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 140 seed=0x583c9894c0235cc4 live=49 refused=0 claiming=0 EEXIST=9360 E2BIG=2343750 unstable=0 lost_same=5651 lost_other=1867 waits=8394 precheck_taken=478 fulldir=0/0 maxd=1 viol=3
+  note: slot 29 key j=63: row 48 >= max_entries
+  note: live slots 49 > max_entries 48
+  note: live slots 49 != min(keys 64, max_entries 48)
+trial 141 seed=0x84d9a06268d06ad5 live=59 refused=0 claiming=0 EEXIST=11271 E2BIG=781250 unstable=0 lost_same=6407 lost_other=797 waits=10842 precheck_taken=286 fulldir=0/0 maxd=1 viol=13
+  note: slot 4 key j=56: row 49 >= max_entries
+  note: slot 17 key j=52: row 54 >= max_entries
+  note: slot 44 key j=7: row 50 >= max_entries
+  note: slot 45 key j=43: row 55 >= max_entries
+  note: slot 69 key j=12: row 58 >= max_entries
+  note: slot 79 key j=22: row 52 >= max_entries
+  note: slot 80 key j=58: row 56 >= max_entries
+  note: slot 103 key j=37: row 53 >= max_entries
+  note: slot 107 key j=13: row 57 >= max_entries
+  note: slot 120 key j=46: row 51 >= max_entries
+  note: slot 127 key j=16: row 48 >= max_entries
+  note: live slots 59 > max_entries 48
+  note: live slots 59 != min(keys 64, max_entries 48)
+trial 142 seed=0x1dd96ec851af361a live=54 refused=0 claiming=0 EEXIST=10314 E2BIG=1562520 unstable=0 lost_same=5832 lost_other=1095 waits=8655 precheck_taken=466 fulldir=0/0 maxd=0 viol=8
+  note: slot 8 key j=61: row 51 >= max_entries
+  note: slot 61 key j=52: row 53 >= max_entries
+  note: slot 77 key j=22: row 50 >= max_entries
+  note: slot 78 key j=13: row 52 >= max_entries
+  note: slot 95 key j=7: row 49 >= max_entries
+  note: slot 112 key j=31: row 48 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 143 seed=0x888d918ce7c1d6b7 live=57 refused=0 claiming=0 EEXIST=10886 E2BIG=1093770 unstable=0 lost_same=7332 lost_other=1053 waits=10042 precheck_taken=646 fulldir=0/0 maxd=1 viol=11
+  note: slot 0 key j=59: row 52 >= max_entries
+  note: slot 15 key j=49: row 55 >= max_entries
+  note: slot 39 key j=25: row 56 >= max_entries
+  note: slot 47 key j=43: row 50 >= max_entries
+  note: slot 53 key j=34: row 53 >= max_entries
+  note: slot 55 key j=10: row 54 >= max_entries
+  note: slot 81 key j=28: row 48 >= max_entries
+  note: slot 87 key j=19: row 51 >= max_entries
+  note: slot 104 key j=4: row 49 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 144 seed=0x2337cf1accf8d253 live=58 refused=0 claiming=0 EEXIST=11077 E2BIG=937520 unstable=0 lost_same=6077 lost_other=1706 waits=10238 precheck_taken=863 fulldir=0/0 maxd=1 viol=12
+  note: slot 12 key j=56: row 48 >= max_entries
+  note: slot 22 key j=34: row 56 >= max_entries
+  note: slot 25 key j=36: row 53 >= max_entries
+  note: slot 39 key j=62: row 55 >= max_entries
+  note: slot 47 key j=2: row 57 >= max_entries
+  note: slot 56 key j=47: row 54 >= max_entries
+  note: slot 58 key j=14: row 50 >= max_entries
+  note: slot 73 key j=28: row 51 >= max_entries
+  note: slot 77 key j=31: row 49 >= max_entries
+  note: slot 87 key j=11: row 52 >= max_entries
+  note: live slots 58 > max_entries 48
+  note: live slots 58 != min(keys 64, max_entries 48)
+trial 145 seed=0x207c2d04a9602e4c live=55 refused=0 claiming=0 EEXIST=10505 E2BIG=1406250 unstable=0 lost_same=6390 lost_other=1057 waits=9828 precheck_taken=476 fulldir=0/0 maxd=0 viol=9
+  note: slot 6 key j=34: row 54 >= max_entries
+  note: slot 45 key j=22: row 49 >= max_entries
+  note: slot 63 key j=28: row 51 >= max_entries
+  note: slot 84 key j=43: row 52 >= max_entries
+  note: slot 113 key j=19: row 53 >= max_entries
+  note: slot 120 key j=47: row 48 >= max_entries
+  note: slot 125 key j=62: row 50 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 146 seed=0x80d78e9da0bade00 live=58 refused=0 claiming=0 EEXIST=11077 E2BIG=937521 unstable=0 lost_same=7114 lost_other=858 waits=10147 precheck_taken=755 fulldir=0/0 maxd=1 viol=13
+  note: slot 16 key j=47: row 57 >= max_entries
+  note: slot 19 key j=43: row 52 >= max_entries
+  note: slot 32 key j=32: row 48 >= max_entries
+  note: slot 40 key j=10: row 54 >= max_entries
+  note: slot 55 key j=59: row 53 >= max_entries
+  note: slot 66 key j=25: row 56 >= max_entries
+  note: slot 86 key j=49: row 55 >= max_entries
+  note: slot 91 key j=4: row 51 >= max_entries
+  note: slot 94 key j=7: row 49 >= max_entries
+  note: slot 105 key j=53: row 50 >= max_entries
+  note: live slots 58 > max_entries 48
+  note: live slots 58 != min(keys 64, max_entries 48)
+  note: key j=47: E2BIG 1 but the key is live
+trial 147 seed=0xc2f25f7197e0ecf2 live=61 refused=0 claiming=0 EEXIST=11650 E2BIG=468750 unstable=0 lost_same=7037 lost_other=1021 waits=10855 precheck_taken=627 fulldir=0/0 maxd=1 viol=15
+  note: slot 3 key j=35: row 53 >= max_entries
+  note: slot 6 key j=32: row 55 >= max_entries
+  note: slot 15 key j=20: row 51 >= max_entries
+  note: slot 16 key j=12: row 57 >= max_entries
+  note: slot 24 key j=3: row 58 >= max_entries
+  note: slot 31 key j=45: row 50 >= max_entries
+  note: slot 33 key j=11: row 54 >= max_entries
+  note: slot 62 key j=29: row 49 >= max_entries
+  note: slot 67 key j=62: row 56 >= max_entries
+  note: slot 76 key j=42: row 59 >= max_entries
+  note: slot 79 key j=5: row 60 >= max_entries
+  note: slot 96 key j=60: row 52 >= max_entries
+  note: slot 102 key j=54: row 48 >= max_entries
+  note: live slots 61 > max_entries 48
+  note: live slots 61 != min(keys 64, max_entries 48)
+trial 148 seed=0xd3a60ddb6dc2728e live=49 refused=0 claiming=0 EEXIST=9362 E2BIG=2343750 unstable=0 lost_same=5026 lost_other=1557 waits=7984 precheck_taken=602 fulldir=0/0 maxd=0 viol=3
+  note: slot 21 key j=10: row 48 >= max_entries
+  note: live slots 49 > max_entries 48
+  note: live slots 49 != min(keys 64, max_entries 48)
+trial 149 seed=0xf0f6b24afcb9c3ba live=50 refused=0 claiming=0 EEXIST=9549 E2BIG=2187460 unstable=0 lost_same=6634 lost_other=2514 waits=9217 precheck_taken=0 fulldir=0/0 maxd=1 viol=4
+  note: slot 90 key j=45: row 48 >= max_entries
+  note: slot 109 key j=41: row 49 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 150 seed=0x4432f0464f90aa33 live=54 refused=0 claiming=0 EEXIST=10314 E2BIG=1562490 unstable=0 lost_same=6069 lost_other=1117 waits=9512 precheck_taken=403 fulldir=0/0 maxd=0 viol=8
+  note: slot 17 key j=41: row 50 >= max_entries
+  note: slot 55 key j=17: row 51 >= max_entries
+  note: slot 64 key j=2: row 49 >= max_entries
+  note: slot 66 key j=7: row 53 >= max_entries
+  note: slot 67 key j=50: row 48 >= max_entries
+  note: slot 123 key j=32: row 52 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 151 seed=0xdb466e3240e514d2 live=52 refused=0 claiming=0 EEXIST=9928 E2BIG=1874980 unstable=0 lost_same=6754 lost_other=3727 waits=9524 precheck_taken=8 fulldir=0/0 maxd=1 viol=6
+  note: slot 18 key j=15: row 49 >= max_entries
+  note: slot 25 key j=45: row 51 >= max_entries
+  note: slot 98 key j=30: row 50 >= max_entries
+  note: slot 107 key j=43: row 48 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 152 seed=0x838136ddf5955234 live=54 refused=0 claiming=0 EEXIST=10315 E2BIG=1562470 unstable=0 lost_same=5742 lost_other=1789 waits=9894 precheck_taken=700 fulldir=0/0 maxd=1 viol=8
+  note: slot 52 key j=31: row 51 >= max_entries
+  note: slot 54 key j=53: row 49 >= max_entries
+  note: slot 73 key j=46: row 52 >= max_entries
+  note: slot 85 key j=5: row 48 >= max_entries
+  note: slot 104 key j=3: row 53 >= max_entries
+  note: slot 112 key j=41: row 50 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 153 seed=0xfce9252104ebd150 live=55 refused=0 claiming=0 EEXIST=10505 E2BIG=1406261 unstable=0 lost_same=5883 lost_other=1333 waits=9555 precheck_taken=546 fulldir=0/0 maxd=1 viol=10
+  note: slot 16 key j=56: row 53 >= max_entries
+  note: slot 33 key j=38: row 54 >= max_entries
+  note: slot 50 key j=17: row 51 >= max_entries
+  note: slot 57 key j=48: row 52 >= max_entries
+  note: slot 79 key j=51: row 50 >= max_entries
+  note: slot 87 key j=36: row 49 >= max_entries
+  note: slot 103 key j=21: row 48 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+  note: key j=38: E2BIG 1 but the key is live
+trial 154 seed=0xbf8f8e791c707f34 live=54 refused=0 claiming=0 EEXIST=10316 E2BIG=1562480 unstable=0 lost_same=5682 lost_other=3054 waits=9432 precheck_taken=24 fulldir=0/0 maxd=1 viol=8
+  note: slot 3 key j=51: row 53 >= max_entries
+  note: slot 64 key j=21: row 52 >= max_entries
+  note: slot 68 key j=6: row 50 >= max_entries
+  note: slot 103 key j=45: row 51 >= max_entries
+  note: slot 121 key j=34: row 48 >= max_entries
+  note: slot 127 key j=54: row 49 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 155 seed=0x3c0fd1dd4f309199 live=51 refused=0 claiming=0 EEXIST=9742 E2BIG=2031250 unstable=0 lost_same=5655 lost_other=1430 waits=8913 precheck_taken=373 fulldir=0/0 maxd=0 viol=5
+  note: slot 39 key j=59: row 50 >= max_entries
+  note: slot 57 key j=44: row 49 >= max_entries
+  note: slot 127 key j=28: row 48 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 156 seed=0x266f30136ae3a85c live=51 refused=0 claiming=0 EEXIST=9742 E2BIG=2031200 unstable=0 lost_same=6295 lost_other=1921 waits=9092 precheck_taken=752 fulldir=0/0 maxd=1 viol=5
+  note: slot 54 key j=48: row 50 >= max_entries
+  note: slot 90 key j=5: row 48 >= max_entries
+  note: slot 103 key j=13: row 49 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 157 seed=0xc7e2a13d8a7e18a9 live=48 refused=0 claiming=0 EEXIST=9169 E2BIG=2500010 unstable=0 lost_same=6026 lost_other=1971 waits=8421 precheck_taken=270 fulldir=0/0 maxd=0 viol=0
+trial 158 seed=0x48becd6c5dfa27f4 live=54 refused=0 claiming=0 EEXIST=10314 E2BIG=1562480 unstable=0 lost_same=6011 lost_other=2459 waits=9757 precheck_taken=22 fulldir=0/0 maxd=1 viol=8
+  note: slot 1 key j=50: row 49 >= max_entries
+  note: slot 21 key j=3: row 52 >= max_entries
+  note: slot 56 key j=24: row 53 >= max_entries
+  note: slot 76 key j=22: row 50 >= max_entries
+  note: slot 103 key j=12: row 48 >= max_entries
+  note: slot 109 key j=52: row 51 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 159 seed=0x9fa360a8564ae62c live=54 refused=0 claiming=0 EEXIST=10311 E2BIG=1562510 unstable=0 lost_same=6077 lost_other=2579 waits=9583 precheck_taken=42 fulldir=0/0 maxd=1 viol=8
+  note: slot 26 key j=50: row 52 >= max_entries
+  note: slot 37 key j=11: row 48 >= max_entries
+  note: slot 67 key j=14: row 51 >= max_entries
+  note: slot 79 key j=3: row 53 >= max_entries
+  note: slot 84 key j=59: row 49 >= max_entries
+  note: slot 100 key j=0: row 50 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 160 seed=0x07c2d9aa26c11d80 live=64 refused=0 claiming=0 EEXIST=12221 E2BIG=3 unstable=0 lost_same=6191 lost_other=878 waits=11327 precheck_taken=931 fulldir=0/0 maxd=1 viol=20
+  note: slot 0 key j=17: row 54 >= max_entries
+  note: slot 10 key j=26: row 62 >= max_entries
+  note: slot 21 key j=32: row 57 >= max_entries
+  note: slot 51 key j=34: row 58 >= max_entries
+  note: slot 61 key j=6: row 49 >= max_entries
+  note: slot 62 key j=12: row 61 >= max_entries
+  note: slot 74 key j=21: row 50 >= max_entries
+  note: slot 75 key j=27: row 63 >= max_entries
+  note: slot 79 key j=46: row 59 >= max_entries
+  note: slot 92 key j=61: row 60 >= max_entries
+  note: slot 94 key j=30: row 48 >= max_entries
+  note: slot 99 key j=2: row 53 >= max_entries
+  note: slot 104 key j=36: row 51 >= max_entries
+  note: slot 105 key j=42: row 56 >= max_entries
+  note: slot 111 key j=57: row 55 >= max_entries
+  note: slot 117 key j=51: row 52 >= max_entries
+  note: live slots 64 > max_entries 48
+  note: live slots 64 != min(keys 64, max_entries 48)
+  note: key j=26: E2BIG 1 but the key is live
+  note: key j=27: E2BIG 2 but the key is live
+trial 161 seed=0x858eef232e8df5a6 live=56 refused=0 claiming=0 EEXIST=10690 E2BIG=1250030 unstable=0 lost_same=5408 lost_other=772 waits=9742 precheck_taken=356 fulldir=0/0 maxd=0 viol=10
+  note: slot 20 key j=59: row 51 >= max_entries
+  note: slot 21 key j=19: row 50 >= max_entries
+  note: slot 24 key j=4: row 48 >= max_entries
+  note: slot 72 key j=0: row 55 >= max_entries
+  note: slot 78 key j=43: row 49 >= max_entries
+  note: slot 89 key j=25: row 54 >= max_entries
+  note: slot 92 key j=10: row 52 >= max_entries
+  note: slot 118 key j=49: row 53 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 162 seed=0xe8040af962135d0a live=59 refused=0 claiming=0 EEXIST=11272 E2BIG=781230 unstable=0 lost_same=6363 lost_other=2173 waits=10663 precheck_taken=163 fulldir=0/0 maxd=1 viol=13
+  note: slot 9 key j=10: row 53 >= max_entries
+  note: slot 11 key j=50: row 58 >= max_entries
+  note: slot 31 key j=34: row 50 >= max_entries
+  note: slot 36 key j=53: row 48 >= max_entries
+  note: slot 43 key j=51: row 52 >= max_entries
+  note: slot 73 key j=46: row 54 >= max_entries
+  note: slot 77 key j=18: row 55 >= max_entries
+  note: slot 85 key j=54: row 57 >= max_entries
+  note: slot 108 key j=19: row 49 >= max_entries
+  note: slot 117 key j=55: row 51 >= max_entries
+  note: slot 125 key j=57: row 56 >= max_entries
+  note: live slots 59 > max_entries 48
+  note: live slots 59 != min(keys 64, max_entries 48)
+trial 163 seed=0x0fb99497024b532a live=52 refused=0 claiming=0 EEXIST=9929 E2BIG=1875010 unstable=0 lost_same=5782 lost_other=2114 waits=9688 precheck_taken=63 fulldir=0/0 maxd=1 viol=6
+  note: slot 7 key j=27: row 50 >= max_entries
+  note: slot 46 key j=44: row 48 >= max_entries
+  note: slot 61 key j=40: row 49 >= max_entries
+  note: slot 118 key j=52: row 51 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 164 seed=0xb10d21926fd9157f live=50 refused=0 claiming=0 EEXIST=9549 E2BIG=2187500 unstable=0 lost_same=5005 lost_other=1407 waits=8580 precheck_taken=474 fulldir=0/0 maxd=0 viol=4
+  note: slot 13 key j=29: row 48 >= max_entries
+  note: slot 77 key j=5: row 49 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 165 seed=0xbf41fe6ea0fdcce5 live=53 refused=0 claiming=0 EEXIST=10121 E2BIG=1718750 unstable=0 lost_same=6162 lost_other=1257 waits=9504 precheck_taken=284 fulldir=0/0 maxd=0 viol=7
+  note: slot 19 key j=6: row 51 >= max_entries
+  note: slot 30 key j=34: row 48 >= max_entries
+  note: slot 38 key j=55: row 49 >= max_entries
+  note: slot 60 key j=36: row 52 >= max_entries
+  note: slot 103 key j=30: row 50 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 166 seed=0x136804a7c748ef9f live=54 refused=0 claiming=0 EEXIST=10310 E2BIG=1562520 unstable=0 lost_same=6147 lost_other=2627 waits=9672 precheck_taken=163 fulldir=0/0 maxd=1 viol=8
+  note: slot 2 key j=52: row 51 >= max_entries
+  note: slot 5 key j=31: row 48 >= max_entries
+  note: slot 28 key j=37: row 50 >= max_entries
+  note: slot 31 key j=39: row 53 >= max_entries
+  note: slot 70 key j=22: row 49 >= max_entries
+  note: slot 73 key j=24: row 52 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 167 seed=0x02d7631a20dfe7a3 live=60 refused=0 claiming=0 EEXIST=11461 E2BIG=624990 unstable=0 lost_same=6361 lost_other=874 waits=10941 precheck_taken=500 fulldir=0/0 maxd=1 viol=14
+  note: slot 7 key j=20: row 51 >= max_entries
+  note: slot 13 key j=12: row 58 >= max_entries
+  note: slot 20 key j=49: row 56 >= max_entries
+  note: slot 21 key j=13: row 55 >= max_entries
+  note: slot 27 key j=5: row 49 >= max_entries
+  note: slot 46 key j=60: row 52 >= max_entries
+  note: slot 63 key j=19: row 57 >= max_entries
+  note: slot 65 key j=56: row 53 >= max_entries
+  note: slot 66 key j=45: row 50 >= max_entries
+  note: slot 72 key j=37: row 54 >= max_entries
+  note: slot 96 key j=30: row 48 >= max_entries
+  note: slot 108 key j=33: row 59 >= max_entries
+  note: live slots 60 > max_entries 48
+  note: live slots 60 != min(keys 64, max_entries 48)
+trial 168 seed=0x18a93d0b208e6b0d live=59 refused=0 claiming=0 EEXIST=11268 E2BIG=781260 unstable=0 lost_same=6410 lost_other=1340 waits=10611 precheck_taken=825 fulldir=0/0 maxd=1 viol=13
+  note: slot 5 key j=33: row 50 >= max_entries
+  note: slot 7 key j=39: row 56 >= max_entries
+  note: slot 9 key j=15: row 58 >= max_entries
+  note: slot 18 key j=18: row 48 >= max_entries
+  note: slot 34 key j=35: row 54 >= max_entries
+  note: slot 48 key j=8: row 51 >= max_entries
+  note: slot 53 key j=57: row 49 >= max_entries
+  note: slot 72 key j=9: row 57 >= max_entries
+  note: slot 82 key j=61: row 55 >= max_entries
+  note: slot 85 key j=63: row 52 >= max_entries
+  note: slot 99 key j=48: row 53 >= max_entries
+  note: live slots 59 > max_entries 48
+  note: live slots 59 != min(keys 64, max_entries 48)
+trial 169 seed=0xda182f392e6c230e live=53 refused=0 claiming=0 EEXIST=10122 E2BIG=1718770 unstable=0 lost_same=5557 lost_other=1974 waits=9217 precheck_taken=23 fulldir=0/0 maxd=1 viol=7
+  note: slot 4 key j=25: row 48 >= max_entries
+  note: slot 8 key j=2: row 52 >= max_entries
+  note: slot 22 key j=46: row 49 >= max_entries
+  note: slot 57 key j=49: row 51 >= max_entries
+  note: slot 60 key j=61: row 50 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 170 seed=0x7d56209fc8bed660 live=54 refused=0 claiming=0 EEXIST=10315 E2BIG=1562490 unstable=0 lost_same=5459 lost_other=1032 waits=8798 precheck_taken=465 fulldir=0/0 maxd=0 viol=8
+  note: slot 0 key j=60: row 52 >= max_entries
+  note: slot 55 key j=6: row 49 >= max_entries
+  note: slot 80 key j=21: row 51 >= max_entries
+  note: slot 89 key j=36: row 53 >= max_entries
+  note: slot 94 key j=30: row 48 >= max_entries
+  note: slot 103 key j=45: row 50 >= max_entries
+  note: live slots 54 > max_entries 48
+  note: live slots 54 != min(keys 64, max_entries 48)
+trial 171 seed=0x129359f928173d22 live=57 refused=0 claiming=0 EEXIST=10887 E2BIG=1093770 unstable=0 lost_same=6143 lost_other=1002 waits=9926 precheck_taken=707 fulldir=0/0 maxd=1 viol=11
+  note: slot 6 key j=8: row 52 >= max_entries
+  note: slot 17 key j=2: row 48 >= max_entries
+  note: slot 23 key j=41: row 56 >= max_entries
+  note: slot 28 key j=32: row 51 >= max_entries
+  note: slot 39 key j=53: row 53 >= max_entries
+  note: slot 59 key j=17: row 49 >= max_entries
+  note: slot 89 key j=18: row 55 >= max_entries
+  note: slot 91 key j=56: row 50 >= max_entries
+  note: slot 119 key j=44: row 54 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 172 seed=0x3fa47847c2b0c11f live=53 refused=0 claiming=0 EEXIST=10123 E2BIG=1718690 unstable=0 lost_same=5474 lost_other=1119 waits=9176 precheck_taken=605 fulldir=0/0 maxd=0 viol=7
+  note: slot 28 key j=57: row 52 >= max_entries
+  note: slot 64 key j=42: row 50 >= max_entries
+  note: slot 83 key j=17: row 51 >= max_entries
+  note: slot 115 key j=12: row 48 >= max_entries
+  note: slot 126 key j=2: row 49 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 173 seed=0x97d43a7901dac6e7 live=55 refused=0 claiming=0 EEXIST=10503 E2BIG=1406260 unstable=0 lost_same=6224 lost_other=2810 waits=9817 precheck_taken=18 fulldir=0/0 maxd=1 viol=9
+  note: slot 12 key j=19: row 53 >= max_entries
+  note: slot 21 key j=55: row 54 >= max_entries
+  note: slot 32 key j=23: row 50 >= max_entries
+  note: slot 82 key j=1: row 52 >= max_entries
+  note: slot 89 key j=50: row 51 >= max_entries
+  note: slot 105 key j=33: row 49 >= max_entries
+  note: slot 126 key j=18: row 48 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 174 seed=0x7681c498ba1d353f live=58 refused=0 claiming=0 EEXIST=11076 E2BIG=937520 unstable=0 lost_same=7497 lost_other=2545 waits=10451 precheck_taken=92 fulldir=0/0 maxd=1 viol=12
+  note: slot 8 key j=63: row 52 >= max_entries
+  note: slot 11 key j=18: row 51 >= max_entries
+  note: slot 14 key j=55: row 49 >= max_entries
+  note: slot 52 key j=17: row 55 >= max_entries
+  note: slot 58 key j=32: row 56 >= max_entries
+  note: slot 69 key j=44: row 48 >= max_entries
+  note: slot 85 key j=38: row 57 >= max_entries
+  note: slot 92 key j=46: row 50 >= max_entries
+  note: slot 94 key j=20: row 53 >= max_entries
+  note: slot 119 key j=35: row 54 >= max_entries
+  note: live slots 58 > max_entries 48
+  note: live slots 58 != min(keys 64, max_entries 48)
+trial 175 seed=0xbdd8d2a16e049cd0 live=51 refused=0 claiming=0 EEXIST=9742 E2BIG=2031230 unstable=0 lost_same=5534 lost_other=1397 waits=9019 precheck_taken=305 fulldir=0/0 maxd=0 viol=5
+  note: slot 14 key j=55: row 48 >= max_entries
+  note: slot 101 key j=6: row 50 >= max_entries
+  note: slot 113 key j=30: row 49 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 176 seed=0x3dc24b1bc76fc0c0 live=52 refused=0 claiming=0 EEXIST=9936 E2BIG=1874990 unstable=0 lost_same=4843 lost_other=6529 waits=9301 precheck_taken=4 fulldir=0/0 maxd=4 viol=6
+  note: slot 28 key j=11: row 48 >= max_entries
+  note: slot 55 key j=36: row 51 >= max_entries
+  note: slot 116 key j=28: row 50 >= max_entries
+  note: slot 122 key j=47: row 49 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 177 seed=0xde7148a43423103b live=56 refused=0 claiming=0 EEXIST=10696 E2BIG=1249990 unstable=0 lost_same=5383 lost_other=771 waits=9164 precheck_taken=391 fulldir=0/0 maxd=0 viol=10
+  note: slot 3 key j=13: row 51 >= max_entries
+  note: slot 10 key j=19: row 55 >= max_entries
+  note: slot 15 key j=4: row 53 >= max_entries
+  note: slot 76 key j=37: row 50 >= max_entries
+  note: slot 81 key j=62: row 49 >= max_entries
+  note: slot 89 key j=22: row 48 >= max_entries
+  note: slot 106 key j=43: row 54 >= max_entries
+  note: slot 119 key j=28: row 52 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 178 seed=0xd814080b03f22600 live=50 refused=0 claiming=0 EEXIST=9547 E2BIG=2187500 unstable=0 lost_same=5765 lost_other=1602 waits=8590 precheck_taken=287 fulldir=0/0 maxd=0 viol=4
+  note: slot 46 key j=16: row 48 >= max_entries
+  note: slot 59 key j=7: row 49 >= max_entries
+  note: live slots 50 > max_entries 48
+  note: live slots 50 != min(keys 64, max_entries 48)
+trial 179 seed=0xaea8932793c070c4 live=48 refused=0 claiming=0 EEXIST=9172 E2BIG=2499990 unstable=0 lost_same=5439 lost_other=1780 waits=8522 precheck_taken=143 fulldir=0/0 maxd=0 viol=0
+trial 180 seed=0x5e4c86dc5dbbdf26 live=51 refused=0 claiming=0 EEXIST=9741 E2BIG=2031200 unstable=0 lost_same=6883 lost_other=1750 waits=9001 precheck_taken=714 fulldir=0/0 maxd=0 viol=5
+  note: slot 0 key j=12: row 49 >= max_entries
+  note: slot 46 key j=51: row 50 >= max_entries
+  note: slot 54 key j=36: row 48 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 181 seed=0x7ddc1cfa1454d5ce live=51 refused=0 claiming=0 EEXIST=9741 E2BIG=2031240 unstable=0 lost_same=5737 lost_other=1446 waits=9125 precheck_taken=247 fulldir=0/0 maxd=0 viol=5
+  note: slot 2 key j=30: row 48 >= max_entries
+  note: slot 23 key j=45: row 50 >= max_entries
+  note: slot 36 key j=6: row 49 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 182 seed=0x28136e385b542732 live=56 refused=0 claiming=0 EEXIST=10699 E2BIG=1249970 unstable=0 lost_same=6268 lost_other=901 waits=9379 precheck_taken=615 fulldir=0/0 maxd=0 viol=10
+  note: slot 11 key j=54: row 52 >= max_entries
+  note: slot 20 key j=24: row 48 >= max_entries
+  note: slot 51 key j=21: row 53 >= max_entries
+  note: slot 63 key j=27: row 54 >= max_entries
+  note: slot 67 key j=39: row 50 >= max_entries
+  note: slot 96 key j=0: row 49 >= max_entries
+  note: slot 115 key j=63: row 55 >= max_entries
+  note: slot 117 key j=15: row 51 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 183 seed=0xd8cce25b929c944d live=57 refused=0 claiming=0 EEXIST=10889 E2BIG=1093760 unstable=0 lost_same=6660 lost_other=2276 waits=10314 precheck_taken=103 fulldir=0/0 maxd=1 viol=11
+  note: slot 1 key j=35: row 50 >= max_entries
+  note: slot 10 key j=14: row 53 >= max_entries
+  note: slot 18 key j=44: row 55 >= max_entries
+  note: slot 21 key j=63: row 52 >= max_entries
+  note: slot 24 key j=1: row 56 >= max_entries
+  note: slot 34 key j=0: row 48 >= max_entries
+  note: slot 50 key j=6: row 49 >= max_entries
+  note: slot 104 key j=56: row 51 >= max_entries
+  note: slot 121 key j=29: row 54 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+trial 184 seed=0x0eb7931ad0c0425b live=51 refused=0 claiming=0 EEXIST=9742 E2BIG=2031260 unstable=0 lost_same=5710 lost_other=1455 waits=8914 precheck_taken=530 fulldir=0/0 maxd=0 viol=5
+  note: slot 5 key j=23: row 48 >= max_entries
+  note: slot 68 key j=63: row 49 >= max_entries
+  note: slot 90 key j=38: row 50 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 185 seed=0xac011489555d039d live=51 refused=0 claiming=0 EEXIST=9742 E2BIG=2031250 unstable=0 lost_same=5791 lost_other=1483 waits=9111 precheck_taken=261 fulldir=0/0 maxd=0 viol=5
+  note: slot 7 key j=37: row 48 >= max_entries
+  note: slot 65 key j=52: row 50 >= max_entries
+  note: slot 93 key j=12: row 49 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 186 seed=0x1cfaf1746bb57b58 live=55 refused=0 claiming=0 EEXIST=10503 E2BIG=1406260 unstable=0 lost_same=6631 lost_other=2225 waits=9925 precheck_taken=140 fulldir=0/0 maxd=1 viol=9
+  note: slot 4 key j=44: row 52 >= max_entries
+  note: slot 42 key j=46: row 53 >= max_entries
+  note: slot 45 key j=38: row 50 >= max_entries
+  note: slot 58 key j=19: row 48 >= max_entries
+  note: slot 61 key j=4: row 51 >= max_entries
+  note: slot 91 key j=32: row 54 >= max_entries
+  note: slot 105 key j=60: row 49 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 187 seed=0x42bbcacff155fc74 live=55 refused=0 claiming=0 EEXIST=10504 E2BIG=1406260 unstable=0 lost_same=7518 lost_other=2611 waits=10065 precheck_taken=146 fulldir=0/0 maxd=1 viol=9
+  note: slot 1 key j=63: row 50 >= max_entries
+  note: slot 3 key j=33: row 49 >= max_entries
+  note: slot 81 key j=9: row 53 >= max_entries
+  note: slot 92 key j=12: row 48 >= max_entries
+  note: slot 96 key j=32: row 51 >= max_entries
+  note: slot 98 key j=24: row 54 >= max_entries
+  note: slot 104 key j=38: row 52 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 188 seed=0x46e71c9dcc89c6c4 live=53 refused=0 claiming=0 EEXIST=10122 E2BIG=1718770 unstable=0 lost_same=6204 lost_other=1298 waits=9362 precheck_taken=266 fulldir=0/0 maxd=0 viol=7
+  note: slot 35 key j=17: row 52 >= max_entries
+  note: slot 47 key j=2: row 50 >= max_entries
+  note: slot 58 key j=41: row 51 >= max_entries
+  note: slot 70 key j=26: row 49 >= max_entries
+  note: slot 82 key j=11: row 48 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 189 seed=0x2dd3005037f03254 live=52 refused=0 claiming=0 EEXIST=9928 E2BIG=1875010 unstable=0 lost_same=5941 lost_other=1398 waits=9330 precheck_taken=151 fulldir=0/0 maxd=0 viol=6
+  note: slot 12 key j=17: row 50 >= max_entries
+  note: slot 21 key j=26: row 48 >= max_entries
+  note: slot 51 key j=41: row 49 >= max_entries
+  note: slot 79 key j=37: row 51 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+trial 190 seed=0xec1a4aeb99498205 live=57 refused=0 claiming=0 EEXIST=10888 E2BIG=1093751 unstable=0 lost_same=5905 lost_other=1364 waits=10193 precheck_taken=595 fulldir=0/0 maxd=1 viol=12
+  note: slot 34 key j=54: row 51 >= max_entries
+  note: slot 44 key j=0: row 49 >= max_entries
+  note: slot 55 key j=13: row 53 >= max_entries
+  note: slot 72 key j=56: row 52 >= max_entries
+  note: slot 109 key j=15: row 54 >= max_entries
+  note: slot 111 key j=39: row 50 >= max_entries
+  note: slot 119 key j=24: row 48 >= max_entries
+  note: slot 120 key j=21: row 55 >= max_entries
+  note: slot 126 key j=12: row 56 >= max_entries
+  note: live slots 57 > max_entries 48
+  note: live slots 57 != min(keys 64, max_entries 48)
+  note: key j=12: E2BIG 1 but the key is live
+trial 191 seed=0x7f4221b22e7d06e7 live=51 refused=0 claiming=0 EEXIST=9741 E2BIG=2031240 unstable=0 lost_same=5437 lost_other=2750 waits=8657 precheck_taken=0 fulldir=0/0 maxd=1 viol=5
+  note: slot 0 key j=18: row 48 >= max_entries
+  note: slot 47 key j=44: row 50 >= max_entries
+  note: slot 119 key j=63: row 49 >= max_entries
+  note: live slots 51 > max_entries 48
+  note: live slots 51 != min(keys 64, max_entries 48)
+trial 192 seed=0xfd43a43008fc0c26 live=60 refused=0 claiming=0 EEXIST=11460 E2BIG=624970 unstable=0 lost_same=6433 lost_other=1612 waits=10370 precheck_taken=1379 fulldir=0/0 maxd=1 viol=14
+  note: slot 0 key j=35: row 57 >= max_entries
+  note: slot 20 key j=24: row 51 >= max_entries
+  note: slot 26 key j=36: row 48 >= max_entries
+  note: slot 27 key j=54: row 52 >= max_entries
+  note: slot 29 key j=8: row 54 >= max_entries
+  note: slot 36 key j=38: row 59 >= max_entries
+  note: slot 43 key j=48: row 58 >= max_entries
+  note: slot 71 key j=2: row 50 >= max_entries
+  note: slot 73 key j=27: row 49 >= max_entries
+  note: slot 111 key j=30: row 53 >= max_entries
+  note: slot 120 key j=16: row 55 >= max_entries
+  note: slot 125 key j=59: row 56 >= max_entries
+  note: live slots 60 > max_entries 48
+  note: live slots 60 != min(keys 64, max_entries 48)
+trial 193 seed=0xa74e06082117b7bc live=48 refused=0 claiming=0 EEXIST=9170 E2BIG=2499970 unstable=0 lost_same=5417 lost_other=1811 waits=8409 precheck_taken=390 fulldir=0/0 maxd=0 viol=0
+trial 194 seed=0xea08f29208eb6250 live=48 refused=0 claiming=0 EEXIST=9164 E2BIG=2499960 unstable=0 lost_same=5437 lost_other=1814 waits=8251 precheck_taken=457 fulldir=0/0 maxd=0 viol=0
+trial 195 seed=0x955c9305cee84cd2 live=55 refused=0 claiming=0 EEXIST=10504 E2BIG=1406271 unstable=0 lost_same=5500 lost_other=1534 waits=9813 precheck_taken=615 fulldir=0/0 maxd=1 viol=10
+  note: slot 3 key j=22: row 48 >= max_entries
+  note: slot 30 key j=62: row 49 >= max_entries
+  note: slot 33 key j=63: row 51 >= max_entries
+  note: slot 41 key j=6: row 50 >= max_entries
+  note: slot 45 key j=53: row 53 >= max_entries
+  note: slot 107 key j=2: row 52 >= max_entries
+  note: slot 126 key j=58: row 54 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+  note: key j=53: E2BIG 1 but the key is live
+trial 196 seed=0xf224654bbc404109 live=55 refused=0 claiming=0 EEXIST=10504 E2BIG=1406270 unstable=0 lost_same=7029 lost_other=1145 waits=9491 precheck_taken=831 fulldir=0/0 maxd=0 viol=9
+  note: slot 1 key j=32: row 54 >= max_entries
+  note: slot 14 key j=41: row 51 >= max_entries
+  note: slot 30 key j=17: row 52 >= max_entries
+  note: slot 51 key j=56: row 53 >= max_entries
+  note: slot 72 key j=2: row 50 >= max_entries
+  note: slot 111 key j=50: row 48 >= max_entries
+  note: slot 117 key j=26: row 49 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 197 seed=0x9c0d08be3b0ea5d7 live=53 refused=0 claiming=0 EEXIST=10123 E2BIG=1718730 unstable=0 lost_same=7099 lost_other=3446 waits=9740 precheck_taken=18 fulldir=0/0 maxd=1 viol=7
+  note: slot 44 key j=45: row 50 >= max_entries
+  note: slot 47 key j=57: row 48 >= max_entries
+  note: slot 57 key j=36: row 52 >= max_entries
+  note: slot 84 key j=62: row 49 >= max_entries
+  note: slot 121 key j=21: row 51 >= max_entries
+  note: live slots 53 > max_entries 48
+  note: live slots 53 != min(keys 64, max_entries 48)
+trial 198 seed=0x806304f3e95e9bd1 live=55 refused=0 claiming=0 EEXIST=10505 E2BIG=1406260 unstable=0 lost_same=6715 lost_other=1855 waits=9500 precheck_taken=979 fulldir=0/0 maxd=1 viol=9
+  note: slot 22 key j=53: row 51 >= max_entries
+  note: slot 24 key j=56: row 49 >= max_entries
+  note: slot 34 key j=25: row 52 >= max_entries
+  note: slot 36 key j=27: row 54 >= max_entries
+  note: slot 70 key j=17: row 48 >= max_entries
+  note: slot 94 key j=38: row 50 >= max_entries
+  note: slot 98 key j=31: row 53 >= max_entries
+  note: live slots 55 > max_entries 48
+  note: live slots 55 != min(keys 64, max_entries 48)
+trial 199 seed=0x15e5727d036d055c live=56 refused=0 claiming=0 EEXIST=10697 E2BIG=1250000 unstable=0 lost_same=6027 lost_other=877 waits=9319 precheck_taken=595 fulldir=0/0 maxd=0 viol=10
+  note: slot 33 key j=56: row 55 >= max_entries
+  note: slot 43 key j=45: row 51 >= max_entries
+  note: slot 100 key j=20: row 52 >= max_entries
+  note: slot 103 key j=15: row 49 >= max_entries
+  note: slot 111 key j=51: row 53 >= max_entries
+  note: slot 115 key j=63: row 48 >= max_entries
+  note: slot 122 key j=2: row 54 >= max_entries
+  note: slot 124 key j=30: row 50 >= max_entries
+  note: live slots 56 > max_entries 48
+  note: live slots 56 != min(keys 64, max_entries 48)
+trial 200 seed=0xc18ed30f37d95251 live=52 refused=0 claiming=0 EEXIST=9930 E2BIG=1874990 unstable=0 lost_same=6031 lost_other=1398 waits=9508 precheck_taken=330 fulldir=0/0 maxd=0 viol=6
+  note: slot 7 key j=54: row 49 >= max_entries
+  note: slot 18 key j=48: row 48 >= max_entries
+  note: slot 31 key j=20: row 51 >= max_entries
+  note: slot 82 key j=5: row 50 >= max_entries
+  note: live slots 52 > max_entries 48
+  note: live slots 52 != min(keys 64, max_entries 48)
+
+=== summary build=ctl2-no-count-check max_entries=48 keys=64 trials=201 ===
+trials_with_violation=190/201
+violations by kind: live_gt_max=190 live_ne_expected=190 row_out_of_range=1200 e2big_on_live_key=23
+counted: EEXIST=2071934 E2BIG=314999672 unstable=0 eexist_then_null=0 unstable_then_null=0
+per trial: EEXIST min=9164 max=12222, E2BIG min=2 max=2500030, live min=48 max=64 (expected 48)
+refused slots: sum=0 max per trial=0
+branches: lost_same_key=1254075 lost_other_key=338440 walk_saw_claiming=653494 waits=1907569 wait_sleeps=202990 givebacks=0 e2big_precheck=314999672 precheck_slot_taken=86985 e2big_refused_winner=0 e2big_saw_refused=0 e2big_fulldir=0 fulldir_unstable=0 insert_fullwalk=0 lookup_fullwalk=0
+longest wait: elapsed_ns=86016 requested_ns=8128 (bound 100000)
+dir: keys off home (sum over trials)=696 max probe distance=4
+RESULT VIOLATIONS
+### exit=1 wall_s=9.350948528

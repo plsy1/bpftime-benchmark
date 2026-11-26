@@ -1,0 +1,626 @@
+### k5-ctl5-noreread-64: ./build/c5_ctl5-noreread --max 64 --trials 201 --detail 1
+C5 build=ctl5-precheck-without-reread FAULT=5 device="Orin" sm_87 SMs=8
+config max_entries=64 S=128 logS=7 rows_cap=128 keys=64 threads=1000000 grid=3907x256 launches=10 trials=201 reader=0 prefill=0 seed0=0x0123456789abcdef wait_bound_ns=100000
+attempts per key per launch: min=15624 max=15626; keys with attempts=64 (K = 1000 + 7919*j mod 2^32)
+
+=== trial 0 seed=0x0123456789abcdef ===
+dir: nonempty=64 live=64 refused=0 claiming=0 (max_entries 64, S 128, expected live 64) count=64
+dir shape: keys off home=13 max probe distance=4
+totals: attempts=10000000 prefill=0 delivered=9987776 EEXIST=12224 E2BIG=0 unstable=0 | all rows=9987776 rows behind live headers=9987776
+branches: lost_same_key=6849 lost_other_key=1587 walk_saw_claiming=4144 waits=10993 wait_sleeps=1890 wait_max_ns=51360 givebacks=0 e2big_precheck=0 precheck_slot_taken=0 e2big_refused_winner=0 e2big_saw_refused=0 e2big_fulldir=0 fulldir_unstable=0 insert_fullwalk=0 lookup_fullwalk=0 eexist_then_null=0 unstable_then_null=0 row_overflow=0 key_changed=0
+kernel span: first block start -> last block end = 7.047 ms (10 launches)
+per launch (EEXIST/E2BIG/won/unstable): L1 12224/0/64/0 L2 0/0/0/0 L3 0/0/0/0 L4 0/0/0/0 L5 0/0/0/0 L6 0/0/0/0 L7 0/0/0/0 L8 0/0/0/0 L9 0/0/0/0 L10 0/0/0/0
+longest wait requested_ns=6080
+per key: j K slots slot home dist row state attempts delivered EEXIST(live/waited/unstable) E2BIG hits won ok
+   0       1000 1  113  112   1   52 live  156260  156068    192(39/153/0)       0  156067 1 ok
+   1       8919 1   40   40   0   34 live  156250  156060    190(8/182/0)       0  156059 1 ok
+   2      16838 1   77   75   2   60 live  156260  156069    191(15/176/0)       0  156068 1 ok
+   3      24757 1    3    3   0   44 live  156240  156048    192(11/181/0)       0  156047 1 ok
+   4      32676 1  107  107   0   26 live  156250  156059    191(12/179/0)       0  156058 1 ok
+   5      40595 1   68   68   0   14 live  156250  156060    190(21/169/0)       0  156059 1 ok
+   6      48514 1   70   70   0    7 live  156260  156067    193(23/170/0)       0  156066 1 ok
+   7      56433 1   31   31   0   38 live  156250  156060    190(7/183/0)       0  156059 1 ok
+   8      64352 1  127  127   0   20 live  156250  156058    192(17/175/0)       0  156057 1 ok
+   9      72271 1  117  117   0   48 live  156250  156060    190(9/181/0)       0  156059 1 ok
+  10      80190 1   61   61   0   31 live  156240  156049    191(10/181/0)       0  156048 1 ok
+  11      88109 1   82   80   2   61 live  156250  156058    192(15/177/0)       0  156057 1 ok
+  12      96028 1  118  118   0    0 live  156250  156060    190(19/171/0)       0  156059 1 ok
+  13     103947 1   11    9   2   57 live  156260  156069    191(69/122/0)       0  156068 1 ok
+  14     111866 1   81   81   0   12 live  156240  156049    191(21/170/0)       0  156048 1 ok
+  15     119785 1   83   83   0   16 live  156260  156068    192(17/175/0)       0  156067 1 ok
+  16     127704 1   10   10   0   35 live  156240  156050    190(10/180/0)       0  156049 1 ok
+  17     135623 1   47   46   1   55 live  156250  156059    191(34/157/0)       0  156058 1 ok
+  18     143542 1  101  101   0    2 live  156250  156059    191(18/173/0)       0  156058 1 ok
+  19     151461 1  111  111   0   23 live  156260  156069    191(21/170/0)       0  156068 1 ok
+  20     159380 1   39   39   0   28 live  156240  156049    191(9/182/0)       0  156048 1 ok
+  21     167299 1   74   74   0    8 live  156250  156059    191(19/172/0)       0  156058 1 ok
+  22     175218 1    2    2   0   40 live  156250  156060    190(11/179/0)       0  156059 1 ok
+  23     183137 1    5    3   2   59 live  156260  156068    192(17/175/0)       0  156067 1 ok
+  24     191056 1   58   58   0   50 live  156240  156050    190(8/182/0)       0  156049 1 ok
+  25     198975 1   65   65   0   33 live  156250  156059    191(12/179/0)       0  156058 1 ok
+  26     206894 1   51   50   1   54 live  156250  156059    191(27/164/0)       0  156058 1 ok
+  27     214813 1  122  122   0    1 live  156250  156059    191(20/171/0)       0  156058 1 ok
+  28     222732 1  108  107   1   51 live  156250  156059    191(35/156/0)       0  156058 1 ok
+  29     230651 1   85   85   0   25 live  156250  156059    191(7/184/0)       0  156058 1 ok
+  30     238570 1   53   53   0    3 live  156250  156059    191(21/170/0)       0  156058 1 ok
+  31     246489 1   14   14   0   37 live  156250  156059    191(11/180/0)       0  156058 1 ok
+  32     254408 1   16   16   0   19 live  156250  156059    191(16/175/0)       0  156058 1 ok
+  33     262327 1   80   80   0   47 live  156250  156059    191(8/183/0)       0  156058 1 ok
+  34     270246 1   59   56   3   62 live  156250  156059    191(66/125/0)       0  156058 1 ok
+  35     278165 1  112  112   0   30 live  156250  156059    191(8/183/0)       0  156058 1 ok
+  36     286084 1   19   19   0    9 live  156260  156068    192(23/169/0)       0  156067 1 ok
+  37     294003 1   75   75   0   42 live  156250  156059    191(8/183/0)       0  156058 1 ok
+  38     301922 1   76   76   0    5 live  156240  156050    190(21/169/0)       0  156049 1 ok
+  39     309841 1    4    3   1   53 live  156260  156067    193(33/160/0)       0  156066 1 ok
+  40     317760 1   41   39   2   56 live  156240  156051    189(2/187/0)       0  156050 1 ok
+  41     325679 1  123  123   0   17 live  156250  156059    191(20/171/0)       0  156058 1 ok
+  42     333598 1   67   67   0   10 live  156260  156068    192(22/170/0)       0  156067 1 ok
+  43     341517 1   52   52   0   45 live  156250  156060    190(7/183/0)       0  156059 1 ok
+  44     349436 1   30   30   0   27 live  156250  156058    192(10/182/0)       0  156057 1 ok
+  45     357355 1  126  126   0    4 live  156240  156049    191(21/170/0)       0  156048 1 ok
+  46     365274 1   87   87   0   39 live  156250  156060    190(10/180/0)       0  156059 1 ok
+  47     373193 1   89   89   0   21 live  156260  156068    192(18/174/0)       0  156067 1 ok
+  48     381112 1   50   50   0   49 live  156240  156050    190(9/181/0)       0  156049 1 ok
+  49     389031 1   26   26   0   15 live  156260  156069    191(18/173/0)       0  156068 1 ok
+  50     396950 1  115  115   0   32 live  156240  156049    191(10/181/0)       0  156048 1 ok
+  51     404869 1  119  117   2   58 live  156250  156058    192(24/168/0)       0  156057 1 ok
+  52     412788 1   78   78   0   43 live  156250  156060    190(9/181/0)       0  156059 1 ok
+  53     420707 1   46   46   0   24 live  156250  156058    192(11/181/0)       0  156057 1 ok
+  54     428626 1    7    7   0   13 live  156250  156059    191(17/174/0)       0  156058 1 ok
+  55     436545 1    9    9   0    6 live  156260  156069    191(23/168/0)       0  156068 1 ok
+  56     444464 1   98   98   0   36 live  156240  156049    191(8/183/0)       0  156048 1 ok
+  57     452383 1   37   37   0   18 live  156250  156060    190(14/176/0)       0  156059 1 ok
+  58     460302 1   56   56   0   46 live  156250  156059    191(10/181/0)       0  156058 1 ok
+  59     468221 1    0    0   0   29 live  156250  156059    191(10/181/0)       0  156058 1 ok
+  60     476140 1    6    2   4   63 live  156250  156059    191(135/56/0)       0  156058 1 ok
+  61     484059 1   57   57   0   41 live  156240  156049    191(11/180/0)       0  156048 1 ok
+  62     491978 1   93   93   0   22 live  156260  156069    191(16/175/0)       0  156068 1 ok
+  63     499897 1   20   20   0   11 live  156240  156049    191(20/171/0)       0  156048 1 ok
+violations: none
+trial 1 seed=0x9804297cc374ca1a live=64 refused=0 claiming=0 EEXIST=12220 E2BIG=0 unstable=0 lost_same=6200 lost_other=1535 waits=10974 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 2 seed=0xaf8d95523beccaa2 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7742 lost_other=1667 waits=11645 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 3 seed=0xcb4e5f6a912dcef8 live=64 refused=0 claiming=0 EEXIST=12212 E2BIG=0 unstable=0 lost_same=6436 lost_other=4406 waits=10344 precheck_taken=0 fulldir=0/0 maxd=13 viol=0
+
+=== trial 4 seed=0x4efc6dca531fa60f ===
+dir: nonempty=64 live=64 refused=0 claiming=0 (max_entries 64, S 128, expected live 64) count=64
+dir shape: keys off home=11 max probe distance=2
+totals: attempts=10000000 prefill=0 delivered=9987776 EEXIST=12197 E2BIG=27 unstable=0 | all rows=9987776 rows behind live headers=9987776
+branches: lost_same_key=7304 lost_other_key=1448 walk_saw_claiming=4232 waits=11536 wait_sleeps=2621 wait_max_ns=58080 givebacks=0 e2big_precheck=27 precheck_slot_taken=0 e2big_refused_winner=0 e2big_saw_refused=0 e2big_fulldir=0 fulldir_unstable=0 insert_fullwalk=0 lookup_fullwalk=0 eexist_then_null=0 unstable_then_null=0 row_overflow=0 key_changed=0
+kernel span: first block start -> last block end = 6.731 ms (10 launches)
+per launch (EEXIST/E2BIG/won/unstable): L1 12197/27/64/0 L2 0/0/0/0 L3 0/0/0/0 L4 0/0/0/0 L5 0/0/0/0 L6 0/0/0/0 L7 0/0/0/0 L8 0/0/0/0 L9 0/0/0/0 L10 0/0/0/0
+longest wait requested_ns=4032
+per key: j K slots slot home dist row state attempts delivered EEXIST(live/waited/unstable) E2BIG hits won ok
+   0       1000 1   12   12   0    4 live  156260  156068    192(17/175/0)       0  156067 1 ok
+   1       8919 1   86   86   0   38 live  156250  156060    190(0/190/0)       0  156059 1 ok
+   2      16838 1  110  110   0   18 live  156260  156069    191(12/179/0)       0  156068 1 ok
+   3      24757 1   56   56   0   49 live  156240  156048    192(0/192/0)       0  156047 1 ok
+   4      32676 1   36   36   0   30 live  156250  156059    191(0/191/0)       0  156058 1 ok
+   5      40595 1   16   16   0   13 live  156250  156060    190(17/173/0)       0  156059 1 ok
+   6      48514 1   73   73   0    6 live  156260  156067    193(17/176/0)       0  156066 1 ok
+   7      56433 1  115  113   2   60 live  156250  156060    190(44/146/0)       0  156059 1 ok
+   8      64352 1   42   42   0   23 live  156250  156058    192(13/179/0)       0  156057 1 ok
+   9      72271 1   50   50   0    2 live  156250  156060    190(17/173/0)       0  156059 1 ok
+  10      80190 1  107  107   0   35 live  156240  156049    191(0/191/0)       0  156048 1 ok
+  11      88109 1   20   20   0   16 live  156250  156058    192(16/176/0)       0  156057 1 ok
+  12      96028 1   17   17   0   46 live  156250  156060    190(0/190/0)       0  156059 1 ok
+  13     103947 1  125  124   1   54 live  156260  156069    191(14/177/0)       0  156068 1 ok
+  14     111866 1   53   53   0   28 live  156240  156049    191(15/176/0)       0  156048 1 ok
+  15     119785 1   77   77   0    5 live  156260  156068    192(14/178/0)       0  156067 1 ok
+  16     127704 1   23   23   0   40 live  156240  156050    190(0/190/0)       0  156049 1 ok
+  17     135623 1  113  113   0   20 live  156250  156059    191(13/178/0)       0  156058 1 ok
+  18     143542 1   59   59   0   51 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  19     151461 1   24   23   1   55 live  156260  156069    191(10/181/0)       0  156068 1 ok
+  20     159380 1   97   97   0   32 live  156240  156049    191(0/191/0)       0  156048 1 ok
+  21     167299 1   60   60   0    8 live  156250  156059    191(17/174/0)       0  156058 1 ok
+  22     175218 1    6    6   0   44 live  156250  156060    190(0/190/0)       0  156059 1 ok
+  23     183137 1   29   29   0   25 live  156260  156068    192(11/181/0)       0  156067 1 ok
+  24     191056 1  103  103   0   52 live  156240  156050    190(0/190/0)       0  156049 1 ok
+  25     198975 1   94   94   0   37 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  26     206894 1   40   40   0   17 live  156250  156059    191(14/177/0)       0  156058 1 ok
+  27     214813 1    4    4   0   11 live  156250  156059    191(17/174/0)       0  156058 1 ok
+  28     222732 1   78   78   0   48 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  29     230651 1   41   40   1   58 live  156250  156059    191(1/190/0)       0  156058 1 ok
+  30     238570 1   98   97   1   56 live  156250  156059    191(15/176/0)       0  156058 1 ok
+  31     246489 1   10   10   0   42 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  32     254408 1   67   67   0   22 live  156250  156059    191(13/178/0)       0  156058 1 ok
+  33     262327 1   46   46   0   12 live  156250  156059    191(18/173/0)       0  156058 1 ok
+  34     270246 1   27   27   0    1 live  156250  156059    191(16/175/0)       0  156058 1 ok
+  35     278165 1  101  101   0   34 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  36     286084 1  124  124   0   10 live  156260  156068    192(17/175/0)       0  156067 1 ok
+  37     294003 1   70   70   0   45 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  38     301922 1   33   33   0   27 live  156240  156050    190(10/180/0)       0  156049 1 ok
+  39     309841 1  109  107   2   61 live  156260  156067    193(46/147/0)       0  156066 1 ok
+  40     317760 1    2    2   0   39 live  156240  156051    189(0/189/0)       0  156050 1 ok
+  41     325679 1  106  105   1   53 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  42     333598 1    8    8   0   19 live  156260  156068    192(15/177/0)       0  156067 1 ok
+  43     341517 1   82   82   0   50 live  156250  156060    190(0/190/0)       0  156059 1 ok
+  44     349436 1  105  105   0   31 live  156250  156058    192(0/192/0)       0  156057 1 ok
+  45     357355 1   34   34   0    7 live  156240  156049    191(15/176/0)       0  156048 1 ok
+  46     365274 1   14   14   0   43 live  156250  156060    190(0/190/0)       0  156059 1 ok
+  47     373193 1   71   71   0   24 live  156260  156068    192(14/178/0)       0  156067 1 ok
+  48     381112 1  111  111   0   15 live  156240  156050    190(14/176/0)       0  156049 1 ok
+  49     389031 1  108  108   0    3 live  156260  156069    191(17/174/0)       0  156068 1 ok
+  50     396950 1   88   88   0   36 live  156240  156049    191(0/191/0)       0  156048 1 ok
+  51     404869 1   18   17   1   57 live  156250  156058    192(9/183/0)       0  156057 1 ok
+  52     412788 1   57   57   0   47 live  156250  156060    190(0/190/0)       0  156059 1 ok
+  53     420707 1  114  114   0   29 live  156250  156058    192(0/192/0)       0  156057 1 ok
+  54     428626 1   96   94   2   62 live  156250  156059    189(27/162/0)       2  156058 1 ok
+  55     436545 1   25   23   2   63 live  156260  156069    166(50/116/0)      25  156068 1 ok
+  56     444464 1   63   63   0   41 live  156240  156049    191(0/191/0)       0  156048 1 ok
+  57     452383 1   89   89   0   21 live  156250  156060    190(12/178/0)       0  156059 1 ok
+  58     460302 1   69   69   0    0 live  156250  156059    191(18/173/0)       0  156058 1 ok
+  59     468221 1  126  126   0   33 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  60     476140 1   21   21   0   14 live  156250  156059    191(12/179/0)       0  156058 1 ok
+  61     484059 1   95   95   0    9 live  156240  156049    191(19/172/0)       0  156048 1 ok
+  62     491978 1   58   58   0   26 live  156260  156069    191(11/180/0)       0  156068 1 ok
+  63     499897 1    5    4   1   59 live  156240  156049    191(14/177/0)       0  156048 1 ok
+violations: e2big_with_room=1 e2big_on_live_key=2
+  note: key j=54: E2BIG 2 but the key is live
+  note: key j=55: E2BIG 25 but the key is live
+  note: E2BIG 27 with live 64, max_entries 64, keys 64
+trial 5 seed=0x0ee9e6317f5734c2 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7362 lost_other=2358 waits=11262 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 6 seed=0x427003011abcd77e live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=9489 lost_other=3267 waits=11860 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+
+=== trial 7 seed=0x790fd4e2a886681a ===
+dir: nonempty=64 live=64 refused=0 claiming=0 (max_entries 64, S 128, expected live 64) count=64
+dir shape: keys off home=9 max probe distance=3
+totals: attempts=10000000 prefill=0 delivered=9987776 EEXIST=12223 E2BIG=1 unstable=0 | all rows=9987776 rows behind live headers=9987776
+branches: lost_same_key=7468 lost_other_key=1066 walk_saw_claiming=3886 waits=11354 wait_sleeps=2497 wait_max_ns=56800 givebacks=0 e2big_precheck=1 precheck_slot_taken=0 e2big_refused_winner=0 e2big_saw_refused=0 e2big_fulldir=0 fulldir_unstable=0 insert_fullwalk=0 lookup_fullwalk=0 eexist_then_null=0 unstable_then_null=0 row_overflow=0 key_changed=0
+kernel span: first block start -> last block end = 6.723 ms (10 launches)
+per launch (EEXIST/E2BIG/won/unstable): L1 12223/1/64/0 L2 0/0/0/0 L3 0/0/0/0 L4 0/0/0/0 L5 0/0/0/0 L6 0/0/0/0 L7 0/0/0/0 L8 0/0/0/0 L9 0/0/0/0 L10 0/0/0/0
+longest wait requested_ns=8128
+per key: j K slots slot home dist row state attempts delivered EEXIST(live/waited/unstable) E2BIG hits won ok
+   0       1000 1   57   57   0   34 live  156260  156068    192(5/187/0)       0  156067 1 ok
+   1       8919 1   55   55   0    8 live  156250  156060    190(15/175/0)       0  156059 1 ok
+   2      16838 1   70   70   0   45 live  156260  156069    191(5/186/0)       0  156068 1 ok
+   3      24757 1   75   75   0   14 live  156240  156048    192(14/178/0)       0  156047 1 ok
+   4      32676 1   14   14   0   27 live  156250  156059    191(5/186/0)       0  156058 1 ok
+   5      40595 1   87   87   0   26 live  156250  156060    190(8/182/0)       0  156059 1 ok
+   6      48514 1  102  102   0   38 live  156260  156067    193(7/186/0)       0  156066 1 ok
+   7      56433 1  107  107   0   11 live  156250  156060    190(13/177/0)       0  156059 1 ok
+   8      64352 1  122  122   0   50 live  156250  156058    192(7/185/0)       0  156057 1 ok
+   9      72271 1   52   52   0   32 live  156250  156060    190(4/186/0)       0  156059 1 ok
+  10      80190 1  125  125   0   23 live  156240  156049    191(9/182/0)       0  156048 1 ok
+  11      88109 1   72   72   0    3 live  156250  156058    192(23/169/0)       0  156057 1 ok
+  12      96028 1   77   77   0   42 live  156250  156060    190(7/183/0)       0  156059 1 ok
+  13     103947 1   92   92   0   21 live  156260  156069    191(19/172/0)       0  156068 1 ok
+  14     111866 1   37   37   0   54 live  156240  156049    191(8/183/0)       0  156048 1 ok
+  15     119785 1  112  112   0   35 live  156260  156068    192(3/189/0)       0  156067 1 ok
+  16     127704 1   58   57   1   56 live  156240  156050    190(0/190/0)       0  156049 1 ok
+  17     135623 1   71   71   0   47 live  156250  156059    191(4/187/0)       0  156058 1 ok
+  18     143542 1   15   15   0   15 live  156250  156059    191(12/179/0)       0  156058 1 ok
+  19     151461 1   31   31   0   29 live  156260  156069    191(6/185/0)       0  156068 1 ok
+  20     159380 1  103  103   0    5 live  156240  156049    191(15/176/0)       0  156048 1 ok
+  21     167299 1  119  119   0   40 live  156250  156059    191(4/187/0)       0  156058 1 ok
+  22     175218 1   63   63   0    1 live  156250  156060    190(26/164/0)       0  156059 1 ok
+  23     183137 1   11   11   0   51 live  156260  156068    192(5/187/0)       0  156067 1 ok
+  24     191056 1   83   83   0   16 live  156240  156050    190(16/174/0)       0  156049 1 ok
+  25     198975 1   17   14   3   63 live  156250  156059    190(127/63/0)       1  156058 1 ok
+  26     206894 1   29   29   0    4 live  156250  156059    191(20/171/0)       0  156058 1 ok
+  27     214813 1   94   94   0   44 live  156250  156059    191(8/183/0)       0  156058 1 ok
+  28     222732 1  110  109   1   58 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  29     230651 1   54   54   0   25 live  156250  156059    191(9/182/0)       0  156058 1 ok
+  30     238570 1   69   69   0   37 live  156250  156059    191(4/187/0)       0  156058 1 ok
+  31     246489 1   74   74   0   10 live  156250  156059    191(15/176/0)       0  156058 1 ok
+  32     254408 1   89   89   0    0 live  156250  156059    191(18/173/0)       0  156058 1 ok
+  33     262327 1   32   32   0   49 live  156250  156059    191(7/184/0)       0  156058 1 ok
+  34     270246 1   99   99   0   31 live  156250  156059    191(6/185/0)       0  156058 1 ok
+  35     278165 1  104  104   0    6 live  156250  156059    191(14/177/0)       0  156058 1 ok
+  36     286084 1  120  119   1   57 live  156260  156068    192(13/179/0)       0  156067 1 ok
+  37     294003 1    3    3   0   12 live  156250  156059    191(15/176/0)       0  156058 1 ok
+  38     301922 1   79   79   0   53 live  156240  156050    190(6/184/0)       0  156049 1 ok
+  39     309841 1   84   84   0   17 live  156260  156067    193(16/177/0)       0  156066 1 ok
+  40     317760 1  100   99   1   55 live  156240  156051    189(0/189/0)       0  156050 1 ok
+  41     325679 1   97   97   0   22 live  156250  156059    191(15/176/0)       0  156058 1 ok
+  42     333598 1   34   34   0   46 live  156260  156068    192(9/183/0)       0  156067 1 ok
+  43     341517 1  109  109   0   28 live  156250  156060    190(3/187/0)       0  156059 1 ok
+  44     349436 1   56   54   2   61 live  156250  156058    192(17/175/0)       0  156057 1 ok
+  45     357355 1    9    9   0   39 live  156240  156049    191(4/187/0)       0  156048 1 ok
+  46     365274 1   16   14   2   60 live  156250  156060    190(40/150/0)       0  156059 1 ok
+  47     373193 1   90   90   0   19 live  156260  156068    192(21/171/0)       0  156067 1 ok
+  48     381112 1   36   34   2   59 live  156240  156050    190(76/114/0)       0  156049 1 ok
+  49     389031 1   43   43   0   33 live  156260  156069    191(5/186/0)       0  156068 1 ok
+  50     396950 1   60   60   0    7 live  156240  156049    191(17/174/0)       0  156048 1 ok
+  51     404869 1    8    8   0   43 live  156250  156058    192(4/188/0)       0  156057 1 ok
+  52     412788 1   80   80   0   13 live  156250  156060    190(15/175/0)       0  156059 1 ok
+  53     420707 1   35   35   0   18 live  156250  156058    192(19/173/0)       0  156057 1 ok
+  54     428626 1   41   41   0   24 live  156250  156059    191(7/184/0)       0  156058 1 ok
+  55     436545 1  116  116   0   36 live  156260  156069    191(7/184/0)       0  156068 1 ok
+  56     444464 1   61   61   0    9 live  156240  156049    191(15/176/0)       0  156048 1 ok
+  57     452383 1  118  118   0   48 live  156250  156060    190(6/184/0)       0  156059 1 ok
+  58     460302 1   66   66   0   30 live  156250  156059    191(5/186/0)       0  156058 1 ok
+  59     468221 1   73   71   2   62 live  156250  156059    191(16/175/0)       0  156058 1 ok
+  60     476140 1   86   86   0    2 live  156250  156059    191(18/173/0)       0  156058 1 ok
+  61     484059 1   98   98   0   41 live  156240  156049    191(6/185/0)       0  156048 1 ok
+  62     491978 1   46   46   0   20 live  156260  156069    191(19/172/0)       0  156068 1 ok
+  63     499897 1   51   51   0   52 live  156240  156049    191(7/184/0)       0  156048 1 ok
+violations: e2big_with_room=1 e2big_on_live_key=1
+  note: key j=25: E2BIG 1 but the key is live
+  note: E2BIG 1 with live 64, max_entries 64, keys 64
+trial 8 seed=0x785b7cd8b86f18f9 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8762 lost_other=699 waits=11957 precheck_taken=0 fulldir=0/0 maxd=2 viol=0
+trial 9 seed=0xa5002a5e19b416ec live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7321 lost_other=2313 waits=11118 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+
+=== trial 10 seed=0xb9a4d2fb2a6ebc3f ===
+dir: nonempty=64 live=64 refused=0 claiming=0 (max_entries 64, S 128, expected live 64) count=64
+dir shape: keys off home=18 max probe distance=2
+totals: attempts=10000000 prefill=0 delivered=9987776 EEXIST=12216 E2BIG=8 unstable=0 | all rows=9987776 rows behind live headers=9987776
+branches: lost_same_key=7046 lost_other_key=2314 walk_saw_claiming=4674 waits=11720 wait_sleeps=3572 wait_max_ns=65536 givebacks=0 e2big_precheck=8 precheck_slot_taken=0 e2big_refused_winner=0 e2big_saw_refused=0 e2big_fulldir=0 fulldir_unstable=0 insert_fullwalk=0 lookup_fullwalk=0 eexist_then_null=0 unstable_then_null=0 row_overflow=0 key_changed=0
+kernel span: first block start -> last block end = 6.934 ms (10 launches)
+per launch (EEXIST/E2BIG/won/unstable): L1 12216/8/64/0 L2 0/0/0/0 L3 0/0/0/0 L4 0/0/0/0 L5 0/0/0/0 L6 0/0/0/0 L7 0/0/0/0 L8 0/0/0/0 L9 0/0/0/0 L10 0/0/0/0
+longest wait requested_ns=1984
+per key: j K slots slot home dist row state attempts delivered EEXIST(live/waited/unstable) E2BIG hits won ok
+   0       1000 1   73   73   0   35 live  156260  156068    192(0/192/0)       0  156067 1 ok
+   1       8919 1  119  119   0    3 live  156250  156060    190(15/175/0)       0  156059 1 ok
+   2      16838 1    3    3   0   23 live  156260  156069    191(0/191/0)       0  156068 1 ok
+   3      24757 1   34   34   0    9 live  156240  156048    192(20/172/0)       0  156047 1 ok
+   4      32676 1   46   46   0   30 live  156250  156059    191(0/191/0)       0  156058 1 ok
+   5      40595 1  125  125   0   16 live  156250  156060    190(0/190/0)       0  156059 1 ok
+   6      48514 1   43   42   1   54 live  156260  156067    193(19/174/0)       0  156066 1 ok
+   7      56433 1   41   40   1   47 live  156250  156060    190(15/175/0)       0  156059 1 ok
+   8      64352 1   54   52   2   63 live  156250  156058    192(52/140/0)       0  156057 1 ok
+   9      72271 1  124  124   0   32 live  156250  156060    190(0/190/0)       0  156059 1 ok
+  10      80190 1   28   28   0    7 live  156240  156049    191(16/175/0)       0  156048 1 ok
+  11      88109 1   40   40   0   20 live  156250  156058    192(0/192/0)       0  156057 1 ok
+  12      96028 1   51   51   0   40 live  156250  156060    190(0/190/0)       0  156059 1 ok
+  13     103947 1    2    2   0    0 live  156260  156069    191(15/176/0)       0  156068 1 ok
+  14     111866 1   35   34   1   59 live  156240  156049    191(2/189/0)       0  156048 1 ok
+  15     119785 1   12   12   0   13 live  156260  156068    192(0/192/0)       0  156067 1 ok
+  16     127704 1   57   57   0    4 live  156240  156050    190(18/172/0)       0  156049 1 ok
+  17     135623 1   15   15   0   42 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  18     143542 1   47   46   1   60 live  156250  156059    191(5/186/0)       0  156058 1 ok
+  19     151461 1   26   24   2   61 live  156260  156069    183(22/161/0)       8  156068 1 ok
+  20     159380 1   70   70   0   18 live  156240  156049    191(0/191/0)       0  156048 1 ok
+  21     167299 1   21   21   0   38 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  22     175218 1   53   52   1   49 live  156250  156060    190(15/175/0)       0  156059 1 ok
+  23     183137 1   31   30   1   58 live  156260  156068    192(6/186/0)       0  156067 1 ok
+  24     191056 1   76   76   0   10 live  156240  156050    190(17/173/0)       0  156049 1 ok
+  25     198975 1    7    7   0   34 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  26     206894 1   52   52   0   22 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  27     214813 1   30   30   0   41 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  28     222732 1   75   75   0   29 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  29     230651 1   13   13   0   11 live  156250  156059    191(4/187/0)       0  156058 1 ok
+  30     238570 1   24   24   0   15 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  31     246489 1   37   36   1   46 live  156250  156059    191(19/172/0)       0  156058 1 ok
+  32     254408 1   81   81   0   25 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  33     262327 1   25   25   0   43 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  34     270246 1   36   36   0   31 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  35     278165 1   82   82   0    1 live  156250  156059    191(16/175/0)       0  156058 1 ok
+  36     286084 1   94   94   0   19 live  156260  156068    192(0/192/0)       0  156067 1 ok
+  37     294003 1  126  125   1   50 live  156250  156059    191(12/179/0)       0  156058 1 ok
+  38     301922 1   42   42   0   26 live  156240  156050    190(0/190/0)       0  156049 1 ok
+  39     309841 1   88   88   0   12 live  156260  156067    193(0/193/0)       0  156066 1 ok
+  40     317760 1  100  100   0   36 live  156240  156051    189(0/189/0)       0  156050 1 ok
+  41     325679 1    4    3   1   56 live  156250  156059    191(10/181/0)       0  156058 1 ok
+  42     333598 1   44   42   2   62 live  156260  156068    192(47/145/0)       0  156067 1 ok
+  43     341517 1   89   88   1   52 live  156250  156060    190(18/172/0)       0  156059 1 ok
+  44     349436 1   86   86   0    5 live  156250  156058    192(17/175/0)       0  156057 1 ok
+  45     357355 1   97   97   0   17 live  156240  156049    191(0/191/0)       0  156048 1 ok
+  46     365274 1   48   48   0    8 live  156250  156060    190(17/173/0)       0  156059 1 ok
+  47     373193 1   95   94   1   48 live  156260  156068    192(18/174/0)       0  156067 1 ok
+  48     381112 1   92   92   0   44 live  156240  156050    190(0/190/0)       0  156049 1 ok
+  49     389031 1  103  103   0   33 live  156260  156069    191(0/191/0)       0  156068 1 ok
+  50     396950 1   60   60   0    2 live  156240  156049    191(18/173/0)       0  156048 1 ok
+  51     404869 1  106  106   0   21 live  156250  156058    192(0/192/0)       0  156057 1 ok
+  52     412788 1  105  104   1   51 live  156250  156060    190(13/177/0)       0  156059 1 ok
+  53     420707 1  115  115   0   28 live  156250  156058    192(0/192/0)       0  156057 1 ok
+  54     428626 1   66   66   0   14 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  55     436545 1  112  112   0   37 live  156260  156069    191(0/191/0)       0  156068 1 ok
+  56     444464 1  110  110   0   24 live  156240  156049    191(0/191/0)       0  156048 1 ok
+  57     452383 1  122  121   1   57 live  156250  156060    190(5/185/0)       0  156059 1 ok
+  58     460302 1   67   66   1   53 live  156250  156059    191(17/174/0)       0  156058 1 ok
+  59     468221 1   98   98   0   27 live  156250  156059    191(0/191/0)       0  156058 1 ok
+  60     476140 1   77   76   1   55 live  156250  156059    191(12/179/0)       0  156058 1 ok
+  61     484059 1  121  121   0   39 live  156240  156049    191(0/191/0)       0  156048 1 ok
+  62     491978 1   72   72   0    6 live  156260  156069    191(16/175/0)       0  156068 1 ok
+  63     499897 1  104  104   0   45 live  156240  156049    191(0/191/0)       0  156048 1 ok
+violations: e2big_with_room=1 e2big_on_live_key=1
+  note: key j=19: E2BIG 8 but the key is live
+  note: E2BIG 8 with live 64, max_entries 64, keys 64
+trial 11 seed=0xd9e8d93ca22dbb55 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7820 lost_other=3230 waits=11201 precheck_taken=0 fulldir=0/0 maxd=11 viol=0
+trial 12 seed=0x67ae851c7e9b68a0 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6775 lost_other=1386 waits=11243 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 13 seed=0xc84cba35065c962c live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7900 lost_other=1134 waits=11680 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 14 seed=0x835e0382856978e7 live=64 refused=0 claiming=0 EEXIST=12219 E2BIG=0 unstable=0 lost_same=7342 lost_other=874 waits=11587 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 15 seed=0x3b103bb04cb7b607 live=64 refused=0 claiming=0 EEXIST=12204 E2BIG=20 unstable=0 lost_same=8751 lost_other=1357 waits=11771 precheck_taken=0 fulldir=0/0 maxd=2 viol=2
+  note: key j=56: E2BIG 20 but the key is live
+  note: E2BIG 20 with live 64, max_entries 64, keys 64
+trial 16 seed=0xbe7a9a5acf30b217 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7357 lost_other=2482 waits=11576 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 17 seed=0xd157e23c309f8624 live=64 refused=0 claiming=0 EEXIST=12218 E2BIG=0 unstable=0 lost_same=7752 lost_other=3397 waits=10701 precheck_taken=0 fulldir=0/0 maxd=14 viol=0
+trial 18 seed=0xb2147171717491c7 live=64 refused=0 claiming=0 EEXIST=12203 E2BIG=0 unstable=0 lost_same=7326 lost_other=1648 waits=10480 precheck_taken=0 fulldir=0/0 maxd=14 viol=0
+trial 19 seed=0xba57d1c188012b21 live=64 refused=0 claiming=0 EEXIST=12222 E2BIG=2 unstable=0 lost_same=6347 lost_other=1711 waits=11223 precheck_taken=0 fulldir=0/0 maxd=5 viol=2
+  note: key j=16: E2BIG 2 but the key is live
+  note: E2BIG 2 with live 64, max_entries 64, keys 64
+trial 20 seed=0x4a3b69e8adc055b0 live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=0 unstable=0 lost_same=7632 lost_other=2023 waits=11257 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 21 seed=0xd32c2aa92f8147bf live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=9160 lost_other=2787 waits=11831 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 22 seed=0x2807981d85e12714 live=64 refused=0 claiming=0 EEXIST=12212 E2BIG=0 unstable=0 lost_same=6091 lost_other=1809 waits=10812 precheck_taken=0 fulldir=0/0 maxd=8 viol=0
+trial 23 seed=0xa0f6fe5e162b59b5 live=64 refused=0 claiming=0 EEXIST=12212 E2BIG=12 unstable=0 lost_same=9223 lost_other=1137 waits=11794 precheck_taken=0 fulldir=0/0 maxd=2 viol=2
+  note: key j=19: E2BIG 12 but the key is live
+  note: E2BIG 12 with live 64, max_entries 64, keys 64
+trial 24 seed=0xfa1d34af1999a9da live=64 refused=0 claiming=0 EEXIST=12218 E2BIG=0 unstable=0 lost_same=7706 lost_other=2411 waits=11253 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 25 seed=0x20c0552c9b160239 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8677 lost_other=1663 waits=11631 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 26 seed=0xbbdca5eb35b0975e live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6706 lost_other=1497 waits=11321 precheck_taken=0 fulldir=0/0 maxd=8 viol=0
+trial 27 seed=0x21d9343e5300cb15 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8255 lost_other=2154 waits=11536 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 28 seed=0xd1c8f6e5331d28dd live=64 refused=0 claiming=0 EEXIST=12161 E2BIG=63 unstable=0 lost_same=7489 lost_other=804 waits=11787 precheck_taken=0 fulldir=0/0 maxd=1 viol=39
+  note: key j=0: E2BIG 1 but the key is live
+  note: key j=1: E2BIG 1 but the key is live
+  note: key j=3: E2BIG 2 but the key is live
+  note: key j=6: E2BIG 2 but the key is live
+  note: E2BIG 63 with live 64, max_entries 64, keys 64
+trial 29 seed=0x40cdbcc59dd33981 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7719 lost_other=4012 waits=11208 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 30 seed=0x2ea4f65dfe29c669 live=64 refused=0 claiming=0 EEXIST=12220 E2BIG=4 unstable=0 lost_same=7053 lost_other=2408 waits=11759 precheck_taken=0 fulldir=0/0 maxd=3 viol=3
+  note: key j=11: E2BIG 2 but the key is live
+  note: key j=17: E2BIG 2 but the key is live
+  note: E2BIG 4 with live 64, max_entries 64, keys 64
+trial 31 seed=0xca549f6d2ab52fdd live=64 refused=0 claiming=0 EEXIST=12209 E2BIG=0 unstable=0 lost_same=6663 lost_other=1368 waits=10841 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 32 seed=0xc7e8e9133cd6f98b live=64 refused=0 claiming=0 EEXIST=12221 E2BIG=0 unstable=0 lost_same=9247 lost_other=1087 waits=11687 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 33 seed=0x8b8dae30669c7bff live=64 refused=0 claiming=0 EEXIST=12221 E2BIG=3 unstable=0 lost_same=7249 lost_other=1467 waits=11773 precheck_taken=0 fulldir=0/0 maxd=2 viol=2
+  note: key j=32: E2BIG 3 but the key is live
+  note: E2BIG 3 with live 64, max_entries 64, keys 64
+trial 34 seed=0x7640ff1c754979d8 live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=0 unstable=0 lost_same=7435 lost_other=2369 waits=11386 precheck_taken=0 fulldir=0/0 maxd=8 viol=0
+trial 35 seed=0xb01663504fb77c68 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7333 lost_other=1877 waits=11246 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 36 seed=0x72650d5d691f1ec8 live=64 refused=0 claiming=0 EEXIST=12203 E2BIG=21 unstable=0 lost_same=8072 lost_other=901 waits=11999 precheck_taken=0 fulldir=0/0 maxd=1 viol=21
+  note: key j=0: E2BIG 1 but the key is live
+  note: key j=3: E2BIG 1 but the key is live
+  note: key j=7: E2BIG 1 but the key is live
+  note: key j=9: E2BIG 1 but the key is live
+  note: E2BIG 21 with live 64, max_entries 64, keys 64
+trial 37 seed=0x2984e0ee76256508 live=64 refused=0 claiming=0 EEXIST=12221 E2BIG=3 unstable=0 lost_same=8669 lost_other=1639 waits=11948 precheck_taken=0 fulldir=0/0 maxd=4 viol=3
+  note: key j=7: E2BIG 2 but the key is live
+  note: key j=17: E2BIG 1 but the key is live
+  note: E2BIG 3 with live 64, max_entries 64, keys 64
+trial 38 seed=0x4acc5b16e92dbc8d live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7194 lost_other=1763 waits=11418 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 39 seed=0xeec0633828f2598e live=64 refused=0 claiming=0 EEXIST=12221 E2BIG=0 unstable=0 lost_same=7090 lost_other=2951 waits=11066 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 40 seed=0x6888bfb369483742 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6899 lost_other=1593 waits=11146 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 41 seed=0x42932c6b88aac8b8 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7880 lost_other=2890 waits=10696 precheck_taken=0 fulldir=0/0 maxd=12 viol=0
+trial 42 seed=0x55afcccd9ce99686 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8302 lost_other=1440 waits=11555 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 43 seed=0x0057af2bea88309c live=64 refused=0 claiming=0 EEXIST=12220 E2BIG=4 unstable=0 lost_same=7591 lost_other=1931 waits=11402 precheck_taken=0 fulldir=0/0 maxd=3 viol=3
+  note: key j=15: E2BIG 2 but the key is live
+  note: key j=49: E2BIG 2 but the key is live
+  note: E2BIG 4 with live 64, max_entries 64, keys 64
+trial 44 seed=0x284894a9ee311471 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8329 lost_other=2180 waits=11641 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 45 seed=0x7e4450d401031220 live=64 refused=0 claiming=0 EEXIST=12214 E2BIG=10 unstable=0 lost_same=7254 lost_other=815 waits=11221 precheck_taken=0 fulldir=0/0 maxd=3 viol=3
+  note: key j=51: E2BIG 3 but the key is live
+  note: key j=58: E2BIG 7 but the key is live
+  note: E2BIG 10 with live 64, max_entries 64, keys 64
+trial 46 seed=0x7fc630987b4b7664 live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=1 unstable=0 lost_same=7958 lost_other=1684 waits=11517 precheck_taken=0 fulldir=0/0 maxd=4 viol=2
+  note: key j=33: E2BIG 1 but the key is live
+  note: E2BIG 1 with live 64, max_entries 64, keys 64
+trial 47 seed=0xe96e78c41bc55cfd live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7327 lost_other=2121 waits=11543 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 48 seed=0x82c121de7362d5a2 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8151 lost_other=2922 waits=11512 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 49 seed=0x5d7d98eee8688fa6 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8208 lost_other=1111 waits=11658 precheck_taken=0 fulldir=0/0 maxd=2 viol=0
+trial 50 seed=0x9807e19cf049bb78 live=64 refused=0 claiming=0 EEXIST=12222 E2BIG=2 unstable=0 lost_same=9959 lost_other=647 waits=12028 precheck_taken=0 fulldir=0/0 maxd=2 viol=2
+  note: key j=10: E2BIG 2 but the key is live
+  note: E2BIG 2 with live 64, max_entries 64, keys 64
+trial 51 seed=0x7f1894650c4c4597 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8815 lost_other=1352 waits=11839 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 52 seed=0x9a5a6e931b385c95 live=64 refused=0 claiming=0 EEXIST=12220 E2BIG=0 unstable=0 lost_same=7515 lost_other=1301 waits=11463 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 53 seed=0xb928f242015bd064 live=64 refused=0 claiming=0 EEXIST=12214 E2BIG=0 unstable=0 lost_same=8844 lost_other=1061 waits=11902 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 54 seed=0x0c968bba652d857c live=64 refused=0 claiming=0 EEXIST=12215 E2BIG=6 unstable=0 lost_same=8132 lost_other=1950 waits=11467 precheck_taken=0 fulldir=0/0 maxd=5 viol=3
+  note: key j=11: E2BIG 3 but the key is live
+  note: key j=13: E2BIG 3 but the key is live
+  note: E2BIG 6 with live 64, max_entries 64, keys 64
+trial 55 seed=0x80662acddd4621a6 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=10068 lost_other=3693 waits=11715 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 56 seed=0x92e6c28f1f311a0f live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=9006 lost_other=2669 waits=11553 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 57 seed=0xed317d92cb9327e1 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6875 lost_other=2055 waits=11265 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 58 seed=0x53030205ac2b8ebc live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8957 lost_other=3488 waits=11349 precheck_taken=0 fulldir=0/0 maxd=13 viol=0
+trial 59 seed=0x7d54ba4338c5b702 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7606 lost_other=1463 waits=11839 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 60 seed=0xcd2829a90861ab89 live=64 refused=0 claiming=0 EEXIST=12221 E2BIG=0 unstable=0 lost_same=8365 lost_other=2528 waits=11062 precheck_taken=0 fulldir=0/0 maxd=13 viol=0
+trial 61 seed=0xfd213cf3fc76ec8b live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=1 unstable=0 lost_same=7453 lost_other=1332 waits=11449 precheck_taken=0 fulldir=0/0 maxd=3 viol=2
+  note: key j=14: E2BIG 1 but the key is live
+  note: E2BIG 1 with live 64, max_entries 64, keys 64
+trial 62 seed=0x8a8dadeafe005360 live=64 refused=0 claiming=0 EEXIST=12218 E2BIG=2 unstable=0 lost_same=7558 lost_other=740 waits=11445 precheck_taken=0 fulldir=0/0 maxd=5 viol=2
+  note: key j=18: E2BIG 2 but the key is live
+  note: E2BIG 2 with live 64, max_entries 64, keys 64
+trial 63 seed=0x8dda38d6573ca3e6 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7883 lost_other=1179 waits=11801 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 64 seed=0x818a99c3197083ce live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8113 lost_other=1331 waits=11941 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 65 seed=0x7a68b70da5b6b972 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6952 lost_other=1446 waits=11011 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 66 seed=0xb34cf32327edeb19 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7436 lost_other=1729 waits=11514 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 67 seed=0x0f9064ec2375f839 live=64 refused=0 claiming=0 EEXIST=12207 E2BIG=0 unstable=0 lost_same=6857 lost_other=2403 waits=10842 precheck_taken=0 fulldir=0/0 maxd=14 viol=0
+trial 68 seed=0xffe3edd99b8b4e47 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7550 lost_other=2299 waits=11522 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 69 seed=0x635266978a5eb4b6 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8514 lost_other=1981 waits=11685 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 70 seed=0xcfab227a89f8926c live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6720 lost_other=2167 waits=10908 precheck_taken=0 fulldir=0/0 maxd=8 viol=0
+trial 71 seed=0x242178eaf6091474 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8417 lost_other=1829 waits=11658 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 72 seed=0xf1032b859fc413ee live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8472 lost_other=3801 waits=11564 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 73 seed=0x53fceefb982f8983 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7960 lost_other=2451 waits=10740 precheck_taken=0 fulldir=0/0 maxd=15 viol=0
+trial 74 seed=0x9dd97ecd2e8bfa30 live=64 refused=0 claiming=0 EEXIST=12217 E2BIG=0 unstable=0 lost_same=7715 lost_other=3048 waits=11435 precheck_taken=0 fulldir=0/0 maxd=23 viol=0
+trial 75 seed=0x881edb5bbb366787 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=9372 lost_other=2322 waits=11884 precheck_taken=0 fulldir=0/0 maxd=8 viol=0
+trial 76 seed=0x745a30a3af5b4e00 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7676 lost_other=3992 waits=11771 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 77 seed=0x01230f3a9a54f039 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7000 lost_other=1591 waits=10722 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 78 seed=0xb298de97eb44d234 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8420 lost_other=2908 waits=11414 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 79 seed=0xaac2764cbfdde441 live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=0 unstable=0 lost_same=7623 lost_other=1937 waits=11292 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 80 seed=0xccc59267e6903c21 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6949 lost_other=2071 waits=11596 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 81 seed=0x69959f4bc7a97a30 live=64 refused=0 claiming=0 EEXIST=12221 E2BIG=0 unstable=0 lost_same=8984 lost_other=1565 waits=11923 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 82 seed=0x3d2e5a31e09212bc live=64 refused=0 claiming=0 EEXIST=12201 E2BIG=0 unstable=0 lost_same=7013 lost_other=1565 waits=11493 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 83 seed=0xa5b350cf7e9ad14f live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6607 lost_other=1613 waits=11617 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 84 seed=0x8087a27f8782cd68 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7334 lost_other=2413 waits=11142 precheck_taken=0 fulldir=0/0 maxd=14 viol=0
+trial 85 seed=0x6b8795a4ee1b80b9 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8875 lost_other=3411 waits=11586 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 86 seed=0xd119228c34804097 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7817 lost_other=1932 waits=11698 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 87 seed=0x3bd7e0e92b8e3ed1 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6613 lost_other=1582 waits=11585 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 88 seed=0xa834f10cd9ab7dbf live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6138 lost_other=1596 waits=11298 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 89 seed=0x880465dcc56bd5b8 live=64 refused=0 claiming=0 EEXIST=12220 E2BIG=4 unstable=0 lost_same=7186 lost_other=1082 waits=11650 precheck_taken=0 fulldir=0/0 maxd=4 viol=2
+  note: key j=18: E2BIG 4 but the key is live
+  note: E2BIG 4 with live 64, max_entries 64, keys 64
+trial 90 seed=0xfc38ed1d273f6342 live=64 refused=0 claiming=0 EEXIST=12221 E2BIG=0 unstable=0 lost_same=7148 lost_other=2676 waits=11108 precheck_taken=0 fulldir=0/0 maxd=10 viol=0
+trial 91 seed=0xb69c4cf9143b79c4 live=64 refused=0 claiming=0 EEXIST=12214 E2BIG=0 unstable=0 lost_same=7860 lost_other=629 waits=11844 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 92 seed=0x370fc9e18d26a90f live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6756 lost_other=1327 waits=11266 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 93 seed=0x1f77b596e939e2c7 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6377 lost_other=1307 waits=11314 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 94 seed=0x62049d8f202b3bc4 live=64 refused=0 claiming=0 EEXIST=12206 E2BIG=18 unstable=0 lost_same=8152 lost_other=1630 waits=11221 precheck_taken=0 fulldir=0/0 maxd=3 viol=3
+  note: key j=30: E2BIG 7 but the key is live
+  note: key j=49: E2BIG 11 but the key is live
+  note: E2BIG 18 with live 64, max_entries 64, keys 64
+trial 95 seed=0x307d8395ee64499c live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6990 lost_other=1443 waits=10737 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 96 seed=0x379072524049ac9f live=64 refused=0 claiming=0 EEXIST=12221 E2BIG=0 unstable=0 lost_same=7816 lost_other=1312 waits=11712 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 97 seed=0x7840e8f5acb63c8e live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=1 unstable=0 lost_same=6719 lost_other=1491 waits=11359 precheck_taken=0 fulldir=0/0 maxd=3 viol=2
+  note: key j=37: E2BIG 1 but the key is live
+  note: E2BIG 1 with live 64, max_entries 64, keys 64
+trial 98 seed=0x7ae0d1148d244206 live=64 refused=0 claiming=0 EEXIST=12216 E2BIG=0 unstable=0 lost_same=7025 lost_other=1213 waits=10735 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 99 seed=0xd497e88804af60ae live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7506 lost_other=2541 waits=11765 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 100 seed=0x9313801f86131dc6 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8949 lost_other=3002 waits=11746 precheck_taken=0 fulldir=0/0 maxd=8 viol=0
+trial 101 seed=0xa01e28d1be40ef56 live=64 refused=0 claiming=0 EEXIST=12186 E2BIG=0 unstable=0 lost_same=6180 lost_other=2017 waits=10587 precheck_taken=0 fulldir=0/0 maxd=20 viol=0
+trial 102 seed=0xdcfd8b0ed601b260 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=10182 lost_other=2493 waits=11893 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 103 seed=0xf039c7bd4556e9c9 live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=1 unstable=0 lost_same=9017 lost_other=1076 waits=11811 precheck_taken=0 fulldir=0/0 maxd=2 viol=2
+  note: key j=58: E2BIG 1 but the key is live
+  note: E2BIG 1 with live 64, max_entries 64, keys 64
+trial 104 seed=0xaf6a12f1e7b0f7e3 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7403 lost_other=1927 waits=11739 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 105 seed=0xdf65b3b1e37eb831 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7511 lost_other=1307 waits=11042 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 106 seed=0xdc5d64fd7ab90d1c live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=9531 lost_other=1725 waits=11649 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 107 seed=0x7daded4f2b7bbcf1 live=64 refused=0 claiming=0 EEXIST=12220 E2BIG=0 unstable=0 lost_same=7466 lost_other=1280 waits=11130 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 108 seed=0x615488cc79203ef6 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7783 lost_other=1644 waits=11094 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 109 seed=0xc9e5f8599582c360 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=10950 lost_other=2303 waits=12077 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 110 seed=0x933d6bb65e9d1c63 live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=1 unstable=0 lost_same=6639 lost_other=3012 waits=11528 precheck_taken=0 fulldir=0/0 maxd=3 viol=2
+  note: key j=34: E2BIG 1 but the key is live
+  note: E2BIG 1 with live 64, max_entries 64, keys 64
+trial 111 seed=0x618a213040dfabc8 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8268 lost_other=660 waits=11860 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 112 seed=0xda4d53ff962bd6d5 live=64 refused=0 claiming=0 EEXIST=12215 E2BIG=9 unstable=0 lost_same=8489 lost_other=1667 waits=11877 precheck_taken=0 fulldir=0/0 maxd=3 viol=2
+  note: key j=57: E2BIG 9 but the key is live
+  note: E2BIG 9 with live 64, max_entries 64, keys 64
+trial 113 seed=0xf729e63913f492b3 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6853 lost_other=2182 waits=10941 precheck_taken=0 fulldir=0/0 maxd=9 viol=0
+trial 114 seed=0xc9b39f5b3902a865 live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=0 unstable=0 lost_same=7653 lost_other=1783 waits=11407 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 115 seed=0xc19e944899591b5d live=64 refused=0 claiming=0 EEXIST=12213 E2BIG=0 unstable=0 lost_same=7171 lost_other=2631 waits=11317 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 116 seed=0xacbaed738cb6b02b live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=1 unstable=0 lost_same=8466 lost_other=997 waits=11569 precheck_taken=0 fulldir=0/0 maxd=4 viol=2
+  note: key j=9: E2BIG 1 but the key is live
+  note: E2BIG 1 with live 64, max_entries 64, keys 64
+trial 117 seed=0x4786463e868e26f9 live=64 refused=0 claiming=0 EEXIST=12221 E2BIG=0 unstable=0 lost_same=7785 lost_other=1203 waits=11335 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 118 seed=0x2ece224ca7e81809 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7401 lost_other=3587 waits=11321 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 119 seed=0x963cdb58545eb6d0 live=64 refused=0 claiming=0 EEXIST=12220 E2BIG=4 unstable=0 lost_same=6489 lost_other=623 waits=11431 precheck_taken=0 fulldir=0/0 maxd=2 viol=2
+  note: key j=35: E2BIG 4 but the key is live
+  note: E2BIG 4 with live 64, max_entries 64, keys 64
+trial 120 seed=0x912d892ed35da62f live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=0 unstable=0 lost_same=7172 lost_other=1495 waits=11533 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 121 seed=0x24f8783c4961f706 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6272 lost_other=1033 waits=11152 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 122 seed=0x9d678c35dbb95efe live=64 refused=0 claiming=0 EEXIST=12214 E2BIG=0 unstable=0 lost_same=7820 lost_other=2149 waits=11491 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 123 seed=0x288dc97899c867e1 live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=0 unstable=0 lost_same=8007 lost_other=2054 waits=11661 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 124 seed=0x5db50a9e7f3ae8cc live=64 refused=0 claiming=0 EEXIST=12206 E2BIG=1 unstable=0 lost_same=6534 lost_other=1424 waits=11432 precheck_taken=0 fulldir=0/0 maxd=5 viol=2
+  note: key j=21: E2BIG 1 but the key is live
+  note: E2BIG 1 with live 64, max_entries 64, keys 64
+trial 125 seed=0x236a1393efd831ca live=64 refused=0 claiming=0 EEXIST=12221 E2BIG=0 unstable=0 lost_same=6384 lost_other=3228 waits=10444 precheck_taken=0 fulldir=0/0 maxd=38 viol=0
+trial 126 seed=0x6f2e94d47d212451 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6629 lost_other=2421 waits=11517 precheck_taken=0 fulldir=0/0 maxd=8 viol=0
+trial 127 seed=0x4f6b7b300d97e99b live=64 refused=0 claiming=0 EEXIST=12216 E2BIG=8 unstable=0 lost_same=6808 lost_other=1870 waits=11401 precheck_taken=0 fulldir=0/0 maxd=2 viol=3
+  note: key j=34: E2BIG 4 but the key is live
+  note: key j=35: E2BIG 4 but the key is live
+  note: E2BIG 8 with live 64, max_entries 64, keys 64
+trial 128 seed=0xd8a7a1700aec031b live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=10713 lost_other=2498 waits=11835 precheck_taken=0 fulldir=0/0 maxd=10 viol=0
+trial 129 seed=0x85abfeae2cd8d4f9 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=10168 lost_other=2025 waits=12014 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 130 seed=0x6aa83ab435db8b36 live=64 refused=0 claiming=0 EEXIST=12200 E2BIG=0 unstable=0 lost_same=6652 lost_other=1692 waits=11320 precheck_taken=0 fulldir=0/0 maxd=11 viol=0
+trial 131 seed=0x2960946bee6b7a7f live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6196 lost_other=2276 waits=11204 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 132 seed=0x235ea360cfb17314 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6275 lost_other=3340 waits=10894 precheck_taken=0 fulldir=0/0 maxd=12 viol=0
+trial 133 seed=0x9569875b1af5f8f2 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7464 lost_other=1430 waits=11716 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 134 seed=0xbce80de448d9081d live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8157 lost_other=788 waits=11635 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 135 seed=0x219fb56f139869fd live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7128 lost_other=1668 waits=11843 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 136 seed=0x83fd412fcfeb8772 live=64 refused=0 claiming=0 EEXIST=12220 E2BIG=0 unstable=0 lost_same=6369 lost_other=1461 waits=10672 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 137 seed=0x11b3b88ebf6ebaa5 live=64 refused=0 claiming=0 EEXIST=12217 E2BIG=0 unstable=0 lost_same=7538 lost_other=1937 waits=11425 precheck_taken=0 fulldir=0/0 maxd=11 viol=0
+trial 138 seed=0xc86c6067aa66119e live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6330 lost_other=2371 waits=11343 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 139 seed=0x3f4eeb36c63928ac live=64 refused=0 claiming=0 EEXIST=12210 E2BIG=14 unstable=0 lost_same=7004 lost_other=1463 waits=11154 precheck_taken=0 fulldir=0/0 maxd=2 viol=2
+  note: key j=57: E2BIG 14 but the key is live
+  note: E2BIG 14 with live 64, max_entries 64, keys 64
+trial 140 seed=0x583c9894c0235cc4 live=64 refused=0 claiming=0 EEXIST=12222 E2BIG=0 unstable=0 lost_same=6349 lost_other=2035 waits=10454 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 141 seed=0x84d9a06268d06ad5 live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=1 unstable=0 lost_same=7263 lost_other=851 waits=11448 precheck_taken=0 fulldir=0/0 maxd=3 viol=2
+  note: key j=47: E2BIG 1 but the key is live
+  note: E2BIG 1 with live 64, max_entries 64, keys 64
+trial 142 seed=0x1dd96ec851af361a live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7060 lost_other=1154 waits=11039 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 143 seed=0x888d918ce7c1d6b7 live=64 refused=0 claiming=0 EEXIST=12222 E2BIG=0 unstable=0 lost_same=7549 lost_other=1006 waits=11555 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 144 seed=0x2337cf1accf8d253 live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=0 unstable=0 lost_same=7019 lost_other=1824 waits=11061 precheck_taken=0 fulldir=0/0 maxd=10 viol=0
+trial 145 seed=0x207c2d04a9602e4c live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=9099 lost_other=1377 waits=11863 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 146 seed=0x80d78e9da0bade00 live=64 refused=0 claiming=0 EEXIST=12222 E2BIG=2 unstable=0 lost_same=7118 lost_other=816 waits=11400 precheck_taken=0 fulldir=0/0 maxd=2 viol=2
+  note: key j=0: E2BIG 2 but the key is live
+  note: E2BIG 2 with live 64, max_entries 64, keys 64
+trial 147 seed=0xc2f25f7197e0ecf2 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8854 lost_other=1324 waits=11846 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 148 seed=0xd3a60ddb6dc2728e live=64 refused=0 claiming=0 EEXIST=12204 E2BIG=0 unstable=0 lost_same=7257 lost_other=2282 waits=11370 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 149 seed=0xf0f6b24afcb9c3ba live=64 refused=0 claiming=0 EEXIST=12218 E2BIG=0 unstable=0 lost_same=6533 lost_other=2454 waits=10910 precheck_taken=0 fulldir=0/0 maxd=9 viol=0
+trial 150 seed=0x4432f0464f90aa33 live=64 refused=0 claiming=0 EEXIST=12211 E2BIG=0 unstable=0 lost_same=6582 lost_other=1158 waits=10741 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 151 seed=0xdb466e3240e514d2 live=64 refused=0 claiming=0 EEXIST=12221 E2BIG=0 unstable=0 lost_same=6458 lost_other=3625 waits=11354 precheck_taken=0 fulldir=0/0 maxd=8 viol=0
+trial 152 seed=0x838136ddf5955234 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7100 lost_other=2150 waits=11334 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 153 seed=0xfce9252104ebd150 live=64 refused=0 claiming=0 EEXIST=12211 E2BIG=0 unstable=0 lost_same=8634 lost_other=1972 waits=11714 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 154 seed=0xbf8f8e791c707f34 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7371 lost_other=3878 waits=10802 precheck_taken=0 fulldir=0/0 maxd=21 viol=0
+trial 155 seed=0x3c0fd1dd4f309199 live=64 refused=0 claiming=0 EEXIST=12192 E2BIG=32 unstable=0 lost_same=6569 lost_other=1557 waits=11338 precheck_taken=0 fulldir=0/0 maxd=2 viol=4
+  note: key j=9: E2BIG 5 but the key is live
+  note: key j=35: E2BIG 13 but the key is live
+  note: key j=52: E2BIG 14 but the key is live
+  note: E2BIG 32 with live 64, max_entries 64, keys 64
+trial 156 seed=0x266f30136ae3a85c live=64 refused=0 claiming=0 EEXIST=12210 E2BIG=14 unstable=0 lost_same=7807 lost_other=2364 waits=11676 precheck_taken=0 fulldir=0/0 maxd=2 viol=5
+  note: key j=3: E2BIG 1 but the key is live
+  note: key j=18: E2BIG 5 but the key is live
+  note: key j=26: E2BIG 7 but the key is live
+  note: key j=32: E2BIG 1 but the key is live
+  note: E2BIG 14 with live 64, max_entries 64, keys 64
+trial 157 seed=0xc7e2a13d8a7e18a9 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7462 lost_other=2535 waits=10765 precheck_taken=0 fulldir=0/0 maxd=25 viol=0
+trial 158 seed=0x48becd6c5dfa27f4 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6083 lost_other=2579 waits=10506 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 159 seed=0x9fa360a8564ae62c live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=0 unstable=0 lost_same=7423 lost_other=3126 waits=11188 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 160 seed=0x07c2d9aa26c11d80 live=64 refused=0 claiming=0 EEXIST=12220 E2BIG=4 unstable=0 lost_same=8692 lost_other=1133 waits=12032 precheck_taken=0 fulldir=0/0 maxd=1 viol=4
+  note: key j=42: E2BIG 1 but the key is live
+  note: key j=46: E2BIG 1 but the key is live
+  note: key j=60: E2BIG 2 but the key is live
+  note: E2BIG 4 with live 64, max_entries 64, keys 64
+trial 161 seed=0x858eef232e8df5a6 live=64 refused=0 claiming=0 EEXIST=12218 E2BIG=6 unstable=0 lost_same=7569 lost_other=990 waits=11879 precheck_taken=0 fulldir=0/0 maxd=2 viol=2
+  note: key j=50: E2BIG 6 but the key is live
+  note: E2BIG 6 with live 64, max_entries 64, keys 64
+trial 162 seed=0xe8040af962135d0a live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=1 unstable=0 lost_same=6812 lost_other=2170 waits=11715 precheck_taken=0 fulldir=0/0 maxd=4 viol=2
+  note: key j=62: E2BIG 1 but the key is live
+  note: E2BIG 1 with live 64, max_entries 64, keys 64
+trial 163 seed=0x0fb99497024b532a live=64 refused=0 claiming=0 EEXIST=12222 E2BIG=2 unstable=0 lost_same=6577 lost_other=2465 waits=11287 precheck_taken=0 fulldir=0/0 maxd=8 viol=2
+  note: key j=42: E2BIG 2 but the key is live
+  note: E2BIG 2 with live 64, max_entries 64, keys 64
+trial 164 seed=0xb10d21926fd9157f live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=1 unstable=0 lost_same=8110 lost_other=1951 waits=11954 precheck_taken=0 fulldir=0/0 maxd=4 viol=2
+  note: key j=0: E2BIG 1 but the key is live
+  note: E2BIG 1 with live 64, max_entries 64, keys 64
+trial 165 seed=0xbf41fe6ea0fdcce5 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8142 lost_other=1555 waits=11623 precheck_taken=0 fulldir=0/0 maxd=13 viol=0
+trial 166 seed=0x136804a7c748ef9f live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8672 lost_other=3618 waits=11110 precheck_taken=0 fulldir=0/0 maxd=9 viol=0
+trial 167 seed=0x02d7631a20dfe7a3 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6665 lost_other=895 waits=11089 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 168 seed=0x18a93d0b208e6b0d live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7779 lost_other=1528 waits=11426 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 169 seed=0xda182f392e6c230e live=64 refused=0 claiming=0 EEXIST=12194 E2BIG=0 unstable=0 lost_same=6731 lost_other=2316 waits=10073 precheck_taken=0 fulldir=0/0 maxd=17 viol=0
+trial 170 seed=0x7d56209fc8bed660 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8700 lost_other=1504 waits=11567 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 171 seed=0x129359f928173d22 live=64 refused=0 claiming=0 EEXIST=12216 E2BIG=0 unstable=0 lost_same=6289 lost_other=939 waits=11494 precheck_taken=0 fulldir=0/0 maxd=9 viol=0
+trial 172 seed=0x3fa47847c2b0c11f live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6386 lost_other=1236 waits=10970 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 173 seed=0x97d43a7901dac6e7 live=64 refused=0 claiming=0 EEXIST=12220 E2BIG=0 unstable=0 lost_same=6772 lost_other=2977 waits=10726 precheck_taken=0 fulldir=0/0 maxd=12 viol=0
+trial 174 seed=0x7681c498ba1d353f live=64 refused=0 claiming=0 EEXIST=12222 E2BIG=0 unstable=0 lost_same=5911 lost_other=1886 waits=11080 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 175 seed=0xbdd8d2a16e049cd0 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6334 lost_other=1621 waits=11592 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 176 seed=0x3dc24b1bc76fc0c0 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6853 lost_other=9406 waits=11538 precheck_taken=0 fulldir=0/0 maxd=13 viol=0
+trial 177 seed=0xde7148a43423103b live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7486 lost_other=1072 waits=11962 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 178 seed=0xd814080b03f22600 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6595 lost_other=1650 waits=11257 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 179 seed=0xaea8932793c070c4 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6634 lost_other=1850 waits=11454 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 180 seed=0x5e4c86dc5dbbdf26 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6809 lost_other=1557 waits=11850 precheck_taken=0 fulldir=0/0 maxd=2 viol=0
+trial 181 seed=0x7ddc1cfa1454d5ce live=64 refused=0 claiming=0 EEXIST=12222 E2BIG=0 unstable=0 lost_same=6949 lost_other=1753 waits=11270 precheck_taken=0 fulldir=0/0 maxd=6 viol=0
+trial 182 seed=0x28136e385b542732 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=8099 lost_other=1077 waits=11874 precheck_taken=0 fulldir=0/0 maxd=3 viol=0
+trial 183 seed=0xd8cce25b929c944d live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=0 unstable=0 lost_same=7477 lost_other=2404 waits=11147 precheck_taken=0 fulldir=0/0 maxd=10 viol=0
+trial 184 seed=0x0eb7931ad0c0425b live=64 refused=0 claiming=0 EEXIST=12197 E2BIG=27 unstable=0 lost_same=7734 lost_other=1702 waits=11514 precheck_taken=0 fulldir=0/0 maxd=1 viol=8
+  note: key j=15: E2BIG 5 but the key is live
+  note: key j=19: E2BIG 2 but the key is live
+  note: key j=21: E2BIG 6 but the key is live
+  note: key j=36: E2BIG 4 but the key is live
+  note: E2BIG 27 with live 64, max_entries 64, keys 64
+trial 185 seed=0xac011489555d039d live=64 refused=0 claiming=0 EEXIST=12219 E2BIG=5 unstable=0 lost_same=6942 lost_other=1487 waits=11384 precheck_taken=0 fulldir=0/0 maxd=3 viol=2
+  note: key j=36: E2BIG 5 but the key is live
+  note: E2BIG 5 with live 64, max_entries 64, keys 64
+trial 186 seed=0x1cfaf1746bb57b58 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7624 lost_other=2698 waits=11636 precheck_taken=0 fulldir=0/0 maxd=10 viol=0
+trial 187 seed=0x42bbcacff155fc74 live=64 refused=0 claiming=0 EEXIST=12211 E2BIG=0 unstable=0 lost_same=8984 lost_other=3125 waits=10976 precheck_taken=0 fulldir=0/0 maxd=51 viol=0
+trial 188 seed=0x46e71c9dcc89c6c4 live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=1 unstable=0 lost_same=6231 lost_other=1318 waits=11327 precheck_taken=0 fulldir=0/0 maxd=3 viol=2
+  note: key j=2: E2BIG 1 but the key is live
+  note: E2BIG 1 with live 64, max_entries 64, keys 64
+trial 189 seed=0x2dd3005037f03254 live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=0 unstable=0 lost_same=9478 lost_other=2094 waits=11412 precheck_taken=0 fulldir=0/0 maxd=7 viol=0
+trial 190 seed=0xec1a4aeb99498205 live=64 refused=0 claiming=0 EEXIST=12222 E2BIG=2 unstable=0 lost_same=6564 lost_other=1336 waits=11698 precheck_taken=0 fulldir=0/0 maxd=2 viol=2
+  note: key j=55: E2BIG 2 but the key is live
+  note: E2BIG 2 with live 64, max_entries 64, keys 64
+trial 191 seed=0x7f4221b22e7d06e7 live=64 refused=0 claiming=0 EEXIST=12219 E2BIG=4 unstable=0 lost_same=6789 lost_other=3654 waits=11298 precheck_taken=0 fulldir=0/0 maxd=6 viol=3
+  note: key j=20: E2BIG 2 but the key is live
+  note: key j=60: E2BIG 2 but the key is live
+  note: E2BIG 4 with live 64, max_entries 64, keys 64
+trial 192 seed=0xfd43a43008fc0c26 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7829 lost_other=1912 waits=11626 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 193 seed=0xa74e06082117b7bc live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6286 lost_other=1898 waits=11266 precheck_taken=0 fulldir=0/0 maxd=4 viol=0
+trial 194 seed=0xea08f29208eb6250 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=7093 lost_other=1906 waits=11280 precheck_taken=0 fulldir=0/0 maxd=2 viol=0
+trial 195 seed=0x955c9305cee84cd2 live=64 refused=0 claiming=0 EEXIST=12219 E2BIG=0 unstable=0 lost_same=7545 lost_other=1955 waits=11448 precheck_taken=0 fulldir=0/0 maxd=10 viol=0
+trial 196 seed=0xf224654bbc404109 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=10154 lost_other=1585 waits=11783 precheck_taken=0 fulldir=0/0 maxd=5 viol=0
+trial 197 seed=0x9c0d08be3b0ea5d7 live=64 refused=0 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=6148 lost_other=2955 waits=10829 precheck_taken=0 fulldir=0/0 maxd=8 viol=0
+trial 198 seed=0x806304f3e95e9bd1 live=64 refused=0 claiming=0 EEXIST=12217 E2BIG=0 unstable=0 lost_same=6260 lost_other=1746 waits=11136 precheck_taken=0 fulldir=0/0 maxd=9 viol=0
+trial 199 seed=0x15e5727d036d055c live=64 refused=0 claiming=0 EEXIST=12218 E2BIG=6 unstable=0 lost_same=6639 lost_other=1066 waits=11735 precheck_taken=0 fulldir=0/0 maxd=3 viol=2
+  note: key j=11: E2BIG 6 but the key is live
+  note: E2BIG 6 with live 64, max_entries 64, keys 64
+trial 200 seed=0xc18ed30f37d95251 live=64 refused=0 claiming=0 EEXIST=12223 E2BIG=0 unstable=0 lost_same=7722 lost_other=1585 waits=11173 precheck_taken=0 fulldir=0/0 maxd=12 viol=0
+
+=== summary build=ctl5-precheck-without-reread max_entries=64 keys=64 trials=201 ===
+trials_with_violation=44/201
+violations by kind: e2big_with_room=44 e2big_on_live_key=122
+counted: EEXIST=2456216 E2BIG=360 unstable=0 eexist_then_null=0 unstable_then_null=0
+per trial: EEXIST min=12161 max=12224, E2BIG min=0 max=63, live min=64 max=64 (expected 64)
+refused slots: sum=0 max per trial=0
+branches: lost_same_key=1520070 lost_other_key=393169 walk_saw_claiming=771222 waits=2291292 wait_sleeps=573006 givebacks=0 e2big_precheck=360 precheck_slot_taken=0 e2big_refused_winner=0 e2big_saw_refused=0 e2big_fulldir=0 fulldir_unstable=0 insert_fullwalk=0 lookup_fullwalk=0
+longest wait: elapsed_ns=78976 requested_ns=12224 (bound 100000)
+dir: keys off home (sum over trials)=2712 max probe distance=51
+RESULT VIOLATIONS
+### exit=1 wall_s=7.604946463

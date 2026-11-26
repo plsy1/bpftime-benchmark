@@ -1,5 +1,7 @@
 # Hash maps in the GPU map model: design, stage one (2026-11-26)
 
+Updated 11-27 after the checks: round one (`gpu/hash-round1-20261126`) and round two (`gpu/hash-round2-20261127`). The insert below is round two's order (claim, then reserve).
+
 User 11-26: start designing the hash map, after `gpu/hash-current-20261126` (today every GPU hash operation is a host call: 10-13 us back to back, 18-21 us sparse, one at a time for the whole process).
 
 How this was made: a design panel (`appendix/`) of four independent designs, three judges (correctness, cost at llama.cpp scale, fit with the code) and one synthesis.
@@ -26,7 +28,7 @@ A **device hash map**: a hash map that GPU probes use without host calls. It has
 
 1. **Key directory** (from the device-table design).
    - Open addressing in device memory (cuMemAlloc, zeroed as 1531's copy is). Each key claims a slot for good, with one 64-bit compare-and-swap inside trampoline code.
-   - The table has next_pow2(2 x max_entries) slots. At most max_entries are ever claimed, so at least half stay empty and every probe sequence ends.
+   - The table has next_pow2(2 x max_entries) slots. At most max_entries keys are ever live, but a winner refused at capacity keeps its slot (refused, permanent). Refused slots number up to (distinct keys tried) - max_entries, and the table fills once the distinct keys tried reach the slot count (round two, C5 e/f). Every walk is therefore bounded by the slot count. Any undersized map hits this, for the life of the device copy; misses then walk the whole table.
    - A claimed slot never changes its key. Hence a key never sits in two slots, there is no ABA, and the CPU's iteration order never changes.
 2. **Values that GPU programs only add to** (stage one; from the shards design, as its "directory variant").
    - Each claimed key gets a row numbered in claim order. A row holds 1531's (SM, lane) shards: (smid & 7) x 32 + laneid, 256 on the Orin.
@@ -52,18 +54,22 @@ All header and value accesses go through the `.global` address (`cvta.to.global`
   - Walk from K's home slot with `ld.relaxed.gpu.global.b64` until K's header or an empty slot.
   - A live K returns the calling thread's shard of K's row. A missing K, or one whose claim is in flight, returns NULL. That is bpf's answer for a key not yet inserted.
   - The lookup never waits.
-  - Constant map fds can take an inline hit path (hash, one header load, compare, row to address). Whether that pays is check C2.
+  - Constant map fds take an inline hit path (hash, one header load, compare, row to address): round one's C2 measured it at 0.034-0.037 ns per thread over 1531's sum array, and 0.016 less than a called walk.
 - **Through the returned pointer:**
-  - null tests and 64-bit atomic adds, which become `red.global.add.u64` as for 1531;
+  - null tests and 64-bit atomic adds, which become `red.relaxed.gpu.global.add.u64` (qualifiers written out) as for 1531;
   - "adds only" is a contract, as for 1531 today: the tool declares the type.
-- **update(K, V, BPF_NOEXIST):**
-  - A live K: -EEXIST, counted.
-  - At an empty slot: reserve capacity with an atomic add on a `bound` counter (-E2BIG, counted, past max_entries), then CAS the slot from empty to {K, claiming}.
-    - Won: take a row with an atomic add on `next_row`, add V into the caller's shard, then publish {K, row, live} with `st.release.gpu`.
-    - Lost to K: give the reservation back, wait for live (bounded: below), then -EEXIST.
+- **update(K, V, BPF_NOEXIST)** (claim, then reserve; round two):
+  - A live K: -EEXIST, counted. A refused K: -E2BIG, counted. A claiming K: wait (below).
+  - At an empty slot: read the reservation count with `ld.acquire.gpu`. At or above max_entries, read the slot again: still empty, -E2BIG; otherwise handle that slot again. Below it, CAS the slot from empty to {K, claiming}.
+    - Won: add 1 to the count with `atom.acq_rel.gpu`. An old value below max_entries is the row: add V into the caller's shard, then publish {K, row, live} with `st.release.gpu`. Otherwise publish {K, refused} and return -E2BIG.
+    - Lost to K: wait for live or refused (bounded), then -EEXIST or -E2BIG.
     - Lost to another key: keep walking.
-- **Waits are bounded.** The wait in "lost to K" exists so that a thread that got EEXIST does not then get NULL from its own lookup. It polls with `nanosleep` up to a fixed bound, then returns -EEXIST and counts an unstable claim.
+  - All slots walked: wait (bounded) for the count to reach max_entries, then -E2BIG.
+  - The count never goes down; E2BIG is exact only while capacity never comes back (no GPU deletes; CPU writes refused after the copy).
+  - Round one's order (reserve, then CAS) gave E2BIG with the map half full: every thread losing the CAS to the same key held a reservation (round one, C4).
+- **Waits are bounded.** The wait on a claiming K exists so that a thread that got EEXIST does not then get NULL from its own lookup (without it: 28,827 of 145,044 EEXIST, round one). It polls with `nanosleep` up to a fixed bound (a bound on requested sleep, not on elapsed time: up to 89 us elapsed in round two), then returns -EEXIST and counts an unstable claim. An unstable EEXIST can belong to a key that ends refused. A full-directory wait that runs out returns -E2BIG, counted unstable.
   - An unbounded spin would rely on forward progress that is only partly documented (CUDA guide: "aims to provide parallel forward progress"), and a stuck spin hangs the application's kernel.
+- **The same window as bpf:** an insert can get -E2BIG because another key took the last place, and a lookup of that key can still miss until it is published. The kernel's htab has the same window: capacity is taken under the new key's bucket lock before the element is linked, and lookups take no lock (round two, R2). The kernel holds it with preemption and interrupts off; nothing documented bounds it on the GPU. Documented rather than fixed, by the user's decision of 11-27 (a counter bumped after each publish could gate E2BIG).
 - **Not from the GPU:**
   - get_next_key, lookup-and-delete and BPF_F_LOCK return -EINVAL, as today;
   - BPF_ANY or BPF_EXIST updates and deletes are store-layout operations; a map that uses them stays a host-call map.
@@ -81,20 +87,23 @@ All header and value accesses go through the `.global` address (`cvta.to.global`
 - **Adds without acquire:**
   - Rows are zeroed before any probe runs: "Start of a CUDA API call to enqueue a task synchronizes with start of the task".
   - Rows are then changed only by atomic adds, so every add lands whenever the adder saw the key.
-- **Delivery sees what was published:** "a strong read on M followed by an acquire memory fence" is an acquire pattern, paired with the inserter's release. The snapshot then sums the shards, as 1531's does.
-- **Sizes:** only 64-bit strong accesses touch shared cells. "The axioms in the memory consistency model do not apply if a PTX program contains one or more mixed-size data-races", so a map whose program touches values with other widths is not admitted.
-- **Target:** `.relaxed`/`.acquire` and `nanosleep` "require sm_70 or higher". The trampoline is built for sm_61, but patched modules are rewritten to the device's architecture before compiling (`rewrite_ptx_target`, sm_87 here). Check C3 confirms it on the real modules.
-- **Inference, not stated by NVIDIA:** the claim/publish protocol as a whole, and the bounded wait's "EEXIST then not NULL" property. Check C4 tests both.
+- **Delivery sees what was published:** the snapshot reads each header with `ld.acquire.gpu` ("An acquire operation on M" is an acquire pattern), paired with the inserter's release, then sums the row's shards. Round two's message-passing test measured the release with `ld.relaxed` + `fence.acq_rel` on the reader: 0 weak in 10^8, and 78,461 with both halves missing. The `ld.acquire` form rests on the document.
+- **Sizes:** only 64-bit strong accesses touch shared cells. "The axioms in the memory consistency model do not apply if a PTX program contains one or more mixed-size data-races", so a program that touches the values with other widths breaks the contract the declaration makes. As for 1531, nothing checks it: the routing pass rewrites other atomics through such a pointer to its guarded form and does not refuse them, and it cannot follow pointers that a helper returned (code map, round two).
+- **Target:** `.relaxed`/`.acquire` and `nanosleep` "require sm_70 or higher". The trampoline is built for sm_61, but patched modules are rewritten to the device's architecture before compiling (`rewrite_ptx_target`, sm_87 here). Round one's C3 compiled every form for sm_87 (56 registers unchanged). The trampoline Makefile's own sm_61 test target would not take these forms (code map, round two).
+- **Inference, not stated by NVIDIA:** the claim/publish protocol as a whole, and the bounded wait's "EEXIST then not NULL" property. Rounds one and two tested both (C4, C5); an independent reading against chapter 8 found no ordering the document does not give, apart from visibility within one launch, which no clause bounds in time (R2).
 
 ## CPU view
 
-- **Before the agent makes the device copy:** the map is today's CPU hash table (bpf semantics), so a loader can prefill it.
-- **At the copy:** the agent writes the live keys into the zeroed block (each into shard 0 of its row), then publishes the address.
+- **Before the agent makes the device copy:** the map is today's CPU hash table (bpf semantics), so a loader can prefill it. 1531 never takes CPU updates, so this phase is new: the copy must seal the map against updates still in flight.
+- **At the copy:** the agent writes the live keys into the zeroed block (each into shard 0 of its row, rows in order, the count set to the number of keys), then publishes the address. A process taking over from a dead owner gets a fresh block and must seed it again from the delivered keys.
 - **After the copy:**
   - The tool reads delivered snapshots: 1531's delivery thread, schedule and owner rule.
+  - The CPU does not walk the delivered directory by open addressing: the snapshot reads slots one at a time, so a slot between a key's home and its slot can be delivered empty while the key is delivered live. The CPU keeps its own index of the delivered live headers.
   - get_next_key goes in slot order, which never changes.
-  - CPU update and delete return EPERM, as 1531 and 1532 do.
-- **Loss counts** (E2BIG, EEXIST, unstable claims) need a channel: reserved keys cannot work in a hash key space. They go to a companion status array (decided, below).
+  - CPU update and delete return EPERM (1531's delete returns EINVAL; this text said EPERM for both before 11-27).
+- **No device copy** (another process owns the map): GPU lookups return NULL and inserts an error, as 1531 does; never a host call.
+- **Loss counts** (E2BIG, EEXIST, unstable claims) go to a companion status array (decided, below). On first touch with a constant key nearly every thread gets EEXIST, so the device counts are sharded by (SM, lane) like 1531's values (one word: 1.09-1.10 ns per thread, below).
+- **One layout definition:** hash, header encoding and row layout are needed by the trampoline, the routing pass, the snapshot and the agent's seeding; they live in one shared header. The geometry goes into a header at the start of the device block (`MapBasicInfo` holds one pointer per map).
 
 ## Expected costs (estimates, not measured)
 
@@ -125,16 +134,17 @@ The panel proposed a second analyzer over eBPF bytecode, to choose each map's la
 - **The routing pass's PTX allowlist still guards what it lowers inline:** constant-fd lookups, and adds through their results. Anything it does not recognise keeps the helper call.
 - **Why not add it:** a second checker that must agree with the PTX allowlist is the kind of code that failed open in each review round so far.
 
-## Decisions (user, 11-26, as proposed)
+## Decisions (user, 11-26 and 11-27, as proposed)
 
 1. **Declaration: yes.** A hash tool declares the device hash type (a new type number, as `lat` declares 1530 and 1531). Plain HASH maps keep today's host path; 1501 is not changed.
 2. **First touch: bpf's semantics.** An insert that loses to the same key returns EEXIST, and the idiom's increment is lost, as in bpf; losses are counted. A fused "lookup or insert" may come later as an opt-in.
 3. **Loss counts: a companion status array** named after the map, read with the ordinary map API (no dlsym entry).
 4. **R: min(max_entries, 512) by default,** not a tool parameter for now.
+5. **The E2BIG/lookup window (11-27): documented, as bpf's htab has it.** No counter gates E2BIG.
 
 ## First checks (round one), with decision rules written now
 
-Copied into a rules file before any run; nothing has run.
+Copied into a rules file (`hash-round1-20261126/RULES-round1.md`) before any run. Round one ran them (`hash-round1-20261126`); round two checked the changed insert (`hash-round2-20261127`).
 
 - **C1, compile only.**
   - Run llvmbpf's PTX over the hash examples (cuda-counter, cudagraph, gpu_shared_map, threadscheduling, threadscheduling_dynamic_hook, micro), th-hostcall and the pt_hash variants.

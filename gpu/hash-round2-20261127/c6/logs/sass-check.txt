@@ -1,0 +1,287 @@
+=== variant A: c6_kernel, 816 instructions
+  count RED.E.ADD.64.STRONG.GPU: 12
+  count STG.E.64.STRONG.GPU: 6
+  count LDG.E.64.STRONG.GPU: 71
+  count MEMBAR (any): 2
+  count ERRBAR: 2
+  count CCTL.IVALL: 1
+  count LDG.E (32-bit, weak: role/cell tables): 5
+  count STG.E / STG.E.64 (weak: records): 5
+  count generic LD/ST/ATOM (none expected): 0
+  writer (add, then publish):
+    /*2cc0*/ RED.E.ADD.64.STRONG.GPU [R4.64], R12
+    /*2cd0*/ MEMBAR.ALL.GPU
+    /*2ce0*/ LEA R4, P0, R11, c[0x0][0x1a0], 0x2
+    /*2cf0*/ ERRBAR
+    /*2d00*/ STG.E.64.STRONG.GPU [R6.64], R12
+  reader (flag poll loop, then the data load):
+    /*1d20*/ LDG.E.64.STRONG.GPU R10, [R18.64]
+    /*1d30*/ IADD3 R9, R9, 0x1, RZ
+    /*1d40*/ YIELD
+    /*1d50*/ ISETP.LT.U32.AND P1, PT, R9, 0x100000, PT
+    /*1d60*/ ISETP.NE.U32.AND P0, PT, R10, RZ, PT
+    /*1d70*/ ISETP.NE.AND.EX P0, PT, R11, RZ, PT, P0
+    /*1d80*/ @!P0 BRA P1, 0x1d20
+    /*1d90*/ BSYNC B1
+    /*1da0*/ ISETP.NE.U32.AND P1, PT, R10, 0x1, PT
+    /*1db0*/ BSSY B1, 0x1e90
+    /*1dc0*/ IMAD.MOV.U32 R13, RZ, RZ, RZ
+    /*1dd0*/ ISETP.NE.AND.EX P1, PT, R11, RZ, PT, P1
+    /*1de0*/ @P1 IMAD.MOV.U32 R19, RZ, RZ, 0x2000000
+    /*1df0*/ @P1 IMAD.MOV.U32 R10, RZ, RZ, 0xffffff
+    /*1e00*/ @P1 IMAD.MOV.U32 R11, RZ, RZ, 0x0
+    /*1e10*/ @P1 SEL R19, R19, 0x3000000, !P0
+    /*1e20*/ @P1 BRA 0x1e80
+    /*1e30*/ MEMBAR.ALL.GPU
+    /*1e40*/ ERRBAR
+    /*1e50*/ CCTL.IVALL
+    /*1e60*/ LDG.E.64.STRONG.GPU R10, [R16.64]
+  MEMBAR at /*1e30*/ with neighbours:
+    /*1e10*/ @P1 SEL R19, R19, 0x3000000, !P0
+    /*1e20*/ @P1 BRA 0x1e80
+    /*1e30*/ MEMBAR.ALL.GPU
+    /*1e40*/ ERRBAR
+    /*1e50*/ CCTL.IVALL
+    /*1e60*/ LDG.E.64.STRONG.GPU R10, [R16.64]
+  MEMBAR at /*2cd0*/ with neighbours:
+    /*2cb0*/ IMAD.MOV.U32 R13, RZ, RZ, 0x0
+    /*2cc0*/ RED.E.ADD.64.STRONG.GPU [R4.64], R12
+    /*2cd0*/ MEMBAR.ALL.GPU
+    /*2ce0*/ LEA R4, P0, R11, c[0x0][0x1a0], 0x2
+    /*2cf0*/ ERRBAR
+    /*2d00*/ STG.E.64.STRONG.GPU [R6.64], R12
+
+=== variant B: c6_kernel, 816 instructions
+  count RED.E.ADD.64.STRONG.GPU: 12
+  count STG.E.64.STRONG.GPU: 6
+  count LDG.E.64.STRONG.GPU: 71
+  count MEMBAR (any): 1
+  count ERRBAR: 1
+  count CCTL.IVALL: 1
+  count LDG.E (32-bit, weak: role/cell tables): 5
+  count STG.E / STG.E.64 (weak: records): 5
+  count generic LD/ST/ATOM (none expected): 0
+  writer (add, then publish):
+    /*2ce0*/ RED.E.ADD.64.STRONG.GPU [R4.64], R16
+    /*2cf0*/ IADD3 R9, R9, 0x1, RZ
+    /*2d00*/ STG.E.64.STRONG.GPU [R6.64], R16
+  reader (flag poll loop, then the data load):
+    /*1d20*/ LDG.E.64.STRONG.GPU R10, [R18.64]
+    /*1d30*/ IADD3 R9, R9, 0x1, RZ
+    /*1d40*/ YIELD
+    /*1d50*/ ISETP.LT.U32.AND P1, PT, R9, 0x100000, PT
+    /*1d60*/ ISETP.NE.U32.AND P0, PT, R10, RZ, PT
+    /*1d70*/ ISETP.NE.AND.EX P0, PT, R11, RZ, PT, P0
+    /*1d80*/ @!P0 BRA P1, 0x1d20
+    /*1d90*/ BSYNC B1
+    /*1da0*/ ISETP.NE.U32.AND P1, PT, R10, 0x1, PT
+    /*1db0*/ BSSY B1, 0x1e90
+    /*1dc0*/ IMAD.MOV.U32 R13, RZ, RZ, RZ
+    /*1dd0*/ ISETP.NE.AND.EX P1, PT, R11, RZ, PT, P1
+    /*1de0*/ @P1 IMAD.MOV.U32 R19, RZ, RZ, 0x2000000
+    /*1df0*/ @P1 IMAD.MOV.U32 R10, RZ, RZ, 0xffffff
+    /*1e00*/ @P1 IMAD.MOV.U32 R11, RZ, RZ, 0x0
+    /*1e10*/ @P1 SEL R19, R19, 0x3000000, !P0
+    /*1e20*/ @P1 BRA 0x1e80
+    /*1e30*/ MEMBAR.ALL.GPU
+    /*1e40*/ ERRBAR
+    /*1e50*/ CCTL.IVALL
+    /*1e60*/ LDG.E.64.STRONG.GPU R10, [R16.64]
+  MEMBAR at /*1e30*/ with neighbours:
+    /*1e10*/ @P1 SEL R19, R19, 0x3000000, !P0
+    /*1e20*/ @P1 BRA 0x1e80
+    /*1e30*/ MEMBAR.ALL.GPU
+    /*1e40*/ ERRBAR
+    /*1e50*/ CCTL.IVALL
+    /*1e60*/ LDG.E.64.STRONG.GPU R10, [R16.64]
+
+=== variant C: c6_kernel, 808 instructions
+  count RED.E.ADD.64.STRONG.GPU: 12
+  count STG.E.64.STRONG.GPU: 6
+  count LDG.E.64.STRONG.GPU: 71
+  count MEMBAR (any): 1
+  count ERRBAR: 1
+  count CCTL.IVALL: 0
+  count LDG.E (32-bit, weak: role/cell tables): 5
+  count STG.E / STG.E.64 (weak: records): 5
+  count generic LD/ST/ATOM (none expected): 0
+  writer (add, then publish):
+    /*2c60*/ RED.E.ADD.64.STRONG.GPU [R4.64], R12
+    /*2c70*/ MEMBAR.ALL.GPU
+    /*2c80*/ LEA R4, P0, R11, c[0x0][0x1a0], 0x2
+    /*2c90*/ ERRBAR
+    /*2ca0*/ STG.E.64.STRONG.GPU [R6.64], R12
+  reader (flag poll loop, then the data load):
+    /*1d20*/ LDG.E.64.STRONG.GPU R10, [R18.64]
+    /*1d30*/ IADD3 R9, R9, 0x1, RZ
+    /*1d40*/ YIELD
+    /*1d50*/ ISETP.LT.U32.AND P1, PT, R9, 0x100000, PT
+    /*1d60*/ ISETP.NE.U32.AND P0, PT, R10, RZ, PT
+    /*1d70*/ ISETP.NE.AND.EX P0, PT, R11, RZ, PT, P0
+    /*1d80*/ @!P0 BRA P1, 0x1d20
+    /*1d90*/ BSYNC B1
+    /*1da0*/ ISETP.NE.U32.AND P1, PT, R10, 0x1, PT
+    /*1db0*/ ISETP.NE.AND.EX P1, PT, R11, RZ, PT, P1
+    /*1dc0*/ @P1 IMAD.MOV.U32 R10, RZ, RZ, 0xffffff
+    /*1dd0*/ @P1 IMAD.MOV.U32 R11, RZ, RZ, 0x0
+    /*1de0*/ @!P1 LDG.E.64.STRONG.GPU R10, [R16.64]
+  MEMBAR at /*2c70*/ with neighbours:
+    /*2c50*/ IMAD.MOV.U32 R13, RZ, RZ, 0x0
+    /*2c60*/ RED.E.ADD.64.STRONG.GPU [R4.64], R12
+    /*2c70*/ MEMBAR.ALL.GPU
+    /*2c80*/ LEA R4, P0, R11, c[0x0][0x1a0], 0x2
+    /*2c90*/ ERRBAR
+    /*2ca0*/ STG.E.64.STRONG.GPU [R6.64], R12
+
+=== variant D: c6_kernel, 808 instructions
+  count RED.E.ADD.64.STRONG.GPU: 12
+  count STG.E.64.STRONG.GPU: 6
+  count LDG.E.64.STRONG.GPU: 71
+  count MEMBAR (any): 0
+  count ERRBAR: 0
+  count CCTL.IVALL: 0
+  count LDG.E (32-bit, weak: role/cell tables): 5
+  count STG.E / STG.E.64 (weak: records): 5
+  count generic LD/ST/ATOM (none expected): 0
+  writer (add, then publish):
+    /*2c80*/ RED.E.ADD.64.STRONG.GPU [R4.64], R16
+    /*2c90*/ IADD3 R9, R9, 0x1, RZ
+    /*2ca0*/ STG.E.64.STRONG.GPU [R6.64], R16
+  reader (flag poll loop, then the data load):
+    /*1d20*/ LDG.E.64.STRONG.GPU R10, [R18.64]
+    /*1d30*/ IADD3 R9, R9, 0x1, RZ
+    /*1d40*/ YIELD
+    /*1d50*/ ISETP.LT.U32.AND P1, PT, R9, 0x100000, PT
+    /*1d60*/ ISETP.NE.U32.AND P0, PT, R10, RZ, PT
+    /*1d70*/ ISETP.NE.AND.EX P0, PT, R11, RZ, PT, P0
+    /*1d80*/ @!P0 BRA P1, 0x1d20
+    /*1d90*/ BSYNC B1
+    /*1da0*/ ISETP.NE.U32.AND P1, PT, R10, 0x1, PT
+    /*1db0*/ ISETP.NE.AND.EX P1, PT, R11, RZ, PT, P1
+    /*1dc0*/ @P1 IMAD.MOV.U32 R10, RZ, RZ, 0xffffff
+    /*1dd0*/ @P1 IMAD.MOV.U32 R11, RZ, RZ, 0x0
+    /*1de0*/ @!P1 LDG.E.64.STRONG.GPU R10, [R16.64]
+
+=== variant S: c6_kernel, 808 instructions
+  count RED.E.ADD.64.STRONG.GPU: 12
+  count STG.E.64.STRONG.GPU: 6
+  count LDG.E.64.STRONG.GPU: 71
+  count MEMBAR (any): 0
+  count ERRBAR: 0
+  count CCTL.IVALL: 0
+  count LDG.E (32-bit, weak: role/cell tables): 5
+  count STG.E / STG.E.64 (weak: records): 5
+  count generic LD/ST/ATOM (none expected): 0
+  writer (publish, then add; swapped order):
+    /*2c80*/ STG.E.64.STRONG.GPU [R6.64], R16
+    /*2c90*/ IADD3 R9, R9, 0x1, RZ
+    /*2ca0*/ RED.E.ADD.64.STRONG.GPU [R4.64], R16
+  reader (flag poll loop, then the data load):
+    /*1d20*/ LDG.E.64.STRONG.GPU R10, [R18.64]
+    /*1d30*/ IADD3 R9, R9, 0x1, RZ
+    /*1d40*/ YIELD
+    /*1d50*/ ISETP.LT.U32.AND P1, PT, R9, 0x100000, PT
+    /*1d60*/ ISETP.NE.U32.AND P0, PT, R10, RZ, PT
+    /*1d70*/ ISETP.NE.AND.EX P0, PT, R11, RZ, PT, P0
+    /*1d80*/ @!P0 BRA P1, 0x1d20
+    /*1d90*/ BSYNC B1
+    /*1da0*/ ISETP.NE.U32.AND P1, PT, R10, 0x1, PT
+    /*1db0*/ ISETP.NE.AND.EX P1, PT, R11, RZ, PT, P1
+    /*1dc0*/ @P1 IMAD.MOV.U32 R10, RZ, RZ, 0xffffff
+    /*1dd0*/ @P1 IMAD.MOV.U32 R11, RZ, RZ, 0x0
+    /*1de0*/ @!P1 LDG.E.64.STRONG.GPU R10, [R16.64]
+
+=== variant SD: c6_kernel, 816 instructions
+  count RED.E.ADD.64.STRONG.GPU: 12
+  count STG.E.64.STRONG.GPU: 6
+  count LDG.E.64.STRONG.GPU: 71
+  count MEMBAR (any): 0
+  count ERRBAR: 0
+  count CCTL.IVALL: 0
+  count LDG.E (32-bit, weak: role/cell tables): 5
+  count STG.E / STG.E.64 (weak: records): 5
+  count generic LD/ST/ATOM (none expected): 0
+  writer (publish, then add; swapped order):
+    /*2c60*/ STG.E.64.STRONG.GPU [R6.64], R16
+    /*2c70*/ CS2R R6, SR_CLOCKLO
+    /*2c80*/ CS2R R12, SR_CLOCKLO
+    /*2c90*/ IADD3 R15, P0, -R6, R12, RZ
+    /*2ca0*/ IMAD.X R12, R13, 0x1, ~R7, P0
+    /*2cb0*/ ISETP.GE.U32.AND P0, PT, R15, 0x1000, PT
+    /*2cc0*/ ISETP.GE.U32.AND.EX P0, PT, R12, RZ, PT, P0
+    /*2cd0*/ @!P0 BRA 0x2c80
+    /*2ce0*/ LEA R6, P0, R11, c[0x0][0x1a0], 0x2
+    /*2cf0*/ RED.E.ADD.64.STRONG.GPU [R4.64], R16
+  reader (flag poll loop, then the data load):
+    /*1d20*/ LDG.E.64.STRONG.GPU R10, [R18.64]
+    /*1d30*/ IADD3 R9, R9, 0x1, RZ
+    /*1d40*/ YIELD
+    /*1d50*/ ISETP.LT.U32.AND P1, PT, R9, 0x100000, PT
+    /*1d60*/ ISETP.NE.U32.AND P0, PT, R10, RZ, PT
+    /*1d70*/ ISETP.NE.AND.EX P0, PT, R11, RZ, PT, P0
+    /*1d80*/ @!P0 BRA P1, 0x1d20
+    /*1d90*/ BSYNC B1
+    /*1da0*/ ISETP.NE.U32.AND P1, PT, R10, 0x1, PT
+    /*1db0*/ ISETP.NE.AND.EX P1, PT, R11, RZ, PT, P1
+    /*1dc0*/ @P1 IMAD.MOV.U32 R10, RZ, RZ, 0xffffff
+    /*1dd0*/ @P1 IMAD.MOV.U32 R11, RZ, RZ, 0x0
+    /*1de0*/ @!P1 LDG.E.64.STRONG.GPU R10, [R16.64]
+
+=== PTX diff A -> B (code only: ignoring .loc, .file, comments, blank lines, .debug_str): 2 lines
+  -st.release.gpu.global.b64 [%rd296], %rd389;
+  +st.relaxed.gpu.global.b64 [%rd296], %rd389;
+
+=== PTX diff A -> C (code only: ignoring .loc, .file, comments, blank lines, .debug_str): 1 lines
+  -fence.acq_rel.gpu;
+
+=== PTX diff A -> D (code only: ignoring .loc, .file, comments, blank lines, .debug_str): 3 lines
+  -st.release.gpu.global.b64 [%rd296], %rd389;
+  +st.relaxed.gpu.global.b64 [%rd296], %rd389;
+  -fence.acq_rel.gpu;
+
+=== PTX diff D -> S (code only: ignoring .loc, .file, comments, blank lines, .debug_str): 2 lines
+  +st.relaxed.gpu.global.b64 [%rd296], %rd389;
+  -st.relaxed.gpu.global.b64 [%rd296], %rd389;
+
+=== PTX diff S -> SD (code only: ignoring .loc, .file, comments, blank lines, .debug_str): 761 lines
+  -.reg .pred %p<99>;
+  +.reg .pred %p<100>;
+  -.reg .b64 %rd<413>;
+  -mov.b64 %rd56, _Z9c6_kernel6Params_param_0;
+  -add.s64 %rd1, %rd56, 108;
+  +.reg .b64 %rd<417>;
+  +mov.b64 %rd57, _Z9c6_kernel6Params_param_0;
+  +add.s64 %rd1, %rd57, 108;
+  -@%p15 bra $L__BB0_119;
+  +@%p15 bra $L__BB0_121;
+  -ld.param.u64 %rd166, [%rd1+-76];
+  -cvta.to.global.u64 %rd167, %rd166;
+  -mul.wide.u32 %rd168, %r39, 4;
+  -add.s64 %rd169, %rd167, %rd168;
+  -ld.global.u32 %r6, [%rd169];
+  +ld.param.u64 %rd167, [%rd1+-76];
+  +cvta.to.global.u64 %rd168, %rd167;
+  +mul.wide.u32 %rd169, %r39, 4;
+  +add.s64 %rd170, %rd168, %rd169;
+  +ld.global.u32 %r6, [%rd170];
+  -@%p16 bra $L__BB0_119;
+  -ld.param.u64 %rd171, [%rd1+-84];
+  -cvta.to.global.u64 %rd170, %rd171;
+  +@%p16 bra $L__BB0_121;
+  +ld.param.u64 %rd172, [%rd1+-84];
+  +cvta.to.global.u64 %rd171, %rd172;
+  -ld.relaxed.gpu.global.b64 %rd172, [%rd170];
+  -setp.ge.u64 %p17, %rd172, %rd27;
+  +ld.relaxed.gpu.global.b64 %rd173, [%rd171];
+  +setp.ge.u64 %p17, %rd173, %rd27;
+  -ld.relaxed.gpu.global.b64 %rd174, [%rd170];
+  -setp.ge.u64 %p18, %rd174, %rd27;
+  +ld.relaxed.gpu.global.b64 %rd175, [%rd171];
+  +setp.ge.u64 %p18, %rd175, %rd27;
+  -ld.relaxed.gpu.global.b64 %rd176, [%rd170];
+  -setp.ge.u64 %p19, %rd176, %rd27;
+  +ld.relaxed.gpu.global.b64 %rd177, [%rd171];
+  +setp.ge.u64 %p19, %rd177, %rd27;
+  -ld.relaxed.gpu.global.b64 %rd178, [%rd170];
+  -setp.ge.u64 %p20, %rd178, %rd27;
+

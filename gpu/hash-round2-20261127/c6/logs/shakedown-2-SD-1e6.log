@@ -1,0 +1,91 @@
+### shakedown-2-SD-1e6: build/c6_SD --target 1000000
+### queued 2026-11-26T23:48:29+09:00 cpu5_khz=1728000 gpu_hz=1020000000
+### sha256 2c804641bdf916c2339f48c3d04976ccf1ed06f454222c347dc1c795f8572977 build/c6_SD
+### sha256 7217014052bc95e7099fbe111202158453278f20a69052f4254736354b976c9c src/c6.cu
+### other GPU test processes before the run (c4_|c5_|c6_|llama|pt_victim):
+### lock held 2026-11-26T23:48:29+09:00 gpu_hz=1020000000
+C6 variant=SD publish=st.relaxed.gpu.global.b64 reader=none order=swapped(flag, delay, add)
+device="Orin" sm_87 SMs=8 l2=4194304 B
+kernel regs=30 local=0 B; occupancy=12 blocks/SM x 8 SMs = 96 resident blocks of 128 threads
+params: target=1000000 instances, time limit=600 s, test blocks=64 (256 warps, 128 pairs, lane 0 only), stress blocks=32 (4096 threads), rounds/launch=256 (32768 instances/launch), writer delay=[0,1024) cycles, seed=0xc6c6
+params: swap gap=4096 cycles
+caps: reader spin 1048576 polls, writer wait 1048576 polls, barrier 1048576 polls, stress 4194304 ops
+layout: data=0x19f032000 flag=0x19f432000 (4194304 B each, page-aligned=yes, disjoint=yes), cell stride 128 B, stress=0x19f832000 (16777216 B, 131072 lines), ctl 16640 B
+=== summary variant=SD ===
+stop: instance target (instances 1000064 of target 1000000, wall 0.2 s of 600 s)
+launches=31 instances=1000064 wall_s=0.15
+counter inst_same_sm           118711
+counter inst_diff_sm           881353
+counter strong_same_sm         41549
+counter strong_diff_sm         353167
+counter weak_same_sm           77162
+counter weak_diff_sm           528186
+counter timeout_same_sm        0
+counter timeout_diff_sm        0
+counter bad_flag               0
+counter bad_data               0
+counter missing_record         0
+counter final_not_1            0
+counter saw0_then_1            980150
+counter seen_on_first_poll     19914
+counter polls_sum_seen         2804920
+counter smid_bad               0
+counter writer_wait_timeouts   0
+counter barrier_timeouts       0
+counter stress_hit_op_cap      0
+instances: launched=1000064 flag_seen=1000064 timeouts=0 (same-SM 0, diff-SM 0)
+by SM: same-SM instances=118711 weak=77162 | diff-SM instances=881353 weak=528186
+mean polls per flag-seen instance=2.80
+final scan: nonzero data/flag words after the last reset=0
+SM pair matrix (row writer SM, column reader SM): instances / weak
+  w0  r0:12677/8210 r1:13834/8304 r2:16015/9633 r3:19722/11784 r4:15247/9224 r5:12564/7458 r6:19722/11776 r7:19077/11455
+  w1  r0:17418/10547 r1:14213/9287 r2:15759/9410 r3:14223/8537 r4:20500/12452 r5:15882/9403 r6:19712/11864 r7:17551/10515
+  w2  r0:13967/8466 r1:14602/8682 r2:14602/9482 r3:17684/10521 r4:15616/9488 r5:18176/10928 r6:16394/9884 r7:14090/8397
+  w3  r0:14981/9028 r1:11520/6866 r2:13455/8016 r3:17418/11263 r4:12431/7474 r5:13312/7929 r6:11786/7055 r7:16015/9540
+  w4  r0:19210/11544 r1:17172/10316 r2:15493/9361 r3:15237/9051 r4:15759/10300 r5:16640/10003 r6:19087/11524 r7:14725/8824
+  w5  r0:13445/8017 r1:14725/8793 r2:18831/11370 r3:15626/9277 r4:11274/6796 r5:16261/10558 r6:18329/10833 r7:18186/10812
+  w6  r0:13578/8156 r1:13312/8026 r2:15872/9568 r3:17551/10375 r4:12800/7755 r5:15769/9504 r6:14213/9278 r7:12298/7360
+  w7  r0:15882/9569 r1:15380/9243 r2:14858/8858 r3:21637/12864 r4:13066/7894 r5:14735/8698 r6:15380/9159 r7:13568/8784
+weak outcomes logged=605348 (first 4096 kept)
+  weak launch=0 pair=14 round=192 wsm=7 rsm=1 wblock=46 rblock=24 dcell=7234 fcell=26335 polls=4
+  weak launch=0 pair=14 round=193 wsm=7 rsm=1 wblock=46 rblock=24 dcell=13220 fcell=4964 polls=2
+  weak launch=0 pair=14 round=194 wsm=7 rsm=1 wblock=46 rblock=24 dcell=20956 fcell=22266 polls=3
+  weak launch=0 pair=14 round=195 wsm=7 rsm=1 wblock=46 rblock=24 dcell=13461 fcell=13694 polls=2
+  weak launch=0 pair=14 round=197 wsm=7 rsm=1 wblock=46 rblock=24 dcell=32080 fcell=4592 polls=2
+  weak launch=0 pair=14 round=199 wsm=7 rsm=1 wblock=46 rblock=24 dcell=27782 fcell=20909 polls=2
+  weak launch=0 pair=14 round=202 wsm=7 rsm=1 wblock=46 rblock=24 dcell=14125 fcell=16067 polls=2
+  weak launch=0 pair=14 round=203 wsm=7 rsm=1 wblock=46 rblock=24 dcell=1076 fcell=26601 polls=2
+  weak launch=0 pair=14 round=208 wsm=7 rsm=1 wblock=46 rblock=24 dcell=2110 fcell=789 polls=2
+  weak launch=0 pair=14 round=210 wsm=7 rsm=1 wblock=46 rblock=24 dcell=29572 fcell=22408 polls=5
+  weak launch=0 pair=14 round=211 wsm=7 rsm=1 wblock=46 rblock=24 dcell=6362 fcell=19156 polls=2
+  weak launch=0 pair=14 round=212 wsm=7 rsm=1 wblock=46 rblock=24 dcell=22844 fcell=2532 polls=3
+  weak launch=0 pair=14 round=215 wsm=7 rsm=1 wblock=46 rblock=24 dcell=23622 fcell=31345 polls=2
+  weak launch=0 pair=14 round=216 wsm=7 rsm=1 wblock=46 rblock=24 dcell=1685 fcell=18366 polls=1
+  weak launch=0 pair=14 round=217 wsm=7 rsm=1 wblock=46 rblock=24 dcell=27804 fcell=32056 polls=3
+  weak launch=0 pair=14 round=219 wsm=7 rsm=1 wblock=46 rblock=24 dcell=16145 fcell=30896 polls=3
+  weak launch=0 pair=14 round=220 wsm=7 rsm=1 wblock=46 rblock=24 dcell=7440 fcell=27477 polls=3
+  weak launch=0 pair=14 round=223 wsm=7 rsm=1 wblock=46 rblock=24 dcell=8335 fcell=1230 polls=2
+  weak launch=0 pair=14 round=32 wsm=7 rsm=1 wblock=46 rblock=24 dcell=30251 fcell=440 polls=2
+  weak launch=0 pair=14 round=34 wsm=7 rsm=1 wblock=46 rblock=24 dcell=22351 fcell=6236 polls=3
+  weak launch=0 pair=14 round=35 wsm=7 rsm=1 wblock=46 rblock=24 dcell=20137 fcell=21252 polls=2
+  weak launch=0 pair=14 round=40 wsm=7 rsm=1 wblock=46 rblock=24 dcell=5909 fcell=418 polls=3
+  weak launch=0 pair=14 round=41 wsm=7 rsm=1 wblock=46 rblock=24 dcell=7644 fcell=8836 polls=2
+  weak launch=0 pair=14 round=43 wsm=7 rsm=1 wblock=46 rblock=24 dcell=15269 fcell=9011 polls=2
+  weak launch=0 pair=14 round=44 wsm=7 rsm=1 wblock=46 rblock=24 dcell=29709 fcell=4090 polls=2
+  weak launch=0 pair=14 round=45 wsm=7 rsm=1 wblock=46 rblock=24 dcell=26060 fcell=21762 polls=4
+  weak launch=0 pair=14 round=47 wsm=7 rsm=1 wblock=46 rblock=24 dcell=29117 fcell=2069 polls=2
+  weak launch=0 pair=14 round=48 wsm=7 rsm=1 wblock=46 rblock=24 dcell=18747 fcell=5472 polls=2
+  weak launch=0 pair=14 round=50 wsm=7 rsm=1 wblock=46 rblock=24 dcell=12167 fcell=32326 polls=7
+  weak launch=0 pair=14 round=51 wsm=7 rsm=1 wblock=46 rblock=24 dcell=31156 fcell=8362 polls=2
+  weak launch=0 pair=14 round=52 wsm=7 rsm=1 wblock=46 rblock=24 dcell=2916 fcell=16917 polls=2
+  weak launch=0 pair=14 round=53 wsm=7 rsm=1 wblock=46 rblock=24 dcell=24240 fcell=12149 polls=3
+  weak launch=0 pair=14 round=54 wsm=7 rsm=1 wblock=46 rblock=24 dcell=3834 fcell=1049 polls=6
+  weak launch=0 pair=14 round=55 wsm=7 rsm=1 wblock=46 rblock=24 dcell=6455 fcell=31529 polls=7
+  weak launch=0 pair=14 round=56 wsm=7 rsm=1 wblock=46 rblock=24 dcell=29386 fcell=16484 polls=2
+  weak launch=0 pair=14 round=58 wsm=7 rsm=1 wblock=46 rblock=24 dcell=3047 fcell=31215 polls=2
+  weak launch=0 pair=14 round=60 wsm=7 rsm=1 wblock=46 rblock=24 dcell=28520 fcell=1498 polls=3
+  weak launch=0 pair=14 round=61 wsm=7 rsm=1 wblock=46 rblock=24 dcell=5691 fcell=7460 polls=6
+  weak launch=0 pair=14 round=62 wsm=7 rsm=1 wblock=46 rblock=24 dcell=31380 fcell=15524 polls=3
+  weak launch=0 pair=14 round=63 wsm=7 rsm=1 wblock=46 rblock=24 dcell=6510 fcell=6702 polls=2
+RESULT variant=SD instances=1000064 flag_seen=1000064 weak=605348 (same-SM 77162, diff-SM 528186) timeouts=0 wall_s=0.15 harness_error=0 exit=0
+### exit=0 outer_wall_s=.269257701 end 2026-11-26T23:48:30+09:00
