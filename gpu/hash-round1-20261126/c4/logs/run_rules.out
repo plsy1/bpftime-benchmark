@@ -1,0 +1,30 @@
+### r1-proto-128: ./build/c4_proto --max 128
+### exit=0
+trials_with_violation=0/1
+violations by kind: none
+counted: EEXIST=5749 E2BIG=7920 unstable=0 eexist_then_null=0 unstable_then_null=0
+RESULT CLEAN
+### r2-proto-48: ./build/c4_proto --max 48
+### exit=0
+trials_with_violation=0/1
+violations by kind: none
+counted: EEXIST=4100 E2BIG=2508822 unstable=0 eexist_then_null=0 unstable_then_null=0
+RESULT CLEAN
+### r3-ctl1-plainclaim: ./build/c4_plainclaim --max 128
+### exit=1
+trials_with_violation=1/1
+violations by kind: key_sum_mismatch=40 total_sum_mismatch=1 bookkeeping=2 winners_ne_1=40 tally_ne_counter=40 eexist_then_null=1 orphan_adds=1 key_changed=1
+counted: EEXIST=4074 E2BIG=1568381 unstable=0 eexist_then_null=125 unstable_then_null=0
+RESULT VIOLATIONS
+### r4-ctl2-nobound-48: ./build/c4_nobound --max 48
+### exit=1
+trials_with_violation=1/1
+violations by kind: claimed_gt_max=1
+counted: EEXIST=12099 E2BIG=0 unstable=0 eexist_then_null=0 unstable_then_null=0
+RESULT VIOLATIONS
+### r5-ctl3-relaxpub: ./build/c4_relaxpub --max 128
+### exit=0
+trials_with_violation=0/1
+violations by kind: none
+counted: EEXIST=3964 E2BIG=10790 unstable=0 eexist_then_null=0 unstable_then_null=0
+RESULT CLEAN

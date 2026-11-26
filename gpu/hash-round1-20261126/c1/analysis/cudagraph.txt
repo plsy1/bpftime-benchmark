@@ -1,0 +1,15 @@
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe
+    39 update  start_ts(type 1) key stack-52 flags 0 (BPF_ANY), value stack-64
+    43 lookup  call_count(type 1) key stack-52
+    45   null   via lookup call_count@43: null test: if r0 == 0 goto +2 <LBB0_8>   | if r0 == 0 goto +2 <LBB0_8>
+    46   access via lookup call_count@43: plain load u64 at +0   | r1 = *(u64 *)(r0 + 0)
+    56 update  call_count(type 1) key stack-52 flags 0 (BPF_ANY), value stack-72
+== kretprobe/_Z9vectorAddPKfS0_Pf  cuda__retprobe
+    33 lookup  start_ts(type 1) key stack-52
+    35   null   via lookup start_ts@33: null test: if r7 == 0 goto +27 <LBB1_10>   | if r7 == 0 goto +27 <LBB1_10>
+    38   access via lookup start_ts@33: plain load u64 at +0   | r8 = *(u64 *)(r7 + 0)
+    44 delete  start_ts(type 1) key stack-52
+    49 lookup  total_time_ns(type 1) key stack-52
+    50   null   via lookup total_time_ns@49: null test: if r0 == 0 goto +3 <LBB1_9>   | if r0 == 0 goto +3 <LBB1_9>
+    51   access via lookup total_time_ns@49: plain load u64 at +0   | r1 = *(u64 *)(r0 + 0)
+    62 update  total_time_ns(type 1) key stack-52 flags 0 (BPF_ANY), value stack-64

@@ -1,0 +1,115 @@
+
+bpf/hs_miss_thread_kc_test.bpf.o:	file format elf64-bpf
+
+Disassembly of section kprobe/pt_kdiv:
+
+0000000000000000 <cuda__in_kdiv>:
+       0:	r0 = 0
+       1:	exit
+
+Disassembly of section kretprobe/pt_kdiv:
+
+0000000000000000 <cuda__out_kdiv>:
+       0:	r1 = 4
+       1:	*(u32 *)(r10 - 4) = r1
+       2:	r2 = r10
+       3:	r2 += -4
+       4:	r1 = 0 ll
+		0000000000000020:  R_BPF_64_64	chk
+       6:	call 1
+       7:	if r0 == 0 goto +2 <LBB1_2>
+       8:	r1 = 1
+       9:	lock *(u64 *)(r0 + 0) += r1
+
+0000000000000050 <LBB1_2>:
+      10:	r1 = 200000
+      11:	*(u32 *)(r10 - 8) = r1
+      12:	r2 = r10
+      13:	r2 += -8
+      14:	r1 = 0 ll
+		0000000000000070:  R_BPF_64_64	h
+      16:	call 1
+      17:	if r0 == 0 goto +11 <LBB1_5>
+      18:	r1 = 0
+      19:	*(u32 *)(r10 - 4) = r1
+      20:	r2 = r10
+      21:	r2 += -4
+      22:	r1 = 0 ll
+		00000000000000b0:  R_BPF_64_64	chk
+      24:	call 1
+      25:	if r0 == 0 goto +12 <LBB1_7>
+      26:	r1 = 1
+      27:	lock *(u64 *)(r0 + 0) += r1
+      28:	goto +9 <LBB1_7>
+
+00000000000000e8 <LBB1_5>:
+      29:	r6 = 1
+      30:	*(u32 *)(r10 - 4) = r6
+      31:	r2 = r10
+      32:	r2 += -4
+      33:	r1 = 0 ll
+		0000000000000108:  R_BPF_64_64	chk
+      35:	call 1
+      36:	if r0 == 0 goto +1 <LBB1_7>
+      37:	lock *(u64 *)(r0 + 0) += r6
+
+0000000000000130 <LBB1_7>:
+      38:	r0 = 0
+      39:	exit
+
+Disassembly of section kprobe/pt_kflat:
+
+0000000000000000 <cuda__in_kflat>:
+       0:	r0 = 0
+       1:	exit
+
+Disassembly of section kretprobe/pt_kflat:
+
+0000000000000000 <cuda__out_kflat>:
+       0:	r1 = 12
+       1:	*(u32 *)(r10 - 4) = r1
+       2:	r2 = r10
+       3:	r2 += -4
+       4:	r1 = 0 ll
+		0000000000000020:  R_BPF_64_64	chk
+       6:	call 1
+       7:	if r0 == 0 goto +2 <LBB3_2>
+       8:	r1 = 1
+       9:	lock *(u64 *)(r0 + 0) += r1
+
+0000000000000050 <LBB3_2>:
+      10:	r1 = 200001
+      11:	*(u32 *)(r10 - 8) = r1
+      12:	r2 = r10
+      13:	r2 += -8
+      14:	r1 = 0 ll
+		0000000000000070:  R_BPF_64_64	h
+      16:	call 1
+      17:	if r0 == 0 goto +9 <LBB3_5>
+      18:	r1 = 8
+      19:	*(u32 *)(r10 - 4) = r1
+      20:	r2 = r10
+      21:	r2 += -4
+      22:	r1 = 0 ll
+		00000000000000b0:  R_BPF_64_64	chk
+      24:	call 1
+      25:	if r0 == 0 goto +11 <LBB3_7>
+      26:	goto +8 <LBB3_6>
+
+00000000000000d8 <LBB3_5>:
+      27:	r1 = 9
+      28:	*(u32 *)(r10 - 4) = r1
+      29:	r2 = r10
+      30:	r2 += -4
+      31:	r1 = 0 ll
+		00000000000000f8:  R_BPF_64_64	chk
+      33:	call 1
+      34:	if r0 == 0 goto +2 <LBB3_7>
+
+0000000000000118 <LBB3_6>:
+      35:	r1 = 1
+      36:	lock *(u64 *)(r0 + 0) += r1
+
+0000000000000128 <LBB3_7>:
+      37:	r0 = 0
+      38:	exit

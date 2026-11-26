@@ -1,0 +1,19 @@
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe
+    19 update  start_ts(type 1) key stack-24 flags 0 (BPF_ANY), value stack-16
+    26 lookup  call_count(type 1) key stack-4
+    27   null   via lookup call_count@26: null test: if r0 == 0 goto +2 <LBB0_2>   | if r0 == 0 goto +2 <LBB0_2>
+    28   access via lookup call_count@26: atomic add u64, no fetch (XADD form "lock ... +=") at +0   | lock *(u64 *)(r0 + 0) += r6
+    37 update  call_count(type 1) key stack-4 flags 1 (BPF_NOEXIST), value stack-48
+== kretprobe/_Z9vectorAddPKfS0_Pf  cuda__retprobe
+    14 lookup  start_ts(type 1) key stack-8
+    16   null   via lookup start_ts@14: null test: if r6 == 0 goto +26 <LBB1_5>   | if r6 == 0 goto +26 <LBB1_5>
+    19   access via lookup start_ts@14: plain load u64 at +0   | r1 = *(u64 *)(r6 + 0)
+    27 delete  start_ts(type 1) key stack-28
+    31 lookup  total_time_ns(type 1) key stack-28
+    32   null   via lookup total_time_ns@31: null test: if r0 == 0 goto +36 <LBB1_3>   | if r0 == 0 goto +36 <LBB1_3>
+    33   access via lookup total_time_ns@31: plain load u64 at +0   | r1 = *(u64 *)(r0 + 0)
+    35   access via lookup total_time_ns@31: plain store u64 at +0   | *(u64 *)(r0 + 0) = r1
+    76   escape via lookup total_time_ns@31: passed to helper 2 as r3   | call 2
+    76 update  total_time_ns(type 1) key stack-28 flags 1 (BPF_NOEXIST), value stack-40
+    76 update  total_time_ns(type 1) key stack-28 flags 2 (BPF_EXIST), value = lookup result of total_time_ns@31
+   105   access via lookup start_ts@14: plain load u64 at +0   | r5 = *(u64 *)(r6 + 0)

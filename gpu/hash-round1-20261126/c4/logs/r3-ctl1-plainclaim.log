@@ -1,0 +1,115 @@
+### r3-ctl1-plainclaim: ./build/c4_plainclaim --max 128
+C4 build=ctl1-plain-store-claim FAULT=1 device="Orin" sm_87 SMs=8
+config max_entries=128 S=256 logS=8 rows_cap=256 threads=1000000 grid=3907x256 launches=10 trials=1 reader=0 prefill=0 seed0=0x0123456789abcdef wait_bound_ns=100000
+attempts per key per launch: min=15624 max=15626 (64 keys, K = 1000 + 7919*j)
+
+=== trial 0 seed=0x0123456789abcdef ===
+dir: claimed=54 live=54 claiming=0 (max_entries 128, S 256) bound=128 next_row=128
+dir shape: keys sharing a home slot=10 keys off home=0 max probe distance=0
+totals: attempts=10000000 prefill=0 delivered=8427090 EEXIST=4074 E2BIG=1568381 unstable=0 | all rows=8427545 rows behind live headers=8427090
+branches: lost_same_key=0 lost_other_key=0 walk_saw_claiming=2144 waits=2144 wait_sleeps=0 wait_max_ns=39584 givebacks=0 e2big_precheck=1565341 e2big_after_add=3040 eexist_then_null=125 unstable_then_null=0 walk_overflow=0 row_overflow=0 key_changed=65
+kernel span: first block start -> last block end = 8.296 ms (10 launches)
+per launch (EEXIST/E2BIG/won/unstable): L1 4074/162104/128/0 L2 0/156253/0/0 L3 0/156253/0/0 L4 0/156253/0/0 L5 0/156253/0/0 L6 0/156253/0/0 L7 0/156253/0/0 L8 0/156253/0/0 L9 0/156253/0/0 L10 0/156253/0/0
+E2BIG after launch 1: keys that ended in a slot=0 keys never in=1406277; longest wait requested_ns=0
+per key: j K slots slot home dist row attempts delivered EEXIST(live/waited/unstable) E2BIG hits won ok
+   0   1000 1  225  225   0   46  156260  156070     73(41/32/0)     104  156080 3 MISMATCH
+   1   8919 1   81   81   0  122  156250  156055     74(28/46/0)     111  156063 2 MISMATCH
+   2  16838 0   -1  151  -1   -1  156260       0      0(0/0/0)  156260       0 0 ok
+   3  24757 1    7    7   0  107  156240  156044     37(35/2/0)     150  156049 4 MISMATCH
+   4  32676 1  215  215   0   16  156250  156061     74(32/42/0)     111  156063 2 MISMATCH
+   5  40595 1  137  137   0  114  156250  156056     72(36/36/0)     106  156070 2 MISMATCH
+   6  48514 1  141  141   0   99  156260  156064     75(43/32/0)     106  156075 4 MISMATCH
+   7  56433 1   63   63   0  127  156250  156056     78(24/54/0)     116  156055 1 ok
+   8  64352 1  254  254   0   84  156250  156066     76(44/32/0)     108  156065 1 ok
+   9  72271 1  234  234   0   60  156250  156056     74(30/44/0)     109  156065 2 MISMATCH
+  10  80190 1  123  123   0   26  156240  156056     75(34/41/0)     109  156055 1 ok
+  11  88109 1  160  160   0  119  156250  156056     53(26/27/0)     141  156055 1 ok
+  12  96028 1  237  237   0  104  156250  156055     68(39/29/0)     109  156069 4 MISMATCH
+  13 103947 0   -1   18  -1   -1  156260       0      0(0/0/0)  156260       0 0 ok
+  14 111866 1  163  163   0  111  156240  156046     74(42/32/0)     108  156055 3 MISMATCH
+  15 119785 1  166  166   0   96  156260  156064     76(36/40/0)     108  156073 3 MISMATCH
+  16 127704 1   21   21   0   33  156240  156055     71(39/32/0)     108  156059 2 MISMATCH
+  17 135623 1   92   92   0  124  156250  156055     84(22/62/0)     111  156054 1 ok
+  18 143542 1  203  203   0   57  156250  156055     70(37/33/0)     109  156069 2 MISMATCH
+  19 151461 1  222  222   0   20  156260  156072     76(33/43/0)     108  156074 2 MISMATCH
+  20 159380 0   -1   78  -1   -1  156240       0     38(11/27/0)  156197       3 2 MISMATCH
+  21 167299 1  148  148   0  101  156250  156054     78(44/34/0)     104  156065 3 MISMATCH
+  22 175218 0   -1    4  -1   -1  156250       0     15(10/5/0)  156225       9 1 MISMATCH
+  23 183137 1    6    6   0    4  156260  156071     72(40/32/0)     111  156075 2 MISMATCH
+  24 191056 1  117  117   0  108  156240  156045     84(28/56/0)     106  156047 3 MISMATCH
+  25 198975 1  131  131   0   30  156250  156063     73(43/30/0)     107  156067 3 MISMATCH
+  26 206894 1  100  100   0  121  156250  156056     80(22/58/0)     114  156055 1 ok
+  27 214813 1  245  245   0  106  156250  156054     71(42/29/0)     107  156068 4 MISMATCH
+  28 222732 1  214  214   0   40  156250  156065     77(29/48/0)     108  156064 1 ok
+  29 230651 1  171  171   0  113  156250  156055     73(40/33/0)     110  156064 3 MISMATCH
+  30 238570 0   -1  106  -1   -1  156250       0      0(0/0/0)  156250       0 0 ok
+  31 246489 1   28   28   0   98  156250  156055     65(38/27/0)     112  156069 4 MISMATCH
+  32 254408 1   32   32   0  126  156250  156056     79(21/58/0)     115  156055 1 ok
+  33 262327 0   -1  160  -1   -1  156250       0     31(24/7/0)  156203      14 2 MISMATCH
+  34 270246 0   -1  112  -1   -1  156250       0      0(0/0/0)  156247       1 2 MISMATCH
+  35 278165 1  224  224   0  118  156250  156056     78(25/53/0)     116  156055 1 ok
+  36 286084 1   38   38   0  103  156260  156065     74(42/32/0)     105  156078 3 MISMATCH
+  37 294003 0   -1  150  -1   -1  156250       0      0(0/0/0)  156250       0 0 ok
+  38 301922 1  152  152   0    8  156240  156052     79(34/45/0)     109  156051 1 ok
+  39 309841 0   -1    7  -1   -1  156260       0     41(15/26/0)  156206       9 4 MISMATCH
+  40 317760 1   78   78   0   95  156240  156046     33(31/2/0)     149  156054 4 MISMATCH
+  41 325679 1  247  247   0  123  156250  156055     83(22/61/0)     112  156054 1 ok
+  42 333598 1  135  135   0   56  156260  156066     74(41/33/0)     106  156077 3 MISMATCH
+  43 341517 1  104  104   0   43  156250  156064     76(30/46/0)     110  156063 1 ok
+  44 349436 1   61   61   0   18  156250  156064     74(40/34/0)     108  156066 2 MISMATCH
+  45 357355 1  252  252   0  115  156240  156045     84(26/58/0)     111  156044 1 ok
+  46 365274 1  175  175   0  100  156250  156055     69(38/31/0)     108  156069 4 MISMATCH
+  47 373193 0   -1  178  -1   -1  156260       0      0(0/0/0)  156260       0 0 ok
+  48 381112 1  101  101   0   61  156240  156046     73(39/34/0)     106  156058 3 MISMATCH
+  49 389031 1   53   53   0    0  156260  156074     80(39/41/0)     106  156073 1 ok
+  50 396950 1  231  231   0  120  156240  156046     78(32/46/0)     109  156051 2 MISMATCH
+  51 404869 1  235  235   0  105  156250  156054     76(38/38/0)     109  156063 2 MISMATCH
+  52 412788 1  157  157   0   53  156250  156057     69(39/30/0)     110  156069 2 MISMATCH
+  53 420707 1   93   93   0   12  156250  156060     79(38/41/0)     108  156061 2 MISMATCH
+  54 428626 1   15   15   0  112  156250  156055     69(39/30/0)     113  156066 2 MISMATCH
+  55 436545 1   19   19   0   97  156260  156065     72(43/29/0)     107  156077 4 MISMATCH
+  56 444464 1  197  197   0  125  156240  156046     79(23/56/0)     115  156045 1 ok
+  57 452383 1   75   75   0   82  156250  156067     73(42/31/0)     110  156066 1 ok
+  58 460302 1  112  112   0   58  156250  156055     74(33/41/0)     110  156064 2 MISMATCH
+  59 468221 1    1    1   0   22  156250  156064     74(32/42/0)     112  156063 1 ok
+  60 476140 1    4    4   0  117  156250  156055     72(24/48/0)     123  156054 1 ok
+  61 484059 1  115  115   0  102  156240  156045     74(42/32/0)     105  156058 3 MISMATCH
+  62 491978 1  186  186   0    6  156260  156071     79(28/51/0)     110  156070 1 ok
+  63 499897 1   41   41   0  109  156240  156046     72(42/30/0)     110  156055 3 MISMATCH
+violations: key_sum_mismatch=40 total_sum_mismatch=1 bookkeeping=2 winners_ne_1=40 tally_ne_counter=40 eexist_then_null=1 orphan_adds=1 key_changed=1
+  note: orphan adds: all rows 8427545, rows behind live headers 8427090
+  note: bound 128 != claimed slots 54
+  note: next_row 128 != live headers 54
+  note: EEXIST (not unstable), then own lookup NULL: 125
+  note: waited-on slot changed key 65 times
+  note: key j=0 K=1000: delivered 156070 != 156083 (attempts 156260 - EEXIST 73 - E2BIG 104 + prefill 0)
+  note: key j=0: hits 156080 + won 3 + prefill 0 != delivered 156070
+  note: key j=0: 3 winners (slots 1, prefilled 0)
+  note: key j=1 K=8919: delivered 156055 != 156065 (attempts 156250 - EEXIST 74 - E2BIG 111 + prefill 0)
+  note: key j=1: hits 156063 + won 2 + prefill 0 != delivered 156055
+  note: key j=1: 2 winners (slots 1, prefilled 0)
+  note: key j=3 K=24757: delivered 156044 != 156053 (attempts 156240 - EEXIST 37 - E2BIG 150 + prefill 0)
+  note: key j=3: hits 156049 + won 4 + prefill 0 != delivered 156044
+  note: key j=3: 4 winners (slots 1, prefilled 0)
+  note: key j=4 K=32676: delivered 156061 != 156065 (attempts 156250 - EEXIST 74 - E2BIG 111 + prefill 0)
+  note: key j=4: hits 156063 + won 2 + prefill 0 != delivered 156061
+  note: key j=4: 2 winners (slots 1, prefilled 0)
+  note: key j=5 K=40595: delivered 156056 != 156072 (attempts 156250 - EEXIST 72 - E2BIG 106 + prefill 0)
+  note: key j=5: hits 156070 + won 2 + prefill 0 != delivered 156056
+  note: key j=5: 2 winners (slots 1, prefilled 0)
+  note: key j=6 K=48514: delivered 156064 != 156079 (attempts 156260 - EEXIST 75 - E2BIG 106 + prefill 0)
+  note: key j=6: hits 156075 + won 4 + prefill 0 != delivered 156064
+  note: key j=6: 4 winners (slots 1, prefilled 0)
+  note: key j=9 K=72271: delivered 156056 != 156067 (attempts 156250 - EEXIST 74 - E2BIG 109 + prefill 0)
+
+=== summary build=ctl1-plain-store-claim max_entries=128 trials=1 ===
+trials_with_violation=1/1
+violations by kind: key_sum_mismatch=40 total_sum_mismatch=1 bookkeeping=2 winners_ne_1=40 tally_ne_counter=40 eexist_then_null=1 orphan_adds=1 key_changed=1
+counted: EEXIST=4074 E2BIG=1568381 unstable=0 eexist_then_null=125 unstable_then_null=0
+per trial: EEXIST min=4074 max=4074, E2BIG min=1568381 max=1568381
+branches: lost_same_key=0 lost_other_key=0 walk_saw_claiming=2144 waits=2144 wait_sleeps=0 wait_max_ns=39584 givebacks=0 e2big_precheck=1565341 e2big_after_add=3040
+after launch 1: EEXIST=0 won=0 unstable=0 E2BIG on keys that ended in a slot=0 E2BIG on keys never in=1406277
+longest wait: elapsed_ns=39584 requested_ns=0 (bound 100000)
+dir: keys off home (sum over trials)=0 max probe distance=0 max claimed=54 trials with E2BIG while claimed < max_entries=1
+RESULT VIOLATIONS
+### exit=1

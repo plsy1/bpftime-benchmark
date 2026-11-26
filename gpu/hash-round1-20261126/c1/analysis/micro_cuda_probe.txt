@@ -1,0 +1,46 @@
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe
+  (no map helper calls)
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe_entry
+  (no map helper calls)
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe_both_entry
+  (no map helper calls)
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe_ringbuf
+  (no map helper calls)
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe_globaltimer
+  (no map helper calls)
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe_array_update
+    34 update  array_map(type 2) key stack-4 flags 0 (BPF_ANY), value stack-16
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe_array_lookup
+    43 lookup  array_map(type 2) key stack-4
+    44   null   via lookup array_map@43: null test: if r0 == 0 goto +3 <LBB9_2>   | if r0 == 0 goto +3 <LBB9_2>
+    45   access via lookup array_map@43: plain load u64 at +0   | r1 = *(u64 *)(r0 + 0)
+    47   access via lookup array_map@43: plain store u64 at +0   | *(u64 *)(r0 + 0) = r1
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe_hash_update
+    61 update  hash_map(type 1) key stack-4 flags 0 (BPF_ANY), value stack-16
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe_hash_lookup
+    70 lookup  hash_map(type 1) key stack-4
+    71   null   via lookup hash_map@70: null test: if r0 == 0 goto +3 <LBB11_2>   | if r0 == 0 goto +3 <LBB11_2>
+    72   access via lookup hash_map@70: plain load u64 at +0   | r1 = *(u64 *)(r0 + 0)
+    74   access via lookup hash_map@70: plain store u64 at +0   | *(u64 *)(r0 + 0) = r1
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe_hash_delete
+    83 delete  hash_map(type 1) key stack-4
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe_pergputd_array_lookup
+    92 lookup  call_count(type 1502) key stack-4
+    93   null   via lookup call_count@92: null test: if r0 == 0 goto +3 <LBB13_2>   | if r0 == 0 goto +3 <LBB13_2>
+    94   access via lookup call_count@92: plain load u64 at +0   | r1 = *(u64 *)(r0 + 0)
+    96   access via lookup call_count@92: plain store u64 at +0   | *(u64 *)(r0 + 0) = r1
+== kretprobe/_Z9vectorAddPKfS0_Pf  cuda__retprobe
+  (no map helper calls)
+== kretprobe/_Z9vectorAddPKfS0_Pf  cuda__retprobe_exit
+  (no map helper calls)
+== kretprobe/_Z9vectorAddPKfS0_Pf  cuda__retprobe_both_exit
+  (no map helper calls)
+== kretprobe/_Z9vectorAddPKfS0_Pf  cuda__retprobe_gpu_array_update
+    12 lookup  gpu_counter(type 1503) key stack-4
+    15   null   via lookup gpu_counter@12: null test: if r0 == 0 goto +3 <LBB15_2>   | if r0 == 0 goto +3 <LBB15_2>
+    16   access via lookup gpu_counter@12: plain load u64 at +0   | r1 = *(u64 *)(r0 + 0)
+    26 update  gpu_counter(type 1503) key stack-4 flags 0 (BPF_ANY), value stack-16
+== kretprobe/_Z9vectorAddPKfS0_Pf  cuda__retprobe_gpu_array_lookup
+    35 lookup  gpu_counter(type 1503) key stack-4
+== kprobe/__memcapture  cuda__probe_memtrace
+  (no map helper calls)

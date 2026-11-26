@@ -1,0 +1,441 @@
+### t9-nobound-48-x200: ./build/c4_nobound --max 48 --trials 200
+C4 build=ctl2-no-bound-reservation FAULT=2 device="Orin" sm_87 SMs=8
+config max_entries=48 S=128 logS=7 rows_cap=128 threads=1000000 grid=3907x256 launches=10 trials=200 reader=0 prefill=0 seed0=0x0123456789abcdef wait_bound_ns=100000
+attempts per key per launch: min=15624 max=15626 (64 keys, K = 1000 + 7919*j)
+
+=== trial 0 seed=0x0123456789abcdef ===
+dir: claimed=64 live=64 claiming=0 (max_entries 48, S 128) bound=0 next_row=64
+dir shape: keys sharing a home slot=25 keys off home=13 max probe distance=4
+totals: attempts=10000000 prefill=0 delivered=9987876 EEXIST=12124 E2BIG=0 unstable=0 | all rows=9987876 rows behind live headers=9987876
+branches: lost_same_key=2735 lost_other_key=661 walk_saw_claiming=5749 waits=8484 wait_sleeps=3168 wait_max_ns=46432 givebacks=0 e2big_precheck=0 e2big_after_add=0 eexist_then_null=0 unstable_then_null=0 walk_overflow=0 row_overflow=0 key_changed=0
+kernel span: first block start -> last block end = 6.880 ms (10 launches)
+per launch (EEXIST/E2BIG/won/unstable): L1 12124/0/64/0 L2 0/0/0/0 L3 0/0/0/0 L4 0/0/0/0 L5 0/0/0/0 L6 0/0/0/0 L7 0/0/0/0 L8 0/0/0/0 L9 0/0/0/0 L10 0/0/0/0
+E2BIG after launch 1: keys that ended in a slot=0 keys never in=0; longest wait requested_ns=4032
+per key: j K slots slot home dist row attempts delivered EEXIST(live/waited/unstable) E2BIG hits won ok
+   0   1000 1  112  112   0   39  156260  156068    192(51/141/0)       0  156067 1 ok
+   1   8919 1   40   40   0   31  156250  156060    190(44/146/0)       0  156059 1 ok
+   2  16838 1   75   75   0   17  156260  156069    191(48/143/0)       0  156068 1 ok
+   3  24757 1    3    3   0   34  156240  156048    192(48/144/0)       0  156047 1 ok
+   4  32676 1  108  107   1   55  156250  156059    191(41/150/0)       0  156058 1 ok
+   5  40595 1   68   68   0   43  156250  156060    190(48/142/0)       0  156059 1 ok
+   6  48514 1   70   70   0    6  156260  156072    188(65/123/0)       0  156071 1 ok
+   7  56433 1   31   31   0   13  156250  156067    183(60/123/0)       0  156066 1 ok
+   8  64352 1  127  127   0   50  156250  156058    192(48/144/0)       0  156057 1 ok
+   9  72271 1  119  117   2   58  156250  156060    190(125/65/0)       0  156059 1 ok
+  10  80190 1   61   61   0    1  156240  156057    183(62/121/0)       0  156056 1 ok
+  11  88109 1   80   80   0   14  156250  156058    192(50/142/0)       0  156057 1 ok
+  12  96028 1  118  118   0    9  156250  156066    184(61/123/0)       0  156065 1 ok
+  13 103947 1   11    9   2   57  156260  156069    191(129/62/0)       0  156068 1 ok
+  14 111866 1   81   81   0   25  156240  156049    191(44/147/0)       0  156048 1 ok
+  15 119785 1   83   83   0   40  156260  156068    192(46/146/0)       0  156067 1 ok
+  16 127704 1   10   10   0   32  156240  156050    190(46/144/0)       0  156049 1 ok
+  17 135623 1   46   46   0   19  156250  156059    191(48/143/0)       0  156058 1 ok
+  18 143542 1  101  101   0   36  156250  156059    191(43/148/0)       0  156058 1 ok
+  19 151461 1  111  111   0   28  156260  156069    191(46/145/0)       0  156068 1 ok
+  20 159380 1   41   39   2   60  156240  156049    191(40/151/0)       0  156048 1 ok
+  21 167299 1   74   74   0   45  156250  156059    191(44/147/0)       0  156058 1 ok
+  22 175218 1    6    2   4   63  156250  156066    184(149/35/0)       0  156065 1 ok
+  23 183137 1    4    3   1   52  156260  156068    192(28/164/0)       0  156067 1 ok
+  24 191056 1   58   58   0   38  156240  156050    190(50/140/0)       0  156049 1 ok
+  25 198975 1   65   65   0    2  156250  156068    182(60/122/0)       0  156067 1 ok
+  26 206894 1   50   50   0   16  156250  156059    191(46/145/0)       0  156058 1 ok
+  27 214813 1  122  122   0   10  156250  156065    185(63/122/0)       0  156064 1 ok
+  28 222732 1  107  107   0   33  156250  156059    191(52/139/0)       0  156058 1 ok
+  29 230651 1   85   85   0   26  156250  156059    191(42/149/0)       0  156058 1 ok
+  30 238570 1   53   53   0   42  156250  156059    191(50/141/0)       0  156058 1 ok
+  31 246489 1   14   14   0    5  156250  156066    184(62/122/0)       0  156065 1 ok
+  32 254408 1   16   16   0   21  156250  156059    191(48/143/0)       0  156058 1 ok
+  33 262327 1   82   80   2   61  156250  156059    191(6/185/0)       0  156058 1 ok
+  34 270246 1   56   56   0    0  156250  156066    184(63/121/0)       0  156065 1 ok
+  35 278165 1  113  112   1   54  156250  156059    191(56/135/0)       0  156058 1 ok
+  36 286084 1   19   19   0   47  156260  156068    192(49/143/0)       0  156067 1 ok
+  37 294003 1   77   75   2   56  156250  156059    191(125/66/0)       0  156058 1 ok
+  38 301922 1   76   76   0   24  156240  156050    190(42/148/0)       0  156049 1 ok
+  39 309841 1    5    3   2   59  156260  156067    193(129/64/0)       0  156066 1 ok
+  40 317760 1   39   39   0    3  156240  156057    183(62/121/0)       0  156056 1 ok
+  41 325679 1  123  123   0   48  156250  156059    191(50/141/0)       0  156058 1 ok
+  42 333598 1   67   67   0   18  156260  156068    192(43/149/0)       0  156067 1 ok
+  43 341517 1   52   52   0   35  156250  156060    190(47/143/0)       0  156059 1 ok
+  44 349436 1   30   30   0   27  156250  156058    192(42/150/0)       0  156057 1 ok
+  45 357355 1  126  126   0   44  156240  156049    191(50/141/0)       0  156048 1 ok
+  46 365274 1   87   87   0    7  156250  156066    184(61/123/0)       0  156065 1 ok
+  47 373193 1   89   89   0   22  156260  156068    192(49/143/0)       0  156067 1 ok
+  48 381112 1   51   50   1   51  156240  156050    190(36/154/0)       0  156049 1 ok
+  49 389031 1   26   26   0   37  156260  156069    191(47/144/0)       0  156068 1 ok
+  50 396950 1  115  115   0   30  156240  156049    191(47/144/0)       0  156048 1 ok
+  51 404869 1  117  117   0   15  156250  156058    192(44/148/0)       0  156057 1 ok
+  52 412788 1   78   78   0   12  156250  156067    183(61/122/0)       0  156066 1 ok
+  53 420707 1   47   46   1   53  156250  156058    192(31/161/0)       0  156057 1 ok
+  54 428626 1    7    7   0   41  156250  156059    191(44/147/0)       0  156058 1 ok
+  55 436545 1    9    9   0    4  156260  156076    184(62/122/0)       0  156075 1 ok
+  56 444464 1   98   98   0   49  156240  156049    191(50/141/0)       0  156048 1 ok
+  57 452383 1   37   37   0   20  156250  156060    190(40/150/0)       0  156059 1 ok
+  58 460302 1   59   56   3   62  156250  156061    189(155/34/0)       0  156060 1 ok
+  59 468221 1    0    0   0   29  156250  156059    191(41/150/0)       0  156058 1 ok
+  60 476140 1    2    2   0   46  156250  156059    191(48/143/0)       0  156058 1 ok
+  61 484059 1   57   57   0    8  156240  156054    186(63/123/0)       0  156053 1 ok
+  62 491978 1   93   93   0   23  156260  156069    191(48/143/0)       0  156068 1 ok
+  63 499897 1   20   20   0   11  156240  156055    185(62/123/0)       0  156054 1 ok
+violations: claimed_gt_max=1
+  note: claimed slots 64 > max_entries 48
+
+=== trial 1 seed=0x9804297cc374ca1a ===
+dir: claimed=64 live=64 claiming=0 (max_entries 48, S 128) bound=0 next_row=64
+dir shape: keys sharing a home slot=24 keys off home=13 max probe distance=5
+totals: attempts=10000000 prefill=0 delivered=9987975 EEXIST=12025 E2BIG=0 unstable=0 | all rows=9987975 rows behind live headers=9987975
+branches: lost_same_key=2513 lost_other_key=638 walk_saw_claiming=5944 waits=8457 wait_sleeps=2504 wait_max_ns=49248 givebacks=0 e2big_precheck=0 e2big_after_add=0 eexist_then_null=0 unstable_then_null=0 walk_overflow=0 row_overflow=0 key_changed=0
+kernel span: first block start -> last block end = 6.841 ms (10 launches)
+per launch (EEXIST/E2BIG/won/unstable): L1 12025/0/64/0 L2 0/0/0/0 L3 0/0/0/0 L4 0/0/0/0 L5 0/0/0/0 L6 0/0/0/0 L7 0/0/0/0 L8 0/0/0/0 L9 0/0/0/0 L10 0/0/0/0
+E2BIG after launch 1: keys that ended in a slot=0 keys never in=0; longest wait requested_ns=1984
+per key: j K slots slot home dist row attempts delivered EEXIST(live/waited/unstable) E2BIG hits won ok
+   0   1000 1   72   72   0   38  156260  156068    192(38/154/0)       0  156067 1 ok
+   1   8919 1   53   53   0   24  156250  156064    186(64/122/0)       0  156063 1 ok
+   2  16838 1   69   68   1   54  156260  156069    191(72/119/0)       0  156068 1 ok
+   3  24757 1   57   56   1   58  156240  156048    192(41/151/0)       0  156047 1 ok
+   4  32676 1   12   12   0   32  156250  156059    191(33/158/0)       0  156058 1 ok
+   5  40595 1   40   40   0   16  156250  156066    184(67/117/0)       0  156065 1 ok
+   6  48514 1   22   22   0   42  156260  156067    193(35/158/0)       0  156066 1 ok
+   7  56433 1   45   43   2   60  156250  156060    190(19/171/0)       0  156059 1 ok
+   8  64352 1   59   59   0   50  156250  156058    192(39/153/0)       0  156057 1 ok
+   9  72271 1   67   67   0   37  156250  156060    190(37/153/0)       0  156059 1 ok
+  10  80190 1  106  106   0   22  156240  156053    187(64/123/0)       0  156052 1 ok
+  11  88109 1   70   70   0    0  156250  156066    184(66/118/0)       0  156065 1 ok
+  12  96028 1   75   75   0   45  156250  156060    190(33/157/0)       0  156059 1 ok
+  13 103947 1   46   46   0   29  156260  156069    191(37/154/0)       0  156068 1 ok
+  14 111866 1   85   85   0   14  156240  156055    185(66/119/0)       0  156054 1 ok
+  15 119785 1   66   66   0   39  156260  156068    192(31/161/0)       0  156067 1 ok
+  16 127704 1  123  122   1   51  156240  156050    190(50/140/0)       0  156049 1 ok
+  17 135623 1   56   56   0   48  156250  156059    191(36/155/0)       0  156058 1 ok
+  18 143542 1  111  111   0   11  156250  156066    184(66/118/0)       0  156065 1 ok
+  19 151461 1   33   33   0   34  156260  156069    191(37/154/0)       0  156068 1 ok
+  20 159380 1   89   89   0   17  156240  156055    185(65/120/0)       0  156054 1 ok
+  21 167299 1   43   43   0    9  156250  156062    188(66/122/0)       0  156061 1 ok
+  22 175218 1  101   99   2   61  156250  156060    190(102/88/0)       0  156059 1 ok
+  23 183137 1   80   80   0   12  156260  156073    187(63/124/0)       0  156072 1 ok
+  24 191056 1    8    8   0   26  156240  156052    188(65/123/0)       0  156051 1 ok
+  25 198975 1  127  127   0    3  156250  156067    183(60/123/0)       0  156066 1 ok
+  26 206894 1  126  126   0    2  156250  156064    186(67/119/0)       0  156063 1 ok
+  27 214813 1   97   96   1   53  156250  156059    191(75/116/0)       0  156058 1 ok
+  28 222732 1   95   95   0   31  156250  156059    191(38/153/0)       0  156058 1 ok
+  29 230651 1  109  106   3   62  156250  156059    191(63/128/0)       0  156058 1 ok
+  30 238570 1  122  122   0   41  156250  156059    191(36/155/0)       0  156058 1 ok
+  31 246489 1   15   15   0    7  156250  156066    184(66/118/0)       0  156065 1 ok
+  32 254408 1  125  125   0    5  156250  156066    184(62/122/0)       0  156065 1 ok
+  33 262327 1   30   30   0   49  156250  156059    191(38/153/0)       0  156058 1 ok
+  34 270246 1  114  114   0   36  156250  156059    191(34/157/0)       0  156058 1 ok
+  35 278165 1  102  102   0   21  156250  156063    187(63/124/0)       0  156062 1 ok
+  36 286084 1  117  117   0   10  156260  156073    187(62/125/0)       0  156072 1 ok
+  37 294003 1  112  112   0   28  156250  156059    191(40/151/0)       0  156058 1 ok
+  38 301922 1   34   33   1   57  156240  156050    190(69/121/0)       0  156049 1 ok
+  39 309841 1   23   21   2   59  156260  156067    193(129/64/0)       0  156066 1 ok
+  40 317760 1   36   36   0    4  156240  156056    184(61/123/0)       0  156055 1 ok
+  41 325679 1   17   17   0   18  156250  156064    186(67/119/0)       0  156063 1 ok
+  42 333598 1   49   49   0   47  156260  156068    192(35/157/0)       0  156067 1 ok
+  43 341517 1  107  107   0   33  156250  156060    190(34/156/0)       0  156059 1 ok
+  44 349436 1   52   52   0   19  156250  156062    188(62/126/0)       0  156061 1 ok
+  45 357355 1    7    7   0   43  156240  156049    191(38/153/0)       0  156048 1 ok
+  46 365274 1   96   96   0    8  156250  156067    183(63/120/0)       0  156066 1 ok
+  47 373193 1   10   10   0    6  156260  156074    186(67/119/0)       0  156073 1 ok
+  48 381112 1  100   99   1   56  156240  156050    190(75/115/0)       0  156049 1 ok
+  49 389031 1  108  108   0    1  156260  156074    186(66/120/0)       0  156073 1 ok
+  50 396950 1   63   63   0   23  156240  156053    187(65/122/0)       0  156052 1 ok
+  51 404869 1  105  105   0   46  156250  156058    192(33/159/0)       0  156057 1 ok
+  52 412788 1   71   66   5   63  156250  156116    134(124/10/0)       0  156115 1 ok
+  53 420707 1   21   21   0   30  156250  156058    192(36/156/0)       0  156057 1 ok
+  54 428626 1  110  110   0   15  156250  156064    186(67/119/0)       0  156063 1 ok
+  55 436545 1   24   24   0   40  156260  156069    191(34/157/0)       0  156068 1 ok
+  56 444464 1  113  113   0   25  156240  156052    188(64/124/0)       0  156051 1 ok
+  57 452383 1   44   43   1   55  156250  156060    190(74/116/0)       0  156059 1 ok
+  58 460302 1   68   68   0   35  156250  156059    191(39/152/0)       0  156058 1 ok
+  59 468221 1   39   39   0   20  156250  156064    186(62/124/0)       0  156063 1 ok
+  60 476140 1   90   89   1   52  156250  156059    191(73/118/0)       0  156058 1 ok
+  61 484059 1   84   84   0   44  156240  156049    191(38/153/0)       0  156048 1 ok
+  62 491978 1   99   99   0   27  156260  156069    191(35/156/0)       0  156068 1 ok
+  63 499897 1   87   87   0   13  156240  156056    184(62/122/0)       0  156055 1 ok
+violations: claimed_gt_max=1
+  note: claimed slots 64 > max_entries 48
+
+=== trial 2 seed=0xaf8d95523beccaa2 ===
+dir: claimed=64 live=64 claiming=0 (max_entries 48, S 128) bound=0 next_row=64
+dir shape: keys sharing a home slot=23 keys off home=12 max probe distance=4
+totals: attempts=10000000 prefill=0 delivered=9987785 EEXIST=12215 E2BIG=0 unstable=0 | all rows=9987785 rows behind live headers=9987785
+branches: lost_same_key=2738 lost_other_key=595 walk_saw_claiming=5219 waits=7957 wait_sleeps=840 wait_max_ns=33280 givebacks=0 e2big_precheck=0 e2big_after_add=0 eexist_then_null=0 unstable_then_null=0 walk_overflow=0 row_overflow=0 key_changed=0
+kernel span: first block start -> last block end = 6.745 ms (10 launches)
+per launch (EEXIST/E2BIG/won/unstable): L1 12215/0/64/0 L2 0/0/0/0 L3 0/0/0/0 L4 0/0/0/0 L5 0/0/0/0 L6 0/0/0/0 L7 0/0/0/0 L8 0/0/0/0 L9 0/0/0/0 L10 0/0/0/0
+E2BIG after launch 1: keys that ended in a slot=0 keys never in=0; longest wait requested_ns=1984
+per key: j K slots slot home dist row attempts delivered EEXIST(live/waited/unstable) E2BIG hits won ok
+   0   1000 1   10   10   0   22  156260  156068    192(64/128/0)       0  156067 1 ok
+   1   8919 1   47   47   0   39  156250  156060    190(63/127/0)       0  156059 1 ok
+   2  16838 1   93   91   2   62  156260  156069    191(32/159/0)       0  156068 1 ok
+   3  24757 1  107  107   0   49  156240  156048    192(62/130/0)       0  156047 1 ok
+   4  32676 1   92   92   0   16  156250  156059    191(63/128/0)       0  156058 1 ok
+   5  40595 1   35   35   0   31  156250  156060    190(61/129/0)       0  156059 1 ok
+   6  48514 1   45   45   0    3  156260  156067    193(64/129/0)       0  156066 1 ok
+   7  56433 1  125  123   2   59  156250  156060    190(81/109/0)       0  156059 1 ok
+   8  64352 1   39   39   0   10  156250  156058    192(64/128/0)       0  156057 1 ok
+   9  72271 1  103  103   0   18  156250  156060    190(64/126/0)       0  156059 1 ok
+  10  80190 1   43   43   0   36  156240  156049    191(61/130/0)       0  156048 1 ok
+  11  88109 1   36   36   0   12  156250  156058    192(66/126/0)       0  156057 1 ok
+  12  96028 1   82   82   0   46  156250  156060    190(61/129/0)       0  156059 1 ok
+  13 103947 1   84   83   1   55  156260  156069    191(76/115/0)       0  156068 1 ok
+  14 111866 1  122  122   0   28  156240  156049    191(62/129/0)       0  156048 1 ok
+  15 119785 1    6    4   2   61  156260  156068    192(92/100/0)       0  156067 1 ok
+  16 127704 1  102  102   0   41  156240  156050    190(63/127/0)       0  156049 1 ok
+  17 135623 1   79   79   0    0  156250  156060    190(64/126/0)       0  156059 1 ok
+  18 143542 1   37   35   2   60  156250  156059    191(88/103/0)       0  156058 1 ok
+  19 151461 1  113  113   0   17  156260  156069    191(63/128/0)       0  156068 1 ok
+  20 159380 1   83   83   0   33  156240  156049    191(61/130/0)       0  156048 1 ok
+  21 167299 1   66   66   0    4  156250  156059    191(64/127/0)       0  156058 1 ok
+  22 175218 1   50   50   0   44  156250  156060    190(63/127/0)       0  156059 1 ok
+  23 183137 1   60   60   0   25  156260  156068    192(60/132/0)       0  156067 1 ok
+  24 191056 1   30   30   0    1  156240  156051    189(65/124/0)       0  156050 1 ok
+  25 198975 1   64   64   0   38  156250  156059    191(59/132/0)       0  156058 1 ok
+  26 206894 1   91   91   0   13  156250  156059    191(65/126/0)       0  156058 1 ok
+  27 214813 1  104  104   0    7  156250  156059    191(64/127/0)       0  156058 1 ok
+  28 222732 1    3    3   0   48  156250  156059    191(62/129/0)       0  156058 1 ok
+  29 230651 1   15   15   0   30  156250  156059    191(61/130/0)       0  156058 1 ok
+  30 238570 1   59   59   0   20  156250  156059    191(64/127/0)       0  156058 1 ok
+  31 246489 1  123  123   0   42  156250  156059    191(62/129/0)       0  156058 1 ok
+  32 254408 1    5    5   0   14  156250  156059    191(64/127/0)       0  156058 1 ok
+  33 262327 1   81   81   0    9  156250  156059    191(64/127/0)       0  156058 1 ok
+  34 270246 1   67   66   1   56  156250  156059    191(74/117/0)       0  156058 1 ok
+  35 278165 1   96   96   0   35  156250  156059    191(64/127/0)       0  156058 1 ok
+  36 286084 1   12   12   0    5  156260  156068    192(63/129/0)       0  156067 1 ok
+  37 294003 1   63   63   0   45  156250  156059    191(65/126/0)       0  156058 1 ok
+  38 301922 1   13   13   0   27  156240  156050    190(59/131/0)       0  156049 1 ok
+  39 309841 1   44   43   1   58  156260  156067    193(85/108/0)       0  156066 1 ok
+  40 317760 1   87   87   0   23  156240  156051    189(62/127/0)       0  156050 1 ok
+  41 325679 1  110  110   0   40  156250  156059    191(62/129/0)       0  156058 1 ok
+  42 333598 1   56   56   0    8  156260  156068    192(66/126/0)       0  156067 1 ok
+  43 341517 1   16   16   0   50  156250  156060    190(61/129/0)       0  156059 1 ok
+  44 349436 1   89   89   0   32  156250  156058    192(61/131/0)       0  156057 1 ok
+  45 357355 1   72   72   0   21  156240  156049    191(65/126/0)       0  156048 1 ok
+  46 365274 1   76   76   0   43  156250  156060    190(61/129/0)       0  156059 1 ok
+  47 373193 1   18   18   0   15  156260  156068    192(64/128/0)       0  156067 1 ok
+  48 381112 1    8    8   0   24  156240  156050    190(61/129/0)       0  156049 1 ok
+  49 389031 1   61   60   1   57  156260  156069    191(77/114/0)       0  156068 1 ok
+  50 396950 1   57   57   0   37  156240  156049    191(63/128/0)       0  156048 1 ok
+  51 404869 1  127  127   0    6  156250  156058    192(64/128/0)       0  156057 1 ok
+  52 412788 1   17   17   0   47  156250  156060    190(63/127/0)       0  156059 1 ok
+  53 420707 1    0    0   0   29  156250  156058    192(61/131/0)       0  156057 1 ok
+  54 428626 1    4    4   0   11  156250  156059    191(65/126/0)       0  156058 1 ok
+  55 436545 1   74   74   0   19  156260  156069    191(62/129/0)       0  156068 1 ok
+  56 444464 1   65   64   1   53  156240  156049    191(79/112/0)       0  156048 1 ok
+  57 452383 1   51   50   1   52  156250  156060    190(66/124/0)       0  156059 1 ok
+  58 460302 1  105  105   0   51  156250  156059    191(63/128/0)       0  156058 1 ok
+  59 468221 1   77   77   0   34  156250  156059    191(61/130/0)       0  156058 1 ok
+  60 476140 1   26   26   0    2  156250  156060    190(64/126/0)       0  156059 1 ok
+  61 484059 1   68   64   4   63  156240  156055    185(166/19/0)       0  156054 1 ok
+  62 491978 1  108  107   1   54  156260  156069    191(77/114/0)       0  156068 1 ok
+  63 499897 1  124  124   0   26  156240  156049    191(62/129/0)       0  156048 1 ok
+violations: claimed_gt_max=1
+  note: claimed slots 64 > max_entries 48
+trial 3 seed=0xcb4e5f6a912dcef8 claimed=64 claiming=0 EEXIST=11628 E2BIG=0 unstable=0 lost_same=1969 lost_other=1290 waits=7402 off_home=27 maxd=13 viol=1
+trial 4 seed=0x4efc6dca531fa60f claimed=64 claiming=0 EEXIST=12039 E2BIG=0 unstable=0 lost_same=3257 lost_other=656 waits=8421 off_home=11 maxd=2 viol=1
+trial 5 seed=0x0ee9e6317f5734c2 claimed=64 claiming=0 EEXIST=12204 E2BIG=0 unstable=0 lost_same=2402 lost_other=641 waits=8754 off_home=15 maxd=6 viol=1
+trial 6 seed=0x427003011abcd77e claimed=64 claiming=0 EEXIST=12032 E2BIG=0 unstable=0 lost_same=2875 lost_other=975 waits=8326 off_home=17 maxd=5 viol=1
+trial 7 seed=0x790fd4e2a886681a claimed=64 claiming=0 EEXIST=12117 E2BIG=0 unstable=0 lost_same=2722 lost_other=432 waits=8431 off_home=9 maxd=3 viol=1
+trial 8 seed=0x785b7cd8b86f18f9 claimed=64 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=3032 lost_other=253 waits=8484 off_home=5 maxd=2 viol=1
+trial 9 seed=0xa5002a5e19b416ec claimed=64 claiming=0 EEXIST=12116 E2BIG=0 unstable=0 lost_same=2401 lost_other=799 waits=8231 off_home=17 maxd=4 viol=1
+trial 10 seed=0xb9a4d2fb2a6ebc3f claimed=64 claiming=0 EEXIST=12160 E2BIG=0 unstable=0 lost_same=2719 lost_other=1036 waits=8599 off_home=18 maxd=2 viol=1
+trial 11 seed=0xd9e8d93ca22dbb55 claimed=64 claiming=0 EEXIST=11946 E2BIG=0 unstable=0 lost_same=2379 lost_other=1017 waits=7633 off_home=19 maxd=11 viol=1
+trial 12 seed=0x67ae851c7e9b68a0 claimed=64 claiming=0 EEXIST=12083 E2BIG=0 unstable=0 lost_same=2870 lost_other=582 waits=7803 off_home=11 maxd=3 viol=1
+trial 13 seed=0xc84cba35065c962c claimed=64 claiming=0 EEXIST=12136 E2BIG=0 unstable=0 lost_same=3289 lost_other=472 waits=8380 off_home=8 maxd=3 viol=1
+trial 14 seed=0x835e0382856978e7 claimed=64 claiming=0 EEXIST=12137 E2BIG=0 unstable=0 lost_same=2831 lost_other=343 waits=8495 off_home=7 maxd=5 viol=1
+trial 15 seed=0x3b103bb04cb7b607 claimed=64 claiming=0 EEXIST=12112 E2BIG=0 unstable=0 lost_same=3448 lost_other=513 waits=8195 off_home=9 maxd=2 viol=1
+trial 16 seed=0xbe7a9a5acf30b217 claimed=64 claiming=0 EEXIST=12029 E2BIG=0 unstable=0 lost_same=2701 lost_other=900 waits=7941 off_home=17 maxd=4 viol=1
+trial 17 seed=0xd157e23c309f8624 claimed=64 claiming=0 EEXIST=11632 E2BIG=0 unstable=0 lost_same=2391 lost_other=960 waits=7578 off_home=20 maxd=14 viol=1
+trial 18 seed=0xb2147171717491c7 claimed=64 claiming=0 EEXIST=12036 E2BIG=0 unstable=0 lost_same=3134 lost_other=734 waits=7790 off_home=13 maxd=14 viol=1
+trial 19 seed=0xba57d1c188012b21 claimed=64 claiming=0 EEXIST=12081 E2BIG=0 unstable=0 lost_same=2668 lost_other=788 waits=8035 off_home=15 maxd=5 viol=1
+trial 20 seed=0x4a3b69e8adc055b0 claimed=64 claiming=0 EEXIST=12171 E2BIG=0 unstable=0 lost_same=2386 lost_other=598 waits=8270 off_home=14 maxd=6 viol=1
+trial 21 seed=0xd32c2aa92f8147bf claimed=64 claiming=0 EEXIST=12178 E2BIG=0 unstable=0 lost_same=2786 lost_other=814 waits=8406 off_home=15 maxd=4 viol=1
+trial 22 seed=0x2807981d85e12714 claimed=64 claiming=0 EEXIST=12050 E2BIG=0 unstable=0 lost_same=3046 lost_other=981 waits=8321 off_home=16 maxd=8 viol=1
+trial 23 seed=0xa0f6fe5e162b59b5 claimed=64 claiming=0 EEXIST=12106 E2BIG=0 unstable=0 lost_same=2878 lost_other=358 waits=8760 off_home=7 maxd=2 viol=1
+trial 24 seed=0xfa1d34af1999a9da claimed=64 claiming=0 EEXIST=12010 E2BIG=0 unstable=0 lost_same=2622 lost_other=830 waits=8678 off_home=16 maxd=7 viol=1
+trial 25 seed=0x20c0552c9b160239 claimed=64 claiming=0 EEXIST=12171 E2BIG=0 unstable=0 lost_same=2772 lost_other=513 waits=8273 off_home=10 maxd=6 viol=1
+trial 26 seed=0xbbdca5eb35b0975e claimed=64 claiming=0 EEXIST=11986 E2BIG=0 unstable=0 lost_same=2956 lost_other=671 waits=8851 off_home=12 maxd=8 viol=1
+trial 27 seed=0x21d9343e5300cb15 claimed=64 claiming=0 EEXIST=11905 E2BIG=0 unstable=0 lost_same=2173 lost_other=560 waits=8196 off_home=14 maxd=3 viol=1
+trial 28 seed=0xd1c8f6e5331d28dd claimed=64 claiming=0 EEXIST=12046 E2BIG=0 unstable=0 lost_same=2798 lost_other=316 waits=8982 off_home=7 maxd=1 viol=1
+trial 29 seed=0x40cdbcc59dd33981 claimed=64 claiming=0 EEXIST=11729 E2BIG=0 unstable=0 lost_same=2683 lost_other=1541 waits=8068 off_home=24 maxd=7 viol=1
+trial 30 seed=0x2ea4f65dfe29c669 claimed=64 claiming=0 EEXIST=12217 E2BIG=0 unstable=0 lost_same=2497 lost_other=843 waits=8806 off_home=16 maxd=3 viol=1
+trial 31 seed=0xca549f6d2ab52fdd claimed=64 claiming=0 EEXIST=12026 E2BIG=0 unstable=0 lost_same=3046 lost_other=624 waits=8327 off_home=11 maxd=6 viol=1
+trial 32 seed=0xc7e8e9133cd6f98b claimed=64 claiming=0 EEXIST=12159 E2BIG=0 unstable=0 lost_same=3056 lost_other=386 waits=8571 off_home=7 maxd=5 viol=1
+trial 33 seed=0x8b8dae30669c7bff claimed=64 claiming=0 EEXIST=12069 E2BIG=0 unstable=0 lost_same=2738 lost_other=583 waits=8328 off_home=12 maxd=2 viol=1
+trial 34 seed=0x7640ff1c754979d8 claimed=64 claiming=0 EEXIST=11861 E2BIG=0 unstable=0 lost_same=2725 lost_other=850 waits=7842 off_home=16 maxd=8 viol=1
+trial 35 seed=0xb01663504fb77c68 claimed=64 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=2045 lost_other=482 waits=8534 off_home=14 maxd=4 viol=1
+trial 36 seed=0x72650d5d691f1ec8 claimed=64 claiming=0 EEXIST=12107 E2BIG=0 unstable=0 lost_same=2991 lost_other=347 waits=8470 off_home=7 maxd=1 viol=1
+trial 37 seed=0x2984e0ee76256508 claimed=64 claiming=0 EEXIST=12112 E2BIG=0 unstable=0 lost_same=3278 lost_other=665 waits=8956 off_home=11 maxd=4 viol=1
+trial 38 seed=0x4acc5b16e92dbc8d claimed=64 claiming=0 EEXIST=12155 E2BIG=0 unstable=0 lost_same=2886 lost_other=745 waits=8030 off_home=13 maxd=4 viol=1
+trial 39 seed=0xeec0633828f2598e claimed=64 claiming=0 EEXIST=11772 E2BIG=0 unstable=0 lost_same=2595 lost_other=1110 waits=7976 off_home=20 maxd=7 viol=1
+trial 40 seed=0x6888bfb369483742 claimed=64 claiming=0 EEXIST=12145 E2BIG=0 unstable=0 lost_same=2616 lost_other=599 waits=8641 off_home=12 maxd=5 viol=1
+trial 41 seed=0x42932c6b88aac8b8 claimed=64 claiming=0 EEXIST=11888 E2BIG=0 unstable=0 lost_same=2522 lost_other=934 waits=7573 off_home=18 maxd=12 viol=1
+trial 42 seed=0x55afcccd9ce99686 claimed=64 claiming=0 EEXIST=12182 E2BIG=0 unstable=0 lost_same=3248 lost_other=565 waits=8801 off_home=10 maxd=4 viol=1
+trial 43 seed=0x0057af2bea88309c claimed=64 claiming=0 EEXIST=12078 E2BIG=0 unstable=0 lost_same=3404 lost_other=873 waits=9023 off_home=13 maxd=3 viol=1
+trial 44 seed=0x284894a9ee311471 claimed=64 claiming=0 EEXIST=11872 E2BIG=0 unstable=0 lost_same=2744 lost_other=768 waits=8589 off_home=14 maxd=7 viol=1
+trial 45 seed=0x7e4450d401031220 claimed=64 claiming=0 EEXIST=12201 E2BIG=0 unstable=0 lost_same=3292 lost_other=385 waits=8850 off_home=7 maxd=3 viol=1
+trial 46 seed=0x7fc630987b4b7664 claimed=64 claiming=0 EEXIST=12107 E2BIG=0 unstable=0 lost_same=2896 lost_other=658 waits=8866 off_home=12 maxd=4 viol=1
+trial 47 seed=0xe96e78c41bc55cfd claimed=64 claiming=0 EEXIST=12125 E2BIG=0 unstable=0 lost_same=2224 lost_other=588 waits=8641 off_home=15 maxd=4 viol=1
+trial 48 seed=0x82c121de7362d5a2 claimed=64 claiming=0 EEXIST=12077 E2BIG=0 unstable=0 lost_same=2875 lost_other=1015 waits=7887 off_home=17 maxd=6 viol=1
+trial 49 seed=0x5d7d98eee8688fa6 claimed=64 claiming=0 EEXIST=11855 E2BIG=0 unstable=0 lost_same=3205 lost_other=453 waits=8296 off_home=8 maxd=2 viol=1
+trial 50 seed=0x9807e19cf049bb78 claimed=64 claiming=0 EEXIST=12178 E2BIG=0 unstable=0 lost_same=3604 lost_other=225 waits=9126 off_home=4 maxd=2 viol=1
+trial 51 seed=0x7f1894650c4c4597 claimed=64 claiming=0 EEXIST=12108 E2BIG=0 unstable=0 lost_same=2912 lost_other=466 waits=8103 off_home=9 maxd=4 viol=1
+trial 52 seed=0x9a5a6e931b385c95 claimed=64 claiming=0 EEXIST=12160 E2BIG=0 unstable=0 lost_same=2463 lost_other=354 waits=7794 off_home=10 maxd=6 viol=1
+trial 53 seed=0xb928f242015bd064 claimed=64 claiming=0 EEXIST=12082 E2BIG=0 unstable=0 lost_same=2929 lost_other=347 waits=8091 off_home=7 maxd=6 viol=1
+trial 54 seed=0x0c968bba652d857c claimed=64 claiming=0 EEXIST=11951 E2BIG=0 unstable=0 lost_same=2867 lost_other=720 waits=8248 off_home=13 maxd=5 viol=1
+trial 55 seed=0x80662acddd4621a6 claimed=64 claiming=0 EEXIST=12027 E2BIG=0 unstable=0 lost_same=2573 lost_other=951 waits=8718 off_home=18 maxd=5 viol=1
+trial 56 seed=0x92e6c28f1f311a0f claimed=64 claiming=0 EEXIST=12186 E2BIG=0 unstable=0 lost_same=3240 lost_other=950 waits=8755 off_home=15 maxd=6 viol=1
+trial 57 seed=0xed317d92cb9327e1 claimed=64 claiming=0 EEXIST=11896 E2BIG=0 unstable=0 lost_same=2725 lost_other=963 waits=8099 off_home=17 maxd=4 viol=1
+trial 58 seed=0x53030205ac2b8ebc claimed=64 claiming=0 EEXIST=12071 E2BIG=0 unstable=0 lost_same=2989 lost_other=1136 waits=8310 off_home=18 maxd=13 viol=1
+trial 59 seed=0x7d54ba4338c5b702 claimed=64 claiming=0 EEXIST=11753 E2BIG=0 unstable=0 lost_same=3047 lost_other=608 waits=8432 off_home=11 maxd=4 viol=1
+trial 60 seed=0xcd2829a90861ab89 claimed=64 claiming=0 EEXIST=11989 E2BIG=0 unstable=0 lost_same=2491 lost_other=675 waits=7438 off_home=15 maxd=14 viol=1
+trial 61 seed=0xfd213cf3fc76ec8b claimed=64 claiming=0 EEXIST=12113 E2BIG=0 unstable=0 lost_same=2689 lost_other=480 waits=8275 off_home=10 maxd=3 viol=1
+trial 62 seed=0x8a8dadeafe005360 claimed=64 claiming=0 EEXIST=11870 E2BIG=0 unstable=0 lost_same=3392 lost_other=325 waits=7971 off_home=6 maxd=5 viol=1
+trial 63 seed=0x8dda38d6573ca3e6 claimed=64 claiming=0 EEXIST=12027 E2BIG=0 unstable=0 lost_same=3566 lost_other=566 waits=8243 off_home=9 maxd=3 viol=1
+trial 64 seed=0x818a99c3197083ce claimed=64 claiming=0 EEXIST=12123 E2BIG=0 unstable=0 lost_same=2626 lost_other=406 waits=7609 off_home=10 maxd=3 viol=1
+trial 65 seed=0x7a68b70da5b6b972 claimed=64 claiming=0 EEXIST=12109 E2BIG=0 unstable=0 lost_same=3006 lost_other=681 waits=8958 off_home=12 maxd=5 viol=1
+trial 66 seed=0xb34cf32327edeb19 claimed=64 claiming=0 EEXIST=12145 E2BIG=0 unstable=0 lost_same=3190 lost_other=709 waits=8623 off_home=12 maxd=3 viol=1
+trial 67 seed=0x0f9064ec2375f839 claimed=64 claiming=0 EEXIST=11910 E2BIG=0 unstable=0 lost_same=2804 lost_other=1029 waits=8162 off_home=18 maxd=14 viol=1
+trial 68 seed=0xffe3edd99b8b4e47 claimed=64 claiming=0 EEXIST=12081 E2BIG=0 unstable=0 lost_same=2625 lost_other=807 waits=7629 off_home=15 maxd=6 viol=1
+trial 69 seed=0x635266978a5eb4b6 claimed=64 claiming=0 EEXIST=12199 E2BIG=0 unstable=0 lost_same=2618 lost_other=615 waits=8224 off_home=12 maxd=4 viol=1
+trial 70 seed=0xcfab227a89f8926c claimed=64 claiming=0 EEXIST=12102 E2BIG=0 unstable=0 lost_same=2635 lost_other=846 waits=8649 off_home=16 maxd=8 viol=1
+trial 71 seed=0x242178eaf6091474 claimed=64 claiming=0 EEXIST=11827 E2BIG=0 unstable=0 lost_same=2913 lost_other=652 waits=7936 off_home=12 maxd=4 viol=1
+trial 72 seed=0xf1032b859fc413ee claimed=64 claiming=0 EEXIST=12054 E2BIG=0 unstable=0 lost_same=2921 lost_other=1336 waits=8570 off_home=20 maxd=3 viol=1
+trial 73 seed=0x53fceefb982f8983 claimed=64 claiming=0 EEXIST=11812 E2BIG=0 unstable=0 lost_same=2791 lost_other=838 waits=7263 off_home=15 maxd=15 viol=1
+trial 74 seed=0x9dd97ecd2e8bfa30 claimed=64 claiming=0 EEXIST=11996 E2BIG=0 unstable=0 lost_same=2813 lost_other=1087 waits=7417 off_home=19 maxd=23 viol=1
+trial 75 seed=0x881edb5bbb366787 claimed=64 claiming=0 EEXIST=12001 E2BIG=0 unstable=0 lost_same=3043 lost_other=767 waits=8227 off_home=13 maxd=8 viol=1
+trial 76 seed=0x745a30a3af5b4e00 claimed=64 claiming=0 EEXIST=12144 E2BIG=0 unstable=0 lost_same=2547 lost_other=1330 waits=8144 off_home=22 maxd=7 viol=1
+trial 77 seed=0x01230f3a9a54f039 claimed=64 claiming=0 EEXIST=12132 E2BIG=0 unstable=0 lost_same=2861 lost_other=665 waits=8816 off_home=13 maxd=5 viol=1
+trial 78 seed=0xb298de97eb44d234 claimed=64 claiming=0 EEXIST=11885 E2BIG=0 unstable=0 lost_same=2937 lost_other=955 waits=8353 off_home=16 maxd=4 viol=1
+trial 79 seed=0xaac2764cbfdde441 claimed=64 claiming=0 EEXIST=12061 E2BIG=0 unstable=0 lost_same=2266 lost_other=610 waits=8757 off_home=14 maxd=6 viol=1
+trial 80 seed=0xccc59267e6903c21 claimed=64 claiming=0 EEXIST=12115 E2BIG=0 unstable=0 lost_same=2739 lost_other=783 waits=8138 off_home=15 maxd=4 viol=1
+trial 81 seed=0x69959f4bc7a97a30 claimed=64 claiming=0 EEXIST=11921 E2BIG=0 unstable=0 lost_same=3534 lost_other=617 waits=8139 off_home=10 maxd=6 viol=1
+trial 82 seed=0x3d2e5a31e09212bc claimed=64 claiming=0 EEXIST=11979 E2BIG=0 unstable=0 lost_same=2638 lost_other=560 waits=7544 off_home=13 maxd=6 viol=1
+trial 83 seed=0xa5b350cf7e9ad14f claimed=64 claiming=0 EEXIST=12114 E2BIG=0 unstable=0 lost_same=2881 lost_other=788 waits=7835 off_home=14 maxd=5 viol=1
+trial 84 seed=0x8087a27f8782cd68 claimed=64 claiming=0 EEXIST=12091 E2BIG=0 unstable=0 lost_same=2684 lost_other=977 waits=8637 off_home=17 maxd=14 viol=1
+trial 85 seed=0x6b8795a4ee1b80b9 claimed=64 claiming=0 EEXIST=11937 E2BIG=0 unstable=0 lost_same=2539 lost_other=975 waits=7924 off_home=19 maxd=6 viol=1
+trial 86 seed=0xd119228c34804097 claimed=64 claiming=0 EEXIST=12138 E2BIG=0 unstable=0 lost_same=2924 lost_other=737 waits=8290 off_home=13 maxd=7 viol=1
+trial 87 seed=0x3bd7e0e92b8e3ed1 claimed=64 claiming=0 EEXIST=12222 E2BIG=0 unstable=0 lost_same=2478 lost_other=633 waits=8203 off_home=14 maxd=3 viol=1
+trial 88 seed=0xa834f10cd9ab7dbf claimed=64 claiming=0 EEXIST=11870 E2BIG=0 unstable=0 lost_same=2842 lost_other=767 waits=8370 off_home=14 maxd=4 viol=1
+trial 89 seed=0x880465dcc56bd5b8 claimed=64 claiming=0 EEXIST=12171 E2BIG=0 unstable=0 lost_same=3230 lost_other=510 waits=8988 off_home=9 maxd=4 viol=1
+trial 90 seed=0xfc38ed1d273f6342 claimed=64 claiming=0 EEXIST=11850 E2BIG=0 unstable=0 lost_same=2567 lost_other=926 waits=8070 off_home=18 maxd=10 viol=1
+trial 91 seed=0xb69c4cf9143b79c4 claimed=64 claiming=0 EEXIST=12090 E2BIG=0 unstable=0 lost_same=3273 lost_other=264 waits=8725 off_home=5 maxd=5 viol=1
+trial 92 seed=0x370fc9e18d26a90f claimed=64 claiming=0 EEXIST=12121 E2BIG=0 unstable=0 lost_same=2646 lost_other=535 waits=8261 off_home=11 maxd=4 viol=1
+trial 93 seed=0x1f77b596e939e2c7 claimed=64 claiming=0 EEXIST=12178 E2BIG=0 unstable=0 lost_same=2378 lost_other=466 waits=8245 off_home=11 maxd=3 viol=1
+trial 94 seed=0x62049d8f202b3bc4 claimed=64 claiming=0 EEXIST=12179 E2BIG=0 unstable=0 lost_same=2429 lost_other=515 waits=7473 off_home=11 maxd=3 viol=1
+trial 95 seed=0x307d8395ee64499c claimed=64 claiming=0 EEXIST=11532 E2BIG=0 unstable=0 lost_same=2899 lost_other=637 waits=8048 off_home=12 maxd=5 viol=1
+trial 96 seed=0x379072524049ac9f claimed=64 claiming=0 EEXIST=12190 E2BIG=0 unstable=0 lost_same=3085 lost_other=489 waits=8133 off_home=10 maxd=4 viol=1
+trial 97 seed=0x7840e8f5acb63c8e claimed=64 claiming=0 EEXIST=12167 E2BIG=0 unstable=0 lost_same=2849 lost_other=712 waits=8763 off_home=13 maxd=3 viol=1
+trial 98 seed=0x7ae0d1148d244206 claimed=64 claiming=0 EEXIST=11948 E2BIG=0 unstable=0 lost_same=2880 lost_other=525 waits=8036 off_home=10 maxd=7 viol=1
+trial 99 seed=0xd497e88804af60ae claimed=64 claiming=0 EEXIST=12198 E2BIG=0 unstable=0 lost_same=2614 lost_other=948 waits=8313 off_home=18 maxd=6 viol=1
+trial 100 seed=0x9313801f86131dc6 claimed=64 claiming=0 EEXIST=11932 E2BIG=0 unstable=0 lost_same=2660 lost_other=936 waits=7891 off_home=17 maxd=8 viol=1
+trial 101 seed=0xa01e28d1be40ef56 claimed=64 claiming=0 EEXIST=11984 E2BIG=0 unstable=0 lost_same=2296 lost_other=740 waits=8909 off_home=16 maxd=20 viol=1
+trial 102 seed=0xdcfd8b0ed601b260 claimed=64 claiming=0 EEXIST=12080 E2BIG=0 unstable=0 lost_same=2831 lost_other=659 waits=8695 off_home=13 maxd=3 viol=1
+trial 103 seed=0xf039c7bd4556e9c9 claimed=64 claiming=0 EEXIST=11919 E2BIG=0 unstable=0 lost_same=3193 lost_other=379 waits=8140 off_home=7 maxd=2 viol=1
+trial 104 seed=0xaf6a12f1e7b0f7e3 claimed=64 claiming=0 EEXIST=12052 E2BIG=0 unstable=0 lost_same=2958 lost_other=807 waits=8490 off_home=14 maxd=4 viol=1
+trial 105 seed=0xdf65b3b1e37eb831 claimed=64 claiming=0 EEXIST=12152 E2BIG=0 unstable=0 lost_same=3199 lost_other=591 waits=8541 off_home=10 maxd=5 viol=1
+trial 106 seed=0xdc5d64fd7ab90d1c claimed=64 claiming=0 EEXIST=11886 E2BIG=0 unstable=0 lost_same=2537 lost_other=464 waits=7963 off_home=10 maxd=4 viol=1
+trial 107 seed=0x7daded4f2b7bbcf1 claimed=64 claiming=0 EEXIST=11451 E2BIG=0 unstable=0 lost_same=3296 lost_other=604 waits=7516 off_home=10 maxd=6 viol=1
+trial 108 seed=0x615488cc79203ef6 claimed=64 claiming=0 EEXIST=12202 E2BIG=0 unstable=0 lost_same=3147 lost_other=663 waits=8059 off_home=11 maxd=7 viol=1
+trial 109 seed=0xc9e5f8599582c360 claimed=64 claiming=0 EEXIST=11939 E2BIG=0 unstable=0 lost_same=2625 lost_other=576 waits=8701 off_home=12 maxd=5 viol=1
+trial 110 seed=0x933d6bb65e9d1c63 claimed=64 claiming=0 EEXIST=12123 E2BIG=0 unstable=0 lost_same=2523 lost_other=1160 waits=8540 off_home=21 maxd=3 viol=1
+trial 111 seed=0x618a213040dfabc8 claimed=64 claiming=0 EEXIST=12010 E2BIG=0 unstable=0 lost_same=3347 lost_other=269 waits=8573 off_home=5 maxd=4 viol=1
+trial 112 seed=0xda4d53ff962bd6d5 claimed=64 claiming=0 EEXIST=12024 E2BIG=0 unstable=0 lost_same=2697 lost_other=545 waits=7849 off_home=11 maxd=3 viol=1
+trial 113 seed=0xf729e63913f492b3 claimed=64 claiming=0 EEXIST=12044 E2BIG=0 unstable=0 lost_same=2955 lost_other=947 waits=7881 off_home=17 maxd=9 viol=1
+trial 114 seed=0xc9b39f5b3902a865 claimed=64 claiming=0 EEXIST=11994 E2BIG=0 unstable=0 lost_same=3006 lost_other=720 waits=8454 off_home=13 maxd=6 viol=1
+trial 115 seed=0xc19e944899591b5d claimed=64 claiming=0 EEXIST=11849 E2BIG=0 unstable=0 lost_same=2831 lost_other=1064 waits=8465 off_home=18 maxd=6 viol=1
+trial 116 seed=0xacbaed738cb6b02b claimed=64 claiming=0 EEXIST=12069 E2BIG=0 unstable=0 lost_same=2859 lost_other=341 waits=8564 off_home=7 maxd=4 viol=1
+trial 117 seed=0x4786463e868e26f9 claimed=64 claiming=0 EEXIST=11883 E2BIG=0 unstable=0 lost_same=2751 lost_other=424 waits=8418 off_home=9 maxd=4 viol=1
+trial 118 seed=0x2ece224ca7e81809 claimed=64 claiming=0 EEXIST=12004 E2BIG=0 unstable=0 lost_same=2551 lost_other=1269 waits=8403 off_home=22 maxd=7 viol=1
+trial 119 seed=0x963cdb58545eb6d0 claimed=64 claiming=0 EEXIST=12046 E2BIG=0 unstable=0 lost_same=3069 lost_other=290 waits=8863 off_home=6 maxd=2 viol=1
+trial 120 seed=0x912d892ed35da62f claimed=64 claiming=0 EEXIST=12160 E2BIG=0 unstable=0 lost_same=1909 lost_other=350 waits=7420 off_home=12 maxd=4 viol=1
+trial 121 seed=0x24f8783c4961f706 claimed=64 claiming=0 EEXIST=12158 E2BIG=0 unstable=0 lost_same=3000 lost_other=492 waits=8247 off_home=9 maxd=6 viol=1
+trial 122 seed=0x9d678c35dbb95efe claimed=64 claiming=0 EEXIST=12014 E2BIG=0 unstable=0 lost_same=2570 lost_other=678 waits=7832 off_home=14 maxd=6 viol=1
+trial 123 seed=0x288dc97899c867e1 claimed=64 claiming=0 EEXIST=11818 E2BIG=0 unstable=0 lost_same=2881 lost_other=795 waits=7964 off_home=14 maxd=5 viol=1
+trial 124 seed=0x5db50a9e7f3ae8cc claimed=64 claiming=0 EEXIST=12122 E2BIG=0 unstable=0 lost_same=2804 lost_other=618 waits=7777 off_home=12 maxd=5 viol=1
+trial 125 seed=0x236a1393efd831ca claimed=64 claiming=0 EEXIST=11689 E2BIG=0 unstable=0 lost_same=2417 lost_other=1260 waits=7065 off_home=23 maxd=38 viol=1
+trial 126 seed=0x6f2e94d47d212451 claimed=64 claiming=0 EEXIST=12125 E2BIG=0 unstable=0 lost_same=2547 lost_other=962 waits=8522 off_home=18 maxd=8 viol=1
+trial 127 seed=0x4f6b7b300d97e99b claimed=64 claiming=0 EEXIST=12059 E2BIG=0 unstable=0 lost_same=2626 lost_other=776 waits=8555 off_home=15 maxd=2 viol=1
+trial 128 seed=0xd8a7a1700aec031b claimed=64 claiming=0 EEXIST=11981 E2BIG=0 unstable=0 lost_same=2983 lost_other=739 waits=8095 off_home=13 maxd=10 viol=1
+trial 129 seed=0x85abfeae2cd8d4f9 claimed=64 claiming=0 EEXIST=12130 E2BIG=0 unstable=0 lost_same=3227 lost_other=658 waits=8659 off_home=11 maxd=3 viol=1
+trial 130 seed=0x6aa83ab435db8b36 claimed=64 claiming=0 EEXIST=11692 E2BIG=0 unstable=0 lost_same=2790 lost_other=723 waits=7578 off_home=14 maxd=11 viol=1
+trial 131 seed=0x2960946bee6b7a7f claimed=64 claiming=0 EEXIST=12046 E2BIG=0 unstable=0 lost_same=2866 lost_other=1100 waits=7892 off_home=18 maxd=5 viol=1
+trial 132 seed=0x235ea360cfb17314 claimed=64 claiming=0 EEXIST=12073 E2BIG=0 unstable=0 lost_same=2497 lost_other=1311 waits=8782 off_home=23 maxd=12 viol=1
+trial 133 seed=0x9569875b1af5f8f2 claimed=64 claiming=0 EEXIST=12056 E2BIG=0 unstable=0 lost_same=2913 lost_other=562 waits=8409 off_home=11 maxd=3 viol=1
+trial 134 seed=0xbce80de448d9081d claimed=64 claiming=0 EEXIST=12052 E2BIG=0 unstable=0 lost_same=3549 lost_other=349 waits=8711 off_home=6 maxd=3 viol=1
+trial 135 seed=0x219fb56f139869fd claimed=64 claiming=0 EEXIST=12081 E2BIG=0 unstable=0 lost_same=2939 lost_other=693 waits=9239 off_home=13 maxd=5 viol=1
+trial 136 seed=0x83fd412fcfeb8772 claimed=64 claiming=0 EEXIST=11949 E2BIG=0 unstable=0 lost_same=2969 lost_other=685 waits=7712 off_home=12 maxd=7 viol=1
+trial 137 seed=0x11b3b88ebf6ebaa5 claimed=64 claiming=0 EEXIST=12085 E2BIG=0 unstable=0 lost_same=3105 lost_other=805 waits=7668 off_home=14 maxd=11 viol=1
+trial 138 seed=0xc86c6067aa66119e claimed=64 claiming=0 EEXIST=12148 E2BIG=0 unstable=0 lost_same=2930 lost_other=1008 waits=8855 off_home=17 maxd=5 viol=1
+trial 139 seed=0x3f4eeb36c63928ac claimed=64 claiming=0 EEXIST=12026 E2BIG=0 unstable=0 lost_same=2675 lost_other=568 waits=7862 off_home=12 maxd=2 viol=1
+trial 140 seed=0x583c9894c0235cc4 claimed=64 claiming=0 EEXIST=12040 E2BIG=0 unstable=0 lost_same=2860 lost_other=873 waits=8184 off_home=16 maxd=7 viol=1
+trial 141 seed=0x84d9a06268d06ad5 claimed=64 claiming=0 EEXIST=12001 E2BIG=0 unstable=0 lost_same=3150 lost_other=353 waits=7911 off_home=7 maxd=3 viol=1
+trial 142 seed=0x1dd96ec851af361a claimed=64 claiming=0 EEXIST=12105 E2BIG=0 unstable=0 lost_same=2760 lost_other=473 waits=7887 off_home=10 maxd=4 viol=1
+trial 143 seed=0x888d918ce7c1d6b7 claimed=64 claiming=0 EEXIST=11968 E2BIG=0 unstable=0 lost_same=3158 lost_other=435 waits=8586 off_home=8 maxd=5 viol=1
+trial 144 seed=0x2337cf1accf8d253 claimed=64 claiming=0 EEXIST=11907 E2BIG=0 unstable=0 lost_same=2294 lost_other=605 waits=8332 off_home=14 maxd=10 viol=1
+trial 145 seed=0x207c2d04a9602e4c claimed=64 claiming=0 EEXIST=12154 E2BIG=0 unstable=0 lost_same=3192 lost_other=521 waits=8876 off_home=9 maxd=3 viol=1
+trial 146 seed=0x80d78e9da0bade00 claimed=64 claiming=0 EEXIST=12224 E2BIG=0 unstable=0 lost_same=2299 lost_other=228 waits=7691 off_home=7 maxd=2 viol=1
+trial 147 seed=0xc2f25f7197e0ecf2 claimed=64 claiming=0 EEXIST=12122 E2BIG=0 unstable=0 lost_same=3160 lost_other=441 waits=8817 off_home=8 maxd=3 viol=1
+trial 148 seed=0xd3a60ddb6dc2728e claimed=64 claiming=0 EEXIST=11914 E2BIG=0 unstable=0 lost_same=2808 lost_other=850 waits=7955 off_home=15 maxd=7 viol=1
+trial 149 seed=0xf0f6b24afcb9c3ba claimed=64 claiming=0 EEXIST=12044 E2BIG=0 unstable=0 lost_same=2183 lost_other=839 waits=8086 off_home=18 maxd=9 viol=1
+trial 150 seed=0x4432f0464f90aa33 claimed=64 claiming=0 EEXIST=12038 E2BIG=0 unstable=0 lost_same=3172 lost_other=572 waits=7952 off_home=10 maxd=6 viol=1
+trial 151 seed=0xdb466e3240e514d2 claimed=64 claiming=0 EEXIST=11919 E2BIG=0 unstable=0 lost_same=2368 lost_other=1278 waits=7791 off_home=23 maxd=8 viol=1
+trial 152 seed=0x838136ddf5955234 claimed=64 claiming=0 EEXIST=12111 E2BIG=0 unstable=0 lost_same=2177 lost_other=635 waits=8058 off_home=15 maxd=7 viol=1
+trial 153 seed=0xfce9252104ebd150 claimed=64 claiming=0 EEXIST=12141 E2BIG=0 unstable=0 lost_same=2814 lost_other=643 waits=7948 off_home=12 maxd=6 viol=1
+trial 154 seed=0xbf8f8e791c707f34 claimed=64 claiming=0 EEXIST=12100 E2BIG=0 unstable=0 lost_same=2617 lost_other=1383 waits=8136 off_home=23 maxd=21 viol=1
+trial 155 seed=0x3c0fd1dd4f309199 claimed=64 claiming=0 EEXIST=12001 E2BIG=0 unstable=0 lost_same=2525 lost_other=616 waits=8596 off_home=13 maxd=2 viol=1
+trial 156 seed=0x266f30136ae3a85c claimed=64 claiming=0 EEXIST=12085 E2BIG=0 unstable=0 lost_same=3096 lost_other=936 waits=8992 off_home=15 maxd=2 viol=1
+trial 157 seed=0xc7e2a13d8a7e18a9 claimed=64 claiming=0 EEXIST=11987 E2BIG=0 unstable=0 lost_same=2958 lost_other=959 waits=7563 off_home=16 maxd=25 viol=1
+trial 158 seed=0x48becd6c5dfa27f4 claimed=64 claiming=0 EEXIST=12126 E2BIG=0 unstable=0 lost_same=2846 lost_other=1308 waits=8605 off_home=21 maxd=6 viol=1
+trial 159 seed=0x9fa360a8564ae62c claimed=64 claiming=0 EEXIST=11984 E2BIG=0 unstable=0 lost_same=2702 lost_other=1103 waits=7881 off_home=19 maxd=7 viol=1
+trial 160 seed=0x07c2d9aa26c11d80 claimed=64 claiming=0 EEXIST=12109 E2BIG=0 unstable=0 lost_same=3351 lost_other=468 waits=9304 off_home=8 maxd=1 viol=1
+trial 161 seed=0x858eef232e8df5a6 claimed=64 claiming=0 EEXIST=12119 E2BIG=0 unstable=0 lost_same=3242 lost_other=459 waits=9258 off_home=8 maxd=2 viol=1
+trial 162 seed=0xe8040af962135d0a claimed=64 claiming=0 EEXIST=12109 E2BIG=0 unstable=0 lost_same=2697 lost_other=938 waits=8213 off_home=17 maxd=4 viol=1
+trial 163 seed=0x0fb99497024b532a claimed=64 claiming=0 EEXIST=12112 E2BIG=0 unstable=0 lost_same=2184 lost_other=827 waits=8455 off_home=18 maxd=8 viol=1
+trial 164 seed=0xb10d21926fd9157f claimed=64 claiming=0 EEXIST=12117 E2BIG=0 unstable=0 lost_same=2687 lost_other=706 waits=9405 off_home=14 maxd=4 viol=1
+trial 165 seed=0xbf41fe6ea0fdcce5 claimed=64 claiming=0 EEXIST=12119 E2BIG=0 unstable=0 lost_same=3395 lost_other=666 waits=8320 off_home=11 maxd=13 viol=1
+trial 166 seed=0x136804a7c748ef9f claimed=64 claiming=0 EEXIST=12000 E2BIG=0 unstable=0 lost_same=3086 lost_other=1322 waits=7974 off_home=19 maxd=10 viol=1
+trial 167 seed=0x02d7631a20dfe7a3 claimed=64 claiming=0 EEXIST=12046 E2BIG=0 unstable=0 lost_same=2880 lost_other=379 waits=8394 off_home=8 maxd=3 viol=1
+trial 168 seed=0x18a93d0b208e6b0d claimed=64 claiming=0 EEXIST=12136 E2BIG=0 unstable=0 lost_same=2732 lost_other=568 waits=7848 off_home=11 maxd=5 viol=1
+trial 169 seed=0xda182f392e6c230e claimed=64 claiming=0 EEXIST=11934 E2BIG=0 unstable=0 lost_same=2770 lost_other=1024 waits=7512 off_home=18 maxd=17 viol=1
+trial 170 seed=0x7d56209fc8bed660 claimed=64 claiming=0 EEXIST=12200 E2BIG=0 unstable=0 lost_same=2899 lost_other=523 waits=8386 off_home=10 maxd=3 viol=1
+trial 171 seed=0x129359f928173d22 claimed=64 claiming=0 EEXIST=11890 E2BIG=0 unstable=0 lost_same=2915 lost_other=464 waits=8032 off_home=9 maxd=9 viol=1
+trial 172 seed=0x3fa47847c2b0c11f claimed=64 claiming=0 EEXIST=11813 E2BIG=0 unstable=0 lost_same=2808 lost_other=562 waits=8478 off_home=11 maxd=3 viol=1
+trial 173 seed=0x97d43a7901dac6e7 claimed=64 claiming=0 EEXIST=12098 E2BIG=0 unstable=0 lost_same=2268 lost_other=957 waits=7756 off_home=20 maxd=12 viol=1
+trial 174 seed=0x7681c498ba1d353f claimed=64 claiming=0 EEXIST=11985 E2BIG=0 unstable=0 lost_same=2287 lost_other=787 waits=8122 off_home=17 maxd=5 viol=1
+trial 175 seed=0xbdd8d2a16e049cd0 claimed=64 claiming=0 EEXIST=12146 E2BIG=0 unstable=0 lost_same=2728 lost_other=653 waits=8023 off_home=13 maxd=4 viol=1
+trial 176 seed=0x3dc24b1bc76fc0c0 claimed=64 claiming=0 EEXIST=12011 E2BIG=0 unstable=0 lost_same=651 lost_other=825 waits=7960 off_home=38 maxd=13 viol=1
+trial 177 seed=0xde7148a43423103b claimed=64 claiming=0 EEXIST=12176 E2BIG=0 unstable=0 lost_same=2984 lost_other=405 waits=7871 off_home=8 maxd=3 viol=1
+trial 178 seed=0xd814080b03f22600 claimed=64 claiming=0 EEXIST=12150 E2BIG=0 unstable=0 lost_same=3184 lost_other=862 waits=8657 off_home=14 maxd=4 viol=1
+trial 179 seed=0xaea8932793c070c4 claimed=64 claiming=0 EEXIST=11367 E2BIG=0 unstable=0 lost_same=2803 lost_other=876 waits=7982 off_home=16 maxd=6 viol=1
+trial 180 seed=0x5e4c86dc5dbbdf26 claimed=64 claiming=0 EEXIST=12140 E2BIG=0 unstable=0 lost_same=3127 lost_other=790 waits=9372 off_home=13 maxd=2 viol=1
+trial 181 seed=0x7ddc1cfa1454d5ce claimed=64 claiming=0 EEXIST=11741 E2BIG=0 unstable=0 lost_same=2883 lost_other=718 waits=8108 off_home=13 maxd=6 viol=1
+trial 182 seed=0x28136e385b542732 claimed=64 claiming=0 EEXIST=12142 E2BIG=0 unstable=0 lost_same=2551 lost_other=352 waits=8652 off_home=8 maxd=3 viol=1
+trial 183 seed=0xd8cce25b929c944d claimed=64 claiming=0 EEXIST=12050 E2BIG=0 unstable=0 lost_same=2874 lost_other=1007 waits=8218 off_home=17 maxd=10 viol=1
+trial 184 seed=0x0eb7931ad0c0425b claimed=64 claiming=0 EEXIST=11601 E2BIG=0 unstable=0 lost_same=3173 lost_other=750 waits=8210 off_home=13 maxd=1 viol=1
+trial 185 seed=0xac011489555d039d claimed=64 claiming=0 EEXIST=12103 E2BIG=0 unstable=0 lost_same=2869 lost_other=670 waits=8418 off_home=13 maxd=3 viol=1
+trial 186 seed=0x1cfaf1746bb57b58 claimed=64 claiming=0 EEXIST=12049 E2BIG=0 unstable=0 lost_same=2769 lost_other=960 waits=8552 off_home=17 maxd=10 viol=1
+trial 187 seed=0x42bbcacff155fc74 claimed=64 claiming=0 EEXIST=11813 E2BIG=0 unstable=0 lost_same=2599 lost_other=904 waits=7937 off_home=17 maxd=51 viol=1
+trial 188 seed=0x46e71c9dcc89c6c4 claimed=64 claiming=0 EEXIST=12182 E2BIG=0 unstable=0 lost_same=3082 lost_other=628 waits=8966 off_home=11 maxd=3 viol=1
+trial 189 seed=0x2dd3005037f03254 claimed=64 claiming=0 EEXIST=12066 E2BIG=0 unstable=0 lost_same=2379 lost_other=510 waits=7237 off_home=12 maxd=7 viol=1
+trial 190 seed=0xec1a4aeb99498205 claimed=64 claiming=0 EEXIST=12217 E2BIG=0 unstable=0 lost_same=2807 lost_other=606 waits=8383 off_home=12 maxd=2 viol=1
+trial 191 seed=0x7f4221b22e7d06e7 claimed=64 claiming=0 EEXIST=12056 E2BIG=0 unstable=0 lost_same=2391 lost_other=1266 waits=8013 off_home=23 maxd=6 viol=1
+trial 192 seed=0xfd43a43008fc0c26 claimed=64 claiming=0 EEXIST=12085 E2BIG=0 unstable=0 lost_same=2723 lost_other=657 waits=8171 off_home=13 maxd=4 viol=1
+trial 193 seed=0xa74e06082117b7bc claimed=64 claiming=0 EEXIST=12148 E2BIG=0 unstable=0 lost_same=2629 lost_other=835 waits=8709 off_home=16 maxd=4 viol=1
+trial 194 seed=0xea08f29208eb6250 claimed=64 claiming=0 EEXIST=12170 E2BIG=0 unstable=0 lost_same=2320 lost_other=718 waits=8409 off_home=16 maxd=2 viol=1
+trial 195 seed=0x955c9305cee84cd2 claimed=64 claiming=0 EEXIST=11330 E2BIG=0 unstable=0 lost_same=2918 lost_other=803 waits=7635 off_home=14 maxd=10 viol=1
+trial 196 seed=0xf224654bbc404109 claimed=64 claiming=0 EEXIST=11941 E2BIG=0 unstable=0 lost_same=2796 lost_other=427 waits=7952 off_home=9 maxd=5 viol=1
+trial 197 seed=0x9c0d08be3b0ea5d7 claimed=64 claiming=0 EEXIST=12086 E2BIG=0 unstable=0 lost_same=2549 lost_other=1289 waits=7756 off_home=22 maxd=8 viol=1
+trial 198 seed=0x806304f3e95e9bd1 claimed=64 claiming=0 EEXIST=12107 E2BIG=0 unstable=0 lost_same=2738 lost_other=691 waits=7698 off_home=14 maxd=9 viol=1
+trial 199 seed=0x15e5727d036d055c claimed=64 claiming=0 EEXIST=12179 E2BIG=0 unstable=0 lost_same=2934 lost_other=453 waits=8491 off_home=8 maxd=3 viol=1
+
+=== summary build=ctl2-no-bound-reservation max_entries=48 trials=200 ===
+trials_with_violation=200/200
+violations by kind: claimed_gt_max=200
+counted: EEXIST=2406584 E2BIG=0 unstable=0 eexist_then_null=0 unstable_then_null=0
+per trial: EEXIST min=11330 max=12224, E2BIG min=0 max=0
+branches: lost_same_key=559578 lost_other_key=143339 walk_saw_claiming=1093148 waits=1652726 wait_sleeps=365392 wait_max_ns=57664 givebacks=0 e2big_precheck=0 e2big_after_add=0
+after launch 1: EEXIST=0 won=0 unstable=0 E2BIG on keys that ended in a slot=0 E2BIG on keys never in=0
+longest wait: elapsed_ns=57664 requested_ns=10176 (bound 100000)
+dir: keys off home (sum over trials)=2700 max probe distance=51 max claimed=64 trials with E2BIG while claimed < max_entries=0
+RESULT VIOLATIONS
+### exit=1 wall_s=7.738453203

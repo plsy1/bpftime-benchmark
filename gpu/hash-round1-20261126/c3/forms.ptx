@@ -1,0 +1,25 @@
+.version 8.1
+.target sm_87
+.address_size 64
+// Every new form of the device hash map's helpers (round one, C3).
+.visible .entry forms(.param .u64 p_dir, .param .u64 p_out)
+{
+	.reg .b64 %d, %o, %h, %e, %n, %c;
+	.reg .pred %p;
+	ld.param.u64 %d, [p_dir];
+	ld.param.u64 %o, [p_out];
+	cvta.to.global.u64 %d, %d;
+	cvta.to.global.u64 %o, %o;
+	ld.relaxed.gpu.global.b64 %h, [%d];
+	ld.acquire.gpu.global.b64 %e, [%d+8];
+	mov.u64 %n, 4294967297;
+	atom.relaxed.gpu.global.cas.b64 %c, [%d+16], 0, %n;
+	atom.acquire.gpu.global.cas.b64 %c, [%d+24], %h, %n;
+	atom.global.add.u64 %c, [%d+32], 1;
+	fence.acq_rel.gpu;
+	st.release.gpu.global.b64 [%d+40], %e;
+	st.relaxed.gpu.global.b64 [%d+48], %c;
+	red.global.add.u64 [%o], 1;
+	nanosleep.u32 100;
+	ret;
+}

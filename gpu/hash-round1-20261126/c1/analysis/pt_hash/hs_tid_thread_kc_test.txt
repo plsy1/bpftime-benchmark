@@ -1,0 +1,44 @@
+== kprobe/pt_kdiv  cuda__in_kdiv
+    36 update  h(type 1) key stack-76 flags 0 (BPF_ANY), value stack-8
+    44 lookup  chk(type 1503) key stack-16
+    45   null   via lookup chk@44: null test: if r0 == 0 goto +2 <LBB0_3>   | if r0 == 0 goto +2 <LBB0_3>
+    47   access via lookup chk@44: atomic add u64, no fetch (XADD form "lock ... +=") at +0   | lock *(u64 *)(r0 + 0) += r1
+== kretprobe/pt_kdiv  cuda__out_kdiv
+     6 lookup  chk(type 1503) key stack-8
+     7   null   via lookup chk@6: null test: if r0 == 0 goto +2 <LBB1_2>   | if r0 == 0 goto +2 <LBB1_2>
+     9   access via lookup chk@6: atomic add u64, no fetch (XADD form "lock ... +=") at +0   | lock *(u64 *)(r0 + 0) += r1
+    41 lookup  h(type 1) key stack-76
+    42   null   via lookup h@41: null test: if r0 == 0 goto +13 <LBB1_6>   | if r0 == 0 goto +13 <LBB1_6>
+    43   access via lookup h@41: plain load u64 at +0   | r1 = *(u64 *)(r0 + 0)
+    51 lookup  chk(type 1503) key stack-8
+    52   null   via lookup chk@51: null test: if r0 == 0 goto +12 <LBB1_8>   | if r0 == 0 goto +12 <LBB1_8>
+    54   access via lookup chk@51: atomic add u64, no fetch (XADD form "lock ... +=") at +0   | lock *(u64 *)(r0 + 0) += r1
+    62 lookup  chk(type 1503) key stack-8
+    63   null   via lookup chk@62: null test: if r0 == 0 goto +1 <LBB1_8>   | if r0 == 0 goto +1 <LBB1_8>
+    64   access via lookup chk@62: atomic add u64, no fetch (XADD form "lock ... +=") at +0   | lock *(u64 *)(r0 + 0) += r6
+    69 delete  h(type 1) key stack-76
+    77 lookup  chk(type 1503) key stack-8
+    78   null   via lookup chk@77: null test: if r0 == 0 goto +2 <LBB1_11>   | if r0 == 0 goto +2 <LBB1_11>
+    80   access via lookup chk@77: atomic add u64, no fetch (XADD form "lock ... +=") at +0   | lock *(u64 *)(r0 + 0) += r1
+== kprobe/pt_kflat  cuda__in_kflat
+    37 update  h(type 1) key stack-76 flags 0 (BPF_ANY), value stack-8
+    45 lookup  chk(type 1503) key stack-16
+    46   null   via lookup chk@45: null test: if r0 == 0 goto +2 <LBB2_3>   | if r0 == 0 goto +2 <LBB2_3>
+    48   access via lookup chk@45: atomic add u64, no fetch (XADD form "lock ... +=") at +0   | lock *(u64 *)(r0 + 0) += r1
+== kretprobe/pt_kflat  cuda__out_kflat
+     6 lookup  chk(type 1503) key stack-8
+     7   null   via lookup chk@6: null test: if r0 == 0 goto +2 <LBB3_2>   | if r0 == 0 goto +2 <LBB3_2>
+     9   access via lookup chk@6: atomic add u64, no fetch (XADD form "lock ... +=") at +0   | lock *(u64 *)(r0 + 0) += r1
+    42 lookup  h(type 1) key stack-76
+    43   null   via lookup h@42: null test: if r0 == 0 goto +11 <LBB3_6>   | if r0 == 0 goto +11 <LBB3_6>
+    44   access via lookup h@42: plain load u64 at +0   | r1 = *(u64 *)(r0 + 0)
+    52 lookup  chk(type 1503) key stack-8
+    53   null   via lookup chk@52: null test: if r0 == 0 goto +11 <LBB3_8>   | if r0 == 0 goto +11 <LBB3_8>
+    61 lookup  chk(type 1503) key stack-8
+    62   null   via lookup chk@61: null test: if r0 == 0 goto +2 <LBB3_8>   | if r0 == 0 goto +2 <LBB3_8>
+    64   access via lookup chk@52: atomic add u64, no fetch (XADD form "lock ... +=") at +0   | lock *(u64 *)(r0 + 0) += r1
+    64   access via lookup chk@61: atomic add u64, no fetch (XADD form "lock ... +=") at +0   | lock *(u64 *)(r0 + 0) += r1
+    69 delete  h(type 1) key stack-76
+    77 lookup  chk(type 1503) key stack-8
+    78   null   via lookup chk@77: null test: if r0 == 0 goto +2 <LBB3_11>   | if r0 == 0 goto +2 <LBB3_11>
+    80   access via lookup chk@77: atomic add u64, no fetch (XADD form "lock ... +=") at +0   | lock *(u64 *)(r0 + 0) += r1

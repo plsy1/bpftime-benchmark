@@ -1,0 +1,32 @@
+#### __retprobe_func___Z12rms_norm_f32ILi512ELi1ELb1ELb1ELb0ELb0EEvPKfPfiiilllfS1_lll5uint3S3_S3_S3_S1_lllS3_S3_S3_S3_f  (dump line 2538)
+  2539{
+  2540	{
+  2541	.reg .pred 	%bpftime_off;
+  2542	.reg .b32 	%bpftime_on;
+  2543	ld.global.u32 	%bpftime_on, [__bpftime_probes_enabled];
+  2544	setp.eq.s32 	%bpftime_off, %bpftime_on, 0;
+  2545	@%bpftime_off ret;
+  2546	}
+  2547	.local .align 8 .b8 	__local_depot0[592];
+  2548	.reg .b64 	%SP;
+  2549	.reg .b64 	%SPL;
+  2550	.reg .pred 	%p<2>;
+  2551	.reg .b32 	%r<2>;
+  2552	.reg .b64 	%rd<11>;
+  2553
+  2554	mov.u64 	%SPL, __local_depot0;
+  2555	cvta.local.u64 	%SP, %SPL;
+  2556	add.u64 	%rd2, %SP, 0;
+  2557	add.u64 	%rd3, %SPL, 0;
+  2558	mov.u32 	%r1, 0;
+  2559	st.local.u32 	[%rd3+508], %r1;
+  2560	add.s64 	%rd4, %rd2, 508;
+  2561	mov.u64 	%rd5, 3;
+  2562	CALL _bpf_helper_ext_0001(%rd5, %rd4, %rd6, %rd7, %rd8) -> %rd9
+  2586	setp.eq.s64 	%p1, %rd9, 0;
+  2587	@%p1 bra 	$L__BB0_2;
+  2588	atom.add.u64 	%rd10, [%rd9], 1;
+  2589$L__BB0_2:
+  2590	ret;
+  2591
+  2592}

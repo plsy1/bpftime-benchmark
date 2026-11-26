@@ -1,0 +1,10 @@
+== kprobe/_Z9vectorAddPKfS0_Pf  cuda__probe_threadscheduling
+    50 update  thread_mapping(type 1) key stack-52 flags 0 (BPF_ANY), value stack-136
+    56 lookup  sm_histogram(type 1) key stack-140
+    57   null   via lookup sm_histogram@56: null test: if r0 == 0 goto +3 <LBB0_2>   | if r0 == 0 goto +3 <LBB0_2>
+    59   access via lookup sm_histogram@56: atomic add u64, no fetch (XADD form "lock ... +=") at +0   | lock *(u64 *)(r0 + 0) += r1
+    70 update  sm_histogram(type 1) key stack-140 flags 1 (BPF_NOEXIST), value stack-152
+    79 lookup  warp_histogram(type 1) key stack-156
+    80   null   via lookup warp_histogram@79: null test: if r0 == 0 goto +3 <LBB0_5>   | if r0 == 0 goto +3 <LBB0_5>
+    82   access via lookup warp_histogram@79: atomic add u64, no fetch (XADD form "lock ... +=") at +0   | lock *(u64 *)(r0 + 0) += r1
+    93 update  warp_histogram(type 1) key stack-156 flags 1 (BPF_NOEXIST), value stack-152

@@ -1,0 +1,93 @@
+### r7-ctl3-relaxpub-reader: ./build/c4_relaxpub --max 128 --reader 1
+C4 build=ctl3-relaxed-publish FAULT=3 device="Orin" sm_87 SMs=8
+config max_entries=128 S=256 logS=8 rows_cap=256 threads=1000000 grid=3907x256 launches=10 trials=1 reader=1 prefill=0 seed0=0x0123456789abcdef wait_bound_ns=100000
+attempts per key per launch: min=15624 max=15626 (64 keys, K = 1000 + 7919*j)
+
+=== trial 0 seed=0x0123456789abcdef ===
+dir: claimed=64 live=64 claiming=0 (max_entries 128, S 256) bound=64 next_row=64
+dir shape: keys sharing a home slot=10 keys off home=5 max probe distance=1
+totals: attempts=10000000 prefill=0 delivered=9989147 EEXIST=3762 E2BIG=7091 unstable=0 | all rows=9989147 rows behind live headers=9989147
+branches: lost_same_key=95 lost_other_key=11 walk_saw_claiming=2892 waits=2987 wait_sleeps=80 wait_max_ns=34624 givebacks=103 e2big_precheck=4271 e2big_after_add=2820 eexist_then_null=0 unstable_then_null=0 walk_overflow=0 row_overflow=0 key_changed=0
+kernel span: first block start -> last block end = 6.746 ms (10 launches)
+reader: start_before_inserters=1 (reader start - first inserter block = -4896 ns) polls=107110 seen_claiming=77 transitions_seen=64 min_sum_at_transition=383 live_checks=9115 zero_sum=0 decrease=0 sum_changes=9051 timed_out=0 end_after_last_block_ns=12832
+per launch (EEXIST/E2BIG/won/unstable): L1 3762/7091/64/0 L2 0/0/0/0 L3 0/0/0/0 L4 0/0/0/0 L5 0/0/0/0 L6 0/0/0/0 L7 0/0/0/0 L8 0/0/0/0 L9 0/0/0/0 L10 0/0/0/0
+E2BIG after launch 1: keys that ended in a slot=0 keys never in=0; longest wait requested_ns=192
+per key: j K slots slot home dist row attempts delivered EEXIST(live/waited/unstable) E2BIG hits won ok
+   0   1000 1  225  225   0   55  156260  156074     75(26/49/0)     111  156073 1 ok
+   1   8919 1   81   81   0   40  156250  156092     44(0/44/0)     114  156091 1 ok
+   2  16838 1  151  151   0   14  156260  156100     63(4/59/0)      97  156099 1 ok
+   3  24757 1    8    7   1   60  156240  156015     76(68/8/0)     149  156014 1 ok
+   4  32676 1  215  215   0    1  156250  156091     44(5/39/0)     115  156090 1 ok
+   5  40595 1  137  137   0    6  156250  156092     59(4/55/0)      99  156091 1 ok
+   6  48514 1  141  141   0   21  156260  156099     46(0/46/0)     115  156098 1 ok
+   7  56433 1   63   63   0   42  156250  156092     45(0/45/0)     113  156091 1 ok
+   8  64352 1  254  254   0   19  156250  156091     64(5/59/0)      95  156090 1 ok
+   9  72271 1  234  234   0   52  156250  156063     72(29/43/0)     115  156062 1 ok
+  10  80190 1  123  123   0   38  156240  156075     64(6/58/0)     101  156074 1 ok
+  11  88109 1  160  160   0   11  156250  156090     61(6/55/0)      99  156089 1 ok
+  12  96028 1  237  237   0   24  156250  156092     42(0/42/0)     116  156091 1 ok
+  13 103947 1   18   18   0   46  156260  156100     46(0/46/0)     114  156099 1 ok
+  14 111866 1  163  163   0   32  156240  156079     59(3/56/0)     102  156078 1 ok
+  15 119785 1  166  166   0   56  156260  156076     68(24/44/0)     116  156075 1 ok
+  16 127704 1   21   21   0   41  156240  156082     46(0/46/0)     112  156081 1 ok
+  17 135623 1   92   92   0   16  156250  156090     60(4/56/0)     100  156089 1 ok
+  18 143542 1  203  203   0   50  156250  156064     71(28/43/0)     115  156063 1 ok
+  19 151461 1  222  222   0    2  156260  156101     47(5/42/0)     112  156100 1 ok
+  20 159380 1   78   78   0    8  156240  156081     56(5/51/0)     103  156080 1 ok
+  21 167299 1  148  148   0   58  156250  156066     74(25/49/0)     110  156065 1 ok
+  22 175218 1    5    4   1   59  156250  156026     77(69/8/0)     147  156025 1 ok
+  23 183137 1    6    6   0   29  156260  156096     61(4/57/0)     103  156095 1 ok
+  24 191056 1  117  117   0   54  156240  156055     71(28/43/0)     114  156054 1 ok
+  25 198975 1  131  131   0    3  156250  156090     46(4/42/0)     114  156089 1 ok
+  26 206894 1  100  100   0   13  156250  156091     54(5/49/0)     105  156090 1 ok
+  27 214813 1  245  245   0   25  156250  156091     48(0/48/0)     111  156090 1 ok
+  28 222732 1  214  214   0   48  156250  156063     73(28/45/0)     114  156062 1 ok
+  29 230651 1  171  171   0   34  156250  156089     57(3/54/0)     104  156088 1 ok
+  30 238570 1  106  106   0    5  156250  156090     64(4/60/0)      96  156089 1 ok
+  31 246489 1   28   28   0   20  156250  156091     47(0/47/0)     112  156090 1 ok
+  32 254408 1   32   32   0   18  156250  156091     57(4/53/0)     102  156090 1 ok
+  33 262327 1  161  160   1   63  156250  156023     85(66/19/0)     142  156022 1 ok
+  34 270246 1  113  112   1   61  156250  156024     76(70/6/0)     150  156023 1 ok
+  35 278165 1  224  224   0   37  156250  156088     59(4/55/0)     103  156087 1 ok
+  36 286084 1   38   38   0   10  156260  156099     65(5/60/0)      96  156098 1 ok
+  37 294003 1  150  150   0   45  156250  156092     43(0/43/0)     115  156091 1 ok
+  38 301922 1  152  152   0   31  156240  156075     67(6/61/0)      98  156074 1 ok
+  39 309841 1    7    7   0    0  156260  156100     49(4/45/0)     111  156099 1 ok
+  40 317760 1   79   78   1   62  156240  156014     79(66/13/0)     147  156013 1 ok
+  41 325679 1  247  247   0   15  156250  156090     59(4/55/0)     101  156089 1 ok
+  42 333598 1  135  135   0   26  156260  156102     43(0/43/0)     115  156101 1 ok
+  43 341517 1  104  104   0   49  156250  156065     71(26/45/0)     114  156064 1 ok
+  44 349436 1   61   61   0   35  156250  156088     60(3/57/0)     102  156087 1 ok
+  45 357355 1  252  252   0    7  156240  156081     58(6/52/0)     101  156080 1 ok
+  46 365274 1  175  175   0   22  156250  156091     46(0/46/0)     113  156090 1 ok
+  47 373193 1  178  178   0   43  156260  156100     50(0/50/0)     110  156099 1 ok
+  48 381112 1  101  101   0   28  156240  156082     56(1/55/0)     102  156081 1 ok
+  49 389031 1   53   53   0   53  156260  156076     71(24/47/0)     113  156075 1 ok
+  50 396950 1  231  231   0   39  156240  156078     58(4/54/0)     104  156077 1 ok
+  51 404869 1  235  235   0   12  156250  156090     61(5/56/0)      99  156089 1 ok
+  52 412788 1  157  157   0   47  156250  156092     42(0/42/0)     116  156091 1 ok
+  53 420707 1   93   93   0   33  156250  156084     65(6/59/0)     101  156083 1 ok
+  54 428626 1   15   15   0   57  156250  156061     74(30/44/0)     115  156060 1 ok
+  55 436545 1   19   19   0    4  156260  156101     46(3/43/0)     113  156100 1 ok
+  56 444464 1  197  197   0   17  156240  156081     56(4/52/0)     103  156080 1 ok
+  57 452383 1   75   75   0   27  156250  156092     43(0/43/0)     115  156091 1 ok
+  58 460302 1  112  112   0   51  156250  156064     71(27/44/0)     115  156063 1 ok
+  59 468221 1    1    1   0   36  156250  156086     60(5/55/0)     104  156085 1 ok
+  60 476140 1    4    4   0    9  156250  156091     59(6/53/0)     100  156090 1 ok
+  61 484059 1  115  115   0   23  156240  156081     45(0/45/0)     114  156080 1 ok
+  62 491978 1  186  186   0   44  156260  156100     48(0/48/0)     112  156099 1 ok
+  63 499897 1   41   41   0   30  156240  156078     60(4/56/0)     102  156077 1 ok
+violations: none
+
+=== summary build=ctl3-relaxed-publish max_entries=128 trials=1 ===
+trials_with_violation=0/1
+violations by kind: none
+counted: EEXIST=3762 E2BIG=7091 unstable=0 eexist_then_null=0 unstable_then_null=0
+per trial: EEXIST min=3762 max=3762, E2BIG min=7091 max=7091
+branches: lost_same_key=95 lost_other_key=11 walk_saw_claiming=2892 waits=2987 wait_sleeps=80 wait_max_ns=34624 givebacks=103 e2big_precheck=4271 e2big_after_add=2820
+after launch 1: EEXIST=0 won=0 unstable=0 E2BIG on keys that ended in a slot=0 E2BIG on keys never in=0
+longest wait: elapsed_ns=34624 requested_ns=192 (bound 100000)
+dir: keys off home (sum over trials)=5 max probe distance=1 max claimed=64 trials with E2BIG while claimed < max_entries=1
+reader: trials_with_overlap=1 polls=107110 seen_claiming=77 transitions_seen=64 live_checks=9115 zero_sum=0 decrease=0 sum_changes=9051 timed_out=0 min_sum_at_transition_over_trials=383
+RESULT CLEAN
+### exit=0 wall_s=.139967914

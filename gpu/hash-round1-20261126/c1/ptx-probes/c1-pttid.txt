@@ -1,0 +1,287 @@
+#### __retprobe_func__pt_kflat  (dump line 2542)
+  2543{
+  2544	{
+  2545	.reg .pred 	%bpftime_off;
+  2546	.reg .b32 	%bpftime_on;
+  2547	ld.global.u32 	%bpftime_on, [__bpftime_probes_enabled];
+  2548	setp.eq.s32 	%bpftime_off, %bpftime_on, 0;
+  2549	@%bpftime_off ret;
+  2550	}
+  2551	.local .align 8 .b8 	__local_depot0[592];
+  2552	.reg .b64 	%SP;
+  2553	.reg .b64 	%SPL;
+  2554	.reg .pred 	%p<8>;
+  2555	.reg .b32 	%r<7>;
+  2556	.reg .b64 	%rd<70>;
+  2557
+  2558	mov.u64 	%SPL, __local_depot0;
+  2559	cvta.local.u64 	%SP, %SPL;
+  2560	add.u64 	%rd12, %SP, 0;
+  2561	add.u64 	%rd1, %SPL, 0;
+  2562	add.s64 	%rd2, %rd12, 512;
+  2563	mov.u32 	%r1, 12;
+  2564	st.local.u32 	[%rd1+504], %r1;
+  2565	add.s64 	%rd3, %rd12, 504;
+  2566	mov.u64 	%rd13, 14;
+  2567	CALL _bpf_helper_ext_0001(%rd13, %rd3, %rd14, %rd15, %rd16) -> %rd17
+  2591	setp.eq.s64 	%p1, %rd17, 0;
+  2592	@%p1 bra 	$L__BB0_2;
+  2593	atom.add.u64 	%rd18, [%rd17], 1;
+  2594$L__BB0_2:
+  2595	add.s64 	%rd19, %rd2, -16;
+  2596	add.s64 	%rd20, %rd2, -24;
+  2597	CALL _bpf_helper_ext_0503(%rd3, %rd19, %rd20, %rd21, %rd22) -> %rd23
+  2621	add.s64 	%rd25, %rd2, -32;
+  2622	add.s64 	%rd26, %rd2, -40;
+  2623	add.s64 	%rd27, %rd2, -48;
+  2624	CALL _bpf_helper_ext_0504(%rd25, %rd26, %rd27, %rd28, %rd29) -> %rd30
+  2648	add.s64 	%rd32, %rd2, -56;
+  2649	add.s64 	%rd33, %rd2, -64;
+  2650	add.s64 	%rd5, %rd2, -72;
+  2651	CALL _bpf_helper_ext_0505(%rd32, %rd33, %rd5, %rd34, %rd35) -> %rd36
+  2675	ld.local.u64 	%rd38, [%rd1+504];
+  2676	ld.local.u64 	%rd39, [%rd1+480];
+  2677	mul.lo.s64 	%rd40, %rd39, %rd38;
+  2678	ld.local.u64 	%rd41, [%rd1+456];
+  2679	add.s64 	%rd42, %rd40, %rd41;
+  2680	cvt.u32.u64 	%r2, %rd42;
+  2681	add.s32 	%r3, %r2, 131072;
+  2682	st.local.u32 	[%rd1+436], %r3;
+  2683	add.s64 	%rd6, %rd2, -76;
+  2684	mov.u64 	%rd43, 4;
+  2685	CALL _bpf_helper_ext_0001(%rd43, %rd6, %rd5, %rd44, %rd45) -> %rd46
+  2709	setp.eq.s64 	%p2, %rd46, 0;
+  2710	@%p2 bra 	$L__BB0_5;
+  2711	ld.u32 	%rd47, [%rd46+4];
+  2712	ld.u32 	%rd48, [%rd46];
+  2713	or.b64  	%rd49, %rd48, %rd47;
+  2714	setp.eq.s64 	%p3, %rd49, 0;
+  2715	@%p3 bra 	$L__BB0_5;
+  2716	mov.u32 	%r4, 8;
+  2717	st.local.u32 	[%rd1+504], %r4;
+  2718	CALL _bpf_helper_ext_0001(%rd13, %rd3, %rd5, %rd51, %rd52) -> %rd69
+  2742	setp.eq.s64 	%p4, %rd69, 0;
+  2743	@%p4 bra 	$L__BB0_7;
+  2744	bra.uni 	$L__BB0_6;
+  2745$L__BB0_5:
+  2746	mov.u32 	%r5, 9;
+  2747	st.local.u32 	[%rd1+504], %r5;
+  2748	CALL _bpf_helper_ext_0001(%rd13, %rd3, %rd5, %rd55, %rd56) -> %rd69
+  2772	setp.eq.s64 	%p5, %rd69, 0;
+  2773	@%p5 bra 	$L__BB0_7;
+  2774$L__BB0_6:
+  2775	atom.add.u64 	%rd58, [%rd69], 1;
+  2776$L__BB0_7:
+  2777	CALL _bpf_helper_ext_0003(%rd43, %rd6, %rd5, %rd60, %rd61) -> %rd62
+  2801	setp.eq.s64 	%p6, %rd62, 0;
+  2802	@%p6 bra 	$L__BB0_10;
+  2803	mov.u32 	%r6, 10;
+  2804	st.local.u32 	[%rd1+504], %r6;
+  2805	CALL _bpf_helper_ext_0001(%rd13, %rd3, %rd5, %rd65, %rd66) -> %rd67
+  2829	setp.eq.s64 	%p7, %rd67, 0;
+  2830	@%p7 bra 	$L__BB0_10;
+  2831	atom.add.u64 	%rd68, [%rd67], 1;
+  2832$L__BB0_10:
+  2833	ret;
+  2834
+  2835}
+#### __probe_func__pt_kflat  (dump line 2847)
+  2848{
+  2849	{
+  2850	.reg .pred 	%bpftime_off;
+  2851	.reg .b32 	%bpftime_on;
+  2852	ld.global.u32 	%bpftime_on, [__bpftime_probes_enabled];
+  2853	setp.eq.s32 	%bpftime_off, %bpftime_on, 0;
+  2854	@%bpftime_off ret;
+  2855	}
+  2856	.local .align 8 .b8 	__local_depot0[592];
+  2857	.reg .b64 	%SP;
+  2858	.reg .b64 	%SPL;
+  2859	.reg .pred 	%p<3>;
+  2860	.reg .b32 	%r<2>;
+  2861	.reg .b64 	%rd<42>;
+  2862
+  2863	mov.u64 	%SPL, __local_depot0;
+  2864	cvta.local.u64 	%SP, %SPL;
+  2865	add.u64 	%rd5, %SP, 0;
+  2866	add.u64 	%rd1, %SPL, 0;
+  2867	add.s64 	%rd2, %rd5, 504;
+  2868	add.s64 	%rd3, %rd5, 496;
+  2869	add.s64 	%rd6, %rd5, 488;
+  2870	mov.u64 	%rd7, 0;
+  2871	CALL _bpf_helper_ext_0503(%rd2, %rd3, %rd6, %rd7, %rd8) -> %rd9
+  2895	add.s64 	%rd11, %rd5, 480;
+  2896	add.s64 	%rd12, %rd5, 472;
+  2897	add.s64 	%rd13, %rd5, 464;
+  2898	CALL _bpf_helper_ext_0504(%rd11, %rd12, %rd13, %rd7, %rd14) -> %rd15
+  2922	add.s64 	%rd17, %rd5, 456;
+  2923	add.s64 	%rd18, %rd5, 448;
+  2924	add.s64 	%rd19, %rd5, 440;
+  2925	CALL _bpf_helper_ext_0505(%rd17, %rd18, %rd19, %rd7, %rd20) -> %rd21
+  2949	ld.local.u64 	%rd23, [%rd1+504];
+  2950	ld.local.u64 	%rd24, [%rd1+480];
+  2951	mul.lo.s64 	%rd25, %rd24, %rd23;
+  2952	ld.local.u64 	%rd26, [%rd1+456];
+  2953	add.s64 	%rd27, %rd26, %rd25;
+  2954	add.s64 	%rd28, %rd27, 131072;
+  2955	st.local.u32 	[%rd1+436], %rd28;
+  2956	CALL _bpf_helper_ext_0502(%rd26, %rd28, %rd19, %rd7, %rd29) -> %rd30
+  2980	st.local.u64 	[%rd1+504], %rd30;
+  2981	add.s64 	%rd32, %rd5, 436;
+  2982	mov.u64 	%rd33, 4;
+  2983	CALL _bpf_helper_ext_0002(%rd33, %rd32, %rd2, %rd7, %rd34) -> %rd35
+  3007	setp.eq.s64 	%p1, %rd35, 0;
+  3008	@%p1 bra 	$L__BB0_3;
+  3009	mov.u32 	%r1, 11;
+  3010	st.local.u32 	[%rd1+496], %r1;
+  3011	mov.u64 	%rd37, 14;
+  3012	CALL _bpf_helper_ext_0001(%rd37, %rd3, %rd2, %rd7, %rd39) -> %rd40
+  3036	setp.eq.s64 	%p2, %rd40, 0;
+  3037	@%p2 bra 	$L__BB0_3;
+  3038	atom.add.u64 	%rd41, [%rd40], 1;
+  3039$L__BB0_3:
+  3040	ret;
+  3041
+  3042}
+#### __retprobe_func__pt_kdiv  (dump line 3053)
+  3054{
+  3055	{
+  3056	.reg .pred 	%bpftime_off;
+  3057	.reg .b32 	%bpftime_on;
+  3058	ld.global.u32 	%bpftime_on, [__bpftime_probes_enabled];
+  3059	setp.eq.s32 	%bpftime_off, %bpftime_on, 0;
+  3060	@%bpftime_off ret;
+  3061	}
+  3062	.local .align 8 .b8 	__local_depot0[592];
+  3063	.reg .b64 	%SP;
+  3064	.reg .b64 	%SPL;
+  3065	.reg .pred 	%p<8>;
+  3066	.reg .b32 	%r<5>;
+  3067	.reg .b64 	%rd<70>;
+  3068
+  3069	mov.u64 	%SPL, __local_depot0;
+  3070	cvta.local.u64 	%SP, %SPL;
+  3071	add.u64 	%rd12, %SP, 0;
+  3072	add.u64 	%rd1, %SPL, 0;
+  3073	add.s64 	%rd2, %rd12, 512;
+  3074	mov.u32 	%r1, 4;
+  3075	st.local.u32 	[%rd1+504], %r1;
+  3076	add.s64 	%rd3, %rd12, 504;
+  3077	mov.u64 	%rd13, 14;
+  3078	CALL _bpf_helper_ext_0001(%rd13, %rd3, %rd14, %rd15, %rd16) -> %rd17
+  3102	setp.eq.s64 	%p1, %rd17, 0;
+  3103	@%p1 bra 	$L__BB0_2;
+  3104	atom.add.u64 	%rd18, [%rd17], 1;
+  3105$L__BB0_2:
+  3106	add.s64 	%rd19, %rd2, -16;
+  3107	add.s64 	%rd20, %rd2, -24;
+  3108	CALL _bpf_helper_ext_0503(%rd3, %rd19, %rd20, %rd21, %rd22) -> %rd23
+  3132	add.s64 	%rd25, %rd2, -32;
+  3133	add.s64 	%rd26, %rd2, -40;
+  3134	add.s64 	%rd27, %rd2, -48;
+  3135	CALL _bpf_helper_ext_0504(%rd25, %rd26, %rd27, %rd28, %rd29) -> %rd30
+  3159	add.s64 	%rd32, %rd2, -56;
+  3160	add.s64 	%rd33, %rd2, -64;
+  3161	add.s64 	%rd5, %rd2, -72;
+  3162	CALL _bpf_helper_ext_0505(%rd32, %rd33, %rd5, %rd34, %rd35) -> %rd36
+  3186	ld.local.u64 	%rd38, [%rd1+504];
+  3187	ld.local.u64 	%rd39, [%rd1+480];
+  3188	mul.lo.s64 	%rd40, %rd39, %rd38;
+  3189	ld.local.u64 	%rd41, [%rd1+456];
+  3190	add.s64 	%rd42, %rd40, %rd41;
+  3191	st.local.u32 	[%rd1+436], %rd42;
+  3192	add.s64 	%rd6, %rd2, -76;
+  3193	mov.u64 	%rd43, 4;
+  3194	CALL _bpf_helper_ext_0001(%rd43, %rd6, %rd5, %rd44, %rd45) -> %rd46
+  3218	setp.eq.s64 	%p2, %rd46, 0;
+  3219	@%p2 bra 	$L__BB0_5;
+  3220	ld.u32 	%rd47, [%rd46+4];
+  3221	ld.u32 	%rd48, [%rd46];
+  3222	or.b64  	%rd49, %rd48, %rd47;
+  3223	setp.eq.s64 	%p3, %rd49, 0;
+  3224	@%p3 bra 	$L__BB0_5;
+  3225	mov.u32 	%r2, 0;
+  3226	st.local.u32 	[%rd1+504], %r2;
+  3227	CALL _bpf_helper_ext_0001(%rd13, %rd3, %rd5, %rd51, %rd52) -> %rd69
+  3251	setp.eq.s64 	%p4, %rd69, 0;
+  3252	@%p4 bra 	$L__BB0_7;
+  3253	bra.uni 	$L__BB0_6;
+  3254$L__BB0_5:
+  3255	mov.u32 	%r3, 1;
+  3256	st.local.u32 	[%rd1+504], %r3;
+  3257	CALL _bpf_helper_ext_0001(%rd13, %rd3, %rd5, %rd55, %rd56) -> %rd69
+  3281	setp.eq.s64 	%p5, %rd69, 0;
+  3282	@%p5 bra 	$L__BB0_7;
+  3283$L__BB0_6:
+  3284	atom.add.u64 	%rd58, [%rd69], 1;
+  3285$L__BB0_7:
+  3286	CALL _bpf_helper_ext_0003(%rd43, %rd6, %rd5, %rd60, %rd61) -> %rd62
+  3310	setp.eq.s64 	%p6, %rd62, 0;
+  3311	@%p6 bra 	$L__BB0_10;
+  3312	mov.u32 	%r4, 2;
+  3313	st.local.u32 	[%rd1+504], %r4;
+  3314	CALL _bpf_helper_ext_0001(%rd13, %rd3, %rd5, %rd65, %rd66) -> %rd67
+  3338	setp.eq.s64 	%p7, %rd67, 0;
+  3339	@%p7 bra 	$L__BB0_10;
+  3340	atom.add.u64 	%rd68, [%rd67], 1;
+  3341$L__BB0_10:
+  3342	ret;
+  3343
+  3344}
+#### __probe_func__pt_kdiv  (dump line 3356)
+  3357{
+  3358	{
+  3359	.reg .pred 	%bpftime_off;
+  3360	.reg .b32 	%bpftime_on;
+  3361	ld.global.u32 	%bpftime_on, [__bpftime_probes_enabled];
+  3362	setp.eq.s32 	%bpftime_off, %bpftime_on, 0;
+  3363	@%bpftime_off ret;
+  3364	}
+  3365	.local .align 8 .b8 	__local_depot0[592];
+  3366	.reg .b64 	%SP;
+  3367	.reg .b64 	%SPL;
+  3368	.reg .pred 	%p<3>;
+  3369	.reg .b32 	%r<2>;
+  3370	.reg .b64 	%rd<41>;
+  3371
+  3372	mov.u64 	%SPL, __local_depot0;
+  3373	cvta.local.u64 	%SP, %SPL;
+  3374	add.u64 	%rd5, %SP, 0;
+  3375	add.u64 	%rd1, %SPL, 0;
+  3376	add.s64 	%rd2, %rd5, 504;
+  3377	add.s64 	%rd3, %rd5, 496;
+  3378	add.s64 	%rd6, %rd5, 488;
+  3379	mov.u64 	%rd7, 0;
+  3380	CALL _bpf_helper_ext_0503(%rd2, %rd3, %rd6, %rd7, %rd8) -> %rd9
+  3404	add.s64 	%rd11, %rd5, 480;
+  3405	add.s64 	%rd12, %rd5, 472;
+  3406	add.s64 	%rd13, %rd5, 464;
+  3407	CALL _bpf_helper_ext_0504(%rd11, %rd12, %rd13, %rd7, %rd14) -> %rd15
+  3431	add.s64 	%rd17, %rd5, 456;
+  3432	add.s64 	%rd18, %rd5, 448;
+  3433	add.s64 	%rd19, %rd5, 440;
+  3434	CALL _bpf_helper_ext_0505(%rd17, %rd18, %rd19, %rd7, %rd20) -> %rd21
+  3458	ld.local.u64 	%rd23, [%rd1+504];
+  3459	ld.local.u64 	%rd24, [%rd1+480];
+  3460	mul.lo.s64 	%rd25, %rd24, %rd23;
+  3461	ld.local.u64 	%rd26, [%rd1+456];
+  3462	add.s64 	%rd27, %rd25, %rd26;
+  3463	st.local.u32 	[%rd1+436], %rd27;
+  3464	CALL _bpf_helper_ext_0502(%rd26, %rd27, %rd19, %rd7, %rd28) -> %rd29
+  3488	st.local.u64 	[%rd1+504], %rd29;
+  3489	add.s64 	%rd31, %rd5, 436;
+  3490	mov.u64 	%rd32, 4;
+  3491	CALL _bpf_helper_ext_0002(%rd32, %rd31, %rd2, %rd7, %rd33) -> %rd34
+  3515	setp.eq.s64 	%p1, %rd34, 0;
+  3516	@%p1 bra 	$L__BB0_3;
+  3517	mov.u32 	%r1, 3;
+  3518	st.local.u32 	[%rd1+496], %r1;
+  3519	mov.u64 	%rd36, 14;
+  3520	CALL _bpf_helper_ext_0001(%rd36, %rd3, %rd2, %rd7, %rd38) -> %rd39
+  3544	setp.eq.s64 	%p2, %rd39, 0;
+  3545	@%p2 bra 	$L__BB0_3;
+  3546	atom.add.u64 	%rd40, [%rd39], 1;
+  3547$L__BB0_3:
+  3548	ret;
+  3549
+  3550}
