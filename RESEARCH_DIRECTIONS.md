@@ -122,8 +122,21 @@ from an unpublished thesis: re-check before citing.
 - **Tier 2, the research focus:** hardware-position storage and per-SM rings, for record streams
   and unknown scale.
 - **Tier 3:** per-launch per-thread storage, only if a scenario needs it.
-- **Not in focus:** hash (arbitrary-key) maps on the GPU. 1501 is a host call on every operation,
-  but no GPU-native tool is known to need one; gpu_ext's tools use fixed-bin arrays.
+- **Hash (arbitrary-key) maps, stage one** (user decision 11-26; designed and checked, not built):
+  - Today every GPU hash operation on the Orin is a host call: 10-13 us back to back, 18-21 us
+    sparse; one lookup per thread on rms_norm makes a 32-token prefill 341-351 times slower
+    (`gpu/hash-current-20261126`).
+  - Stage one keeps keys in a device directory: slots are claimed by CAS and are permanent. Values
+    that GPU code only adds to use 1531's sharded rows. A tool declares the type, as `lat` declares
+    1530/1531, and gets bpf's first-touch semantics, with losses counted in a companion status
+    array.
+  - A directory hit costs 0.034-0.037 ns per thread more than 1531's array (tg128, mul_mat_vec_q:
+    56.1 -> 53.7 t/s). The insert protocol (claim, then reserve) held in standalone stress runs,
+    and E2BIG is exact while keys fit.
+  - Not served: per-thread keys (E2BIG; they belong in 1530), stores, deletes.
+  - Limit: a map given far more distinct keys than max_entries fills its directory with refused
+    slots, and misses then walk all of it
+    (`gpu/hash-design-20261126`, `gpu/hash-round1-20261126`, `gpu/hash-round2-20261127`).
 - **Ceiling:** entry and exit probes give a thread at most one or two records per launch;
   `__memcapture` fires at every load and store but gives no address. Scenarios that need new attach
   points (correctness checking, instruction mix, region timing, address traces) would raise record

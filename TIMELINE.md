@@ -529,6 +529,35 @@ A first stage of hash maps in the map model (results `gpu/hash-design-20261126` 
   reports E2BIG when half full, because threads reserve before their CAS (the order has to
   change), and the release publish could not be observed by the test.
 
+## 11-27: the device hash map, round two
+
+The user took the four open decisions as proposed:
+- hash tools declare the device hash type;
+- first-touch inserts keep bpf's semantics, with losses counted;
+- loss counts go in a companion status array;
+- R = min(max_entries, 512).
+
+Round two then checked the changed insert path (results `gpu/hash-round2-20261127`; rules before
+the runs).
+
+- **Claim, then reserve:** only the thread that wins the CAS takes capacity, and a winner refused
+  at capacity keeps its slot as "refused".
+  - In 3,848 stress trials (10^6 threads x 10 launches) there were no violations. E2BIG was 0 in
+    all 2,805 trials where the keys fit; round one's order gave 7,061-11,695 per trial.
+  - Four broken controls each failed as required.
+  - Limit: a refused winner keeps its slot. So a map given far more distinct keys than
+    max_entries fills its directory, and misses then walk all of it. With one key per thread,
+    10 launches took 1,573 ms against 6.4 ms.
+- **Publish order:** in a message-passing test of 10^8 instances, the release publish with a
+  fenced reader gave 0 weak outcomes, and dropping both halves gave 78,461.
+- **Independent reading:** three reviewers had only the code and the PTX memory-model chapter.
+  They made 11 findings and none was refuted. The one contract break, E2BIG while the key that
+  took the last place is not yet visible, is the same window the kernel's htab has (checked in
+  `kernel/bpf/hashtab.c`). It is documented rather than fixed, which sets aside the rules' "fix
+  and check again"; the user chose that (11-27). The rest are documented. A code map of the
+  bpftime build lists the items to settle first (CPU seal and index, sharded loss counts, one
+  layout definition).
+
 ## Where it stands (11-18)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
