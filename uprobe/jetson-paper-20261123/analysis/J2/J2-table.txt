@@ -1,0 +1,19 @@
+270 rows; 0 harness errors; 10 rows with workload rc != 0
+
+Throughput relative to none (median ops/s ratio, n=5 rounds); rc!=0 rows marked *; lost = expected - reported (sum over rounds)
+| tool | none | kernel | O | L3port | Ol | Olpc | OlL3x730 | Dn | Dnpc |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| gethostlatency (none 113517/s) | 1.000 | 0.535 (lost 6876) | 0.502 | 0.765 | 0.733 | 0.603 | 0.741 | 0.757 (lost 5354) | 0.645 (lost 5349) |
+| malloc-example (none 42482262/s) | 1.000 | 0.013 | 0.045 | 0.045 | 0.036 | 0.038 | 0.042 | 0.012 | 0.012 |
+| funclatency-libbpf (none 89692230/s) | 1.000 | 0.005 | nan* | nan* | 1.001 | 1.005 | 1.001 | 0.016 | 0.016 |
+| memleak (none 42527748/s) | 1.000 | 0.008 | nan | nan | 0.014 | 0.014 | 0.015 | 0.014 | 0.015 |
+| bpftrace-uretprobe-hist (none 89785286/s) | 1.000 | 0.005 | 0.013 | 0.013 | 0.011 | 0.011 | 0.012 | 0.014 | 0.014 |
+| bpftrace-gethostlatency (none 112730/s) | 1.000 | 0.557 | 0.774 | 0.749 | 0.737 | 0.551 | 0.755 (lost 3650) | 0.651 | 0.527 |
+
+Paired GMR (95% t-CI, n=5): Dn/OlL3x730, Dnpc/Olpc, Dnpc/kernel, OlL3x730/Ol, Dn/kernel
+gethostlatency: Dn/OlL3x730 1.027 [1.016,1.037]; Dnpc/Olpc 1.074 [1.041,1.108]; Dnpc/kernel 1.212 [1.177,1.249]; OlL3x730/Ol 1.011 [0.993,1.031]; Dn/kernel 1.421 [1.392,1.451]
+malloc-example: Dn/OlL3x730 0.291 [0.285,0.298]; Dnpc/Olpc 0.328 [0.319,0.336]; Dnpc/kernel 0.979 [0.955,1.003]; OlL3x730/Ol 1.153 [1.131,1.174]; Dn/kernel 0.970 [0.947,0.994]
+funclatency-libbpf: Dn/OlL3x730 0.016 [0.016,0.016]; Dnpc/Olpc 0.016 [0.015,0.016]; Dnpc/kernel 2.937 [2.889,2.985]; OlL3x730/Ol 1.000 [0.994,1.006]; Dn/kernel 2.946 [2.931,2.962]
+memleak: Dn/OlL3x730 0.941 [0.929,0.954]; Dnpc/Olpc 1.076 [1.068,1.084]; Dnpc/kernel 1.882 [1.870,1.894]; OlL3x730/Ol 1.139 [1.127,1.150]; Dn/kernel 1.865 [1.849,1.880]
+bpftrace-uretprobe-hist: Dn/OlL3x730 1.148 [1.121,1.176]; Dnpc/Olpc 1.286 [1.272,1.300]; Dnpc/kernel 2.739 [2.704,2.775]; OlL3x730/Ol 1.161 [1.149,1.173]; Dn/kernel 2.692 [2.619,2.766]
+bpftrace-gethostlatency: Dn/OlL3x730 0.856 [0.825,0.887]; Dnpc/Olpc 0.951 [0.935,0.968]; Dnpc/kernel 0.943 [0.930,0.956]; OlL3x730/Ol 1.024 [0.995,1.053]; Dn/kernel 1.161 [1.103,1.221]

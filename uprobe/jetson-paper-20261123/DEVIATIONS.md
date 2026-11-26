@@ -74,3 +74,62 @@ precedes round 0 in wall time; rounds are pooled as before.
   such row. Both n = 19 and n = 20 numbers are in analysis/E18.md.
 - A tool call at 19:55:04 JST (progress check requested by the user) ran during E18a round 0
   rep 6. Excluding rep 6-7 changes no E18 ratio by more than 0.6 % and no verdict.
+- 2026-11-25 ATC week 1 on Orin (user OK ~14:55; NUC plan PREREG-2 + Orin addendum plans/PREREG-2-orin-addendum.md written before any run).
+  - New builds Dpcr (9ccda7e8 checks ON, fresh build dir, options/source/toolchain identical to Dpc; .text same size, ~90 k
+    address-operand bytes differ) and DnR (Dn + -falign-functions=64) via scripts/build-arm2.sh (build-arm.sh + BDIR_TAG and
+    EXTRA_CMAKE). harness/config-jetson.json gained Dpcr and DnR.
+  - J1 (prep/J1-run.sh) was refused 3 times (16:03, 16:08, 16:12; kept as raw/J-J1-20261125.refused-*): load 0.37-0.75 at the
+    guard right after waitload passed (< 0.15). Cause: check_env.sh hashed every build (sha256 --check) before reading the
+    load, so the guard measured its own hashing (J11 start: 0.04 before, 0.85 after). Fixed 16:16: the load is read before the
+    sha256 pass and both values are logged. Likely the same cause as the E18a refusal of 11-24 16:25. J1 then ran 16:17-16:23.
+  - One cross-session message was sent while chain a was measuring (about 15:30-15:40, during J4); the user asked for a status.
+    Not mapped to a leg; J4 is exploratory.
+  - Timers paused 16:15 for the rest of the campaign (user: "两边都把影响测量的定时任务给停掉，全力搞任务", confirmed "停" here):
+    disable --now anacron, apt-daily, apt-daily-upgrade, dpkg-db-backup, e2scrub_all, fstrim, fwupd-refresh, man-db,
+    motd-news, update-notifier-download, update-notifier-motd; stop systemd-tmpfiles-clean (static). No crontabs exist.
+    State before and RESTORE.sh: timers-paused-20261125/. Network/remote-access units untouched.
+  - J13 will run its two rounds back to back, not on two nights (user, 11-25): the leg x night interaction test of PREREG-2 §5
+    is not possible on Orin; round 0 vs round 1 is still compared.
+  - J1 perf stat -a syscalls:sys_exit_openat reads 0 in every kernel run (the bpf program is attached to the same
+    tracepoint) and ~41.8 k in the D runs; the kernel's true count comes from run_cnt and openloop's total_ops instead.
+- 2026-11-26 chain c (SMOKE-J7, J8, J6 v1, J2, J13; 17:5x 11-25 -> 00:26:38 11-26): every session exit 0 on the first try,
+  no guard refusals, no tool calls from this session during the chain.
+  - J13 has no OlL3 leg (NUC's leg list), so M6 (Dn730 vs OlL3) exists only in J8 (exploratory). The J13 Holm family is the
+    5 tests M1-M5.
+  - Dn730 is not lock-equivalent to upstream: its inlined per-CPU array lookup reads sched_getcpu instead of the CPU pinned
+    by the #730 guard (NUC E4, 11-25: 1-54 lost updates per run). Every M6 / P4 statement carries this caveat. Not fixed.
+  - J2 funclatency-libbpf on Ol, Olpc, OlL3x730: the tool fails to load (map type 8 unsupported), workload runs untraced; rows
+    kept as is, not a throughput number.
+  - 00:27:05-00:27:12 11-26: this session ran one `ssh nuc` (ls + pgrep) while NUC was measuring I3 round 2 (NUC's message
+    had said E3/E4/E5 were done, not that I3/I9 had started). The scp before it failed on a local zsh glob and never
+    connected. NUC mapped it to one row (I3 r2 rep 9 K, -0.04 % vs the next lowest), flagged, not rerun. No further NUC
+    access until NUC's idle message.
+- 2026-11-26 PREREG-2b (x86 harness/PREREG-2b.md, sha256 01cb8b5d..., frozen 2026-11-26T01:50:36 JST, before E4f and before any
+  Dn730f sslsniff run). If NUC's E4f gate passes (Dn730f loses 0 updates in all 20 counting runs), Dn730f replaces Dn730:
+  M6 = Dn730f vs OlL3, P4 = Dn730f - Dn vs Ol - Ol730x. Otherwise M6 leaves the confirmatory family (Holm over 5 per platform)
+  and is reported as exploratory.
+  - Dn730f = Dn730 (d7adca41) + 19efeb16 (inlined per-CPU array lookup reads my_sched_getcpu); worktree
+    ~/src/bpftime-paper/dn730f-c71a9987 (logs/worktrees-Dn730f-20261126.log), built 02:24-02:29 as builds/Dn730f
+    (scripts/chain-20261126d.sh after J6 v2), config-jetson.json gained Dn730f.
+  - Orin J13s (M6 supplement): plans/J13s.txt, sha256 c6bd6e31a95c0e1342152ae7e535c8300ffb99c060c9e79a686cf7e46723b00c
+    (plans/J13s.sha256), written 02:4x 11-26 before any J13s run. Legs B, Kb, OlL3, Dn730f, OlL3x730; 16 B, policy M, S4 counting
+    loader; n = 40 (2 rounds x 20, 1 warm-up rep), seeds sha256(session:exp:round:rep). M6 paired only within J13s; M1-M5 from
+    J13; Orin family 6 tests, margin ±0.634 us/event. Runner scripts/chain-20261126e.sh, started only after the gate result.
+  - J6 v2 (J-J6v2-20261126, 01:49-02:24) ran pinbench-ws v2 from NUC's handoff-J6v2-20261125.tar.gz (sha256 f4e04b88..., fetched
+    01:45 while NUC was idle), protocol prep/J6v2/J6v2-protocol.md; ws list and masks per NUC (64 KB and cross dropped, 4096 KB added).
+  - SMOKE-Dn730f (J-SMOKE-Dn730f-20261126, not analysed; plans/SMOKE-Dn730f.txt, 1 rep x 5 s, Dn730f + Dn730): first try refused
+    by the start guard (load 0.39, my own analysis/build just before; kept as raw/J-SMOKE-Dn730f-20261126.refused-load-*); rerun
+    after waitload passed: both legs valid, 0 lost, write_ev = read_ev, sniff CPU 0.44 s each.
+  - NUC E4f (02:15-02:33): Dn730f 0 lost in all 20 counting runs, Dn730 lost in all 10 b1 runs, so the PREREG-2b gate passed on
+    the data; NUC asked to hold J13s until its independent review of the data and the code fix is done.
+  - NUC go for J13s (02:5x): both independent x86 reviews passed (data: Fisher 10/10 vs 0/10 p = 1.1e-5, only b1 discriminates;
+    code: the guard matches upstream 70f7bc1f line by line, the only bare CPU read left is the guard itself; Orin's own git grep
+    agrees). Build check here: Dn730f cmake options = Dn730's, checks OFF like OlL3 (OlL3 lacks only the dev-tree options
+    MAP_PRODUCTION_AB / MAP_USAGE_STATS / PATCH_EXECUTABLE). Notes kept for the paper, no effect on J13s (Frida uprobes):
+    on the trap/signal path Dn730f returns -ENOTSUP for programs with a bound array where upstream runs them unlocked;
+    the ladder unit test test_array_jit_lifetime.cpp:240-258 (raw CPU -1 expects exec 0) should fail on lock-restored
+    ladder trees (guard returns -EAGAIN). Ladder tests only.
+  - J13s ran 02:42-03:32 (exit 0 first try, 200/200 valid, no tool calls during the run). Holm now over 6 tests per PREREG-2b:
+    M5 Holm-adjusted p 0.055 (0.028 with 5), M6 0.055; M6 TOST equivalent. P4 has no same-session estimate (exploratory only).
+  - NUC's optional Orin BPFTIME_AOT_CACHE=0 probe-read run was skipped: E3 (11-23) already ran D with the AOT cache on by
+    default and gave D/O 1.002, the same harness that shows the x86 penalty.

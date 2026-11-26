@@ -1,0 +1,24 @@
+rows=360 valid=360 reps=40 payload=None exp=J8
+| leg | n | median rps | CV% | GMR vs K [95% CI] | x vs B us/req [95% CI] | ev/req | del/exp | lost/req | missing-reported |
+|---|---:|---:|---:|---|---|---:|---:|---:|---:|
+| Ol | 40 | 14220 | 2.24 | 1.0741 [1.0659, 1.0824] |  | 2.0000 | 1.00000 | 0.000000 | 0..0 |
+| Dn730 | 40 | 15419 | 2.71 | 1.1708 [1.1586, 1.1832] |  | 2.0000 | 1.00000 | 0.000000 | 0..0 |
+| OlL3 | 40 | 15183 | 1.28 | 1.1554 [1.1492, 1.1617] |  | 2.0000 | 1.00000 | 0.000000 | 0..0 |
+| OlL3x730 | 40 | 15382 | 1.84 | 1.1718 [1.1646, 1.1791] |  | 2.0000 | 1.00000 | 0.000000 | 0..0 |
+| Ol730x | 40 | 14444 | 1.27 | 1.0970 [1.0907, 1.1033] |  | 2.0000 | 1.00000 | 0.000000 | 0..0 |
+| K+SSLSNIFF_PB_WAKEUP=32 | 40 | 14692 | 1.60 | 1.1204 [1.1130, 1.1279] |  | 2.0000 | 0.99999 | 0.000000 | 2..2 |
+| K | 40 | 13175 | 1.12 |  |  | 2.0000 | 0.99999 | 0.000000 | 2..2 |
+| Dn+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32 | 40 | 15738 | 2.22 | 1.1888 [1.1782, 1.1996] |  | 2.0000 | 1.00000 | 0.000000 | 0..0 |
+| Dn | 40 | 15667 | 3.77 | 1.1808 [1.1650, 1.1969] |  | 2.0000 | 1.00000 | 0.000000 | 0..0 |
+DIFF x(Ol730x) - x(Ol) = -1.486 us/request [-2.137, -0.836] n=40; per event (/2) -0.743 us
+DIFF x(OlL3) - x(Ol) = -4.994 us/request [-5.626, -4.361] n=40; per event (/2) -2.497 us
+DIFF x(Dn730) - x(Dn) = 0.523 us/request [-0.533, 1.578] n=40; per event (/2) 0.261 us
+DIFF x(Ol) - x(Ol730x) = 1.486 us/request [0.836, 2.137] n=40; per event (/2) 0.743 us
+DIFF x(Dn) - x(OlL3x730) = -0.453 us/request [-1.434, 0.529] n=40; per event (/2) -0.226 us
+RATIO OlL3x730 / Ol = 1.0910 [1.0798, 1.1023] n=40
+RATIO Dn / OlL3x730 = 1.0077 [0.9932, 1.0223] n=40
+RATIO Dn730 / OlL3 = 1.0133 [1.0034, 1.0233] n=40
+RATIO Dn / K = 1.1808 [1.1650, 1.1969] n=40
+RATIO Dn+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32 / K+SSLSNIFF_PB_WAKEUP=32 = 1.0610 [1.0523, 1.0698] n=40
+TOSTUS x(Dn) - x(OlL3x730) = -0.226 us/event 90% CI [-0.635, 0.182] 95% CI [-0.717, 0.264] n=40 margin ±0.634 -> not equivalent, no difference shown
+TOSTUS x(Dn730) - x(OlL3) = -0.422 us/event 90% CI [-0.695, -0.149] 95% CI [-0.750, -0.094] n=40 margin ±0.634 -> not equivalent, different

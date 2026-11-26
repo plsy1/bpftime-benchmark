@@ -1,0 +1,19 @@
+J6 v2 (cpu3, 5 runs x 100k iters; median over runs; direct per-call ns minus one clock pair; [min-max over runs])
+| ws KB | single pin | pair pin | all pin | single getpid | pair getpid | all getpid | touch ns | clock pair ns | end cpu |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 1570 [1569-1571] | 3145 [3130-3159] | 3137 [3127-3141] | 305 [304-305] | 301 [300-302] | 300 [299-300] | 1 | 48 | [3] |
+| 128 | 1735 [1732-1735] | 3474 [3466-3484] | 3468 [3464-3486] | 374 [373-375] | 373 [373-375] | 373 [373-380] | 6094 | 48 | [3] |
+| 256 | 1803 [1801-1808] | 3726 [3710-3735] | 3719 [3708-3731] | 411 [410-412] | 410 [410-412] | 412 [409-417] | 12209 | 48 | [3] |
+| 512 | 1934 [1898-1968] | 3949 [3917-3953] | 3942 [3930-3964] | 604 [536-628] | 590 [520-602] | 614 [597-624] | 24014 | 48 | [3] |
+| 1024 | 2023 [2002-2028] | 4102 [4069-4114] | 4124 [4088-4130] | 693 [663-699] | 687 [679-702] | 695 [685-702] | 48641 | 48 | [3] |
+| 2048 | 2115 [2101-2162] | 4279 [4276-4294] | 4299 [4284-4301] | 644 [616-679] | 708 [663-722] | 698 [672-721] | 98457 | 48 | [3] |
+| 4096 | 2398 [2371-2416] | 4794 [4777-4822] | 4802 [4779-4816] | 819 [796-843] | 837 [824-849] | 834 [817-838] | 193821 | 48 | [3] |
+
+Ratio to ws=0 (median):
+0 KB: single pin 1.00x getpid 1.00x, pair pin 1.00x getpid 1.00x, all pin 1.00x getpid 1.00x
+128 KB: single pin 1.10x getpid 1.23x, pair pin 1.10x getpid 1.24x, all pin 1.11x getpid 1.25x
+256 KB: single pin 1.15x getpid 1.35x, pair pin 1.18x getpid 1.36x, all pin 1.19x getpid 1.37x
+512 KB: single pin 1.23x getpid 1.98x, pair pin 1.26x getpid 1.96x, all pin 1.26x getpid 2.05x
+1024 KB: single pin 1.29x getpid 2.27x, pair pin 1.30x getpid 2.28x, all pin 1.31x getpid 2.32x
+2048 KB: single pin 1.35x getpid 2.11x, pair pin 1.36x getpid 2.35x, all pin 1.37x getpid 2.33x
+4096 KB: single pin 1.53x getpid 2.69x, pair pin 1.52x getpid 2.78x, all pin 1.53x getpid 2.78x

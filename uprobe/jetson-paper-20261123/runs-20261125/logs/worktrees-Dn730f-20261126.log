@@ -1,0 +1,26 @@
+== 2026-11-26 01:46:38 dn730f-c71a9987 base d7adca41 (Dn730) src dn730-c71a9987; NUC 11-26 fix: read_cpu = my_sched_getcpu
+Preparing worktree (detached HEAD d7adca41)
+ D .github/workflows/build-ci-images.yml
+ D .github/workflows/build-gcc13.yml
+ D .github/workflows/build-macos.yml
+status lines: 3
+status lines after restore: 0
+diff --git a/runtime/src/bpf_helper.cpp b/runtime/src/bpf_helper.cpp
+index a159ec43..92853de2 100644
+--- a/runtime/src/bpf_helper.cpp
++++ b/runtime/src/bpf_helper.cpp
+@@ -1583,11 +1583,8 @@ bool bpftime_resolve_array_cpu_query_v1(void *registered_helper,
+ 	*hooks = {};
+ 	if (registered_helper != reinterpret_cast<void *>(bpftime_get_smp_processor_id))
+ 		return false; // A matching name alone must never bypass a custom helper.
+-#if __linux__
+-	hooks->read_cpu = ::sched_getcpu;
+-#else
++	// Read the CPU the #730 guard pinned (current_bpf_cpu while held), as the helper path does.
+ 	hooks->read_cpu = my_sched_getcpu;
+-#endif
+ 	hooks->on_error = cpu_query_error;
+ 	return true;
+ }
+19efeb16 ladder Dn730f: inlined per-CPU array lookup reads my_sched_getcpu
+d7adca41 Revert "prog exec: no per-CPU execution lock"

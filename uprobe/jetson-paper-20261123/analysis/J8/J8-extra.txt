@@ -1,0 +1,27 @@
+== J8: superiority family (paired log-ratio t-test, two-sided; Holm over the tests listed here)
+M5 Dn / OlL3x730: GMR 1.0077 p=2.90e-01 Holm-adj=2.90e-01 n=40
+M6 Dn730 / OlL3: GMR 1.0133 p=9.35e-03 Holm-adj=1.87e-02 n=40
+
+== leg x round: per-round paired diffs (us/event), and drop-first-rep sensitivity
+M5 x(Dn)-x(OlL3x730): r0 -0.355 [-0.805,+0.095]; r1 -0.098 [-1.019,+0.823]; round diff p=0.603; drop-first n=38 -0.148 [-0.643,+0.347]
+M6 x(Dn730)-x(OlL3): r0 -0.104 [-0.682,+0.474]; r1 -0.739 [-1.042,-0.436]; round diff p=0.049; drop-first n=38 -0.423 [-0.765,-0.082]
+
+== H1 per event (medians over n reps): sniff CPU (schedstat), nginx CPU, core-3 busy CPU, all-core busy CPU (cores 0,1,3,4,5), irq on core 3, migrations, unreported events
+| leg | n | sniff us/ev | nginx us/ev | core3 us/ev | all-core us/ev | core3 irq/ev | nginx migr | sniff Pss MB | unreported ev (sum) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Dn | 40 | 2.76 | 27.31 | 6.31 | 55.01 | 0.193 | 0 | 24.1 | 0 |
+| Dn+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32 | 40 | 1.95 | 27.23 | 2.55 | 51.39 | 0.043 | 0 | 24.1 | 0 |
+| Dn730 | 40 | 2.77 | 27.77 | 5.12 | 54.52 | 0.198 | 0 | 28.6 | 0 |
+| K | 40 | 4.37 | 31.32 | 6.44 | 62.27 | 1.011 | 0 | 1.2 | 0 |
+| K+SSLSNIFF_PB_WAKEUP=32 | 40 | 1.69 | 29.18 | 2.25 | 53.60 | 0.047 | 0 | 1.2 | 0 |
+| Ol | 40 | 1.97 | 30.51 | 2.51 | 55.03 | 0.043 | 0 | 18.2 | 0 |
+| Ol730x | 40 | 1.94 | 29.93 | 2.62 | 54.32 | 0.042 | 0 | 18.8 | 0 |
+| OlL3 | 40 | 1.94 | 28.32 | 2.25 | 52.13 | 0.040 | 0 | 16.0 | 0 |
+| OlL3x730 | 40 | 1.93 | 27.87 | 2.31 | 51.69 | 0.039 | 0 | 19.0 | 0 |
+
+== round 2 perf sc: syscalls per request on the worker (mean of reps)
+OlL3@S4: all syscalls 10.02; of which sys_enter_getpid 2.00
+Dn730@S4: all syscalls 8.02; of which 
+Ol730x@S4: all syscalls 22.02; of which sys_enter_getgid 6.00, sys_enter_getuid 6.00, sys_enter_getpid 2.00
+Dn@S4+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32: all syscalls 8.09; of which 
+OlL3x730@S4: all syscalls 10.02; of which sys_enter_getpid 2.00

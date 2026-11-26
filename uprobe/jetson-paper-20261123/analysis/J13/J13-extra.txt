@@ -1,0 +1,38 @@
+== J13: superiority family (paired log-ratio t-test, two-sided; Holm over the tests listed here)
+M1 Dnpc / K+SSLSNIFF_PB_WAKEUP=32: GMR 0.9311 p=7.23e-13 Holm-adj=2.17e-12 n=40
+M2 Dxn+BPFTIME_DIAG_EXACT=1 / K+SSLSNIFF_PB_WAKEUP=32: GMR 0.8090 p=1.49e-29 Holm-adj=7.44e-29 n=40
+M3 Dnpc+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32 / K+SSLSNIFF_PB_WAKEUP=32: GMR 0.9299 p=2.44e-15 Holm-adj=9.76e-15 n=40
+M4 Dnpc+BPFTIME_CONSUMER_NAP_US=0 / K: GMR 0.9350 p=6.00e-12 Holm-adj=1.20e-11 n=40
+M5 Dn / OlL3x730: GMR 1.0137 p=2.75e-02 Holm-adj=2.75e-02 n=40
+
+== leg x round: per-round paired diffs (us/event), and drop-first-rep sensitivity
+M1 x(Dnpc)-x(K+SSLSNIFF_PB_WAKEUP=32): r0 +2.914 [+2.132,+3.696]; r1 +2.155 [+1.471,+2.839]; round diff p=0.135; drop-first n=38 +2.551 [+2.026,+3.077]
+M2 x(Dxn+BPFTIME_DIAG_EXACT=1)-x(K+SSLSNIFF_PB_WAKEUP=32): r0 +8.134 [+7.289,+8.978]; r1 +7.976 [+7.146,+8.806]; round diff p=0.781; drop-first n=38 +8.106 [+7.524,+8.687]
+M3 x(Dnpc+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32)-x(K+SSLSNIFF_PB_WAKEUP=32): r0 +2.621 [+2.099,+3.143]; r1 +2.530 [+1.802,+3.258]; round diff p=0.833; drop-first n=38 +2.572 [+2.128,+3.016]
+M4 x(Dnpc+BPFTIME_CONSUMER_NAP_US=0)-x(K): r0 +2.669 [+1.938,+3.400]; r1 +2.705 [+1.681,+3.730]; round diff p=0.952; drop-first n=38 +2.709 [+2.084,+3.333]
+M5 x(Dn)-x(OlL3x730): r0 -0.382 [-1.079,+0.315]; r1 -0.472 [-0.958,+0.014]; round diff p=0.827; drop-first n=38 -0.412 [-0.832,+0.008]
+
+== H1 per event (medians over n reps): sniff CPU (schedstat), nginx CPU, core-3 busy CPU, all-core busy CPU (cores 0,1,3,4,5), irq on core 3, migrations, unreported events
+| leg | n | sniff us/ev | nginx us/ev | core3 us/ev | all-core us/ev | core3 irq/ev | nginx migr | sniff Pss MB | unreported ev (sum) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| B | 40 | nan | 21.04 | 0.39 | 42.21 | 0.004 | 0 | nan | 0 |
+| Dn | 40 | 2.77 | 27.33 | 6.29 | 55.18 | 0.194 | 0 | 25.1 | 0 |
+| Dn730 | 40 | 2.78 | 27.95 | 4.77 | 54.57 | 0.199 | 0 | 28.9 | 0 |
+| Dnpc | 40 | 2.87 | 31.24 | 1.39 | 54.68 | 0.220 | 0 | 26.1 | 0 |
+| Dnpc+BPFTIME_CONSUMER_NAP_US=0 | 40 | 7.62 | 35.21 | 9.53 | 67.83 | 1.013 | 0 | 26.1 | 0 |
+| Dnpc+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32 | 40 | 1.94 | 31.30 | 2.75 | 56.30 | 0.047 | 0 | 26.1 | 0 |
+| Dxn+BPFTIME_DIAG_EXACT=1 | 40 | 3.07 | 36.60 | 2.37 | 61.78 | 0.254 | 0 | 31.4 | 0 |
+| K | 40 | 4.36 | 31.55 | 6.38 | 62.26 | 1.011 | 0 | 1.2 | 0 |
+| K+SSLSNIFF_PB_WAKEUP=32 | 40 | 1.69 | 29.30 | 2.28 | 53.60 | 0.047 | 0 | 1.2 | 0 |
+| L3port | 40 | 1.85 | 27.03 | 2.29 | 50.74 | 0.038 | 0 | 10.5 | 0 |
+| O | 40 | 1.93 | 37.57 | 2.44 | 62.83 | 0.052 | 0 | 10.4 | -2 |
+| Ol | 40 | 1.96 | 30.74 | 2.50 | 55.09 | 0.043 | 0 | 18.4 | 0 |
+| OlL3x730 | 40 | 1.93 | 28.02 | 2.28 | 51.92 | 0.039 | 0 | 19.3 | 0 |
+| OlL3x730pc | 40 | 1.96 | 31.64 | 2.46 | 56.31 | 0.044 | 0 | 19.2 | 0 |
+| Olpc | 40 | 1.99 | 34.40 | 3.16 | 60.27 | 0.048 | 0 | 19.1 | 0 |
+
+== round 2 perf sc: syscalls per request on the worker (mean of reps)
+OlL3x730@S4: all syscalls 10.02; of which sys_enter_getpid 2.00
+Dnpc@S4+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32: all syscalls 10.07; of which sys_enter_process_vm_readv 2.00
+OlL3x730pc@S4: all syscalls 12.02; of which sys_enter_getpid 2.00, sys_enter_process_vm_readv 2.00
+Dn730@S4: all syscalls 8.02; of which 

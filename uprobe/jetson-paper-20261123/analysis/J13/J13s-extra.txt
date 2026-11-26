@@ -1,0 +1,22 @@
+Orin confirmatory family, 6 tests (PREREG-2b): M1-M5 from J13, M6 from J13s; paired log-ratio t, Holm over 6
+M1 Dnpc / K+SSLSNIFF_PB_WAKEUP=32: GMR 0.9311 p=7.23e-13 Holm(6)-adj=2.89e-12
+M2 Dxn+BPFTIME_DIAG_EXACT=1 / K+SSLSNIFF_PB_WAKEUP=32: GMR 0.8090 p=1.49e-29 Holm(6)-adj=8.93e-29
+M3 Dnpc+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32 / K+SSLSNIFF_PB_WAKEUP=32: GMR 0.9299 p=2.44e-15 Holm(6)-adj=1.22e-14
+M4 Dnpc+BPFTIME_CONSUMER_NAP_US=0 / K: GMR 0.9350 p=6.00e-12 Holm(6)-adj=1.80e-11
+M5 Dn / OlL3x730: GMR 1.0137 p=2.75e-02 Holm(6)-adj=5.51e-02
+M6 Dn730f / OlL3: GMR 1.0092 p=3.59e-02 Holm(6)-adj=5.51e-02
+
+J13s per-round and drop-first (us/event, 95% t-CI):
+x(Dn730f)-x(OlL3): r0 -0.274 [-0.733,+0.185]; r1 -0.314 [-0.695,+0.067]; round diff p=0.889; drop-first n=38 -0.295 95% [-0.589,-0.000] 90% [-0.544,-0.046]
+x(Dn730f)-x(OlL3x730): r0 +0.245 [-0.239,+0.728]; r1 +0.023 [-0.440,+0.487]; round diff p=0.493; drop-first n=38 +0.116 95% [-0.218,+0.450] 90% [-0.166,+0.398]
+x(OlL3x730)-x(OlL3): r0 -0.519 [-0.738,-0.300]; r1 -0.337 [-0.674,-0.001]; round diff p=0.350; drop-first n=38 -0.411 95% [-0.609,-0.213] 90% [-0.578,-0.244]
+
+P4 (PREREG-2b): Dn730f - Dn vs Ol - Ol730x. Not in one session: Dn is not in J13s, Ol/Ol730x only in J8.
+Cross-session indirect (exploratory): x(Dn730f)-x(OlL3x730) in J13s = +0.134 ; x(Dn)-x(OlL3x730) in J13 = -0.427
+
+H1 per event (medians):
+B: sniff nan nginx 21.07 core3 0.40 all 42.15 irq3 0.004 unreported 0
+K+SSLSNIFF_PB_WAKEUP=32: sniff 1.68 nginx 29.30 core3 2.27 all 53.47 irq3 0.047 unreported 0
+OlL3: sniff 1.93 nginx 28.45 core3 2.46 all 52.39 irq3 0.040 unreported 0
+OlL3x730: sniff 1.93 nginx 27.99 core3 2.35 all 51.88 irq3 0.039 unreported 0
+Dn730f: sniff 2.75 nginx 27.88 core3 3.43 all 53.09 irq3 0.198 unreported 0

@@ -10,6 +10,9 @@ mkdir -p "$LOG"
 fail() { echo "GUARD FAIL ($MODE): $*" | tee -a "$LOG/guard-$MODE.txt" >&2; exit 1; }
 note() { echo "$*" >>"$LOG/guard-$MODE.txt"; }
 note "$(date --iso-8601=seconds) uptime_s=$(cut -d' ' -f1 /proc/uptime)"
+# 11-25: read the load before this guard's own sha256 pass (hashing the builds raised it past 0.3:
+# J1 refused 3 times at 0.37-0.75 right after waitload passed at < 0.15; likely also E18a 11-24 16:25).
+read -r L1_PRE _ </proc/loadavg
 
 # clocks: both clusters pinned at 1728000 (min = max = cur)
 for c in 0 5; do
@@ -58,8 +61,9 @@ note "sha256 ok"
 for z in /sys/class/thermal/thermal_zone*; do note "thermal $(cat $z/type)=$(cat $z/temp 2>/dev/null)"; done
 
 if [ "$MODE" = start ]; then
-  read -r l1 _ </proc/loadavg
-  note "loadavg1=$l1"
+  l1=$L1_PRE
+  read -r l1_after _ </proc/loadavg
+  note "loadavg1=$l1 (before sha256; after sha256 $l1_after)"
   awk -v l="$l1" 'BEGIN{exit !(l < 0.3)}' || fail "load $l1 >= 0.3"
   ! sudo -n docker ps -a --format '{{.Names}}' | grep -qx paper-jetson || fail "container paper-jetson exists"
   # timers that must not fire within the session window +-20 min

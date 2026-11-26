@@ -1,0 +1,6 @@
+# J4 (ATC week 1, exploratory): is old Dpc's ~3 % lead over every other checked build a build artifact?
+# Dpcr = 9ccda7e8 checks ON rebuilt 11-25 in a fresh build dir, same options as Dpc. DnR = Dn (c71a9987, checks off)
+# with -falign-functions=64 (layout control, PREREG-2 §1). Throughput from -stock legs, audit from counting legs.
+# 16 B, policy M, n = 10. Then perf cyc (worker cycles/instructions u/k + task-clock), S4, 3 x 20 s.
+--exp J4 --round 0 --payload 16 --reps 10 --legs K,K+SSLSNIFF_PB_WAKEUP=32,Dpc-stock,Dpcr-stock,Dx-stock,Dnpc-stock,DnR-stock,Dpc,Dpcr,Dx,Dnpc,DnR
+--exp J4p --round 0 --payload 16 --reps 3 --secs 20 --perf-mode cyc --legs Dpc@S4,Dpcr@S4,Dx@S4,Dnpc@S4,Dn@S4,DnR@S4

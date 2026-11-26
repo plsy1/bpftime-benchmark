@@ -1,0 +1,6 @@
+# J13 CANON-final on Orin (PREREG-2; legs from NUC 11-25). 15 legs, all counting loader @S4, 16 B, policy M, n = 40 =
+# round 0 (1 warm-up + 20) + round 1 (20), back to back (user 11-25: no two nights; DEVIATIONS). H1 harness.
+# Then perf sc 3 x 20 s on OlL3x730, OlL3x730pc, Dn730, Dnpc/NAP0-WB32.
+--exp J13 --round 0 --payload 16 --reps 21 --warmup 1 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,O,L3port,Ol,Olpc,OlL3x730,OlL3x730pc,Dn,Dnpc,Dn730,Dnpc+BPFTIME_CONSUMER_NAP_US=0,Dnpc+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32,Dxn+BPFTIME_DIAG_EXACT=1
+--exp J13 --round 1 --payload 16 --reps 20 --legs B,K,K+SSLSNIFF_PB_WAKEUP=32,O,L3port,Ol,Olpc,OlL3x730,OlL3x730pc,Dn,Dnpc,Dn730,Dnpc+BPFTIME_CONSUMER_NAP_US=0,Dnpc+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32,Dxn+BPFTIME_DIAG_EXACT=1
+--exp J13 --round 2 --payload 16 --reps 3 --secs 20 --perf-mode sc --legs OlL3x730@S4,OlL3x730pc@S4,Dn730@S4,Dnpc@S4+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32

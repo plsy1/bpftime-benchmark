@@ -33,3 +33,21 @@ NUC session). The x86 counterpart is `uprobe/x86-nuc-paper-20261123/` on benchma
   70f7bc1f, dev c71a9987, dexact on c71a9987), E18-table-{n19,all}.txt, E18-filtered/ (rows without the excluded leg).
 - `builds/`: Dx, Ol, Olpc, Dn, Dnpc, Dxn added. `scripts/pairgmr.py`: paired GMR with 95 % t-CI used for the paper numbers.
 - Deviations for these sessions are in DEVIATIONS.md.
+
+## ATC 2027 Orin campaign (11-25 → 11-26)
+Plan: NUC's PREREG-2 / PREREG-2a (`harness/`), the Orin addendum `plans/PREREG-2-orin-addendum.md` (margin ±0.634
+µs/event), and PREREG-2b (frozen 11-26 01:50 on the NUC, kept with the x86 results; Dn730f replaces Dn730, Orin
+J13s supplement, 6 tests per platform for Holm).
+- `runs-20261125/`: J1, J2, J4, J5, J6 (v1), J6v2, J8, J11, J13, J13s and the J4/J7/Dn730f smokes; `refused/` holds
+  guard-refused attempts, `logs/` the chain consoles, build consoles, worktree logs and the H1 harness sha256.
+  Not copied (stay in `~/src/paper-runs-20261124/raw/` on the Jetson): per-leg captures `cap/`, J1 per-row tool
+  output `rows/*.tool.txt` (38 MB) and J2 per-run tool/workload output `measure/` (3.3 GB); the analysed summaries
+  (`rows.jsonl`, J2 `measure.jsonl`) are here.
+- `analysis/J8-J13-J2-J6-20261126.md`: main write-up (J8, J13 + J13s with the 6-test Holm table, J2, J6 v1/v2, H1
+  per-event CPU, AOT code-model note); `analysis/J0/` read-only checks and tables; `analysis/{J2,J8,J13}/` script outputs.
+- `builds/`: Dn730, Dn730f (19efeb16: inlined per-CPU lookup reads the pinned CPU), DnR, Dpcr, Ol730x, OlL3, OlL3pc,
+  OlL3x730, OlL3x730pc. `harness/run_paper.py`, `analyze_paper.py` = NUC H1 versions (sha256 in
+  `runs-20261125/logs/harness-sha256-20261125-H1.txt`); `jetson-harness/` updated to the versions used.
+- `prep/J1,J2,J6,J6v2`: J1/J2/J6 runners and protocols (pinbench-ws binaries not copied; sha256 kept).
+- `scripts/`: build-arm2.sh, J4/J7 build scripts, chains 11-25 a-c and 11-26 d-e, cpuevent.py, j13extra.py.
+- `timers-paused-20261125/`: system timers paused for the campaign; restored 11-26 13:42 with RESTORE.sh.

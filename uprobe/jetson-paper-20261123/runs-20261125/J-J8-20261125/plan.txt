@@ -1,0 +1,6 @@
+# J8 CANON-1 on Orin (ATC week 1; PREREG-2 §9 + Orin addendum). 9 legs, all counting loader @S4, 16 B, policy M.
+# n = 40 = round 0 (1 warm-up rep + 20) + round 1 (20), run back to back. H1 harness (run_paper.py 41726c20).
+# M5 margin (Orin) +-0.634 us/event. Then perf sc (3 x 20 s) on the new legs, as x86 C1 round 2.
+--exp J8 --round 0 --payload 16 --reps 21 --warmup 1 --legs K,K+SSLSNIFF_PB_WAKEUP=32,Ol,OlL3,Ol730x,OlL3x730,Dn,Dn730,Dn+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32
+--exp J8 --round 1 --payload 16 --reps 20 --legs K,K+SSLSNIFF_PB_WAKEUP=32,Ol,OlL3,Ol730x,OlL3x730,Dn,Dn730,Dn+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32
+--exp J8 --round 2 --payload 16 --reps 3 --secs 20 --perf-mode sc --legs OlL3@S4,Ol730x@S4,OlL3x730@S4,Dn730@S4,Dn@S4+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32

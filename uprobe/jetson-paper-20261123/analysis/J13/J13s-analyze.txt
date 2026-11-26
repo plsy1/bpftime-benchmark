@@ -1,0 +1,17 @@
+rows=200 valid=200 reps=40 payload=None exp=J13s
+| leg | n | median rps | CV% | GMR vs K [95% CI] | x vs B us/req [95% CI] | ev/req | del/exp | lost/req | missing-reported |
+|---|---:|---:|---:|---|---|---:|---:|---:|---:|
+| K+SSLSNIFF_PB_WAKEUP=32 | 40 | 14708 | 1.94 |  | 17.277 [16.828, 17.726] | 2.0000 | 0.99999 | 0.000000 | 2..2 |
+| B | 40 | 19705 | 0.38 |  |  |  |  |  |  |
+| Dn730f | 40 | 15352 | 2.37 |  | 14.755 [14.213, 15.297] | 2.0000 | 1.00000 | 0.000000 | 0..0 |
+| OlL3x730 | 40 | 15322 | 1.48 |  | 14.487 [14.162, 14.811] | 2.0000 | 1.00000 | 0.000000 | 0..0 |
+| OlL3 | 40 | 15094 | 1.20 |  | 15.343 [15.103, 15.583] | 2.0000 | 1.00000 | 0.000000 | 0..0 |
+DIFF x(Dn730f) - x(OlL3) = -0.588 us/request [-1.157, -0.019] n=40; per event (/2) -0.294 us
+DIFF x(Dn730f) - x(OlL3x730) = 0.268 us/request [-0.375, 0.911] n=40; per event (/2) 0.134 us
+DIFF x(OlL3x730) - x(OlL3) = -0.856 us/request [-1.244, -0.469] n=40; per event (/2) -0.428 us
+RATIO Dn730f / OlL3 = 1.0092 [1.0006, 1.0178] n=40
+RATIO Dn730f / OlL3x730 = 0.9961 [0.9865, 1.0058] n=40
+RATIO OlL3x730 / OlL3 = 1.0132 [1.0072, 1.0192] n=40
+RATIO Dn730f / K+SSLSNIFF_PB_WAKEUP=32 = 1.0386 [1.0283, 1.0490] n=40
+TOSTUS x(Dn730f) - x(OlL3) = -0.294 us/event 90% CI [-0.531, -0.057] 95% CI [-0.579, -0.009] n=40 margin ±0.634 -> EQUIVALENT, different
+TOSTUS x(Dn730f) - x(OlL3x730) = 0.134 us/event 90% CI [-0.134, 0.402] 95% CI [-0.187, 0.456] n=40 margin ±0.634 -> EQUIVALENT, no difference shown

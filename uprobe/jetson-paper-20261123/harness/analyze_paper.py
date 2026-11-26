@@ -33,11 +33,17 @@ def mean_ci(xs, table=T975):
     return m, m - h, m + h
 
 
-def load(paths, exp, payload):
+NONMEASURED = ('0', '1', '3', '5', '7', '15')  # PREREG-2 §6
+NOISY = 0.05
+
+
+def load(paths, exp, payload, warmup=False):
     rows = []
     for p in paths:
         for line in open(p):
             r = json.loads(line)
+            if r.get('warmup') and not warmup:
+                continue
             if exp and r.get('exp') != exp:
                 continue
             if payload and r.get('payload') != payload:
@@ -79,8 +85,14 @@ def main():
     ap.add_argument('--payload', type=int)
     ap.add_argument('--tost', nargs='*', default=[], help='legA:legB:margin (fraction), equivalence of rps')
     ap.add_argument('--diff', nargs='*', default=[], help='legA:legB, paired extra-time difference x(A)-x(B) in us/request')
+    ap.add_argument('--ratio', nargs='*', default=[], help='legA:legB, paired GMR of rps with 95%% t-CI')
+    ap.add_argument('--tostus', nargs='*', default=[], help='legA:legB:margin_us_per_event (PREREG-2 §3; 16 B = 2 events/request)')
+    ap.add_argument('--with-warmup', action='store_true')
+    ap.add_argument('--round', type=int, nargs='*')
     a = ap.parse_args()
-    rows = load(a.rows, a.exp, a.payload)
+    rows = load(a.rows, a.exp, a.payload, a.with_warmup)
+    if a.round is not None:
+        rows = [r for r in rows if r.get('round') in a.round]
     by = index(rows)
     legs = []
     for r in rows:
@@ -126,6 +138,26 @@ def main():
         d = paired(by, x, y, lambda p, q: 1e6 / p['rps'] - 1e6 / q['rps'])
         m, lo, hi = mean_ci(d)
         print(f'DIFF x({x}) - x({y}) = {m:.3f} us/request [{lo:.3f}, {hi:.3f}] n={len(d)}; per event (/2) {m / 2:.3f} us')
+    for spec in a.ratio:
+        x, y = spec.split(':')
+        lr = paired(by, x, y, lambda p, q: math.log(p['rps'] / q['rps']))
+        g, lo, hi = mean_ci(lr)
+        print(f'RATIO {x} / {y} = {math.exp(g):.4f} [{math.exp(lo):.4f}, {math.exp(hi):.4f}] n={len(lr)}')
+    for spec in a.tostus:
+        x, y, m = spec.split(':')
+        m = float(m)
+        d = paired(by, x, y, lambda p, q: (1e6 / p['rps'] - 1e6 / q['rps']) / 2)
+        dm, lo90, hi90 = mean_ci(d, T95)
+        _, lo95, hi95 = mean_ci(d)
+        eq = lo90 > -m and hi90 < m
+        sig = lo95 > 0 or hi95 < 0
+        print(f'TOSTUS x({x}) - x({y}) = {dm:.3f} us/event 90% CI [{lo90:.3f}, {hi90:.3f}] 95% CI [{lo95:.3f}, {hi95:.3f}] n={len(d)} margin ±{m:.3f}'
+              f' -> {"EQUIVALENT" if eq else "not equivalent"}, {"different" if sig else "no difference shown"}')
+    # Jetson port (11-25): Orin has no unused core under policy M (PREREG-2 Orin addendum §6), so no noisy_core rule there.
+    nonmeas = () if any(r.get('platform') == 'jetson-orin' for r in rows) else NONMEASURED
+    noisy = [r for r in rows if r.get('busy_all') and any((r['busy_all'].get(c) or 0) > NOISY for c in nonmeas)]
+    if nonmeas and any('busy_all' in r for r in rows):
+        print(f'noisy_core rows (non-measured core busy > {NOISY}): {len(noisy)}', [(r['leg'], r['round'], r['rep']) for r in noisy][:20])
     inval = [r for r in rows if not r.get('valid')]
     if inval:
         print('invalid rows:', [(r['leg'], r['rep'], r.get('invalid_reason')) for r in inval])

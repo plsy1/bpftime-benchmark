@@ -180,6 +180,82 @@ def busy(t0, t1, cpus):
     return out
 
 
+# --- H1 (eval plan 2.0): ns CPU via schedstat, migrations, all-core busy, IRQ deltas, memory ---
+def task_schedstat_ns(pid):
+    """Sum of on-CPU ns over all threads of pid (/proc/<pid>/task/*/schedstat field 1)."""
+    if pid is None:
+        return None
+    tot = 0
+    try:
+        for t in os.listdir(f'/proc/{pid}/task'):
+            try:
+                tot += int(open(f'/proc/{pid}/task/{t}/schedstat').read().split()[0])
+            except (OSError, ValueError, IndexError):
+                pass
+    except OSError:
+        return None
+    return tot
+
+
+def nr_migrations(pid):
+    tot = 0
+    try:
+        for t in os.listdir(f'/proc/{pid}/task'):
+            try:
+                for line in open(f'/proc/{pid}/task/{t}/sched'):
+                    if line.startswith('se.nr_migrations'):
+                        tot += int(line.split(':')[1])
+            except (OSError, ValueError):
+                pass
+    except OSError:
+        return None
+    return tot
+
+
+def irq_counts():
+    """Per-CPU interrupt totals and per-CPU iwlwifi counts from /proc/interrupts."""
+    lines = open('/proc/interrupts').read().splitlines()
+    ncpu = len(lines[0].split())
+    total = [0] * ncpu
+    wifi = [0] * ncpu
+    for line in lines[1:]:
+        f = line.split()
+        vals = []
+        for x in f[1:1 + ncpu]:
+            if x.isdigit():
+                vals.append(int(x))
+            else:
+                break
+        for i, v in enumerate(vals):
+            total[i] += v
+            if 'iwlwifi' in line:
+                wifi[i] += v
+    return total, wifi
+
+
+def smaps(pid):
+    out = {}
+    try:
+        for line in open(f'/proc/{pid}/smaps_rollup'):
+            f = line.split()
+            if f[0] in ('Rss:', 'Pss:', 'Shared_Clean:', 'Shared_Dirty:', 'Private_Dirty:'):
+                out[f[0][:-1]] = int(f[1])
+    except OSError:
+        return None
+    return out
+
+
+def shm_bytes():
+    tot = 0
+    for f in os.listdir('/dev/shm'):
+        if f.startswith('bpftime'):
+            try:
+                tot += os.stat(f'/dev/shm/{f}').st_blocks * 512
+            except OSError:
+                pass
+    return tot
+
+
 def parse_access_log():
     req = 0
     nbytes = 0
@@ -257,6 +333,9 @@ def run_leg(cfg, leg, conns, secs, threads, capdir):
         t0 = cpu_times()
         w0 = proc_cpu_s(worker)
         s0 = proc_cpu_s(sniff.pid) if sniff else None
+        wns0, sns0 = task_schedstat_ns(worker), task_schedstat_ns(sniff.pid if sniff else None)
+        mig0 = nr_migrations(worker)
+        irq0 = irq_counts()
         perfp = None
         if PERF['mode']:
             events = PERF_EVENTS.get(PERF['mode'], PERF['mode'])
@@ -301,6 +380,18 @@ def run_leg(cfg, leg, conns, secs, threads, capdir):
         t1 = cpu_times()
         w1 = proc_cpu_s(worker)
         s1 = proc_cpu_s(sniff.pid) if sniff else None
+        wns1, sns1 = task_schedstat_ns(worker), task_schedstat_ns(sniff.pid if sniff else None)
+        mig1 = nr_migrations(worker)
+        irq1 = irq_counts()
+        row['busy_all'] = busy(t0, t1, sorted(t1))
+        row['nginx_cpu_ns'] = (wns1 - wns0) if None not in (wns0, wns1) else None
+        row['sniff_cpu_ns'] = (sns1 - sns0) if None not in (sns0, sns1) else None
+        row['nginx_migrations'] = (mig1 - mig0) if None not in (mig0, mig1) else None
+        row['irq_delta'] = {str(c): irq1[0][c] - irq0[0][c] for c in cpus if c < len(irq1[0])}
+        row['iwlwifi_delta'] = {str(c): irq1[1][c] - irq0[1][c] for c in cpus if c < len(irq1[1])}
+        row['nginx_smaps_kb'] = smaps(worker)
+        row['sniff_smaps_kb'] = smaps(sniff.pid) if sniff else None
+        row['shm_bytes'] = shm_bytes()
         alive = os.path.exists(f'/proc/{worker}')
         row.update(rps=rps, req_wrk=total, wrk_errors=errors, wall_s=round(tt1 - tt0, 3),
                    busy=busy(t0, t1, cpus), nginx_cpu_s=(w1 - w0) if None not in (w0, w1) else None,
@@ -387,6 +478,7 @@ def main():
     ap.add_argument('--round', type=int, default=0)
     ap.add_argument('--out', required=True, help='JSONL file to append to')
     ap.add_argument('--capdir', required=True)
+    ap.add_argument('--warmup', type=int, default=0, help='first N reps are warm-up (marked warmup=true, excluded by analysis)')
     ap.add_argument('--perf-mode', help='cyc | sc | explicit perf event list; perf stat on the nginx worker')
     ap.add_argument('--perf-start', type=float, default=2.0)
     ap.add_argument('--perf-dur', type=float, default=16.0)
@@ -416,7 +508,7 @@ def main():
                 row['perf_per_req'] = {k: (v['value'] / reqs if v['value'] is not None else None) for k, v in row['perf'].items()}
                 if any((v.get('run_pct') or 0) < 99 for v in row['perf'].values()):
                     row.setdefault('flags', []).append('perf_multiplexed')
-            row.update(platform=cfg['platform'], session_id=a.session, exp=a.exp, round=a.round, rep=rep,
+            row.update(warmup=rep < a.rep_start + a.warmup, platform=cfg['platform'], session_id=a.session, exp=a.exp, round=a.round, rep=rep,
                        order_idx=idx, pred_leg=pred, leg=leg['text'], build=leg['base'], stage=leg['stage'],
                        policy=leg['policy'], env=leg['env'], stock=leg['stock'], payload=a.payload,
                        conns=a.conns, secs=a.secs, t_start=t_start, t_end=time.time())
