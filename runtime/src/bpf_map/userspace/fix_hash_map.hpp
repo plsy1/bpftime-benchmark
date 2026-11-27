@@ -45,6 +45,13 @@ class fix_size_hash_map_impl {
 
 	int map_get_next_key(const void *key, void *next_key);
 
+	// fn(key, value) for every element in use, without locks: only for a
+	// table no writer can change (bpftime_hash_map::for_each_in_use_unlocked).
+	template <class Fn> void for_each_in_use_unlocked(Fn &&fn) const
+	{
+		map_impl.for_each_in_use_unlocked(std::forward<Fn>(fn));
+	}
+
 	// Tests: the table, for its bucket of a key (seeded per map).
 	bpftime_hash_map &table_for_test()
 	{

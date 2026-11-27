@@ -917,6 +917,31 @@ class bpftime_hash_map {
 				load(&v.lists[l].count, std::memory_order_relaxed);
 		return _max_elements - free_count;
 	}
+
+	// Every element in use, in element order: fn(key, value). All
+	// _num_elements: an update of an existing key moves it into its
+	// stripe's spare, so live keys sit at indices >= max_entries too. No
+	// lock: only for a table no writer can change (the device hash map's
+	// seal, which also holds off writers that died inside an operation;
+	// a reader that died holding a stripe lock in next_key cannot stop
+	// it). Each element is accepted only if a lookup of its key returns
+	// this element's value, which leaves out an element a delete
+	// unlinked but did not retire.
+	template <class Fn> void for_each_in_use_unlocked(Fn &&fn) const
+	{
+		const view v = resolve();
+		for (size_t i = 0; i < _num_elements; i++) {
+			uint8_t *e = elem_at(v, (uint32_t)i);
+			if (!(load(word_of(e), std::memory_order_acquire) &
+			      ELEM_USED))
+				continue;
+			if (const_cast<bpftime_hash_map *>(this)->elem_lookup(
+				    key_of(e)) != value_of(e))
+				continue;
+			fn(static_cast<const void *>(key_of(e)),
+			   static_cast<const void *>(value_of(e)));
+		}
+	}
 };
 
 } // namespace bpftime

@@ -148,7 +148,7 @@ TEST_CASE("Device hash layout fingerprint covers constants and offsets",
 {
 	fnv f;
 	const uint64_t constants[] = {
-		MAP_TYPE,	   ST_EMPTY,	       ST_CLAIMING,
+		TYPE_ID,	   ST_EMPTY,	       ST_CLAIMING,
 		ST_LIVE,	   ST_REFUSED,	       ST_OPAQUE,
 		STATE_MASK,	   ROW_SHIFT,	       ROW_BITS,
 		KEY_SHIFT,	   SEED,	       HASH_MUL,

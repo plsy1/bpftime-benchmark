@@ -28,6 +28,7 @@
 #include "bpf_map/gpu/nv_gpu_array_host_map.hpp"
 #include "bpf_map/gpu/nv_gpu_shared_array_host_map.hpp"
 #include "bpf_map/gpu/nv_gpu_model_maps.hpp"
+#include "bpf_map/gpu/nv_gpu_device_hash_map.hpp"
 #endif
 #include "bpf_map/userspace/lpm_trie_map.hpp"
 #include <bpf_map/userspace/perf_event_array_map.hpp>
@@ -331,6 +332,11 @@ const void *bpf_map_handler::BPFTIME_UNCOUNTED(map_lookup_elem)(
 	case bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP:
 	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP: {
 		auto impl = static_cast<nv_gpu_device_array_map_impl *>(
+			map_impl_ptr.get());
+		return do_lookup(impl);
+	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP: {
+		auto impl = static_cast<nv_gpu_device_hash_map_impl *>(
 			map_impl_ptr.get());
 		return do_lookup(impl);
 	}
@@ -675,6 +681,11 @@ long bpf_map_handler::BPFTIME_UNCOUNTED(map_update_elem)(
 			map_impl_ptr.get());
 		return do_update(impl);
 	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP: {
+		auto impl = static_cast<nv_gpu_device_hash_map_impl *>(
+			map_impl_ptr.get());
+		return do_update(impl);
+	}
 #endif
 	case bpf_map_type::BPF_MAP_TYPE_LPM_TRIE: {
 		auto impl =
@@ -855,6 +866,11 @@ int bpf_map_handler::bpf_map_get_next_key(const void *key, void *next_key,
 	case bpf_map_type::BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP:
 	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP: {
 		auto impl = static_cast<nv_gpu_device_array_map_impl *>(
+			map_impl_ptr.get());
+		return do_get_next_key(impl);
+	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP: {
+		auto impl = static_cast<nv_gpu_device_hash_map_impl *>(
 			map_impl_ptr.get());
 		return do_get_next_key(impl);
 	}
@@ -1063,6 +1079,11 @@ long bpf_map_handler::BPFTIME_UNCOUNTED(map_delete_elem)(
 			map_impl_ptr.get());
 		return do_delete(impl);
 	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP: {
+		auto impl = static_cast<nv_gpu_device_hash_map_impl *>(
+			map_impl_ptr.get());
+		return do_delete(impl);
+	}
 #endif
 	case bpf_map_type::BPF_MAP_TYPE_LPM_TRIE: {
 		auto impl =
@@ -1152,6 +1173,14 @@ int bpf_map_handler::check_map_attr(const managed_shared_memory &memory) const
 			return EINVAL;
 		if (max_entries > (1u << 30))
 			return E2BIG;
+		break;
+	// u32 keys, u64 values (stage one: adds only)
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP:
+		if (max_entries == 0 || key_size != 4 || value_size != 8)
+			return EINVAL;
+		if (max_entries > bpftime_devhash::MAX_ENTRIES_LIMIT)
+			return E2BIG;
+		key_bytes = key_size;
 		break;
 	default:
 		return 0;
@@ -1626,6 +1655,13 @@ int bpf_map_handler::map_init_checked(managed_shared_memory &memory)
 		init_refcnt();
 		return 0;
 	}
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP: {
+		map_impl_ptr = memory.construct<nv_gpu_device_hash_map_impl>(
+			boost::interprocess::anonymous_instance)(memory,
+								 max_entries);
+		init_refcnt();
+		return 0;
+	}
 	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP: {
 		// thread indices per key as 1502/1512, kept in attr (it sizes
 		// the values bpf() returns)
@@ -1790,6 +1826,10 @@ void bpf_map_handler::map_free(managed_shared_memory &memory) const
 	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP:
 		memory.destroy_ptr(
 			static_cast<nv_gpu_device_array_map_impl *>(impl));
+		break;
+	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP:
+		memory.destroy_ptr(
+			static_cast<nv_gpu_device_hash_map_impl *>(impl));
 		break;
 #endif
 	default:

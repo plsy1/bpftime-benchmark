@@ -40,7 +40,7 @@
 
 namespace bpftime_devhash
 {
-constexpr uint32_t MAP_TYPE = 1533;
+constexpr uint32_t TYPE_ID = 1533;
 
 constexpr uint64_t ST_EMPTY = 0;
 constexpr uint64_t ST_CLAIMING = 1;
@@ -275,7 +275,7 @@ constexpr uint64_t layout_fingerprint()
 	const uint64_t sample_shards[] = { 256, 512 };
 	uint64_t h = 0xcbf29ce484222325ull;
 	const uint64_t constants[] = {
-		MAP_TYPE,      ST_EMPTY,	  ST_CLAIMING,	  ST_LIVE,
+		TYPE_ID,      ST_EMPTY,	  ST_CLAIMING,	  ST_LIVE,
 		ST_REFUSED,    ST_OPAQUE,	  STATE_MASK,	  ROW_SHIFT,
 		ROW_BITS,      KEY_SHIFT,	  SEED,		  HASH_MUL,
 		REGION_ALIGN,  CTL_MAGIC,	  CTL_MAX_ENTRIES, CTL_SLOTS,

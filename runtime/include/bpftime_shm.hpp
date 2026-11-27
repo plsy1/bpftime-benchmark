@@ -148,6 +148,12 @@ enum class bpf_map_type {
 	// changed with atomic adds only; the CPU sees the agent's copy.
 	BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP =
 		GPU_MAP_OFFSET + BPF_MAP_TYPE_ARRAY + 30,
+	// 1533: a hash of u32 keys and u64 values that GPU programs look up,
+	// add to and insert into (BPF_NOEXIST) without host calls: a key
+	// directory and sharded rows in device memory; the CPU sees the
+	// agent's delivered mirror (bpf_map/gpu/nv_gpu_device_hash_map.hpp).
+	BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP =
+		GPU_MAP_OFFSET + BPF_MAP_TYPE_ARRAY + 31,
 
 	BPF_MAP_TYPE_MAX = 2048,
 };
