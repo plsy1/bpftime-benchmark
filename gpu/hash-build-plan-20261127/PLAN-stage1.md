@@ -143,11 +143,50 @@ Every CPU read path loads PHASE with acquire first (checked by disassembly, S2.1
 
 ### D8. The seal
 
-**Writer slots.** INFLIGHT is not one word: each writing process has a slot in the map object (its
-owner record, its start time, and the count of its writers in flight); 64 slots, plus one overflow
-slot shared when all are taken. A process finds its slot by record and start time (a slot with its
-pid but another start time belonged to a dead process); a slot of a process that is gone, with
-nothing in flight, is free again.
+**Writer slots.** INFLIGHT is not one word: the map object has 256 writer slots (each a count of a
+process's writers in flight, on a 64-byte line of its own) and one overflow slot.
+- **A slot is held by a kernel lock.** A writing process holds a slot by holding an open file
+  description lock (`F_OFD_SETLK`, write lock, non-blocking) on that slot's byte of the shared
+  segment's file.
+  - The file is found from the mapping that holds the object (`/proc/self/maps`); there is no
+    guessed path, because another file's locks are seen by nobody else.
+  - It is opened `O_RDWR | O_CLOEXEC` at a number of 3 or more: a host started with its standard
+    streams closed would otherwise write its output into the segment.
+  - The bytes lie beyond the file's end, 4096 per map at 2^44 + an offset from the map's generation.
+    Two live maps share bytes with a chance of about 2^-26 per pair, and a shared byte only makes a
+    slot or the claim look held.
+  - All of it is raw system calls with no allocation (it runs in probes, and the syscall server
+    interposes `close`). A thread already inside these paths takes the overflow slot.
+- **The kernel releases the lock** when the process exits, is killed, or execs, in any pid
+  namespace, and not while any of its threads runs (results `s2/ofd/`, items 1-7).
+- **The holder hint.** The lock is also released when a host closes the description while the
+  process runs (`close_range`, item 8). That is not a death, and its writers keep counting in the
+  slot. So the holder writes a hint into the slot once it holds the lock: its pid namespace << 32 |
+  pid. A free lock whose hint names a process of this pid namespace that still runs and maps the
+  segment's file (`/proc/<pid>/maps`) is treated as held: it is not taken and not discounted.
+  - A zombie maps nothing.
+  - A process that exec'd into an image without the segment maps nothing.
+  - An unreadable maps file counts as alive.
+  - Another namespace's hint counts as gone (its pid means nothing here).
+- **Taking a slot.** At its first write, a process tries the slots from its pid's slot onwards and
+  takes the first byte it can lock whose holder is gone. It writes its hint, then clears the count
+  the gone holder left. A slot whose hint is its own keeps its count: the process lost its
+  description, and its writers in flight count there.
+- **A description the host closed** is noticed on the slow paths (the owner's check before each
+  delivery, a later claim, a new map). The description must still hold the slot's or claim's lock,
+  read from `/proc/self/fdinfo/<fd>`; matching the file alone is not enough, because the number may
+  now name another description of the same file. The process then opens a new description and
+  takes its slot and claim back at the same bytes. The hint keeps others off them meanwhile.
+- **All slots held by live processes:** it writes in the overflow slot, and tries again for a slot
+  of its own after 100 ms. The decision is cached per process, so a write never runs the scan.
+- **Fork children** close the inherited description in a fork handler (`register_fork_handlers`).
+  The child's copy shares the parent's lock and would keep a dead parent's slot held (item 5b). The
+  child takes a slot of its own at its first write.
+  - The handler closes a number only if it still names a description of the segment's file.
+  - It also closes the copy of a seal's probe description.
+  - A vfork-style child (shared memory, no handler) is told apart by its pid. It neither records
+    descriptions in the shared table nor claims; it writes in the parent's slot or the overflow
+    slot.
 
 **Writer** (CPU update or delete, any process):
 1. its slot's `count.fetch_add(1, seq_cst)`;
@@ -163,12 +202,32 @@ reads its increment. An acquire load on either side would not do: on an RCpc tar
 acquire, to see the writers' table writes before the image's scan. S2.12 checks all of it by
 disassembly with an RCpc target.
 
-**Dead writers are discounted.** An exit kills a process's other threads wherever they are, so an
-ordinary exit can leave a count raised (2-23 of 40 exits of a multi-threaded writer did, with one
-shared counter). While it polls, the sealer frees the slot, count included, of every process of its
-own pid namespace that is gone (D11c), and seals. A process that died inside the table's own
-operation leaves its stripe locked, as documented for HASH; the image's lock-free scan does not
-need that lock.
+**Dead writers are discounted.** An exit or an exec kills a process's other threads wherever they
+are, so either can leave a count raised (2-23 of 40 exits of a multi-threaded writer did, with one
+shared counter).
+- While it polls, the sealer tries to lock the byte of every slot whose count is above 0. It uses a
+  description of its own, which conflicts with its own process's writer lock as well (item 2), so
+  no slot is skipped as "self".
+- Taking the lock means the holder is gone, unless its hint names a process that still runs and
+  maps the segment (above). For a gone holder the sealer clears the count, unlocks, and goes on.
+- A sealer killed in between leaves the lock to the kernel and the count to the next seal.
+- The overflow slot is never discounted.
+- A process that died inside the table's own operation leaves its stripe locked, as documented for
+  HASH; the image's lock-free scan does not need that lock.
+
+**Limits.**
+- On the alive side (the copy is delayed, never wrong; README):
+  - a writer in the overflow slot that dies in flight;
+  - a vfork-style child, which shares its parent's description, killed in flight while the parent
+    lives;
+  - no segment file to lock: the process writes in the overflow slot.
+- On the alive side too:
+  - a holder in this namespace whose lock a host released and whose slot keeps a count it will
+    never drop (it is held as alive);
+  - children made without `fork` (`clone`, `clone3`) keep their parent's descriptions, and with
+    them its slot and claim, while they run.
+- On the dead side: a writer of another pid namespace whose description a host closed while it
+  writes: its hint counts as gone.
 
 **A live writer stuck for 1 s:** `SEAL_DEAD = 1` in the map object.
 - On timeout: PHASE goes back to 0, `SEAL_DEAD` is stored, the attempt's block is freed, the claim
@@ -179,8 +238,8 @@ need that lock.
   - above 0: it returns 0 at once, with no 1 s wait and no EPERM window.
 - While the flag stands, the map has no device copy: GPU lookups give NULL and inserts -1 through the
   trampoline; the CPU stays in phase 0 (README).
-- A writer of another pid namespace, or one in the overflow slot, cannot be discounted: if it dies
-  in flight, the flag stands until the segment is recreated (README).
+- A writer in the overflow slot cannot be discounted: if it dies in flight, the flag stands until
+  the segment is recreated (README).
 
 **No seal or copy runs under `map_binding_mutex`** (D11a). The 1 s wait therefore blocks only the
 sealing process's own attach.
@@ -295,33 +354,35 @@ outside the mutex.
   object when it is created. A new session's object at an old address does not hit an old entry.
 - 1531 keeps its copy under the mutex, as today. That is an existing hazard, not widened here.
 
-**D11b. The owner claim is one 64-bit CAS** on OWNER = namespace_id << 32 | pid.
-- namespace_id is the low 32 bits of the inode of `/proc/self/ns/pid` (4026531836 here; pid_max is
-  2^22). Without /proc it is a random 32-bit id, drawn per process, as for the perf shards.
-- Cross-process exclusion rests on this claim alone.
+**D11b. The owner claim is the owner byte's lock:** an OFD write lock, non-blocking, on the byte
+after the writer slots' (D8), through the process's description of the segment file.
+- Taking it is the claim. Cross-process exclusion rests on the kernel alone, with no CAS, no
+  record and start time to pair, and no window between them.
+- The owner writes its hint (D8) after taking the lock. A release clears the hint before unlocking.
+- The OWNER word records the owner's pid, for the status array and logs.
+- An owner's fork child closes the inherited description (D8), so it never shares the claim.
 
-**D11c. Liveness of a recorded process** (owner or writer). It is gone when:
-- `kill(pid, 0)` fails with ESRCH; or
-- every task in `/proc/<pid>/task` is Z or X (`/proc/<pid>/stat` shows the thread-group leader only:
-  a process whose main thread exited while others run is alive); or
-- its start time (`/proc/<pid>/stat` field 22) differs from the one recorded: the pid was reused.
-
-Otherwise it is alive (EPERM: another user's process; `/proc` unreadable: alive). The owner's start
-time is stored after the claim together with the record it belongs to; a start time not written for
-the current owner counts as unknown, so a claimant between its CAS and that store is not taken for
-a reused pid.
+**D11c. Liveness is the lock, guarded by the hint.** The kernel releases the lock when the owner
+exits, is killed or execs, in any pid namespace.
+- A claimant that takes a free lock whose hint names another process that still runs and maps the
+  segment gives the lock back: that owner lost its description to a host and still delivers.
+  Return 0 (path `not_owner`).
+- The hint may be the claimant's own pid: its new image after an exec, or itself after losing its
+  description. Then it takes the claim.
+- Before each delivery the owner calls `still_holds_claim()`. Its description must hold the claim's
+  lock (`/proc/self/fdinfo`). If not, it opens a new description and takes the lock back; no one
+  else can have taken it while it runs. Only an owner of another pid namespace whose description a
+  host closed can be taken over while it runs (README).
 
 **D11d. Claims that are not taken.**
-- An owner from another namespace is never taken over, dead or alive: return 0, logged. A container
-  restart, or no /proc, therefore leaves the map without a device copy until the segment is
-  recreated (README).
-- A record equal to this process's own (namespace, pid) with no copy in this process's cache is pid
-  reuse, and the process takes over. A claim in flight in this process cannot be mistaken for it,
-  because the process-wide mutex covers claim to cache insert.
-- `choose_path()` takes "has a cached copy" as an input. With a cached copy, the pre-pass skips the
+- The lock is held by another description: another live owner. Return 0 (path `not_owner`).
+- A process with a cached copy holds the lock already. Its description takes it again
+  successfully, and `choose_path()` gives `have_copy`. With a cached copy, the pre-pass skips the
   map anyway.
-- Every path that ends without a copy gives the claim back (CAS OWNER from itself to 0): a seal that
-  timed out, a failed first copy or takeover (D15). `make_image()` does it for the host part.
+- No segment file to lock: no claim, logged. The map then has no device copy in that process.
+- Every path that ends without a copy gives the claim back (unlocks): a seal that timed out, a failed
+  first copy or takeover (D15), and an exception between the seal and the copy. `make_image()` does
+  it for the host part. An exception after the seal also unseals (PHASE 0).
 
 **D11e. Under ownership, PHASE chooses the path.**
 - **`SEAL_DEAD` set:** by D8. The counts read 0 after discounting dead writers: clear the flag and
@@ -400,7 +461,7 @@ Each word is an independent counter, written relaxed, not ordered against the ot
   - free the block;
   - on a first copy, reset the mirror to empty, then PHASE 0;
   - on a takeover, keep PHASE 2 and the mirror;
-  - CAS OWNER from itself back to 0;
+  - give the claim back (unlock the owner byte, clear the hint; D11b);
   - return 0.
 - **The copy runs as 1531's zeroing does:**
   - in relaxed stream-capture mode;
@@ -519,7 +580,7 @@ ptxas for sm_87, and record the SASS.
   `runtime/src/bpf_map/gpu/nv_gpu_device_hash_map.{hpp,cpp}`, added to the CUDA-only source list in
   `runtime/CMakeLists.txt` beside `nv_gpu_model_maps.cpp`. It holds:
   - the phase-0 `fix_size_hash_map_impl`;
-  - PHASE, INFLIGHT, `SEAL_DEAD` and OWNER;
+  - PHASE, the writer slots' counts, `SEAL_DEAD` and the owner's pid;
   - the mirror;
   - its status words (D12 0-15);
   - the companion's handler index.
@@ -530,14 +591,16 @@ ptxas for sm_87, and record the SASS.
   - `build_image()` (D9);
   - `apply_delivery(staging)` (D10, S1's staging layout);
   - `takeover_image()` (D11e);
-  - `choose_path(phase, seal_dead, inflight, owner, self, has_cached_copy, liveness)` (D11).
+  - `choose_path(phase, got_lock, has_cached_copy)` (D11);
+  - the segment file's description and the OFD locks of the writer slots and the owner (D8,
+    D11b), closed in fork children by a fork handler.
 - **Test hooks** (`*_for_test`):
   - park a writer after its PHASE load;
   - park a writer after its INFLIGHT increment;
   - park `apply_delivery` right after its pass-C store of a slot j that the test names;
   - park it after pass C and before pass A, for the values-after-headers mutant;
-  - a liveness stub;
-  - a namespace stub.
+  - a limit on the usable writer slots, a scan counter, and a throwing point in `build_image`
+    (S2.14).
 
 **Tests:** `runtime/unit-test/maps/test_gpu_device_hash.cpp`, `[gpu-devhash-cpu]`, in TEST_SOURCES of
 `runtime/unit-test/CMakeLists.txt`, guarded by `BPFTIME_ENABLE_CUDA_ATTACH` as
@@ -625,16 +688,9 @@ ptxas for sm_87, and record the SASS.
    - Mutations: count = L; an unsigned subtraction without the min.
    - Each live row equals its slot-order rank.
      - Mutation: rows not renumbered (the mirror has a row gap from a dead claim).
-10. **choose_path:** all PHASE values with:
-    - a live owner, a dead owner, an EPERM-alive owner, a zombie owner;
-    - an owner in another namespace;
-    - the same pid with and without a cached copy;
-    - liveness through stubbed probes (EPERM alive, ESRCH gone, all tasks Z/X gone, start time
-      changed gone, unknown alive), and a real process whose main thread exited while another runs
-      (alive), then killed (gone);
-    - a claimant parked between its CAS and its start time is not taken for a reused pid.
-    - Mutations: EPERM taken as dead; the leader's state only; the start time ignored; a cached
-      copy treated as a takeover; the start time read without its record.
+10. **choose_path(phase, got_lock, has_cached_copy):** all PHASE values, lock taken or not, with and
+    without a cached copy.
+    - Mutation: a cached copy treated as a takeover.
 11. **The PHASE-1 recovery.**
     - A writer parked after its PHASE load reads 0. A sealer stores PHASE 1 and is abandoned (a
       simulated death).
@@ -657,6 +713,33 @@ ptxas for sm_87, and record the SASS.
       a lookup that loads PHASE itself.
 13. **Phase 1 lookups** come from the table.
     - Mutation: phase-1 lookups sent to the mirror.
+14. **Writer slots and the owner lock** (D8, D11b-d; each case in forked processes with a deadline):
+    - **exec in flight:** a writer process with four updating threads is parked in flight, and its
+      main thread execs `/bin/sleep`. The seal discounts the slot and succeeds while the exec'd image
+      runs.
+      - Mutation: the description opened without `O_CLOEXEC`, so the seal fails.
+    - **Fork child:** a writer forks an idle child and is then killed in flight. The seal discounts
+      the parent's slot while the child lives.
+      - Mutation: no fork handler, so the seal fails.
+    - **Slot reuse:** a slot left with a count by a killed writer is taken by the next writing
+      process, and the seal then succeeds with that process idle.
+      - Mutation: the leftover count not cleared.
+    - **Own process in flight:** a thread of the sealing process is parked in flight. It is not
+      discounted, and its key is in the image once released.
+      - Mutation: the sealer probes through the writer's own description, so the key is missing.
+    - **Slots exhausted** (a test limit of 4 usable slots): four live writer processes hold them. A
+      fifth writes in the overflow slot and scans at most once per 100 ms (a scan counter).
+      - Mutation: no cache, so the fifth process scans on every update.
+    - **Owner:** two processes claim at once, 200 times, and exactly one gets the lock each time.
+      Then:
+      - an owner killed, or exec'd into `/bin/sleep`, is taken over while the new image runs;
+      - an owner's fork child does not hold the claim;
+      - an owner whose descriptor was closed (`close_range`) stops delivering at its next delivery
+        (the `fstat` check).
+      - Mutations: a claim that always succeeds (two owners); no `fstat` check.
+    - **An exception between the seal and the copy** (a throwing hook in `build_image`): PHASE is 0
+      and the claim is free afterwards.
+      - Mutation: no catch.
 
 ### S3. Device functions, test harness and trampoline branches
 
@@ -811,9 +894,9 @@ So the kill points match production.
     returns non-NULL.
     - Mutation: the copies made at the end of init, as revision 3 had it, so the module is routed
       with base 0.
-2. **Not the owner:** a second child gets 0 when the owner is alive, alive by EPERM (stub), or in
-   another namespace.
-   - Mutation: the inherited liveness rule.
+2. **Not the owner:** a second child gets 0 while the owner holds its claim (alive, or stopped);
+   once the owner is killed or execs, the next child takes the map over.
+   - Mutation: a claim that always succeeds (section 10).
 3. **Owner deaths:** the owner is killed (and reaped) after the claim, during the seal wait, after the
    seal (PHASE 1 left), and between pass B and pass C.
    - The next child keeps every prefilled and every delivered live key, and PHASE ends at 2.
@@ -950,13 +1033,25 @@ for tool authors:
    may skip keys.
 9. Takeover: same slots, renumbered rows. Keys and adds after the last delivery are lost.
 10. A writer of a running process that stays inside an update for more than 1 s during a seal
-    delays the device copy (`SEAL_DEAD`) until it has finished. A writer whose process died is
-    discounted. Writers of another pid namespace, or more than 64 writing processes at once (the
-    overflow slot), cannot be discounted: if one of them dies in flight, the copy stays disabled
-    until the segment is recreated. A writer that died inside the table also leaves its stripe
-    locked (as for HASH).
-11. An owner that died in another pid namespace, or with no /proc, is never replaced. The map then
-    has no device copy until the segment is recreated.
+    delays the device copy (`SEAL_DEAD`) until it has finished. A writer whose process died, was
+    killed or exec'd (into an image without the segment) is discounted (the kernel releases its
+    slot's lock). Not discounted, so the copy stays disabled until the writer's process exits or
+    the segment is recreated, if one dies in flight: a writer in the overflow slot (more than 256
+    writing processes at once, a process without the segment file, or one whose locks the system
+    refuses), a vfork-style child killed in flight while its parent lives, the threads an exec
+    killed when the new image maps the segment again (unless it takes the same slot, as it usually
+    does: the scan starts at its pid), and a holder whose lock a host released while it runs. A
+    writer that died inside the table also leaves its stripe locked (as for HASH). Each process
+    keeps one descriptor of the segment's file per 1533 map it writes or owns, until it exits or
+    destroys the map.
+11. An owner that died, was killed or exec'd is replaced at the next agent init that needs the map,
+    in any pid namespace. An owner whose descriptor a host closed keeps its claim: no process of its
+    pid namespace takes over while it runs and maps the segment, and it takes its lock back at its
+    next delivery check. An owner of another pid namespace whose descriptor a host closed can be
+    taken over while it runs, and both deliver until its next check. Children made without `fork`
+    (`clone`, `clone3`) keep their parent's descriptors: a dead owner's claim and a dead writer's
+    slot stay held while such a child runs. The claim stays with the process until it exits or
+    execs, even after the agent detaches.
 12. A malformed call block leaves the whole module unprobed.
 13. Delivery copies words one at a time: a `bpf()` lookup can copy a value while the next delivery
     writes it, per word as 1531. Companion words are independent counters.
@@ -1162,3 +1257,62 @@ changed these decisions:
 - **Build.** The 1533 creation check is under BPFTIME_ENABLE_CUDA_ATTACH: the default build did not
   compile.
 
+
+## 10. Changes from the independent read of the S2 fixes (11-27, after S3 was built)
+
+A two-lens read of c84dd0ff and 0b9b02af (writer slots and the seal; owner and liveness), each
+finding checked by a refuter (19 findings, all upheld; `s2/review/reread-fixes.json`). They fall in
+one class: liveness from (pid, start time from /proc) cannot be read together with the slot or the
+claim it belongs to (a CAS, then a store), and cannot see exec at all. The fix of OWNER's window in
+0b9b02af had left the same window in the writer slots (slots-1, owner-3: a live writer's count
+discounted, the seal true while it writes; reproduced). So D8 and D11b-d rest on the kernel: a
+writer slot and the owner claim are OFD locks on bytes of the segment file, which the kernel
+releases at exit, kill and exec, in any pid namespace (`s2/ofd/RULES-ofd.md`, all items passed).
+Pid liveness came back after the next review (section 11) only as a second guard: a free lock whose
+holder still runs and maps the segment counts as held. It matters only after a host has released
+a live holder's lock; otherwise the lock alone decides.
+
+| finding | answer |
+|---|---|
+| slots-1 = owner-3: CAS, then start time; a second claimant steals a live slot; count wraps | gone: a slot is held by its lock; the sealer clears a count only while it holds the slot's lock |
+| slots-2 = owner-1, owner-8: exec keeps pid and start time | exec releases the lock (`O_CLOEXEC`); test S2.14 exec |
+| slots-3 = owner-7: sealer killed between marking and clearing | the kernel releases the sealer's lock; the next seal clears the count |
+| slots-4 = owner-2: dead in-flight slots not reusable, foreign namespaces never freed, overflow reached | a free lock is reusable at once, leftover count cleared; no namespaces; 256 slots |
+| slots-5: 64 liveness probes per update when slots are exhausted | the overflow decision is cached per process for 100 ms; test S2.14 |
+| slots-6 = owner-11: no test reaches slot claims, overflow, start time | S2.14 |
+| slots-7 = owner-6: own-pid predecessor never discounted | gone: the sealer probes through its own description, no "self" case |
+| slots-8: start-time cache shared with vfork children | gone: no start times; a vfork-style child records nothing in the parent's table and writes in the parent's slot or the overflow slot (section 11) |
+| owner-4: same-record claim without CAS | gone: the claim is the lock |
+| owner-5: /proc and time namespaces | the lock decides; /proc is read only for the hint guard (section 11), and another namespace's hint counts as gone |
+| owner-9: exception after the seal leaves PHASE 1 and the claim | caught in `make_image`: unseal, unlock; test S2.14 |
+| owner-10: release_claim's start-time order | gone |
+
+Kept from the old design: the seal's orders (D8, S2.12), `SEAL_DEAD`, the overflow slot. A host
+closing the agent's descriptors was first left on the dead side; section 11 moved it to the alive
+side with the holder hints (README 10, 11).
+
+## 11. Changes from the review of the lock rework (11-28, after S4 and S6 were built)
+
+A four-lens review of 84ce9813d (slots, claim, tests, host safety), each finding checked by a refuter
+(38 findings, 37 upheld; `s2/review/review-ofd-rework.json`). Answered in 3b6842fc8:
+
+| finding | answer |
+|---|---|
+| a host closing the agent's description: writes went on in a slot whose lock was free, for good; `still_holds_claim()` matched the file only, so the number reused by another description of the file passed (claim-1, claim-4, slots-3, host-2, host-4, tests-1) | holder hints (D8, D11c): a free lock whose holder still runs and maps the segment is held; the description must hold its lock (`/proc/self/fdinfo`), and the process takes its slot and claim back |
+| a description at fd 0-2 took a host's output into the segment (claim-2, slots-4, host-5) | descriptions at 3 or above |
+| the fork handler, the destructor and a new map at an old address closed numbers that might be the host's (claim-3, slots-2, host-3) | closed only while the number still names a description of the segment's file |
+| a vfork-style child recorded its own descriptions in the parent's table (slots-1, host-1) | the table's pid, set at load and in fork children: a vfork child records nothing |
+| the fork handler's close went through the syscall server's interposed close; writers waited on local_mutex inside probes, signal handlers and fork children (host-6, host-11) | raw system calls; writers only try the mutex (overflow slot otherwise) |
+| a wrapped count could cancel another slot in the seal's sum (slots-1) | the seal checks each slot for zero |
+| the seal's probe description kept in fork children (claim-5) | closed by the fork handler |
+| exec into an image that maps the segment again: its earlier image's leftover count (the mutation "own slot cleared by its own rescan" survived) | an image nonce beside the hint; test "An exec'd image of a writer clears what its earlier image left" |
+| logs and rescans every 100 ms for good (claim-7, slots-6, host-7) | logged once per map; no file or refused locks retry after 10 s |
+| locks refused by the system (seccomp) read as held (host-8) | a refused lock stops the scan (overflow slot); a filter that kills on these calls kills the host at its first write (README) |
+| descriptions of maps destroyed by other processes are kept; at most 1023 maps per process (claim-9) | stated in README 10; the claim's warning names the cause |
+| children made without `fork` keep the descriptions (claim-6, host-10) | stated in README 10/11 (alive side) |
+| tests: overflow writer in flight, scan past a live holder, new map at an old address, SEAL_DEAD then death, the closed-number check, flaky claims, unchecked forks, pipe deadlines, periodic discount, destructor (tests-2..10) | each has a case now (20 cases); the mutation script runs a baseline first (tests-11) |
+| plan and code disagreed on the lock bytes and the file fallback (claim-8, slots-5, host-9) | D8 rewritten |
+| (found after the review, by an advisor's read) a holder whose main thread exited shows empty `/proc/<pid>/maps`, so the hint guard took it for gone; a vfork child took the mutex before its pid was checked; a fork from inside these paths waited for its own mutex | the threads' maps decide when the pid's are empty (test: a holder whose main thread exited); the pid is checked before the mutex; the fork handler does not wait for a mutex its own thread holds |
+
+Refuted: claim-10 (the claim is not given back when the agent detaches; README 11 now says the
+claim stays with the process until it exits or execs).

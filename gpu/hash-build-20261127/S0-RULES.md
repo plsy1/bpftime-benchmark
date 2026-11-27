@@ -46,4 +46,19 @@ prototype".
 - before each pass: jetson_clocks checked (cpu5 1728000, GPU 1020 MHz), and no leftover processes;
 - each pass under the GPU lock (`flock` on the scratchpad `gpu.lock`), with a total timeout.
 
+**Validity** (added 11-27, after the compile half and before any timed run). The routed form writes
+its adds to a block of its own (a module-scope array), so C2's check of the 1531 sum does not apply
+to it. Items of a pass: `base`, `tvf-lat_mmvq@hd_t0` (today's 1531 form), `tvf-lat_mmvq@dh_route`
+(timed), `tvf-lat_mmvq@dh_check` (the routed form plus a 1531 add for every call that found its key,
+or inserted or lost the race: correctness only, its time is not reported as a cost).
+- every override item: "PTX override" in its client log;
+- `hd_t0`: the 1531 sum equals C2's WANT (5 x 3137339392 + 3137339392 / 128), so the base address
+  baked into the dump still holds;
+- `dh_check`: the 1531 sum equals WANT, so every probe call took the routed lookup's hit or its
+  insert with 0 or -17;
+- `dh_route`: the 1531 sum is 0 (nothing reached the 1531 path);
+- bucket 194 of the thread-local histogram is 0 in all three.
+
+A pass with any check failing is reported and not used.
+
 The result is S8's expected cost. No decision follows from it.

@@ -37,8 +37,10 @@ tests are written.
 - **The CPU reads the delivered directory as a repaired mirror** (D10), instead of keeping an index of
   its own as DESIGN.md says.
 - **A seal can be delayed.** A CPU writer of a running process stuck for more than 1 s during the
-  seal delays the device copy until it has finished (D8). Writers whose process died are discounted
-  (changed during the build, plan section 9: before, a dead writer disabled the copy for good).
+  seal delays the device copy until it has finished (D8). Writers whose process died, was killed or
+  exec'd are discounted (changed during the build, plan sections 9 and 10: a writer's slot and the
+  owner's claim are now kernel file locks on the segment's file, released at exit, kill and exec in
+  any pid namespace; a host that closes the agent's descriptors releases them too).
 - **Takeover from a dead owner re-seeds the same slots** (D11). This is the largest optional piece;
   it could be cut to a documented loss.
 
@@ -47,7 +49,7 @@ DESIGN.md is to be changed in five places when the build lands (plan section 6).
 ## Files
 
 - `PLAN-stage1.md`: revision 4, with each round's findings mapped to their answers (sections 7 and 8),
-  and the changes the S2 code review made during the build (section 9, rewritten into D8, D11 and
-  S2 in place).
+  and the changes the S2 code review and the independent read of its fixes made during the build
+  (sections 9, 10 and 11, rewritten into D8, D11 and S2 in place).
 - `review-r1/`, `review-r2/`, `review-r3/`: the plan each round read (`PLAN-stage1-rN.md`), and every
   reviewer's findings with each refuter's verdict (`plan-review.json`).

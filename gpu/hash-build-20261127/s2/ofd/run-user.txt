@@ -1,0 +1,19 @@
+1a   PASS  another process's try fails while the holder lives
+1b   PASS  F_OFD_GETLK reports the holder's lock
+1c   PASS  free after the holder is killed
+2a   PASS  a second description of the same process conflicts
+2b   PASS  GETLK through a third description reports it
+3a   PASS  held while four threads run
+3b   PASS  free after SIGKILL with threads running
+4a   PASS  the holder exec'd /bin/sleep
+4b   PASS  free while the exec'd image runs (same pid)
+5a1  PASS  child closed its copy: held while the parent lives
+5a2  PASS  child closed its copy: free once the parent is gone, child alive
+5a3  PASS  free once the child is gone too
+5b1  PASS  child kept its copy: held while the parent lives
+5b2  PASS  child kept its copy: still held after the parent is gone (a fork handler must close it)
+5b3  PASS  free once the child is gone too
+6    PASS  held after a vfork child exec'd /bin/true
+8    PASS  close_range in the holder releases the lock (the limit to document)
+9    COST setlk or unlock 715 ns, getlk free 436 ns, getlk held 444 ns (medians of 5 x 100000)
+fails 0
