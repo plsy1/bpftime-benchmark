@@ -22,6 +22,7 @@
 #include <condition_variable>
 #include <csignal>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -53,14 +54,21 @@ struct segment {
 		    name.c_str(), bytes)
 	{
 	}
+	std::vector<nv_gpu_device_hash_map_impl *> made;
 	~segment()
 	{
+		// the maps' destructors close this process's descriptions of
+		// the segment's file, which would keep it alive
+		for (auto *map : made)
+			m.destroy_ptr(map);
 		shared_memory_object::remove(name.c_str());
 	}
 	nv_gpu_device_hash_map_impl *make(uint64_t max_entries)
 	{
-		return m.construct<nv_gpu_device_hash_map_impl>(
+		auto *map = m.construct<nv_gpu_device_hash_map_impl>(
 			anonymous_instance)(m, max_entries);
+		made.push_back(map);
+		return map;
 	}
 };
 
@@ -362,11 +370,6 @@ void to_device_phase(nv_gpu_device_hash_map_impl *map)
 	map->publish_device_phase();
 }
 
-const uint64_t SELF = devhash_owner_record(0x5151, 4242);
-bool nobody_alive(uint32_t, uint64_t)
-{
-	return false;
-}
 } // namespace
 
 // ------------------------------------------------------------- S2.1
@@ -664,8 +667,7 @@ TEST_CASE("Writers of dead processes are discounted, a stopped one only delays t
 			      [&]() -> int {
 				      devhash_image i;
 				      devhash_path p;
-				      return map->make_image(SELF, false, i, p,
-							     nobody_alive,
+				      return map->make_image(false, i, p,
 							     200 * MS) ?
 						     3 :
 						     0;
@@ -673,18 +675,15 @@ TEST_CASE("Writers of dead processes are discounted, a stopped one only delays t
 			      std::chrono::seconds(5)) == 0);
 		CHECK(map->is_seal_dead());
 		CHECK(map->get_phase() == DEVHASH_PHASE_CPU);
-		CHECK(map->get_owner() == 0); // the claim was given back
-		// another process tries at once, and gives up at once
+		CHECK(map->get_owner_pid() == 0); // the claim was given back
+		// a later attempt gives up at once
 		const auto t0 = clk::now();
-		CHECK_FALSE(map->make_image(devhash_owner_record(0x5151, 9),
-					    false, img, path, nobody_alive,
-					    200 * MS));
+		CHECK_FALSE(map->make_image(false, img, path, 200 * MS));
 		CHECK(clk::now() - t0 < std::chrono::milliseconds(50));
-		CHECK(map->get_owner() == 0);
+		CHECK(map->get_owner_pid() == 0);
 		// the writer resumes: it read phase 0 (the seal had given up)
 		CHECK(w.resume_and_wait() == 0);
-		CHECK(map->make_image(SELF, false, img, path, nobody_alive,
-				      200 * MS));
+		CHECK(map->make_image(false, img, path, 200 * MS));
 		CHECK(path == devhash_path::first_copy);
 		CHECK_FALSE(map->is_seal_dead());
 		CHECK(image_find(img, 2000, log_slots_for(256)) >= 0);
@@ -1165,151 +1164,458 @@ TEST_CASE("The takeover image keeps the slots and renumbers the rows",
 
 // ------------------------------------------------------------ S2.10
 
-TEST_CASE("The owner's path and its liveness", "[gpu-devhash-cpu]")
+TEST_CASE("The owner's path", "[gpu-devhash-cpu]")
 {
-	const uint64_t self = devhash_owner_record(0x1111, 100);
-	const uint64_t other = devhash_owner_record(0x1111, 200);
-	const uint64_t foreign = devhash_owner_record(0x2222, 200);
 	using p = devhash_path;
-	CHECK(devhash_choose_path(0, 0, self, false, false) == p::first_copy);
-	CHECK(devhash_choose_path(1, 0, self, false, false) ==
-	      p::recover_sealing);
-	CHECK(devhash_choose_path(2, 0, self, false, false) == p::takeover);
-	CHECK(devhash_choose_path(2, other, self, false, true) == p::not_owner);
-	CHECK(devhash_choose_path(2, other, self, false, false) == p::takeover);
-	CHECK(devhash_choose_path(0, foreign, self, false, false) ==
-	      p::not_owner);
-	CHECK(devhash_choose_path(2, self, self, true, false) == p::have_copy);
-	CHECK(devhash_choose_path(2, self, self, false, false) == p::takeover);
-
-	SECTION("liveness through stubbed probes")
-	{
-		static int kill_err;
-		static int tasks;
-		static uint64_t start;
-		static const devhash_liveness_probes stub = {
-			[](uint32_t) { return kill_err; },
-			[](uint32_t) { return tasks; },
-			[](uint32_t) { return start; },
-		};
-		set_devhash_liveness_probes_for_test(&stub);
-		struct {
-			int kill_err, tasks;
-			uint64_t now_start, recorded;
-			bool alive;
-		} cases[] = {
-			{ 0, 1, 7, 7, true }, // running
-			{ EPERM, 1, 7, 7, true }, // another user's
-			{ ESRCH, -1, 0, 7, false }, // gone
-			{ 0, 0, 7, 7, false }, // all tasks Z/X
-			{ 0, -1, 7, 7, true }, // /proc unreadable
-			{ 0, 1, 9, 7, false }, // pid reused
-			{ 0, 1, 9, 0, true }, // start unknown
-		};
-		for (auto &c : cases) {
-			kill_err = c.kill_err;
-			tasks = c.tasks;
-			start = c.now_start;
-			INFO("kill " << c.kill_err << " tasks " << c.tasks
-				     << " start " << c.now_start << "/"
-				     << c.recorded);
-			CHECK(devhash_process_alive(200, c.recorded) == c.alive);
-		}
-		set_devhash_liveness_probes_for_test(nullptr);
+	CHECK(devhash_choose_path(0, true, false) == p::first_copy);
+	CHECK(devhash_choose_path(1, true, false) == p::recover_sealing);
+	CHECK(devhash_choose_path(2, true, false) == p::takeover);
+	for (uint64_t phase = 0; phase < 3; phase++) {
+		CHECK(devhash_choose_path(phase, false, false) == p::not_owner);
+		CHECK(devhash_choose_path(phase, false, true) == p::not_owner);
+		CHECK(devhash_choose_path(phase, true, true) == p::have_copy);
 	}
-	SECTION("a process whose main thread exited while another runs is alive")
+	SECTION("claim, the cached copy and giving the claim back")
 	{
+		segment seg("claim");
+		auto *map = seg.make(8);
+		CHECK(map->claim(false) == p::first_copy);
+		CHECK(map->get_owner_pid() == (uint64_t)getpid());
+		CHECK(map->still_holds_claim());
+		// this process's own description takes its lock again
+		CHECK(map->claim(true) == p::have_copy);
+		// another process cannot
+		CHECK(in_child([&]() -> int {
+			      return map->claim(false) == p::not_owner ? 0 : 3;
+		      },
+			       std::chrono::seconds(5)) == 0);
+		map->release_claim();
+		CHECK(map->get_owner_pid() == 0);
+		CHECK_FALSE(map->still_holds_claim());
+		CHECK(in_child([&]() -> int {
+			      return map->claim(false) == p::first_copy ? 0 : 3;
+		      },
+			       std::chrono::seconds(5)) == 0);
+	}
+}
+
+// ------------------------------------------------------------ S2.14
+namespace
+{
+// A forked process that runs setup() and then waits until it is killed;
+// the parent learns that setup() returned (with its result) through a
+// pipe.
+struct held_process {
+	pid_t pid = -1;
+	int fds[2] = { -1, -1 };
+	int result = -1;
+	template <class Fn> explicit held_process(Fn &&setup)
+	{
+		REQUIRE(pipe(fds) == 0);
+		pid = fork();
+		REQUIRE(pid >= 0);
+		if (pid == 0) {
+			close(fds[0]);
+			char r = (char)setup();
+			(void)!write(fds[1], &r, 1);
+			for (;;)
+				pause();
+		}
+		close(fds[1]);
+		fds[1] = -1;
+		char r;
+		REQUIRE(read(fds[0], &r, 1) == 1);
+		result = r;
+	}
+	~held_process()
+	{
+		kill_now();
+		close(fds[0]);
+	}
+	void kill_now()
+	{
+		if (pid > 0) {
+			kill(pid, SIGKILL);
+			waitpid(pid, nullptr, 0);
+			pid = -1;
+		}
+	}
+};
+
+bool comm_is(pid_t pid, const char *name)
+{
+	char path[64], buf[64] = {};
+	snprintf(path, sizeof(path), "/proc/%d/comm", pid);
+	FILE *f = fopen(path, "re");
+	if (f == nullptr)
+		return false;
+	if (fgets(buf, sizeof(buf), f) == nullptr)
+		buf[0] = 0;
+	fclose(f);
+	buf[strcspn(buf, "\n")] = 0;
+	return strcmp(buf, name) == 0;
+}
+
+bool wait_comm(pid_t pid, const char *name)
+{
+	for (int i = 0; i < 2000; i++) {
+		if (comm_is(pid, name))
+			return true;
+		usleep(1000);
+	}
+	return false;
+}
+
+// a seal in a child with a deadline: 0 when it sealed and want_key is (or,
+// with want_key 0, nothing is required) in the image
+int seal_in_child(nv_gpu_device_hash_map_impl *map, uint32_t want_key,
+		  uint64_t bound_ns = 2000 * MS)
+{
+	return in_child(
+		[&]() -> int {
+			devhash_image img;
+			if (!map->seal_and_build(img, bound_ns))
+				return 3;
+			if (want_key != 0 &&
+			    image_find(img, want_key,
+				       log_slots_for(map->get_max_entries())) <
+				    0)
+				return 4;
+			return 0;
+		},
+		std::chrono::seconds(10));
+}
+
+struct usable_slots_guard {
+	explicit usable_slots_guard(uint32_t n)
+	{
+		set_devhash_usable_writer_slots_for_test(n);
+	}
+	~usable_slots_guard()
+	{
+		set_devhash_usable_writer_slots_for_test(0);
+	}
+};
+
+// blocks the calling writer thread for ever after its increment (and
+// tells wfd), in a child that will exec or be killed
+int block_wfd = -1;
+std::atomic<bool> block_armed{ false };
+void block_hook(devhash_hook_point p, uint64_t)
+{
+	if (p != devhash_hook_point::writer_after_inflight_inc ||
+	    !block_armed.exchange(false))
+		return;
+	char c = 'b';
+	(void)!write(block_wfd, &c, 1);
+	for (;;)
+		pause();
+}
+} // namespace
+
+TEST_CASE("Writer slots and the owner's claim follow the processes",
+	  "[gpu-devhash-cpu]")
+{
+	using p = devhash_path;
+	SECTION("exec in flight: the seal discounts the slot while the new image runs")
+	{
+		segment seg("execwriter");
+		auto *map = seg.make(256);
 		int fds[2];
 		REQUIRE(pipe(fds) == 0);
 		pid_t pid = fork();
 		REQUIRE(pid >= 0);
 		if (pid == 0) {
-			static int wfd;
-			wfd = fds[1];
-			pthread_t t;
-			pthread_create(
-				&t, nullptr,
-				[](void *) -> void * {
-					usleep(20000);
-					char c = 'x';
-					(void)!write(wfd, &c, 1);
-					for (;;)
-						pause();
-				},
-				nullptr);
-			// the main thread only, without unwinding through the
-			// test framework (pthread_exit would)
-			syscall(SYS_exit, 0);
+			for (int t = 0; t < 4; t++)
+				std::thread([&, t] {
+					for (uint32_t i = 0;; i++)
+						put(map, 1 + t * 1000 + i % 500,
+						    i);
+				}).detach();
+			int inner[2];
+			if (pipe(inner) != 0)
+				_exit(5);
+			block_wfd = inner[1];
+			set_devhash_hook_for_test(block_hook);
+			std::thread([&] {
+				block_armed = true;
+				put(map, 99999, 1);
+			}).detach();
+			char c;
+			if (read(inner[0], &c, 1) != 1)
+				_exit(6);
+			(void)!write(fds[1], &c, 1);
+			execl("/bin/sleep", "sleep", "20", (char *)nullptr);
+			_exit(7);
 		}
 		close(fds[1]);
-		fds[1] = -1;
 		char c;
 		REQUIRE(read(fds[0], &c, 1) == 1);
-		const uint64_t st = devhash_process_start_time(pid);
-		CHECK(st != 0);
-		CHECK(devhash_process_alive(pid, st));
-		kill(pid, SIGKILL);
-		// gone even before it is reaped (a zombie)
-		for (int i = 0; i < 200 && devhash_process_alive(pid, st); i++)
-			usleep(5000);
-		CHECK_FALSE(devhash_process_alive(pid, st));
-		waitpid(pid, nullptr, 0);
 		close(fds[0]);
+		REQUIRE(wait_comm(pid, "sleep"));
+		// what the threads exec killed left in flight (the blocked
+		// writer at least)
+		CHECK(map->get_inflight() >= 1);
+		CHECK(seal_in_child(map, 0) == 0);
+		CHECK(comm_is(pid, "sleep")); // the new image still runs
+		CHECK(map->get_inflight() == 0);
+		kill(pid, SIGKILL);
+		waitpid(pid, nullptr, 0);
 	}
-	SECTION("a claimant between its CAS and its start time is not a reused pid")
+	SECTION("a fork child does not keep its dead parent's slot")
+	{
+		segment seg("forkwriter");
+		auto *map = seg.make(256);
+		int fds[2];
+		REQUIRE(pipe(fds) == 0);
+		pid_t parent = fork();
+		REQUIRE(parent >= 0);
+		if (parent == 0) {
+			if (put(map, 1, 1) != 0) // takes a slot
+				_exit(5);
+			pid_t c = fork(); // an idle child
+			if (c == 0) {
+				for (;;)
+					pause();
+			}
+			if (write(fds[1], &c, sizeof(c)) != sizeof(c))
+				_exit(6);
+			block_wfd = fds[1];
+			set_devhash_hook_for_test(block_hook);
+			block_armed = true;
+			put(map, 2, 2); // blocks in flight
+			_exit(7);
+		}
+		close(fds[1]);
+		pid_t child = -1;
+		REQUIRE(read(fds[0], &child, sizeof(child)) == sizeof(child));
+		char c;
+		REQUIRE(read(fds[0], &c, 1) == 1);
+		close(fds[0]);
+		CHECK(map->get_inflight() == 1);
+		kill(parent, SIGKILL);
+		waitpid(parent, nullptr, 0);
+		CHECK(kill(child, 0) == 0); // the child lives on
+		CHECK(seal_in_child(map, 1) == 0);
+		CHECK(map->get_inflight() == 0);
+		kill(child, SIGKILL);
+	}
+	SECTION("a slot left with a count is taken and cleared by the next writer")
+	{
+		segment seg("slotreuse");
+		auto *map = seg.make(256);
+		usable_slots_guard one(1);
+		{
+			hooked_writer w(map, 1000,
+					devhash_hook_point::writer_after_inflight_inc,
+					false, 0);
+			CHECK(map->get_inflight() == 1);
+			w.kill_now();
+		}
+		// the next writer takes the only slot and stays alive, idle
+		held_process b([&] { return put(map, 7, 70) == 0 ? 0 : 1; });
+		REQUIRE(b.result == 0);
+		CHECK(map->get_inflight() == 0);
+		// with b alive the slot cannot be discounted: the seal succeeds
+		// only because b cleared what the dead writer left
+		CHECK(seal_in_child(map, 7, 300 * MS) == 0);
+	}
+	SECTION("slots exhausted: the overflow slot, and one scan per 100 ms")
+	{
+		segment seg("exhaust");
+		auto *map = seg.make(256);
+		usable_slots_guard two(2);
+		held_process a([&] { return put(map, 1, 1) == 0 ? 0 : 1; });
+		held_process b([&] { return put(map, 2, 2) == 0 ? 0 : 1; });
+		REQUIRE(a.result == 0);
+		REQUIRE(b.result == 0);
+		const int rc = in_child(
+			[&]() -> int {
+				const uint64_t s0 = devhash_slot_scans_for_test();
+				const auto t0 = clk::now();
+				int n = 0;
+				while (clk::now() - t0 <
+				       std::chrono::milliseconds(50)) {
+					if (put(map, 3 + n % 100, n) != 0)
+						return 3;
+					n++;
+				}
+				const uint64_t s1 = devhash_slot_scans_for_test();
+				if (n < 100 || s1 - s0 != 1)
+					return 4;
+				usleep(120000);
+				put(map, 3, 3);
+				if (devhash_slot_scans_for_test() - s1 != 1)
+					return 5;
+				// and its writes went to the overflow slot
+				static nv_gpu_device_hash_map_impl *m;
+				static uint64_t seen;
+				m = map;
+				set_devhash_hook_for_test(
+					[](devhash_hook_point p, uint64_t) {
+						if (p ==
+						    devhash_hook_point::
+							    writer_after_inflight_inc)
+							seen = m->writer_slots_for_test()
+								       [nv_gpu_device_hash_map_impl::
+										WRITER_SLOTS]
+								       .count;
+					});
+				put(map, 4, 4);
+				set_devhash_hook_for_test(nullptr);
+				return seen == 1 ? 0 : 6;
+			},
+			std::chrono::seconds(10));
+		CHECK(rc == 0);
+	}
+	SECTION("one owner at a time: two processes claim at once")
 	{
 		segment seg("claimrace");
 		auto *map = seg.make(8);
-		const uint64_t ns = producer_pid_namespace();
-		// a previous owner that is gone, with its start time recorded
-		int fds[2];
-		REQUIRE(pipe(fds) == 0);
-		pid_t dead = fork();
-		REQUIRE(dead >= 0);
-		if (dead == 0) {
-			for (;;)
-				pause();
+		int both_first = 0, none = 0;
+		for (int round = 0; round < 200; round++) {
+			int go[2], res[2], done[2];
+			REQUIRE(pipe(go) == 0);
+			REQUIRE(pipe(res) == 0);
+			REQUIRE(pipe(done) == 0);
+			pid_t kids[2];
+			for (int i = 0; i < 2; i++) {
+				kids[i] = fork();
+				REQUIRE(kids[i] >= 0);
+				if (kids[i] == 0) {
+					char c;
+					if (read(go[0], &c, 1) != 1)
+						_exit(5);
+					const char r =
+						(char)map->claim(false);
+					(void)!write(res[1], &r, 1);
+					(void)!read(done[0], &c, 1);
+					_exit(0);
+				}
+			}
+			const char g[2] = { 'g', 'g' };
+			REQUIRE(write(go[1], g, 2) == 2);
+			int firsts = 0;
+			for (int i = 0; i < 2; i++) {
+				char r;
+				REQUIRE(read(res[0], &r, 1) == 1);
+				firsts += r == (char)p::first_copy;
+			}
+			both_first += firsts == 2;
+			none += firsts == 0;
+			REQUIRE(write(done[1], g, 2) == 2);
+			for (pid_t k : kids)
+				waitpid(k, nullptr, 0);
+			for (int *f : { go, res, done }) {
+				close(f[0]);
+				close(f[1]);
+			}
 		}
-		CHECK(map->claim(devhash_owner_record(ns, dead), false,
-				 nobody_alive) == p::first_copy);
-		kill(dead, SIGKILL);
-		waitpid(dead, nullptr, 0);
-		close(fds[0]);
-		close(fds[1]);
-		// the first claimant stops between its CAS and its start time
-		arm(devhash_hook_point::claim_after_cas);
-		std::atomic<int> first_path{ -1 };
-		std::thread a([&] {
-			first_path = (int)map->claim(
-				devhash_owner_record(ns, getpid()), false);
-		});
-		joiner j{ { &a } };
-		REQUIRE(wait_parked());
-		// a second claimant (another live process's record) sees a live
-		// owner: the dead owner's start time is not taken for this one's
-		CHECK(map->claim(devhash_owner_record(ns, getppid()), false) ==
-		      p::not_owner);
-		CHECK(map->get_owner() == devhash_owner_record(ns, getpid()));
-		release();
-		a.join();
-		CHECK(first_path == (int)p::first_copy);
+		CHECK(both_first == 0);
+		CHECK(none == 0);
 	}
-	SECTION("claim asks about liveness, and gives the claim back")
+	SECTION("the claim is free once its owner is killed or execs, and a fork child does not hold it")
 	{
-		segment seg("claim");
+		segment seg("ownerlife");
 		auto *map = seg.make(8);
-		CHECK(map->claim(other, false,
-				 [](uint32_t, uint64_t) { return true; }) ==
-		      p::first_copy);
-		CHECK(map->get_owner() == other);
-		CHECK(map->claim(self, false,
-				 [](uint32_t, uint64_t) { return true; }) ==
-		      p::not_owner);
-		CHECK(map->claim(self, false, nobody_alive) == p::first_copy);
-		CHECK(map->get_owner() == self);
-		CHECK(map->claim(self, true, nobody_alive) == p::have_copy);
-		map->release_claim(self);
-		CHECK(map->get_owner() == 0);
+		{
+			held_process a([&] {
+				return map->claim(false) == p::first_copy ? 0 : 1;
+			});
+			REQUIRE(a.result == 0);
+			CHECK(map->get_owner_pid() == (uint64_t)a.pid);
+			CHECK(map->claim(false) == p::not_owner);
+			a.kill_now();
+			CHECK(map->claim(false) == p::first_copy);
+			map->release_claim();
+		}
+		{
+			int fds[2];
+			REQUIRE(pipe(fds) == 0);
+			pid_t a = fork();
+			REQUIRE(a >= 0);
+			if (a == 0) {
+				const char r = map->claim(false) == p::first_copy;
+				(void)!write(fds[1], &r, 1);
+				execl("/bin/sleep", "sleep", "20",
+				      (char *)nullptr);
+				_exit(7);
+			}
+			close(fds[1]);
+			char r = 0;
+			REQUIRE(read(fds[0], &r, 1) == 1);
+			close(fds[0]);
+			REQUIRE(r == 1);
+			REQUIRE(wait_comm(a, "sleep"));
+			CHECK(map->claim(false) == p::first_copy);
+			map->release_claim();
+			kill(a, SIGKILL);
+			waitpid(a, nullptr, 0);
+		}
+		{
+			int fds[2];
+			REQUIRE(pipe(fds) == 0);
+			pid_t a = fork();
+			REQUIRE(a >= 0);
+			if (a == 0) {
+				if (map->claim(false) != p::first_copy)
+					_exit(5);
+				pid_t c = fork();
+				if (c == 0) {
+					for (;;)
+						pause();
+				}
+				(void)!write(fds[1], &c, sizeof(c));
+				for (;;)
+					pause();
+			}
+			close(fds[1]);
+			pid_t c = -1;
+			REQUIRE(read(fds[0], &c, sizeof(c)) == sizeof(c));
+			close(fds[0]);
+			kill(a, SIGKILL);
+			waitpid(a, nullptr, 0);
+			CHECK(kill(c, 0) == 0);
+			CHECK(map->claim(false) == p::first_copy);
+			map->release_claim();
+			kill(c, SIGKILL);
+		}
+	}
+	SECTION("an owner whose description the host closed knows it")
+	{
+		segment seg("ownerclosed");
+		auto *map = seg.make(8);
+		CHECK(in_child(
+			      [&]() -> int {
+				      if (map->claim(false) != p::first_copy ||
+					  !map->still_holds_claim())
+					      return 3;
+				      close_range(3, ~0U, 0);
+				      return map->still_holds_claim() ? 4 : 0;
+			      },
+			      std::chrono::seconds(5)) == 0);
+	}
+	SECTION("an exception between the seal and the copy leaves phase 0 and the claim free")
+	{
+		segment seg("throwing");
+		auto *map = seg.make(64);
+		REQUIRE(put(map, 1, 1) == 0);
+		set_devhash_hook_for_test([](devhash_hook_point pt, uint64_t) {
+			if (pt == devhash_hook_point::build_image_start)
+				throw std::bad_alloc();
+		});
+		devhash_image img;
+		devhash_path path;
+		CHECK_THROWS_AS(map->make_image(false, img, path),
+				std::bad_alloc);
+		set_devhash_hook_for_test(nullptr);
+		CHECK(map->get_phase() == DEVHASH_PHASE_CPU);
+		CHECK(map->get_owner_pid() == 0);
+		CHECK(put(map, 2, 2) == 0);
+		CHECK(in_child([&]() -> int {
+			      return map->claim(false) == p::first_copy ? 0 : 3;
+		      },
+			       std::chrono::seconds(5)) == 0);
 	}
 }
 
@@ -1337,8 +1643,7 @@ TEST_CASE("Recovery from a dead sealer waits for a writer that read phase 0",
 		map->force_phase_for_test(DEVHASH_PHASE_SEALING); // died
 		t = std::thread([&] {
 			devhash_path path;
-			ok = map->make_image(SELF, false, img, path,
-					     nobody_alive, 3000 * MS) &&
+			ok = map->make_image(false, img, path, 3000 * MS) &&
 			     path == devhash_path::recover_sealing;
 			done = true;
 		});
@@ -1367,8 +1672,7 @@ TEST_CASE("Recovery from a dead sealer waits for a writer that read phase 0",
 			      [&]() -> int {
 				      devhash_image img;
 				      devhash_path p;
-				      return map->make_image(SELF, false, img, p,
-							     nobody_alive,
+				      return map->make_image(false, img, p,
 							     200 * MS) ?
 						     3 :
 						     0;
@@ -1376,7 +1680,7 @@ TEST_CASE("Recovery from a dead sealer waits for a writer that read phase 0",
 			      std::chrono::seconds(5)) == 0);
 		CHECK(map->get_phase() == DEVHASH_PHASE_CPU);
 		CHECK(map->is_seal_dead());
-		CHECK(map->get_owner() == 0);
+		CHECK(map->get_owner_pid() == 0);
 		CHECK(w.resume_and_wait() == 0);
 		CHECK(put(map, 10, 10) == 0);
 	}

@@ -16,15 +16,18 @@
 // Every read path loads PHASE with acquire first.
 //
 // The seal (plan D8) keeps CPU writers out of the device copy without a
-// lock a dead process could hold. Each writing process has a slot (its
-// owner record and start time, and a count of its writers in flight): a
-// writer increments its slot's count and then loads PHASE; the sealer
-// stores PHASE and then reads every slot's count; all seq_cst, so one side
-// sees the other. A count left behind by a process that died (an exit kills
-// its other threads wherever they are) is discounted once the process is
-// gone. A seal that still finds a writer in flight after 1 s (a live
-// process stopped or slowed) stores SEAL_DEAD and fails; a later attempt
-// seals once the counts read 0.
+// lock a dead process could hold. Each writing process has a slot (a count
+// of its writers in flight): a writer increments its slot's count and then
+// loads PHASE; the sealer stores PHASE and then reads every slot's count;
+// all seq_cst, so one side sees the other. A process holds its slot by an
+// open file description lock (F_OFD_SETLK) on the slot's byte of the
+// segment's file, which the kernel releases when the process exits, is
+// killed or execs: a slot whose lock the sealer can take belongs to no live
+// process, and the count its dead threads left is discounted. A seal that
+// still finds a writer in flight after 1 s (a live process stopped or
+// slowed) stores SEAL_DEAD and fails; a later attempt seals once the counts
+// read 0. The owner's claim (plan D11) is the lock of the byte after the
+// slots'.
 //
 // The mirror (plan D10): mhdr[slots] and mval[slots], indexed by slot as the
 // device directory. Every non-empty slot's probe path from its home is
@@ -46,7 +49,6 @@
 #include "trampoline/gpu_devhash_layout.h"
 #include <array>
 #include <cstdint>
-#include <functional>
 #include <vector>
 
 namespace bpftime
@@ -96,31 +98,15 @@ enum class devhash_path {
 	takeover, // PHASE 2: the owner died
 };
 
-// Owner record: pid-namespace id (low 32 bits) << 32 | pid.
-uint64_t devhash_owner_record(uint64_t pid_namespace, uint32_t pid);
-// This process's record (its pid namespace, as the perf shards record it).
-uint64_t devhash_self_record();
-// The start time of a process (/proc/<pid>/stat field 22), 0 if unknown.
-uint64_t devhash_process_start_time(uint32_t pid);
-// Whether the process pid of this pid namespace still runs:
-//   kill(pid, 0) fails with ESRCH: gone; succeeds or fails with EPERM: then
-//   gone only if every task in /proc/<pid>/task is Z or X (a process whose
-//   main thread exited while others run is alive; /proc unreadable: alive),
-//   or if its start time differs from start (not 0): the pid was reused.
-bool devhash_process_alive(uint32_t pid, uint64_t start);
-// Tests: replace the three probes (null restores the real ones).
-struct devhash_liveness_probes {
-	int (*kill_errno)(uint32_t pid); // 0 or the errno of kill(pid, 0)
-	int (*tasks_running)(uint32_t pid); // 1, 0 (all Z/X), -1 unknown
-	uint64_t (*start_time)(uint32_t pid);
-};
-void set_devhash_liveness_probes_for_test(const devhash_liveness_probes *p);
-
-// Decides from what the caller read (pure; tests drive it directly).
-//   owner, self    owner records (owner 0: none)
-//   owner_alive    the recorded owner's process runs (devhash_process_alive)
-devhash_path devhash_choose_path(uint64_t phase, uint64_t owner, uint64_t self,
-				 bool has_cached_copy, bool owner_alive);
+// Decides from what the caller found (pure; tests drive it directly).
+//   got_lock          this process holds the owner's lock (its claim)
+//   has_cached_copy   this process made the device copy already
+devhash_path devhash_choose_path(uint64_t phase, bool got_lock,
+				 bool has_cached_copy);
+// Tests: use only the first n writer slots (0: all), and the number of slot
+// scans this process has run.
+void set_devhash_usable_writer_slots_for_test(uint32_t n);
+uint64_t devhash_slot_scans_for_test();
 
 // Test hooks (always compiled; null by default). Called with the point and
 // an argument (the slot for after_pass_c_slot).
@@ -128,8 +114,8 @@ enum class devhash_hook_point {
 	// between the writer's increment and its PHASE load
 	writer_after_inflight_inc,
 	writer_after_phase_load,
-	// between the owner CAS and the owner's start time
-	claim_after_cas,
+	// at the start of build_image (a test may throw there)
+	build_image_start,
 	delivery_before_pass_a,
 	delivery_after_pass_c_slot,
 };
@@ -138,15 +124,17 @@ void set_devhash_hook_for_test(devhash_hook_fn fn);
 
 class nv_gpu_device_hash_map_impl {
     public:
-	// Writer slots: one per writing process, and an overflow slot shared
-	// when all are taken (never discounted).
-	static constexpr uint32_t WRITER_SLOTS = 64;
+	// Writer slots: one per writing process, held by its lock, and an
+	// overflow slot shared when all are held (never discounted). Each on a
+	// 64-byte line of its own.
+	static constexpr uint32_t WRITER_SLOTS = 256;
 	struct writer_slot {
-		uint64_t owner; // owner record, 0 free
-		uint64_t start; // the owner's start time, 0 unknown
 		uint64_t count; // its writers in flight
-		uint64_t pad;
+		uint64_t pad[7];
 	};
+	// Lock bytes in the segment's file: lock_base() + slot, and the
+	// owner's after the slots'.
+	static constexpr uint32_t OWNER_LOCK_BYTE = WRITER_SLOTS;
 
     private:
 	fix_size_hash_map_impl table; // phase 0
@@ -159,12 +147,9 @@ class nv_gpu_device_hash_map_impl {
 	// shm words, accessed atomically
 	uint64_t phase = DEVHASH_PHASE_CPU;
 	uint64_t seal_dead = 0;
-	uint64_t owner = 0;
-	// the owner's start time, and the record it was written for: a start
-	// time not written for the current owner counts as unknown
-	uint64_t owner_start = 0;
-	uint64_t owner_start_for = 0;
-	// random per map: a process's copy cache keys on (object, generation)
+	uint64_t owner_pid = 0; // the claim's holder, for the status and logs
+	// random per map: a process's copy cache keys on (object, generation),
+	// and the lock bytes derive from it
 	uint64_t generation;
 	// the companion status array's handler index, -1 when unbound
 	int64_t companion = -1;
@@ -180,18 +165,27 @@ class nv_gpu_device_hash_map_impl {
 	}
 	// the slot holding live key, or -1 (mirror; phase 2)
 	int64_t mirror_find(uint32_t key);
-	// this process's writer slot
-	writer_slot &my_writer_slot();
+	// this process's writer slot's count (overflow slot when it holds
+	// none)
+	uint64_t *my_writer_count();
+	uint64_t *slow_writer_count();
 	// counts of all writer slots (seq_cst loads)
 	uint64_t inflight_sum();
-	// frees the slots of processes that are gone, counts included
-	void discount_dead_writers();
+	// clears the count of every slot whose lock probe_fd (a description of
+	// the sealer's own) can take: its holder is gone
+	void discount_dead_writers(int probe_fd);
 
     public:
 	const static bool should_lock = false;
 	nv_gpu_device_hash_map_impl(
 		boost::interprocess::managed_shared_memory &memory,
 		uint64_t max_entries);
+	// closes this process's description for the map (its locks)
+	~nv_gpu_device_hash_map_impl();
+	nv_gpu_device_hash_map_impl(const nv_gpu_device_hash_map_impl &) =
+		delete;
+	nv_gpu_device_hash_map_impl &
+	operator=(const nv_gpu_device_hash_map_impl &) = delete;
 
 	void *elem_lookup(const void *key);
 	long elem_update(const void *key, const void *value, uint64_t flags);
@@ -200,21 +194,25 @@ class nv_gpu_device_hash_map_impl {
 
 	// ---- the agent's side (host code; the CUDA part is the caller's)
 
-	using alive_fn = std::function<bool(uint32_t pid, uint64_t start)>;
-	// Claims the map for self (OWNER CAS) and returns the path to take.
-	devhash_path claim(uint64_t self, bool has_cached_copy,
-			   const alive_fn &alive = devhash_process_alive);
+	// The first lock byte in the segment's file (from the generation).
+	uint64_t lock_base() const;
+	// Claims the map (the owner's lock, non-blocking) and returns the path
+	// to take.
+	devhash_path claim(bool has_cached_copy);
 	// Gives the claim back.
-	void release_claim(uint64_t self);
+	void release_claim();
+	// Whether this process still holds its claim: its description still
+	// refers to the segment's file (a host closing descriptors it does not
+	// own releases the lock). The owner checks before each delivery.
+	bool still_holds_claim();
 	// The image a device copy of this process starts from: claim, then by
 	// the path the seal and the CPU table's image, a dead sealer's
 	// recovery, or the takeover's image from the mirror. False: no copy
-	// (path not_owner or have_copy, or the seal failed); the claim is given
-	// back whenever no copy follows.
-	bool make_image(uint64_t self, bool has_cached_copy, devhash_image &out,
-			devhash_path &path,
-			const alive_fn &alive = devhash_process_alive,
-			uint64_t bound_ns = 1000000000ull);
+	// (path not_owner or have_copy, or the seal failed). The claim is given
+	// back whenever no copy follows; an exception after the seal (rethrown)
+	// also puts PHASE back to 0.
+	bool make_image(bool has_cached_copy, devhash_image &out,
+			devhash_path &path, uint64_t bound_ns = 1000000000ull);
 	// PHASE = 1 and waits (bounded) for writers in flight, discounting
 	// processes that are gone. On a timeout: PHASE 0, SEAL_DEAD, false.
 	// With SEAL_DEAD set it seals only if the counts read 0 now (and
@@ -258,9 +256,10 @@ class nv_gpu_device_hash_map_impl {
 	{
 		return __atomic_load_n(&phase, __ATOMIC_ACQUIRE);
 	}
-	uint64_t get_owner() const
+	// the claim holder's pid (0: none recorded)
+	uint64_t get_owner_pid() const
 	{
-		return __atomic_load_n(&owner, __ATOMIC_ACQUIRE);
+		return __atomic_load_n(&owner_pid, __ATOMIC_ACQUIRE);
 	}
 	bool is_seal_dead() const
 	{

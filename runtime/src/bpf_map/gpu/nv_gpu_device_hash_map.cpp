@@ -1,14 +1,15 @@
 #include "nv_gpu_device_hash_map.hpp"
-#include "producer_identity.hpp"
+#include "fork_handlers.hpp"
 #include "spdlog/spdlog.h"
 #include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
-#include <dirent.h>
+#include <fcntl.h>
+#include <mutex>
 #include <sched.h>
-#include <signal.h>
 #include <stdexcept>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <time.h>
 #include <unistd.h>
@@ -52,79 +53,194 @@ inline void cpu_relax()
 #endif
 }
 
-// "pid (comm) S ..." -> the text after the comm's closing parenthesis
-bool read_stat_tail(const char *path, char *buf, size_t size,
-		    const char **tail)
+// ------------------------------------------ this process's locks (D8, D11b)
+//
+// A writer slot and the owner's claim are open file description locks on
+// bytes of the segment's file. The kernel releases them when the process
+// exits, is killed or execs (the description is O_CLOEXEC), in any pid
+// namespace; a fork child closes its inherited copy (fork handler below), or
+// it would keep a dead parent's locks held.
+
+// The segment's file, found from the mapping that holds addr and opened
+// O_RDWR | O_CLOEXEC; -1 without one (no /proc, an anonymous mapping, or a
+// file removed meanwhile). Every process locks the same file this way: a
+// guessed path could be another file, whose locks nobody else sees.
+int open_segment_file(const void *addr, dev_t &dev, ino_t &ino)
 {
-	FILE *f = fopen(path, "re");
+	FILE *f = fopen("/proc/self/maps", "re");
 	if (f == nullptr)
-		return false;
-	const size_t n = fread(buf, 1, size - 1, f);
-	fclose(f);
-	buf[n] = 0;
-	const char *end = strrchr(buf, ')');
-	if (end == nullptr || end[1] != ' ')
-		return false;
-	*tail = end + 2;
-	return true;
-}
-
-int real_kill_errno(uint32_t pid)
-{
-	return kill((pid_t)pid, 0) == 0 ? 0 : errno;
-}
-
-// 1 if a task of the process is neither Z nor X, 0 if all are, -1 unknown
-int real_tasks_running(uint32_t pid)
-{
-	char dir[64];
-	snprintf(dir, sizeof(dir), "/proc/%u/task", pid);
-	DIR *d = opendir(dir);
-	if (d == nullptr)
 		return -1;
-	int result = 0;
-	while (struct dirent *e = readdir(d)) {
-		if (e->d_name[0] < '0' || e->d_name[0] > '9')
+	char line[4096];
+	int fd = -1;
+	const unsigned long a = (unsigned long)(uintptr_t)addr;
+	while (fgets(line, sizeof(line), f) != nullptr) {
+		unsigned long lo, hi, off, inode;
+		unsigned major, minor;
+		char perms[8];
+		int pos = 0;
+		if (sscanf(line, "%lx-%lx %7s %lx %x:%x %lu %n", &lo, &hi, perms,
+			   &off, &major, &minor, &inode, &pos) < 7)
 			continue;
-		char path[320], buf[512];
-		const char *tail;
-		snprintf(path, sizeof(path), "/proc/%u/task/%s/stat", pid,
-			 e->d_name);
-		if (!read_stat_tail(path, buf, sizeof(buf), &tail)) {
-			result = result == 1 ? 1 : -1;
+		if (a < lo || a >= hi)
 			continue;
-		}
-		if (tail[0] != 'Z' && tail[0] != 'X') {
-			result = 1;
+		char *path = line + pos;
+		path[strcspn(path, "\n")] = 0;
+		if (path[0] != '/' || inode == 0 ||
+		    strstr(path, " (deleted)") != nullptr)
 			break;
+		fd = open(path, O_RDWR | O_CLOEXEC);
+		struct stat st;
+		if (fd >= 0 &&
+		    (fstat(fd, &st) != 0 || st.st_ino != (ino_t)inode)) {
+			close(fd);
+			fd = -1;
 		}
+		if (fd >= 0) {
+			dev = st.st_dev;
+			ino = st.st_ino;
+		}
+		break;
 	}
-	closedir(d);
-	return result;
+	fclose(f);
+	return fd;
 }
 
-uint64_t real_start_time(uint32_t pid)
+// 0, or the errno of F_OFD_SETLK (EAGAIN: held by another description)
+int ofd_lock(int fd, uint64_t byte, short type)
 {
-	char path[64], buf[1024];
-	const char *tail;
-	snprintf(path, sizeof(path), "/proc/%u/stat", pid);
-	if (!read_stat_tail(path, buf, sizeof(buf), &tail))
-		return 0;
-	// tail starts at field 3 (state); starttime is field 22
-	const char *p = tail;
-	for (int field = 3; field < 22; field++) {
-		p = strchr(p, ' ');
-		if (p == nullptr)
-			return 0;
-		p++;
-	}
-	return strtoull(p, nullptr, 10);
+	struct flock fl;
+	std::memset(&fl, 0, sizeof(fl));
+	fl.l_type = type;
+	fl.l_whence = SEEK_SET;
+	fl.l_start = (off_t)byte;
+	fl.l_len = 1;
+	return fcntl(fd, F_OFD_SETLK, &fl) == 0 ? 0 : errno;
 }
 
-const devhash_liveness_probes real_probes = { real_kill_errno,
-					      real_tasks_running,
-					      real_start_time };
-std::atomic<const devhash_liveness_probes *> probes{ &real_probes };
+// One entry per map object this process uses. The writers' fast path reads
+// obj, gen and slot without a lock; everything else changes under
+// local_mutex.
+struct local_map {
+	std::atomic<const void *> obj{ nullptr };
+	std::atomic<uint64_t> gen{ 0 };
+	// -1 none yet, 0..WRITER_SLOTS-1 held, WRITER_SLOTS the overflow slot
+	std::atomic<int64_t> slot{ -1 };
+	// in the overflow slot: scan again after this time
+	std::atomic<uint64_t> retry_ns{ 0 };
+	int fd = -1;
+	dev_t dev = 0;
+	ino_t ino = 0;
+	bool owner_locked = false;
+};
+// Open addressing on the object's address; entries are never removed (a
+// new map at a destroyed one's address takes its entry over).
+constexpr uint32_t LOCAL_MAPS = 1024;
+constexpr uint64_t OVERFLOW_RETRY_NS = 100000000ull;
+local_map local_maps[LOCAL_MAPS];
+std::atomic<uint32_t> local_map_count{ 0 };
+std::mutex local_mutex;
+
+inline uint32_t local_home(const void *obj)
+{
+	return (uint32_t)((((uint64_t)(uintptr_t)obj >> 4) *
+			   0x9e3779b97f4a7c15ull) >>
+			  54); // 10 bits: LOCAL_MAPS
+}
+
+// The entry of obj, or null (lock-free; the writers' fast path).
+inline local_map *find_local(const void *obj)
+{
+	uint32_t i = local_home(obj);
+	for (uint32_t n = 0; n < LOCAL_MAPS; n++) {
+		const void *o = local_maps[i].obj.load(std::memory_order_acquire);
+		if (o == obj)
+			return &local_maps[i];
+		if (o == nullptr)
+			return nullptr;
+		i = (i + 1) & (LOCAL_MAPS - 1);
+	}
+	return nullptr;
+}
+std::atomic<uint32_t> usable_slots{ 0 }; // tests; 0: all
+std::atomic<uint64_t> slot_scans{ 0 };
+
+void forget_locks(local_map &e)
+{
+	e.fd = -1;
+	e.owner_locked = false;
+	e.slot.store(-1, std::memory_order_relaxed);
+	e.retry_ns.store(0, std::memory_order_relaxed);
+}
+
+// The entry of (obj, gen), made when missing; null when the table is full.
+// Under local_mutex.
+local_map *local_entry(const void *obj, uint64_t gen)
+{
+	if (local_map *e = find_local(obj); e != nullptr) {
+		if (e->gen.load(std::memory_order_relaxed) != gen) {
+			// a new map at a destroyed one's address: closing the
+			// description drops the old map's locks
+			if (e->fd >= 0)
+				close(e->fd);
+			forget_locks(*e);
+			e->gen.store(gen, std::memory_order_release);
+		}
+		return e;
+	}
+	// keep one entry empty, so that every probe ends
+	if (local_map_count.load(std::memory_order_relaxed) + 1 >= LOCAL_MAPS)
+		return nullptr;
+	uint32_t i = local_home(obj);
+	while (local_maps[i].obj.load(std::memory_order_relaxed) != nullptr)
+		i = (i + 1) & (LOCAL_MAPS - 1);
+	local_map &e = local_maps[i];
+	forget_locks(e);
+	e.gen.store(gen, std::memory_order_relaxed);
+	e.obj.store(obj, std::memory_order_release);
+	local_map_count.fetch_add(1, std::memory_order_relaxed);
+	return &e;
+}
+
+// The entry's description, opened when missing. A description the host
+// closed (its number may name another file now) is forgotten, not closed,
+// together with the locks it held. Under local_mutex.
+bool ensure_description(local_map &e, const void *obj)
+{
+	if (e.fd >= 0) {
+		struct stat st;
+		if (fstat(e.fd, &st) == 0 && st.st_dev == e.dev &&
+		    st.st_ino == e.ino)
+			return true;
+		SPDLOG_WARN(
+			"device hash map: this process's description of the segment was closed; its writer slot and claim are gone");
+		forget_locks(e);
+	}
+	e.fd = open_segment_file(obj, e.dev, e.ino);
+	return e.fd >= 0;
+}
+
+void devhash_fork_prepare()
+{
+	local_mutex.lock();
+}
+void devhash_fork_parent()
+{
+	local_mutex.unlock();
+}
+// The child's copies share the parent's descriptions and so its locks: a
+// dead parent's slot and claim would stay held while the child runs.
+void devhash_fork_child()
+{
+	for (uint32_t i = 0; i < LOCAL_MAPS; i++) {
+		if (local_maps[i].fd >= 0)
+			close(local_maps[i].fd);
+		forget_locks(local_maps[i]);
+	}
+	local_mutex.unlock();
+}
+[[maybe_unused]] const int devhash_fork_status =
+	bpftime::register_fork_handlers(
+	devhash_fork_prepare, devhash_fork_parent, devhash_fork_child);
 } // namespace
 
 void bpftime::set_devhash_hook_for_test(devhash_hook_fn fn)
@@ -132,32 +248,14 @@ void bpftime::set_devhash_hook_for_test(devhash_hook_fn fn)
 	devhash_hook.store(fn, std::memory_order_release);
 }
 
-void bpftime::set_devhash_liveness_probes_for_test(
-	const devhash_liveness_probes *p)
+void bpftime::set_devhash_usable_writer_slots_for_test(uint32_t n)
 {
-	probes.store(p ? p : &real_probes, std::memory_order_release);
+	usable_slots.store(n, std::memory_order_relaxed);
 }
 
-uint64_t bpftime::devhash_process_start_time(uint32_t pid)
+uint64_t bpftime::devhash_slot_scans_for_test()
 {
-	return probes.load(std::memory_order_acquire)->start_time(pid);
-}
-
-bool bpftime::devhash_process_alive(uint32_t pid, uint64_t start)
-{
-	const devhash_liveness_probes *p =
-		probes.load(std::memory_order_acquire);
-	if (p->kill_errno(pid) == ESRCH)
-		return false;
-	// EPERM: a process of another user, alive
-	if (p->tasks_running(pid) == 0)
-		return false; // exited, not yet reaped
-	if (start != 0) {
-		const uint64_t now = p->start_time(pid);
-		if (now != 0 && now != start)
-			return false; // the pid belongs to another process now
-	}
-	return true;
+	return slot_scans.load(std::memory_order_relaxed);
 }
 
 // ------------------------------------------------- orders of the seal
@@ -204,33 +302,14 @@ bpftime_devhash_reader_phase(uint64_t *phase)
 
 // ---------------------------------------------------- owner and paths
 
-uint64_t bpftime::devhash_owner_record(uint64_t pid_namespace, uint32_t pid)
+devhash_path bpftime::devhash_choose_path(uint64_t phase, bool got_lock,
+					  bool has_cached_copy)
 {
-	return ((pid_namespace & 0xffffffffull) << 32) | pid;
-}
-
-uint64_t bpftime::devhash_self_record()
-{
-	return devhash_owner_record(producer_pid_namespace(), (uint32_t)getpid());
-}
-
-devhash_path bpftime::devhash_choose_path(uint64_t phase, uint64_t owner,
-					  uint64_t self, bool has_cached_copy,
-					  bool owner_alive)
-{
-	if (owner == self) {
-		if (has_cached_copy)
-			return devhash_path::have_copy;
-		// the same (namespace, pid) without a copy here: the pid was
-		// reused after the owner died
-	} else if (owner != 0) {
-		// an owner in another pid namespace is never taken over: its
-		// pid means nothing here
-		if ((owner >> 32) != (self >> 32))
-			return devhash_path::not_owner;
-		if (owner_alive)
-			return devhash_path::not_owner;
-	}
+	// the lock is held by another description: a live owner
+	if (!got_lock)
+		return devhash_path::not_owner;
+	if (has_cached_copy)
+		return devhash_path::have_copy;
 	switch (phase) {
 	case DEVHASH_PHASE_CPU:
 		return devhash_path::first_copy;
@@ -268,6 +347,21 @@ nv_gpu_device_hash_map_impl::nv_gpu_device_hash_map_impl(
 		max_entries, slots, 2 * slots * 8);
 }
 
+nv_gpu_device_hash_map_impl::~nv_gpu_device_hash_map_impl()
+{
+	// this process's description for the map (its writer slot's and its
+	// claim's locks) goes with the map; it would also keep a removed
+	// segment's file alive
+	std::lock_guard<std::mutex> guard(local_mutex);
+	local_map *e = find_local(this);
+	if (e != nullptr &&
+	    e->gen.load(std::memory_order_relaxed) == generation) {
+		if (e->fd >= 0)
+			close(e->fd);
+		forget_locks(*e);
+	}
+}
+
 int64_t nv_gpu_device_hash_map_impl::mirror_find(uint32_t key)
 {
 	uint64_t i = home_slot(key, log_slots);
@@ -284,61 +378,76 @@ int64_t nv_gpu_device_hash_map_impl::mirror_find(uint32_t key)
 	return -1;
 }
 
-nv_gpu_device_hash_map_impl::writer_slot &
-nv_gpu_device_hash_map_impl::my_writer_slot()
+uint64_t nv_gpu_device_hash_map_impl::lock_base() const
 {
-	int pid;
-	int64_t tid;
-	current_producer_identity(pid, tid);
-	const uint64_t self =
-		devhash_owner_record(producer_pid_namespace(), (uint32_t)pid);
-	// this process's start time, cached per pid (fork children differ)
-	static std::atomic<uint64_t> cached_pid{ 0 }, cached_start{ 0 };
-	uint64_t my_start;
-	if (cached_pid.load(std::memory_order_acquire) == (uint64_t)pid) {
-		my_start = cached_start.load(std::memory_order_relaxed);
-	} else {
-		my_start = devhash_process_start_time((uint32_t)pid);
-		cached_start.store(my_start, std::memory_order_relaxed);
-		cached_pid.store((uint64_t)pid, std::memory_order_release);
+	// beyond any segment's end, 4096 bytes per map. Two live maps share
+	// bytes with a chance of about 2^-26 per pair; a shared byte only makes
+	// a slot or the claim look held (the copy delayed, never wrong).
+	return (1ull << 44) + ((generation >> 1) & ((1ull << 26) - 1)) * 4096;
+}
+
+uint64_t *nv_gpu_device_hash_map_impl::my_writer_count()
+{
+	if (local_map *e = find_local(this);
+	    e != nullptr &&
+	    e->gen.load(std::memory_order_acquire) == generation) {
+		const int64_t s = e->slot.load(std::memory_order_acquire);
+		if (s >= 0 && s < (int64_t)WRITER_SLOTS)
+			return &writers[s].count;
+		if (s == (int64_t)WRITER_SLOTS &&
+		    monotonic_ns() <
+			    e->retry_ns.load(std::memory_order_relaxed))
+			return &writers[WRITER_SLOTS].count;
 	}
-	// A slot with this record but another start time belongs to a dead
-	// process that had this pid: not ours (its count may be a leftover
-	// the sealer will discount).
-	for (uint32_t i = 0; i < WRITER_SLOTS; i++) {
-		if (__atomic_load_n(&writers[i].owner, __ATOMIC_ACQUIRE) != self)
-			continue;
-		const uint64_t st =
-			__atomic_load_n(&writers[i].start, __ATOMIC_ACQUIRE);
-		if (st == 0 || my_start == 0 || st == my_start)
-			return writers[i];
-	}
-	for (int pass = 0; pass < 2; pass++) {
-		for (uint32_t i = 0; i < WRITER_SLOTS; i++) {
-			uint64_t cur =
-				__atomic_load_n(&writers[i].owner, __ATOMIC_ACQUIRE);
-			// second pass: a slot of a process that is gone, with
-			// nothing in flight, is free too
-			if (cur != 0 &&
-			    !(pass == 1 && (cur >> 32) == (self >> 32) &&
-			      __atomic_load_n(&writers[i].count,
-					      __ATOMIC_ACQUIRE) == 0 &&
-			      !devhash_process_alive(
-				      (uint32_t)cur,
-				      __atomic_load_n(&writers[i].start,
-						      __ATOMIC_ACQUIRE))))
+	return slow_writer_count();
+}
+
+// A process's first write (and a retry from the overflow slot): the first
+// slot from its pid's onwards whose lock it can take.
+uint64_t *nv_gpu_device_hash_map_impl::slow_writer_count()
+{
+	std::lock_guard<std::mutex> guard(local_mutex);
+	local_map *e = local_entry(this, generation);
+	if (e == nullptr)
+		return &writers[WRITER_SLOTS].count; // too many maps: uncached
+	const int64_t s = e->slot.load(std::memory_order_relaxed);
+	if (s >= 0 && s < (int64_t)WRITER_SLOTS && e->fd >= 0)
+		return &writers[s].count; // another thread took it meanwhile
+	if (s == (int64_t)WRITER_SLOTS &&
+	    monotonic_ns() < e->retry_ns.load(std::memory_order_relaxed))
+		return &writers[WRITER_SLOTS].count;
+	slot_scans.fetch_add(1, std::memory_order_relaxed);
+	int64_t got = WRITER_SLOTS;
+	if (ensure_description(*e, this)) {
+		uint32_t n = usable_slots.load(std::memory_order_relaxed);
+		if (n == 0 || n > WRITER_SLOTS)
+			n = WRITER_SLOTS;
+		const uint32_t first = (uint32_t)getpid() % n;
+		for (uint32_t k = 0; k < n; k++) {
+			const uint32_t i = (first + k) % n;
+			if (ofd_lock(e->fd, lock_base() + i, F_WRLCK) != 0)
 				continue;
-			if (__atomic_compare_exchange_n(&writers[i].owner, &cur,
-							self, false,
-							__ATOMIC_ACQ_REL,
-							__ATOMIC_ACQUIRE)) {
-				__atomic_store_n(&writers[i].start, my_start,
-						 __ATOMIC_RELEASE);
-				return writers[i];
-			}
+			// its previous holder is gone (the lock was free): what
+			// its threads left in flight runs no more
+			const uint64_t left = __atomic_exchange_n(
+				&writers[i].count, 0, __ATOMIC_SEQ_CST);
+			if (left != 0)
+				SPDLOG_INFO(
+					"device hash map: writer slot {} taken; {} writer(s) left in flight there by a process that is gone",
+					i, left);
+			got = i;
+			break;
 		}
 	}
-	return writers[WRITER_SLOTS]; // shared, never discounted
+	if (got == (int64_t)WRITER_SLOTS) {
+		e->retry_ns.store(monotonic_ns() + OVERFLOW_RETRY_NS,
+				  std::memory_order_relaxed);
+		SPDLOG_INFO(
+			"device hash map: no writer slot of its own for pid {} (all held, or no segment file); writing in the shared slot",
+			getpid());
+	}
+	e->slot.store(got, std::memory_order_release);
+	return &writers[got].count;
 }
 
 uint64_t nv_gpu_device_hash_map_impl::inflight_sum()
@@ -352,32 +461,26 @@ uint64_t nv_gpu_device_hash_map_impl::get_inflight()
 	return inflight_sum();
 }
 
-void nv_gpu_device_hash_map_impl::discount_dead_writers()
+void nv_gpu_device_hash_map_impl::discount_dead_writers(int probe_fd)
 {
-	const uint64_t self = devhash_self_record();
+	if (probe_fd < 0)
+		return; // no file to probe: every count stands (alive)
 	for (uint32_t i = 0; i < WRITER_SLOTS; i++) {
-		uint64_t cur = __atomic_load_n(&writers[i].owner, __ATOMIC_ACQUIRE);
-		if (cur == 0 || cur == self || (cur >> 32) != (self >> 32) ||
-		    __atomic_load_n(&writers[i].count, __ATOMIC_SEQ_CST) == 0)
+		if (__atomic_load_n(&writers[i].count, __ATOMIC_SEQ_CST) == 0)
 			continue;
-		if (devhash_process_alive(
-			    (uint32_t)cur,
-			    __atomic_load_n(&writers[i].start, __ATOMIC_ACQUIRE)))
-			continue;
-		// Gone: nothing of it runs any more, so its count is what its
-		// dead threads left. Take the slot (so no new process with a
-		// reused record inherits the count), then clear it.
-		if (!__atomic_compare_exchange_n(&writers[i].owner, &cur,
-						 ~0ull, false, __ATOMIC_ACQ_REL,
-						 __ATOMIC_ACQUIRE))
-			continue;
-		SPDLOG_INFO(
-			"device hash map: discounting {} writer(s) of pid {}, which is gone",
-			__atomic_load_n(&writers[i].count, __ATOMIC_RELAXED),
-			(uint32_t)cur);
-		__atomic_store_n(&writers[i].count, 0, __ATOMIC_SEQ_CST);
-		__atomic_store_n(&writers[i].start, 0, __ATOMIC_RELAXED);
-		__atomic_store_n(&writers[i].owner, 0, __ATOMIC_RELEASE);
+		// probe_fd is a description of the sealer's own: it conflicts
+		// with every holder, this process's writers included
+		if (ofd_lock(probe_fd, lock_base() + i, F_WRLCK) != 0)
+			continue; // held: alive
+		// Taken: the holder exited, was killed or exec'd, and no one can
+		// take the slot while the sealer holds it.
+		const uint64_t left = __atomic_exchange_n(&writers[i].count, 0,
+							  __ATOMIC_SEQ_CST);
+		ofd_lock(probe_fd, lock_base() + i, F_UNLCK);
+		if (left != 0)
+			SPDLOG_INFO(
+				"device hash map: discounting {} writer(s) left in flight in slot {} by a process that is gone",
+				left, i);
 	}
 }
 
@@ -397,35 +500,35 @@ long nv_gpu_device_hash_map_impl::elem_update(const void *key,
 					      const void *value,
 					      uint64_t flags)
 {
-	writer_slot &w = my_writer_slot();
-	const uint64_t ph = bpftime_devhash_writer_enter(&w.count, &phase);
+	uint64_t *w = my_writer_count();
+	const uint64_t ph = bpftime_devhash_writer_enter(w, &phase);
 	call_hook(devhash_hook_point::writer_after_phase_load, ph);
 	if (ph != DEVHASH_PHASE_CPU) {
-		__atomic_fetch_sub(&w.count, 1, __ATOMIC_RELEASE);
+		__atomic_fetch_sub(w, 1, __ATOMIC_RELEASE);
 		// the device copy is the map from the seal on
 		errno = EPERM;
 		return -1;
 	}
 	const long r = table.elem_update(key, value, flags);
 	const int err = errno;
-	__atomic_fetch_sub(&w.count, 1, __ATOMIC_RELEASE);
+	__atomic_fetch_sub(w, 1, __ATOMIC_RELEASE);
 	errno = err;
 	return r;
 }
 
 long nv_gpu_device_hash_map_impl::elem_delete(const void *key)
 {
-	writer_slot &w = my_writer_slot();
-	const uint64_t ph = bpftime_devhash_writer_enter(&w.count, &phase);
+	uint64_t *w = my_writer_count();
+	const uint64_t ph = bpftime_devhash_writer_enter(w, &phase);
 	call_hook(devhash_hook_point::writer_after_phase_load, ph);
 	if (ph != DEVHASH_PHASE_CPU) {
-		__atomic_fetch_sub(&w.count, 1, __ATOMIC_RELEASE);
+		__atomic_fetch_sub(w, 1, __ATOMIC_RELEASE);
 		errno = EPERM;
 		return -1;
 	}
 	const long r = table.elem_delete(key);
 	const int err = errno;
-	__atomic_fetch_sub(&w.count, 1, __ATOMIC_RELEASE);
+	__atomic_fetch_sub(w, 1, __ATOMIC_RELEASE);
 	errno = err;
 	return r;
 }
@@ -459,118 +562,137 @@ int nv_gpu_device_hash_map_impl::map_get_next_key(const void *key,
 
 // ------------------------------------------------------- the agent side
 
-devhash_path nv_gpu_device_hash_map_impl::claim(uint64_t self,
-						bool has_cached_copy,
-						const alive_fn &alive)
+devhash_path nv_gpu_device_hash_map_impl::claim(bool has_cached_copy)
 {
-	for (;;) {
-		uint64_t cur = __atomic_load_n(&owner, __ATOMIC_ACQUIRE);
-		const bool same_ns = (cur >> 32) == (self >> 32);
-		// the start time only if it was written for this owner (a
-		// claimant between its CAS and its store leaves the previous
-		// owner's there)
-		uint64_t start = 0;
-		if (__atomic_load_n(&owner_start_for, __ATOMIC_ACQUIRE) == cur)
-			start = __atomic_load_n(&owner_start, __ATOMIC_RELAXED);
-		const bool owner_alive = cur != 0 && cur != self && same_ns &&
-					 alive((uint32_t)cur, start);
-		const devhash_path p = devhash_choose_path(
-			get_phase(), cur, self, has_cached_copy, owner_alive);
-		if (p == devhash_path::not_owner ||
-		    p == devhash_path::have_copy)
-			return p;
-		if (cur != self &&
-		    !__atomic_compare_exchange_n(&owner, &cur, self, false,
-						 __ATOMIC_ACQ_REL,
-						 __ATOMIC_ACQUIRE))
-			continue;
-		call_hook(devhash_hook_point::claim_after_cas, self);
-		__atomic_store_n(&owner_start,
-				 devhash_process_start_time((uint32_t)self),
-				 __ATOMIC_RELAXED);
-		__atomic_store_n(&owner_start_for, self, __ATOMIC_RELEASE);
+	bool got = false;
+	{
+		std::lock_guard<std::mutex> guard(local_mutex);
+		local_map *e = local_entry(this, generation);
+		if (e != nullptr && ensure_description(*e, this)) {
+			// the kernel decides: one description holds it at a time
+			got = ofd_lock(e->fd, lock_base() + OWNER_LOCK_BYTE,
+				       F_WRLCK) == 0;
+			e->owner_locked = got;
+		} else {
+			SPDLOG_WARN(
+				"device hash map: no segment file to lock; this process cannot own the map");
+		}
+	}
+	if (got) {
+		__atomic_store_n(&owner_pid, (uint64_t)getpid(),
+				 __ATOMIC_RELEASE);
 		__atomic_store_n(status_word(DEVHASH_STATUS_OWNER_PID),
-				 (uint64_t)(uint32_t)self, __ATOMIC_RELAXED);
-		// only the owner changes PHASE: read it again as the owner
-		return devhash_choose_path(get_phase(), self, self, false,
-					   false);
+				 (uint64_t)getpid(), __ATOMIC_RELAXED);
 	}
+	// only the owner changes PHASE: read it as the owner
+	return devhash_choose_path(get_phase(), got, has_cached_copy);
 }
 
-void nv_gpu_device_hash_map_impl::release_claim(uint64_t self)
+void nv_gpu_device_hash_map_impl::release_claim()
 {
-	uint64_t cur = self;
-	if (__atomic_compare_exchange_n(&owner, &cur, 0, false,
-					__ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-		__atomic_store_n(&owner_start_for, 0, __ATOMIC_RELEASE);
-		__atomic_store_n(&owner_start, 0, __ATOMIC_RELAXED);
-	}
+	std::lock_guard<std::mutex> guard(local_mutex);
+	local_map *e = local_entry(this, generation);
+	if (e == nullptr || !e->owner_locked)
+		return;
+	// the record first: a next owner stores its own after taking the lock
+	uint64_t me = (uint64_t)getpid();
+	__atomic_compare_exchange_n(&owner_pid, &me, 0, false, __ATOMIC_ACQ_REL,
+				    __ATOMIC_ACQUIRE);
+	if (e->fd >= 0)
+		ofd_lock(e->fd, lock_base() + OWNER_LOCK_BYTE, F_UNLCK);
+	e->owner_locked = false;
 }
 
-bool nv_gpu_device_hash_map_impl::make_image(uint64_t self,
-					     bool has_cached_copy,
+bool nv_gpu_device_hash_map_impl::still_holds_claim()
+{
+	std::lock_guard<std::mutex> guard(local_mutex);
+	local_map *e = local_entry(this, generation);
+	if (e == nullptr || !e->owner_locked)
+		return false;
+	// a description the host closed is forgotten with its locks
+	return ensure_description(*e, this) && e->owner_locked;
+}
+
+bool nv_gpu_device_hash_map_impl::make_image(bool has_cached_copy,
 					     devhash_image &out,
 					     devhash_path &path,
-					     const alive_fn &alive,
 					     uint64_t bound_ns)
 {
-	path = claim(self, has_cached_copy, alive);
-	bool ok = false;
-	switch (path) {
-	case devhash_path::not_owner:
-	case devhash_path::have_copy:
+	path = claim(has_cached_copy);
+	if (path == devhash_path::not_owner || path == devhash_path::have_copy)
 		return false;
-	case devhash_path::first_copy:
-		ok = seal_and_build(out, bound_ns);
-		break;
-	case devhash_path::recover_sealing:
-		ok = recover_sealing(out, bound_ns);
-		break;
-	case devhash_path::takeover:
-		out = takeover_image();
-		ok = true;
-		break;
+	bool ok = false;
+	try {
+		switch (path) {
+		case devhash_path::first_copy:
+			ok = seal_and_build(out, bound_ns);
+			break;
+		case devhash_path::recover_sealing:
+			ok = recover_sealing(out, bound_ns);
+			break;
+		case devhash_path::takeover:
+			out = takeover_image();
+			ok = true;
+			break;
+		default:
+			break;
+		}
+	} catch (...) {
+		// after a seal no CPU writer may wait on a copy that never comes
+		if (get_phase() == DEVHASH_PHASE_SEALING)
+			unseal();
+		release_claim();
+		throw;
 	}
 	if (!ok)
-		release_claim(self);
+		release_claim();
 	return ok;
 }
 
 bool nv_gpu_device_hash_map_impl::seal(uint64_t bound_ns)
 {
 	const uint64_t n = WRITER_SLOTS + 1, stride = sizeof(writer_slot) / 8;
+	uint64_t *counts = &writers[0].count;
+	// a description of the sealer's own, to probe the slots' locks
+	dev_t dev;
+	ino_t ino;
+	const int probe = open_segment_file(this, dev, ino);
+	struct closer {
+		int fd;
+		~closer()
+		{
+			if (fd >= 0)
+				close(fd);
+		}
+	} probe_closer{ probe };
 	if (is_seal_dead()) {
 		// a writer stayed in flight through an earlier seal; once it
 		// has finished (stopped or slow) or its process is gone, seal
 		// again
-		discount_dead_writers();
-		if (bpftime_devhash_sealer_poll(&writers[0].count, n, stride) !=
-		    0)
+		discount_dead_writers(probe);
+		if (bpftime_devhash_sealer_poll(counts, n, stride) != 0)
 			return false;
 		__atomic_store_n(&seal_dead, 0, __ATOMIC_RELEASE);
 	}
-	if (bpftime_devhash_sealer_enter(&phase, &writers[0].count, n,
-					 stride) == 0)
+	if (bpftime_devhash_sealer_enter(&phase, counts, n, stride) == 0)
 		return true;
 	const uint64_t deadline = monotonic_ns() + bound_ns;
 	for (uint64_t polls = 1;; polls++) {
-		if (bpftime_devhash_sealer_poll(&writers[0].count, n, stride) ==
-		    0)
+		if (bpftime_devhash_sealer_poll(counts, n, stride) == 0)
 			return true;
 		if (polls % 64 != 0) {
 			cpu_relax();
 			continue;
 		}
-		// every 64 polls: processes that died with writers in flight
+		// every 4096 polls: processes that died with writers in flight
 		if (polls % 4096 == 0) {
-			discount_dead_writers();
+			discount_dead_writers(probe);
 			sched_yield();
 		}
 		if (monotonic_ns() > deadline) {
 			// one last look after the deadline
-			discount_dead_writers();
-			if (bpftime_devhash_sealer_poll(&writers[0].count, n,
-							stride) == 0)
+			discount_dead_writers(probe);
+			if (bpftime_devhash_sealer_poll(counts, n, stride) == 0)
 				return true;
 			__atomic_store_n(&phase, DEVHASH_PHASE_CPU,
 					 __ATOMIC_SEQ_CST);
@@ -585,6 +707,7 @@ bool nv_gpu_device_hash_map_impl::seal(uint64_t bound_ns)
 
 bool nv_gpu_device_hash_map_impl::build_image(devhash_image &out)
 {
+	call_hook(devhash_hook_point::build_image_start, 0);
 	// After a seal: a writer that increments now reads PHASE >= 1 and
 	// leaves without touching the table, so the counts need not be 0.
 	if (get_phase() == DEVHASH_PHASE_CPU)
