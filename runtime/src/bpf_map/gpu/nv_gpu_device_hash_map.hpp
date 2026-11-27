@@ -130,7 +130,15 @@ class nv_gpu_device_hash_map_impl {
 	static constexpr uint32_t WRITER_SLOTS = 256;
 	struct writer_slot {
 		uint64_t count; // its writers in flight
-		uint64_t pad[7];
+		// the last holder (pid namespace << 32 | pid), written by it
+		// once it holds the lock: a free lock whose holder still runs
+		// and maps the segment means the holder lost its description
+		// (a host that closed it), not that it died
+		uint64_t holder;
+		// the holder's image (random per load of the runtime): the
+		// same pid with another image is an earlier image (exec)
+		uint64_t holder_image;
+		uint64_t pad[5];
 	};
 	// Lock bytes in the segment's file: lock_base() + slot, and the
 	// owner's after the slots'.
@@ -148,6 +156,10 @@ class nv_gpu_device_hash_map_impl {
 	uint64_t phase = DEVHASH_PHASE_CPU;
 	uint64_t seal_dead = 0;
 	uint64_t owner_pid = 0; // the claim's holder, for the status and logs
+	// the claim's holder (pid namespace << 32 | pid), 0 after a release:
+	// a free claim whose holder still runs and maps the segment is not
+	// taken over (its holder lost its description)
+	uint64_t owner_hint = 0;
 	// random per map: a process's copy cache keys on (object, generation),
 	// and the lock bytes derive from it
 	uint64_t generation;
@@ -172,8 +184,9 @@ class nv_gpu_device_hash_map_impl {
 	// counts of all writer slots (seq_cst loads)
 	uint64_t inflight_sum();
 	// clears the count of every slot whose lock probe_fd (a description of
-	// the sealer's own) can take: its holder is gone
-	void discount_dead_writers(int probe_fd);
+	// the sealer's own) can take and whose last holder is gone (ino, dev:
+	// the segment's file)
+	void discount_dead_writers(int probe_fd, uint64_t dev, uint64_t ino);
 
     public:
 	const static bool should_lock = false;
@@ -193,6 +206,9 @@ class nv_gpu_device_hash_map_impl {
 	int map_get_next_key(const void *key, void *next_key);
 
 	// ---- the agent's side (host code; the CUDA part is the caller's)
+	// claim, release_claim, still_holds_claim and make_image take a
+	// process-local mutex and make system calls: callers on application
+	// threads (deliveries at a sync) run them with probes suppressed.
 
 	// The first lock byte in the segment's file (from the generation).
 	uint64_t lock_base() const;
@@ -304,6 +320,12 @@ class nv_gpu_device_hash_map_impl {
 	fix_size_hash_map_impl &table_for_test()
 	{
 		return table;
+	}
+	// Tests: the claim's holder hint cleared (the lock alone then keeps
+	// other claimants out).
+	void clear_owner_hint_for_test()
+	{
+		__atomic_store_n(&owner_hint, 0, __ATOMIC_RELEASE);
 	}
 	// Tests: the writer slots.
 	writer_slot *writer_slots_for_test()

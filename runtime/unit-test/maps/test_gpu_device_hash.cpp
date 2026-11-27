@@ -26,6 +26,9 @@
 #include <cstring>
 #include <map>
 #include <mutex>
+#include <dirent.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
 #include <set>
 #include <string>
@@ -1202,6 +1205,22 @@ TEST_CASE("The owner's path", "[gpu-devhash-cpu]")
 // ------------------------------------------------------------ S2.14
 namespace
 {
+// a read of n bytes within ms, or false
+bool read_within(int fd, void *buf, size_t n, int ms = 10000)
+{
+	size_t got = 0;
+	while (got < n) {
+		struct pollfd p = { fd, POLLIN, 0 };
+		if (poll(&p, 1, ms) != 1)
+			return false;
+		const ssize_t r = read(fd, (char *)buf + got, n - got);
+		if (r <= 0)
+			return false;
+		got += (size_t)r;
+	}
+	return true;
+}
+
 // A forked process that runs setup() and then waits until it is killed;
 // the parent learns that setup() returned (with its result) through a
 // pipe.
@@ -1223,8 +1242,8 @@ struct held_process {
 		}
 		close(fds[1]);
 		fds[1] = -1;
-		char r;
-		REQUIRE(read(fds[0], &r, 1) == 1);
+		char r = -1;
+		REQUIRE(read_within(fds[0], &r, 1));
 		result = r;
 	}
 	~held_process()
@@ -1262,6 +1281,18 @@ bool wait_comm(pid_t pid, const char *name)
 		if (comm_is(pid, name))
 			return true;
 		usleep(1000);
+	}
+	return false;
+}
+
+// the claim, tried for up to 2 s (the kernel releases a dead or exec'd
+// holder's lock as it tears the process down)
+bool claim_eventually(nv_gpu_device_hash_map_impl *map)
+{
+	for (int i = 0; i < 400; i++) {
+		if (map->claim(false) == devhash_path::first_copy)
+			return true;
+		usleep(5000);
 	}
 	return false;
 }
@@ -1350,7 +1381,7 @@ TEST_CASE("Writer slots and the owner's claim follow the processes",
 		}
 		close(fds[1]);
 		char c;
-		REQUIRE(read(fds[0], &c, 1) == 1);
+		REQUIRE(read_within(fds[0], &c, 1));
 		close(fds[0]);
 		REQUIRE(wait_comm(pid, "sleep"));
 		// what the threads exec killed left in flight (the blocked
@@ -1374,6 +1405,8 @@ TEST_CASE("Writer slots and the owner's claim follow the processes",
 			if (put(map, 1, 1) != 0) // takes a slot
 				_exit(5);
 			pid_t c = fork(); // an idle child
+			if (c < 0)
+				_exit(8);
 			if (c == 0) {
 				for (;;)
 					pause();
@@ -1388,13 +1421,14 @@ TEST_CASE("Writer slots and the owner's claim follow the processes",
 		}
 		close(fds[1]);
 		pid_t child = -1;
-		REQUIRE(read(fds[0], &child, sizeof(child)) == sizeof(child));
+		REQUIRE(read_within(fds[0], &child, sizeof(child)));
 		char c;
-		REQUIRE(read(fds[0], &c, 1) == 1);
+		REQUIRE(read_within(fds[0], &c, 1));
 		close(fds[0]);
 		CHECK(map->get_inflight() == 1);
 		kill(parent, SIGKILL);
 		waitpid(parent, nullptr, 0);
+		REQUIRE(child > 0);
 		CHECK(kill(child, 0) == 0); // the child lives on
 		CHECK(seal_in_child(map, 1) == 0);
 		CHECK(map->get_inflight() == 0);
@@ -1498,7 +1532,7 @@ TEST_CASE("Writer slots and the owner's claim follow the processes",
 			int firsts = 0;
 			for (int i = 0; i < 2; i++) {
 				char r;
-				REQUIRE(read(res[0], &r, 1) == 1);
+				REQUIRE(read_within(res[0], &r, 1));
 				firsts += r == (char)p::first_copy;
 			}
 			both_first += firsts == 2;
@@ -1526,7 +1560,7 @@ TEST_CASE("Writer slots and the owner's claim follow the processes",
 			CHECK(map->get_owner_pid() == (uint64_t)a.pid);
 			CHECK(map->claim(false) == p::not_owner);
 			a.kill_now();
-			CHECK(map->claim(false) == p::first_copy);
+			CHECK(claim_eventually(map));
 			map->release_claim();
 		}
 		{
@@ -1543,11 +1577,11 @@ TEST_CASE("Writer slots and the owner's claim follow the processes",
 			}
 			close(fds[1]);
 			char r = 0;
-			REQUIRE(read(fds[0], &r, 1) == 1);
+			REQUIRE(read_within(fds[0], &r, 1));
 			close(fds[0]);
 			REQUIRE(r == 1);
 			REQUIRE(wait_comm(a, "sleep"));
-			CHECK(map->claim(false) == p::first_copy);
+			CHECK(claim_eventually(map));
 			map->release_claim();
 			kill(a, SIGKILL);
 			waitpid(a, nullptr, 0);
@@ -1561,6 +1595,8 @@ TEST_CASE("Writer slots and the owner's claim follow the processes",
 				if (map->claim(false) != p::first_copy)
 					_exit(5);
 				pid_t c = fork();
+				if (c < 0)
+					_exit(8);
 				if (c == 0) {
 					for (;;)
 						pause();
@@ -1571,29 +1607,16 @@ TEST_CASE("Writer slots and the owner's claim follow the processes",
 			}
 			close(fds[1]);
 			pid_t c = -1;
-			REQUIRE(read(fds[0], &c, sizeof(c)) == sizeof(c));
+			REQUIRE(read_within(fds[0], &c, sizeof(c)));
 			close(fds[0]);
 			kill(a, SIGKILL);
 			waitpid(a, nullptr, 0);
+			REQUIRE(c > 0);
 			CHECK(kill(c, 0) == 0);
-			CHECK(map->claim(false) == p::first_copy);
+			CHECK(claim_eventually(map));
 			map->release_claim();
 			kill(c, SIGKILL);
 		}
-	}
-	SECTION("an owner whose description the host closed knows it")
-	{
-		segment seg("ownerclosed");
-		auto *map = seg.make(8);
-		CHECK(in_child(
-			      [&]() -> int {
-				      if (map->claim(false) != p::first_copy ||
-					  !map->still_holds_claim())
-					      return 3;
-				      close_range(3, ~0U, 0);
-				      return map->still_holds_claim() ? 4 : 0;
-			      },
-			      std::chrono::seconds(5)) == 0);
 	}
 	SECTION("an exception between the seal and the copy leaves phase 0 and the claim free")
 	{
@@ -1761,3 +1784,509 @@ TEST_CASE("The map handler dispatches 1533", "[gpu-devhash-cpu]")
 	manager->clear_id_at(5, seg.m);
 }
 #endif
+
+// ------------------------------------------------- S2.14, second review
+namespace
+{
+// open descriptions of this process
+int open_fds()
+{
+	int n = 0;
+	if (DIR *d = opendir("/proc/self/fd")) {
+		while (readdir(d) != nullptr)
+			n++;
+		closedir(d);
+	}
+	return n;
+}
+} // namespace
+
+TEST_CASE("Writer slots: the cases the review of the lock rework found",
+	  "[gpu-devhash-cpu]")
+{
+	SECTION("a writer in flight in the overflow slot keeps the seal waiting")
+	{
+		segment seg("overflowflight");
+		auto *map = seg.make(256);
+		usable_slots_guard one(1);
+		held_process a([&] { return put(map, 1, 1) == 0 ? 0 : 1; });
+		REQUIRE(a.result == 0);
+		// b finds the only slot held: it writes in the overflow slot
+		hooked_writer b(map, 2, devhash_hook_point::writer_after_inflight_inc,
+				true, 0);
+		CHECK(map->writer_slots_for_test()
+			      [nv_gpu_device_hash_map_impl::WRITER_SLOTS]
+				      .count == 1);
+		CHECK(seal_in_child(map, 0, 300 * MS) == 3);
+		CHECK(map->is_seal_dead());
+		CHECK(b.resume_and_wait() == 0);
+	}
+	SECTION("a scan passes a slot held by a live process without clearing it")
+	{
+		segment seg("scanpast");
+		auto *map = seg.make(256);
+		usable_slots_guard two(2);
+		hooked_writer a(map, 1, devhash_hook_point::writer_after_inflight_inc,
+				true, 0);
+		REQUIRE(map->get_inflight() == 1);
+		held_process b([&] { return put(map, 2, 2) == 0 ? 0 : 1; });
+		REQUIRE(b.result == 0);
+		// a's writer is still counted, wherever b's scan began
+		CHECK(map->get_inflight() == 1);
+		CHECK(seal_in_child(map, 0, 300 * MS) == 3);
+		CHECK(a.resume_and_wait() == 0);
+	}
+	SECTION("a new map at a destroyed map's address gets locks of its own")
+	{
+		segment seg("sameaddress");
+		auto *map1 = seg.make(256);
+		REQUIRE(put(map1, 1, 1) == 0); // this process holds a slot of map1
+		// another process destroys map1 and makes a map at its address
+		const int rc = in_child(
+			[&]() -> int {
+				seg.m.destroy_ptr(map1);
+				auto *m2 = seg.m.construct<nv_gpu_device_hash_map_impl>(
+					anonymous_instance)(seg.m, 256);
+				return m2 == map1 ? 0 : 3;
+			},
+			std::chrono::seconds(10));
+		REQUIRE(rc == 0);
+		auto *map2 = map1; // the new map, at the same address
+		// a writer of this process in flight on the new map: a seal in
+		// another process must wait for it (the slot's lock is held at
+		// the new map's bytes)
+		arm(devhash_hook_point::writer_after_inflight_inc);
+		std::atomic<long> wrc{ 99 };
+		std::thread writer([&] {
+			park_this_thread = true;
+			wrc = put(map2, 5, 5);
+		});
+		joiner j{ { &writer } };
+		REQUIRE(wait_parked());
+		CHECK(map2->get_inflight() == 1);
+		CHECK(seal_in_child(map2, 0, 300 * MS) == 3);
+		release();
+		writer.join();
+		CHECK(wrc == 0);
+	}
+	SECTION("after SEAL_DEAD, a stalled writer that dies is discounted")
+	{
+		segment seg("sealdeaddies");
+		auto *map = seg.make(256);
+		hooked_writer w(map, 3, devhash_hook_point::writer_after_inflight_inc,
+				true, 0);
+		CHECK(seal_in_child(map, 0, 200 * MS) == 3);
+		REQUIRE(map->is_seal_dead());
+		w.kill_now(); // not resumed: its count stays raised
+		CHECK(map->get_inflight() == 1);
+		devhash_image img;
+		devhash_path path;
+		CHECK(map->make_image(false, img, path, 200 * MS));
+		CHECK_FALSE(map->is_seal_dead());
+		CHECK(map->get_inflight() == 0);
+	}
+	SECTION("a writer killed while the sealer polls is discounted before the deadline")
+	{
+		segment seg("periodic");
+		auto *map = seg.make(256);
+		hooked_writer w(map, 4, devhash_hook_point::writer_after_inflight_inc,
+				false, 0);
+		const int pid = w.pid;
+		std::thread killer([&] {
+			usleep(100000);
+			kill(pid, SIGKILL);
+		});
+		const auto t0 = clk::now();
+		CHECK(seal_in_child(map, 0, 5000 * MS) == 0);
+		CHECK(clk::now() - t0 < std::chrono::milliseconds(3000));
+		killer.join();
+	}
+	SECTION("the map's destructor closes this process's description")
+	{
+		CHECK(in_child(
+			      [&]() -> int {
+				      segment seg("dtor");
+				      auto *map = seg.make(64);
+				      const int before = open_fds();
+				      if (put(map, 1, 1) != 0)
+					      return 3;
+				      const int with = open_fds();
+				      seg.m.destroy_ptr(map);
+				      seg.made.clear();
+				      const int after = open_fds();
+				      return with == before + 1 && after == before ?
+						     0 :
+						     4;
+			      },
+			      std::chrono::seconds(10)) == 0);
+	}
+}
+
+TEST_CASE("An owner whose description the host closed takes its claim back",
+	  "[gpu-devhash-cpu]")
+{
+	segment seg("ownerreopen");
+	auto *map = seg.make(8);
+	const std::string path = "/dev/shm/" + seg.name;
+	int fds[2];
+	REQUIRE(pipe(fds) == 0);
+	const pid_t a = fork();
+	REQUIRE(a >= 0);
+	if (a == 0) {
+		const int keep = dup2(fds[1], 900);
+		if (keep != 900 || map->claim(false) != devhash_path::first_copy ||
+		    !map->still_holds_claim())
+			_exit(3);
+		// the host closes every descriptor it does not know, then
+		// opens the segment's file: the numbers come back as other
+		// descriptions of the same file
+		close_range(3, 899, 0);
+		for (int i = 0; i < 16; i++)
+			if (open(path.c_str(), O_RDWR) < 0)
+				_exit(5);
+		const char r = map->still_holds_claim() ? 1 : 0;
+		(void)!write(keep, &r, 1);
+		for (;;)
+			pause();
+	}
+	close(fds[1]);
+	char r = 0;
+	const bool got = read_within(fds[0], &r, 1);
+	close(fds[0]);
+	struct killer {
+		pid_t pid;
+		~killer()
+		{
+			kill(pid, SIGKILL);
+			waitpid(pid, nullptr, 0);
+		}
+	} k{ a };
+	REQUIRE(got);
+	CHECK(r == 1);
+	// the claim's lock is held again (by the owner's new description)
+	const int fd = open(path.c_str(), O_RDWR | O_CLOEXEC);
+	REQUIRE(fd >= 0);
+	struct flock fl;
+	memset(&fl, 0, sizeof(fl));
+	fl.l_type = F_WRLCK;
+	fl.l_whence = SEEK_SET;
+	fl.l_start = (off_t)(map->lock_base() +
+			     nv_gpu_device_hash_map_impl::OWNER_LOCK_BYTE);
+	fl.l_len = 1;
+	REQUIRE(fcntl(fd, F_OFD_GETLK, &fl) == 0);
+	close(fd);
+	CHECK(fl.l_type != F_UNLCK);
+	// and no other process takes it over while the owner runs
+	CHECK(map->claim(false) == devhash_path::not_owner);
+}
+
+TEST_CASE("The claim's lock alone keeps a second claimant out",
+	  "[gpu-devhash-cpu]")
+{
+	// without the hint (as for an owner of another pid namespace, whose
+	// hint counts as gone), the kernel's lock decides
+	segment seg("lockalone");
+	auto *map = seg.make(8);
+	held_process a([&] {
+		return map->claim(false) == devhash_path::first_copy ? 0 : 1;
+	});
+	REQUIRE(a.result == 0);
+	map->clear_owner_hint_for_test();
+	CHECK(map->claim(false) == devhash_path::not_owner);
+	CHECK(in_child([&]() -> int {
+		      return map->claim(false) == devhash_path::not_owner ? 0 : 3;
+	      },
+		       std::chrono::seconds(5)) == 0);
+}
+
+TEST_CASE("A free claim of an owner that runs is not taken over",
+	  "[gpu-devhash-cpu]")
+{
+	// the owner's lock released while it runs (a host closed its
+	// description) and not noticed yet: the hint keeps the claim its own
+	segment seg("ownerhint");
+	auto *map = seg.make(8);
+	int fds[2];
+	REQUIRE(pipe(fds) == 0);
+	const pid_t a = fork();
+	REQUIRE(a >= 0);
+	if (a == 0) {
+		const int keep = dup2(fds[1], 900);
+		if (keep != 900 || map->claim(false) != devhash_path::first_copy)
+			_exit(3);
+		close_range(3, 899, 0);
+		const char r = 1;
+		(void)!write(keep, &r, 1);
+		for (;;)
+			pause();
+	}
+	close(fds[1]);
+	char r = 0;
+	const bool got = read_within(fds[0], &r, 1);
+	close(fds[0]);
+	struct killer {
+		pid_t pid;
+		~killer()
+		{
+			if (pid > 0) {
+				kill(pid, SIGKILL);
+				waitpid(pid, nullptr, 0);
+			}
+		}
+	} k{ a };
+	REQUIRE(got);
+	CHECK(map->claim(false) == devhash_path::not_owner);
+	kill(a, SIGKILL);
+	waitpid(a, nullptr, 0);
+	k.pid = -1;
+	CHECK(claim_eventually(map));
+	map->release_claim();
+}
+
+TEST_CASE("Writer slots under a host closing descriptors and vfork children",
+	  "[gpu-devhash-cpu]")
+{
+	SECTION("a writer whose description the host closed is still counted")
+	{
+		segment seg("hostclose");
+		auto *map = seg.make(256);
+		usable_slots_guard one(1);
+		int fds[2];
+		REQUIRE(pipe(fds) == 0);
+		const pid_t a = fork();
+		REQUIRE(a >= 0);
+		if (a == 0) {
+			const int keep = dup2(fds[1], 900);
+			if (keep != 900 || put(map, 1, 1) != 0)
+				_exit(3);
+			close_range(3, 899, 0); // the slot's lock goes
+			block_wfd = keep;
+			set_devhash_hook_for_test(block_hook);
+			block_armed = true;
+			put(map, 2, 2); // in flight for ever
+			_exit(4);
+		}
+		close(fds[1]);
+		char c = 0;
+		const bool got = read_within(fds[0], &c, 1);
+		close(fds[0]);
+		struct killer {
+			pid_t pid;
+			~killer()
+			{
+				kill(pid, SIGKILL);
+				waitpid(pid, nullptr, 0);
+			}
+		} k{ a };
+		REQUIRE(got);
+		REQUIRE(map->get_inflight() == 1);
+		// another writer finds the only slot's lock free, its holder
+		// running: it does not take it (nor clear its count)
+		held_process b([&] { return put(map, 3, 3) == 0 ? 0 : 1; });
+		REQUIRE(b.result == 0);
+		CHECK(map->get_inflight() == 1);
+		// and the seal does not discount it
+		CHECK(seal_in_child(map, 0, 300 * MS) == 3);
+	}
+	SECTION("a holder whose main thread exited is alive while a thread runs")
+	{
+		// its lock released by a host, its main thread gone: the
+		// pid's maps read empty, the running thread's do not
+		segment seg("leaderexit");
+		auto *map = seg.make(256);
+		int fds[2];
+		REQUIRE(pipe(fds) == 0);
+		const pid_t a = fork();
+		REQUIRE(a >= 0);
+		if (a == 0) {
+			const int keep = dup2(fds[1], 900);
+			if (keep != 900 || put(map, 1, 1) != 0)
+				_exit(3);
+			close_range(3, 899, 0);
+			block_wfd = keep;
+			set_devhash_hook_for_test(block_hook);
+			block_armed = true;
+			std::thread([&] { put(map, 2, 2); }).detach();
+			// the main thread only (no unwinding through the test
+			// framework)
+			for (;;) {
+				if (map->get_inflight() == 1)
+					syscall(SYS_exit, 0);
+				usleep(1000);
+			}
+		}
+		close(fds[1]);
+		char c = 0;
+		const bool got = read_within(fds[0], &c, 1);
+		close(fds[0]);
+		struct killer {
+			pid_t pid;
+			~killer()
+			{
+				kill(pid, SIGKILL);
+				waitpid(pid, nullptr, 0);
+			}
+		} k{ a };
+		REQUIRE(got);
+		usleep(50000); // the main thread has exited
+		REQUIRE(map->get_inflight() == 1);
+		CHECK(seal_in_child(map, 0, 300 * MS) == 3);
+	}
+	SECTION("the description never takes a standard stream's number")
+	{
+		segment seg("lowfds");
+		auto *map = seg.make(64);
+		const std::string path = "/dev/shm/" + seg.name;
+		CHECK(in_child(
+			      [&]() -> int {
+				      close(0);
+				      close(1);
+				      close(2);
+				      if (put(map, 1, 1) != 0)
+					      return 3;
+				      for (int fd = 0; fd < 3; fd++) {
+					      char link[64], to[256] = {};
+					      snprintf(link, sizeof(link),
+						       "/proc/self/fd/%d", fd);
+					      if (readlink(link, to,
+							   sizeof(to) - 1) > 0 &&
+						  path == to)
+						      return 4;
+				      }
+				      return 0;
+			      },
+			      std::chrono::seconds(5)) == 0);
+	}
+	SECTION("a fork child leaves a host file at the description's old number")
+	{
+		segment seg("hostnumber");
+		auto *map = seg.make(64);
+		CHECK(in_child(
+			      [&]() -> int {
+				      if (put(map, 1, 1) != 0)
+					      return 3;
+				      // the host closes everything and opens a file
+				      // of its own at the freed numbers
+				      close_range(3, ~0U, 0);
+				      int mine[8];
+				      for (int &fd : mine)
+					      if ((fd = open("/dev/null", O_RDONLY)) <
+						  0)
+						      return 4;
+				      const pid_t c = fork();
+				      if (c < 0)
+					      return 5;
+				      if (c == 0) {
+					      for (int fd : mine)
+						      if (fcntl(fd, F_GETFD) < 0)
+							      _exit(6);
+					      _exit(0);
+				      }
+				      int st = 0;
+				      waitpid(c, &st, 0);
+				      return WIFEXITED(st) ? WEXITSTATUS(st) : 7;
+			      },
+			      std::chrono::seconds(5)) == 0);
+	}
+	SECTION("a vfork child's first write leaves the parent's table alone")
+	{
+		segment seg("vforkwrite");
+		auto *map = seg.make(256);
+		const int rc = in_child(
+			[&]() -> int {
+				const pid_t v = vfork();
+				if (v < 0)
+					return 3;
+				if (v == 0)
+					_exit(put(map, 1, 1) == 0 ? 0 : 1);
+				int st = 0;
+				waitpid(v, &st, 0);
+				if (!WIFEXITED(st) || WEXITSTATUS(st) != 0)
+					return 4;
+				// this process's own writer, in flight: a seal
+				// elsewhere must wait for it
+				int fds[2];
+				if (pipe(fds) != 0)
+					return 5;
+				const pid_t sealer = fork();
+				if (sealer < 0)
+					return 6;
+				if (sealer == 0) {
+					char x;
+					(void)!read(fds[0], &x, 1);
+					devhash_image img;
+					_exit(map->seal_and_build(img, 300 * MS) ? 1 :
+										   0);
+				}
+				block_wfd = fds[1];
+				set_devhash_hook_for_test(block_hook);
+				block_armed = true;
+				std::thread([&] { put(map, 2, 2); }).detach();
+				waitpid(sealer, &st, 0);
+				return WIFEXITED(st) ? WEXITSTATUS(st) * 10 : 8;
+			},
+			std::chrono::seconds(10));
+		CHECK(rc == 0);
+	}
+}
+
+// The image an exec test's child execs into: this binary, which opens the
+// segment and writes the map again (an image that maps the segment, as a
+// traced process with the agent preloaded again).
+TEST_CASE("Device hash exec child", "[.devhash-exec-child]")
+{
+	const char *name = getenv("BPFTIME_DEVHASH_EXEC_SEG");
+	const char *off = getenv("BPFTIME_DEVHASH_EXEC_OFF");
+	if (name == nullptr || off == nullptr)
+		return;
+	managed_shared_memory m(open_only, name);
+	auto *map = (nv_gpu_device_hash_map_impl *)((char *)m.get_address() +
+						     strtoull(off, nullptr, 10));
+	_exit(put(map, 7, 7) == 0 ? 0 : 1);
+}
+
+TEST_CASE("An exec'd image of a writer clears what its earlier image left",
+	  "[gpu-devhash-cpu]")
+{
+	segment seg("execagain");
+	auto *map = seg.make(256);
+	const uint64_t off =
+		(uint64_t)((char *)map - (char *)seg.m.get_address());
+	const pid_t pid = fork();
+	REQUIRE(pid >= 0);
+	if (pid == 0) {
+		if (put(map, 1, 1) != 0) // takes its slot
+			_exit(3);
+		int inner[2];
+		if (pipe(inner) != 0)
+			_exit(4);
+		block_wfd = inner[1];
+		set_devhash_hook_for_test(block_hook);
+		block_armed = true;
+		std::thread([&] { put(map, 99, 1); }).detach();
+		char c;
+		if (read(inner[0], &c, 1) != 1)
+			_exit(6);
+		// a writer is in flight; the exec kills it
+		setenv("BPFTIME_DEVHASH_EXEC_SEG", seg.name.c_str(), 1);
+		setenv("BPFTIME_DEVHASH_EXEC_OFF", std::to_string(off).c_str(),
+		       1);
+		execl("/proc/self/exe", "bpftime_runtime_tests",
+		      "[.devhash-exec-child]", (char *)nullptr);
+		_exit(7);
+	}
+	int st = 0;
+	for (int i = 0; i < 1000 && waitpid(pid, &st, WNOHANG) != pid; i++)
+		usleep(10000);
+	if (kill(pid, 0) == 0) {
+		kill(pid, SIGKILL);
+		waitpid(pid, &st, 0);
+		FAIL("the exec'd image did not finish");
+	}
+	REQUIRE(WIFEXITED(st));
+	REQUIRE(WEXITSTATUS(st) == 0);
+	// the new image took its pid's slot again: the killed writer's count
+	// is gone, its own write done
+	CHECK(map->get_inflight() == 0);
+	CHECK(seal_in_child(map, 0, 300 * MS) == 0);
+}
