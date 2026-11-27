@@ -27,6 +27,7 @@
 #include <bpf_map/shared/perf_event_array_kernel_user.hpp>
 #if defined(BPFTIME_ENABLE_CUDA_ATTACH)
 #include "bpf_map/gpu/nv_gpu_ringbuf_map.hpp"
+#include "bpf_map/gpu/nv_gpu_device_hash_map.hpp"
 #endif
 
 #if __APPLE__
@@ -368,6 +369,9 @@ class bpf_map_handler {
 #if defined(BPFTIME_ENABLE_CUDA_ATTACH)
 	std::optional<nv_gpu_ringbuf_map_impl *>
 	try_get_nv_gpu_ringbuf_map_impl() const;
+	// the device hash map's object (1533), for the agent and tests
+	std::optional<nv_gpu_device_hash_map_impl *>
+	try_get_device_hash_map_impl() const;
 #endif
     private:
 	int id = 0;

@@ -3,7 +3,8 @@
 // seal that keeps CPU writers out of the device copy, the image the copy
 // starts from, the delivered mirror the CPU reads afterwards, the takeover
 // image and the owner's path. No GPU: deliveries are synthetic stagings
-// made from a host model of the device directory.
+// made from a host model of the device directory. Checks that could hang
+// under a fault run in forked children with a deadline.
 #if defined(BPFTIME_ENABLE_CUDA_ATTACH)
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <bpf_map/gpu/nv_gpu_device_hash_map.hpp>
@@ -23,8 +24,10 @@
 #include <cstring>
 #include <map>
 #include <mutex>
+#include <pthread.h>
 #include <set>
 #include <string>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -37,6 +40,7 @@ using namespace bpftime_devhash;
 namespace
 {
 using clk = std::chrono::steady_clock;
+constexpr uint64_t MS = 1000000ull;
 
 struct segment {
 	std::string name;
@@ -100,7 +104,7 @@ std::mutex park_mu;
 std::condition_variable park_cv;
 bool park_armed = false;
 devhash_hook_point park_point;
-uint64_t park_arg = 0; // slot for after_pass_c_slot; phase for writers
+uint64_t park_arg = 0; // slot for after_pass_c_slot
 bool parked = false;
 bool released = false;
 thread_local bool park_this_thread = false;
@@ -156,6 +160,18 @@ void disarm()
 	park_cv.notify_all();
 }
 
+// Releases and joins threads when a check fails and unwinds.
+struct joiner {
+	std::vector<std::thread *> ts;
+	~joiner()
+	{
+		disarm();
+		for (auto *t : ts)
+			if (t->joinable())
+				t->join();
+	}
+};
+
 // Runs fn in a forked child (CPU only) with a deadline; the child's exit
 // status, or -1 when it was killed at the deadline.
 template <class Fn>
@@ -184,6 +200,69 @@ int in_child(Fn &&fn, std::chrono::milliseconds deadline)
 	return -1;
 }
 
+// A forked writer that stops (SIGSTOP) or blocks for ever at a hook point;
+// the parent learns it got there through a pipe.
+struct hooked_writer {
+	pid_t pid = -1;
+	int fds[2] = { -1, -1 };
+	static inline int wfd = -1;
+	static inline devhash_hook_point where;
+	static inline bool stop = false;
+	static void hook(devhash_hook_point p, uint64_t)
+	{
+		if (p != where)
+			return;
+		char c = 'x';
+		(void)!write(wfd, &c, 1);
+		if (stop)
+			raise(SIGSTOP);
+		else
+			for (;;)
+				pause();
+	}
+	// the child's exit status: 0 when its update returned want_rc
+	hooked_writer(nv_gpu_device_hash_map_impl *map, uint32_t key,
+		      devhash_hook_point at, bool stop_there, long want_rc)
+	{
+		REQUIRE(pipe(fds) == 0);
+		pid = fork();
+		REQUIRE(pid >= 0);
+		if (pid == 0) {
+			wfd = fds[1];
+			where = at;
+			stop = stop_there;
+			set_devhash_hook_for_test(hook);
+			_exit(put(map, key, key) == want_rc ? 0 : 4);
+		}
+		close(fds[1]); // EOF if the child dies before the hook
+		fds[1] = -1;
+		char c;
+		REQUIRE(read(fds[0], &c, 1) == 1);
+	}
+	~hooked_writer()
+	{
+		if (pid > 0) {
+			kill(pid, SIGKILL);
+			waitpid(pid, nullptr, 0);
+		}
+		close(fds[0]);
+	}
+	void kill_now()
+	{
+		kill(pid, SIGKILL);
+		waitpid(pid, nullptr, 0); // reaped: gone
+		pid = -1;
+	}
+	int resume_and_wait()
+	{
+		int st = 0;
+		kill(pid, SIGCONT);
+		waitpid(pid, &st, 0);
+		pid = -1;
+		return WIFEXITED(st) ? WEXITSTATUS(st) : -2;
+	}
+};
+
 // ------------------------------------------------- device model, staging
 // The device directory as the GPU changes it: slots only go empty ->
 // claiming -> live or refused, keys never change, sums only grow.
@@ -198,7 +277,7 @@ struct device_model {
 		  sum(slots_for(m), 0)
 	{
 	}
-	// claim a slot for k (walk from home); returns it, or -1
+	// claim a slot for k (walk from home, state first); -1 if none
 	int64_t claim(uint32_t k)
 	{
 		uint64_t i = home_slot(k, log_slots);
@@ -244,17 +323,17 @@ struct device_model {
 		}
 		return -1;
 	}
-	// A snapshot: every slot as the device has it, except the slots in
-	// `stale`, read before they were filled (or before they changed):
-	// shown with their header from `old` (a header the slot had earlier).
-	std::vector<uint8_t> staging(const std::map<uint64_t, uint64_t> &old = {})
-		const
+	// A snapshot: every slot as the device has it, except those in
+	// `shown`, given the header they show (read before they were filled:
+	// 0; or a defensive staging).
+	std::vector<uint8_t>
+	staging(const std::map<uint64_t, uint64_t> &shown = {}) const
 	{
 		const staging_layout st = staging_for(max_entries);
 		std::vector<uint8_t> buf(st.total, 0);
 		for (uint64_t s = 0; s < slots; s++) {
 			uint64_t h = hdr[s], v = sum[s];
-			if (auto it = old.find(s); it != old.end()) {
+			if (auto it = shown.find(s); it != shown.end()) {
 				h = it->second;
 				v = state_of(h) == ST_LIVE ? sum[s] : 0;
 			}
@@ -280,6 +359,12 @@ void to_device_phase(nv_gpu_device_hash_map_impl *map)
 	REQUIRE(map->seal_and_build(img));
 	map->seed_mirror(img);
 	map->publish_device_phase();
+}
+
+const uint64_t SELF = devhash_owner_record(0x5151, 4242);
+bool nobody_alive(uint32_t, uint64_t)
+{
+	return false;
 }
 } // namespace
 
@@ -364,13 +449,13 @@ TEST_CASE("Device hash map phase 0 behaves as a hash map", "[gpu-devhash-cpu]")
 		if (a != 0)
 			CHECK(ea == eb);
 	}
-	std::set<uint32_t> ka, kb;
 	for (uint32_t k = 0; k < 32; k++) {
 		const void *va = map->elem_lookup(&k), *vb = ref->elem_lookup(&k);
 		CHECK((va == nullptr) == (vb == nullptr));
 		if (va && vb)
 			CHECK(*(const uint64_t *)va == *(const uint64_t *)vb);
 	}
+	std::set<uint32_t> ka, kb;
 	uint32_t cur, next;
 	for (int r = map->map_get_next_key(nullptr, &next); r == 0;
 	     cur = next, r = map->map_get_next_key(&cur, &next))
@@ -380,171 +465,229 @@ TEST_CASE("Device hash map phase 0 behaves as a hash map", "[gpu-devhash-cpu]")
 		kb.insert(next);
 	CHECK(ka == kb);
 	CHECK(ka.size() == 8);
+	// a null next_key is EINVAL in both phases (it was a SIGSEGV in 2)
+	errno = 0;
+	CHECK(map->map_get_next_key(nullptr, nullptr) == -1);
+	CHECK(errno == EINVAL);
 }
 
 // ------------------------------------------------------------- S2.3
 
-TEST_CASE("The seal waits for a writer that read phase 0", "[gpu-devhash-cpu]")
+TEST_CASE("The seal waits for a writer in flight", "[gpu-devhash-cpu]")
 {
-	segment seg("sealrace");
-	auto *map = seg.make(4096);
-	arm(devhash_hook_point::writer_after_phase_load);
-	std::atomic<long> wrc{ 99 };
-	std::thread writer([&] {
-		park_this_thread = true;
-		wrc = put(map, 777, 7, BPF_NOEXIST);
-	});
-	REQUIRE(wait_parked());
-	devhash_image img;
-	std::atomic<bool> sealed_done{ false }, sealed_ok{ false };
-	std::thread sealer([&] {
-		sealed_ok = map->seal_and_build(img, 3000000000ull);
-		sealed_done = true;
-	});
-	// release the writer when the sealer has finished, or after 50 ms
-	const auto end = clk::now() + std::chrono::milliseconds(50);
-	while (!sealed_done && clk::now() < end)
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
-	const bool done_before_release = sealed_done;
-	release();
-	writer.join();
-	sealer.join();
-	disarm();
-	CHECK_FALSE(done_before_release);
-	REQUIRE(sealed_ok);
-	REQUIRE(wrc == 0);
-	CHECK(image_find(img, 777, log_slots_for(4096)) >= 0);
-
-	// free-running writers: every key is in the image, or got EPERM
-	segment seg2("sealrace2");
-	auto *map2 = seg2.make(4096);
-	std::vector<std::vector<std::pair<uint32_t, long>>> done(8);
-	std::atomic<bool> go{ true };
-	std::vector<std::thread> ws;
-	for (int t = 0; t < 8; t++)
-		ws.emplace_back([&, t] {
-			for (uint32_t i = 0; i < 400 && go; i++) {
-				const uint32_t k = t * 1000 + i + 1;
-				done[t].push_back(
-					{ k, put(map2, k, k, BPF_NOEXIST) });
-			}
+	SECTION("a writer that read phase 0 completes, and its key is in the image")
+	{
+		segment seg("sealrace");
+		auto *map = seg.make(4096);
+		arm(devhash_hook_point::writer_after_phase_load);
+		std::atomic<long> wrc{ 99 };
+		devhash_image img;
+		std::atomic<bool> done{ false }, ok{ false };
+		std::thread writer([&] {
+			park_this_thread = true;
+			wrc = put(map, 777, 7, BPF_NOEXIST);
 		});
-	std::this_thread::sleep_for(std::chrono::microseconds(300));
-	devhash_image img2;
-	REQUIRE(map2->seal_and_build(img2));
-	go = false;
-	for (auto &w : ws)
-		w.join();
-	size_t in = 0, refused = 0;
-	for (auto &d : done)
-		for (auto &[k, rc] : d) {
-			const bool found =
-				image_find(img2, k, log_slots_for(4096)) >= 0;
-			if (rc == 0) {
-				CHECK(found);
-				in++;
-			} else {
-				CHECK_FALSE(found);
-				refused++;
+		std::thread sealer;
+		joiner j{ { &writer, &sealer } };
+		REQUIRE(wait_parked());
+		sealer = std::thread([&] {
+			ok = map->seal_and_build(img, 3000 * MS);
+			done = true;
+		});
+		// release when the sealer has finished, or after 50 ms
+		const auto end = clk::now() + std::chrono::milliseconds(50);
+		while (!done && clk::now() < end)
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		const bool done_before_release = done;
+		release();
+		writer.join();
+		sealer.join();
+		CHECK_FALSE(done_before_release);
+		REQUIRE(ok);
+		REQUIRE(wrc == 0);
+		CHECK(image_find(img, 777, log_slots_for(4096)) >= 0);
+	}
+	SECTION("a writer between its increment and its phase load backs out")
+	{
+		segment seg("sealmid");
+		auto *map = seg.make(4096);
+		arm(devhash_hook_point::writer_after_inflight_inc);
+		std::atomic<long> wrc{ 99 };
+		std::atomic<int> werr{ 0 };
+		devhash_image img;
+		std::atomic<bool> done{ false }, ok{ false };
+		std::thread writer([&] {
+			park_this_thread = true;
+			wrc = put(map, 778, 7, BPF_NOEXIST);
+			werr = errno;
+		});
+		std::thread sealer;
+		joiner j{ { &writer, &sealer } };
+		REQUIRE(wait_parked());
+		sealer = std::thread([&] {
+			ok = map->seal_and_build(img, 3000 * MS);
+			done = true;
+		});
+		const auto end = clk::now() + std::chrono::milliseconds(50);
+		while (!done && clk::now() < end)
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		const bool done_before_release = done;
+		release();
+		writer.join();
+		sealer.join();
+		CHECK_FALSE(done_before_release); // the seal waited for it
+		REQUIRE(ok);
+		CHECK(wrc == -1);
+		CHECK(werr == EPERM); // it read phase 1
+		CHECK(image_find(img, 778, log_slots_for(4096)) < 0);
+	}
+	SECTION("free-running writers: every key is in the image or got EPERM")
+	{
+		segment seg("sealrace2");
+		auto *map = seg.make(4096);
+		std::vector<std::vector<std::pair<uint32_t, long>>> done(8);
+		std::atomic<bool> go{ true };
+		std::vector<std::thread> ws;
+		for (int t = 0; t < 8; t++)
+			ws.emplace_back([&, t] {
+				for (uint32_t i = 0; i < 400 && go; i++) {
+					const uint32_t k = t * 1000 + i + 1;
+					done[t].push_back(
+						{ k, put(map, k, k, BPF_NOEXIST) });
+				}
+			});
+		std::this_thread::sleep_for(std::chrono::microseconds(300));
+		devhash_image img;
+		const bool ok = map->seal_and_build(img);
+		go = false;
+		for (auto &w : ws)
+			w.join();
+		REQUIRE(ok);
+		size_t in = 0;
+		for (auto &d : done)
+			for (auto &[k, rc] : d) {
+				const bool found =
+					image_find(img, k, log_slots_for(4096)) >=
+					0;
+				CHECK(found == (rc == 0));
+				in += rc == 0;
 			}
-		}
-	CHECK(img2.count == in);
-	INFO("inserted " << in << ", refused " << refused);
+		CHECK(img.count == in);
+	}
 }
 
 // ------------------------------------------------------------- S2.4
 
-TEST_CASE("A writer that dies in flight stops the seal, a stopped one only delays it",
+TEST_CASE("Writers of dead processes are discounted, a stopped one only delays the seal",
 	  "[gpu-devhash-cpu]")
 {
-	segment seg("deadwriter");
-	auto *map = seg.make(256);
-	for (uint32_t k = 1; k <= 64; k++)
-		REQUIRE(put(map, k, k) == 0);
-	int pipefd[2];
-	REQUIRE(pipe(pipefd) == 0);
-	pid_t child = fork();
-	REQUIRE(child >= 0);
-	if (child == 0) {
-		static int wfd;
-		wfd = pipefd[1];
-		set_devhash_hook_for_test([](devhash_hook_point p, uint64_t) {
-			if (p != devhash_hook_point::writer_after_inflight_inc)
-				return;
-			char c = 'x';
-			(void)!write(wfd, &c, 1);
-			for (;;)
-				pause();
-		});
-		put(map, 1000, 1);
-		_exit(0);
+	SECTION("killed in flight: the seal discounts it")
+	{
+		segment seg("deadwriter");
+		auto *map = seg.make(256);
+		for (uint32_t k = 1; k <= 64; k++)
+			REQUIRE(put(map, k, k) == 0);
+		{
+			hooked_writer w(map, 1000,
+					devhash_hook_point::writer_after_inflight_inc,
+					false, 0);
+			CHECK(map->get_inflight() == 1);
+			w.kill_now();
+		}
+		const int rc = in_child(
+			[&]() -> int {
+				devhash_image img;
+				if (!map->seal_and_build(img, 2000 * MS))
+					return 3;
+				return img.count == 64 &&
+					       image_find(img, 1000,
+							  log_slots_for(256)) <
+						       0 ?
+					       0 :
+					       4;
+			},
+			std::chrono::seconds(10));
+		CHECK(rc == 0);
+		CHECK(map->get_inflight() == 0);
+		CHECK_FALSE(map->is_seal_dead());
 	}
-	char c;
-	REQUIRE(read(pipefd[0], &c, 1) == 1);
-	kill(child, SIGKILL);
-	waitpid(child, nullptr, 0);
-	CHECK(map->get_inflight() == 1);
-	devhash_image img;
-	const auto t0 = clk::now();
-	CHECK_FALSE(map->seal_and_build(img, 200000000ull));
-	CHECK(clk::now() - t0 >= std::chrono::milliseconds(200));
-	CHECK(map->get_phase() == DEVHASH_PHASE_CPU);
-	CHECK(map->is_seal_dead());
-	// later CPU updates work, on every stripe
-	for (uint32_t k = 1; k <= 64; k++)
-		CHECK(put(map, k, k + 100, BPF_EXIST) == 0);
-	// a second attempt, from another process, returns at once
-	const int rc = in_child(
-		[&]() -> int {
-			devhash_image i2;
-			const auto t = clk::now();
-			const bool ok = map->seal_and_build(i2, 200000000ull);
-			return !ok && clk::now() - t <
-						std::chrono::milliseconds(50) ?
-				       0 :
-				       3;
-		},
-		std::chrono::seconds(5));
-	CHECK(rc == 0);
-	close(pipefd[0]);
-	close(pipefd[1]);
-
-	// A stopped writer: the seal times out, the writer finishes later,
-	// and the next attempt seals.
-	segment seg2("stoppedwriter");
-	auto *map2 = seg2.make(256);
-	int p2[2];
-	REQUIRE(pipe(p2) == 0);
-	pid_t c2 = fork();
-	REQUIRE(c2 >= 0);
-	if (c2 == 0) {
-		static int wfd2;
-		wfd2 = p2[1];
-		set_devhash_hook_for_test([](devhash_hook_point p, uint64_t) {
-			if (p != devhash_hook_point::writer_after_inflight_inc)
-				return;
-			char x = 'x';
-			(void)!write(wfd2, &x, 1);
-			raise(SIGSTOP);
-		});
-		// it read phase 0 before it stopped: the update goes through
-		_exit(put(map2, 2000, 2) == 0 ? 0 : 4);
+	SECTION("killed by an ordinary exit of a multi-threaded process")
+	{
+		segment seg("exitwriter");
+		auto *map = seg.make(4096);
+		// exits until one has left writers in flight (2-23 of 40 did
+		// in the review's measurement)
+		int leaked = 0;
+		for (int round = 0; round < 200 && leaked == 0; round++) {
+			const int rc = in_child(
+				[&]() -> int {
+					for (int t = 0; t < 4; t++)
+						std::thread([&, t] {
+							for (uint32_t i = 0;;
+							     i++)
+								put(map,
+								    t * 100000 +
+									    i %
+										    500,
+								    i);
+						}).detach();
+					usleep(5000);
+					_exit(0); // kills the writers
+				},
+				std::chrono::seconds(10));
+			REQUIRE(rc == 0);
+			leaked += map->get_inflight() != 0;
+		}
+		REQUIRE(leaked > 0);
+		const int rc = in_child(
+			[&]() -> int {
+				devhash_image img;
+				return map->seal_and_build(img, 2000 * MS) ? 0 :
+									     3;
+			},
+			std::chrono::seconds(10));
+		CHECK(rc == 0);
+		CHECK(map->get_inflight() == 0);
 	}
-	REQUIRE(read(p2[0], &c, 1) == 1);
-	int st = 0;
-	REQUIRE(waitpid(c2, &st, WUNTRACED) == c2);
-	REQUIRE(WIFSTOPPED(st));
-	devhash_image img2;
-	CHECK_FALSE(map2->seal_and_build(img2, 200000000ull));
-	CHECK(map2->is_seal_dead());
-	kill(c2, SIGCONT);
-	REQUIRE(waitpid(c2, &st, 0) == c2);
-	CHECK(WIFEXITED(st));
-	CHECK(map2->get_inflight() == 0);
-	CHECK(map2->seal_and_build(img2, 200000000ull));
-	CHECK_FALSE(map2->is_seal_dead());
-	close(p2[0]);
-	close(p2[1]);
+	SECTION("stopped in flight: the seal fails, and seals once it has finished")
+	{
+		segment seg("stoppedwriter");
+		auto *map = seg.make(256);
+		hooked_writer w(map, 2000,
+				devhash_hook_point::writer_after_inflight_inc, true,
+				0);
+		devhash_image img;
+		devhash_path path;
+		// the first attempt times out (in a child: it could hang)
+		CHECK(in_child(
+			      [&]() -> int {
+				      devhash_image i;
+				      devhash_path p;
+				      return map->make_image(SELF, false, i, p,
+							     nobody_alive,
+							     200 * MS) ?
+						     3 :
+						     0;
+			      },
+			      std::chrono::seconds(5)) == 0);
+		CHECK(map->is_seal_dead());
+		CHECK(map->get_phase() == DEVHASH_PHASE_CPU);
+		CHECK(map->get_owner() == 0); // the claim was given back
+		// another process tries at once, and gives up at once
+		const auto t0 = clk::now();
+		CHECK_FALSE(map->make_image(devhash_owner_record(0x5151, 9),
+					    false, img, path, nobody_alive,
+					    200 * MS));
+		CHECK(clk::now() - t0 < std::chrono::milliseconds(50));
+		CHECK(map->get_owner() == 0);
+		// the writer resumes: it read phase 0 (the seal had given up)
+		CHECK(w.resume_and_wait() == 0);
+		CHECK(map->make_image(SELF, false, img, path, nobody_alive,
+				      200 * MS));
+		CHECK(path == devhash_path::first_copy);
+		CHECK_FALSE(map->is_seal_dead());
+		CHECK(image_find(img, 2000, log_slots_for(256)) >= 0);
+	}
 }
 
 // ------------------------------------------------------------- S2.5
@@ -557,7 +700,7 @@ TEST_CASE("A stripe held by a dead reader does not stop the seal",
 	for (uint32_t k = 1; k <= 100; k++)
 		REQUIRE(put(map, k, k * 3) == 0);
 	auto &table = map->table_for_test().table_for_test();
-	const uint32_t k = 42;
+	const uint32_t k = 42; // a prefilled key: its stripe has a key
 	const size_t stripe = table.stripe_of_key(&k);
 	table.lock_stripe_for_test(stripe);
 	const int rc = in_child(
@@ -635,12 +778,9 @@ TEST_CASE("The delivered mirror stays walkable", "[gpu-devhash-cpu]")
 	device_model dev(M);
 	const uint32_t L = dev.log_slots;
 	const uint64_t S = dev.slots;
-	std::map<uint32_t, uint64_t> first_value;
 
 	SECTION("A live key behind a slot read before it was filled")
 	{
-		// K1 at its home h, K2 (same home) at h + 1; the snapshot read
-		// h before K1 claimed it
 		const uint32_t h = 10;
 		const uint32_t k1 = key_with_home(h, L);
 		const uint32_t k2 = key_with_home(h, L, k1 + 1);
@@ -649,10 +789,8 @@ TEST_CASE("The delivered mirror stays walkable", "[gpu-devhash-cpu]")
 		REQUIRE(dev.find(k2) == h + 1);
 		deliver(map, dev.staging({ { h, 0 } }));
 		// rule (c): every key live in the staging is found
-		CHECK(get(map, k2) != nullptr);
-		if (auto *v = get(map, k2))
-			CHECK(*v == 7);
-		// K1 shows up with the next delivery
+		REQUIRE(get(map, k2) != nullptr);
+		CHECK(*get(map, k2) == 7);
 		deliver(map, dev.staging());
 		CHECK(get(map, k1) != nullptr);
 		CHECK(get(map, k2) != nullptr);
@@ -660,8 +798,6 @@ TEST_CASE("The delivered mirror stays walkable", "[gpu-devhash-cpu]")
 
 	SECTION("A key across the end of the directory, parked in pass C")
 	{
-		// K2 at S-1 (its home), K at slot 0 (home S-1): both new in one
-		// delivery; pass C stores slot 0 first
 		const uint32_t k2 = key_with_home(S - 1, L);
 		const uint32_t k = key_with_home(S - 1, L, k2 + 1);
 		dev.insert(k2, 3);
@@ -670,6 +806,7 @@ TEST_CASE("The delivered mirror stays walkable", "[gpu-devhash-cpu]")
 		arm(devhash_hook_point::delivery_after_pass_c_slot, 0);
 		auto st = dev.staging();
 		std::thread w([&] { deliver(map, st); });
+		joiner j{ { &w } };
 		REQUIRE(wait_parked());
 		// rule (d): what get_next_key returns, lookup finds
 		uint32_t next = 0;
@@ -677,8 +814,6 @@ TEST_CASE("The delivered mirror stays walkable", "[gpu-devhash-cpu]")
 		CHECK(next == k);
 		CHECK(get(map, next) != nullptr);
 		release();
-		w.join();
-		disarm();
 	}
 
 	SECTION("Values before headers, parked before pass A")
@@ -688,22 +823,32 @@ TEST_CASE("The delivered mirror stays walkable", "[gpu-devhash-cpu]")
 		arm(devhash_hook_point::delivery_before_pass_a);
 		auto st = dev.staging();
 		std::thread w([&] { deliver(map, st); });
-		REQUIRE(wait_parked());
-		// rule (b): a found value is never below the one staged with it
-		if (auto *v = get(map, k))
-			CHECK(*v >= 99);
-		release();
-		w.join();
-		disarm();
+		{
+			joiner j{ { &w } };
+			REQUIRE(wait_parked());
+			// rule (b): a found value is never below the staged one
+			if (auto *v = get(map, k))
+				CHECK(*v >= 99);
+			release();
+		}
 		REQUIRE(get(map, k) != nullptr);
 		CHECK(*get(map, k) == 99);
 	}
 
-	SECTION("A live slot shown empty again keeps its key")
+	SECTION("A later delivery's value reaches the mirror")
 	{
-		// K1 live at its home h; K2 (home h) at h + 1. A later staging
-		// shows K1's slot empty: on K2's path (repair would make it
-		// opaque) and off any path.
+		const uint32_t k = key_with_home(30, L);
+		const int64_t s = dev.insert(k, 5);
+		deliver(map, dev.staging());
+		REQUIRE(get(map, k) != nullptr);
+		CHECK(*get(map, k) == 5);
+		dev.sum[s] = 9;
+		deliver(map, dev.staging());
+		CHECK(*get(map, k) == 9);
+	}
+
+	SECTION("Live slots shown empty again keep their keys")
+	{
 		const uint32_t h = 3;
 		const uint32_t k1 = key_with_home(h, L);
 		const uint32_t k2 = key_with_home(h, L, k1 + 1);
@@ -714,22 +859,20 @@ TEST_CASE("The delivered mirror stays walkable", "[gpu-devhash-cpu]")
 		deliver(map, dev.staging());
 		REQUIRE(get(map, k1) != nullptr);
 		REQUIRE(get(map, k3) != nullptr);
+		// k1's slot lies on k2's path, k3's on no path
 		deliver(map, dev.staging({ { h, 0 }, { 40, 0 } }));
-		// rule (a): found once, found again
 		CHECK(get(map, k1) != nullptr);
 		CHECK(get(map, k2) != nullptr);
 		CHECK(get(map, k3) != nullptr);
 	}
 
-	SECTION("Claiming keys, repairs that last, key 0, and a random run with readers")
+	SECTION("Key 0 behind an opaque slot, a claim that turns live")
 	{
-		// key 0 with an opaque slot on its path
 		const uint32_t h0 = home_slot(0, L);
 		const uint32_t ka = key_with_home(h0, L);
 		dev.insert(ka, 11);
 		const int64_t s0 = dev.claim(0); // claiming, behind ka
 		REQUIRE(s0 >= 0);
-		// the snapshot read ka's slot before it was filled
 		deliver(map, dev.staging({ { (uint64_t)dev.find(ka), 0 } }));
 		CHECK(get(map, 0) == nullptr); // claiming: not found
 		dev.resolve(s0, 12);
@@ -738,130 +881,148 @@ TEST_CASE("The delivered mirror stays walkable", "[gpu-devhash-cpu]")
 		CHECK(*get(map, 0) == 12);
 		deliver(map, dev.staging());
 		CHECK(get(map, ka) != nullptr);
+	}
+}
 
-		// random: a writer delivers, readers check (a) (b) (c) (d)
-		std::mutex mu;
-		std::map<uint32_t, uint64_t> first; // value first staged live
-		std::vector<std::set<uint32_t>> live_at; // per delivery
-		std::atomic<bool> stop{ false };
-		std::atomic<uint64_t> failures{ 0 };
-		const uint64_t base =
-			*map->status_word(DEVHASH_STATUS_DELIVERIES);
-		auto reader = [&] {
-			std::set<uint32_t> seen;
-			while (!stop) {
-				const uint64_t n = __atomic_load_n(
-					map->status_word(
-						DEVHASH_STATUS_DELIVERIES),
-					__ATOMIC_ACQUIRE);
-				std::set<uint32_t> must;
-				std::map<uint32_t, uint64_t> mins;
-				{
-					std::lock_guard<std::mutex> g(mu);
-					if (n > base && n - base <= live_at.size())
-						must = live_at[n - base - 1];
-					mins = first;
-				}
-				for (uint32_t k : must)
-					if (!get(map, k))
-						failures++;
-				for (uint32_t k : seen)
-					if (!get(map, k))
-						failures++;
-				for (auto &[k, v0] : mins) {
-					if (auto *v = get(map, k)) {
-						seen.insert(k);
-						if (*v < v0)
-							failures++;
-					}
-				}
-				// a dump visits each slot at most once
-				uint32_t cur, nx;
-				uint64_t steps = 0;
-				for (int r = map->map_get_next_key(nullptr, &nx);
-				     r == 0; cur = nx,
-					 r = map->map_get_next_key(&cur, &nx)) {
-					if (!get(map, nx))
-						failures++;
-					if (++steps > S) {
-						failures++;
-						break;
-					}
-				}
-			}
-		};
-		std::thread r1(reader), r2(reader);
-		uint32_t seed = 12345;
-		auto rnd = [&] {
-			seed = seed * 1103515245 + 12345;
-			return seed >> 8;
-		};
-		std::vector<int64_t> claiming;
-		for (int round = 0; round < 400; round++) {
-			for (int i = 0; i < 2; i++) {
-				const uint32_t k = 100 + rnd() % 200;
-				if (dev.find(k) >= 0)
-					continue;
-				const int64_t s = dev.claim(k);
-				if (s < 0)
-					continue;
+TEST_CASE("The mirror under deliveries, with readers in threads and processes",
+	  "[gpu-devhash-cpu]")
+{
+	segment seg("mirrorrun");
+	const uint64_t M = 128; // 256 slots
+	auto *map = seg.make(M);
+	to_device_phase(map);
+	device_model dev(M);
+	const uint64_t S = dev.slots;
+	// Precomputed: the stagings, and per delivery n the keys live in any
+	// staging up to n with the largest value staged for them by then.
+	std::vector<std::vector<uint8_t>> stagings;
+	std::vector<std::map<uint32_t, uint64_t>> must;
+	std::map<uint32_t, uint64_t> acc;
+	uint32_t seed = 12345;
+	auto rnd = [&] {
+		seed = seed * 1103515245 + 12345;
+		return seed >> 8;
+	};
+	std::vector<int64_t> claiming;
+	for (int round = 0; round < 300; round++) {
+		std::vector<uint64_t> before = dev.hdr;
+		const uint32_t k = 1 + rnd() % 2000;
+		if (dev.find(k) < 0) {
+			const int64_t s = dev.claim(k);
+			if (s >= 0) {
 				if (rnd() % 3 == 0)
 					claiming.push_back(s);
 				else
 					dev.resolve(s, 1 + rnd() % 50);
 			}
-			if (!claiming.empty() && rnd() % 2 == 0) {
-				dev.resolve(claiming.back(), 1 + rnd() % 50);
-				claiming.pop_back();
-			}
-			for (uint64_t s = 0; s < S; s++)
-				if (state_of(dev.hdr[s]) == ST_LIVE)
-					dev.sum[s] += rnd() % 3;
-			// stale slots: newly filled ones read before filling
-			std::map<uint64_t, uint64_t> old;
-			for (uint64_t s = 0; s < S; s++)
-				if (state_of(dev.hdr[s]) != ST_EMPTY &&
-				    state_of(map->mirror_header(s)) ==
-					    ST_EMPTY &&
-				    rnd() % 3 == 0)
-					old[s] = 0;
-			auto st = dev.staging(old);
-			std::set<uint32_t> live_now;
-			{
-				std::lock_guard<std::mutex> g(mu);
-				for (uint64_t s = 0; s < S; s++) {
-					uint64_t hh;
-					std::memcpy(&hh,
-						    &st[staging_header_offset(s)],
-						    8);
-					if (state_of(hh) == ST_LIVE) {
-						live_now.insert(key_of(hh));
-						first.emplace(key_of(hh),
-							      dev.sum[s]);
-					}
-				}
-				live_at.push_back(live_now);
-			}
-			deliver(map, st);
 		}
-		stop = true;
-		r1.join();
-		r2.join();
-		CHECK(failures == 0);
-
-		// the same rules from a reader in another process
-		const int rc = in_child(
-			[&]() -> int {
-				for (auto &[k, v0] : first) {
-					auto *v = get(map, k);
-					if (!v || *v < v0)
-						return 3;
-				}
-				return 0;
-			},
-			std::chrono::seconds(10));
-		CHECK(rc == 0);
+		if (!claiming.empty() && rnd() % 2 == 0) {
+			dev.resolve(claiming.back(), 1 + rnd() % 50);
+			claiming.pop_back();
+		}
+		for (uint64_t s = 0; s < S; s++)
+			if (state_of(dev.hdr[s]) == ST_LIVE)
+				dev.sum[s] += rnd() % 3;
+		// slots filled this round may be read before they were filled;
+		// every 25 rounds, keyed slots are shown empty again
+		std::map<uint64_t, uint64_t> shown;
+		for (uint64_t s = 0; s < S; s++)
+			if (before[s] == 0 && dev.hdr[s] != 0 && rnd() % 2 == 0)
+				shown[s] = 0;
+		if (round % 25 == 24)
+			for (int i = 0; i < 3; i++) {
+				const uint64_t s = rnd() % S;
+				if (is_keyed(dev.hdr[s]))
+					shown[s] = 0;
+			}
+		stagings.push_back(dev.staging(shown));
+		for (uint64_t s = 0; s < S; s++) {
+			uint64_t hh;
+			std::memcpy(&hh, &stagings.back()[staging_header_offset(s)],
+				    8);
+			if (state_of(hh) == ST_LIVE)
+				acc[key_of(hh)] =
+					std::max(acc[key_of(hh)], dev.sum[s]);
+		}
+		must.push_back(acc);
 	}
+	const uint64_t base = *map->status_word(DEVHASH_STATUS_DELIVERIES);
+	auto *stop = seg.m.construct<uint64_t>(anonymous_instance)(0);
+	// one reader's loop; returns its failures
+	auto reader = [&]() -> uint64_t {
+		uint64_t failures = 0;
+		std::set<uint32_t> seen;
+		while (!__atomic_load_n(stop, __ATOMIC_ACQUIRE)) {
+			const uint64_t n = __atomic_load_n(
+				map->status_word(DEVHASH_STATUS_DELIVERIES),
+				__ATOMIC_ACQUIRE);
+			// (c) and (b): the keys live by delivery n, with at least
+			// the value staged for them by then
+			if (n > base)
+				for (auto &[k, v] : must[n - base - 1]) {
+					auto *p = get(map, k);
+					if (!p || *p < v)
+						failures++;
+				}
+			// (a): found once, found again
+			for (uint32_t k : seen)
+				if (!get(map, k))
+					failures++;
+			// (d): what get_next_key returns, lookup finds
+			uint32_t cur, nx;
+			uint64_t steps = 0;
+			for (int r = map->map_get_next_key(nullptr, &nx); r == 0;
+			     cur = nx, r = map->map_get_next_key(&cur, &nx)) {
+				if (!get(map, nx))
+					failures++;
+				seen.insert(nx);
+				if (++steps > S) {
+					failures++;
+					break;
+				}
+			}
+		}
+		return failures;
+	};
+	// readers in other processes, forked before the deliveries
+	std::vector<pid_t> kids;
+	for (int i = 0; i < 2; i++) {
+		pid_t pid = fork();
+		REQUIRE(pid >= 0);
+		if (pid == 0)
+			_exit(reader() == 0 ? 0 : 3);
+		kids.push_back(pid);
+	}
+	std::atomic<uint64_t> thread_failures{ 0 };
+	std::thread r1([&] { thread_failures += reader(); });
+	std::thread r2([&] { thread_failures += reader(); });
+	for (auto &st : stagings) {
+		deliver(map, st);
+		std::this_thread::sleep_for(std::chrono::microseconds(200));
+	}
+	__atomic_store_n(stop, 1, __ATOMIC_RELEASE);
+	r1.join();
+	r2.join();
+	CHECK(thread_failures == 0);
+	for (pid_t pid : kids) {
+		int st = 0;
+		const auto end = clk::now() + std::chrono::seconds(10);
+		while (waitpid(pid, &st, WNOHANG) != pid) {
+			if (clk::now() > end) {
+				kill(pid, SIGKILL);
+				waitpid(pid, &st, 0);
+				break;
+			}
+			usleep(2000);
+		}
+		CHECK((WIFEXITED(st) && WEXITSTATUS(st) == 0));
+	}
+	// the run kept filling slots: the directory is not full early
+	uint64_t filled = 0;
+	for (uint64_t s = 0; s < S; s++)
+		filled += dev.hdr[s] != 0;
+	INFO("slots filled: " << filled);
+	CHECK(filled > S / 2);
 }
 
 // ------------------------------------------------------------- S2.8
@@ -875,8 +1036,7 @@ TEST_CASE("get_next_key in phase 2: live keys in slot order", "[gpu-devhash-cpu]
 	device_model dev(M);
 	for (uint32_t k = 1; dev.count < M; k++)
 		dev.insert(k, k);
-	// past capacity: refused slots; then claiming
-	for (uint32_t k = 100; k < 104; k++)
+	for (uint32_t k = 100; k < 104; k++) // refused
 		dev.insert(k, 1);
 	dev.claim(200);
 	deliver(map, dev.staging());
@@ -895,15 +1055,24 @@ TEST_CASE("get_next_key in phase 2: live keys in slot order", "[gpu-devhash-cpu]
 	uint32_t unknown = 999;
 	REQUIRE(map->map_get_next_key(&unknown, &next) == 0);
 	CHECK(next == expect.front());
-	uint32_t refused = 100;
-	CHECK(get(map, refused) == nullptr);
-	// a full directory: lookups of absent keys end
+	CHECK(get(map, 100) == nullptr);
+	errno = 0;
+	CHECK(map->map_get_next_key(nullptr, nullptr) == -1);
+	CHECK(errno == EINVAL);
+	// a full directory: lookups of absent keys end (in a child: a walk
+	// without its bound would hang)
 	for (uint32_t k = 300; k < 340; k++)
 		dev.claim(k);
 	deliver(map, dev.staging());
-	uint32_t absent = 77777;
-	CHECK(get(map, absent) == nullptr);
-	CHECK(errno == ENOENT);
+	CHECK(in_child(
+		      [&]() -> int {
+			      errno = 0;
+			      return get(map, 77777) == nullptr &&
+					     errno == ENOENT ?
+				             0 :
+				             3;
+		      },
+		      std::chrono::seconds(5)) == 0);
 }
 
 // ------------------------------------------------------------- S2.9
@@ -920,8 +1089,8 @@ TEST_CASE("The takeover image keeps the slots and renumbers the rows",
 		device_model dev(M);
 		for (uint32_t k = 1; k <= 3; k++)
 			dev.insert(k, k * 10);
-		const int64_t dead = dev.claim(50); // a claim that died
-		dev.count++; // ... after reserving a row
+		const int64_t dead = dev.claim(50); // a claim that died...
+		dev.count++; // ... after reserving a row: a gap in the rows
 		for (uint32_t k = 4; k <= 6; k++)
 			dev.insert(k, k * 10);
 		REQUIRE(dead >= 0);
@@ -948,19 +1117,19 @@ TEST_CASE("The takeover image keeps the slots and renumbers the rows",
 		CHECK(img.count == 6); // E = 25 > M: count = L
 		CHECK(img.counters[1] == 42);
 	}
-	SECTION("the count when few slots are empty")
+	SECTION("the count when few slots are empty, and inserts until full")
 	{
-		for (uint64_t empty : { uint64_t(0), uint64_t(1) }) {
+		for (uint64_t empty : { uint64_t(0), uint64_t(1), uint64_t(3) }) {
 			INFO("empty slots " << empty);
 			segment seg("takeovercount");
 			auto *map = seg.make(M);
 			to_device_phase(map);
 			device_model dev(M);
-			// L = M - 2 live, the rest refused, `empty` left empty
+			// L = M - 4 live, rows of dead claims, then refused
 			uint32_t k = 1;
-			while (dev.count < M - 2)
+			while (dev.count < M - 4)
 				dev.insert(k++, 1);
-			dev.count = M; // two rows held by dead claims
+			dev.count = M;
 			uint64_t filled = 0;
 			for (uint64_t s = 0; s < dev.slots; s++)
 				filled += state_of(dev.hdr[s]) != ST_EMPTY;
@@ -973,51 +1142,136 @@ TEST_CASE("The takeover image keeps the slots and renumbers the rows",
 			}
 			deliver(map, dev.staging());
 			const devhash_image img = map->takeover_image();
-			CHECK(img.count == (empty == 0 ? M : M - 1));
+			CHECK(img.count == std::max(M - 4, M - empty));
+			// the seeded device: inserting new keys never fills the
+			// directory while the count is below max_entries
+			device_model seeded(M);
+			seeded.hdr = img.headers;
+			seeded.count = img.count;
+			for (uint32_t n = 0; n < 4 * M; n++) {
+				bool full = true;
+				for (uint64_t s = 0; s < seeded.slots; s++)
+					full &= seeded.hdr[s] != 0;
+				if (full) {
+					CHECK(seeded.count >= M);
+					break;
+				}
+				seeded.insert(100000 + n, 1);
+			}
 		}
 	}
 }
 
 // ------------------------------------------------------------ S2.10
 
-TEST_CASE("The owner's path", "[gpu-devhash-cpu]")
+TEST_CASE("The owner's path and its liveness", "[gpu-devhash-cpu]")
 {
 	const uint64_t self = devhash_owner_record(0x1111, 100);
 	const uint64_t other = devhash_owner_record(0x1111, 200);
 	const uint64_t foreign = devhash_owner_record(0x2222, 200);
 	using p = devhash_path;
-	auto path = [&](uint64_t phase, uint64_t owner, bool alive,
-			bool cached = false, bool dead_seal = false,
-			uint64_t inflight = 0) {
-		return devhash_choose_path(phase, dead_seal, inflight, owner,
-					   self, cached, alive);
-	};
-	CHECK(path(0, 0, false) == p::first_copy);
-	CHECK(path(1, 0, false) == p::recover_sealing);
-	CHECK(path(2, 0, false) == p::takeover);
-	CHECK(path(2, other, true) == p::not_owner); // alive (EPERM too)
-	CHECK(path(2, other, false) == p::takeover); // dead or zombie
-	CHECK(path(1, other, false) == p::recover_sealing);
-	CHECK(path(0, foreign, false) == p::not_owner); // other namespace
-	CHECK(path(2, foreign, true) == p::not_owner);
-	CHECK(path(2, self, false, true) == p::have_copy);
-	CHECK(path(2, self, false, false) == p::takeover); // pid reuse
-	CHECK(path(0, 0, false, false, true, 1) == p::seal_dead);
-	CHECK(path(0, 0, false, false, true, 0) == p::first_copy);
-
-	// claim() asks about liveness only for a same-namespace owner
-	segment seg("claim");
-	auto *map = seg.make(8);
-	CHECK(map->claim(other, false, [](uint32_t) { return true; }) ==
-	      p::first_copy);
-	CHECK(map->get_owner() == other);
-	CHECK(map->claim(self, false, [](uint32_t) { return true; }) ==
+	CHECK(devhash_choose_path(0, 0, self, false, false) == p::first_copy);
+	CHECK(devhash_choose_path(1, 0, self, false, false) ==
+	      p::recover_sealing);
+	CHECK(devhash_choose_path(2, 0, self, false, false) == p::takeover);
+	CHECK(devhash_choose_path(2, other, self, false, true) == p::not_owner);
+	CHECK(devhash_choose_path(2, other, self, false, false) == p::takeover);
+	CHECK(devhash_choose_path(0, foreign, self, false, false) ==
 	      p::not_owner);
-	CHECK(map->claim(self, false, [](uint32_t) { return false; }) ==
-	      p::first_copy);
-	CHECK(map->get_owner() == self);
-	map->release_claim(self);
-	CHECK(map->get_owner() == 0);
+	CHECK(devhash_choose_path(2, self, self, true, false) == p::have_copy);
+	CHECK(devhash_choose_path(2, self, self, false, false) == p::takeover);
+
+	SECTION("liveness through stubbed probes")
+	{
+		static int kill_err;
+		static int tasks;
+		static uint64_t start;
+		static const devhash_liveness_probes stub = {
+			[](uint32_t) { return kill_err; },
+			[](uint32_t) { return tasks; },
+			[](uint32_t) { return start; },
+		};
+		set_devhash_liveness_probes_for_test(&stub);
+		struct {
+			int kill_err, tasks;
+			uint64_t now_start, recorded;
+			bool alive;
+		} cases[] = {
+			{ 0, 1, 7, 7, true }, // running
+			{ EPERM, 1, 7, 7, true }, // another user's
+			{ ESRCH, -1, 0, 7, false }, // gone
+			{ 0, 0, 7, 7, false }, // all tasks Z/X
+			{ 0, -1, 7, 7, true }, // /proc unreadable
+			{ 0, 1, 9, 7, false }, // pid reused
+			{ 0, 1, 9, 0, true }, // start unknown
+		};
+		for (auto &c : cases) {
+			kill_err = c.kill_err;
+			tasks = c.tasks;
+			start = c.now_start;
+			INFO("kill " << c.kill_err << " tasks " << c.tasks
+				     << " start " << c.now_start << "/"
+				     << c.recorded);
+			CHECK(devhash_process_alive(200, c.recorded) == c.alive);
+		}
+		set_devhash_liveness_probes_for_test(nullptr);
+	}
+	SECTION("a process whose main thread exited while another runs is alive")
+	{
+		int fds[2];
+		REQUIRE(pipe(fds) == 0);
+		pid_t pid = fork();
+		REQUIRE(pid >= 0);
+		if (pid == 0) {
+			static int wfd;
+			wfd = fds[1];
+			pthread_t t;
+			pthread_create(
+				&t, nullptr,
+				[](void *) -> void * {
+					usleep(20000);
+					char c = 'x';
+					(void)!write(wfd, &c, 1);
+					for (;;)
+						pause();
+				},
+				nullptr);
+			// the main thread only, without unwinding through the
+			// test framework (pthread_exit would)
+			syscall(SYS_exit, 0);
+		}
+		close(fds[1]);
+		fds[1] = -1;
+		char c;
+		REQUIRE(read(fds[0], &c, 1) == 1);
+		const uint64_t st = devhash_process_start_time(pid);
+		CHECK(st != 0);
+		CHECK(devhash_process_alive(pid, st));
+		kill(pid, SIGKILL);
+		// gone even before it is reaped (a zombie)
+		for (int i = 0; i < 200 && devhash_process_alive(pid, st); i++)
+			usleep(5000);
+		CHECK_FALSE(devhash_process_alive(pid, st));
+		waitpid(pid, nullptr, 0);
+		close(fds[0]);
+	}
+	SECTION("claim asks about liveness, and gives the claim back")
+	{
+		segment seg("claim");
+		auto *map = seg.make(8);
+		CHECK(map->claim(other, false,
+				 [](uint32_t, uint64_t) { return true; }) ==
+		      p::first_copy);
+		CHECK(map->get_owner() == other);
+		CHECK(map->claim(self, false,
+				 [](uint32_t, uint64_t) { return true; }) ==
+		      p::not_owner);
+		CHECK(map->claim(self, false, nobody_alive) == p::first_copy);
+		CHECK(map->get_owner() == self);
+		CHECK(map->claim(self, true, nobody_alive) == p::have_copy);
+		map->release_claim(self);
+		CHECK(map->get_owner() == 0);
+	}
 }
 
 // ------------------------------------------------------------ S2.11
@@ -1025,70 +1279,68 @@ TEST_CASE("The owner's path", "[gpu-devhash-cpu]")
 TEST_CASE("Recovery from a dead sealer waits for a writer that read phase 0",
 	  "[gpu-devhash-cpu]")
 {
-	segment seg("recover");
-	auto *map = seg.make(256);
-	REQUIRE(put(map, 5, 50) == 0);
-	arm(devhash_hook_point::writer_after_phase_load);
-	std::atomic<long> wrc{ 99 };
-	std::thread writer([&] {
-		park_this_thread = true;
-		wrc = put(map, 6, 60, BPF_NOEXIST);
-	});
-	REQUIRE(wait_parked());
-	map->force_phase_for_test(DEVHASH_PHASE_SEALING); // the sealer died
-	devhash_image img;
-	std::atomic<bool> done{ false }, ok{ false };
-	std::thread t([&] {
-		ok = map->recover_sealing(img, 3000000000ull);
-		done = true;
-	});
-	const auto end = clk::now() + std::chrono::milliseconds(50);
-	while (!done && clk::now() < end)
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
-	const bool done_before_release = done;
-	release();
-	writer.join();
-	t.join();
-	disarm();
-	CHECK_FALSE(done_before_release);
-	REQUIRE(ok);
-	CHECK(wrc == 0);
-	CHECK(image_find(img, 6, log_slots_for(256)) >= 0);
-	CHECK(image_find(img, 5, log_slots_for(256)) >= 0);
-
-	// a writer killed in flight: the recovery times out to phase 0
-	segment seg2("recover2");
-	auto *map2 = seg2.make(256);
-	int pfd[2];
-	REQUIRE(pipe(pfd) == 0);
-	pid_t child = fork();
-	REQUIRE(child >= 0);
-	if (child == 0) {
-		static int wfd;
-		wfd = pfd[1];
-		set_devhash_hook_for_test([](devhash_hook_point p, uint64_t) {
-			if (p != devhash_hook_point::writer_after_inflight_inc)
-				return;
-			char x = 'x';
-			(void)!write(wfd, &x, 1);
-			for (;;)
-				pause();
+	SECTION("the writer completes and its key is in the image")
+	{
+		segment seg("recover");
+		auto *map = seg.make(256);
+		REQUIRE(put(map, 5, 50) == 0);
+		arm(devhash_hook_point::writer_after_phase_load);
+		std::atomic<long> wrc{ 99 };
+		devhash_image img;
+		std::atomic<bool> done{ false }, ok{ false };
+		std::thread writer([&] {
+			park_this_thread = true;
+			wrc = put(map, 6, 60, BPF_NOEXIST);
 		});
-		put(map2, 9, 9);
-		_exit(0);
+		std::thread t;
+		joiner j{ { &writer, &t } };
+		REQUIRE(wait_parked());
+		map->force_phase_for_test(DEVHASH_PHASE_SEALING); // died
+		t = std::thread([&] {
+			devhash_path path;
+			ok = map->make_image(SELF, false, img, path,
+					     nobody_alive, 3000 * MS) &&
+			     path == devhash_path::recover_sealing;
+			done = true;
+		});
+		const auto end = clk::now() + std::chrono::milliseconds(50);
+		while (!done && clk::now() < end)
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		const bool done_before_release = done;
+		release();
+		writer.join();
+		t.join();
+		CHECK_FALSE(done_before_release);
+		REQUIRE(ok);
+		CHECK(wrc == 0);
+		CHECK(image_find(img, 6, log_slots_for(256)) >= 0);
+		CHECK(image_find(img, 5, log_slots_for(256)) >= 0);
 	}
-	char c;
-	REQUIRE(read(pfd[0], &c, 1) == 1);
-	kill(child, SIGKILL);
-	waitpid(child, nullptr, 0);
-	map2->force_phase_for_test(DEVHASH_PHASE_SEALING);
-	devhash_image img2;
-	CHECK_FALSE(map2->recover_sealing(img2, 200000000ull));
-	CHECK(map2->get_phase() == DEVHASH_PHASE_CPU);
-	CHECK(map2->is_seal_dead());
-	CHECK(put(map2, 10, 10) == 0);
-	close(pfd[0]);
-	close(pfd[1]);
+	SECTION("a writer stopped in flight: the recovery times out to phase 0")
+	{
+		segment seg("recover2");
+		auto *map = seg.make(256);
+		hooked_writer w(map, 9,
+				devhash_hook_point::writer_after_inflight_inc, true,
+				0);
+		map->force_phase_for_test(DEVHASH_PHASE_SEALING);
+		CHECK(in_child(
+			      [&]() -> int {
+				      devhash_image img;
+				      devhash_path p;
+				      return map->make_image(SELF, false, img, p,
+							     nobody_alive,
+							     200 * MS) ?
+						     3 :
+						     0;
+			      },
+			      std::chrono::seconds(5)) == 0);
+		CHECK(map->get_phase() == DEVHASH_PHASE_CPU);
+		CHECK(map->is_seal_dead());
+		CHECK(map->get_owner() == 0);
+		CHECK(w.resume_and_wait() == 0);
+		CHECK(put(map, 10, 10) == 0);
+	}
 }
 
 // ------------------------------------------------------------ S2.13
@@ -1107,5 +1359,62 @@ TEST_CASE("Lookups read the CPU table until phase 2", "[gpu-devhash-cpu]")
 	uint32_t k = 3;
 	CHECK(map->elem_delete(&k) == -1);
 	CHECK(errno == EPERM);
+}
+
+// ----------------------------------------------- the handler's dispatch
+
+TEST_CASE("The map handler dispatches 1533", "[gpu-devhash-cpu]")
+{
+	segment seg("handler");
+	auto *manager = seg.m.construct<handler_manager>("handler_manager")(
+		seg.m, MIN_MAX_FD_COUNT);
+	(void)map_binding_mutex(seg.m);
+	const int type = (int)bpftime::bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP;
+	REQUIRE(manager->set_handler(5,
+				     bpf_map_handler(5, "dh", seg.m,
+						     { .type = type,
+						       .key_size = 4,
+						       .value_size = 8,
+						       .max_ents = 16 }),
+				     seg.m) == 5);
+	auto &h = std::get<bpf_map_handler>((*manager)[5]);
+	CHECK(h.get_userspace_value_size() == 8);
+	uint32_t k = 7, next = 0;
+	uint64_t v = 70;
+	CHECK(h.map_update_elem(&k, &v, BPF_NOEXIST, true) == 0);
+	errno = 0;
+	CHECK(h.map_update_elem(&k, &v, BPF_NOEXIST, true) == -1);
+	CHECK(errno == EEXIST);
+	REQUIRE(h.map_lookup_elem(&k, true) != nullptr);
+	CHECK(*(const uint64_t *)h.map_lookup_elem(&k, true) == 70);
+	CHECK(h.bpf_map_get_next_key(nullptr, &next, true) == 0);
+	CHECK(next == 7);
+	uint64_t out = 0;
+	errno = 0;
+	CHECK(h.map_lookup_and_delete_elem(&k, &out, true) == -1);
+	CHECK(errno == 524); // ENOTSUPP, as the kernel for such types
+	CHECK(h.map_delete_elem(&k, true) == 0);
+	errno = 0;
+	CHECK(h.map_lookup_elem(&k, true) == nullptr);
+	// phase 2: the handler reads the mirror
+	auto impl_opt = h.try_get_device_hash_map_impl();
+	REQUIRE(impl_opt.has_value());
+	auto *impl = *impl_opt;
+	to_device_phase(impl);
+	device_model dev(16);
+	dev.insert(9, 90);
+	deliver(impl, dev.staging());
+	k = 9;
+	REQUIRE(h.map_lookup_elem(&k, true) != nullptr);
+	CHECK(*(const uint64_t *)h.map_lookup_elem(&k, true) == 90);
+	errno = 0;
+	CHECK(h.map_update_elem(&k, &v, BPF_ANY, true) == -1);
+	CHECK(errno == EPERM);
+	// after freeze, syscall writes are EPERM in any phase
+	CHECK(h.freeze() == 0);
+	errno = 0;
+	CHECK(h.map_delete_elem(&k, true) == -1);
+	CHECK(errno == EPERM);
+	manager->clear_id_at(5, seg.m);
 }
 #endif

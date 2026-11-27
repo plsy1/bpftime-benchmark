@@ -1174,7 +1174,9 @@ int bpf_map_handler::check_map_attr(const managed_shared_memory &memory) const
 		if (max_entries > (1u << 30))
 			return E2BIG;
 		break;
-	// u32 keys, u64 values (stage one: adds only)
+#if defined(BPFTIME_ENABLE_CUDA_ATTACH)
+	// u32 keys, u64 values (stage one: adds only); without CUDA attach
+	// the type is not built and its creation is EINVAL (map_init)
 	case bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP:
 		if (max_entries == 0 || key_size != 4 || value_size != 8)
 			return EINVAL;
@@ -1182,6 +1184,7 @@ int bpf_map_handler::check_map_attr(const managed_shared_memory &memory) const
 			return E2BIG;
 		key_bytes = key_size;
 		break;
+#endif
 	default:
 		return 0;
 	}
@@ -1859,6 +1862,15 @@ bpf_map_handler::try_get_cgroup_array_map_impl() const
 		return {};
 	return static_cast<cgroup_array_map_impl *>(map_impl_ptr.get());
 }
+#if defined(BPFTIME_ENABLE_CUDA_ATTACH)
+std::optional<nv_gpu_device_hash_map_impl *>
+bpf_map_handler::try_get_device_hash_map_impl() const
+{
+	if (type != bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP)
+		return {};
+	return static_cast<nv_gpu_device_hash_map_impl *>(map_impl_ptr.get());
+}
+#endif
 std::optional<perf_event_array_kernel_user_impl *>
 bpf_map_handler::try_get_shared_perf_event_array_map_impl() const
 {
