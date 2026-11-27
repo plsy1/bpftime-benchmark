@@ -14,6 +14,8 @@
 #include "devhash_ptx.h"
 #include "devhash_test_ptx.h"
 #include "bpf_map/gpu/nv_gpu_device_hash_map.hpp"
+#include "bpf_map/gpu/nv_gpu_model_maps.hpp"
+#include "nv_thread_local_routing.hpp"
 #include "nv_attach_impl.hpp"
 #include "trampoline/gpu_devhash_layout.h"
 #include <boost/interprocess/managed_shared_memory.hpp>
@@ -24,6 +26,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <set>
 #include <poll.h>
 #include <string>
 #include <sys/wait.h>
@@ -755,6 +758,397 @@ int run_full_directory()
 	return tot == n && unstable == n && fullwalk == n ? 0 : 1;
 }
 
+// The hash snapshot (S4.1) over a hand-built block: every state, rows below
+// and at or above r, known shards and counters. Rows of slots that are not
+// live hold decoy values the snapshot must not read.
+int run_hash_snapshot()
+{
+	if (!use_primary_context())
+		return 0;
+	const u64 max = 600; // r = 512: rows 512..599 are single words
+	const layout l = layout_for(max, SHARDS);
+	const staging_layout st = staging_for(max);
+	std::vector<u64> blk(l.total / 8, 0);
+	auto row_word = [&](u64 row, u64 shard) -> u64 & {
+		return blk[value_offset(l, row, (u32)shard) / 8];
+	};
+	auto hdr = [&](u64 slot) -> u64 & {
+		return blk[slot_offset(l, slot) / 8];
+	};
+	std::map<u64, u64> want; // slot -> staged value
+	// live, sharded row 3: shard s holds s + 1
+	hdr(12) = make_header(6, 3, ST_LIVE);
+	for (u64 s = 0; s < SHARDS; s++)
+		row_word(3, s) = s + 1;
+	want[12] = SHARDS * (SHARDS + 1) / 2;
+	// live, single row 550
+	hdr(13) = make_header(7, 550, ST_LIVE);
+	row_word(550, 0) = 12345;
+	want[13] = 12345;
+	// live key 0, row 4: shard s holds 2
+	hdr(16) = make_header(0, 4, ST_LIVE);
+	for (u64 s = 0; s < SHARDS; s++)
+		row_word(4, s) = 2;
+	want[16] = 2 * SHARDS;
+	// not live, with decoys in the rows their header names
+	hdr(11) = make_header(5, 7, ST_CLAIMING);
+	hdr(14) = make_header(8, 9, ST_REFUSED);
+	hdr(15) = OPAQUE_WORD; // row 0
+	hdr(17) = make_header(9, 2, 6); // no such state
+	hdr(18) = make_header(10, 560, ST_CLAIMING); // a single row
+	for (u64 row : { 0ull, 2ull, 7ull, 9ull })
+		for (u64 s = 0; s < SHARDS; s++)
+			row_word(row, s) = 1000;
+	row_word(560, 0) = 1000;
+	// counters: counter c, shard s holds c * 1000 + s + 1
+	for (u32 c = 0; c < NUM_COUNTERS; c++)
+		for (u64 s = 0; s < SHARDS; s++)
+			blk[counter_offset(l, c, (u32)s) / 8] = c * 1000 + s + 1;
+	blk[ctl_offset(CTL_COUNT) / 8] = 77;
+	// slack after the block: a snapshot reading a row at or above r as
+	// sharded reads zeros there instead of faulting
+	const u64 slack = 4ull << 20;
+	CUdeviceptr d_block, d_staging;
+	CK(cuMemAlloc(&d_block, l.total + slack));
+	CK(cuMemsetD8(d_block, 0, l.total + slack));
+	CK(cuMemcpyHtoD(d_block, blk.data(), l.total));
+	CK(cuMemAlloc(&d_staging, st.total));
+	CK(cuMemsetD8(d_staging, 0xee, st.total));
+	if (!gpu_model::hash_snapshot_for_test(d_block, max, SHARDS,
+					       d_staging)) {
+		printf("RESULT hash-snapshot: launch failed\n");
+		return 2;
+	}
+	std::vector<u64> out(st.total / 8);
+	CK(cuMemcpyDtoH(out.data(), d_staging, st.total));
+	u64 bad_hdr = 0, bad_val = 0;
+	for (u64 s = 0; s < l.slots; s++) {
+		const u64 h = out[staging_header_offset(s) / 8];
+		const u64 v = out[staging_value_offset(s) / 8];
+		if (h != hdr(s))
+			bad_hdr++;
+		const u64 w = want.count(s) ? want[s] : 0;
+		if (v != w) {
+			if (bad_val < 8)
+				printf("slot %" PRIu64 ": value %" PRIu64
+				       " want %" PRIu64 "\n",
+				       s, v, w);
+			bad_val++;
+		}
+	}
+	u64 bad_cnt = 0;
+	for (u32 c = 0; c < NUM_COUNTERS; c++) {
+		const u64 w = c * 1000 * SHARDS + SHARDS * (SHARDS + 1) / 2;
+		if (out[(st.counters + 8 * c) / 8] != w)
+			bad_cnt++;
+	}
+	const u64 count = out[st.count / 8];
+	printf("RESULT hash-snapshot: slots %" PRIu64 ", wrong headers %" PRIu64
+	       ", wrong values %" PRIu64 ", wrong counters %" PRIu64
+	       ", count %" PRIu64 "\n",
+	       l.slots, bad_hdr, bad_val, bad_cnt, count);
+	fflush(stdout);
+	return bad_hdr == 0 && bad_val == 0 && bad_cnt == 0 && count == 77 ? 0 :
+									      1;
+}
+
+// ---------------------------------------------------- S6: routed calls
+// A probe function as llvmbpf emits one (helper calls of map 14 with the
+// key on the stack), routed by the pass and loaded, wrapped with the
+// trampoline, as a patched module is. Thread i takes keys[i]: out[3 i] is
+// the routed lookup's pointer, out[3 i + 1] the walk's own
+// (__bpftime_devhash_lookup, from the inserted text), out[3 i + 2] the
+// routed update's result (value 1, flags from test_flags).
+const char ROUTED_PROBE[] = R"PTX(
+.visible .global .align 8 .u64 test_keys;
+.visible .global .align 8 .u64 test_out;
+.visible .global .align 8 .u64 test_flags;
+.visible .global .align 8 .u64 test_base;
+.visible .func __retprobe_func__routed_k()
+{
+	.local .align 8 .b8 	__local_depot0[64];
+	.reg .b64 	%SP;
+	.reg .b64 	%SPL;
+	.reg .pred 	%p<4>;
+	.reg .b32 	%r<8>;
+	.reg .b64 	%rd<64>;
+	mov.u64 	%SPL, __local_depot0;
+	cvta.local.u64 	%SP, %SPL;
+	add.u64 	%rd2, %SP, 64;
+	mov.u32 	%r1, %ctaid.x;
+	mov.u32 	%r2, %ntid.x;
+	mov.u32 	%r3, %tid.x;
+	mad.lo.u32 	%r4, %r1, %r2, %r3;
+	cvt.u64.u32 	%rd20, %r4;
+	ld.global.u64 	%rd21, [test_keys];
+	shl.b64 	%rd22, %rd20, 2;
+	add.u64 	%rd22, %rd21, %rd22;
+	ld.u32 	%r5, [%rd22];
+	st.u32 	[%rd2+-8], %r5;
+	add.s64 	%rd51, %rd2, -8;
+	mov.u64 	%rd52, 14;
+	{ // callseq 1, 0
+	.reg .b32 temp_param_reg;
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd52;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %rd51;
+	.param .b64 param2;
+	st.param.b64 	[param2+0], %rd40;
+	.param .b64 param3;
+	st.param.b64 	[param3+0], %rd41;
+	.param .b64 param4;
+	st.param.b64 	[param4+0], %rd42;
+	.param .b64 retval0;
+	call.uni (retval0),
+	_bpf_helper_ext_0001,
+	(
+	param0,
+	param1,
+	param2,
+	param3,
+	param4
+	);
+	ld.param.b64 	%rd55, [retval0+0];
+	} // callseq 1
+	ld.global.u64 	%rd23, [test_out];
+	mul.lo.u64 	%rd24, %rd20, 24;
+	add.u64 	%rd24, %rd23, %rd24;
+	st.u64 	[%rd24], %rd55;
+	ld.global.u64 	%rd25, [test_base];
+	cvt.u64.u32 	%rd26, %r5;
+	mov.u64 	%rd27, ROUTED_MAX;
+	mov.u64 	%rd28, ROUTED_SHARDS;
+	{
+	.param .b64 ra0;
+	st.param.b64 	[ra0], %rd25;
+	.param .b64 ra1;
+	st.param.b64 	[ra1], %rd26;
+	.param .b64 ra2;
+	st.param.b64 	[ra2], %rd27;
+	.param .b64 ra3;
+	st.param.b64 	[ra3], %rd28;
+	.param .b64 rr;
+	call (rr), __bpftime_devhash_lookup, (ra0, ra1, ra2, ra3);
+	ld.param.b64 	%rd56, [rr];
+	}
+	st.u64 	[%rd24+8], %rd56;
+	mov.u64 	%rd30, 1;
+	st.u64 	[%rd2+-16], %rd30;
+	add.s64 	%rd31, %rd2, -16;
+	ld.global.u64 	%rd32, [test_flags];
+	{ // callseq 2, 0
+	.reg .b32 temp_param_reg;
+	.param .b64 param0;
+	st.param.b64 	[param0+0], %rd52;
+	.param .b64 param1;
+	st.param.b64 	[param1+0], %rd51;
+	.param .b64 param2;
+	st.param.b64 	[param2+0], %rd31;
+	.param .b64 param3;
+	st.param.b64 	[param3+0], %rd32;
+	.param .b64 param4;
+	st.param.b64 	[param4+0], %rd42;
+	.param .b64 retval0;
+	call.uni (retval0),
+	_bpf_helper_ext_0002,
+	(
+	param0,
+	param1,
+	param2,
+	param3,
+	param4
+	);
+	ld.param.b64 	%rd57, [retval0+0];
+	} // callseq 2
+	st.u64 	[%rd24+16], %rd57;
+	ret;
+}
+.visible .entry routed_k(.param .u64 n)
+{
+	.reg .pred 	%p<2>;
+	.reg .b32 	%r<5>;
+	.reg .b64 	%rd<3>;
+	ld.param.u64 	%rd1, [n];
+	mov.u32 	%r1, %ctaid.x;
+	mov.u32 	%r2, %ntid.x;
+	mov.u32 	%r3, %tid.x;
+	mad.lo.u32 	%r4, %r1, %r2, %r3;
+	cvt.u64.u32 	%rd2, %r4;
+	setp.ge.u64 	%p1, %rd2, %rd1;
+	@%p1 bra 	$L_end;
+	call __retprobe_func__routed_k;
+$L_end:
+	ret;
+}
+)PTX";
+
+// The routed module over a seeded directory (S6, GPU). max_entries 600
+// (r = 512: rows 512..599 are single words), every row taken (count = max,
+// so a new key's insert is E2BIG); at their homes: live keys, a claiming,
+// a refused and an opaque slot (its key live in the next slot), key 0
+// live; most other slots empty. Threads: every seeded key, the special
+// ones, and absent keys, 10^4 in all.
+int run_routed()
+{
+	if (!use_primary_context())
+		return 0;
+	const u64 max = 600;
+	const layout l = layout_for(max, SHARDS);
+	std::vector<u64> blk(l.total / 8, 0);
+	auto hdr = [&](u64 s) -> u64 & { return blk[slot_offset(l, s) / 8]; };
+	// live keys at their homes, distinct homes, rows 0..max-1 (key 0
+	// among them)
+	std::vector<u32> live;
+	std::set<u64> used;
+	u32 claiming_key = 0, refused_key = 0, opaque_key = 0;
+	for (u32 k = 0; live.size() < max - 1; k++) {
+		const u64 h = home_slot(k, l.log_slots);
+		if (used.count(h) || used.count((h + 1) & (l.slots - 1)))
+			continue;
+		used.insert(h);
+		live.push_back(k);
+	}
+	u64 row = 0;
+	for (u32 k : live) {
+		hdr(home_slot(k, l.log_slots)) = make_header(k, row, ST_LIVE);
+		for (u64 s = 0; s < (row < l.r ? SHARDS : 1); s++)
+			blk[value_offset(l, row, (u32)s) / 8] = row * 1000 + s;
+		row++;
+	}
+	// special keys at free homes (the next slot free too)
+	auto free_home = [&](u32 from) {
+		for (u32 k = from;; k++) {
+			const u64 h = home_slot(k, l.log_slots);
+			if (!used.count(h) && !used.count((h + 1) & (l.slots - 1)) &&
+			    !used.count((h - 1) & (l.slots - 1))) {
+				used.insert(h);
+				used.insert((h + 1) & (l.slots - 1));
+				return k;
+			}
+		}
+	};
+	claiming_key = free_home(100000);
+	hdr(home_slot(claiming_key, l.log_slots)) =
+		make_header(claiming_key, 0, ST_CLAIMING);
+	refused_key = free_home(200000);
+	hdr(home_slot(refused_key, l.log_slots)) =
+		make_header(refused_key, 0, ST_REFUSED);
+	opaque_key = free_home(300000);
+	{
+		const u64 h = home_slot(opaque_key, l.log_slots);
+		hdr(h) = OPAQUE_WORD;
+		hdr((h + 1) & (l.slots - 1)) =
+			make_header(opaque_key, row, ST_LIVE); // the last row
+		blk[value_offset(l, row, 0) / 8] = 4242;
+		live.push_back(opaque_key);
+		row++;
+	}
+	blk[ctl_offset(CTL_COUNT) / 8] = row; // = max: the map is full
+	if (row != max) {
+		printf("RESULT routed: seeding made %" PRIu64 " rows\n", row);
+		return 3;
+	}
+	// threads: every live key, the special ones, absent keys
+	std::vector<u32> keys(live.begin(), live.end());
+	keys.push_back(claiming_key);
+	keys.push_back(refused_key);
+	for (u32 k = 400000; keys.size() < 10000; k++)
+		keys.push_back(k);
+	const u64 n = keys.size();
+	// the module: routed by the pass, wrapped with the trampoline
+	std::string probe = ROUTED_PROBE;
+	auto put = [&](const std::string &what, u64 v) {
+		const size_t at = probe.find(what);
+		probe.replace(at, what.size(), std::to_string(v));
+	};
+	put("ROUTED_MAX", max);
+	put("ROUTED_SHARDS", SHARDS);
+	CUdeviceptr d_block, d_keys, d_out;
+	CK(cuMemAlloc(&d_block, l.total));
+	CK(cuMemcpyHtoD(d_block, blk.data(), l.total));
+	attach::hash_map_desc h;
+	h.fd = 14;
+	h.base = d_block;
+	h.max_entries = max;
+	h.shards = SHARDS;
+	attach::thread_local_routing_stats st;
+	std::string routed = attach::route_thread_local_maps(
+		".version 7.8\n.target " + cuda_test::device_sm_arch() +
+			"\n.address_size 64\n" + probe,
+		{ "routed_k" }, {}, 0, &st, {}, { h });
+	if (st.hash_lookups != 1 || st.hash_inserts != 1 ||
+	    !st.devhash_text_inserted) {
+		printf("RESULT routed: not routed (lookups %d, inserts %d)\n",
+		       st.hash_lookups, st.hash_inserts);
+		return 4;
+	}
+	// the trampoline brings its own header
+	routed.erase(0, routed.find(".address_size 64\n") +
+				strlen(".address_size 64\n"));
+	cuda_test::test_module mod(routed.c_str());
+	CK(cuMemAlloc(&d_keys, 4 * n));
+	CK(cuMemcpyHtoD(d_keys, keys.data(), 4 * n));
+	CK(cuMemAlloc(&d_out, 24 * n));
+	auto set_global = [&](const char *name, u64 v) {
+		CUdeviceptr g;
+		size_t size;
+		CK(cuModuleGetGlobal(&g, &size, mod.module, name));
+		CK(cuMemcpyHtoD(g, &v, 8));
+	};
+	set_global("test_keys", d_keys);
+	set_global("test_out", d_out);
+	set_global("test_base", d_block);
+	int bad = 0;
+	for (u64 flags : { 1ull, 0ull }) {
+		set_global("test_flags", flags);
+		CK(cuMemsetD8(d_out, 0, 24 * n));
+		mod.launch("routed_k", (unsigned)((n + 255) / 256), 256, { n });
+		std::vector<u64> out(3 * n);
+		CK(cuMemcpyDtoH(out.data(), d_out, 24 * n));
+		u64 differ = 0, found = 0, wrong_rc = 0;
+		std::set<u32> live_set(live.begin(), live.end());
+		for (u64 i = 0; i < n; i++) {
+			const u64 routed_p = out[3 * i], walk_p = out[3 * i + 1];
+			const int64_t rc = (int64_t)out[3 * i + 2];
+			if (routed_p != walk_p) {
+				if (differ < 5)
+					printf("key %u: routed %#" PRIx64
+					       ", walk %#" PRIx64 "\n",
+					       keys[i], routed_p, walk_p);
+				differ++;
+			}
+			found += walk_p != 0;
+			const bool is_live = live_set.count(keys[i]) > 0;
+			const bool claimed = keys[i] == claiming_key ||
+					     keys[i] == refused_key;
+			int64_t want = flags != 1 ? -22 :
+				       is_live	  ? -17 :
+				       claimed	  ? (keys[i] == refused_key ? -7 :
+									-17) :
+						    -7;
+			if (rc != want) {
+				if (wrong_rc < 5)
+					printf("key %u flags %" PRIu64
+					       ": update %" PRId64 ", want %" PRId64
+					       "\n",
+					       keys[i], flags, rc, want);
+				wrong_rc++;
+			}
+		}
+		printf("RESULT routed flags %" PRIu64 ": %" PRIu64
+		       " threads, pointers differ %" PRIu64 ", found %" PRIu64
+		       " (live %zu), wrong update results %" PRIu64 "\n",
+		       flags, n, differ, found, live.size(), wrong_rc);
+		if (differ || found != live.size() || wrong_rc)
+			bad++;
+	}
+	// the emitted hash is the layout's home_slot: every live key was found
+	// inline at its home (a wrong slot would read an empty one: NULL)
+	fflush(stdout);
+	return bad == 0 ? 0 : 1;
+}
+
 // The shipped text called as the routing pass will call it (S3.9).
 const char ABI_KERNELS[] = R"PTX(
 .visible .entry devhash_abi_insert(
@@ -975,6 +1369,10 @@ TEST_CASE("Device hash GPU child", "[.devhash-gpu-child]")
 		rc = run_full_directory();
 	else if (w == "abi")
 		rc = run_abi();
+	else if (w == "hash-snapshot")
+		rc = run_hash_snapshot();
+	else if (w == "routed")
+		rc = run_routed();
 	else if (const stress_config *c = find_config(w))
 		rc = run_stress(*c);
 	else {
@@ -1159,4 +1557,39 @@ TEST_CASE("The trampoline answers 1533 calls without a host call",
 		CHECK((int64_t)r[2] == -22); // delete: EINVAL
 	}
 	CHECK(host.served.load() == 0);
+}
+
+TEST_CASE("The hash snapshot stages headers and live rows and counters",
+	  "[gpu-devhash-device]")
+{
+	if (!have_gpu())
+		SKIP("no GPU");
+	check_child("hash-snapshot", std::chrono::seconds(60));
+}
+
+TEST_CASE("The hash snapshot acquires the headers", "[gpu-devhash-device]")
+{
+	const std::string ptx = gpu_model::hash_snapshot_ptx_for_test();
+	auto count = [&](const std::string &x) {
+		size_t n = 0;
+		for (size_t p = ptx.find(x); p != std::string::npos;
+		     p = ptx.find(x, p + 1))
+			n++;
+		return n;
+	};
+	// the header load: acquire, the pair of the inserts' release
+	CHECK(count("ld.acquire.gpu.global.b64") == 1);
+	// rows, single words, counters and the count: strong, relaxed
+	CHECK(count("ld.relaxed.gpu.global.u64") == 4);
+	// nothing else loads from the block
+	CHECK(count("ld.global") == 0);
+	CHECK(count("ld.u64") == 0);
+}
+
+TEST_CASE("Routed 1533 calls agree with the walk on the GPU",
+	  "[gpu-devhash-device]")
+{
+	if (!have_gpu())
+		SKIP("no GPU");
+	check_child("routed", std::chrono::seconds(120));
 }

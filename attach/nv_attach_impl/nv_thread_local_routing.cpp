@@ -1,5 +1,7 @@
 #include "nv_thread_local_routing.hpp"
+#include "devhash_ptx.h"
 #include "ptxpass/core.hpp"
+#include "trampoline/gpu_devhash_layout.h"
 #include <map>
 #include <unordered_map>
 #include <algorithm>
@@ -801,6 +803,163 @@ std::string sum_lookup(const sum_map_desc &d, long long fd, int n,
 	return o.str();
 }
 
+// ------------------------------------------- device hash maps (1533, S6)
+
+bool hash_has_copy(const hash_map_desc &d)
+{
+	return d.base != 0 &&
+	       bpftime_devhash::geometry_valid(d.max_entries, d.shards);
+}
+
+// a PTX immediate of a 64-bit pattern (signed decimal: PTX reads a
+// decimal above INT64_MAX as an error)
+std::string imm64(uint64_t v)
+{
+	return std::to_string((long long)v);
+}
+
+// the args of one devhash call, as .param stores and the call
+std::string devhash_call(const char *fn, const std::string &tag,
+			 const std::vector<std::string> &args,
+			 const std::string &ret)
+{
+	std::ostringstream o;
+	o << "\t{\n";
+	for (size_t i = 0; i < args.size(); i++)
+		o << "\t.param .b64 \t" << tag << "_a" << i << ";\n\tst.param.b64 \t["
+		  << tag << "_a" << i << "], " << args[i] << ";\n";
+	o << "\t.param .b64 \t" << tag << "_r;\n\tcall (" << tag << "_r), "
+	  << fn << ", (";
+	for (size_t i = 0; i < args.size(); i++)
+		o << (i ? ", " : "") << tag << "_a" << i;
+	o << ");\n\tld.param.b64 \t" << ret << ", [" << tag << "_r];\n\t}\n";
+	return o.str();
+}
+
+// A constant-fd lookup of a 1533 map with a device copy (plan S6): the key's
+// home slot and one strong load of its header (D4: every header load of the
+// inline path is ld.relaxed.gpu.global); live K: the value's address, the
+// calling thread's shard of its row below r, the row's single word above;
+// empty: NULL; anything else (another key, claiming, refused, opaque): the
+// walk in __bpftime_devhash_lookup. One mov at the join writes the
+// program's register. Labels carry the function's sequence number n.
+std::string hash_lookup(const hash_map_desc &d, long long fd, int n,
+			const std::string &key_ptr, const std::string &ret,
+			const std::string &fwd, int fwd_width)
+{
+	namespace dh = bpftime_devhash;
+	const dh::layout l = dh::layout_for(d.max_entries, d.shards);
+	const std::string N = std::to_string(n);
+	auto r = [&](const char *s) { return std::string("%bph_") + s + N; };
+	std::ostringstream o;
+	o << "{ // bpftime hash-map lookup, map " << fd << "\n"
+	  << "\t.reg .pred \t" << r("p") << ", " << r("q") << ";\n"
+	  << "\t.reg .b32 \t" << r("k") << ", " << r("hk") << ", " << r("row")
+	  << ", " << r("s") << ", " << r("l") << ";\n"
+	  << "\t.reg .b64 \t" << r("kk") << ", " << r("x") << ", " << r("a")
+	  << ", " << r("h") << ", " << r("v") << ", " << r("b") << ", "
+	  << r("m") << ", " << r("n") << ";\n"
+	  << key_into(r("k"), key_ptr, fwd, fwd_width)
+	  << "\tcvt.u64.u32 \t" << r("kk") << ", " << r("k") << ";\n"
+	  << "\txor.b64 \t" << r("x") << ", " << r("kk") << ", "
+	  << imm64(dh::SEED) << ";\n"
+	  << "\tmul.lo.u64 \t" << r("x") << ", " << r("x") << ", "
+	  << imm64(dh::HASH_MUL) << ";\n"
+	  << "\tshr.u64 \t" << r("x") << ", " << r("x") << ", "
+	  << (64 - l.log_slots) << ";\n"
+	  << "\tshl.b64 \t" << r("x") << ", " << r("x") << ", 3;\n"
+	  << "\tadd.u64 \t" << r("a") << ", " << r("x") << ", "
+	  << imm64(d.base + l.dir) << ";\n"
+	  << "\tcvta.to.global.u64 \t" << r("a") << ", " << r("a") << ";\n"
+	  << "\tld.relaxed.gpu.global.b64 \t" << r("h") << ", [" << r("a")
+	  << "];\n"
+	  << "\tand.b64 \t" << r("x") << ", " << r("h") << ", "
+	  << dh::STATE_MASK << ";\n"
+	  << "\tshr.u64 \t" << r("v") << ", " << r("h") << ", "
+	  << dh::KEY_SHIFT << ";\n"
+	  << "\tcvt.u32.u64 \t" << r("hk") << ", " << r("v") << ";\n"
+	  << "\tsetp.eq.u64 \t" << r("p") << ", " << r("x") << ", "
+	  << dh::ST_LIVE << ";\n"
+	  << "\tsetp.eq.and.u32 \t" << r("p") << ", " << r("hk") << ", "
+	  << r("k") << ", " << r("p") << ";\n"
+	  << "\t@" << r("p") << " bra \t$Lbph_hit_" << N << ";\n"
+	  << "\tmov.u64 \t" << r("v") << ", 0;\n"
+	  << "\tsetp.eq.u64 \t" << r("q") << ", " << r("x") << ", "
+	  << dh::ST_EMPTY << ";\n"
+	  << "\t@" << r("q") << " bra \t$Lbph_join_" << N << ";\n"
+	  << "\tmov.u64 \t" << r("b") << ", " << imm64(d.base) << ";\n"
+	  << "\tmov.u64 \t" << r("m") << ", " << d.max_entries << ";\n"
+	  << "\tmov.u64 \t" << r("n") << ", " << d.shards << ";\n"
+	  << devhash_call("__bpftime_devhash_lookup", "__bph_c" + N,
+			  { r("b"), r("kk"), r("m"), r("n") }, r("v"))
+	  << "\tbra.uni \t$Lbph_join_" << N << ";\n"
+	  << "$Lbph_hit_" << N << ":\n"
+	  << "\tshr.u64 \t" << r("x") << ", " << r("h") << ", "
+	  << dh::ROW_SHIFT << ";\n"
+	  << "\tcvt.u32.u64 \t" << r("row") << ", " << r("x") << ";\n"
+	  << "\tand.b32 \t" << r("row") << ", " << r("row") << ", "
+	  << dh::ROW_MASK << ";\n"
+	  << "\tmov.u32 \t" << r("s") << ", %smid;\n"
+	  << "\tand.b32 \t" << r("s") << ", " << r("s") << ", "
+	  << (d.shards / 32 - 1) << ";\n"
+	  << "\tshl.b32 \t" << r("s") << ", " << r("s") << ", 5;\n"
+	  << "\tmov.u32 \t" << r("l") << ", %laneid;\n"
+	  << "\tor.b32 \t" << r("s") << ", " << r("s") << ", " << r("l")
+	  << ";\n";
+	if (l.r < d.max_entries) {
+		// a live row at or above r is one word (single rows)
+		o << "\tsetp.lt.u32 \t" << r("q") << ", " << r("row") << ", "
+		  << l.r << ";\n"
+		  << "\tsub.u32 \t" << r("l") << ", " << r("row") << ", " << l.r
+		  << ";\n"
+		  << "\tmul.wide.u32 \t" << r("a") << ", " << r("l") << ", 8;\n"
+		  << "\tadd.u64 \t" << r("a") << ", " << r("a") << ", "
+		  << imm64(d.base + l.single) << ";\n";
+	}
+	// geometry_valid: r x shards x 8 fits 32 bits
+	o << "\tmad.lo.u32 \t" << r("s") << ", " << r("row") << ", " << d.shards
+	  << ", " << r("s") << ";\n"
+	  << "\tmul.wide.u32 \t" << r("x") << ", " << r("s") << ", 8;\n"
+	  << "\tadd.u64 \t" << r("v") << ", " << r("x") << ", "
+	  << imm64(d.base + l.rows) << ";\n";
+	if (l.r < d.max_entries)
+		o << "\tselp.b64 \t" << r("v") << ", " << r("v") << ", " << r("a")
+		  << ", " << r("q") << ";\n";
+	o << "$Lbph_join_" << N << ":\n"
+	  << "\tmov.u64 \t" << ret << ", " << r("v") << ";\n"
+	  << "} // bpftime hash-map lookup\n";
+	return o.str();
+}
+
+// A constant-fd update of a 1533 map with a device copy: the insert
+// (BPF_NOEXIST only; other flags give -22 there), its 64-bit result into
+// the program's register.
+std::string hash_update(const hash_map_desc &d, long long fd, int n,
+			const std::string &key_ptr, const std::string &value,
+			const std::string &flags, const std::string &ret,
+			const std::string &fwd, int fwd_width)
+{
+	const std::string N = std::to_string(n);
+	auto r = [&](const char *s) { return std::string("%bphu_") + s + N; };
+	std::ostringstream o;
+	o << "{ // bpftime hash-map update, map " << fd << "\n"
+	  << "\t.reg .b32 \t" << r("k") << ";\n"
+	  << "\t.reg .b64 \t" << r("kk") << ", " << r("b") << ", " << r("m")
+	  << ", " << r("n") << ", " << r("v") << ", " << r("f") << ";\n"
+	  << key_into(r("k"), key_ptr, fwd, fwd_width)
+	  << "\tcvt.u64.u32 \t" << r("kk") << ", " << r("k") << ";\n"
+	  << "\tmov.u64 \t" << r("b") << ", " << imm64(d.base) << ";\n"
+	  << "\tmov.u64 \t" << r("m") << ", " << d.max_entries << ";\n"
+	  << "\tmov.u64 \t" << r("n") << ", " << d.shards << ";\n"
+	  << "\tmov.u64 \t" << r("v") << ", " << value << ";\n"
+	  << "\tmov.u64 \t" << r("f") << ", " << flags << ";\n"
+	  << devhash_call("__bpftime_devhash_insert", "__bphu_c" + N,
+			  { r("b"), r("kk"), r("v"), r("f"), r("m"), r("n") },
+			  ret)
+	  << "} // bpftime hash-map update\n";
+	return o.str();
+}
+
 // The thread-local area by value (see the header). Only what `lat` runs on
 // the device is rewritten: 32-bit loads and stores at 4-byte offsets of a
 // value, with 64-bit registers. Anything else keeps the area in memory.
@@ -1112,11 +1271,16 @@ std::string route_function_body(
 	const std::string &fbody, bool routed,
 	const std::map<long long, thread_local_map_desc> &maps,
 	const std::map<long long, sum_map_desc> &sums,
+	const std::map<long long, hash_map_desc> &hashes,
 	thread_local_routing_stats &st, const std::string &fname,
 	const byvalue_plan *byvalue = nullptr)
 {
 	static const std::regex p1(
 		R"(st\.param\.b64\s+\[param1\+0\],\s*([^;]+);)");
+	static const std::regex p2(
+		R"(st\.param\.b64\s+\[param2\+0\],\s*([^;]+);)");
+	static const std::regex p3(
+		R"(st\.param\.b64\s+\[param3\+0\],\s*([^;]+);)");
 	static const std::regex p4(
 		R"(st\.param\.b64\s+\[param4\+0\],\s*([^;]+);)");
 	static const std::regex ret(
@@ -1126,7 +1290,9 @@ std::string route_function_body(
 	size_t pos = 0;
 	int direct_seq = 0;
 	int sum_seq = 0;
-	// registers sum lookups define, with the number of such definitions
+	int hash_seq = 0;
+	// registers sum and hash lookups define, with the number of such
+	// definitions
 	std::map<std::string, int> sum_defs;
 	for (;;) {
 		size_t b = fbody.find("{ // callseq ", pos);
@@ -1164,6 +1330,50 @@ std::string route_function_body(
 		bool is_const = constant_fd(fbody, block, &fd);
 		auto tl = is_const ? maps.find(fd) : maps.end();
 		auto sm = is_const ? sums.find(fd) : sums.end();
+		auto hh = is_const ? hashes.find(fd) : hashes.end();
+		// a device hash map (1533) with a device copy: lookups inline
+		// with the walk's call behind, updates the insert's call,
+		// deletes -22; without a copy the trampoline answers (D1)
+		if (hh != hashes.end() && hash_has_copy(hh->second)) {
+			if (!plain_call_block(block))
+				fail("unexpected instructions in a helper call of " +
+				     fname);
+			std::smatch km, rm;
+			if (!std::regex_search(block, rm, ret))
+				fail("a hash-map call without its result in " +
+				     fname);
+			if (id == 3) {
+				out += "mov.u64 \t" + rm[1].str() +
+				       ", -22; // bpftime hash-map delete, map " +
+				       std::to_string(fd) + ": EINVAL\n";
+				st.hash_deletes++;
+				continue;
+			}
+			if (!std::regex_search(block, km, p1))
+				fail("unexpected hash-map call shape in " + fname);
+			int fwd_width = 0;
+			std::string fwd =
+				forwarded_key(fbody, b, trim(km[1]), &fwd_width);
+			if (!fwd.empty())
+				st.keys_forwarded++;
+			const int n = hash_seq++;
+			if (id == 1) {
+				out += hash_lookup(hh->second, fd, n, trim(km[1]),
+						   rm[1].str(), fwd, fwd_width);
+				sum_defs[rm[1].str()]++;
+				st.hash_lookups++;
+				continue;
+			}
+			std::smatch vm, fm;
+			if (!std::regex_search(block, vm, p2) ||
+			    !std::regex_search(block, fm, p3))
+				fail("unexpected hash-map update shape in " + fname);
+			out += hash_update(hh->second, fd, n, trim(km[1]),
+					   trim(vm[1]), trim(fm[1]), rm[1].str(),
+					   fwd, fwd_width);
+			st.hash_inserts++;
+			continue;
+		}
 		// with a device copy only: without one the trampoline answers
 		// from the run-time map_info (a copy made later, after a cached
 		// image was patched, is then still found)
@@ -1273,12 +1483,16 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 				    const std::vector<thread_local_map_desc> &descs,
 				    uint64_t area_bytes,
 				    thread_local_routing_stats *stats_out,
-				    const std::vector<sum_map_desc> &sum_descs)
+				    const std::vector<sum_map_desc> &sum_descs,
+				    const std::vector<hash_map_desc> &hash_descs)
 {
 	thread_local_routing_stats st;
 	std::map<long long, sum_map_desc> sums;
 	for (auto &d : sum_descs)
 		sums[d.fd] = d;
+	std::map<long long, hash_map_desc> hashes;
+	for (auto &d : hash_descs)
+		hashes[d.fd] = d;
 	if (area_bytes > THREAD_LOCAL_AREA_MAX)
 		fail("thread-local maps need " + std::to_string(area_bytes) +
 		     " bytes per thread, more than " +
@@ -1542,7 +1756,7 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 		std::string nbody;
 		if (bv != byvalue_functions.end()) {
 			const byvalue_plan &pl = *bv->second;
-			nbody = route_function_body(fbody, false, maps, sums, st,
+			nbody = route_function_body(fbody, false, maps, sums, hashes, st,
 						    f.name, &pl);
 			nbody = by_value_rewrite(nbody, pl, f.name, words,
 						 &st.byvalue_accesses);
@@ -1585,7 +1799,7 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 			else
 				st.area_unused_functions++;
 		} else if (routed) {
-			nbody = route_function_body(fbody, true, maps, sums, st,
+			nbody = route_function_body(fbody, true, maps, sums, hashes, st,
 						    f.name);
 			if (!params.empty())
 				fail(f.name + " already has parameters");
@@ -1595,7 +1809,7 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 				f.name + "_bpftime_tl];" + nbody;
 			st.routed_functions++;
 		} else {
-			nbody = route_function_body(fbody, false, maps, sums, st,
+			nbody = route_function_body(fbody, false, maps, sums, hashes, st,
 						    f.name);
 			head = ptx.substr(f.params_open,
 					  f.params_close + 1 - f.params_open);
@@ -1616,6 +1830,20 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 			found = found || g.name == f;
 		if (!found)
 			fail("routed function " + f + " has no definition");
+	}
+	// the devhash functions once, at the start of the module body (plan
+	// D1): a PTX call needs its callee declared before it
+	if (st.hash_lookups + st.hash_inserts > 0) {
+		static const std::regex header(
+			R"((^|\n)[ \t]*\.address_size[^\n]*\n)");
+		std::smatch hm;
+		if (!std::regex_search(ptx, hm, header))
+			fail("no .address_size line for the devhash functions");
+		const size_t at = hm.position(0) + hm.length(0);
+		ptx = ptx.substr(0, at) +
+		      "\n// bpftime device hash map functions (devhash_ptx.h)\n" +
+		      DEVHASH_PTX + "\n" + ptx.substr(at);
+		st.devhash_text_inserted = 1;
 	}
 	if (stats_out)
 		*stats_out = st;

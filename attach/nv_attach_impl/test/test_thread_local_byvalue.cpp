@@ -464,3 +464,34 @@ TEST_CASE("A by-value function called outside its kernel is refused",
 			    "\tcall __probe_func__kern;\n\tret;\n}\n";
 	REQUIRE_THROWS(route(HEAD + exit_fn() + entry() + kernel() + other, st));
 }
+
+TEST_CASE("lat's probes stay by value beside a device hash map's lookup",
+	  "[tl-byvalue][hash-map-routing]")
+{
+	// the exit probe also looks up a 1533 map (fd 14) and adds at the
+	// result: the hash lookup is rewritten inline, the area stays a value
+	hash_map_desc h;
+	h.fd = 14;
+	h.base = 0x203400000ull;
+	h.max_entries = 260;
+	h.shards = 256;
+	const std::string uses = "\tmov.u64 \t%rd29, 14;\n" +
+				 call_block(11, "_bpf_helper_ext_0001", "%rd29",
+					    "%rd1", "%rd30") +
+				 "\tsetp.eq.s64 \t%p2, %rd30, 0;\n"
+				 "\t@%p2 bra \t$L__BB0_9;\n"
+				 "\tatom.add.u64 \t%rd31, [%rd30], 1;\n"
+				 "$L__BB0_9:\n";
+	thread_local_routing_stats st;
+	auto out = route_thread_local_maps(HEAD + exit_fn(uses) + entry() +
+						   kernel(),
+					   { K }, { tl() }, 8, &st, {}, { h });
+	INFO(why(st));
+	REQUIRE(st.hash_lookups == 1);
+	REQUIRE(st.byvalue_kernels == 1);
+	REQUIRE(st.byvalue_functions == 2);
+	REQUIRE(st.byvalue_fallbacks.empty());
+	REQUIRE(has(out, "{ // bpftime hash-map lookup, map 14"));
+	REQUIRE(has(out, "atom.global.add.u64"));
+	REQUIRE_FALSE(has(out, "__bpftime_tl"));
+}

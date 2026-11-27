@@ -3,6 +3,8 @@
 #include "bpftime_shm_internal.hpp"
 #include "spdlog/spdlog.h"
 #include "probed_launch_activity.hpp"
+#include "trampoline/gpu_devhash_layout.h"
+#include <algorithm>
 #include <signal.h>
 #include <time.h>
 #include <atomic>
@@ -195,6 +197,176 @@ $L_done:
 	ret;
 }
 )PTX";
+
+// ------------------------------------------- the device hash map (1533)
+//
+// The hash snapshot (plan S4, D14): one item per directory slot, then one
+// per loss counter, then the reservation count.
+//   slot i     the raw header, loaded with ld.acquire.gpu.global (it pairs
+//              with the inserts' st.release.gpu of live and refused: a
+//              live header's first add is seen), and for a live header its
+//              row's value: the sum of its shards below r, its single word
+//              at r and above (ld.relaxed.gpu.global, the form of the
+//              programs' adds); 0 for every other state
+//   counter c  the sum of its shards
+//   count      the reservation count (relaxed)
+// Staged as gpu_devhash_layout.h's staging_for: {header, value} per slot,
+// then the counters, then the count.
+static_assert(bpftime_devhash::STATE_MASK == 7 &&
+		      bpftime_devhash::ST_LIVE == 2 &&
+		      bpftime_devhash::ROW_SHIFT == 3 &&
+		      bpftime_devhash::ROW_MASK == 536870911 &&
+		      bpftime_devhash::NUM_COUNTERS == 7,
+	      "the hash snapshot's PTX has these constants written in");
+static_assert(bpftime_devhash::staging_for(1).counters ==
+			      bpftime_devhash::slots_for(1) * 16 &&
+		      bpftime_devhash::staging_for(1).count ==
+			      bpftime_devhash::slots_for(1) * 16 + 56 &&
+		      bpftime_devhash::staging_header_offset(3) == 48 &&
+		      bpftime_devhash::staging_value_offset(3) == 56,
+	      "the hash snapshot's PTX stages in this layout");
+
+const char *hash_snapshot_ptx = R"PTX(
+.version 7.0
+.target sm_70
+.address_size 64
+.visible .entry bpftime_model_hash_snapshot(
+	.param .u64 p_block, .param .u64 p_staging, .param .u64 p_slots,
+	.param .u64 p_max, .param .u64 p_r, .param .u64 p_shards,
+	.param .u64 p_dir, .param .u64 p_rows, .param .u64 p_single,
+	.param .u64 p_counters, .param .u64 p_count)
+{
+	.reg .pred %p<8>;
+	.reg .b32 %r<5>;
+	.reg .b64 %rd<34>;
+	ld.param.u64 %rd1, [p_block];
+	ld.param.u64 %rd2, [p_staging];
+	ld.param.u64 %rd3, [p_slots];
+	ld.param.u64 %rd4, [p_max];
+	ld.param.u64 %rd5, [p_r];
+	ld.param.u64 %rd6, [p_shards];
+	ld.param.u64 %rd7, [p_dir];
+	ld.param.u64 %rd8, [p_rows];
+	ld.param.u64 %rd9, [p_single];
+	ld.param.u64 %rd10, [p_counters];
+	ld.param.u64 %rd11, [p_count];
+	mov.u32 %r1, %ctaid.x;
+	mov.u32 %r2, %ntid.x;
+	mov.u32 %r3, %tid.x;
+	mul.wide.u32 %rd12, %r1, %r2;
+	cvt.u64.u32 %rd13, %r3;
+	add.u64 %rd12, %rd12, %rd13;
+	mov.u32 %r4, %nctaid.x;
+	mul.wide.u32 %rd14, %r4, %r2;
+	add.u64 %rd15, %rd3, 8;
+	shl.b64 %rd28, %rd3, 4;
+	add.u64 %rd28, %rd28, %rd2;
+$L_item:
+	setp.ge.u64 %p1, %rd12, %rd15;
+	@%p1 bra $L_done;
+	setp.lt.u64 %p2, %rd12, %rd3;
+	@!%p2 bra $L_tail;
+	shl.b64 %rd16, %rd12, 3;
+	add.u64 %rd16, %rd16, %rd7;
+	add.u64 %rd16, %rd16, %rd1;
+	cvta.to.global.u64 %rd16, %rd16;
+	ld.acquire.gpu.global.b64 %rd17, [%rd16];
+	mov.u64 %rd18, 0;
+	and.b64 %rd19, %rd17, 7;
+	setp.ne.u64 %p3, %rd19, 2;
+	@%p3 bra $L_stage;
+	shr.u64 %rd20, %rd17, 3;
+	and.b64 %rd20, %rd20, 536870911;
+	setp.ge.u64 %p4, %rd20, %rd4;
+	@%p4 bra $L_stage;
+	setp.ge.u64 %p5, %rd20, %rd5;
+	@%p5 bra $L_single;
+	mul.lo.u64 %rd21, %rd20, %rd6;
+	shl.b64 %rd21, %rd21, 3;
+	add.u64 %rd21, %rd21, %rd8;
+	add.u64 %rd21, %rd21, %rd1;
+	cvta.to.global.u64 %rd21, %rd21;
+	mov.u64 %rd22, 0;
+$L_shard:
+	setp.ge.u64 %p6, %rd22, %rd6;
+	@%p6 bra $L_stage;
+	shl.b64 %rd23, %rd22, 3;
+	add.u64 %rd23, %rd21, %rd23;
+	ld.relaxed.gpu.global.u64 %rd24, [%rd23];
+	add.u64 %rd18, %rd18, %rd24;
+	add.u64 %rd22, %rd22, 1;
+	bra.uni $L_shard;
+$L_single:
+	sub.u64 %rd25, %rd20, %rd5;
+	shl.b64 %rd25, %rd25, 3;
+	add.u64 %rd25, %rd25, %rd9;
+	add.u64 %rd25, %rd25, %rd1;
+	cvta.to.global.u64 %rd25, %rd25;
+	ld.relaxed.gpu.global.u64 %rd18, [%rd25];
+$L_stage:
+	shl.b64 %rd26, %rd12, 4;
+	add.u64 %rd26, %rd26, %rd2;
+	st.u64 [%rd26], %rd17;
+	st.u64 [%rd26+8], %rd18;
+	bra.uni $L_next;
+$L_tail:
+	sub.u64 %rd27, %rd12, %rd3;
+	setp.lt.u64 %p7, %rd27, 7;
+	@!%p7 bra $L_count;
+	mul.lo.u64 %rd29, %rd27, %rd6;
+	shl.b64 %rd29, %rd29, 3;
+	add.u64 %rd29, %rd29, %rd10;
+	add.u64 %rd29, %rd29, %rd1;
+	cvta.to.global.u64 %rd29, %rd29;
+	mov.u64 %rd30, 0;
+	mov.u64 %rd22, 0;
+$L_cshard:
+	setp.ge.u64 %p6, %rd22, %rd6;
+	@%p6 bra $L_cstore;
+	shl.b64 %rd23, %rd22, 3;
+	add.u64 %rd23, %rd29, %rd23;
+	ld.relaxed.gpu.global.u64 %rd24, [%rd23];
+	add.u64 %rd30, %rd30, %rd24;
+	add.u64 %rd22, %rd22, 1;
+	bra.uni $L_cshard;
+$L_cstore:
+	shl.b64 %rd31, %rd27, 3;
+	add.u64 %rd31, %rd31, %rd28;
+	st.u64 [%rd31], %rd30;
+	bra.uni $L_next;
+$L_count:
+	add.u64 %rd32, %rd11, %rd1;
+	cvta.to.global.u64 %rd32, %rd32;
+	ld.relaxed.gpu.global.u64 %rd33, [%rd32];
+	st.u64 [%rd28+56], %rd33;
+$L_next:
+	add.u64 %rd12, %rd12, %rd14;
+	bra.uni $L_item;
+$L_done:
+	ret;
+}
+)PTX";
+
+// One launch of the hash snapshot over a block (generic address) into a
+// staging buffer (a device-visible address).
+CUresult launch_hash_snapshot(CUfunction fn, CUstream stream, uint64_t block,
+			      uint64_t max_entries, uint64_t shards,
+			      uint64_t staging)
+{
+	const bpftime_devhash::layout l =
+		bpftime_devhash::layout_for(max_entries, shards);
+	uint64_t slots = l.slots, r = l.r, dir = l.dir, rows = l.rows,
+		 single = l.single, counters = l.counters,
+		 count = bpftime_devhash::ctl_offset(bpftime_devhash::CTL_COUNT);
+	void *args[] = { &block,  &staging, &slots,	&max_entries,
+			 &r,	  &shards,  &dir,	&rows,
+			 &single, &counters, &count };
+	const uint64_t items = slots + bpftime_devhash::NUM_COUNTERS + 1;
+	const unsigned blocks =
+		(unsigned)std::min<uint64_t>((items + 255) / 256, 1024);
+	return cuLaunchKernel(fn, blocks, 1, 1, 256, 1, 1, 0, stream, args,
+			      nullptr);
+}
 
 uint64_t now_ns()
 {
@@ -677,6 +849,29 @@ int deliver_now(bool final)
 	if (final)
 		s.final_done = true;
 	return n;
+}
+
+const char *hash_snapshot_ptx_for_test()
+{
+	return hash_snapshot_ptx;
+}
+
+bool hash_snapshot_for_test(uint64_t block, uint64_t max_entries,
+			    uint64_t shards, uint64_t staging)
+{
+	CUmodule m = nullptr;
+	CUfunction fn = nullptr;
+	CUresult r = cuModuleLoadData(&m, hash_snapshot_ptx);
+	if (r == CUDA_SUCCESS)
+		r = cuModuleGetFunction(&fn, m, "bpftime_model_hash_snapshot");
+	if (r == CUDA_SUCCESS)
+		r = launch_hash_snapshot(fn, nullptr, block, max_entries,
+					 shards, staging);
+	if (r == CUDA_SUCCESS)
+		r = cuCtxSynchronize();
+	if (m != nullptr)
+		cuModuleUnload(m);
+	return r == CUDA_SUCCESS;
 }
 } // namespace bpftime::gpu_model
 

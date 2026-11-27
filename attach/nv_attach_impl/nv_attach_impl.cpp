@@ -1010,6 +1010,7 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
 {
 	std::vector<thread_local_map_desc> descs;
 	std::vector<sum_map_desc> sums;
+	std::vector<hash_map_desc> hashes;
 	// 1532's adds must take the .global form the delivery reads with too
 	// (the wrapper's isspacep.global branch), so its maps run the pass
 	bool device_arrays = false;
@@ -1029,6 +1030,17 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
 			sums.push_back(d);
 			continue;
 		}
+		if (m.enabled && m.map_type == 1533 /* device hash */) {
+			// base 0 (no copy in this process): the trampoline keeps
+			// the calls
+			hash_map_desc d;
+			d.fd = (int)i;
+			d.base = (uint64_t)(uintptr_t)m.extra_buffer;
+			d.max_entries = (uint64_t)(uint32_t)m.max_entries;
+			d.shards = m.max_thread_count;
+			hashes.push_back(d);
+			continue;
+		}
 		if (!m.enabled || m.map_type != 1530 /* thread-local array */)
 			continue;
 		thread_local_map_desc d;
@@ -1039,15 +1051,15 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
 		area = std::max(area, d.offset + d.value_size * d.max_entries);
 		descs.push_back(d);
 	}
-	if (descs.empty() && sums.empty() && !device_arrays)
+	if (descs.empty() && sums.empty() && hashes.empty() && !device_arrays)
 		return ptx;
 	std::vector<std::string> kernels;
 	for (const auto &[_, entry] : this->hook_entries)
 		for (const auto &k : entry.kernels)
 			kernels.push_back(k);
 	thread_local_routing_stats st;
-	auto out =
-		route_thread_local_maps(ptx, kernels, descs, area, &st, sums);
+	auto out = route_thread_local_maps(ptx, kernels, descs, area, &st, sums,
+					   hashes);
 	SPDLOG_INFO(
 		"Thread-local maps in {}: {} bytes per thread, {} kernels, {} probe calls, {} probe functions given the area's address ({} lookups made direct, {} helper calls given the area), {} other probe functions, by value among them ({} helper calls given 0), {} generic atomics guarded; sum maps: {} lookups inline, {} atomics on their values made global; {} lookup keys forwarded",
 		file_name, area, st.kernels, st.call_sites, st.routed_functions,
@@ -1063,6 +1075,12 @@ nv_attach_impl::route_thread_local_maps_of_module(const std::string &ptx,
 		st.byvalue_fallbacks.size());
 	for (const auto &why : st.byvalue_fallbacks)
 		SPDLOG_INFO("Thread-local area kept in memory: {}", why);
+	if (!hashes.empty())
+		SPDLOG_INFO(
+			"Device hash maps in {}: {} lookups inline, {} updates made insert calls, {} deletes made -22, devhash functions {}",
+			file_name, st.hash_lookups, st.hash_inserts,
+			st.hash_deletes,
+			st.devhash_text_inserted ? "inserted" : "not needed");
 	return out;
 }
 

@@ -156,6 +156,13 @@ void register_device_array(nv_gpu_device_array_map_impl *map,
 // One delivery of every registered map now, on the calling thread; final
 // marks the maps' status. Returns the number of maps delivered.
 int deliver_now(bool final);
+// The device hash map's snapshot (plan S4; the delivery uses it from S5):
+// its PTX, and one launch of it in the current context over a block
+// (device address) into staging (a device-visible address), synchronized;
+// false on a CUDA error. Tests.
+const char *hash_snapshot_ptx_for_test();
+bool hash_snapshot_for_test(uint64_t block, uint64_t max_entries,
+			    uint64_t shards, uint64_t staging);
 } // namespace gpu_model
 } // namespace bpftime
 

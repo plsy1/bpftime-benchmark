@@ -95,6 +95,25 @@ struct sum_map_desc {
 	uint64_t shards; // (SM slots, a power of two) x 32 lanes
 };
 
+// Device hash maps (1533; plan results gpu/hash-build-plan-20261127, D1,
+// S6): with a device copy (base, the block from the agent's pre-pass), a
+// lookup with a constant map fd becomes the inline hit path (the key's
+// home slot, one ld.relaxed.gpu.global of its header; live K: the calling
+// thread's shard of its row, or the row's single word; empty: NULL;
+// anything else: a call of __bpftime_devhash_lookup, which walks), an
+// update the call of __bpftime_devhash_insert (its 64-bit result in the
+// program's register), a delete -22. The three functions (devhash_ptx.h,
+// sm_70 forms) are put once at the start of the module body, only when a
+// lookup or update was rewritten. Without a copy, or with a non-constant
+// fd, the trampoline keeps the call (lookup NULL, update -1, delete -22).
+// Adds through a lookup's result take the global form, as for 1531.
+struct hash_map_desc {
+	int fd;
+	uint64_t base; // device block, 0 if none
+	uint64_t max_entries;
+	uint64_t shards; // as 1531's
+};
+
 struct thread_local_routing_stats {
 	int kernels = 0;
 	int call_sites = 0;
@@ -113,6 +132,10 @@ struct thread_local_routing_stats {
 	int area_unused_functions = 0; // their probe functions (no area)
 	int byvalue_lookups = 0;   // lookups made a constant
 	int byvalue_accesses = 0;  // accesses made register moves
+	int hash_lookups = 0;	   // constant-fd 1533 lookups made inline
+	int hash_inserts = 0;	   // constant-fd 1533 updates made calls
+	int hash_deletes = 0;	   // constant-fd 1533 deletes made -22
+	int devhash_text_inserted = 0; // the devhash functions put in
 	// why a kernel kept the area in memory (function: reason)
 	std::vector<std::string> byvalue_fallbacks;
 };
@@ -126,7 +149,8 @@ std::string route_thread_local_maps(const std::string &ptx,
 				    const std::vector<thread_local_map_desc> &maps,
 				    uint64_t area_bytes,
 				    thread_local_routing_stats *stats,
-				    const std::vector<sum_map_desc> &sum_maps = {});
+				    const std::vector<sum_map_desc> &sum_maps = {},
+				    const std::vector<hash_map_desc> &hash_maps = {});
 } // namespace attach
 } // namespace bpftime
 #endif
