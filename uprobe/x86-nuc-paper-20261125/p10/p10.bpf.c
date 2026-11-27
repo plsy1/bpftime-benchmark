@@ -1,0 +1,66 @@
+// P10 ring-buffer microbenchmark programs, uprobe on p10victim:p10_point(i).
+//   rb:    bpf_ringbuf_reserve(64 B) + write + bpf_ringbuf_submit(flags 0: default wakeup rule); drops counted.
+//   empty: return 0 (the hook's own cost on the same backend; rb - empty = ring-buffer cost per record).
+#include <vmlinux.h>
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_tracing.h>
+
+struct ev {
+	__u64 i, pid_tgid, pad[6];
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, 1 << 24);
+} rb SEC(".maps");
+
+// 0: reserve failed
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} drops SEC(".maps");
+
+SEC("uprobe")
+int BPF_UPROBE(rbprog, __u64 i)
+{
+	struct ev *e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
+	if (!e) {
+		__u32 z = 0;
+		__u64 *d = bpf_map_lookup_elem(&drops, &z);
+		if (d)
+			__sync_fetch_and_add(d, 1);
+		return 0;
+	}
+	e->i = i;
+	e->pid_tgid = 0;
+	bpf_ringbuf_submit(e, 0);
+	return 0;
+}
+
+// rbnw: the same record with BPF_RB_NO_WAKEUP (P10b): no notification on any backend; the loader busy-polls.
+SEC("uprobe")
+int BPF_UPROBE(rbnw, __u64 i)
+{
+	struct ev *e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
+	if (!e) {
+		__u32 z = 0;
+		__u64 *d = bpf_map_lookup_elem(&drops, &z);
+		if (d)
+			__sync_fetch_and_add(d, 1);
+		return 0;
+	}
+	e->i = i;
+	e->pid_tgid = 0;
+	bpf_ringbuf_submit(e, BPF_RB_NO_WAKEUP);
+	return 0;
+}
+
+SEC("uprobe")
+int BPF_UPROBE(empty, __u64 i)
+{
+	return 0;
+}
+
+char LICENSE[] SEC("license") = "GPL";

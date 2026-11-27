@@ -1,0 +1,5 @@
+# P10 ring-buffer reserve+submit microbenchmark (eval plan Nice P10). Exploratory. p10/p10run.py, inside the pinned session:
+# consumer CPU 4; 1t = one victim on CPU 2 (3.5 GHz); 4p = four victim processes on E cores 8-11 (2.5 GHz, one L2).
+# Legs K, O, Ol, Dn x programs empty / rbprog (reserve 64 B + submit, default wakeup) x {1t, 4p}, plus B; 5 reps,
+# N = 2,000,000 timed calls after 100,000 warm-up calls per victim; ring buffer 16 MiB.
+!cd /home/y/src/bpftime-x86-runs/paper-20261124/p10 && sha256sum -c sha256.txt && P10_IN_SESSION=1 python3 p10run.py --reps 5 --out "$OUT/p10.jsonl"

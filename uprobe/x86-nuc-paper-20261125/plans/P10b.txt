@@ -1,0 +1,4 @@
+# P10b: like P10, but the ring-buffer program submits with BPF_RB_NO_WAKEUP (rbnw) and the loader busy-polls
+# (ring_buffer__poll timeout 0), so no backend notifies: rbnw - empty is the reserve+submit data-structure cost on each
+# backend (consumer busy on CPU 4). Legs K, O, Ol, Dn x {empty, rbnw} x {1t, 4p}, plus B; 5 reps. Exploratory.
+!cd /home/y/src/bpftime-x86-runs/paper-20261124/p10 && sha256sum -c sha256.txt && P10_IN_SESSION=1 python3 p10run.py --progs empty,rbnw --reps 5 --seed 20261128 --out "$OUT/p10b.jsonl"

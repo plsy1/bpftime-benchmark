@@ -1,0 +1,13 @@
+# I7' (eval plan Nice): L2 pressure on the E-core cluster 8-11 (one 2 MB L2, no SMT). Policy E: nginx (1 worker) on 8,
+# sslsniff/consumer on 4, wrk 4 threads on 0,1,2,6. Stress = l2stress (random pointer chase + store over 1 MiB) on each
+# of 9, 10, 11 (3 MiB > 2 MiB L2). Conditions alternate N, S, N, S (rounds 0/1, 5 reps each + 1 warm-up per block);
+# legs B, K, Kb, Ol, Dn, Dnpc; 16 B. Exploratory (no PREREG entry). Question: does L2 pressure change the per-event
+# cost of K vs bpftime builds differently (Q6: Orin's 2.5x, per-core L2 256 KB)?
+--exp I7N --round 0 --payload 16 --reps 6 --warmup 1 --legs B#E,K#E,K#E+SSLSNIFF_PB_WAKEUP=32,Ol#E,Dn#E,Dnpc#E
+!/home/y/src/bpftime-x86-runs/paper-20261124/i7/stress.sh start "$OUT"
+--exp I7S --round 0 --payload 16 --reps 6 --warmup 1 --legs B#E,K#E,K#E+SSLSNIFF_PB_WAKEUP=32,Ol#E,Dn#E,Dnpc#E
+!/home/y/src/bpftime-x86-runs/paper-20261124/i7/stress.sh stop "$OUT"
+--exp I7N --round 1 --payload 16 --reps 6 --warmup 1 --legs B#E,K#E,K#E+SSLSNIFF_PB_WAKEUP=32,Ol#E,Dn#E,Dnpc#E
+!/home/y/src/bpftime-x86-runs/paper-20261124/i7/stress.sh start "$OUT"
+--exp I7S --round 1 --payload 16 --reps 6 --warmup 1 --legs B#E,K#E,K#E+SSLSNIFF_PB_WAKEUP=32,Ol#E,Dn#E,Dnpc#E
+!/home/y/src/bpftime-x86-runs/paper-20261124/i7/stress.sh stop "$OUT"
