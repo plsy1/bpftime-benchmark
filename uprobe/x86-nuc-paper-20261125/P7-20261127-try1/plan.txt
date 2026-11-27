@@ -1,0 +1,7 @@
+# P7 (eval plan Nice): x86 start-up with the Jetson E13 protocol (prep/E13 of origin/benchmark-results/jetson 8c4ec8ee,
+# ported in p7/E13: paths, build mapping via config-x86.json, x86 memleak, stw at /home/y/src/rp/stw, n4 stop timeout
+# 600 s for kernel M=1000). Backends: kernel, O, Ol, Dn (AOT cache on), Dn:noaot (BPFTIME_AOT_CACHE=0 in the tool).
+# Helpers run on CPUs 0-11 (taskset; the session keeps Claude on 12-14). The Jetson ran unpinned on all 6 CPUs.
+!cd /home/y/src/bpftime-x86-runs/paper-20261124/p7/E13 && (cd ../workloads && sha256sum -c sha256.txt) && sha256sum /home/y/src/rp/stw && taskset -c 0-11 python3 -u run_burst.py --backends kernel,O,Ol,Dn,Dn:noaot --ks 1,16 --rounds 200 --reps 2 --out "$OUT/burst.jsonl" > "$OUT/burst.log" 2>&1; tail -3 "$OUT/burst.log"
+!cd /home/y/src/bpftime-x86-runs/paper-20261124/p7/E13 && taskset -c 0-11 python3 -u n4_many.py --ms 1,10,100,1000 --backends none,kernel,O,Ol,Dn --reps 2 --out "$OUT/n4-many.jsonl" > "$OUT/n4-many.log" 2>&1; tail -3 "$OUT/n4-many.log" | cut -c1-300
+!cd /home/y/src/bpftime-x86-runs/paper-20261124/p7/E13 && taskset -c 0-11 bash memleak_start.sh "$OUT/memleak-start" 10 kernel O Ol Dn Dn:noaot > "$OUT/memleak-start.txt" 2>"$OUT/memleak-start.err"; tail -5 "$OUT/memleak-start.txt"

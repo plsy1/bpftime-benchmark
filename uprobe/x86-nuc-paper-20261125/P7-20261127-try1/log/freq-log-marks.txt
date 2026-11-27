@@ -1,0 +1,4 @@
+step 1 at freq-log line 0: !cd /home/y/src/bpftime-x86-runs/paper-20261124/p7/E13 && (cd ../workloads && sha256sum -c sha256.txt) && sha256sum /home/y/src/rp/stw && taskset -c 0-11 python3 -u run_burst.py --backends kernel,O,Ol,Dn,Dn:noaot --ks 1,16 --rounds 200 --reps 2 --out "$OUT/burst.jsonl" > "$OUT/burst.log" 2>&1; tail -3 "$OUT/burst.log"
+step 2 at freq-log line 171: !cd /home/y/src/bpftime-x86-runs/paper-20261124/p7/E13 && taskset -c 0-11 python3 -u n4_many.py --ms 1,10,100,1000 --backends none,kernel,O,Ol,Dn --reps 2 --out "$OUT/n4-many.jsonl" > "$OUT/n4-many.log" 2>&1; tail -3 "$OUT/n4-many.log" | cut -c1-300
+step 3 at freq-log line 687: !cd /home/y/src/bpftime-x86-runs/paper-20261124/p7/E13 && taskset -c 0-11 bash memleak_start.sh "$OUT/memleak-start" 10 kernel O Ol Dn Dn:noaot > "$OUT/memleak-start.txt" 2>"$OUT/memleak-start.err"; tail -5 "$OUT/memleak-start.txt"
+end at freq-log line 741
