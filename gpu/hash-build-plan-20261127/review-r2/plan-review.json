@@ -1,0 +1,825 @@
+[
+ {
+  "reviewer": "answers-a",
+  "findings": [
+   {
+    "id": "ans-coverage-16",
+    "title": "D11's new count rule only covers a seeded directory with no empty slot. With a few empty slots the directory still gets stuck full (same answer for device-and-routing-15)",
+    "plan_section": "D11 count rule; S2.9; S3.6; S7 README item 5",
+    "problem": "Revision 2 seeds count = L at takeover, or max_entries only when the seeded directory has no empty slot (E = 0).\n\nIn C5 v2, every new non-empty slot adds exactly 1 to the count: CAS, then the acq_rel add, and a refused winner keeps its add. After a takeover the count can therefore reach at most L + E before the directory is full.\n\nIf 1 <= E < max_entries - L, the directory fills after E inserts while count = L + E < max_entries. From then on, every insert of an absent key walks all S slots and waits out the whole full_directory bound, then returns an unstable E2BIG. That includes a once-refused key, which D11 says can come back. This is exactly the outcome D11's own sentence says the rule prevents.\n\nThe precondition is the original finding's: a refused-filled (undersized) directory, plus winners not delivered live at the last delivery. Round two shows that regime leaves only a few empty slots, not zero.\n\n- S2.9 tests only E = 0: 'count = max_entries when no slot is empty', with the mutation 'count = L on a full directory'.\n- README item 5, 'After a takeover, a full directory refuses at once', is false for this case.",
+    "evidence": "PLAN-stage1.md:238-239: \"count = L, or max_entries if the seeded directory has no empty slot. Otherwise every insert of a new key would wait out the full-directory bound for a count that cannot rise.\" PLAN:456-458 (S2.9). PLAN:697 (README 5).\n\nc5-device-part.cu: :429 (precheck only when count >= max), :447 (CAS), :452 (`atom_add_acq_rel(ctlw(c, C_BOUND), 1)`), :454-458 (a refused winner keeps its add), :480 (`return full_directory(c);`), :324-331 (the wait ends early only when count >= max_entries, otherwise C_FULLDIR_UNSTABLE).\n\nhash-round2 README.md:64: at max 1,024, '2,018-2,047 of 2,048 slots ended non-empty', which leaves 1-30 empty.\n\nModel /tmp/claude-2002/devhash-plan-review2/answers-cov-dev/model.py (python3 -I), S=16, max 8, seeded L=6, E=1:\n- With D11's count of 6: key 200 'WON count now 7', then keys 201 and 202 'E2BIG(UNSTABLE: waited full 100us bound)'.\n- With count = max(L, max_entries - E) = 7: keys 201 and 202 get 'E2BIG(fulldir)' at once.",
+    "suggested_change": "Seed count = max(L, max_entries - E). This includes the E = 0 rule. Rows L..count-1 stay unused, and the directory can only fill once count >= max_entries.\n\nChange S2.9's case and mutation to a seeded directory with 1 <= E < max_entries - L (mutation: count = L). Then several inserts must end with immediate, non-unstable E2BIG.\n\nNote what the new rule changes:\n- S3.3's 'count = L' holds only when E >= max_entries - L.\n- Companion word 13 (count) then shows reserved capacity, not live keys.\n\nReword README 5. If the rule is kept as written, document this residual case in D11 and README 5 instead.",
+    "severity": "major"
+   },
+   {
+    "id": "ans-coverage-10",
+    "title": "Step 1 repairs the 'defensive staging' again, so the 'slot allowed back to empty' mutation still cannot fail",
+    "plan_section": "D10 step 1; S2.7 stagings and mutations",
+    "problem": "D10 step 1 runs on the staging before anything is applied. It marks every empty slot from home(K) to K's slot j as opaque.\n\nA defensive staging that 'shows a repaired slot empty again' still stages the key that caused the repair. Device slots never lose their key, and in D10's claiming case K stays at j. So step 1 marks the slot opaque again, and no empty slot is ever staged over a non-empty mirror slot.\n\nThe guard 'staged empty over a non-empty mirror slot keeps the mirror's value' is therefore never exercised. Removing it changes no lookup, and rule (a) still holds under the mutation. The mutation shows only when a staging also drops the keyed slot that covers the gap, for example K's own slot shown empty.",
+    "evidence": "PLAN-stage1.md:196-198: \"Repair: in staging, for each non-empty slot j with a key K, mark every empty slot from home(K) to j as opaque. A mirror slot never goes back to empty: staged empty over a non-empty mirror slot keeps the mirror's value.\" PLAN:436 \"defensive stagings that show a repaired slot empty again\"; PLAN:447 \"a slot allowed back to empty, caught by (a) with the defensive stagings\". PLAN:212-213 (a claiming-caused gap can be staged empty again while K stays claiming at j).\n\nModel /tmp/claude-2002/devhash-plan-review2/answers-cov-dev/model.py, with the mutation on: \"found after N=True, after repaired-slot-empty staging=True, after key-slot-empty staging=False\". Only the staging that empties K's own slot exposes the mutation.",
+    "suggested_change": "Make the defensive stagings show as empty a slot that held a key in an earlier staging: K's own slot, or every keyed slot whose probe path covers the repaired slot. The mutation then drops K, and rule (a) fails. Keep the repaired-slot-only staging as a check that step 1 repairs it again.",
+    "severity": "major"
+   },
+   {
+    "id": "ans-coverage-09",
+    "title": "The 'no pass B' mutant is caught only if a reader happens to scan while one apply_delivery is mid-way. No hook or count makes it fail reliably",
+    "plan_section": "S2.7 rule (d) and its mutations; S2 test hooks",
+    "problem": "Rule (d) can see the one-pass-order mutant only while the writer is inside a single apply_delivery. The window runs from its store of K's header at a low slot j to its later store of the wraparound gap slot near S-1. Once that delivery completes, the mirror is the same as the correct build's, so rules (a)-(c) cannot see the mutant. Rule (c) looks only after the marker.\n\nThe test runs a free writer and free readers. It names no staging count and no hook inside apply_delivery:\n- S2's hooks are seal-side writer hooks only.\n- The 'between pass B and pass C' stop is an S5 owner hook.\n\nWhether S2.7 fails under this mutant is timing luck. That is the defect the first review held for the seal race (coverage-13). The 'values after headers, caught by (b)' mutant has the same shape: its window is between pass C and pass A of one delivery.",
+    "evidence": "PLAN-stage1.md:430: \"A writer thread applies synthetic stagings while reader threads run.\" PLAN:440-442 (rules (c) and (d)). PLAN:444-446 (\"no pass B, caught by (d)\"; \"values after headers, caught by (b)\"). PLAN:399-403 (S2 hooks: park a writer after its PHASE load or its INFLIGHT increment, a liveness stub, a namespace stub). PLAN:572 (\"stop the owner ... between pass B and pass C\" is listed under S5). plan-review.json coverage-13 (refuted=false): 'Whether the test fails under its own mutation depends on timing.'",
+    "suggested_change": "Add an S2 test hook inside apply_delivery that parks the writer after the first pass-C header store, or after store number n. Add a staging with K at slot 0 or 1 and home(K) near S-1.\n\nWhile the writer is parked, a reader runs get_next_key and then lookup:\n- the correct build finds K;\n- the one-pass mutant misses it every time.\n\nPark between pass C and pass A in the same way for 'values after headers'.",
+    "severity": "major"
+   },
+   {
+    "id": "ans-coverage-13",
+    "title": "S2.3's 'lost every time' holds only if the writer is released after the mutant's image is built, and the stated sequence does not ensure that",
+    "plan_section": "S2.3 seal race; S2 test hooks",
+    "problem": "Under the mutant (the writer skips INFLIGHT), the sealer's first poll reads 0, so seal() returns at once and build_image() starts.\n\nThe plan releases the parked writer right after 'the sealer stores PHASE 1'. If the release lands before build_image's scan reaches the writer's bucket, the key ends up in the image and the mutant passes. The test cannot simply wait for seal() to return either: in the correct build seal() blocks until the writer is released.\n\nOnly writer-side hooks are listed, so the plan does not say how 'every time' is obtained.",
+    "evidence": "PLAN-stage1.md:414-417: \"a writer is parked by the hook after its PHASE load, then the sealer stores PHASE 1, then the writer is released ... Mutation: the writer skips INFLIGHT. The parked key is then lost with no EPERM, every time.\" PLAN:150-152 (sealer: store PHASE 1, then poll INFLIGHT). PLAN:399-403 (hooks).",
+    "suggested_change": "State the release point. The test releases the parked writer only after the sealer thread has returned from seal() and build_image(), or after a fixed wait (for example 200 ms) while the sealer is still polling, whichever comes first.\n- Correct build: the sealer is still polling, and the key is in the image after the release.\n- Mutant: the image is already built, and the key is lost.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-coverage-07",
+    "title": "RULES-round2's protocol checks run only on devhash_test_ptx.h, never on the shipped devhash_ptx.h",
+    "plan_section": "S3 test builds; S3.1-S3.4; S3.9; S6 GPU test",
+    "problem": "The outcome out-parameter, the diagnostic counters and the wait-bound and fault macros exist only under BPFTIME_DEVHASH_TEST. The out-parameter changes the insert's signature. So S3.1-S3.4 (C5's runs, run d and the controls) all run devhash_test_ptx.h.\n\nThe shipped devhash_ptx.h runs on the GPU only in:\n- S3.9 (return codes);\n- the S6 GPU test (pointers and return codes);\n- S5.6, S5.7 and S8 (aggregate sums).\n\nNone of these applies the RULES-round2 checks that need no outcome channel:\n- no key in two slots;\n- count = live + refused;\n- live = min(keys, max_entries);\n- E2BIG = 0 when keys <= max_entries;\n- no slot left claiming.\n\nA difference confined to the macro-guarded code would go unseen. The plan also does not say which build S3.1 runs.",
+    "evidence": "PLAN-stage1.md:482-490 (test builds under BPFTIME_DEVHASH_TEST: per-call outcome out-parameter, diagnostic counters, wait bound, faults; devhash_test_ptx.h). PLAN:495-498 (runs 'with C5's checker ported and the outcome channel'). PLAN:518-520 (S3.9). PLAN:672-680 (S6 GPU). RULES-round2.md 'Checks (violations)' list, lines 60-70.",
+    "suggested_change": "Add one S3 case: run a (and b) on devhash_ptx.h with the checks that read only the directory, the count and the D5 counters. Alternatively, state that the test build differs from devhash_ptx.h only by additions under the macro, and add an S3.11 text check that the two builds' protocol bodies match apart from those additions.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-coverage-21",
+    "title": "The new order runs S0 first, but S0.2 builds on S1's layout header and S3's draft",
+    "plan_section": "Section 2 order; S0.2",
+    "problem": "S0.2 hand-routes the probe with 'the inline hit path, the __bpftime_devhash_lookup fallback, and a __bpftime_devhash_insert call, all from S3's first draft of devhash.cu', placed by D1's rule. devhash.cu includes S1's layout header, and the inline form is S6's.\n\nThe order line puts S0 before S1 and S3 and says each step passes 'before any step that depends on it'. S0.2's own rule ('decided with the user before S6') implies that it runs after S3 anyway.",
+    "evidence": "PLAN-stage1.md:321-322: \"Order: S0, S1, S2, S3, then S4 and S6 ... Each step builds and passes its tests before any step that depends on it.\" PLAN:331-338 (S0.2 uses S3's first draft and the D1 placement). PLAN:362-363 (the layout header is included by devhash.cu).",
+    "suggested_change": "Order S0.2 after S1 and a first S3 draft. For example: S0.1, S1, S2, S3 code, then S0.2, then S3's tests, then S4/S6. Or move S0.2 into S3 as its first check.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-coverage-29",
+    "title": "Line 14's claim that every test names how it can fail still does not hold",
+    "plan_section": "Intro line 14; S5.4; S6 text tests; S8",
+    "problem": "These tests name neither a mutation nor '(no mutation: reason)':\n- S5.4 (takeover after a clean exit);\n- the S6 mirrors of the 1531 cases (:76, :135, :171/:242, :185, :223, :289, :514, :642, key forwarding);\n- S6 'the text is inserted once and before every function, and not at all when unused' (the ptxas mutation covers only 'before');\n- S6 'by-value is kept beside lat's 1530 lookups';\n- the S8 rules.",
+    "evidence": "PLAN-stage1.md:14: \"Every test names how it can fail: a mutation that must make it fail, or \\\"(no mutation: reason)\\\".\" PLAN:589 (S5.4, no mutation). PLAN:647-656 (mirror list). PLAN:662-663. PLAN:716-747 (S8).",
+    "suggested_change": "Give each of these a mutation or a reason:\n- S5.4: rows not renumbered, or seeding from an empty mirror.\n- 'once': the text inserted per call site, so ptxas reports a duplicate definition.\n- 'not when unused': the text always inserted.\n- by-value: the 1533 rewrite drops by-value.\n- The S6 mirrors: '(no mutation: same assertion as the 1531 case)'.\n- S8: '(no mutation: measurement)'.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-device-and-routing-02",
+    "title": "S8's expected cost and SASS rule are still tied to C2's hh form, which is not the form S6 emits",
+    "plan_section": "S8 llama.cpp 'cost on top of 1531'; S0.2",
+    "problem": "The verdict on device-and-routing-02 held that C2 never measured the routed form. That form is an inline home test, a call to __bpftime_devhash_lookup otherwise, and a __bpftime_devhash_insert call. hh was a two-probe inline walk with no call.\n\nRevision 2 moves S0.2 to the routed form, but only for registers, stack and warps. S8 still expects '0.034-0.037 ns per thread over 1531 (C2)'. Above 0.06 ns, it compares the SASS with C2's hh form. The suggested change ('tie S8's expected cost and its 0.06 ns rule to this form, or state that C2 did not measure it') is not made.\n\nNo step reads the STRONG, MEMBAR or ERRBAR forms from the called functions' SASS either: S0.1 records only the snapshot's SASS.",
+    "evidence": "PLAN-stage1.md:733-734: \"Expected 0.034-0.037 ns per thread over 1531 (C2). Rule: above 0.06 ns in both passes, compare the SASS with C2's `hh` form before reporting.\" PLAN:331-340 (S0.2: registers, stack, warps per SM only). PLAN:326-327 (S0.1 SASS: the snapshot module). plan-review.json device-and-routing-02 verdict: 'The routed form S6 will emit (inline home test with a call fallback) was not measured in C2.'",
+    "suggested_change": "In S8, say that C2 measured hh, not the call form. Compare S8's numbers and SASS against S0.2's hand-routed form, timed once in S0.2 or taken from S8's first pass, instead of hh. Optionally record in S0.2 the forms that appear in the called functions' SASS.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-device-and-routing-09",
+    "title": "Per-trial key variation is stated for the protocol runs, not for the controls this finding was about",
+    "plan_section": "S3.1; S3.4 controls",
+    "problem": "The finding's concern was control 5 (fired in 44 of 201 trials in round two, with a new seed each trial) running under one fixed layout.\n\nRevision 2 varies the key set per trial only in S3.1. S3.4 runs the controls 'with RULES-round2.md's configurations'. Those configurations call for a new seed per trial, which D2's fixed SEED rules out, and S3.4 does not say that the key set varies instead. Run on C5's fixed key_of, control 5 would sample one collision layout 201 times.",
+    "evidence": "PLAN-stage1.md:496: \"The key set is varied per trial: an odd multiplier and offset in the harness's key function\" (under item 1 only). PLAN:505-506 (S3.4). PLAN:67-69 (SEED fixed). RULES-round2.md:45: \"Each trial uses fresh zeroed memory and a new seed.\" hash-round2 README.md:56 (control 5, 44/201). PLAN:825: \"d09 \u2192 S3.1 varied keys\".",
+    "suggested_change": "State in S3.4 that the controls use the same per-trial key variation (odd multiplier and offset) in place of RULES-round2's per-trial seed.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-coverage-04",
+    "title": "S3.10 uses test_module and counting_host from another file, but they are file-local to test_cuda_host_call.cpp",
+    "plan_section": "S3 tests (file placement); S3.10",
+    "problem": "S3 puts its GPU cases in test_gpu_devhash_device.cpp. S3.10 uses 'test_module and counting_host of test_cuda_host_call.cpp'. Both are defined inside an anonymous namespace in that file, so another translation unit cannot use them, and the case does not build as written. The original suggestion was to add the test to test_cuda_host_call.cpp itself.",
+    "evidence": "PLAN-stage1.md:493-494 (\"GPU cases go in runtime/unit-test/cuda/test_gpu_devhash_device.cpp\"). PLAN:521-524 (S3.10). test_cuda_host_call.cpp:34 `namespace` ... :463 `struct test_module {` ... :592 `struct counting_host {` ... :671 `} // namespace`.",
+    "suggested_change": "Either place S3.10 in test_cuda_host_call.cpp (as a child case, if D16 requires one), or move test_module and counting_host to a shared test header and name it in S3.",
+    "severity": "minor"
+   }
+  ],
+  "verdicts": [
+   {
+    "id": "ans-coverage-16",
+    "refuted": false,
+    "reason": "Holds. In C5 v2 every new non-empty slot adds exactly 1 to the count: a CAS win is always followed by the acq_rel add, and a refused winner keeps its add. A seeded block with count = L and E empty slots therefore reaches at most L + E before the directory is full. If E < max_entries - L, the directory fills while count < max_entries. Every later insert of an absent key then walks S slots and enters full_directory(), which waits for a count that cannot rise and ends as C_FULLDIR_UNSTABLE.\n\nD11's rule (max_entries only when E = 0) and S2.9 (E = 0 case only) do not cover 1 <= E < max_entries - L. README item 5 ('a full directory refuses at once') is false for that case.\n\nReachability is the same as the E = 0 case that r1 held 'rare but reachable': final-live slots that the mirror shows claiming or opaque must outnumber the slots left empty. Round two shows that a refused-filled directory leaves only 1-30 slots empty at max 1,024, not 0.",
+    "evidence": "PLAN-stage1.md:238-239 ('count = L, or max_entries if the seeded directory has no empty slot. Otherwise every insert of a new key would wait out the full-directory bound...'); PLAN:452-458 (S2.9: 'count = max_entries when no slot is empty'; mutation 'count = L on a full directory'); PLAN:697 (README 5).\n\nc5-device-part.cu:429 (precheck only at count >= max); :447 (CAS); :452 (atom_add_acq_rel on C_BOUND); :454-458 (refused keeps its add); :480 (return full_directory); :324-331 (early exit only at count >= max_entries, else C_FULLDIR_UNSTABLE).\n\nhash-round2 README.md:64: '2,018-2,047 of 2,048 slots ended non-empty'.\n\nI re-ran /tmp/claude-2002/devhash-plan-review2/answers-cov-dev/model.py (python3 -I), with S=16, max 8, L=6, E=1:\n- D11 count 6: key 200 'WON count now 7', then 201 and 202 'E2BIG(UNSTABLE: waited full 100us bound)'.\n- count = max(L, max - E) = 7: 201 and 202 get 'E2BIG(fulldir)' at once.\n\nr1 verdicts coverage-16 and device-and-routing-15 accepted the same precondition."
+   },
+   {
+    "id": "ans-coverage-10",
+    "refuted": false,
+    "reason": "Holds, with one qualification.\n\nThe plan's 'defensive stagings that show a repaired slot empty again' still contain the key K at j that caused the repair. Device keys never move or vanish, and D10's claiming case keeps K at j. In the order PLAN:196-198 lists (repair, then the guard), step 1 re-marks the slot opaque, so no staged empty ever reaches a non-empty mirror slot. The 'slot allowed back to empty' mutation then changes nothing.\n\nI also tried the other order (guard, then repair), which the plan does not fix:\n- A still-opaque repaired slot re-shown empty: the mutation stays invisible.\n- A repaired slot that has since received its real live header, re-shown empty: the mutation is caught.\n- In that same staging, under the listed repair-first order, the correct build itself overwrites the live key with opaque and loses it.\n\nThe plan names neither the order nor that staging, so it does not guarantee that the mutation fails. Only a staging that drops the covering keyed slot (for example K's own slot), or the unstated guard-first order with a since-resolved slot, exposes it.",
+    "evidence": "PLAN-stage1.md:196-198 ('Repair: in staging, for each non-empty slot j with a key K, mark every empty slot from home(K) to j as opaque. A mirror slot never goes back to empty: staged empty over a non-empty mirror slot keeps the mirror's value.'); PLAN:435-436 (claiming-caused repairs; 'defensive stagings that show a repaired slot empty again'); PLAN:447 (mutation 'a slot allowed back to empty, caught by (a)'); PLAN:212-214.\n\nThe other reviewer's model (re-run): 'mutation ... =True: found after N=True, after repaired-slot-empty staging=True, after key-slot-empty staging=False'.\n\nMy model /tmp/claude-2002/devhash-plan-review2/refute-r2b/repair_order.py:\n- repair-then-guard: identical results with the guard on and off. Re-showing a resolved slot empty loses K17 in both ('K17 found True->False').\n- guard-then-repair: the still-opaque case is identical on and off. In the resolved-slot case the guard keeps K17 ('True->True'), and without the guard K17 is lost ('True->False')."
+   },
+   {
+    "id": "ans-coverage-09",
+    "refuted": false,
+    "reason": "Holds.\n\nWithout pass B, pass C still writes every changed header, the gap slots included, so the mirror after a completed apply_delivery equals the correct build's. Rule (c) reads only after the marker, (a) never sees a key lost, and (b) is unaffected. Only rule (d) can see the mutant, and only while one apply_delivery sits between its release store of K's low-slot header and its later store of the wraparound gap slot.\n\nThe test as written is 'a writer thread applies synthetic stagings while reader threads run'. It names no hook inside apply_delivery, no staging count and no staging shaped to widen that window. Whether S2.7 fails under the mutant is therefore timing luck.\n\n'Values after headers' has the same shape: (b) sees it only between a header store and the late value store of one delivery. This is the defect class r1 held for coverage-13.",
+    "evidence": "PLAN-stage1.md:199-203 (passes A, B, fence, C); PLAN:430 ('A writer thread applies synthetic stagings while reader threads run.'); PLAN:440-442 (rules (c), (d)); PLAN:444-446 ('no pass B, caught by (d)'; 'values after headers, caught by (b)').\n\nPLAN:399-403: the S2 hooks are only 'park a writer after its PHASE load', 'after its INFLIGHT increment', a liveness stub and a namespace stub.\n\nPLAN:572: 'between pass B and pass C' is an S5 owner hook.\n\nplan-review.json, coverage-13 verdict (refuted=false): 'detection depends on timing'."
+   },
+   {
+    "id": "ans-coverage-13",
+    "refuted": false,
+    "reason": "Holds (minor).\n\nUnder the mutant the writer never raises INFLIGHT. The sealer's first poll after storing PHASE 1 reads 0, seal() returns, and build_image() may start at once; D9 needs only PHASE >= 1 and INFLIGHT 0. The plan releases the parked writer right after 'the sealer stores PHASE 1'. If the writer's table insert lands before build_image's scan passes its bucket, the key is in the image and the mutant passes.\n\nThe correct build cannot wait for seal() to return before releasing, because there seal() blocks on the parked writer (bounded at 1 s). The stated sequence therefore does not give 'lost ... every time'. The plan names no release point and no sealer-side hook.",
+    "evidence": "PLAN-stage1.md:414-417 ('a writer is parked by the hook after its PHASE load, then the sealer stores PHASE 1, then the writer is released ... Mutation: the writer skips INFLIGHT. The parked key is then lost with no EPERM, every time.').\n\nPLAN:150-152 (the sealer stores PHASE 1, then polls INFLIGHT, bounded at 1 s). PLAN:172-174 (the scan 'runs only with PHASE >= 1 and INFLIGHT 0'). PLAN:399-403 (writer-side hooks only)."
+   },
+   {
+    "id": "ans-coverage-07",
+    "refuted": false,
+    "reason": "Holds as a minor gap, with two corrections.\n\nCorrections:\n- 'No key in two slots' is checked on non-test runs: S3.7 ('has one slot') and S5.7 ('one slot per key'). Neither is under claim contention: S5.7 inserts already-prefilled keys, so every insert is EEXIST.\n- The plan never names the build for S3.2-S3.8, so the finding's list of where the shipped build runs is an inference. S3.1 is identifiable as the test build only through 'the outcome channel'.\n\nWhat remains:\n- The RULES-round2 contention runs and controls use the test build, whose out-parameter changes the insert's signature.\n- No run on the shipped devhash_ptx.h checks count = live + refused, live = min(keys, max_entries), E2BIG = 0 when keys <= max_entries (the round-one bug), or no slot left claiming.\n- S5.6's 'exact sums minus the counted EEXIST and E2BIG' would absorb a spurious E2BIG.\n- The plan does not state that the test build differs only by additions under the macro.\n\nA protocol difference confined to macro-guarded code would therefore go unseen.",
+    "evidence": "PLAN-stage1.md:482-490 (BPFTIME_DEVHASH_TEST: outcome out-parameter, diagnostic counters, wait bound, faults; devhash_test_ptx.h); PLAN:495 ('with C5's checker ported and the outcome channel'); PLAN:500-503 and 505-516 (no build named).\n\nPLAN:514 ('has one slot'); PLAN:603-606 (S5.7 inserts on prefilled keys, 'one slot per key'); PLAN:599 (S5.6 'exact sums minus the counted EEXIST and E2BIG').\n\nRULES-round2.md checks list: 'Count = live + refused slots', 'live = min(keys, max_entries)', 'E2BIG = 0 whenever keys <= max_entries', 'No slot is left claiming'."
+   },
+   {
+    "id": "ans-coverage-21",
+    "refuted": false,
+    "reason": "Holds (minor wording).\n\nThe order line puts S0 first and says each step passes before any step that depends on it. S0.2, however, hand-routes the probe with functions 'from S3's first draft of devhash.cu', and devhash.cu includes S1's layout header. S0.2 cannot run in the place the order line gives it. Its own 'decided with the user before S6' implies it runs after an S3 draft, which the order line does not say.\n\nOne sub-claim is wrong: 'the inline form is S6's'. S0.2 hand-routes the inline path 'the way round one's C2 hcall form was made' and does not use S6's emitter. The dependency on S1 and S3 stands without it.",
+    "evidence": "PLAN-stage1.md:321-322 ('Order: S0, S1, S2, S3, then S4 and S6 ... Each step builds and passes its tests before any step that depends on it.'). PLAN:331-338 (S0.2: 'all from S3's first draft of devhash.cu, placed by D1's rule'; 'decided with the user before S6'). PLAN:362 (the layout header 'is included by devhash.cu')."
+   },
+   {
+    "id": "ans-coverage-29",
+    "refuted": false,
+    "reason": "Holds. Line 14 promises that every test names a mutation or '(no mutation: reason)'. The following tests have neither:\n- S5.4;\n- each S6 mirror of the 1531 cases;\n- the S6 'once' and 'not at all when unused' assertions (the ptxas mutation at :667-668 covers only 'before');\n- the S6 by-value check;\n- the S8 correctness counts and rules.\n\nOther steps show the convention being applied: S0.1, S2.11, S3.1 and S7 carry explicit '(no mutation: ...)' reasons.",
+    "evidence": "PLAN-stage1.md:14 ('Every test names how it can fail: a mutation that must make it fail, or \"(no mutation: reason)\".').\n\nPLAN:589 (S5.4, no mutation). PLAN:647-656 (mirror list, no mutations). PLAN:662-663 ('inserted once and before every function, and not at all when unused'; 'by-value is kept beside lat's 1530 lookups', no mutation). PLAN:667-668 (the only placement mutation). PLAN:716-747 (S8, neither form).\n\nPLAN:328, :463, :499, :714 (the convention used elsewhere)."
+   },
+   {
+    "id": "ans-device-and-routing-02",
+    "refuted": false,
+    "reason": "Holds (minor).\n\nRevision 2 moved S0.2 to the routed form (inline hit path, a lookup call as fallback, and the insert call), but S0.2 compares only registers, stack and warps per SM. S8 still sets its expectation from C2's directory-hit number (the hh inline form) and its 0.06 ns rule compares SASS with hh.\n\nC2's 0.034-0.037 ns is the 'directory hit' row. hcall called a walk on every lookup, so neither C2 form is the routed form with a call fallback. The r1 suggestion was to tie S8 to the routed form or to state that C2 did not measure it. Neither was done, and section 6 lists d02 as answered by S0.2 alone.\n\nNo step reads the called functions' STRONG, MEMBAR or ERRBAR forms from SASS: S0.1 records only the snapshot module, and S3.11 checks PTX text. This part of the finding is optional.",
+    "evidence": "PLAN-stage1.md:733-734 ('Expected 0.034-0.037 ns per thread over 1531 (C2). Rule: above 0.06 ns in both passes, compare the SASS with C2's `hh` form before reporting.'). PLAN:331-340 (S0.2: registers, stack, warps per SM). PLAN:326-327 (S0.1: snapshot SASS only). PLAN:816 ('c02, b4, d02 \u2192 S0.2').\n\nhash-round1 README.md:45, :49, :52 (0.0341/0.0334 and 0.0361/0.0373 are the 'directory hit' rows).\n\nmake_hashforms.py:19 ('hd_hcall  hd_hh's walk in a .func called from the probe'), :170-174 (call_block: call.uni on every lookup).\n\nplan-review.json, d02 verdict: 'The routed form S6 will emit ... was not measured in C2.'"
+   },
+   {
+    "id": "ans-device-and-routing-09",
+    "refuted": true,
+    "reason": "The plan already handles it. D2 states the per-trial key variation as the general rule for S3's tests, not only for S3.1: 'Tests vary the key set per trial instead (S3), since the layout no longer varies with a seed.' The variation is placed 'in the harness's key function', and the controls run through that same ported harness and checker. The FAULT builds change only the devhash functions (devhash_test_ptx.h), not the harness. S3.1 itself calls 'the controls below' its mutations, and section 6 records the d09 answer as varied keys in S3.\n\nThe claimed consequence, that control 5 samples one collision layout 201 times, therefore does not follow. S3.4 does not restate the variation, but that is at most a missing cross-reference.",
+    "evidence": "PLAN-stage1.md:67-69 ('SEED is a fixed constant in the layout header ... Tests vary the key set per trial instead (S3), since the layout no longer varies with a seed.'). PLAN:496 ('The key set is varied per trial: an odd multiplier and offset in the harness's key function'). PLAN:499 ('(no mutation: the controls below are the mutations.)'). PLAN:487, :490 (fault builds live in devhash_test_ptx.h). PLAN:505-506 (S3.4 controls, 1 + 200 trials). PLAN:819, :825 ('S3 test builds (... varied keys)'; 'd09 \u2192 S3.1 varied keys')."
+   },
+   {
+    "id": "ans-coverage-04",
+    "refuted": false,
+    "reason": "Holds (minor).\n\nS3 places its GPU cases in test_gpu_devhash_device.cpp. It gives S3.11 an explicit carve-out to another file ('in [devhash-layout]'s file') and gives S3.10 none.\n\ntest_module and counting_host are defined inside the anonymous namespace of test_cuda_host_call.cpp, and so is TEST_KERNELS_PTX, which test_module wraps. All three are local to that translation unit, so S3.10 as placed cannot use them and does not build. The fix is to place S3.10 in test_cuda_host_call.cpp or to move these into a shared header. The plan does neither.",
+    "evidence": "PLAN-stage1.md:493-494 ('GPU cases go in runtime/unit-test/cuda/test_gpu_devhash_device.cpp'); PLAN:521-524 (S3.10 uses 'test_module and counting_host of test_cuda_host_call.cpp'); PLAN:525 (S3.11 'in [devhash-layout]'s file').\n\ngrep of runtime/unit-test/cuda/test_cuda_host_call.cpp:\n- :34 'namespace' and :671 '} // namespace';\n- :37 'const char TEST_KERNELS_PTX[]';\n- :463 'struct test_module {' (its constructor wraps TEST_KERNELS_PTX);\n- :592 'struct counting_host {'.\n\nNo header in runtime/unit-test declares them."
+   }
+  ]
+ },
+ {
+  "reviewer": "answers-b",
+  "findings": [
+   {
+    "id": "ans-buildability-6",
+    "title": "D16's \"deliver_now delivered at least one map\" rule fails on correct code: always in the AT_SYNC repeat, by a race in the default child",
+    "plan_section": "D16 \"Delivery\" (PLAN:313); S5 test 6, end to end (PLAN:595-602)",
+    "problem": "Revision 2 answers buildability-6 with note_app_sync after each synchronize, plus a rule that a test asserts deliver_now delivered at least one map. The current delivery code makes that assertion fail on correct code. (1) In the BPFTIME_GPU_DELIVERY_AT_SYNC=1 child, note_app_sync calls on_app_sync, which delivers on the test thread inside note_app_sync (at_sync kind, due 0) and sets covered_syncs = syncs and next_due = now + busy (20 ms). The following deliver_now(false) uses the drain kind, finds syncs == covered_syncs and due > t0, skips the map, and returns 0. It does so every time. (2) In the default child, note_app_sync wakes the drain thread. It and the test's deliver_now compete for run_mutex, and the loser finds the sync covered and returns 0. If less than the 2 ms sync gap has passed since registration (last_ns is set at registration), neither thread delivers and deliver_now returns 0. S5 tests 3, 4, 7, 8 and 9 also need deliveries under the same rule. The exit kind is no workaround for S5.6: it does not store SYNCS_COVERED.",
+    "evidence": "PLAN:313 \"A test that needs a delivery asserts that `deliver_now` delivered at least one map.\" PLAN:597-601 \"synchronize, then `note_app_sync`; `deliver_now` (at least one map delivered) ... Repeat in a child with `BPFTIME_GPU_DELIVERY_AT_SYNC=1`.\" probed_launch_activity.hpp:68-77: note_app_sync calls the listener (fn() at :76). nv_gpu_model_maps.cpp:281-282 `if (deliver_at_sync()) { deliver_in_sync_call();`; :602 `deliver_locked(s, delivery_kind::at_sync, ...)`; :383-390 due is lowered only while `syncs != m.covered_syncs`, then `if (!at_exit && due > t0) { ... continue; }`; :448-450 `sm.covered_syncs = syncs; sm.next_due_ns = m1 + (changed ? sm.busy_ns : sm.idle_ns);`; :631-632 registration sets next_due_ns = now + busy and last_ns = now; :285-287 the default path wakes the drain thread, which takes run_mutex (:515) and delivers (:518); :665-675 deliver_now takes run_mutex (:671) and the drain kind (:675) and returns the count. :431-433 SYNCS_COVERED is stored only `if (!at_exit)`.",
+    "suggested_change": "Replace the D16 rule. Before the synchronize, read the map's DELIVERIES status word. After note_app_sync, call deliver_now and/or wait, up to a deadline, until DELIVERIES has advanced; whichever thread delivered does not matter. In the AT_SYNC child, assert instead that DELIVERIES advanced inside note_app_sync itself, and do not require deliver_now to deliver. Optionally set BPFTIME_GPU_DELIVERY_SYNC_GAP_MS=0 in the children so a counted sync makes the map due at once.",
+    "severity": "major"
+   },
+   {
+    "id": "ans-cpu-concurrency-1",
+    "title": "The D8 disassembly check (\"first poll is LDAR\") cannot fail on the repo's build: an acquire poll is LDAR there too",
+    "plan_section": "D8 (PLAN:154-157); section 6 \"p01 -> D8 orders and disassembly check\" (PLAN:831)",
+    "problem": "D8 now writes the four operations seq_cst, which answers the ordering argument. The only check named for it is \"S2 disassembles the seal once to check that the first poll is `LDAR`\", and S2's tests \"cannot see it\". On the repo's build (g++-13 -O2, no -march or -mcpu), an acquire load of INFLIGHT also compiles to LDAR. So the check passes whether the poll is seq_cst or acquire, and the regression cpu-concurrency-1 is about (acquire, which becomes LDAPR on an RCpc target) goes undetected. The check also appears in no numbered S2 test and names no mutation, against \"Every test names how it can fail\".",
+    "evidence": "My compile in /tmp/claude-2002/devhash-plan-review2/answers/seal.cpp (PHASE.store(1, seq_cst), then a poll loop on INFLIGHT). g++-13 -O2 and clang++-16 -O2: seq_cst `stlr x0,[x2]; ldar x1,[x2]`, acquire `stlr x0,[x2]; ldar x1,[x2]`, which are identical. clang++-16 -O2 -march=armv8.2-a+rcpc: seq_cst `ldar`, acquire `ldapr`. g++ -O2 -mcpu=cortex-a78ae: seq_cst `ldar`, acquire `ldapr`. build-cuda/compile_commands.json for runtime/src/handler/map_handler.cpp: flags -O2 -fPIC -fPIE ... with no -march/-mcpu. PLAN:156-157 \"S2 disassembles the seal once to check that the first poll is `LDAR`. The S2 tests cannot see it.\"",
+    "suggested_change": "Make the check compile the seal's translation unit, or the seal function, with an RCpc target (-mcpu=cortex-a78ae or -march=armv8.2-a+rcpc). Assert that the first INFLIGHT load after the PHASE STLR is LDAR, not LDAPR. Name the mutation (\"poll with memory_order_acquire: LDAPR appears\"), and list the check as a numbered S2 test or script with its location.",
+    "severity": "major"
+   },
+   {
+    "id": "ans-buildability-10",
+    "title": "Rule (c) catches \"no repair\" only with a live key behind a staged-empty path slot, and revision 2's staging list no longer names one (also cpu-concurrency-6)",
+    "plan_section": "S2 test 7, mirror stagings and mutations (PLAN:430-447)",
+    "problem": "Revision 2 adds rule (c) and assigns \"no repair\" to it. Rule (c) checks only keys live in staging N, and it fails under \"no repair\" only when some staging shows a live K with an empty slot on K's probe path: the slot-by-slot snapshot case D10 exists for. Revision 1 asked for stagings \"with gaps\". Revision 2's list (wraparound, K = 0, opaque on probe paths, claiming-caused repairs, defensive stagings) drops that. Claiming-caused repairs have K claiming, not live, so (c) does not look at K. If the host model never stages a live-K gap, the \"no repair\" mutation passes (a), (b), (c) and (d). This is the same gap for cpu-concurrency-6.",
+    "evidence": "Revision 1 PLAN-stage1-r1.md:249-250 \"synthetic stagings, made from a host model of the device directory with gaps and wraparound\". Revision 2 PLAN:431-436 lists \"wraparound at S-1; K = 0; opaque on probe paths; claiming-caused repairs that persist over several stagings; defensive stagings that show a repaired slot empty again\". PLAN:440-441 rule (c) covers \"every key live in staging N\". PLAN:444 \"no repair, caught by (c)\". PLAN:193 \"A slot-by-slot snapshot can deliver slot i empty while K is live further on.\"",
+    "suggested_change": "Add to the staging list: \"live K with a staged-empty slot on its probe path, both mid-directory and across S-1 (the snapshot read the slot before its header was stored)\". Include a claiming-caused repair whose K becomes live while the repaired slot is still staged empty.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-cpu-concurrency-9",
+    "title": "S2.11 credits the PHASE acquire to the D8 disassembly check, which looks only at the sealer's INFLIGHT poll",
+    "plan_section": "D7 (PLAN:138); S2 test 11 (PLAN:462-463)",
+    "problem": "D7 now says every CPU read path loads PHASE with acquire. S2.11 gives no mutation, because \"the order is fixed by the D8 disassembly check\". That check (PLAN:156-157) looks only at the sealer's first INFLIGHT poll. Nothing checks the lookup or get_next_key PHASE load, so a relaxed PHASE load passes every test. Unlike the D8 case, a disassembly check can tell these apart on the repo's build: relaxed compiles to LDR and acquire to LDAR.",
+    "evidence": "PLAN:463 \"(no mutation: the order is fixed by the D8 disassembly check, not observable here.)\" PLAN:156 \"S2 disassembles the seal once to check that the first poll is `LDAR`\". My compile (/tmp/claude-2002/devhash-plan-review2/answers/phase.cpp, g++-13 -O2): relaxed `ldr x0,[x0]`, acquire `ldar x0,[x0]`.",
+    "suggested_change": "Extend the disassembly check to the PHASE loads in the 1533 lookup and get_next_key paths: an LDAR or LDAPR, not an LDR. Name the mutation \"relaxed PHASE load: LDR\". Or state in S2.11 that the PHASE acquire has no check.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-buildability-11",
+    "title": "The test build changes the devhash signature, and the plan does not say which S3, S6 cases load devhash_ptx.h and which load devhash_test_ptx.h",
+    "plan_section": "D1 functions (PLAN:41-47); S3 test builds and tests 1, 9 (PLAN:482-490, 495, 518); S6 GPU tests (PLAN:672)",
+    "problem": "Buildability-11 is answered with \"a per-call outcome out-parameter\" in the test build. That adds a parameter to the functions D1 fixes at exactly three with u64 parameters. The checked-in output is two texts. The plan does not say which one each S3 case and \"S3's module\" in S6 loads. S3.9 (\"test kernels declare the call exactly as the pass will\") and S6's GPU test (emitted call text run in S3's module) work only with the shipped 6-parameter text. The C5 runs and controls, the only cases that apply RULES-round2's per-key checks, run only on the test text, whose call shape differs from what the pass emits.",
+    "evidence": "PLAN:41-46 \"exactly three `extern \\\"C\\\"` functions, all with u64 parameters\" with insert `(base, key, value_ptr, flags, max_entries, shards)`. PLAN:483 \"a per-call outcome out-parameter with C5's OC codes\". PLAN:489-490 two headers, `devhash_ptx.h` and `devhash_test_ptx.h`. PLAN:518 \"test kernels declare the call exactly as the pass will\". PLAN:672 \"The emitted inline block and call text run in S3's module\".",
+    "suggested_change": "State per case which text it loads: C5 runs and controls on devhash_test_ptx.h, and S3.5-S3.9 plus the S6 GPU test on devhash_ptx.h. Better, keep the test build's signature identical by writing the outcome code to a per-thread array whose address sits in a reserved control word, so the C5 checks run on the shipped call shape.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-buildability-2",
+    "title": "S4 names no way to run the hash snapshot without S5's registration and delivery path",
+    "plan_section": "S4 code and tests (PLAN:532-546); D16 \"Test hooks ... named in each step\" (PLAN:316); order (PLAN:321)",
+    "problem": "Revision 2 makes S4 the snapshot module alone, ahead of S5. S4's test launches the snapshot over a hand-built block and checks the staging. Today the snapshot module is loaded, warmed up and launched only from deliver_locked, through prepare_locked, which is reached by registration and delivery: S5 code. S4 names no test entry or hook that loads the hash module and launches it on a given device block and staging buffer, though D16 says hooks are named in each step. As written, S4's test needs S5, which is what buildability-2 was about.",
+    "evidence": "PLAN:539 \"It has its own CUfunction, warm-up and broken flag.\" PLAN:541-546 S4 tests list no hook. PLAN:316 \"Test hooks ... named in each step.\" nv_gpu_model_maps.cpp:311-329 prepare_locked loads the module and runs the warm-up. It is called only from deliver_locked (:371), which launches the snapshot at :402 over registered maps (:362-366).",
+    "suggested_change": "Add to S4 a test-only entry, behind BPFTIME_DEVHASH_TEST_HOOKS, that loads the hash snapshot module, then launches it on (device block, staging, geometry) and returns the result. Name it in S4's code list.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-buildability-5",
+    "title": "D8's per-process seal-failure record is new process-wide state, and S2.4 creates it in the shared test process",
+    "plan_section": "D8 dead writer (PLAN:159-165); S2 test 4 (PLAN:418-424); D16 child rule (PLAN:304-310)",
+    "problem": "Revision 2 answers buildability-5 for GPU tests by running them in exec'd children. Its answer to cpu-concurrency-4 adds a new piece of per-process state: \"Each process records the failure and does not try again.\" S2.4 checks that state (\"a second seal attempt in the same process returns at once\"). S2 is a no-CUDA test in the shared bpftime_runtime_tests process, and D16's child rule covers only GPU tests. The plan does not say how the record is keyed. If it is keyed by map object address, as 1531's copy cache is, a later S2 case whose map lands at the same address in a recreated segment gets an immediate seal failure.",
+    "evidence": "PLAN:162 \"Each process records the failure and does not try again\". PLAN:422-423 \"a second seal attempt in the same process returns at once (the failure is cached). Mutation: no failure cache\". PLAN:304 \"A GPU test that takes ownership, registers a delivery, or can hang runs in its own exec'd child\". PLAN:306-307 names \"the copy cache is keyed by object address\" as a reason for children. nv_gpu_model_maps.cpp:698 `static std::vector<made_copy> made;` is keyed by `this`.",
+    "suggested_change": "Say how the failure record is keyed so it cannot match a different map: for example, store it in the map object in shm as (pid, namespace), or key it by a per-map generation. Alternatively, run S2.4 (and any S2 case that leaves the record behind) in a child.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-buildability-3",
+    "title": "The new GPU test file cannot use test_module or counting_host: they are file-local to test_cuda_host_call.cpp, and test_module loads only a fixed PTX",
+    "plan_section": "S3 tests (PLAN:493-531, test 10 at :521-524); S6 GPU tests (PLAN:670-680)",
+    "problem": "Buildability-3 asked how the hash-equality GPU check gets a module harness. Revision 2 puts it, all S3 GPU cases and the S5 cases in a new file, test_gpu_devhash_device.cpp. S3.10 says it uses \"`test_module` and `counting_host` of `test_cuda_host_call.cpp`\". Both structs are in that file's anonymous namespace, so another translation unit cannot use them. test_module also builds its module only from the fixed TEST_KERNELS_PTX, while these tests need devhash text plus their own kernels (and, for S6, emitted text). The plan names no shared harness.",
+    "evidence": "test_cuda_host_call.cpp:34 `namespace` (anonymous) ... :671 `} // namespace`; `struct test_module` at :463 and `struct counting_host` at :592, both inside it. :468-469 `wrap_ptx_with_trampoline_for_sm(TEST_KERNELS_PTX, device_sm_arch())`. PLAN:493 \"GPU cases go in `runtime/unit-test/cuda/test_gpu_devhash_device.cpp`\".",
+    "suggested_change": "In S3, move test_module (taking a PTX string), counting_host and agent_segment into a shared test header, for example runtime/unit-test/cuda/cuda_test_harness.hpp, used by both files. Say so in the step.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-buildability-4",
+    "title": "S0.2 now needs S1's header and an S3 draft, but the order puts S0 first",
+    "plan_section": "Order (PLAN:321-322); S0 item 2 (PLAN:331-341)",
+    "problem": "Revision 2 answers buildability-4 well: real call sites, with ptxas on routed text. But S0.2 now compiles \"S3's first draft of devhash.cu\". devhash.cu includes S1's layout header. The order line still says S0 comes first and that each step passes before any step that depends on it.",
+    "evidence": "PLAN:321-322 \"Order: S0, S1, S2, S3 ... Each step builds and passes its tests before any step that depends on it.\" PLAN:334 \"all from S3's first draft of `devhash.cu`\". PLAN:362 the layout header \"is included by `devhash.cu`\".",
+    "suggested_change": "Place S0.2 after S1 and after a first draft of devhash.cu, before S3's tests and before S6 (its decision point). Or state in the order line that S0.2 runs on an S1+S3 draft.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-cpu-concurrency-5",
+    "title": "D15's rollback covers registration only; a copy or synchronize failure after the seal leaves PHASE at 1",
+    "plan_section": "D15 (PLAN:291-300); S5 get_gpu_mem_buffer steps (PLAN:553-561); S5 test 5 (PLAN:590-594)",
+    "problem": "Revision 2 splits the rollback into first copy and takeover, which answers cpu-concurrency-5 for registration. D15 is now titled and worded for registration alone. Step 4 (cuMemcpyHtoDAsync, then synchronize) runs after the seal on the first-copy path, while PHASE is 1. The plan does not say that a failure there frees the block and stores PHASE 0. Revision 1 at least named \"staging allocation or registration\". Without the rollback, CPU writes get EPERM until this process's next CUDA link takes the PHASE-1 path again, or until it exits. S5.5 injects only a registration failure.",
+    "evidence": "PLAN:291 \"D15. Registration reports failure\"; PLAN:295-299 \"On failure: free the block; on a first copy, reset the mirror to empty, then PHASE 0 ...\". PLAN:556-559 step 3 is the seal, step 4 the copy and synchronize, step 6 registration. PLAN:569-573 hooks include \"fail registration\" but no copy failure. Revision 1 PLAN-stage1-r1.md:158 \"If the staging allocation or registration fails\".",
+    "suggested_change": "State that D15's rollback applies to any failure after the seal: copy, synchronize, registration. Add a hook that fails step 4 on a first copy, with an S5.5 case asserting PHASE 0, an empty mirror and the block freed.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-cpu-concurrency-2",
+    "title": "The PHASE-1 path's INFLIGHT re-poll has no test that can fail: owner death is tested only after the seal, not during its wait",
+    "plan_section": "D11 PHASE 1 path (PLAN:228-233); S5 hooks and test 3 (PLAN:572, 584-588); S2 test 10 (PLAN:459-461)",
+    "problem": "D11's PHASE-1 path polls INFLIGHT again because \"a writer that read PHASE 0 before the dead sealer's store may still run\". The tests kill the owner only after the CAS, after the seal (when INFLIGHT is already 0), and between pass B and pass C. S2.10 checks only which path is chosen. A mutation that skips the PHASE-1 re-poll therefore passes every test. Cpu-concurrency-2 suggested killing the owner during the seal wait. That case is not among the hook points.",
+    "evidence": "PLAN:231 \"poll INFLIGHT as in D8 (a writer that read PHASE 0 before the dead sealer's store may still run)\". PLAN:572 \"stop the owner after the CAS, after the seal, and between pass B and pass C\". PLAN:584-585 \"killed after the CAS, after the seal (PHASE 1 left)\". cpu-concurrency-2 suggested_change: \"the owner SIGKILLed during the seal wait (PHASE 1 left behind)\".",
+    "suggested_change": "Add a host-level S2 case using the existing hook \"park a writer after its PHASE load\". The writer reads PHASE 0 and parks. A sealer stores PHASE 1 and is abandoned (simulated death). The PHASE-1 path then runs and must not build the image until the writer is released, and the writer's key must be in the image. Mutation: the PHASE-1 path skips the re-poll.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-buildability-20",
+    "title": "The layout fingerprint hashes constants, but the region offsets are formulas, so a changed formula leaves it unchanged",
+    "plan_section": "S1 contents (PLAN:350-359); S3.11 fingerprint check (PLAN:527)",
+    "problem": "Buildability-20 named region offsets, header encoding and SEED as the parts compiled into devhash_ptx.h. DEVHASH_LAYOUT_FP is \"a constexpr hash of all the constants above\", but the region offsets are functions of (max_entries, shards). If the region order or alignment arithmetic changes while the named constants stay the same, the fingerprint does not change, the stale devhash_ptx.h passes S3.11, and only the GPU tests on a board would notice.",
+    "evidence": "PLAN:350 \"geometry: S, logS, R, and the region offsets from (max_entries, shards)\". PLAN:359 \"`DEVHASH_LAYOUT_FP`, a constexpr hash of all the constants above\". PLAN:527 \"its fingerprint constant equals `DEVHASH_LAYOUT_FP`\".",
+    "suggested_change": "Define DEVHASH_LAYOUT_FP to include the region offsets and total size evaluated at fixed sample geometries, for example S1's max_entries list at two shard counts, as well as the constants.",
+    "severity": "minor"
+   },
+   {
+    "id": "ans-buildability-16",
+    "title": "\"The 1533 object gets its impl pointer\": a raw pointer in the shm object would be overwritten by every process that binds",
+    "plan_section": "D12 binding (PLAN:254-258); S2 class fields (PLAN:385-391)",
+    "problem": "Revision 2 moves binding into get_gpu_map_extra_buffer, which answers how the name is found. It stores the companion as \"its impl pointer\" in the 1533 object, and that object lives in the segment. The segment maps at a per-process address, and every process with a CUDA link runs get_gpu_map_extra_buffer for every handler, so non-owners bind too. If this is a plain pointer, a later non-owner overwrites it with an address valid only in its own process, and the owner's delivery thread writes companion words through it. The plan does not say offset_ptr or a handler index.",
+    "evidence": "PLAN:258 \"The 1533 object gets its impl pointer.\" PLAN:391 the class holds \"the bound companion pointer\". bpftime_shm_internal.cpp:1020-1021 open_only with no fixed address. map_handler.hpp:75 `using general_map_impl_ptr = boost::interprocess::offset_ptr<void>;` (the repo's convention). bpf_attach_ctx_cuda.cpp:527-531: create_map_basic_info calls get_gpu_map_extra_buffer for every map handler in each process.",
+    "suggested_change": "Store the binding as a boost::interprocess::offset_ptr, or as the companion's fd or handler index resolved in each process. Bind only in the owner, or make the binding idempotent across processes.",
+    "severity": "minor"
+   }
+  ],
+  "verdicts": [
+   {
+    "id": "ans-buildability-6",
+    "refuted": false,
+    "reason": "Holds. The AT_SYNC child fails every time on correct code. The default child is a race, not a certain failure. AT_SYNC: note_app_sync increments app_syncs and then calls the listener on the test thread. on_app_sync runs deliver_in_sync_call, which delivers with the at_sync kind (due 0 while syncs != covered_syncs), then sets covered_syncs = syncs and next_due = m1 + busy/idle. The test's deliver_now(false) then uses the drain kind: syncs == covered_syncs, so due = next_due > t0, the map is skipped, and the call returns 0. The plan's D16 rule ('asserts that deliver_now delivered at least one map') and S5.6 ('Repeat in a child with BPFTIME_GPU_DELIVERY_AT_SYNC=1') therefore fail on correct code. Default child: note_app_sync wakes the drain thread. Whichever thread takes run_mutex second finds the sync covered and skips. A further window: if a periodic drain delivery is under way when the sync is counted, deliver_now sees syncs != covered_syncs but due = last_ns + 2 ms > t0, and returns 0. So the default case is flaky, not 'always'. deliver_now(true) is no general fix: the exit kind does not store SYNCS_COVERED. Nothing in the plan changes deliver_now or the schedule ('The sum schedule', PLAN:568). The fix the finding suggests, waiting for DELIVERIES to advance, fits.",
+    "evidence": "probed_launch_activity.hpp:74-76 (fetch_add, then `fn()`). nv_gpu_model_maps.cpp:281-283 `if (deliver_at_sync()) { deliver_in_sync_call(); return; }`; :383-393 (due lowered only while `syncs != m.covered_syncs`; `if (!at_exit && due > t0) { ... continue; }`); :431-434 SYNCS_COVERED stored only `if (!at_exit)`; :447-450 `sm.last_ns = m1; sm.covered_syncs = syncs; sm.next_due_ns = m1 + (changed ? busy : idle)`; :515-518 drain takes run_mutex and delivers; :602 at_sync delivery; :629-632 sync gap 2 ms, `next_due_ns = now + busy`, `last_ns = now`; :671-675 deliver_now takes run_mutex, drain kind. PLAN:313, PLAN:597-601."
+   },
+   {
+    "id": "ans-cpu-concurrency-1",
+    "refuted": false,
+    "reason": "Holds. On the repo's build, an acquire load and a seq_cst load of INFLIGHT after the seq_cst PHASE store compile to the same LDAR. The check 'the first poll is LDAR' therefore passes for exactly the regression cpu-concurrency-1 is about. It can tell them apart only on an RCpc target, and the plan names none. The check also has no number among the S2 tests and no named mutation, contrary to PLAN:14. One mitigation: on the current build the acquire form is also LDAR in hardware, so the regression is latent. The check still cannot fail on the source change it exists to pin.",
+    "evidence": "My compile, /tmp/claude-2002/devhash-plan-review2/refute/seal.cpp. g++-13 -O2: seal_sc `stlr x0,[x2]; ldar x1,[x2]`, seal_acq `stlr x0,[x2]; ldar x1,[x2]`. clang++-16 -O2: both `stlr; ldar`. g++-13 -O2 -mcpu=cortex-a78ae: sc `ldar`, acq `ldapr`. clang++-16 -O2 -march=armv8.2-a+rcpc: sc `ldar`, acq `ldapr`. build-cuda/compile_commands.json for map_handler.cpp and nv_gpu_model_maps.cpp: only -O2, no -march/-mcpu. PLAN:155-157 \"S2 disassembles the seal once to check that the first poll is `LDAR`. The S2 tests cannot see it.\" S2 tests 1-11 (PLAN:409-463) include no such case."
+   },
+   {
+    "id": "ans-buildability-10",
+    "refuted": false,
+    "reason": "Holds as a minor omission. I traced it by hand with 'no repair' on and 'never back to empty' kept. (A) st1: K claiming at j, path slot i staged empty; the mirror's i stays empty, and (c) ignores claiming K. st2: K live, i staged with its real header; pass B makes i non-empty, so K is found. st3, defensive: i staged empty again; the mirror keeps it. Rules (a)-(d) all pass. (B) Only if some staging shows K live while i is still staged empty, and i was never non-empty in an earlier staging, does the mirror keep i empty. A lookup of K then stops there and (c) fails. None of the five listed classes forces (B). 'Claiming-caused repairs' have K claiming, and 'defensive stagings' can be built after i was resolved, as in (A). That is also all the plan's own '(a) with the defensive stagings' needs. Revision 1 asked for stagings 'with gaps'. Revision 2 dropped the word, and the live-K gap is the D10 case (PLAN:193).",
+    "evidence": "PLAN:431-436 (staging list without gaps); PLAN:440-441 rule (c) 'every key live in staging N'; PLAN:444 'no repair, caught by (c)'; PLAN:447 'a slot allowed back to empty, caught by (a) with the defensive stagings'; PLAN:193 'A slot-by-slot snapshot can deliver slot i empty while K is live further on'; PLAN:196-198 (repair, mirror never back to empty). PLAN-stage1-r1.md:249-250 'a host model of the device directory with gaps and wraparound'."
+   },
+   {
+    "id": "ans-cpu-concurrency-9",
+    "refuted": false,
+    "reason": "Holds. D7 requires an acquire PHASE load on every CPU read path, which pairs with the release PHASE = 2 after the mirror is seeded. S2.11 gives no mutation and credits 'the D8 disassembly check'. D8's check covers only the sealer's first INFLIGHT poll. Nothing checks the lookup or get_next_key PHASE load, so a relaxed load passes every test. On this build a check could tell them apart: a relaxed load is LDR, an acquire load LDAR.",
+    "evidence": "PLAN:138 'Every CPU read path loads PHASE with acquire first'; PLAN:156-157 (check scoped to 'the first poll'); PLAN:462-463 '(no mutation: the order is fixed by the D8 disassembly check, not observable here.)'. My compile, /tmp/claude-2002/devhash-plan-review2/refute/seal.cpp, g++-13 -O2: phase_relaxed `ldr x0,[x0]`, phase_acq `ldar x0,[x0]` (clang++-16 the same)."
+   },
+   {
+    "id": "ans-buildability-11",
+    "refuted": false,
+    "reason": "Holds as a minor wording gap, narrower than stated. S3.1 (outcome channel, wait-0 build for g) and S3.4 (fault builds) imply devhash_test_ptx.h. S3.9 ('exactly as the pass will') and the S6 GPU test imply the shipped devhash_ptx.h. Those are inferable. What is literally unstated is which text S3.2, S3.3, S3.5-S3.8 and 'S3's module' in S6 load. The test build also changes D1's fixed 6-parameter insert signature with an out-parameter, and the plan does not say so. A wrong pairing would show as a ptxas prototype error, not a silent pass. The C5 protocol is checked on the instrumented build, which is ordinary practice, so that part is a note rather than a defect.",
+    "evidence": "PLAN:41-46 'exactly three extern \"C\" functions, all with u64 parameters', insert `(base, key, value_ptr, flags, max_entries, shards)`; PLAN:483 'a per-call outcome out-parameter with C5's OC codes'; PLAN:489-490 two headers; PLAN:495 'with C5's checker ported and the outcome channel'; PLAN:500-503 run d with no build named; PLAN:518 'declare the call exactly as the pass will'; PLAN:672 'run in S3's module'."
+   },
+   {
+    "id": "ans-buildability-2",
+    "refuted": false,
+    "reason": "Holds. The snapshot PTX and its set-up are internal to the delivery code. prepare_locked is reached only from deliver_locked, which runs only for registered maps, through drain, at_sync, exit or deliver_now. That registration and delivery path is S5 code. S4's test launches the hash snapshot over a hand-built block and checks the staging, but S4 names no test hook or entry that loads the module and launches it on a given block and staging. D16 says hooks are 'named in each step'. As written, S4's test needs S5 or an unnamed hook.",
+    "evidence": "nv_gpu_model_maps.cpp:136-144 `namespace { ... const char *snapshot_ptx`; git grep: prepare_locked called only at :371 (inside deliver_locked); deliver_locked called at :518, :573, :602, :675; :362-366 copies the registered maps list; the public API (nv_gpu_model_maps.hpp) has only register_device_array and deliver_now. PLAN:539 'own CUfunction, warm-up and broken flag'; PLAN:541-546 (S4 tests, no hook); PLAN:316 'named in each step'."
+   },
+   {
+    "id": "ans-buildability-5",
+    "refuted": false,
+    "reason": "Holds as minor. D8 adds per-process state ('Each process records the failure and does not try again'), and S2.4 checks it ('a second seal attempt in the same process returns at once'). S2 runs in the shared bpftime_runtime_tests process. D16's exec'd-child rule covers GPU tests only, and S2.4 has a bounded seal, not a hang. The plan does not say how the record is keyed. Keyed by object address, as the 1531 copy cache is, a later S2 case that seals (for example S2.6 image or S2.11 phase 1) could get a map at the same address in a recreated segment and see an immediate cached failure. Keying the record in the shm map object, or running S2.4 in a child, removes the issue. The plan chooses neither.",
+    "evidence": "PLAN:162-163 'Each process records the failure and does not try again ... held under map_binding_mutex'; PLAN:418-423 (S2.4, 'the failure is cached'); PLAN:304 'A GPU test that takes ownership, registers a delivery, or can hang runs in its own exec'd child'; PLAN:405-407 (S2 in TEST_SOURCES of the runtime tests); nv_gpu_model_maps.cpp:698-702 `static std::vector<made_copy> made; ... if (mc.map == this)`."
+   },
+   {
+    "id": "ans-buildability-3",
+    "refuted": false,
+    "reason": "Holds narrowly, as a placement conflict for S3.10 only. test_module and counting_host are in test_cuda_host_call.cpp's anonymous namespace. S3 puts its GPU cases in the new file test_gpu_devhash_device.cpp, but S3.10 names those two structs, so as placed it cannot use them. The rest overreaches. S3.10 needs no devhash text: TEST_KERNELS_PTX's bpftime_test_map_edges already calls helpers 2, 3 and 1 on a map fd, so test_module's fixed PTX is enough. No other case is said to use test_module; the new file can define its own harness. The simplest fix is to put S3.10 in test_cuda_host_call.cpp. A shared header is not required.",
+    "evidence": "test_cuda_host_call.cpp:34 `namespace` ... :671 `} // namespace`; :463 `struct test_module`, :468-469 `wrap_ptx_with_trampoline_for_sm(TEST_KERNELS_PTX, ...)`; :592 `struct counting_host`; :251 `.visible .entry bpftime_test_map_edges` with calls to `_bpf_helper_ext_0002`, `_0003`, `_0001` (:287, :302, :317); :999-1090, an existing test using them with `CHECK(host.served.load() == 0)`. PLAN:493 'GPU cases go in runtime/unit-test/cuda/test_gpu_devhash_device.cpp'; PLAN:521-522."
+   },
+   {
+    "id": "ans-buildability-4",
+    "refuted": false,
+    "reason": "Holds as minor wording. S0.2 compiles 'S3's first draft of devhash.cu', and devhash.cu includes S1's layout header. Yet the order line runs S0 first and says each step passes before any step that depends on it. S0.2 depends on drafts of S1 and S3. Its decision gate is 'before S6', so it can sit after an S1+S3 draft without harm, but the order line does not say so.",
+    "evidence": "PLAN:321-322 'Order: S0, S1, S2, S3 ... Each step builds and passes its tests before any step that depends on it.'; PLAN:333-334 'all from S3's first draft of `devhash.cu`'; PLAN:337-339 'decided with the user before S6'; PLAN:362 'It is included by `devhash.cu`'."
+   },
+   {
+    "id": "ans-cpu-concurrency-5",
+    "refuted": false,
+    "reason": "Holds as minor. Revision 2's D15 is titled and worded for registration ('Registration reports failure'). Its rollback (free the block, reset the mirror, PHASE 0 on a first copy) is not stated for S5 step 4, the copy and synchronize, which runs after the seal while PHASE is 1. No hook injects a copy failure. As the finding itself says, the state heals itself. A later call in the same process finds its own (pid, ns) with no cached copy and takes the PHASE-1 path (PLAN:223-224, 228-233), and other processes do so after it exits. In the meantime CPU writes get EPERM, and the plan says nothing about freeing the block on this path. Revision 1 at least named 'the staging allocation or registration'.",
+    "evidence": "PLAN:291-299 (D15, 'On failure: free the block; on a first copy, reset the mirror to empty, then PHASE 0'); PLAN:556-560 (step 3 seal, step 4 `cuMemcpyHtoDAsync` + synchronize, step 6 register); PLAN:569-573 (hooks: fail registration, fail the hash module's load, no copy failure); PLAN:590-594 (S5.5 registration failure only); PLAN-stage1-r1.md:157-158."
+   },
+   {
+    "id": "ans-cpu-concurrency-2",
+    "refuted": false,
+    "reason": "Holds. D11's PHASE-1 path polls INFLIGHT again for a writer that read PHASE 0 before the dead sealer's store. Every owner-death point the tests use falls outside that window. 'After the CAS' comes before the seal, so PHASE is still 0. 'After the seal' means INFLIGHT already reached 0, and every later writer reads PHASE 1 and gets EPERM. 'Between pass B and pass C' is PHASE 2. S2.10 checks only which path choose_path picks, and S2.3 has a live sealer. A mutation that skips the PHASE-1 re-poll therefore passes every test. Without the re-poll, the image can be built while a writer still runs: its key is lost although its update succeeded, and the lock-free scan reads a table being written. The S2 hook 'park a writer after its PHASE load' would allow a host-level case, but none is listed.",
+    "evidence": "PLAN:228-233 (PHASE-1 path, 'poll INFLIGHT as in D8 (a writer that read PHASE 0 before the dead sealer's store may still run)'); PLAN:150-152 (sealer polls until 0); PLAN:400 (hook 'park a writer after its PHASE load'); PLAN:572 'stop the owner after the CAS, after the seal, and between pass B and pass C'; PLAN:584-588; PLAN:459-461 (S2.10, path choice only). First review cpu-concurrency-2 (held) suggested 'the owner SIGKILLed during the seal wait'."
+   },
+   {
+    "id": "ans-buildability-20",
+    "refuted": false,
+    "reason": "Holds as minor. DEVHASH_LAYOUT_FP is 'a constexpr hash of all the constants above'. The region offsets are functions of (max_entries, shards), and the plan does not say they enter the hash, for example evaluated at fixed geometries. Suppose the region order or alignment arithmetic changes while every named constant (256, 7, SEED, the state codes, the R cap) stays the same. The stale devhash_ptx.h then carries the same fingerprint and passes S3.11. Only GPU tests (S3, S6 pointer equality) would show the mismatch.",
+    "evidence": "PLAN:350 'the region offsets from (max_entries, shards)'; PLAN:351-358 (block layout as formulas); PLAN:359 '`DEVHASH_LAYOUT_FP`, a constexpr hash of all the constants above'; PLAN:527 'its fingerprint constant equals `DEVHASH_LAYOUT_FP`'; PLAN:530 mutation 'a stale fingerprint' only."
+   },
+   {
+    "id": "ans-buildability-16",
+    "refuted": false,
+    "reason": "Holds as minor: the plan leaves the type and the binding process unstated. The 1533 object lives in the segment, and the plan stores 'its impl pointer' / 'the bound companion pointer' in it without a type. Each process maps the segment at its own address. Every process with a CUDA link runs get_gpu_map_extra_buffer for every map handler, non-owners included, and D12 does not limit binding to the owner. The repo convention would give an offset_ptr (general_map_impl_ptr), and the 1531 class keeps only boost containers in shm. With offset_ptr, rebinding from any process is harmless, so the overwrite happens only with a raw pointer. The risk is an implementation slip that the plan text permits, not a design error.",
+    "evidence": "PLAN:258 'The 1533 object gets its impl pointer.'; PLAN:391 'the bound companion pointer'; PLAN:254-257 (binding in get_gpu_map_extra_buffer, no owner condition); map_handler.hpp:75 `using general_map_impl_ptr = boost::interprocess::offset_ptr<void>;`; bpf_attach_ctx_cuda.cpp:525-531 (`map.get_gpu_map_extra_buffer()` for every map handler); bpftime_shm_internal.cpp:1020-1021 `managed_shared_memory(open_only, shm_name)` with no fixed address; map_handler.cpp:1925-1937 (1531 pins only `if (device != 0)`)."
+   }
+  ]
+ },
+ {
+  "reviewer": "new-decisions",
+  "findings": [
+   {
+    "id": "new-1",
+    "title": "The seal runs under the interprocess map_binding_mutex, and a sealer that dies there breaks that mutex for good, so the PHASE 1 recovery can never run in production",
+    "plan_section": "D8 (held under map_binding_mutex), D11 (PHASE 1, a sealer died), S5.3",
+    "problem": "D8 places the seal, including its 1 s INFLIGHT poll, under map_binding_mutex. D11's PHASE 1 path exists for a sealer that dies there. In production that sealer dies holding the mutex. Boost 1.83 makes the mutex a robust pthread mutex. On EOWNERDEAD it unlocks without making the mutex consistent and throws lock_exception(not_recoverable), so every later lock throws. From then on:\n- every set_handler throws, and set_handler is behind every map creation;\n- dup, begin_new_session and every agent's init_attach_ctx_from_handlers throw too.\nThe next process therefore never reaches choose_path(). Two of S5.3's three kill points ('after the CAS' and 'after the seal (PHASE 1 left)') fall inside this window. D8's heading, 'Seal exclusion without a lock a dead process can hold', does not hold for the sealer itself. S5.3 can still pass: if its children call create_map_basic_info or get_gpu_map_extra_buffer directly, as test_cuda_host_call.cpp:1016 does, they never take the mutex.",
+    "evidence": "PLAN-stage1.md:162-163 \"one 1 s wait per process, not one per CUDA link, held under map_binding_mutex\"; :228-233 (PHASE 1 path); :584-588 (S5.3 kill points). bpf_attach_ctx.cpp:197-198 emplaces the guard for the whole init_attach_ctx_from_handlers. Links are instantiated inside it (:231/:250 -> :375 -> :643 create_map_basic_info -> map_handler.cpp:1878 get_gpu_map_extra_buffer). array_map_binding.hpp:20-25: an interprocess_recursive_mutex in the segment. /usr/include/boost/interprocess/sync/posix/recursive_mutex.hpp:91-104: EOWNERDEAD -> unlock -> throw not_recoverable. handler_manager.cpp:57,68: set_handler takes the mutex. Run result, /tmp/claude-2002/devhash-plan-review2/r2-adversarial/robust/t.cpp (g++, Boost 1.83): a forked child locks the mutex and is SIGKILLed; the parent then makes two lock attempts, and both print \"exception: boost::interprocess::lock_exception (code 25)\".",
+    "suggested_change": "Move the 1533 work (owner claim, seal, image, copy, mirror seeding, registration) out of the map_binding_mutex scope. For example, record the 1533 maps during create_map_basic_info and make their copies after init_attach_ctx_from_handlers drops its guard, before the links are patched. Then cross-process exclusion rests on the owner claim alone, so make that claim a single-word CAS (pack pid and namespace id, or claim pid first and write the namespace only after winning). Run S5.3's owner children through init_attach_ctx_from_handlers, or hold map_binding_mutex in the test, so the kill points match production. If the work stays under the mutex, say that a sealer death leaves the segment unusable, and drop the PHASE 1 path as unreachable.",
+    "severity": "blocker"
+   },
+   {
+    "id": "new-2",
+    "title": "Keys updated in phase 0 live in spare elements at index >= max_entries, and no test makes the image scan reach them",
+    "plan_section": "D9 (for_each_in_use_unlocked), S2.6, S2.3",
+    "problem": "D9 says the scan 'reads each element's word' but does not say which indices. bpftime_hash_map has max_entries + num_stripes elements. The spares start at indices max_entries..max_entries+stripes-1. Updating an existing key (BPF_ANY or BPF_EXIST) moves the key into its stripe's spare and retires the old element as the new spare. A key updated even once can therefore sit at an index >= max_entries. A scan over max_entries elements, the natural reading of 'max_entries preallocated elements', drops such keys from the image. They are then missing from the device and the mirror, and after PHASE 2 they are hidden from CPU lookups too. Every image test prefills by inserting only: S2.6 ('n prefilled keys'), S2.3 (writers inserting keys), S3.2 run d and S5.1/S5.7 (prefill). So a scan bounded by _max_elements passes every listed test.",
+    "evidence": "bpftime_hash_map.hpp:646 \"_num_elements = _max_elements + _num_stripes\"; :664 \"v.stripes[s].spare = (uint32_t)(_max_elements + s)\"; :528-537 replace_locked links the new value into st.spare, then \"st.spare = old_index\". PLAN-stage1.md:172-175 (\"reads each element's word (acquire), then the key and value\") and :427-429 (S2.6: prefilled keys, 'Mutation: count left 0').",
+    "suggested_change": "State that the scan covers all _num_elements (max_entries + one spare per stripe). In S2.6, prefill with inserts, then BPF_ANY/BPF_EXIST updates of existing keys, and some deletes, so that live elements sit at spare indices and between free ones. Mutation: the scan stops at max_entries, and the updated keys are missing from the image.",
+    "severity": "major"
+   },
+   {
+    "id": "new-3",
+    "title": "The S2.3 seal-race mutation still depends on timing: the parked writer is released while the mutated sealer is already scanning",
+    "plan_section": "S2.3 (seal race), answer to c13",
+    "problem": "The test releases the parked writer once the sealer has stored PHASE 1. Under the mutation 'the writer skips INFLIGHT', the sealer reads INFLIGHT 0 at once and starts its scan right after that store. So the writer's insert and the scan run concurrently. The key ends up in the image whenever the insert links its element before the scan reaches that index, and the mutation then passes. The claim 'The parked key is then lost with no EPERM, every time' does not follow from the hooks listed. The only hooks are on the writer side (after the PHASE load, after the INFLIGHT increment), with nothing on the sealer side. The test could release the writer only after the seal returns instead. Then the correct build has to wait for its own parked writer and times out after 1 s, and the stated pass rule ('in the image, or EPERM') has no image to check. This is the confirmed r1 finding c13, still open.",
+    "evidence": "PLAN-stage1.md:414-417 \"a writer is parked by the hook after its PHASE load, then the sealer stores PHASE 1, then the writer is released ... Mutation: the writer skips INFLIGHT. The parked key is then lost with no EPERM, every time.\" :399-403 test hooks: writer-side only. r1 coverage-13 verdict (refuted=false): \"detection depends on timing\".",
+    "suggested_change": "Release the writer from a sealer-side observable. Add a test counter that the sealer bumps when a poll reads INFLIGHT > 0, and a hook that parks the sealer after its INFLIGHT wait and before the scan. Correct build: the counter rises, then release the writer, then the seal completes with the key in the image. Mutated build: the sealer parks after its wait without the counter rising; then release the sealer first and the writer only after the image is built. The key is then missing every time.",
+    "severity": "major"
+   },
+   {
+    "id": "new-4",
+    "title": "D16's delivery assertion fails every time in S5.6's AT_SYNC child, and can fail at random elsewhere because the drain thread may deliver first",
+    "plan_section": "D16 (Delivery), S5.6 (repeat with BPFTIME_GPU_DELIVERY_AT_SYNC=1), answer to b6",
+    "problem": "S5.6 calls note_app_sync() and then deliver_now, and D16 asserts that deliver_now delivered at least one map. note_app_sync() calls the sync listener (on_app_sync):\n- With AT_SYNC=1, on_app_sync delivers inside the call. deliver_now(false) then finds covered_syncs == syncs and next_due_ns about 20 ms away, skips the map and returns 0, so the assertion fails every time.\n- Without AT_SYNC, on_app_sync wakes the drain thread, which delivers the map once it is due (2 ms after the last delivery). If the drain thread takes run_mutex first, deliver_now again returns 0, so the assertion fails at random.\nThe assertion detects a missing delivery but does not cause one, so b6 ('deliver_now(false) skips maps that are not due') is still open.",
+    "evidence": "PLAN-stage1.md:313 \"A test that needs a delivery asserts that deliver_now delivered at least one map.\" :595-602 (S5.6, its repeat with AT_SYNC=1). probed_launch_activity.hpp:68-77: note_app_sync calls sync_listener. nv_gpu_model_maps.cpp:278-289: on_app_sync -> deliver_in_sync_call (AT_SYNC), else wakes the drain thread. :382-394: due = next_due_ns when syncs == covered_syncs, then 'continue'. :665-679: deliver_now(false) uses delivery_kind::drain.",
+    "suggested_change": "Have tests read the DELIVERIES word (and SYNCS_COVERED) before and after, and wait (bounded) until DELIVERIES rises past its pre-kernel value, rather than asserting on deliver_now's return value. Or add a test hook that marks every registered map due. In the AT_SYNC child, assert on the delivery made inside note_app_sync and do not call deliver_now.",
+    "severity": "major"
+   },
+   {
+    "id": "new-5",
+    "title": "D11's count rule covers only a seeded directory with no empty slot; a directory with E empty slots and L + E < max_entries still fills with count below max",
+    "plan_section": "D11 (count = L, or max_entries if no slot is empty), S2.9",
+    "problem": "The plan's own reason: if the directory fills while count < max_entries, every new-key insert waits out the full-directory bound for a count that cannot rise. Suppose the seeded directory still has E > 0 empty slots, with count = L. Each new key takes one empty slot and raises count by 1. After E inserts the directory is full with count = L + E. If L + E < max_entries, every later new-key insert walks S slots, waits 100 us and returns an unstable -7. This happens for good, though the map holds fewer than max_entries keys. Example: max 512, S 1024. The mirror shows 510 live, 2 claiming (rows reserved, the owner then killed) and 511 refused, so E = 1. Seeded count is 510. One insert makes it 511 with no empty slot left, and every new key after that is stuck. S2.9 ('count = max_entries when no slot is empty'; mutation 'count = L on a full directory') cannot tell the plan's rule from the correct one. Rare (it needs dead claims and a nearly full directory), but it is the remainder of the confirmed findings c16/d15.",
+    "evidence": "PLAN-stage1.md:238-239 \"count = L, or max_entries if the seeded directory has no empty slot. Otherwise every insert of a new key would wait out the full-directory bound for a count that cannot rise.\" :452-458 (S2.9). c5-device-part.cu:319-336 (full_directory waits for count >= max_entries, else unstable E2BIG). r1 device-and-routing-15 verdict: \"Holds as a rare edge case\".",
+    "suggested_change": "Seed count = max(L, max_entries - E), where E is the number of empty slots in the seeded directory; rows L..count-1 stay unused. S2.9: a mirror with E = 1 and L = max_entries - 2 must seed count = max_entries - 1. Mutation: the current rule.",
+    "severity": "major"
+   },
+   {
+    "id": "new-6",
+    "title": "Liveness by kill(pid, 0) treats a zombie owner as alive, and a dead owner in another namespace blocks the device copy for good; README covers neither",
+    "plan_section": "D11 (owner alive if kill succeeds or EPERM; another namespace never taken over), S5.3/S5.4, S7 README",
+    "problem": "1. kill(pid, 0) succeeds on an exited but unreaped owner. Until its parent reaps it, every other process gets 0, including S5.3/S5.4's 'next child' if the test parent starts it before waitpid on the killed owner. The repo already handles this case for ringbuf owners: is_thread_gone also checks /proc/<pid>/stat for Z/X.\n2. 'An owner in another pid namespace is never taken over' also applies when that owner is dead. If a container restarts, its pid namespace is new, and the map never gets a device copy again for the life of the segment.\n3. Without /proc each process gets a random namespace id, so no takeover can ever happen.\nThe S7 README list (items 9-10) mentions none of these.",
+    "evidence": "PLAN-stage1.md:221-224 (alive on success or EPERM; another namespace: return 0); :584-589 (S5.3/S5.4 next child); :703 README 9. CLAUDE.md, ringbuf section: is_thread_gone is 'tgkill ESRCH, or Z/X in /proc/<pid>/task/<tid>/stat, since tgkill finds an unreaped thread-group leader' (runtime/src/producer_identity.cpp:102, ringbuf_map.cpp:449).",
+    "suggested_change": "Treat an owner whose /proc/<pid>/stat state is Z or X as dead, as is_thread_gone does. Say in S5.3/S5.4 that the parent reaps the killed owner before starting the next child. Add a README item: an owner that died in another pid namespace, or with no /proc, is never replaced, so the map has no device copy until the segment is recreated.",
+    "severity": "minor"
+   },
+   {
+    "id": "new-7",
+    "title": "The PHASE 1 recovery path does not say what happens when its INFLIGHT poll times out",
+    "plan_section": "D11 (PHASE 1, a sealer died: poll INFLIGHT as in D8)",
+    "problem": "Example: a writer that got EPERM from the dead sealer's PHASE 1 was itself killed before its fetch_sub. INFLIGHT then stays above 0, and the recovering owner's poll times out. D8 defines a timeout only for a seal that started from phase 0 ('the CPU stays in phase 0', failure cached). For PHASE 1 nothing is said. If the implementation leaves PHASE at 1 and returns 0, CPU writes get EPERM for the life of the segment while no device copy exists. S2.10 and S5.3 have no case with INFLIGHT stuck at PHASE 1.",
+    "evidence": "PLAN-stage1.md:228-233 (\"poll INFLIGHT as in D8 ... build the image from the frozen table; continue as the first copy\"), :159-165 (D8 timeout behaviour stated for the phase-0 seal), :459-461 (S2.10 cases).",
+    "suggested_change": "State it: on a timeout in the PHASE 1 path, store PHASE 0, cache the failure as in D8 and return 0. Add a S2.10 case: PHASE 1, dead owner, INFLIGHT stuck at 1, so the result is PHASE 0, the failure is cached and CPU writes work.",
+    "severity": "minor"
+   },
+   {
+    "id": "new-8",
+    "title": "The per-process failure cache gives every new GPU process another 1 s seal, with CPU writes refused and the interprocess mutex held, so the CPU does not simply stay in phase 0",
+    "plan_section": "D8 (dead writer: failure cache per process), S2.4, README 10",
+    "problem": "With INFLIGHT stuck 'for the life of the segment', each new owner process seals again. For that second it stores PHASE 1, so every CPU writer gets EPERM, and it holds map_binding_mutex, so every process's map creation, dup and attach waits. Every GPU process start therefore opens a 1 s EPERM window for the tool's updates. D8's 'the CPU stays in phase 0' and README 10 ('disables the device copy') do not say so. S2.4 only checks the state after the seal returns.",
+    "evidence": "PLAN-stage1.md:159-165 (\"Each process records the failure and does not try again: one 1 s wait per process ... the CPU stays in phase 0\"), :418-423 (S2.4), :704-705 (README 10). handler_manager.cpp:57,68 (set_handler under map_binding_mutex).",
+    "suggested_change": "Either record the stuck-INFLIGHT failure in the shm object, so later processes skip the seal while INFLIGHT has not moved since the failure, or document the 1 s EPERM window per GPU process start in D8 and README 10. Add to S2.4 a writer running concurrently with the second process's attempt.",
+    "severity": "minor"
+   },
+   {
+    "id": "new-9",
+    "title": "There is no class named hash_map_impl, and fix_size_hash_map_impl keeps its bpftime_hash_map private",
+    "plan_section": "D9, S2 (Class nv_gpu_device_hash_map_impl holds the phase-0 hash_map_impl)",
+    "problem": "The plan names 'the existing hash_map_impl ... the one BPF_MAP_TYPE_HASH uses'. That class is fix_size_hash_map_impl. Its bpftime_hash_map member map_impl is private, and the only accessor is table_for_test(). for_each_in_use_unlocked is planned on bpftime_hash_map, so the 1533 object cannot reach it without a change to fix_hash_map.hpp that S2 does not list. The alternative is to hold a bare bpftime_hash_map, but that loses the errno mapping S2.2 relies on ('exactly as on a HASH map').",
+    "evidence": "PLAN-stage1.md:167-169, :386 (\"the phase-0 `hash_map_impl`\"). grep \"class .*hash_map_impl\" in runtime/src: only fix_size_, var_size_, lru_var_, per_cpu_ and nv_gpu_shared_ variants. fix_hash_map.hpp:27 \"bpftime_hash_map map_impl;\" (private), :49 table_for_test().",
+    "suggested_change": "Name fix_size_hash_map_impl. List the accessor added to it (for example a table() accessor or a forwarding for_each_in_use_unlocked) among S2's code changes.",
+    "severity": "minor"
+   },
+   {
+    "id": "new-10",
+    "title": "D10's resolution argument needs strong header loads in the walk, but S3.11 does not check the walk's loads",
+    "plan_section": "D10 (resolution via PTX 8.9.2/8.9.4/8.10.6), S3.11",
+    "problem": "The 'next delivery' resolution has two links. First, the slot's write precedes the walker's read in observation order, which PTX 8.9.2 allows only between morally strong operations. Second, that read precedes the next snapshot's read in proxy-preserved base causality (8.9.5). So the walker's header loads must be ld.relaxed.gpu (strong). If a port uses a weak ld.global there, the chapter-8 argument fails, and no test notices, because the hardware behaves the same. S3.11 checks qualifiers only at 'the publish, precheck, CAS, count and adds', not at the walk's header loads or the inline path's header load.",
+    "evidence": "PLAN-stage1.md:208-214 (resolution argument), :525-527 (S3.11 list). ptx-isa-9.5-ch8-memory-model.txt:288-293 (observation order requires 'R and W are morally strong'), :350-361 (causality order through observation order and proxy-preserved base causality).",
+    "suggested_change": "Add to S3.11 that every header load in devhash_ptx.h's walks, and in the emitted inline lookup, is ld.relaxed.gpu.global. Mutation: one walk load made plain ld.global. Cite 8.9.5 in D10 next to 8.9.2/8.9.4/8.10.6.",
+    "severity": "minor"
+   },
+   {
+    "id": "new-11",
+    "title": "S2.11 justifies having no mutation by pointing at the wrong check",
+    "plan_section": "S2.11 (Phase reads)",
+    "problem": "S2.11 says the order of the readers' PHASE load 'is fixed by the D8 disassembly check'. D8's check is that the sealer's first INFLIGHT poll is LDAR; it does not look at the readers' PHASE load. A phase-2 reader that loads PHASE relaxed has no acquire ordering it before its mirror reads, so it can read the mirror before seeding and miss seeded keys, and nothing checks for this.",
+    "evidence": "PLAN-stage1.md:462-463 \"(no mutation: the order is fixed by the D8 disassembly check, not observable here.)\"; :155-157 (D8: \"S2 disassembles the seal once to check that the first poll is `LDAR`\").",
+    "suggested_change": "Add the readers' PHASE load to the disassembly check (LDAR or LDAPR, not a plain LDR), or state that this is code review only.",
+    "severity": "minor"
+   },
+   {
+    "id": "new-12",
+    "title": "D15 cannot report a failed hash-module load: the module is loaded lazily, after PHASE 2, and the map then stays on its seeded image",
+    "plan_section": "D14, D15, S5.11, README 13",
+    "problem": "1531's snapshot module is loaded on the first delivery, inside deliver_locked's prepare_locked, after registration has returned. If 1533 follows that pattern, a hash-module load failure comes after D15's registration result and after PHASE 2 has been stored. The map then stays at PHASE 2 with the seeded mirror for good: CPU lookups never change and DELIVERIES stays 0. S5.11 checks only that the 1531 map keeps being delivered. README 13 covers only a device fault.",
+    "evidence": "nv_gpu_model_maps.cpp:369-374 (prepare_locked on the first delivery; failure returns, s.broken). PLAN-stage1.md:284-299 (D14, D15), :621-623 (S5.11), :709 (README 13).",
+    "suggested_change": "Load and warm up the hash module during registration, so that D15 returns the failure before PHASE 2. Or state the frozen-mirror outcome in D14 and the README, and have S5.11 check the 1533 map's state (PHASE 2, DELIVERIES 0, lookups give the seeded values).",
+    "severity": "minor"
+   }
+  ],
+  "verdicts": [
+   {
+    "id": "new-1",
+    "refuted": false,
+    "reason": "Holds. The plan places the copy under the mutex itself: D8 :162-163 says 'held under map_binding_mutex', and D12 :254-255 binds 'under the map_binding_mutex already held there'. In production, init_attach_ctx_from_handlers takes the guard (bpf_attach_ctx.cpp:195-198, when manager is the global manager, which is how the agent calls it at :185). The guard covers the link instantiation at :231/:250, which reaches :643 create_map_basic_info, then bpf_attach_ctx_cuda.cpp:531 get_gpu_map_extra_buffer, then get_gpu_mem_buffer, where D11's owner CAS and D8's seal would run. Boost 1.83 (system headers; no project override of the BOOST_INTERPROCESS macros) builds a robust mutex. On EOWNERDEAD, lock() unlocks it without making it consistent and throws not_recoverable. I rebuilt and reran the reviewer's program: both later lock attempts throw lock_exception code 25. Nothing in runtime/ or attach/ recovers: no pthread_mutex_consistent, and no catch of lock_exception or not_recoverable on these paths. So a death that leaves PHASE 1, or an owner record with PHASE 0 ('after the CAS'), always breaks the mutex. The next process's set_handler (handler_manager.cpp:57,68) and init_attach_ctx_from_handlers throw before choose_path(). D11's PHASE 1 path and S5.3's first two kill points therefore cannot occur in production as written. Scope: an agent that dies anywhere inside init_attach_ctx_from_handlers already breaks the segment today, 1531's copy included. The plan adds a recovery path that this hazard makes unreachable, and lengthens the window by up to 1 s of INFLIGHT polling plus the copy and its synchronize. The PHASE 2 takeover, after an owner dies outside attach, is unaffected.",
+    "evidence": "PLAN-stage1.md:162-163, :254-255, :228-233, :584-588. bpf_attach_ctx.cpp:195-198, :231, :250, :643. bpf_attach_ctx_cuda.cpp:531. /usr/include/boost/interprocess/sync/posix/recursive_mutex.hpp:91-104; pthread_helpers.hpp:45-46 (setrobust); version.hpp BOOST_LIB_VERSION \"1_83\". Rerun /tmp/claude-2002/devhash-plan-review2/refute-r2c/robust/t: \"attempt 0: exception: boost::interprocess::lock_exception (code 25)\" and the same for attempt 1. grep for lock_exception|not_recoverable|EOWNERDEAD|pthread_mutex_consistent in runtime/ and attach/: only syscall_server_utils.cpp:305 (shm creation, unrelated)."
+   },
+   {
+    "id": "new-2",
+    "refuted": false,
+    "reason": "Holds. Live elements can sit above max_entries: _num_elements = _max_elements + _num_stripes, spares start at _max_elements + s, and replace_locked links the new value into the spare and leaves the old element as the new spare. D9 says only 'reads each element's word'. That reading may well mean all elements, but nothing pins the bound. Every image-producing test prefills with inserts of new keys, which take elements from the free lists (indices < max_entries): S2.6 'n prefilled keys', S2.3 writers 'insert', S5.1 and S5.7 'prefill'. A scan bounded at _max_elements passes all of them, and S2.6's only mutation is 'count left 0'.",
+    "evidence": "bpftime_hash_map.hpp:207 \"_num_elements; // max_elements and a spare per stripe\", :646, :664 \"v.stripes[s].spare = (uint32_t)(_max_elements + s)\", :528-537 (replace_locked: index = st.spare ... st.spare = old_index), :483-486 (retire clears ELEM_USED). PLAN-stage1.md:172-174, :427-429 (S2.6, mutation 'count left 0'), :414-416."
+   },
+   {
+    "id": "new-3",
+    "refuted": false,
+    "reason": "Holds narrowly; parts of the evidence are wrong. Revision 2 adopted r1 c13's own suggestion, a hook that parks the writer after its PHASE load until PHASE 1 (r1 suggested_change), so 'c13 still open' is inaccurate as stated. Sealer-side hooks are also not needed. Thread A runs seal() then build_image(). The test releases the writer when A has finished, or after a fixed delay well under the 1 s bound (say 200 ms), whichever comes first. The mutated build then always finishes its image before the release, so the key is lost every time. The correct build blocks on INFLIGHT, gets its writer released at the delay, and puts the key in the image. What the plan lacks is that release condition. It says only 'the sealer stores PHASE 1, then the writer is released'. Read literally, the release follows the PHASE 1 store, and the mutated sealer scans at the same moment (it reads INFLIGHT 0 at once). The key then reaches the image whenever the insert links before the scan passes that index, so the stated 'every time' does not follow from the procedure as written. Probably a one-sentence fix rather than a major gap.",
+    "evidence": "PLAN-stage1.md:414-417 (\"then the sealer stores PHASE 1, then the writer is released ... every time\"), :399-403 (writer-side hooks only), :834 (\"c13 \u2192 S2.3 hook\"). review-r1/plan-review.json coverage-13 suggested_change: \"Add a test hook that parks a writer after its PHASE load ... until the sealer has stored PHASE = 1.\" D8 :150-152 (1 s bound, which the delayed release stays under)."
+   },
+   {
+    "id": "new-4",
+    "refuted": false,
+    "reason": "Holds. With AT_SYNC=1, note_app_sync calls on_app_sync, which delivers inside the call: deliver_in_sync_call, at_sync kind, sets covered_syncs = syncs and next_due_ns = m1 + busy_ns (20 ms). S5.6's repeat then calls deliver_now(false), which always uses the drain kind. With syncs == covered_syncs, due = next_due_ns > t0, so the map is skipped and n = 0, and D16's assertion fails on a correct build every time. Without AT_SYNC, on_app_sync wakes the drain thread. Whichever of it and deliver_now takes run_mutex first delivers, and the other returns 0. deliver_now also returns 0 if less than sync_gap (2 ms) has passed since registration or the last delivery. The assertion exposes a missing delivery but does not produce one.",
+    "evidence": "PLAN-stage1.md:313, :595-602. probed_launch_activity.hpp:68-77 (note_app_sync calls sync_listener). nv_gpu_model_maps.cpp:278-289 (on_app_sync: deliver_in_sync_call, or wake), :382-393 (due logic, 'continue'), :447-450 (covered_syncs, next_due_ns = m1 + busy_ns), :485-519 (drain thread delivers on wake), :592-604, :629-631 (sync_gap 2 ms, next_due = now + busy), :665-679 (deliver_now uses delivery_kind::drain)."
+   },
+   {
+    "id": "new-5",
+    "refuted": false,
+    "reason": "Holds. In the C5 v2 insert, each winner of a new key takes one empty slot by CAS and then adds 1 to the count. Refused is published only once r0 >= max_entries. With E empty slots seeded and count = L, E inserts fill the directory with count = L + E. If L + E < max_entries, every later new-key insert walks S slots into full_directory(), which waits for count >= max_entries until the bound and returns an E2BIG counted unstable. The plan's rule handles only E = 0. The example is consistent: claiming slots hold rows 510 and 511 that were never published, and 511 refused slots required count >= 512 earlier. Opaque slots also persist across takeovers (D11 :241-242), which makes a large non-empty, non-live share more likely over repeated takeovers. README item 5 ('after a takeover, a full directory refuses at once') is then also wrong for this case. S2.9's cases (count = L; count = max when no slot is empty) cannot tell the plan's rule from max(L, max_entries - E).",
+    "evidence": "PLAN-stage1.md:238-239, :452-458, :697 (README 5). c5-device-part.cu:428-441 (precheck at an empty slot), :447-459 (CAS, then atom_add_acq_rel; refused only if r0 >= max_entries), :476-480 (lost CAS walks on, then full_directory), :319-336 (full_directory waits for C_BOUND >= max_entries, else C_FULLDIR_UNSTABLE). r1 device-and-routing-15 verdict: \"Holds as a rare edge case\"."
+   },
+   {
+    "id": "new-6",
+    "refuted": false,
+    "reason": "Holds (minor). D11 counts the owner as alive when kill(pid, 0) succeeds or returns EPERM. kill succeeds on an unreaped zombie, and the repo already treats this case for ringbuf owners: is_thread_gone also checks /proc stat for Z/X. Point 1 is transient (until the parent reaps), and in S5.3/S5.4 it matters only if the parent starts the next child before reaping the killed one, which the plan does not specify. 'An owner in another pid namespace is never taken over' is a deliberate decision in D11, but it also covers a dead owner, so after a container restart the map has no device copy for the life of the segment. Without /proc, pid_namespace_id returns a random value per process, so no takeover can ever happen. README items 9-10 (and the rest of the list) mention none of these.",
+    "evidence": "PLAN-stage1.md:221-224, :584-589, :703-705 (README 9-10). runtime/src/producer_identity.cpp:102-121 (is_thread_gone: \"tgkill finds a thread-group leader until its parent reaps it\"), :64-86 (no /proc: getrandom id | 1<<63). CLAUDE.md:625-626. nv_gpu_model_maps.cpp:710 (1531 uses kill(cur, 0) == 0)."
+   },
+   {
+    "id": "new-7",
+    "refuted": false,
+    "reason": "Holds (minor). D11's PHASE 1 path says 'poll INFLIGHT as in D8'. That could be read as importing D8's timeout outcome (restore PHASE 0, cache the failure, return 0). But D8 states the outcome only for a seal that started from phase 0 ('the CPU stays in phase 0'), and here the CPU starts in phase 1, set by a dead process. Whether the recovering owner stores PHASE 0, after D11 has already reset the mirror, is not said. Neither S2.10 (PHASE 1 with a dead owner) nor S5.3 has a case where INFLIGHT is stuck. A writer killed between its fetch_add and fetch_sub, including one that got EPERM from the dead sealer's PHASE 1, produces that state. (Per new-1, this path cannot occur in production while the seal runs under map_binding_mutex; it remains a plan and test path.)",
+    "evidence": "PLAN-stage1.md:228-233 (\"poll INFLIGHT as in D8 ... build the image from the frozen table\"), :159-165 (D8 timeout: \"the CPU stays in phase 0\"), :145-148 (writer steps), :459-461 (S2.10 cases), :418-423 (S2.4 checks PHASE 0 only for a phase-0 seal)."
+   },
+   {
+    "id": "new-8",
+    "refuted": false,
+    "reason": "Holds in part. The mutex half is already in the plan: D8 says 'one 1 s wait per process ... held under map_binding_mutex'. The EPERM half is not. Each new GPU process's attempt stores PHASE 1 first (D8 sealer step 1) and polls for up to 1 s, so every CPU writer gets EPERM during that second. That contradicts 'the CPU stays in phase 0' in D8, and README 10 says only 'disables the device copy'. S2.4 checks the state only after the seal returns and has no writer running during a second process's attempt.",
+    "evidence": "PLAN-stage1.md:151-152 (PHASE.store(1) then poll), :145-147 (writer gets EPERM when PHASE != 0), :159-165 (\"the CPU stays in phase 0\"; \"held under map_binding_mutex\"), :418-423 (S2.4), :704-705 (README 10)."
+   },
+   {
+    "id": "new-9",
+    "refuted": true,
+    "reason": "Refuted. The name is valid: map_handler.cpp:63 has 'using hash_map_impl = fix_size_hash_map_impl;', and BPF_MAP_TYPE_HASH uses that alias (map_handler.cpp:171-172, 355-415), so 'the existing hash_map_impl ... the one BPF_MAP_TYPE_HASH uses' names the right class. A grep for 'class .*hash_map_impl' misses the alias. The table is also reachable without changing fix_hash_map.hpp: table_for_test() is public and returns bpftime_hash_map&, and tests already reach the table through it (test_fix_hash_map.cpp:189, test_percpu_hash_locks.cpp:66). So 'cannot reach it without a change' does not follow. Two wording points remain. The alias is local to map_handler.cpp, so a 1533 class in another file must name fix_size_hash_map_impl. And production code going through an accessor named for tests calls for a plainly named accessor. Both are naming, not a build blocker.",
+    "evidence": "runtime/src/handler/map_handler.cpp:63 \"using hash_map_impl = fix_size_hash_map_impl;\", :172 \"static_cast<hash_map_impl *>\". runtime/src/bpf_map/userspace/fix_hash_map.hpp:27 (private map_impl), :49-52 (public table_for_test() returns bpftime_hash_map &). PLAN-stage1.md:167-169, :386."
+   },
+   {
+    "id": "new-10",
+    "refuted": false,
+    "reason": "Holds, but only for the walk loads inside the devhash insert. Chapter 8 requires strong loads here: observation order needs 'R and W are morally strong' (8.9.2); morally strong needs each operation to be strong (8.7); and an ld without a qualifier defaults to .weak (ptx-isa.txt:18618). So the resolution argument needs the inserting walker's read of slot i (c5 line 411 ld_relaxed) to be strong. That read is then linked to the next snapshot through proxy-preserved base causality order (8.9.5, not cited in D10). S3.11 checks qualifiers only at 'the publish, precheck, CAS, count and adds'. The precheck's slot re-read is covered, the main walk load is not, and the hardware would not show the difference. The finding overreaches on the inline lookup. It publishes nothing, so it is not part of D10's argument, and the S6 mirror of test_sum_map_routing.cpp:76 is an exact-text block match, so it would pin the inline ld.relaxed.gpu.global anyway.",
+    "evidence": "ptx-isa-9.5-ch8-memory-model.txt:194-200 (8.7 morally strong), :291-293 (8.9.2), :349-361 (8.9.5). docs/text/ptx-isa.txt:18618 (\"When none of these is specified, the .weak qualifier is assumed by default\"). c5-device-part.cu:411 (insert walk: ld_relaxed), :434 (precheck re-read), :128-131 (ld.relaxed.gpu.global). PLAN-stage1.md:208-211, :525-527, :634. test_sum_map_routing.cpp:76-118 (exact block string)."
+   },
+   {
+    "id": "new-11",
+    "refuted": false,
+    "reason": "Holds. S2.11 attributes the readers' PHASE-load ordering to 'the D8 disassembly check', but D8's check covers only the sealer's first INFLIGHT poll (LDAR). Nothing checks the readers' PHASE load, which D7 requires to be acquire before the mirror or table reads. The CPU walk's own acquire loads come after the PHASE load and do not order it, so a relaxed PHASE load could see 2 and still read pre-seeding mirror headers. The justification points at the wrong check.",
+    "evidence": "PLAN-stage1.md:462-463 (\"(no mutation: the order is fixed by the D8 disassembly check, not observable here.)\"), :155-157 (\"S2 disassembles the seal once to check that the first poll is `LDAR`\"), :138 (\"Every CPU read path loads PHASE with acquire first\"), :187-188 (CPU lookup walks with acquire loads)."
+   },
+   {
+    "id": "new-12",
+    "refuted": true,
+    "reason": "Refuted. The finding rests on 'if 1533 follows that pattern'. The plan does not say the hash module loads lazily, only that it has its own module, warm-up and broken flag. D14 does state the outcome of a load failure: its heading covers 'set-up, load and launch errors' and says 'A failure there stops hash delivery only'. After PHASE 2, stopped delivery means the mirror stays as seeded and DELIVERIES does not rise. That is the consequence the finding describes, and the plan accepts it. D15 never claims to report module-load failures; it covers the registration result. S5.11 tests what D14 claims, that a 1531 map keeps being delivered. Loading the module before PHASE 2 would be an improvement, not a fix to a stated claim. Minor remainder: README item 13 names only a device fault, not a load or set-up failure that leaves the map at its seed.",
+    "evidence": "PLAN-stage1.md:284-289 (D14: \"isolated for set-up, load and launch errors ... A failure there stops hash delivery only\"), :291-299 (D15 scope), :539 (S4: own CUfunction, warm-up, broken flag, no load time stated), :621-623 (S5.11), :709 (README 13). nv_gpu_model_maps.cpp:369-374 (1531's lazy prepare_locked)."
+   }
+  ]
+ },
+ {
+  "reviewer": "build-order",
+  "findings": [
+   {
+    "id": "bld-1",
+    "title": "S4's tests cannot reach the hash snapshot without S5: everything that loads and launches a snapshot is file-local, and S4 names no hook",
+    "plan_section": "S4 (code and tests); section 2 order ('then S4 and S6 ... then S5'); section 6 ('c21, b2, b3 -> S4 snapshot alone')",
+    "problem": "S4 puts `bpftime_model_hash_snapshot` in nv_gpu_model_maps.cpp, with its own module, warm-up and broken flag. Its tests launch it on a hand-built block and check its PTX text for `ld.acquire.gpu`. In that file the snapshot PTX, the module set-up, the stream and the delivery state are all in an anonymous namespace. Only `register_device_array` and `deliver_now` are exported, and they reach a snapshot only through a registered map. The 1533 `registered_map` kind and the snapshot call from `deliver_locked` are S5 code. S4 names no test hook or exported entry point, although D16 says hooks are 'named in each step'. As written, neither S4 test can call the code it tests until S5 exists. That leaves r1 finding buildability-2 partly open.",
+    "evidence": "nv_gpu_model_maps.cpp:136 `namespace` (anonymous) ... :606 `} // namespace`. The snapshot text (:144 `const char *snapshot_ptx`), prepare_locked (:311, `cuModuleLoadData` at :317) and delivery_state are inside it. The exported API is :608-681 (`register_device_array`, `deliver_now`). nv_gpu_model_maps.hpp:150-157 declares only those two. Plan S5: '`deliver_locked` calls the hash snapshot and then `apply_delivery()`'. Plan S4 lists no test hooks.",
+    "suggested_change": "In S4, add an exported test entry point behind the hooks macro, for example `gpu_model::hash_snapshot_for_test(CUdeviceptr block, geometry, staging*)`, which sets up the hash module and launches it once. Add an accessor that returns the hash snapshot's PTX text for the text check. Name both in S4's hook list.",
+    "severity": "major"
+   },
+   {
+    "id": "bld-2",
+    "title": "D16's 'deliver_now delivered at least one map' fails on correct code: always in the AT_SYNC repeat, sometimes in the default run",
+    "plan_section": "D16 Delivery; S5.6 (end to end and its AT_SYNC repeat); also S5.3, S5.4, S5.7, S5.8, which need deliveries",
+    "problem": "note_app_sync() calls the sync listener synchronously. With BPFTIME_GPU_DELIVERY_AT_SYNC=1 the listener (on_app_sync) runs deliver_in_sync_call, which delivers at once. That sets covered_syncs to the current syncs and next_due to 20 ms later. The test's next deliver_now(false) takes the drain kind, finds the map not due and returns 0, so S5.6's AT_SYNC repeat fails every time. In the default mode note_app_sync wakes the drain thread, and that thread races the test's deliver_now for run_mutex. Whichever loses sees covered_syncs == syncs and next_due 20 ms away, and returns 0. If less than sync_gap (2 ms) has passed since registration or the last delivery, neither one delivers. The assertion is therefore flaky, and it fails exactly where at-sync delivery works.",
+    "evidence": "probed_launch_activity.hpp:68-77: note_app_sync increments app_syncs, then `if (auto fn = sync_listener.load(...)) fn();`. nv_gpu_model_maps.cpp:278-283: on_app_sync calls deliver_in_sync_call() when deliver_at_sync(). :285 wakes the drain thread otherwise. :382-393: `due = m.next_due_ns`, lowered only when `syncs != m.covered_syncs`, then `if (!at_exit && due > t0) continue;`. :448-450 set covered_syncs = syncs and next_due = m1 + busy_ns. :675: deliver_now always uses the drain kind (or exit). :631 sets next_due at registration to now + busy_ns (20 ms).",
+    "suggested_change": "Replace the D16 assertion. After note_app_sync, wait under a deadline until status DELIVERIES has risen and SYNCS_COVERED equals the noted count. That works in both modes and whichever thread delivers. In the AT_SYNC child, check SYNCS_COVERED right after note_app_sync returns, with no deliver_now call. Use deliver_now(true) only for a final delivery.",
+    "severity": "major"
+   },
+   {
+    "id": "bld-3",
+    "title": "S3.10 reuses test_module and counting_host, which are file-local to test_cuda_host_call.cpp, from a different file",
+    "plan_section": "S3 tests (GPU cases in test_gpu_devhash_device.cpp; S3.10 'test_module and counting_host of test_cuda_host_call.cpp'); S4, S5 and S6 GPU tests in the same new file",
+    "problem": "S3.10 is placed in the new file test_gpu_devhash_device.cpp, but its helpers are in an anonymous namespace of test_cuda_host_call.cpp. The same applies to agent_segment, use_primary_context, device_sm_arch and device_buffer, which the S4, S5 and S6 GPU tests in the new file also need: they open an agent segment, use the primary context and build modules for the device's sm. As written, S3.10 does not compile, and the plan does not say where these helpers move.",
+    "evidence": "test_cuda_host_call.cpp:34 `namespace` ... :671 `} // namespace`. Inside it: use_primary_context :432, device_sm_arch :447, `struct test_module` :463 (its constructor loads the fixed TEST_KERNELS_PTX), device_buffer :517, `struct counting_host` :592, `struct agent_segment` :639. runtime/unit-test/CMakeLists.txt:107-109 compiles each CUDA test file separately into bpftime_runtime_tests.",
+    "suggested_change": "In S3, move these helpers into a shared test header (for example runtime/unit-test/cuda/cuda_test_support.hpp) and name it. Alternatively, put S3.10 into test_cuda_host_call.cpp, where bpftime_test_map_edges already calls helpers 2, 3 and 1.",
+    "severity": "major"
+   },
+   {
+    "id": "bld-4",
+    "title": "S2.7: the 'no pass B' and 'values after headers' mutations fail only if a reader happens to look inside a short window",
+    "plan_section": "S2.7 mutations ('no pass B, caught by (d)'; 'values after headers, caught by (b)'); D10 passes",
+    "problem": "Pass C stores the changed headers in slot order, each with release. When the gap slot i is below the newly live slot j, i's pass-C store comes before j's, so a reader that acquires j sees i as non-empty even without pass B. The mutation shows only on a wraparound staging (home near S-1, j near 0), and only if a reader runs get_next_key and its lookup between pass C's store to j and its later store to i. 'Values after headers' likewise shows only if a reader reads mval[j] between the header store and the late value store. Nothing in S2 pauses apply_delivery inside pass C. S5's hook stops only between pass B and pass C. Both mutations can therefore pass a run, while the plan lists them as 'caught'.",
+    "evidence": "Plan D10: '5. Pass C: each changed header (release)' and 'A reader that acquires a header from pass C sees ... every slot made non-empty by this delivery (pass B), whatever the slot order, wraparound included.' Plan S2.7 rule (d): 'a scanning reader finds by an immediate lookup every key that get_next_key returns'. S2 test hooks: 'park a writer after its PHASE load; park a writer after its INFLIGHT increment; a liveness stub; a namespace stub'. None of them is inside apply_delivery.",
+    "suggested_change": "Add an S2 test hook that parks apply_delivery after pass C's first header store, and after the header store and before pass A in the 'values after headers' variant. While it is parked, readers check (b) and (d), so each mutation fails every time. Require wraparound stagings whose new live key is at a low slot with its home near S-1.",
+    "severity": "major"
+   },
+   {
+    "id": "bld-5",
+    "title": "S2.4's per-process seal-failure cache can make later S2 seals fail in the same test process",
+    "plan_section": "D8 ('Each process records the failure and does not try again'); S2.4 ('a second seal attempt in the same process returns at once (the failure is cached)'); S2.5, S2.6; D16 (children only for GPU tests)",
+    "problem": "S2's tests are CPU tests in bpftime_runtime_tests, and D16 puts only GPU tests in children. S2.4 leaves a cached seal failure in the test process. Two readings of D8 keep it in force for later tests. Read literally, the process records the failure and never tries again. If instead the cache is keyed by map object address, as 1531's copy cache is, a later test that recreates its segment can get an object at the same address. Either way S2.5 ('The seal completes') and S2.6 (image after a seal) can then get the cached failure at once and fail on correct code. The plan states neither the cache key nor a reset, and does not put S2.4 in a child.",
+    "evidence": "Plan D8: 'Each process records the failure and does not try again: one 1 s wait per process'. Plan S2.4: 'a second seal attempt in the same process returns at once (the failure is cached)'. The 1531 precedent keys by address: nv_gpu_model_maps.cpp:698 `static std::vector<made_copy> made;` and :701 `if (mc.map == this)`. Plan D16 covers 'A GPU test that takes ownership, registers a delivery, or can hang'.",
+    "suggested_change": "State the cache key: per map instance, for example a generation word stored in the shm object, not the object's address. Alternatively, run S2.4 in a forked child, which can check the cached failure there, or add a test-only reset named in S2's hooks.",
+    "severity": "major"
+   },
+   {
+    "id": "bld-6",
+    "title": "S2.5's next_key mutation can pass if the held stripe has no key, and the hang it causes is not in a child",
+    "plan_section": "S2.5 ('a stripe is held with lock_stripe_for_test during the seal ... Mutation: the image built with next_key, so the child is killed at its deadline')",
+    "problem": "next_key skips empty buckets without taking their stripe lock. It blocks only at a held stripe that holds at least one bucket with a key. S2.5 does not say which stripe is held, so with an arbitrary stripe the mutation can complete the seal and pass. The mutation's expected result is 'the child is killed at its deadline', but S2.5 is a CPU test, which D16 does not put in a child. Run in-process, the mutation hangs all of bpftime_runtime_tests. The table is also reachable only through fix_size_hash_map_impl::table_for_test().",
+    "evidence": "bpftime_hash_map.hpp:806-809: `for (; bucket < _num_heads; bucket++) { if (load(&v.heads[bucket], ...) & NULLS) continue;` comes before `bpftime_spin_lock(&st.lock)`. :859 lock_stripe_for_test(size_t stripe). fix_hash_map.hpp:27 private `bpftime_hash_map map_impl;`, :49 `table_for_test()`. D16 children: 'A GPU test that ...'.",
+    "suggested_change": "Hold `stripe_of_key(k)` for a prefilled key k. Run S2.5 in a forked child under a deadline, with the same kill-and-count rule as D16.",
+    "severity": "minor"
+   },
+   {
+    "id": "bld-7",
+    "title": "S2.3's 'lost every time' depends on when the test releases the parked writer, which the plan does not state",
+    "plan_section": "S2.3 seal race and its mutation",
+    "problem": "Under the mutation (the writer skips INFLIGHT), seal() returns as soon as PHASE is 1. If the test releases the parked writer as soon as it sees PHASE 1, as 'then the sealer stores PHASE 1, then the writer is released' reads, the writer's table insert races build_image's scan. When the insert wins, the key lands in the image and the mutation passes. The test cannot instead wait for seal() to return before releasing: with correct code, seal() returns only after its 1 s timeout.",
+    "evidence": "Plan S2.3: 'a writer is parked by the hook after its PHASE load, then the sealer stores PHASE 1, then the writer is released ... Mutation: the writer skips INFLIGHT. The parked key is then lost with no EPERM, every time.' Plan D8: the sealer polls INFLIGHT 'until 0, bounded at 1 s'.",
+    "suggested_change": "Run seal() and build_image() in one thread. Release the writer either when that thread finishes or after a fixed delay (for example 50 ms, longer than an unblocked seal and image but well under 1 s), whichever comes first. Then the mutated build always scans before the writer inserts.",
+    "severity": "minor"
+   },
+   {
+    "id": "bld-8",
+    "title": "S0.2 uses S3's devhash.cu draft and S1's header, but the order puts S0 first",
+    "plan_section": "Section 2 order ('S0, S1, S2, S3, ...'); S0.2 ('all from S3's first draft of devhash.cu')",
+    "problem": "S0.2 compiles the hand-routed probe against 'S3's first draft of devhash.cu'. That file includes S1's layout header (S1: 'It is included by devhash.cu'). So S0.2 needs S1 and part of S3 before it can run, which contradicts 'Each step builds and passes its tests before any step that depends on it'. The rule's outcome ('decided with the user before S6') can also change S3's code after S1-S3 are done.",
+    "evidence": "Plan S0.2: 'Hand-route the hash tool's probe ... all from S3's first draft of devhash.cu, placed by D1's rule.' Plan S1: 'It is included by devhash.cu'. Plan section 2: 'Order: S0, S1, S2, S3, then S4 and S6'.",
+    "suggested_change": "Either run S0.2 from c5.cu's bodies, ported by hand into a scratch .cu with no dependence on S1, or move S0.2 after S1 and a first draft of S3, before S3's tests, and state that in the order line.",
+    "severity": "minor"
+   },
+   {
+    "id": "bld-9",
+    "title": "The test build's outcome out-parameter changes the insert ABI, and the S6 GPU test cannot add the routed text to a module that already has it",
+    "plan_section": "S3 test builds ('a per-call outcome out-parameter'); S3.9 ABI; S6 GPU ('run in S3's module'); D1 ('exactly three extern \"C\" functions')",
+    "problem": "Under BPFTIME_DEVHASH_TEST, `__bpftime_devhash_insert` takes one more parameter, in all six builds in devhash_test_ptx.h. The C5 runs (S3.1, S3.4) therefore test a different signature than the pass will call. S3.9 ('test kernels declare the call exactly as the pass will') holds only against devhash_ptx.h. S6's emitter inserts the devhash text into the routed module itself. If that output is loaded into 'S3's module', which already holds a copy of the functions, ptxas rejects the duplicate.",
+    "evidence": "Compile check (/tmp/claude-2002/devhash-plan-review2/bld/dup.ptx, ptxas 13.2 -arch=sm_87): two definitions of one .func give 'error : Duplicate definition of function 'f'', rc=255. Plan S6 placement: 'The devhash text goes at the start of the module body, once'. Plan S3 test builds list the out-parameter under BPFTIME_DEVHASH_TEST.",
+    "suggested_change": "State that S3.9 and the S6 GPU test load the production devhash_ptx.h. The S6 test should load the routed output as the whole module, wrapped with the trampoline, and not combine it with S3's module. Say which S3 cases (S3.5-S3.9) use the production build.",
+    "severity": "minor"
+   },
+   {
+    "id": "bld-10",
+    "title": "Several section-2 tests name no mutation, and one named mutation changes the test's own harness, not product code",
+    "plan_section": "Header rule ('Every test names how it can fail'); S3.2, S3.3, S3.11, S5.4, S6 text tests, S2.11",
+    "problem": "No mutation and no reason are given for:\n- S5.4 (takeover after a clean exit);\n- S3.2 (run d seeded; S3.3's mutation is listed under S3.3 only);\n- S3.11's third check (trampoline_ptx.h is sm_61-legal);\n- the nine S6 mirrors of test_sum_map_routing.cpp;\n- S6's 'inserted once and before every function, and not at all when unused';\n- S6's 'by-value is kept beside lat's 1530 lookups'.\nS2.11's no-mutation reason covers only the acquire load. 'In phase 1 lookups come from the table' is observable, so it can have a mutation. S3.3's mutation 'count not copied' changes the S3 harness, because S5's get_gpu_mem_buffer copy does not exist yet. It therefore does not exercise takeover_image().",
+    "evidence": "Plan S5.4: 'Takeover after a clean exit that followed deliveries: the same live slots and values.' (no mutation). S3.11 mutations: '.release changed to .relaxed; a stale fingerprint'. A real mutation exists for the third check: ptxas -arch=sm_75 on .target sm_61 rejects `ld.relaxed.gpu.global.b64` ('Feature '.relaxed' requires .target sm_70 or higher') and `nanosleep.u32` ('requires .target sm_70'), rc=255, while today's trampoline_ptx.h compiles (rc=0) (/tmp/claude-2002/devhash-plan-review2/bld/mut.ptx, ns.ptx, tramp.ptx). S2.11: '(no mutation: the order is fixed by the D8 disassembly check, not observable here.)'",
+    "suggested_change": "Add mutations:\n- S5.4: rows not renumbered, or values not seeded from the mirror.\n- S3.11: a `.relaxed` qualifier in the 1533 trampoline branch.\n- S6 placement: text inserted twice, or inserted when no 1533 call is rewritten.\n- S6 by-value: the inserted call counted as an 'other form'.\n- S2.11: phase-1 lookups sent to the mirror.\n- S3.2 and S3.3: a mutation in takeover_image() or build_image() (count 0, rows not renumbered).\nFor the S6 mirrors, either one mutation per mirrored case, or a stated reason, such as the 1531 originals already carrying them.",
+    "severity": "minor"
+   },
+   {
+    "id": "bld-11",
+    "title": "BPFTIME_DEVHASH_TEST_HOOKS has no definition site, and the runtime library is one target for the agent and the tests",
+    "plan_section": "D16 ('Test hooks are test-only functions behind BPFTIME_DEVHASH_TEST_HOOKS'); S2 and S5 hook lists",
+    "problem": "The S2 and S5 hooks live in runtime library code: the map class, nv_gpu_model_maps.cpp and map_handler.cpp. bpftime_runtime_tests links the same `runtime` target that the agent links. A define placed on the test target does not compile the hooks into runtime. A define placed on runtime ships them in the agent. A CMake option that is off by default compiles out the S2 and S5 hook tests, which then cannot fail. The repo has no such macro today: existing *_for_test helpers are always compiled.",
+    "evidence": "runtime/unit-test/CMakeLists.txt: `target_link_libraries(bpftime_runtime_tests PRIVATE runtime bpftime-object ...)`. A grep for TEST_HOOK finds nothing outside third_party. bpftime_hash_map.hpp:859-893 and fix_hash_map.hpp:49 define always-compiled *_for_test methods. cmake/StandardSettings.cmake has options, none for test hooks.",
+    "suggested_change": "Name the CMake option, its default, and the target it is defined on (runtime, so the tests can reach the hooks). Say what the hook-dependent tests do when it is off: SKIP with a message, not silently compiled out. Alternatively, follow the repo's always-compiled *_for_test pattern.",
+    "severity": "minor"
+   },
+   {
+    "id": "bld-12",
+    "title": "S3 does not say where the C5 harness kernels' PTX comes from",
+    "plan_section": "S3 ('C5 runs a, b, c, e, g and h, with C5's checker ported'; generated headers)",
+    "problem": "C5's runs need its kernels: k_ops, which does lookup, add, insert, per-key EEXIST/E2BIG/unstable counts and the outcome store, and k_reader for run h. c5.cu builds them with nvcc and cudart. bpftime_runtime_tests has only the driver API and PTX text. The generated headers S3 lists (devhash_ptx.h, devhash_test_ptx.h) hold the device-function builds only, so the harness kernels are neither generated nor described.",
+    "evidence": "c5.cu:26 `#include <cuda_runtime.h>`, :503 `__global__ void __launch_bounds__(256) k_ops(Params p)`, :548 `__global__ void k_reader(...)`, :792 `cudaMalloc`. test_cuda_host_call.cpp:463-473: test_module loads PTX text through cuModuleLoadDataEx. Plan S3: 'devhash_test_ptx.h, with the test build, the four fault builds and the wait-0 build'.",
+    "suggested_change": "Either generate the harness kernels with the same Makefile, as a separate PTX header that declares the devhash functions the way the pass will, or state that they are hand-written PTX in the test file.",
+    "severity": "minor"
+   },
+   {
+    "id": "bld-13",
+    "title": "S2's code list misses the pass-through to the table and does not name the class's source file",
+    "plan_section": "S2 code ('the phase-0 hash_map_impl'; '`bpftime_hash_map::for_each_in_use_unlocked`'; '(runtime/)')",
+    "problem": "The 1533 object holds a fix_size_hash_map_impl, whose bpftime_hash_map is a private member. The only access is table_for_test(). `hash_map_impl` is an alias local to map_handler.cpp. Production code therefore cannot call the new bpftime_hash_map method without a new forwarding method on fix_size_hash_map_impl, which S2 does not list. S2 also does not name the .cpp/.hpp of nv_gpu_device_hash_map_impl: S4 and S5 say nv_gpu_model_maps.cpp, S2 says 'runtime/'. A new file would need to go into the CUDA-only source list.",
+    "evidence": "fix_hash_map.hpp:27 `bpftime_hash_map map_impl;` (private), :49 `bpftime_hash_map &table_for_test()`. map_handler.cpp:63 `using hash_map_impl = fix_size_hash_map_impl;`. runtime/CMakeLists.txt:98-111 lists the CUDA-attach-only sources, including src/bpf_map/gpu/nv_gpu_model_maps.cpp.",
+    "suggested_change": "Add `fix_size_hash_map_impl::for_each_in_use_unlocked` (forwarding) to S2's code. Name the class's files, and the CMake list if they are new.",
+    "severity": "minor"
+   },
+   {
+    "id": "bld-14",
+    "title": "S2's functions take inputs that only S4 and S5 define: the staging format and the process copy cache",
+    "plan_section": "S2 (`apply_delivery(staging)`, `choose_path()` 'given PHASE and the owner record'); S2.10; S4 ('stage the raw header and the value'); S1 contents",
+    "problem": "apply_delivery consumes the snapshot's staging, but S4 defines that staging and S1's header lists only the device block. S2.7's synthetic stagings and S4's snapshot can therefore disagree. S2.10 tests 'the same pid without a cached copy', but the process copy cache is part of S5's get_gpu_mem_buffer, and choose_path's stated inputs are only PHASE and the owner record.",
+    "evidence": "Plan S1 contents: control words, loss counters, directory, rows, single rows (no staging layout). Plan S4: 'stage the raw header and the value. It also sums the counters and reads the count.' Plan S2.10: '... and the same pid without a cached copy'. Plan S5 step 8: 'cache the copy and return the address'.",
+    "suggested_change": "Put the staging layout (per-slot header and value, counters, count) in S1's header. Give choose_path a 'this process has a cached copy' input, filled by S5.",
+    "severity": "minor"
+   },
+   {
+    "id": "bld-15",
+    "title": "S6 and S0.2 compile tests have to rewrite .target, or the trampoline's sm_61 target rejects the devhash text",
+    "plan_section": "S6 ('ptxas at sm_87 on a routed module'), S6 GPU, S0.2; D1",
+    "problem": "hack_fatbin wraps the routed module with wrap_ptx_with_trampoline. filter_out_version_headers_ptx then keeps the first `.target`, which is the trampoline's `sm_61`. Only compile_ptxs later rewrites it to the device's sm. A test that copies hack_fatbin's wrap and filter steps and compiles without rewrite_ptx_target (or wrap_ptx_with_trampoline_for_sm) fails on correct code, because the devhash text's `.relaxed`, `.acquire`, `.release` and nanosleep need sm_70. The plan does not say which wrap the tests use.",
+    "evidence": "nv_attach_impl.cpp:1227-1228 `filter_out_version_headers_ptx(wrap_ptx_with_trampoline(current_ptx))`. nv_attach_utils.cpp:26-29 prepends TRAMPOLINE_PTX with no target rewrite. trampoline_ptx.h:7 `.target sm_61`. ptxpass core.cpp:165-190 keeps the first .target. nv_attach_fatbin_record.cpp:175 `rewrite_ptx_target(ptx, sm_arch)`. Compile check: `.relaxed` under .target sm_61 gives 'requires .target sm_70 or higher', rc=255 (/tmp/claude-2002/devhash-plan-review2/bld/mut.ptx).",
+    "suggested_change": "State that the S6 ptxas test, the S6 GPU test and S0.2 compile through wrap_ptx_with_trampoline_for_sm, or through rewrite_ptx_target with the device's sm, as compile_ptxs does.",
+    "severity": "minor"
+   },
+   {
+    "id": "bld-16",
+    "title": "The companion binding is not under map_binding_mutex in get_gpu_map_extra_buffer, and its shm pointer type is not stated",
+    "plan_section": "D12 ('Binding happens in bpf_map_handler::get_gpu_map_extra_buffer ... under the map_binding_mutex already held there'; 'The 1533 object gets its impl pointer'); S2 ('the bound companion pointer')",
+    "problem": "get_gpu_map_extra_buffer takes only a process-local pinned_mutex. map_binding_mutex is held by its caller in the agent path, init_attach_ctx_from_handlers, but not when a test calls create_map_basic_info directly, as the existing CUDA test does. The S5.10 tests therefore bind without it. The companion pointer is stored in the shm object, and every agent process runs the binding, because create_map_basic_info calls get_gpu_map_extra_buffer for every handler. A raw pointer written by a non-owner would point the owner's delivery into the wrong process's mapping. The repo stores such links as offset_ptr.",
+    "evidence": "map_handler.cpp:1931-1939 `static std::mutex pinned_mutex; ... inc_map_refcount()`. map_binding_mutex is held at bpf_attach_ctx.cpp:195-198 (binding_guard in init_attach_ctx_from_handlers). bpf_attach_ctx_cuda.cpp:531 `map.get_gpu_map_extra_buffer()` for every handler. test_cuda_host_call.cpp:1015 calls `ctx.create_map_basic_info(16)` directly. map_handler.hpp:75 `using general_map_impl_ptr = boost::interprocess::offset_ptr<void>;`.",
+    "suggested_change": "Correct D12: the mutex is held by the caller in the agent path, and the S5.10 tests should take it themselves or go through init_attach_ctx_from_handlers. State that the companion link is an offset_ptr, written the same by every process, or process-local.",
+    "severity": "minor"
+   },
+   {
+    "id": "bld-17",
+    "title": "S5's copy step does not say to synchronize under agent_sync_scope, and no test could catch it",
+    "plan_section": "S5 get_gpu_mem_buffer step 4 ('cuMemcpyHtoDAsync ... on the same stream, then synchronize')",
+    "problem": "1531's zeroing synchronize runs under agent_sync_scope, so the agent's own synchronize is not counted as an application sync. Without that scope, the agent's sync hooks count 1533's copy synchronize, on the application thread, as an app sync, and SYNCS_COVERED and SYNCS_AT_EXIT drift. The unit tests install no hooks (D16: only note_app_sync counts), so no S5 test can see this.",
+    "evidence": "nv_gpu_model_maps.cpp:750-755: 'the agent's own synchronization: not counted as the application's (agent_sync_scope)' and `attach::probed_launch_activity::agent_sync_scope agent_call; r = cuStreamSynchronize(zs);`. probed_launch_activity.hpp:68-70: note_app_sync returns early when agent_sync_depth() != 0.",
+    "suggested_change": "Add 'under agent_sync_scope' to S5 step 4, as for 1531.",
+    "severity": "minor"
+   },
+   {
+    "id": "bld-18",
+    "title": "The Makefile, its outputs and the device-only build of the layout header are not specified",
+    "plan_section": "D1 ('A Makefile target uses the trampoline's DEVICE_ONLY_FLAGS'); S3 ('Generated headers, by the same Makefile'); S1 ('It builds as host C++ and for clang CUDA')",
+    "problem": "Several build details are open:\n- The trampoline Makefile is in trampoline/ and devhash.cu in devhash/. 'The same Makefile' names neither the file, the targets, nor the output paths of devhash_ptx.h and devhash_test_ptx.h. The tests find them through the include path attach/nv_attach_impl.\n- The Makefile's default compiler is not installed.\n- DEVICE_ONLY_FLAGS also defines BPFTIME_TRAMPOLINE_DEVICE_ONLY.\n- With -nocudainc, `__device__`/`__host__` are not defined. The layout header then needs its own definitions, as default_trampoline.cu supplies them under that macro, or clang cannot build its non-constexpr helpers (encode, decode, home_slot) for device code.",
+    "evidence": "trampoline/Makefile:1 `CLANG ?= clang++-17` (not installed; CLAUDE.md regenerates with CLANG=clang++-16). Makefile:9-10 `DEVICE_ONLY_FLAGS ?= -x cuda --cuda-device-only -nocudainc -nocudalib -DBPFTIME_TRAMPOLINE_DEVICE_ONLY`. The `../trampoline_ptx.h` rule seds `.version` and wraps the text in R\"(...)\". default_trampoline.cu:1-14 defines `__device__` and the related macros itself under BPFTIME_TRAMPOLINE_DEVICE_ONLY.",
+    "suggested_change": "Name the Makefile and its targets and output paths, the CLANG to use, and the strip rule. State how gpu_devhash_layout.h gets host/device attributes under -nocudainc.",
+    "severity": "minor"
+   }
+  ],
+  "verdicts": [
+   {
+    "id": "bld-1",
+    "refuted": false,
+    "reason": "Holds. The plan names no exported entry point or hook for S4's own tests, although D16 says hooks are 'named in each step'. In today's code the snapshot PTX, prepare_locked (module load) and delivery_state are all file-local, and the header exports only register_device_array and deliver_now, which reach a snapshot only through a registered map. The 1533 registered_map kind and the snapshot call from deliver_locked are S5 code ('deliver_locked calls the hash snapshot and then apply_delivery()'). So the two S4 tests (launch on a hand-built block; text check of the snapshot's PTX) have nothing to call until S5 exists, unless S4 adds an entry point it does not name. As a severity note, the fix is a small one: name the entry point and the PTX accessor.",
+    "evidence": "nv_gpu_model_maps.cpp:136 `namespace` (anonymous) ... :606 `} // namespace`. Inside it: :144 `const char *snapshot_ptx`, :311 prepare_locked, :317 `cuModuleLoadData(&s.module, snapshot_ptx)`, :252 state(). The exports are :608-681. nv_gpu_model_maps.hpp:152-157 declares only register_device_array and deliver_now. Plan S4 'Code' and 'Tests' list no hook. Plan D16: 'Test hooks are test-only functions behind BPFTIME_DEVHASH_TEST_HOOKS, named in each step.'"
+   },
+   {
+    "id": "bld-2",
+    "refuted": false,
+    "reason": "Holds, traced through the code.\n- AT_SYNC child: note_app_sync() calls the listener synchronously. on_app_sync then runs deliver_in_sync_call, and its at_sync delivery sets due = 0 for the uncovered sync. It delivers and sets covered_syncs = syncs and next_due = m1 + busy_ns (20 ms; 200 ms if unchanged). The test's following deliver_now(false) uses the drain kind. It sees syncs == covered_syncs and due > t0, skips the map and returns 0. So D16's 'deliver_now delivered at least one map' fails every time there.\n- Default mode: note_app_sync wakes the drain thread, which races deliver_now for run_mutex. Whichever comes second finds the sync covered and next_due 20 ms away, and returns 0. If less than sync_gap (2 ms) has passed since last_ns, neither delivers.\n- deliver_now(true) avoids the assertion failure but writes no SYNCS_COVERED. S5.6's SYNCS_COVERED check would then depend on whether the drain thread delivered first.\nr1 buildability-6 offered this assertion 'or wait for the sync gap first'. Revision 2 kept the assertion without the wait.",
+    "evidence": "probed_launch_activity.hpp:68-77: note_app_sync increments app_syncs, then `if (auto fn = sync_listener.load(...)) fn();`. nv_gpu_model_maps.cpp:278-283: on_app_sync calls deliver_in_sync_call() under deliver_at_sync(). :382-391: `due = m.next_due_ns; if (syncs != m.covered_syncs) due = min(due, at_sync ? 0 : m.last_ns + m.sync_gap_ns); ... if (!at_exit && due > t0) continue;`. :415-418: SYNCS_COVERED is stored only `if (!at_exit)`. :448-450: covered_syncs = syncs; next_due_ns = m1 + busy/idle. :631: next_due_ns = now + busy_ns at registration. :675: deliver_now uses the drain kind unless final. Plan D16: 'A test that needs a delivery asserts that deliver_now delivered at least one map.' Plan S5.6: 'synchronize, then note_app_sync; deliver_now (at least one map delivered) ... Repeat in a child with BPFTIME_GPU_DELIVERY_AT_SYNC=1.'"
+   },
+   {
+    "id": "bld-3",
+    "refuted": false,
+    "reason": "Holds. S3 puts the GPU cases, S3.10 included, in the new file test_gpu_devhash_device.cpp. S3.10 then reuses test_module and counting_host 'of test_cuda_host_call.cpp'. Those helpers, and use_primary_context, device_sm_arch, device_buffer and agent_segment, are all in that file's anonymous namespace. The S4, S5 and S6 GPU tests need the same kind of set-up: an agent-opened segment, since get_gpu_mem_buffer returns 0 unless the segment is SHM_OPEN_ONLY, plus the primary context and the device sm. The plan does not say where the helpers move. In addition, test_module's constructor loads only the fixed TEST_KERNELS_PTX. As a severity note, this is a mechanical move to a shared header.",
+    "evidence": "test_cuda_host_call.cpp:34 `namespace` ... :671 `} // namespace`. Inside: use_primary_context :432, device_sm_arch :447, struct test_module :463 (its constructor uses `wrap_ptx_with_trampoline_for_sm(TEST_KERNELS_PTX, device_sm_arch())`), struct device_buffer :519 (not :517), struct counting_host :592, struct agent_segment :639. runtime/unit-test/CMakeLists.txt:107-108 lists each CUDA test file as a separate source. nv_gpu_model_maps.cpp:685-687: get_gpu_mem_buffer returns 0 unless the segment is SHM_OPEN_ONLY."
+   },
+   {
+    "id": "bld-4",
+    "refuted": false,
+    "reason": "Holds. Without pass B the mirror ends up the same, because pass C writes every changed header, including slots that go from empty to non-empty. So 'no pass B' shows only while pass C is running: a reader acquires the new live header at j before the later store to the gap slot i on its probe path. If pass C runs in slot order, that happens only on wraparound (i near S-1, j near 0). The plan fixes no order ('each changed header'), so the window exists in some stagings whatever the order. 'Values after headers' likewise shows only between a header's store and the late value store. No S2 hook parks apply_delivery inside pass C. S5's hook is between pass B and pass C, which does not expose either mutation. So both mutations are caught only by chance, while the header rule asks for 'a mutation that must make it fail'.",
+    "evidence": "Plan D10: '3. Pass B: opaque into every slot that is empty in the mirror and non-empty in staging (relaxed). 4. Release fence. 5. Pass C: each changed header (release).' Plan S2.7 mutations: 'no pass B, caught by (d); values after headers, caught by (b)'. S2 test hooks: 'park a writer after its PHASE load; park a writer after its INFLIGHT increment; a liveness stub; a namespace stub'. S5 hooks: 'between pass B and pass C'. Plan header: 'a mutation that must make it fail'."
+   },
+   {
+    "id": "bld-5",
+    "refuted": false,
+    "reason": "Holds. S2.4's sealer is the test process itself; only the writer is forked. S2.4 requires the failure to be cached in that process, and D16 puts only GPU tests in children. The plan states neither the cache key nor a reset. Read literally ('each process ... does not try again'), S2.5 and S2.6 then get the cached failure. If the cache is keyed by object address, as 1531's copy cache is, a recreated segment can place the new map at the same address. The plan itself gives that address reuse as a reason for children (D16, 'the copy cache is keyed by object address'), but does not apply it to the seal cache in the CPU tests.",
+    "evidence": "Plan D8: 'Each process records the failure and does not try again: one 1 s wait per process'. Plan S2.4: 'a forked writer is SIGKILLed ... a second seal attempt in the same process returns at once (the failure is cached)'. Plan D16 children: 'A GPU test that takes ownership, registers a delivery, or can hang'; reason given: 'the copy cache is keyed by object address'. nv_gpu_model_maps.cpp:698 `static std::vector<made_copy> made;`, :700-701 `for (auto &mc : made) if (mc.map == this)`."
+   },
+   {
+    "id": "bld-6",
+    "refuted": false,
+    "reason": "The main part holds. next_key skips empty buckets with a relaxed load before it takes any stripe lock, so it blocks only at a held stripe that has a key in one of its buckets. A stripe covers a contiguous range of at least 16 buckets, and the seed is random per map. S2.5 does not say which stripe is held or that it holds a key, so the next_key mutation can complete the seal and pass. The child half is weaker: S2.5's own mutation line ('so the child is killed at its deadline') shows that the plan intends a child. The gap there is only that D16's child rule names GPU tests.",
+    "evidence": "bpftime_hash_map.hpp:806-809: `for (; bucket < _num_heads; bucket++) { if (load(&v.heads[bucket], relaxed) & NULLS) continue; stripe_lock &st = ...; bpftime_spin_lock(&st.lock);`. :332-334: `stripe_of(bucket) { return bucket >> _stripe_shift; }`. :157 MIN_HEADS_PER_STRIPE = 16. :854 stripe_of_key, :859 lock_stripe_for_test. fix_hash_map.hpp:27 private `bpftime_hash_map map_impl;`, :49 table_for_test(). Plan S2.5: 'a stripe is held with lock_stripe_for_test ... Mutation: the image built with next_key, so the child is killed at its deadline.'"
+   },
+   {
+    "id": "bld-7",
+    "refuted": false,
+    "reason": "Holds, and the problem is larger than the finding states. With correct code, the parked writer holds INFLIGHT = 1, so seal() polls until the writer is released. The test must therefore release the writer while seal() is still running. Under the mutation, seal() returns at once, and the outcome depends on when build_image() runs relative to the released writer's insert:\n- If they race, the key lands in the image when the insert wins.\n- If the test joins the writer before calling build_image(), which is the natural order since seal() and build_image() are separate functions in S2, the key is always in the image, so the mutated run passes every time.\nThe plan's sequence ('then the sealer stores PHASE 1, then the writer is released') fixes neither order, so 'lost ... every time' is not guaranteed.",
+    "evidence": "Plan S2.3: 'a writer is parked by the hook after its PHASE load, then the sealer stores PHASE 1, then the writer is released. Its key must be in the image, or its call must return EPERM ... Mutation: the writer skips INFLIGHT. The parked key is then lost with no EPERM, every time.' Plan D8 writer: '1. INFLIGHT.fetch_add(1, seq_cst); 2. PHASE.load(seq_cst)'; sealer: 'poll INFLIGHT.load(seq_cst) until 0, bounded at 1 s'. Plan S2 lists seal() and build_image() as separate functions."
+   },
+   {
+    "id": "bld-8",
+    "refuted": false,
+    "reason": "Holds as a wording inconsistency. S0.2 compiles functions taken from S3's first draft of devhash.cu, and that file includes S1's layout header. Yet the order line puts S0 before S1 and S3 and says each step passes before any step that depends on it. The rule 'decided with the user before S6' shows that S0.2 is really meant to run after a draft of S3 and before S6, but the order line does not say so.",
+    "evidence": "Plan S0.2: 'all from S3's first draft of devhash.cu, placed by D1's rule ... decided with the user before S6.' Plan S1: 'It is included by devhash.cu'. Plan section 2: 'Order: S0, S1, S2, S3, then S4 and S6 ... Each step builds and passes its tests before any step that depends on it.'"
+   },
+   {
+    "id": "bld-9",
+    "refuted": false,
+    "reason": "Holds.\n- Under BPFTIME_DEVHASH_TEST the insert takes an extra out-parameter, so devhash_test_ptx.h has a different signature from the one D1 fixes for the pass.\n- The plan does not say which build S3.5-S3.9 use. S3.9's 'declare the call exactly as the pass will' holds only against devhash_ptx.h.\n- The plan does not say which build makes up 'S3's module' in the S6 GPU test. If it is the test build, the emitted 6-argument insert call does not match the function. If the routed output, which already carries the devhash text, is combined with a module that holds the functions, ptxas rejects the duplicate.\nThe plan leaves open how S6's output and S3's module combine.",
+    "evidence": "Plan D1: '__bpftime_devhash_insert(base, key, value_ptr, flags, max_entries, shards)'. Plan S3 test builds: 'a per-call outcome out-parameter with C5's OC codes'; 'devhash_test_ptx.h, with the test build, the four fault builds and the wait-0 build'. Plan S6 GPU: 'The emitted inline block and call text run in S3's module'. Re-run of the reviewer's /tmp/claude-2002/devhash-plan-review2/bld/dup.ptx with ptxas -arch=sm_87: 'ptxas dup.ptx, line 12; error : Duplicate definition of function 'f'' / 'Ptx assembly aborted due to errors'."
+   },
+   {
+    "id": "bld-10",
+    "refuted": false,
+    "reason": "Holds on several items whose omission the plan text shows directly:\n- S5.4 has no mutation.\n- S3.11's third check (trampoline_ptx.h sm_61-legal) has none. Its listed mutations concern the release qualifier and the fingerprint.\n- The S6 mirror list has none.\n- S6 'inserted once ... and not at all when unused' has none.\n- S6 'by-value is kept beside lat's 1530 lookups' has none.\n- S2.11's no-mutation reason covers only the acquire load. 'In phase 1 lookups come from the table' is observable.\nWeaker parts:\n- S3.2 can be read as sharing S3.3's mutation, since 'The per-key rule holds on both' precedes it.\n- S3.3's harness mutation still shows that the per-key check detects a wrong device count.\nA real mutation exists for S3.11's third check: ptxas rejects the sm_70 forms under the trampoline's .target sm_61.",
+    "evidence": "Plan S5.4: 'Takeover after a clean exit that followed deliveries: the same live slots and values.' (no mutation). S3.11: 'Mutations: .release changed to .relaxed; a stale fingerprint.' S6 'New' bullets 3-4 and the mirror list carry no mutation. S2.11: '(no mutation: the order is fixed by the D8 disassembly check, not observable here.)' Re-run with ptxas -arch=sm_87: /tmp/claude-2002/devhash-plan-review2/bld/mut.ptx (.target sm_61) gives 'error : Feature '.relaxed' requires .target sm_70 or higher'; ns.ptx gives 'Instruction 'nanosleep' requires .target sm_70 or higher'."
+   },
+   {
+    "id": "bld-11",
+    "refuted": false,
+    "reason": "Holds. The S2 and S5 hooks sit in runtime library code, such as the map class and the delivery code. One `runtime` target is linked by both bpftime_runtime_tests and bpftime-agent. The plan names no definition site, no CMake option and no default for BPFTIME_DEVHASH_TEST_HOOKS, and does not say what the hook tests do when the macro is off. The repo has no such macro; its existing *_for_test helpers are always compiled.",
+    "evidence": "A grep for TEST_HOOK over *.cpp, *.hpp, *.h, *.txt and *.cmake outside third_party finds nothing. runtime/unit-test/CMakeLists.txt:257/259 `target_link_libraries(bpftime_runtime_tests PRIVATE runtime bpftime-object ...)`. runtime/agent/CMakeLists.txt:1 bpftime-agent, :73 links `runtime`. cmake/StandardSettings.cmake has no hook option. bpftime_hash_map.hpp:859-871 and fix_hash_map.hpp:49 are always-compiled *_for_test methods. Plan D16: 'Test hooks are test-only functions behind BPFTIME_DEVHASH_TEST_HOOKS'."
+   },
+   {
+    "id": "bld-12",
+    "refuted": false,
+    "reason": "Holds. C5's runs need its harness kernels (k_ops and k_reader), which c5.cu builds with nvcc and cudart. bpftime_runtime_tests loads PTX text through the driver API. The generated headers that S3 names hold the devhash.cu builds, and D1 makes the three extern C functions 'the only .funcs'. The plan says nowhere whether the harness kernels are generated or hand-written PTX.",
+    "evidence": "c5.cu:26 `#include <cuda_runtime.h>`, :503 `__global__ void __launch_bounds__(256) k_ops(Params p)`, :548 `__global__ void k_reader(...)`, :792-797 cudaMalloc. test_cuda_host_call.cpp:466-473: test_module loads PTX text with cuModuleLoadDataEx. Plan S3: 'devhash_ptx.h; devhash_test_ptx.h, with the test build, the four fault builds and the wait-0 build'. Plan D1: 'Everything else in the file is forced inline, so these are the only .funcs.'"
+   },
+   {
+    "id": "bld-13",
+    "refuted": false,
+    "reason": "Holds. The phase-0 table is a fix_size_hash_map_impl whose bpftime_hash_map is private, and its only accessor is table_for_test(). Production code therefore cannot call the new bpftime_hash_map::for_each_in_use_unlocked without a forwarding method, which S2 does not list. S2 also gives only '(runtime/)' as the class's location, not its .hpp/.cpp. The hash_map_impl alias is local to the handler source.",
+    "evidence": "fix_hash_map.hpp:27 `bpftime_hash_map map_impl;` (private), :49 `bpftime_hash_map &table_for_test()`. runtime/src/handler/map_handler.cpp:63 `using hash_map_impl = fix_size_hash_map_impl;` (the path is src/handler/, not src/bpf_map/). runtime/CMakeLists.txt:98-111: the CUDA-attach-only source list. Plan S2: 'Runtime type and CPU object, no CUDA (runtime/)'; 'Class nv_gpu_device_hash_map_impl holds: the phase-0 hash_map_impl'."
+   },
+   {
+    "id": "bld-14",
+    "refuted": false,
+    "reason": "Holds.\n- apply_delivery(staging) is an S2 function, but only S4 describes the staging ('stage the raw header and the value ... sums the counters and reads the count'). S1's header contents list no staging layout, so S2.7's synthetic stagings and S4's snapshot have no shared definition.\n- choose_path is specified as 'given PHASE and the owner record'. Yet D11 and S2.10 need to know whether this process has a cached copy, which S5 holds.",
+    "evidence": "Plan S1 'Contents' (control words, loss counters, directory, rows, single rows; no staging). Plan S2: 'apply_delivery(staging) (D10)', 'choose_path() (D11, given PHASE and the owner record)'. Plan S2.10: '... and the same pid without a cached copy'. Plan D11: 'A record equal to this process's (pid, namespace) with no copy in this process's cache means the pid was reused'. Plan S5 step 8: 'cache the copy and return the address'."
+   },
+   {
+    "id": "bld-15",
+    "refuted": true,
+    "reason": "The consequence does not follow for any compile path the plan names. Only hack_fatbin's production path (wrap_ptx_with_trampoline, then filter_out_version_headers_ptx) leaves .target sm_61 first, and compile_ptxs rewrites that later. No test the plan names copies that path:\n- **S6 ptxas test:** it runs on a routed module, not a wrapped one. The routing fixtures it mirrors carry their own '.target sm_87', and D1 inserts the devhash text after the module's own .version/.target.\n- **S6 GPU test:** it runs in S3's module. The module harness the plan names (test_module, S3.10) builds through wrap_ptx_with_trampoline_for_sm(..., device_sm_arch()), which rewrites the trampoline's target to the device's sm.\n- **S0.2:** it is made 'the way round one's C2 hcall form was made'. The C2 forms are edits of the dumped patched PTX, which is dumped after rewrite_ptx_target. The C3 form file carries '.target sm_87', and its ptxas logs compile for sm_87.\nThis differs from the plan's other omissions (bld-12, bld-18): there, nothing named supplies the missing piece. Here the named harnesses already do the target rewrite.",
+    "evidence": "test_sum_map_routing.cpp:22 `\".version 8.1\\n.target sm_87\\n.address_size 64\\n\"`. test_cuda_host_call.cpp:466-467 `attach::wrap_ptx_with_trampoline_for_sm(TEST_KERNELS_PTX, device_sm_arch())`. nv_attach_utils.cpp:69-73 `return rewrite_ptx_target(get_default_trampoline_ptx(), sm_arch) + PROBE_SWITCH_PTX + input;`. nv_attach_fatbin_record.cpp:175-178: `ptx_fixed = rewrite_ptx_target(ptx, sm_arch); ... dump_patched_ptx(sha256_string, ptx_fixed); ... override_patched_ptx(...)`. hash-round1-20261126/c2/make_hashforms.py:14,21 'hd_t0 / hd_c0 the dump unchanged'. c2/run_meas3.sh:58-59 BPFTIME_CUDA_PTX_OVERRIDE_DIR. c3/forms.ptx:1-2 '.version 8.1' '.target sm_87'. c3/hd_c0.ptxas.log: 'Compiling entry function ... for 'sm_87''. Round-one README:69: 'The trampoline's .target sm_61 is rewritten to the device's architecture before compiling'. Plan D1: 'after the module's .version/.target/.address_size, before any function'."
+   },
+   {
+    "id": "bld-16",
+    "refuted": false,
+    "reason": "The pointer-type part holds. S2 puts 'the bound companion pointer' in the 1533 object, which lives in shm, and D12 says only 'The 1533 object gets its impl pointer'. create_map_basic_info calls get_gpu_map_extra_buffer for every handler in every agent process, and segments can map at different addresses. A raw pointer written by one process would therefore be wrong in the owner, which is why the repo stores such links as offset_ptr. The plan states neither the type nor that only the owner binds. The mutex part is mostly wrong: on the agent path, map_binding_mutex is held while get_gpu_map_extra_buffer runs, because init_attach_ctx_from_handlers takes the guard around the link instantiation that calls create_map_basic_info. D12's 'already held there' is therefore accurate in production. Only direct test calls lack the mutex, and they run single-threaded.",
+    "evidence": "map_handler.cpp:1931-1939: only a process-local `static std::mutex pinned_mutex`. bpf_attach_ctx.cpp:195-198: `binding_guard.emplace(map_binding_mutex(*memory))` in init_attach_ctx_from_handlers, which calls instantiate_handler_at (:231, :250), which leads to :643 `this->create_map_basic_info(1024)`. bpf_attach_ctx_cuda.cpp:531 `auto gpu_buffer = map.get_gpu_map_extra_buffer();` for every map handler. map_handler.hpp: `using general_map_impl_ptr = boost::interprocess::offset_ptr<void>;`. CLAUDE.md:1001 'processes mapping the segment at different addresses'. test_cuda_host_call.cpp:1016 calls `ctx.create_map_basic_info(16)` directly."
+   },
+   {
+    "id": "bld-17",
+    "refuted": false,
+    "reason": "Holds as a small omission. The agent's sync hooks count every cuStreamSynchronize, cuCtxSynchronize and cuEventSynchronize made while the agent-sync depth is 0, including the agent's own; that is why 1531 wraps its zeroing synchronize in agent_sync_scope. S5 step 4 says only 'then synchronize'. Without the scope, every 1533 copy adds one counted app sync and calls the sync listener, so SYNCS_COVERED and SYNCS_AT_EXIT count a sync the application never made. The unit tests install no hooks (D16: tests call note_app_sync themselves), so no S5 test can catch the slip.",
+    "evidence": "nv_gpu_model_maps.cpp:750-755: '// the agent's own synchronization: not counted as the application's (agent_sync_scope)' `attach::probed_launch_activity::agent_sync_scope agent_call; r = cuStreamSynchronize(zs);`. probed_launch_activity.hpp:68-70: note_app_sync returns early when agent_sync_depth() != 0. nv_attach_impl_frida_setup.cpp:626-673: the synchronize hooks call note_app_sync. Plan S5 step 4: 'cuMemcpyHtoDAsync of headers, rows, count and counters on the same stream, then synchronize'. Plan D16: 'Only the agent's hooks count syncs otherwise.'"
+   },
+   {
+    "id": "bld-18",
+    "refuted": false,
+    "reason": "Holds on the Makefile items:\n- 'A Makefile target' and 'the same Makefile' name no file, target or output paths. devhash.cu is in devhash/, while the existing Makefile is trampoline/Makefile.\n- That Makefile defaults to clang++-17, which is not installed.\n- Its DEVICE_ONLY_FLAGS also define BPFTIME_TRAMPOLINE_DEVICE_ONLY, which D1's quotation of the flags leaves out.\nThe device-attribute bullet is conditional. Under -nocudainc, constexpr helpers build for the device without any attribute, and only non-constexpr helpers fail. S1 states only DEVHASH_LAYOUT_FP as constexpr, so the bullet applies only if encode, decode and home_slot are not constexpr.",
+    "evidence": "trampoline/Makefile:1 `CLANG ?= clang++-17`; `which clang++-17` finds nothing; /usr/bin/clang++-16 exists. Makefile: `DEVICE_ONLY_FLAGS ?= -x cuda --cuda-device-only -nocudainc -nocudalib -DBPFTIME_TRAMPOLINE_DEVICE_ONLY`; the `../trampoline_ptx.h` rule seds .version and wraps the text in R\"(...)\". default_trampoline.cu:1-14 defines `__device__` and the related macros itself under BPFTIME_TRAMPOLINE_DEVICE_ONLY. Compile check in /tmp/claude-2002/devhash-plan-review2/refute-bld/ (clang++-16 -x cuda --cuda-device-only -nocudainc -nocudalib --cuda-gpu-arch=sm_70):\n- a.cu calls a constexpr home_slot, and a.ptx is produced;\n- b.cu calls a plain inline helper and fails with 'no matching function for call to 'home_slot_nc' ... call to __host__ function from __device__ function', and no b.ptx is produced.\nPlan D1: 'A Makefile target uses the trampoline's DEVICE_ONLY_FLAGS (-x cuda --cuda-device-only -nocudainc -nocudalib) at sm_70.'"
+   }
+  ]
+ }
+]
