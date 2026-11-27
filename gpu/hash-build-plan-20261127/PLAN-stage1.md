@@ -15,6 +15,9 @@ refuter.
 - **Round 3** (revision 3: one checked round 2, one read afresh): 23 findings, all held
   (`review-r3/`). One was a blocker: on the late path, modules were patched before the copy existed.
 - **This revision** answers round 3; section 8 maps each one. Section 7 keeps round 2's map.
+- **Changed during the build (S2 code review, 11-27):** D8 (writer slots per process, dead
+  processes discounted), D11c (liveness over all tasks, start time), D11 (the claim is given back
+  on every path without a copy), D10 (repair only for newly seen keys). Section 9.
 
 **Every test names how it can fail:** a mutation that must make it fail, or "(no mutation: reason)".
 Both are written before the step's code.
@@ -1099,3 +1102,30 @@ Ids are from `review-r3/plan-review.json`.
     sees it;
   - the pre-pass is gated on the init instantiating a CUDA link (D11a). Otherwise any agent with a
     GPU would claim and seal the map at its first init, before a tool's prefill.
+
+## 9. Changes from the S2 code review (11-27, after S1 and S2 were built)
+
+A three-lens review of the S1-S2 code (22 findings, 21 held; `s2/review/code-review.json`)
+changed these decisions:
+
+- **D8, writer slots.** INFLIGHT is one count per writing process (64 slots: owner record, start
+  time, count; one shared overflow slot that is never discounted). The review measured that an
+  ordinary exit of a multi-threaded writer process leaks a single shared counter in 2-23 of 40 exits
+  (the exit kills the other threads wherever they are), after which no seal could ever succeed. The
+  sealer now discounts the slot of a process that is gone (same pid namespace only) and seals; only
+  a live writer stuck for 1 s sets SEAL_DEAD. The sealer's later polls are seq_cst loads in a
+  function of their own (a poll that reads 0 must acquire the writers' decrements).
+- **D11c, liveness.** `/proc/<pid>/stat` shows the thread-group leader only: a process whose main
+  thread exited while others run is alive. A process is gone when kill(pid, 0) fails with ESRCH,
+  when every task in `/proc/<pid>/task` is Z or X, or when its start time differs from the one
+  recorded (the pid was reused). Writer slots match on the start time too.
+- **D11d/D15, the claim.** Every path that ends without a copy gives the claim back, a seal
+  timeout included (`make_image`). Otherwise a live sealer kept every other process out.
+- **D10, repair cost.** Repair walks only keys the mirror does not hold at their slot yet (a key
+  already there had its path made non-empty when it came, and mirror slots never go back to
+  empty); the delivery's scratch is kept per thread. Re-walking every key cost seconds per delivery
+  on a full directory at large max_entries.
+- **D7.** A null next_key is EINVAL in both phases (phase 2 wrote through it).
+- **Build.** The 1533 creation check is under BPFTIME_ENABLE_CUDA_ATTACH: the default build did not
+  compile.
+

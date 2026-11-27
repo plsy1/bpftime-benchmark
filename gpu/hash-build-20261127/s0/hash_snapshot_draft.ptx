@@ -1,0 +1,75 @@
+//
+// Draft of the device hash map's snapshot (plan S4), for S0.1's compile check.
+// One thread per slot (grid-stride); then the counters and the count.
+// Header: key<<32 | row<<3 | state; live = 2. Staging per slot: {header, value}.
+//
+.version 7.0
+.target sm_70
+.address_size 64
+.visible .entry bpftime_model_hash_snapshot(
+	.param .u64 p_dir, .param .u64 p_rows, .param .u64 p_single,
+	.param .u64 p_dst, .param .u64 p_slots, .param .u64 p_r,
+	.param .u64 p_shards)
+{
+	.reg .pred %p<4>;
+	.reg .b32 %r<5>;
+	.reg .b64 %rd<32>;
+	ld.param.u64 %rd1, [p_dir];
+	ld.param.u64 %rd2, [p_rows];
+	ld.param.u64 %rd3, [p_single];
+	ld.param.u64 %rd4, [p_dst];
+	ld.param.u64 %rd5, [p_slots];
+	ld.param.u64 %rd6, [p_r];
+	ld.param.u64 %rd7, [p_shards];
+	mov.u32 %r1, %ctaid.x;
+	mov.u32 %r2, %ntid.x;
+	mov.u32 %r3, %tid.x;
+	mul.wide.u32 %rd8, %r1, %r2;
+	cvt.u64.u32 %rd9, %r3;
+	add.u64 %rd8, %rd8, %rd9;
+	mov.u32 %r4, %nctaid.x;
+	mul.wide.u32 %rd10, %r4, %r2;
+$L_slot:
+	setp.ge.u64 %p1, %rd8, %rd5;
+	@%p1 bra $L_done;
+	shl.b64 %rd11, %rd8, 3;
+	add.u64 %rd11, %rd1, %rd11;
+	cvta.to.global.u64 %rd12, %rd11;
+	ld.acquire.gpu.global.b64 %rd13, [%rd12];
+	mov.u64 %rd14, 0;
+	and.b64 %rd15, %rd13, 7;
+	setp.ne.u64 %p2, %rd15, 2;
+	@%p2 bra $L_store;
+	shr.u64 %rd16, %rd13, 3;
+	and.b64 %rd16, %rd16, 536870911;
+	setp.ge.u64 %p3, %rd16, %rd6;
+	@%p3 bra $L_single;
+	mul.lo.u64 %rd17, %rd16, %rd7;
+	mov.u64 %rd18, 0;
+$L_shard:
+	setp.ge.u64 %p3, %rd18, %rd7;
+	@%p3 bra $L_store;
+	add.u64 %rd19, %rd17, %rd18;
+	shl.b64 %rd19, %rd19, 3;
+	add.u64 %rd19, %rd2, %rd19;
+	cvta.to.global.u64 %rd20, %rd19;
+	ld.relaxed.gpu.global.u64 %rd21, [%rd20];
+	add.u64 %rd14, %rd14, %rd21;
+	add.u64 %rd18, %rd18, 1;
+	bra.uni $L_shard;
+$L_single:
+	sub.u64 %rd22, %rd16, %rd6;
+	shl.b64 %rd22, %rd22, 3;
+	add.u64 %rd22, %rd3, %rd22;
+	cvta.to.global.u64 %rd23, %rd22;
+	ld.relaxed.gpu.global.u64 %rd14, [%rd23];
+$L_store:
+	shl.b64 %rd24, %rd8, 4;
+	add.u64 %rd24, %rd4, %rd24;
+	st.u64 [%rd24], %rd13;
+	st.u64 [%rd24+8], %rd14;
+	add.u64 %rd8, %rd8, %rd10;
+	bra.uni $L_slot;
+$L_done:
+	ret;
+}
