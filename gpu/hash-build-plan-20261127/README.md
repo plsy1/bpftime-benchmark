@@ -36,8 +36,9 @@ tests are written.
 - **Each hash tool declares two maps:** the hash and a companion status array named after it (D12).
 - **The CPU reads the delivered directory as a repaired mirror** (D10), instead of keeping an index of
   its own as DESIGN.md says.
-- **A seal can be refused.** A CPU writer stuck for more than 1 s during the seal disables the device
-  copy, for good if that writer died (D8).
+- **A seal can be delayed.** A CPU writer of a running process stuck for more than 1 s during the
+  seal delays the device copy until it has finished (D8). Writers whose process died are discounted
+  (changed during the build, plan section 9: before, a dead writer disabled the copy for good).
 - **Takeover from a dead owner re-seeds the same slots** (D11). This is the largest optional piece;
   it could be cut to a documented loss.
 
@@ -45,6 +46,8 @@ DESIGN.md is to be changed in five places when the build lands (plan section 6).
 
 ## Files
 
-- `PLAN-stage1.md`: revision 4, with each round's findings mapped to their answers (sections 7 and 8).
+- `PLAN-stage1.md`: revision 4, with each round's findings mapped to their answers (sections 7 and 8),
+  and the changes the S2 code review made during the build (section 9, rewritten into D8, D11 and
+  S2 in place).
 - `review-r1/`, `review-r2/`, `review-r3/`: the plan each round read (`PLAN-stage1-rN.md`), and every
   reviewer's findings with each refuter's verdict (`plan-review.json`).

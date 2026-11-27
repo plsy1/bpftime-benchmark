@@ -143,29 +143,44 @@ Every CPU read path loads PHASE with acquire first (checked by disassembly, S2.1
 
 ### D8. The seal
 
-**Writer** (CPU update or delete, any process):
-1. `INFLIGHT.fetch_add(1, seq_cst)`;
-2. `PHASE.load(seq_cst)`: not 0 → `fetch_sub(1, release)`, EPERM;
-3. otherwise the table operation, then `INFLIGHT.fetch_sub(1, release)`.
+**Writer slots.** INFLIGHT is not one word: each writing process has a slot in the map object (its
+owner record, its start time, and the count of its writers in flight); 64 slots, plus one overflow
+slot shared when all are taken. A process finds its slot by record and start time (a slot with its
+pid but another start time belonged to a dead process); a slot of a process that is gone, with
+nothing in flight, is free again.
 
-**Sealer:** `PHASE.store(1, seq_cst)`, then spin-polls `INFLIGHT.load(seq_cst)` until 0, with
-`sched_yield` every 1,024 polls and one last poll after a 1 s deadline.
+**Writer** (CPU update or delete, any process):
+1. its slot's `count.fetch_add(1, seq_cst)`;
+2. `PHASE.load(seq_cst)`: not 0 → `fetch_sub(1, release)`, EPERM;
+3. otherwise the table operation, then `count.fetch_sub(1, release)`.
+
+**Sealer:** `PHASE.store(1, seq_cst)`, then spin-polls every slot's count (seq_cst loads) until all
+are 0, with `sched_yield` every 4,096 polls and one last poll after a 1 s deadline.
 
 All four operations are in the single total order, so either the writer reads PHASE 1 or the sealer
 reads its increment. An acquire load on either side would not do: on an RCpc target it becomes
-`LDAPR`, which may pass the earlier `STLR` or `LDADDAL`. S2.12 checks both sides by disassembly with
-an RCpc target.
+`LDAPR`, which may pass the earlier `STLR` or `LDADDAL`. A poll that reads 0 must also at least
+acquire, to see the writers' table writes before the image's scan. S2.12 checks all of it by
+disassembly with an RCpc target.
 
-**A timeout is recorded in the map object:** `SEAL_DEAD = 1`.
-- A dead writer leaves INFLIGHT above 0 for good. A stopped or slow writer finishes later and
-  decrements it.
-- On timeout: PHASE goes back to 0, `SEAL_DEAD` is stored, the attempt's block is freed, and 0 is
-  returned.
-- A later attempt (any process) that sees `SEAL_DEAD` reads INFLIGHT once:
-  - 0: the stalled writer has finished, so it clears `SEAL_DEAD` and seals normally;
+**Dead writers are discounted.** An exit kills a process's other threads wherever they are, so an
+ordinary exit can leave a count raised (2-23 of 40 exits of a multi-threaded writer did, with one
+shared counter). While it polls, the sealer frees the slot, count included, of every process of its
+own pid namespace that is gone (D11c), and seals. A process that died inside the table's own
+operation leaves its stripe locked, as documented for HASH; the image's lock-free scan does not
+need that lock.
+
+**A live writer stuck for 1 s:** `SEAL_DEAD = 1` in the map object.
+- On timeout: PHASE goes back to 0, `SEAL_DEAD` is stored, the attempt's block is freed, the claim
+  is given back, and 0 is returned.
+- A later attempt (any process) that sees `SEAL_DEAD` discounts dead writers and reads the counts
+  once:
+  - 0: the stalled writer has finished (or died), so it clears `SEAL_DEAD` and seals normally;
   - above 0: it returns 0 at once, with no 1 s wait and no EPERM window.
 - While the flag stands, the map has no device copy: GPU lookups give NULL and inserts -1 through the
   trampoline; the CPU stays in phase 0 (README).
+- A writer of another pid namespace, or one in the overflow slot, cannot be discounted: if it dies
+  in flight, the flag stands until the segment is recreated (README).
 
 **No seal or copy runs under `map_binding_mutex`** (D11a). The 1 s wait therefore blocks only the
 sealing process's own attach.
@@ -285,9 +300,16 @@ outside the mutex.
   2^22). Without /proc it is a random 32-bit id, drawn per process, as for the perf shards.
 - Cross-process exclusion rests on this claim alone.
 
-**D11c. Liveness of a recorded owner.** It is alive when:
-- `kill(pid, 0)` succeeds or fails with EPERM, and
-- `/proc/<pid>/stat` is not Z or X (as `is_thread_gone` checks for ringbuf owners).
+**D11c. Liveness of a recorded process** (owner or writer). It is gone when:
+- `kill(pid, 0)` fails with ESRCH; or
+- every task in `/proc/<pid>/task` is Z or X (`/proc/<pid>/stat` shows the thread-group leader only:
+  a process whose main thread exited while others run is alive); or
+- its start time (`/proc/<pid>/stat` field 22) differs from the one recorded: the pid was reused.
+
+Otherwise it is alive (EPERM: another user's process; `/proc` unreadable: alive). The owner's start
+time is stored after the claim together with the record it belongs to; a start time not written for
+the current owner counts as unknown, so a claimant between its CAS and that store is not taken for
+a reused pid.
 
 **D11d. Claims that are not taken.**
 - An owner from another namespace is never taken over, dead or alive: return 0, logged. A container
@@ -298,19 +320,19 @@ outside the mutex.
   because the process-wide mutex covers claim to cache insert.
 - `choose_path()` takes "has a cached copy" as an input. With a cached copy, the pre-pass skips the
   map anyway.
-- On a failed first copy or takeover (D15), the process CASes OWNER from itself back to 0, so another
-  process can claim it.
+- Every path that ends without a copy gives the claim back (CAS OWNER from itself to 0): a seal that
+  timed out, a failed first copy or takeover (D15). `make_image()` does it for the host part.
 
 **D11e. Under ownership, PHASE chooses the path.**
-- **`SEAL_DEAD` set:** by D8. INFLIGHT reads 0: clear the flag and continue by PHASE. Otherwise
-  return 0.
+- **`SEAL_DEAD` set:** by D8. The counts read 0 after discounting dead writers: clear the flag and
+  continue by PHASE. Otherwise give the claim back and return 0.
 - **0, first copy:** seal (D8), image (D9), copy, mirror seeded, registration, PHASE 2.
 - **1, a sealer died:**
   - writers already get EPERM;
   - reset the mirror to empty;
-  - poll INFLIGHT as in D8, because a writer that read PHASE 0 before the dead sealer's store may
+  - poll the counts as in D8, because a writer that read PHASE 0 before the dead sealer's store may
     still run;
-  - on timeout, do as D8 (PHASE 0, `SEAL_DEAD`, return 0);
+  - on timeout, do as D8 (PHASE 0, `SEAL_DEAD`, give the claim back, return 0);
   - otherwise build the image and continue as the first copy.
 - **2, takeover:** seed a fresh block from the mirror.
   - Live slots stay live at the same slot, with rows renumbered 0..L-1 in slot order and the
@@ -536,15 +558,17 @@ ptxas for sm_87, and record the SASS.
    - Mutation, the writer skips INFLIGHT: the image is built within 50 ms and the key is missing
      with no EPERM, every time.
    - 8 free-running writers also run; every key is in the image or got EPERM.
-4. **Dead writer** (a forked writer SIGKILLed at the hook after its INFLIGHT increment; reaped):
-   - the seal fails within its bound;
-   - PHASE is 0, and `SEAL_DEAD` is set in this map's object;
-   - later CPU updates on every stripe work;
-   - a second seal attempt, from a forked second process, returns 0 at once.
-   - Mutation: `SEAL_DEAD` not stored, so the second attempt waits 1 s.
-   - **A stopped writer:** a writer is SIGSTOPped after its increment for more than 1 s, so the seal
-     fails, and is then SIGCONTed and finishes. A later attempt clears `SEAL_DEAD` and seals.
-     - Mutation: an unconditional `SEAL_DEAD`.
+4. **Dead and stopped writers** (as built after the code review):
+   - **Killed in flight** (a forked writer SIGKILLed at the hook after its increment; reaped): the
+     seal discounts it and succeeds; its key is not in the image; the counts read 0.
+     - Mutation: no discount, so the seal fails.
+   - **Killed by an ordinary exit** of a multi-threaded process (writer threads loop, the process
+     exits after 5 ms; repeated until an exit has left a count raised): the seal succeeds.
+   - **Stopped in flight** (SIGSTOP after the increment): `make_image` times out, sets `SEAL_DEAD`,
+     gives the claim back (OWNER 0); another process's attempt returns at once; after SIGCONT the
+     writer finishes and the next attempt clears `SEAL_DEAD` and seals.
+     - Mutations: `SEAL_DEAD` not stored; `SEAL_DEAD` unconditional; the claim kept after a failed
+       seal.
 5. **Stripe held** (in a forked child with a deadline): the stripe of a prefilled key k
    (`stripe_of_key(k)`) is held with `lock_stripe_for_test` during the seal. The seal completes.
    - Mutation: the image built with `next_key`, so the child is killed at its deadline.
@@ -605,25 +629,32 @@ ptxas for sm_87, and record the SASS.
     - a live owner, a dead owner, an EPERM-alive owner, a zombie owner;
     - an owner in another namespace;
     - the same pid with and without a cached copy;
-    - `SEAL_DEAD` with INFLIGHT 0 and above 0.
-    - Mutations: EPERM taken as dead; a cached copy treated as a takeover.
+    - liveness through stubbed probes (EPERM alive, ESRCH gone, all tasks Z/X gone, start time
+      changed gone, unknown alive), and a real process whose main thread exited while another runs
+      (alive), then killed (gone);
+    - a claimant parked between its CAS and its start time is not taken for a reused pid.
+    - Mutations: EPERM taken as dead; the leader's state only; the start time ignored; a cached
+      copy treated as a takeover; the start time read without its record.
 11. **The PHASE-1 recovery.**
     - A writer parked after its PHASE load reads 0. A sealer stores PHASE 1 and is abandoned (a
       simulated death).
     - The PHASE-1 path then runs on its own thread. The test releases the writer when that thread
       has finished, or after 50 ms, whichever comes first. It asserts that the thread had not
       finished by then, and that the writer's key is in the image.
-    - A second case: a parked writer is killed (INFLIGHT stuck). The PHASE-1 path times out to
-      PHASE 0 and `SEAL_DEAD`, and CPU writes work.
+    - A second case: a writer stopped in flight (alive). The PHASE-1 path times out to PHASE 0 and
+      `SEAL_DEAD`, gives the claim back, and after the writer resumes CPU writes work.
     - Mutation: the PHASE-1 path skips the poll.
 12. **Disassembly check,** `runtime/unit-test/maps/check_devhash_orders.sh`, run in S2 and S8. It
     compiles `nv_gpu_device_hash_map.cpp` with `-mcpu=cortex-a78ae` (RCpc) and checks:
-    - the sealer's first INFLIGHT load after the PHASE `STLR` is `LDAR`;
-    - the writer's PHASE load after its INFLIGHT `LDADDAL` (or its LDAXR/STLXR loop) is `LDAR`, on
-      the update and delete paths;
-    - the PHASE load on the lookup and get_next_key paths is `LDAR` or `LDAPR`, not `LDR`.
-    - Mutations: an acquire poll (gives `LDAPR`); an acquire writer load (gives `LDAPR`); a relaxed
-      PHASE load (gives `LDR`).
+    - every count load after the sealer's PHASE `STLR` is `LDAR`, and so is every load of its later
+      polls;
+    - the writer's PHASE load after its count's `LDADDAL` is `LDAR` (the last memory load: a test
+      hook may come between);
+    - the readers' PHASE load is `LDAR` or `LDAPR`, not `LDR`;
+    - elem_update and elem_delete call the writer's helper, elem_lookup and map_get_next_key the
+      reader's.
+    - Mutations: acquire sealer loads; relaxed polls; an acquire writer load; a relaxed reader load;
+      a lookup that loads PHASE itself.
 13. **Phase 1 lookups** come from the table.
     - Mutation: phase-1 lookups sent to the mirror.
 
@@ -918,10 +949,12 @@ for tool authors:
 8. Prefill before the first agent init that instantiates a CUDA link (the pre-pass); the CPU phases and EPERM; a dump that crosses the copy
    may skip keys.
 9. Takeover: same slots, renumbered rows. Keys and adds after the last delivery are lost.
-10. A writer that stays inside an update for more than 1 s during a seal disables the device copy
-    (`SEAL_DEAD`). If it was stopped or slow, a later attempt seals once it has finished. If it died,
-    the copy stays disabled for the life of the segment; if it died inside the table, its stripe stays
-    locked too.
+10. A writer of a running process that stays inside an update for more than 1 s during a seal
+    delays the device copy (`SEAL_DEAD`) until it has finished. A writer whose process died is
+    discounted. Writers of another pid namespace, or more than 64 writing processes at once (the
+    overflow slot), cannot be discounted: if one of them dies in flight, the copy stays disabled
+    until the segment is recreated. A writer that died inside the table also leaves its stripe
+    locked (as for HASH).
 11. An owner that died in another pid namespace, or with no /proc, is never replaced. The map then
     has no device copy until the segment is recreated.
 12. A malformed call block leaves the whole module unprobed.

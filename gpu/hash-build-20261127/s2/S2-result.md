@@ -6,6 +6,7 @@ Branch proto/map-model-70f7bc1f (worktree bpftime-proto-70f7), local commits, no
   creation checks, dispatch), `bpftime_hash_map::for_each_in_use_unlocked`, `[gpu-devhash-cpu]`,
   `runtime/unit-test/maps/check_devhash_orders.sh`.
 - c84dd0ff: fixes after the code review (below).
+- 0b9b02af: the owner's start time tied to its record (below).
 
 ## S0.1 (`s0/`)
 ptxas 13.2 accepts the hash snapshot draft at `.version 7.0 .target sm_70`; the header's
@@ -46,3 +47,23 @@ newly seen keys).
   reader load, a lookup that loads PHASE itself.
 - The non-CUDA build: `map_handler.cpp` compiles without BPFTIME_ENABLE_CUDA_ATTACH
   (`-fsyntax-only` with the build's flags).
+
+## After c84dd0ff
+- **A claim window** (found after the review): claim() stored the owner's start time after the
+  CAS, so a second claimant in between paired the new owner with the dead owner's start time and
+  took over a live owner. The start time is now stored with the record it was written for; a test
+  parks the first claimant there, and without the record check the second takes over (run by hand:
+  the test fails; with the check it passes). 0b9b02af.
+- **Reruns on 0b9b02af:**
+  - full build of build-cuda (`make -k`): everything compiles except three targets that never built
+    in this directory and that no change touches: two per-CPU hash benchmark diagnostics (an
+    ambiguous constructor call) and bpftime_daemon (the link does not find -lcudart);
+  - runtime tests of the hash map, per-CPU hash, map creation and the device hash map: 75 cases
+    pass (10,301,003 assertions);
+  - bpftime_nv_attach_tests: 64 of 65 pass, `[ptx-failure]` fails as before; `[devhash-layout]`
+    passes;
+  - without BPFTIME_ENABLE_CUDA_ATTACH, map_handler.cpp, bpftime_shm_internal.cpp and
+    handler_manager.cpp compile (`-fsyntax-only`);
+  - check_devhash_orders.sh: OK.
+- **Not done:** an independent read of the review fixes (writer slots, discount, liveness, claim).
+  It is to run beside S3 and finish before S5, which builds on them.
