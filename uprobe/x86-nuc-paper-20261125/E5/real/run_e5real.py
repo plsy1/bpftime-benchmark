@@ -1,0 +1,432 @@
+#!/usr/bin/env python3
+"""E5-real runner: field-level audit on real applications (PREDICTIONS-v5.md).
+
+One item = (workload, leg, run). Each item runs as a child under the measurement lock
+  flock -n -E 75 <lock> timeout --signal=TERM --kill-after=10 <budget> run_e5real.py --one ...
+(retry every 60 s, at most 20 tries; lock held at most budget + 10 s <= 300 s), like run_e5.py.
+
+Inside the child:
+  1. a fresh cgroup v2 /sys/fs/cgroup/e5real_<pid>; its id (inode) filters the kernel programs;
+  2. truth loader: src/e5rtool src/e5real_k.bpf.o truth (tracepoint sys_enter_write), plain (kernel);
+  3. probe loader: Kc = e5rtool e5real_k.bpf.o probe_k on libc write (kernel uprobe, same cgroup filter);
+     bpftime legs = e5rtool e5real_u.bpf.o probe_u on libc write under LD_PRELOAD=<build>/libbpftime-syscall-server.so
+     (private shm name e5rshm_<pid>);
+  4. the workload, started inside the cgroup (sh writes its pid to cgroup.procs, then execs), with
+     LD_PRELOAD=<build>/libbpftime-agent.so on bpftime legs (children inherit it): N nginx + curl from outside the
+     cgroup, M make -j4 of libbpf src, J java E5Threads;
+  5. cgroup.kill, rmdir; SIGINT to both loaders (they dump); compare_e5real.py; cleanup of our shm.
+Rows (JSON lines, appended to --out): kind=item (status, metadata), then the comparer's summary/byproc rows.
+"""
+import argparse, datetime, hashlib, json, os, random, shutil, signal, subprocess, sys, time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+SRC = HERE / 'src'
+JAVA = HERE / 'java'
+R = Path('/home/y/src/bpftime-x86-runs/paper-20261124')
+LOCK = R / '.measure.lock'
+CFG = R / 'harness' / 'config-x86.json'
+BUILDS = R / 'builds'
+TOOL = str(SRC / 'e5rtool')
+KOBJ = str(SRC / 'e5real_k.bpf.o')
+UOBJ = str(SRC / 'e5real_u.bpf.o')
+LIBC = '/usr/lib/x86_64-linux-gnu/libc.so.6'
+NGINX = str(HERE / 'pkg' / 'root' / 'usr' / 'sbin' / 'nginx')
+LIBBPF = Path('/home/y/src/bpftime-paper/official-4708f409/third_party/libbpf')
+CERT = R / 'harness'
+PORT = 14443
+NREQ = 2000
+LEG_ENV = {'Dxn': {'BPFTIME_DIAG_EXACT': '1'}}
+WORKLOADS = ('N', 'M', 'J')
+
+
+class Budget(Exception):
+    pass
+
+
+def sh(cmd, timeout=15, **kw):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, errors='replace', timeout=timeout, **kw)
+    except subprocess.TimeoutExpired as e:
+        return subprocess.CompletedProcess(cmd, 124, e.stdout or '', e.stderr or '')
+
+
+def sha256(p):
+    h = hashlib.sha256()
+    with open(p, 'rb') as f:
+        for b in iter(lambda: f.read(1 << 20), b''):
+            h.update(b)
+    return h.hexdigest()
+
+
+def build_dir(key):
+    builds = json.load(open(CFG))['builds']
+    if key not in builds:
+        raise SystemExit(f'unknown build key {key}')
+    return BUILDS / Path(builds[key]).name
+
+
+def leg_parts(leg):
+    name, *extra = leg.split('+')
+    return name, dict(e.split('=', 1) for e in extra)
+
+
+def shm_entries():
+    return set(os.listdir('/dev/shm'))
+
+
+def lock_is_held():
+    return subprocess.run(['flock', '-n', '-E', '75', str(LOCK), 'true']).returncode == 75
+
+
+def start_loader(env, args, log, deadline):
+    f = open(log, 'w+')
+    p = subprocess.Popen(['sudo', '-n', 'env', *env, TOOL, *args], stdout=f, stderr=subprocess.STDOUT,
+                         start_new_session=True)
+    end = min(time.time() + 30, deadline)
+    while time.time() < end:
+        f.seek(0)
+        if any(l.strip() == 'attached' for l in f.read().splitlines()):
+            return p, f
+        if p.poll() is not None:
+            break
+        time.sleep(0.1)
+    f.seek(0)
+    text = f.read()[-600:]
+    stop_loader(p, f, 2)
+    raise RuntimeError(f'loader {args[1]} not ready: ' + text)
+
+
+def stop_loader(p, f, wait):
+    if p is None:
+        return None, ''
+    if p.poll() is None:
+        sh(['sudo', '-n', 'kill', '-INT', '--', f'-{p.pid}'], timeout=5)
+        try:
+            p.wait(timeout=wait)
+        except subprocess.TimeoutExpired:
+            sh(['sudo', '-n', 'kill', '-9', '--', f'-{p.pid}'], timeout=5)
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+    f.seek(0)
+    return p.returncode, f.read()
+
+
+def cg_procs(cg):
+    r = sh(['sudo', '-n', 'cat', f'{cg}/cgroup.procs'], timeout=5)
+    return r.stdout.split() if r.returncode == 0 else []
+
+
+def cg_destroy(cg):
+    if sh(['sudo', '-n', 'test', '-d', cg], timeout=5).returncode != 0:
+        return dict(existed=False)
+    left = cg_procs(cg)
+    sh(['sudo', '-n', 'sh', '-c', f'echo 1 > {cg}/cgroup.kill'], timeout=5)
+    for _ in range(50):
+        if not cg_procs(cg):
+            break
+        time.sleep(0.1)
+    rr = sh(['sudo', '-n', 'rmdir', cg], timeout=5)
+    return dict(existed=True, procs_at_kill=len(left), rmdir_rc=rr.returncode)
+
+
+def in_cgroup(cg, env, cmd):
+    """sudo'ed command list: a root sh joins the cgroup, then execs env ... cmd (so only cmd and its children carry
+    the leg environment; the sh that writes cgroup.procs has no agent)."""
+    return ['sudo', '-n', 'sh', '-c', f'echo $$ > {cg}/cgroup.procs && exec env "$@"', 'e5real-cg', *env, *cmd]
+
+
+def nginx_conf(d):
+    return f"""user nobody nogroup;
+worker_processes 1;
+master_process on;
+daemon off;
+pid {d}/nginx.pid;
+error_log {d}/error.log notice;
+events {{ worker_connections 256; }}
+http {{
+    access_log {d}/access.log;
+    client_body_temp_path {d}/t-body;
+    proxy_temp_path {d}/t-proxy;
+    fastcgi_temp_path {d}/t-fcgi;
+    uwsgi_temp_path {d}/t-uwsgi;
+    scgi_temp_path {d}/t-scgi;
+    server {{
+        listen 127.0.0.1:{PORT} ssl;
+        ssl_certificate {CERT}/test.cer;
+        ssl_certificate_key {CERT}/test.key;
+        location / {{ return 200 "e5\\n"; }}
+    }}
+}}
+"""
+
+
+def run_workload(w, d, cg, env, deadline, info):
+    left = lambda: max(5, int(deadline - time.time()))
+    if w == 'N':
+        (d / 'nginx.conf').write_text(nginx_conf(d))
+        log = open(d / 'workload.log', 'w')
+        p = subprocess.Popen(in_cgroup(cg, env, [NGINX, '-p', str(d), '-c', str(d / 'nginx.conf'),
+                                                 '-e', str(d / 'error.log')]),
+                             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        url = f'https://127.0.0.1:{PORT}/'
+        ready = False
+        for _ in range(150):
+            if sh(['curl', '-sk', '-o', '/dev/null', '-w', '%{http_code}', url], timeout=5).stdout == '200':
+                ready = True
+                break
+            if p.poll() is not None:
+                break
+            time.sleep(0.1)
+        info['ready'] = ready
+        if ready:
+            c = sh(['curl', '-sk', '-o', '/dev/null', '-w', '%{http_code}\\n', f'{url}?r=[1-{NREQ}]'],
+                   timeout=left())
+            codes = c.stdout.split()
+            info['curl_rc'] = c.returncode
+            info['requests_200'] = sum(1 for x in codes if x == '200')
+        pid = sh(['sudo', '-n', 'cat', str(d / 'nginx.pid')], timeout=5).stdout.strip()
+        if pid.isdigit():
+            sh(['sudo', '-n', 'kill', '-QUIT', pid], timeout=5)
+        try:
+            p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        info['rc'] = p.returncode
+        return ready and info.get('requests_200') == NREQ and p.returncode == 0
+    if w == 'M':
+        cmd = ['make', '-C', str(d / 'libbpf' / 'src'), '-j4', 'BUILD_STATIC_ONLY=1', f'OBJDIR={d}/obj']
+    else:
+        (d / 'jout').mkdir(exist_ok=True)
+        os.chmod(d / 'jout', 0o777)
+        cmd = ['java', '-cp', str(JAVA), 'E5Threads', str(d / 'jout')]
+    with open(d / 'workload.log', 'w') as log:
+        try:
+            r = subprocess.run(in_cgroup(cg, env, cmd), stdout=log, stderr=subprocess.STDOUT, timeout=left())
+            info['rc'] = r.returncode
+        except subprocess.TimeoutExpired:
+            info['rc'] = 'timeout'
+            info['hang'] = hang_snapshot(cg, d)
+    return info['rc'] == 0
+
+
+def hang_snapshot(cg, d):
+    """On a workload timeout, before cgroup.kill: every task left in the cgroup with comm, state, wchan, kernel
+    stack (written to hang.txt) and a gdb user-space backtrace of all threads if gdb is installed."""
+    out, procs = [], cg_procs(cg)
+    for pid in procs:
+        for f in ('comm', 'status', 'wchan', 'stack', 'cmdline'):
+            r = sh(['sudo', '-n', 'cat', f'/proc/{pid}/{f}'], timeout=5)
+            out.append(f'=== {pid} {f}\n' + r.stdout.replace('\0', ' '))
+        r = sh(['sudo', '-n', 'ls', f'/proc/{pid}/task'], timeout=5)
+        for tid in r.stdout.split():
+            rr = sh(['sudo', '-n', 'cat', f'/proc/{pid}/task/{tid}/stack'], timeout=5)
+            out.append(f'--- task {tid} stack\n' + rr.stdout)
+        if shutil.which('gdb'):
+            rr = sh(['sudo', '-n', 'gdb', '-p', pid, '-batch', '-ex', 'thread apply all bt'], timeout=60)
+            out.append(f'=== {pid} gdb\n' + rr.stdout[-20000:])
+    (d / 'hang.txt').write_text('\n'.join(out))
+    return dict(procs=procs, file='hang.txt')
+
+
+def one(a):
+    if os.environ.get('E5R_UNDER_LOCK') != '1' or not lock_is_held():
+        print('refusing: --one must run under the measurement lock (started by run_e5real.py)', file=sys.stderr)
+        return 3
+    t0 = time.time()
+    deadline = t0 + a.budget - 25
+
+    def on_term(signum, frame):
+        raise Budget(f'signal {signum}')
+    signal.signal(signal.SIGTERM, on_term)
+    signal.signal(signal.SIGINT, on_term)
+    w, leg, run = a.workload, a.one, a.run
+    name, extra = leg_parts(leg)
+    build = None if name == 'Kc' else build_dir(name)
+    env_u = {**LEG_ENV.get(name, {}), **extra}
+    d = Path(a.dir)
+    pid = os.getpid()
+    cg = f'/sys/fs/cgroup/e5real_{pid}'
+    shm_name = f'e5rshm_{pid}'
+    shm_before = shm_entries()
+    files = {'e5rtool': TOOL, 'e5real_k.bpf.o': KOBJ, 'e5real_u.bpf.o': UOBJ,
+             'E5Threads.class': str(JAVA / 'E5Threads.class'), 'nginx': NGINX}
+    if build:
+        for so in ('libbpftime-agent.so', 'libbpftime-syscall-server.so'):
+            files[so] = str(build / so)
+    row = dict(kind='item', workload=w, leg=leg, run=run, build=str(build) if build else None, env=env_u,
+               dir=str(d), cgroup=cg, shm_name=shm_name, sha256={k: sha256(v) for k, v in files.items()},
+               kernel=os.uname().release,
+               started=datetime.datetime.now().astimezone().isoformat(timespec='seconds'))
+    tp = tf = pp = pf = None
+    problems, rows, info = [], [], {}
+    try:
+        if w == 'M':
+            sh(['rm', '-rf', str(d / 'libbpf'), str(d / 'obj')], timeout=30)
+            (d / 'libbpf').mkdir()
+            for sub in ('src', 'include'):
+                if sh(['cp', '-a', str(LIBBPF / sub), str(d / 'libbpf' / sub)], timeout=30).returncode:
+                    raise RuntimeError(f'copy libbpf {sub} failed')
+        if sh(['sudo', '-n', 'mkdir', cg], timeout=5).returncode:
+            raise RuntimeError(f'cannot create {cg}')
+        cgid = sh(['sudo', '-n', 'stat', '-c', '%i', cg], timeout=5).stdout.strip()
+        row['cgroup_id'] = cgid
+        tp, tf = start_loader([], [KOBJ, 'truth', '-', '-', str(d / 'truth.dump'), cgid], d / 'truth-tool.log',
+                              deadline)
+        wenv = []
+        if build:
+            common = [f'BPFTIME_GLOBAL_SHM_NAME={shm_name}', 'BPFTIME_LOG_OUTPUT=console',
+                      *[f'{k}={v}' for k, v in env_u.items()]]
+            pp, pf = start_loader([f'LD_PRELOAD={build}/libbpftime-syscall-server.so', 'BPFTIME_SHM_MEMORY_MB=256',
+                                   *common], [UOBJ, 'probe_u', LIBC, 'write', str(d / 'probe.dump'), '0'],
+                                  d / 'probe-tool.log', deadline)
+            # SPDLOG_LEVEL=off: the agent's own start-up log lines are write(2)s that exist only because of the
+            # agent (seen in the smoke as ~13 unpaired truth records per process); the loader keeps its log.
+            wenv = [f'LD_PRELOAD={build}/libbpftime-agent.so', *common, 'SPDLOG_LEVEL=off']
+        else:
+            pp, pf = start_loader([], [KOBJ, 'probe_k', LIBC, 'write', str(d / 'probe.dump'), cgid],
+                                  d / 'probe-tool.log', deadline)
+        tw = time.time()
+        ok = run_workload(w, d, cg, wenv, deadline, info)
+        info['seconds'] = round(time.time() - tw, 2)
+        row['workload_info'] = info
+        if not ok:
+            problems.append(f'workload {w} not ok: {info}')
+        row['cgroup_destroy'] = cg_destroy(cg)
+        trc, ttext = stop_loader(tp, tf, 20)
+        tp = None
+        prc, ptext = stop_loader(pp, pf, 20)
+        pp = None
+        row['truth_tool'] = next((l for l in ttext.splitlines() if l.startswith('dumped')), None)
+        row['probe_tool'] = next((l for l in ptext.splitlines() if l.startswith('dumped')), None)
+        row['truth_rc'], row['probe_rc'] = trc, prc
+        if trc != 0:
+            problems.append(f'truth loader rc {trc}')
+        if prc != 0:
+            problems.append(f'probe loader rc {prc}')
+        sh(['sudo', '-n', 'chown', '-R', f'{os.getuid()}:{os.getgid()}', str(d)], timeout=30)
+        for side in ('truth', 'probe'):
+            dump = d / f'{side}.dump'
+            if not dump.exists() or dump.stat().st_mtime < t0:
+                problems.append(f'{side} dump missing or stale')
+        if not problems or all(not p.endswith('stale') for p in problems):
+            if (d / 'truth.dump').exists() and (d / 'probe.dump').exists():
+                c = sh([sys.executable, str(HERE / 'compare_e5real.py'), '--truth', str(d / 'truth.dump'),
+                        '--probe', str(d / 'probe.dump'), '--workload', w, '--leg', leg, '--run', str(run)],
+                       timeout=120)
+                if c.returncode != 0:
+                    problems.append('compare failed: ' + c.stderr[-300:])
+                else:
+                    rows = [json.loads(l) for l in c.stdout.splitlines() if l.strip()]
+                    s = rows[0]
+                    for side in ('truth', 'probe'):
+                        if s[f'{side}_stats']['fail']:
+                            problems.append(f'{side} map inserts failed: {s[side + "_stats"]["fail"]}')
+    except Exception as e:  # Budget (SIGTERM) included
+        row['error'] = repr(e)
+    finally:
+        row.setdefault('cgroup_destroy', cg_destroy(cg))
+        if tp:
+            stop_loader(tp, tf, 2)
+        if pp:
+            stop_loader(pp, pf, 2)
+        if build:
+            sh(['sudo', '-n', 'env', f'BPFTIME_GLOBAL_SHM_NAME={shm_name}', str(build / 'bpftimetool'), 'remove'],
+               timeout=10)
+        new = sorted(shm_entries() - shm_before)
+        for n in new:
+            if n == shm_name:
+                sh(['sudo', '-n', 'rm', '-f', f'/dev/shm/{n}'], timeout=5)
+        row['leftover_shm'] = sorted(shm_entries() - shm_before)
+        row['leftover_cgroup'] = sh(['test', '-d', cg], timeout=5).returncode == 0
+        sh(['sudo', '-n', 'chown', '-R', f'{os.getuid()}:{os.getgid()}', str(d)], timeout=30)
+        if w == 'M':
+            sh(['rm', '-rf', str(d / 'libbpf'), str(d / 'obj')], timeout=30)
+    row['problems'] = problems
+    row['ok'] = not row.get('error') and not problems and not row['leftover_shm'] and not row['leftover_cgroup']
+    row['seconds'] = round(time.time() - t0, 1)
+    with open(d / 'rows.jsonl', 'w') as f:
+        for r in [row] + rows:
+            f.write(json.dumps(r) + '\n')
+    return 0 if row['ok'] else 1
+
+
+def run_locked(a, w, leg, run, outdir):
+    d = outdir / f"{w}-{leg.replace('+', '_').replace('=', '-')}-r{run}"
+    if d.exists():
+        sh(['sudo', '-n', 'rm', '-rf', '--', str(d)], timeout=60)
+    d.mkdir(parents=True)
+    os.chmod(d, 0o777)
+    child = [sys.executable, str(HERE / 'run_e5real.py'), '--one', leg, '--workload', w, '--run', str(run),
+             '--dir', str(d), '--budget', str(a.budget)]
+    env = {**os.environ, 'E5R_UNDER_LOCK': '1'}
+    rc = None
+    for attempt in range(1, a.lock_tries + 1):
+        rc = subprocess.run(['flock', '-n', '-E', '75', str(LOCK), 'timeout', '--signal=TERM', '--kill-after=10',
+                             str(a.budget), *child], env=env).returncode
+        if rc != 75:
+            break
+        print(f'run_e5real: lock held (try {attempt}), waiting 60 s', file=sys.stderr, flush=True)
+        time.sleep(60)
+    rf = d / 'rows.jsonl'
+    rows = [json.loads(l) for l in open(rf) if l.strip()] if rc != 75 and rf.exists() else []
+    if not rows:
+        rows = [dict(kind='item', workload=w, leg=leg, run=run, dir=str(d), ok=False,
+                     error='lock not acquired' if rc == 75 else f'child exited {rc} without rows')]
+    rows[0]['child_rc'] = rc
+    return rows
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--legs', default='Kc,O,Ol,Dn,Dnpc,Dxn,Dnextpc,Dnextpc+BPFTIME_CAREFUL=1')
+    ap.add_argument('--workloads', default='N,M,J')
+    ap.add_argument('--runs', type=int, default=3)
+    ap.add_argument('--budget', type=int, default=280)
+    ap.add_argument('--lock-tries', type=int, default=20)
+    ap.add_argument('--seed', type=int, default=20261127)
+    ap.add_argument('--outdir')
+    ap.add_argument('--out')
+    ap.add_argument('--one', help=argparse.SUPPRESS)
+    ap.add_argument('--workload', help=argparse.SUPPRESS)
+    ap.add_argument('--run', type=int, default=0, help=argparse.SUPPRESS)
+    ap.add_argument('--dir', help=argparse.SUPPRESS)
+    a = ap.parse_args()
+    if a.budget > 290:
+        raise SystemExit('--budget must be <= 290')
+    if a.one:
+        sys.exit(one(a))
+    if not a.out:
+        raise SystemExit('--out is required')
+    legs, wls = a.legs.split(','), a.workloads.split(',')
+    for w in wls:
+        if w not in WORKLOADS:
+            raise SystemExit(f'unknown workload {w}')
+    for leg in legs:
+        n, _ = leg_parts(leg)
+        if n != 'Kc':
+            build_dir(n)
+    outdir = (Path(a.outdir) if a.outdir else HERE / 'runs' / time.strftime('%Y%m%d-%H%M%S')).resolve()
+    outdir.mkdir(parents=True, exist_ok=True)
+    rnd = random.Random(a.seed)
+    for run in range(a.runs):
+        for w in wls:
+            order = legs[:]
+            rnd.shuffle(order)
+            for leg in order:
+                rows = run_locked(a, w, leg, run, outdir)
+                with open(a.out, 'a') as f:
+                    for r in rows:
+                        f.write(json.dumps(r) + '\n')
+                r0 = rows[0]
+                s = next((r for r in rows if r.get('kind') == 'summary'), {})
+                print(json.dumps(dict(w=w, leg=leg, run=run, ok=r0.get('ok'), err=r0.get('error'),
+                                      problems=r0.get('problems'), pairs=s.get('pairs'), truth=s.get('truth'),
+                                      unpaired=s.get('unpaired_probe'), amb=s.get('ambiguous'),
+                                      mism=s.get('mismatch'), secs=r0.get('seconds'))), flush=True)
+
+
+if __name__ == '__main__':
+    main()
