@@ -466,10 +466,14 @@ devhash_path nv_gpu_device_hash_map_impl::claim(uint64_t self,
 	for (;;) {
 		uint64_t cur = __atomic_load_n(&owner, __ATOMIC_ACQUIRE);
 		const bool same_ns = (cur >> 32) == (self >> 32);
-		const bool owner_alive =
-			cur != 0 && cur != self && same_ns &&
-			alive((uint32_t)cur,
-			      __atomic_load_n(&owner_start, __ATOMIC_ACQUIRE));
+		// the start time only if it was written for this owner (a
+		// claimant between its CAS and its store leaves the previous
+		// owner's there)
+		uint64_t start = 0;
+		if (__atomic_load_n(&owner_start_for, __ATOMIC_ACQUIRE) == cur)
+			start = __atomic_load_n(&owner_start, __ATOMIC_RELAXED);
+		const bool owner_alive = cur != 0 && cur != self && same_ns &&
+					 alive((uint32_t)cur, start);
 		const devhash_path p = devhash_choose_path(
 			get_phase(), cur, self, has_cached_copy, owner_alive);
 		if (p == devhash_path::not_owner ||
@@ -480,9 +484,11 @@ devhash_path nv_gpu_device_hash_map_impl::claim(uint64_t self,
 						 __ATOMIC_ACQ_REL,
 						 __ATOMIC_ACQUIRE))
 			continue;
+		call_hook(devhash_hook_point::claim_after_cas, self);
 		__atomic_store_n(&owner_start,
 				 devhash_process_start_time((uint32_t)self),
-				 __ATOMIC_RELEASE);
+				 __ATOMIC_RELAXED);
+		__atomic_store_n(&owner_start_for, self, __ATOMIC_RELEASE);
 		__atomic_store_n(status_word(DEVHASH_STATUS_OWNER_PID),
 				 (uint64_t)(uint32_t)self, __ATOMIC_RELAXED);
 		// only the owner changes PHASE: read it again as the owner
@@ -495,8 +501,10 @@ void nv_gpu_device_hash_map_impl::release_claim(uint64_t self)
 {
 	uint64_t cur = self;
 	if (__atomic_compare_exchange_n(&owner, &cur, 0, false,
-					__ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-		__atomic_store_n(&owner_start, 0, __ATOMIC_RELEASE);
+					__ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+		__atomic_store_n(&owner_start_for, 0, __ATOMIC_RELEASE);
+		__atomic_store_n(&owner_start, 0, __ATOMIC_RELAXED);
+	}
 }
 
 bool nv_gpu_device_hash_map_impl::make_image(uint64_t self,

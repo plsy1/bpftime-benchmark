@@ -11,6 +11,7 @@
 #include <bpf_map/array_map_binding.hpp>
 #include <bpftime_shm.hpp>
 #include <bpftime_shm_internal.hpp>
+#include <producer_identity.hpp>
 #include <handler/handler_manager.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <linux/bpf.h>
@@ -1254,6 +1255,44 @@ TEST_CASE("The owner's path and its liveness", "[gpu-devhash-cpu]")
 		CHECK_FALSE(devhash_process_alive(pid, st));
 		waitpid(pid, nullptr, 0);
 		close(fds[0]);
+	}
+	SECTION("a claimant between its CAS and its start time is not a reused pid")
+	{
+		segment seg("claimrace");
+		auto *map = seg.make(8);
+		const uint64_t ns = producer_pid_namespace();
+		// a previous owner that is gone, with its start time recorded
+		int fds[2];
+		REQUIRE(pipe(fds) == 0);
+		pid_t dead = fork();
+		REQUIRE(dead >= 0);
+		if (dead == 0) {
+			for (;;)
+				pause();
+		}
+		CHECK(map->claim(devhash_owner_record(ns, dead), false,
+				 nobody_alive) == p::first_copy);
+		kill(dead, SIGKILL);
+		waitpid(dead, nullptr, 0);
+		close(fds[0]);
+		close(fds[1]);
+		// the first claimant stops between its CAS and its start time
+		arm(devhash_hook_point::claim_after_cas);
+		std::atomic<int> first_path{ -1 };
+		std::thread a([&] {
+			first_path = (int)map->claim(
+				devhash_owner_record(ns, getpid()), false);
+		});
+		joiner j{ { &a } };
+		REQUIRE(wait_parked());
+		// a second claimant (another live process's record) sees a live
+		// owner: the dead owner's start time is not taken for this one's
+		CHECK(map->claim(devhash_owner_record(ns, getppid()), false) ==
+		      p::not_owner);
+		CHECK(map->get_owner() == devhash_owner_record(ns, getpid()));
+		release();
+		a.join();
+		CHECK(first_path == (int)p::first_copy);
 	}
 	SECTION("claim asks about liveness, and gives the claim back")
 	{

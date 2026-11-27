@@ -128,6 +128,8 @@ enum class devhash_hook_point {
 	// between the writer's increment and its PHASE load
 	writer_after_inflight_inc,
 	writer_after_phase_load,
+	// between the owner CAS and the owner's start time
+	claim_after_cas,
 	delivery_before_pass_a,
 	delivery_after_pass_c_slot,
 };
@@ -158,7 +160,10 @@ class nv_gpu_device_hash_map_impl {
 	uint64_t phase = DEVHASH_PHASE_CPU;
 	uint64_t seal_dead = 0;
 	uint64_t owner = 0;
+	// the owner's start time, and the record it was written for: a start
+	// time not written for the current owner counts as unknown
 	uint64_t owner_start = 0;
+	uint64_t owner_start_for = 0;
 	// random per map: a process's copy cache keys on (object, generation)
 	uint64_t generation;
 	// the companion status array's handler index, -1 when unbound
