@@ -1,6 +1,15 @@
 #include "catch2/catch_test_macros.hpp"
 #include "trampoline/gpu_devhash_layout.h"
+#include "devhash_ptx.h"
+#include "trampoline_ptx.h"
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <regex>
+#include <sstream>
+#include <string>
+#include <unistd.h>
 #include <vector>
 
 // The device hash map's one layout definition (1533; plan
@@ -183,4 +192,92 @@ TEST_CASE("Device hash layout fingerprint covers constants and offsets",
 	}
 	REQUIRE(DEVHASH_LAYOUT_FP == f.h);
 	REQUIRE(layout_fingerprint() == f.h);
+}
+
+// ---------------------------------------------------- the generated PTX
+// (plan S3.11): the shipped device functions and the shared trampoline,
+// read as text. No GPU.
+namespace
+{
+std::vector<std::string> lines_of(const char *text)
+{
+	std::vector<std::string> out;
+	std::istringstream in(text);
+	for (std::string l; std::getline(in, l);)
+		out.push_back(l);
+	return out;
+}
+size_t count_of(const std::string &text, const std::string &what)
+{
+	size_t n = 0;
+	for (size_t i = text.find(what); i != std::string::npos;
+	     i = text.find(what, i + 1))
+		n++;
+	return n;
+}
+} // namespace
+
+TEST_CASE("The shipped device functions keep their memory orders",
+	  "[devhash-layout]")
+{
+	const std::string ptx = DEVHASH_PTX;
+	// the forms the protocol rests on, written out with .global
+	CHECK(count_of(ptx, "st.release.gpu.global.b64") >= 2); // live, refused
+	CHECK(count_of(ptx, "ld.acquire.gpu.global.b64") >= 2); // count reads
+	CHECK(count_of(ptx, "atom.relaxed.gpu.global.cas.b64") >= 1); // claim
+	CHECK(count_of(ptx, "atom.acq_rel.gpu.global.add.u64") >= 1); // reserve
+	CHECK(count_of(ptx, "red.relaxed.gpu.global.add.u64") >= 1); // adds
+	CHECK(count_of(ptx, "ld.relaxed.gpu.global.b64") >= 2); // headers
+	// no weak access to shared memory: every global load, store and
+	// atomic carries a semantics; the one other load is the caller's value
+	// (a generic load of the program's stack)
+	const std::regex weak(
+		R"(^\s*(ld|st|atom|red)\.global\.|^\s*(atom|red)\.(add|cas|min|max)|^\s*(ld|st)\.(volatile\.)?global)");
+	size_t generic_loads = 0;
+	for (const auto &l : lines_of(DEVHASH_PTX)) {
+		INFO(l);
+		CHECK_FALSE(std::regex_search(l, weak));
+		if (std::regex_search(l, std::regex(R"(^\s*ld\.u64\s)")))
+			generic_loads++;
+	}
+	CHECK(generic_loads == 1);
+	// three functions, not visible, no module header
+	CHECK(count_of(ptx, ".func ") + count_of(ptx, ".func\t") == 3);
+	CHECK(count_of(ptx, "__bpftime_devhash_lookup(") == 1);
+	CHECK(count_of(ptx, "__bpftime_devhash_insert(") == 1);
+	CHECK(count_of(ptx, "__bpftime_devhash_layout_fp(") == 1);
+	CHECK(count_of(ptx, ".visible") == 0);
+	CHECK(count_of(ptx, ".version") == 0);
+	CHECK(count_of(ptx, ".target") == 0);
+	// the layout it was built with
+	std::smatch m;
+	const std::regex fp(
+		R"(__bpftime_devhash_layout_fp\(\)\s*\{[^}]*mov\.u64\s+%rd\d+,\s*(-?\d+);)");
+	REQUIRE(std::regex_search(ptx, m, fp));
+	CHECK((uint64_t)std::stoll(m[1].str()) == DEVHASH_LAYOUT_FP);
+}
+
+TEST_CASE("The shared trampoline stays sm_61-legal", "[devhash-layout]")
+{
+	const std::string ptx = TRAMPOLINE_PTX;
+	CHECK(count_of(ptx, ".target sm_61") == 1);
+	for (const char *form :
+	     { ".relaxed", ".acquire", ".release", ".acq_rel", "nanosleep" }) {
+		INFO(form);
+		CHECK(count_of(ptx, form) == 0);
+	}
+	// ptxas checks every instruction against the module's .target
+	const char *ptxas = "/usr/local/cuda/bin/ptxas";
+	if (access(ptxas, X_OK) != 0)
+		SKIP("no ptxas");
+	char path[] = "/tmp/bpftime-trampoline-XXXXXX";
+	const int fd = mkstemp(path);
+	REQUIRE(fd >= 0);
+	REQUIRE(write(fd, ptx.data(), ptx.size()) == (ssize_t)ptx.size());
+	close(fd);
+	const std::string cmd = std::string(ptxas) + " -arch=sm_75 -o /dev/null " +
+				path + " > /dev/null 2>&1";
+	const int rc = std::system(cmd.c_str());
+	unlink(path);
+	CHECK(rc == 0);
 }

@@ -86,6 +86,13 @@ const int BPF_MAP_TYPE_GPU_ARRAY_HOST_MAP = 1513;
 const int BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP = 1530;
 const int BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP = 1531;
 const int BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP = 1532;
+// Device hash map (gpu_devhash_layout.h): its device path is the routing
+// pass's (constant-fd calls with a device copy at patch time call the
+// functions of ../devhash_ptx.h, which use sm_70 forms and are never part
+// of this trampoline). Calls that reach these helpers (a non-constant fd, or
+// no device copy at patch time) get NULL, -1 and -EINVAL without a host
+// call: the CPU's table is not the map once a device copy exists.
+const int BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP = 1533;
 
 struct MapBasicInfo {
 	bool enabled;
@@ -282,6 +289,8 @@ extern "C" __noinline__ __device__ uint64_t _bpf_helper_ext_0001(
 	uint64_t map, uint64_t key, uint64_t a, uint64_t b, uint64_t c)
 {
 	const auto &map_info = ::map_info[map];
+	if (map_info.map_type == BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP)
+		return 0;
 	if (map_info.map_type == BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP) {
 		auto real_key = *(uint32_t *)(uintptr_t)key;
 		return (uint64_t)(uintptr_t)thread_local_offset(real_key,
@@ -354,6 +363,8 @@ extern "C" __noinline__ __device__ uint64_t _bpf_helper_ext_0002(
 	uint64_t map, uint64_t key, uint64_t value, uint64_t flags, uint64_t a)
 {
 	const auto &map_info = ::map_info[map];
+	if (map_info.map_type == BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP)
+		return (uint64_t)-1;
 	if (map_info.map_type == BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP) {
 		auto real_key = *(uint32_t *)(uintptr_t)key;
 		const uint64_t base_flags = flags & 0xffffffffULL;
@@ -455,6 +466,9 @@ extern "C" __noinline__ __device__ uint64_t _bpf_helper_ext_0003(
 	// elem_delete): -1 without asking the host.
 	if (map_info.map_type == BPF_MAP_TYPE_ARRAY && map_info.extra_buffer)
 		return (uint64_t)-1;
+	// no GPU deletes in the device hash map
+	if (map_info.map_type == BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP)
+		return (uint64_t)-22;
 	if (map_info.map_type == BPF_MAP_TYPE_GPU_THREAD_LOCAL_ARRAY_MAP ||
 	    map_info.map_type == BPF_MAP_TYPE_GPU_SUM_ARRAY_MAP ||
 	    map_info.map_type == BPF_MAP_TYPE_GPU_DEVICE_PER_THREAD_ARRAY_MAP)
