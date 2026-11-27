@@ -8,6 +8,7 @@ set(TEST_SOURCES
     test_robustness.cpp
     test_sum_map_routing.cpp
     test_thread_local_byvalue.cpp
+    test_devhash_layout.cpp
     # test_kernel_finder.cpp
 )
 add_executable(bpftime_nv_attach_tests ${TEST_SOURCES})
