@@ -89,21 +89,25 @@ delivery summary line); pushed through da4e70c48.
   companion's EEXIST its failed inserts (counter, prefilled, missing, graph replays, four
   launches). `s7/S7-result.md`.
 
-- **S8** (rules before the runs, two addenda before theirs):
+- **S8** (rules before the runs, three addenda before theirs):
   - **Correctness.** Every count is exact on pt_victim (228 runs) and llama.cpp: a 1533 map's values
     equal the operations that succeeded, and each lost first touch is one EEXIST in the companion.
   - **Against the sum array (1531),** llama.cpp tg128 with every thread of `mul_mat_vec_q` probed:
     +0.035 to +0.040 ns per thread, as S0.2 expected (53.2 tokens/s against 55.7-56.0; 67.6 without
     the agent). The build's routing emits what S0.2 timed.
-  - **Against today's host path,** one lookup and add per thread on rms_norm: 0.8-0.9 ns per call
-    against 10.3 µs. The 32-token prefill runs 2.4-2.7% over its base instead of 316 times it.
-  - **One call per launch:** the hash operations are within the noise. The per-launch counter's
-    0.05-0.07 s per run is the routing pass's change to every thread's path, as with any
-    device-model map.
-  - **Delivery:** 0.3-0.5 ms per delivery at 512-1,024 rows. A 262,144-entry map takes 7.8 ms per
-    delivery (above the 2 ms rule: the CPU passes over all slots).
-  - **Measurement note:** pt_hash's side counts in registered host memory dominated the first
-    numbers; the addenda measured without them.
+  - **Against today's host path,** one lookup and add per thread on rms_norm (a 64-entry map):
+    0.19-0.31 ns per call against 10.3 µs. The 32-token prefill runs 0.6-0.9% over its base instead
+    of 316 times it.
+  - **One call per launch:** indistinguishable from the tool's filter alone (host path +0.32 s per
+    tg128 run).
+  - **Routing:** the pass costs nothing measurable (a declared, unused 1533 or 1531 map).
+  - **Delivery:** 0.3-0.5 ms per delivery at 260-1,024 rows. Every delivery reads the whole
+    directory, so the tools' default 262,144-entry map took 7.2-7.8 ms per delivery (above the 2 ms
+    rule) and cost the application 0.05-0.07 s per tg128 run (README: size the map above the keys,
+    not far above).
+  - **Measurement notes:** pt_hash's side counts in registered host memory dominated the first
+    numbers; addendum 3 corrected addendum 2's reading of the large map's delivery cost as the
+    routing pass's.
 
   `s8/S8-result.md`.
 

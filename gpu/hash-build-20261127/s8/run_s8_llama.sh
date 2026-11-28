@@ -67,6 +67,10 @@ for item in $ORDER; do
     dlinkn) OBJ=hdn_pre_thread_kc_rms; PF="PT_PREFILL=h:1" ;;
     linkn) OBJ=hsn_pre_thread_kc_rms; PF="PT_PREFILL=h:1" ;;
     dnone) OBJ=hd_none_leader_kc_llama4 ;;
+    dlinkns) OBJ=hdn_pre_thread_kc_rms_m64; PF="PT_PREFILL=h:1" ;;
+    dnones) OBJ=hd_none_leader_kc_llama4_m64 ;;
+    dldrs) OBJ=hd_cnt_leader_kc_llama4_m64 ;;
+    snone) OBJ=hs_none_leader_kc_llama4_sum ;;
   esac
   N=s8l-$PASS-$STAMP-$wl-$var
   wait_apt

@@ -1,6 +1,6 @@
 # S8: measurement and correctness against today (2026-11-28)
 
-Rules: `../S8-RULES.md` (written before the runs; one addendum after A and C, before its runs).
+Rules: `../S8-RULES.md` (written before the runs; three addenda, each written before its runs).
 Build: the worktree's build-cuda at a3db63689 (proto/map-model-70f7bc1f: S1-S7 and the delivery's
 per-hash-map exit line), agent and server for every item. Clocks checked by the harnesses before
 every item (cpu5 1728000, GPU 1020 MHz); GPU lock; bounded runs.
@@ -14,21 +14,29 @@ every item (cpu5 1728000, GPU 1020 MHz); GPU lock; bounded runs.
   - +0.035 to +0.040 ns per thread, S0.2's expected cost: 53.2 tokens/s against 55.7-56.0
     (67.6 without the agent);
   - the build's routing emits what S0.2 timed (difference 0.0003 ns or less).
-- **Against today's host path,** one lookup and add per thread on rms_norm:
-  - 0.8-0.9 ns per call against 10.3 µs;
-  - the 32-token prefill runs 2.4-2.7% over its base instead of 316 times its base.
-- **Sparse use** (one call per launch): the hash operations are within the noise. The per-launch
-  counter's cost is the routing pass's change to every thread's path (0.05-0.07 s per tg128 run).
-  That holds for every device-model map.
+- **Against today's host path,** one lookup and add per thread on rms_norm (a 64-entry map):
+  - 0.19-0.31 ns per call against 10.3 µs;
+  - the 32-token prefill runs 0.6-0.9% over its base instead of 316 times its base.
+- **Sparse use** (one call per launch, a 64-entry map): indistinguishable from the tool's rate
+  filter alone, against +0.32 s per tg128 run for the host path.
+- **The routing pass costs nothing measurable.** A 1533 or a 1531 map declared and unused leaves
+  tg128 at the filter-only speed.
+- **Oversized maps cost the application.** Every delivery reads and applies the whole directory.
+  - The tools' default 262,144-entry map took 7.2-7.8 ms per delivery: 1,640-1,770 deliveries
+    and about 12 s in each tg128 process.
+  - That costs the application 0.05-0.07 s per tg128 run, and turns the rms_norm prefill's
+    0.6-0.9% into 2.4-2.7%.
 - **Delivery:**
-  - 0.3-0.5 ms per delivery at 512-1,024 rows with the GPU free;
+  - 0.3-0.5 ms per delivery at 512-1,024 rows with the GPU free (0.34 ms each for latd's
+    260-entry map on llama.cpp);
   - in-process deliveries wait for the application's kernels;
   - a 262,144-entry map takes 7.8 ms per delivery (the CPU passes over all 524,288 slots), above
     the 2 ms rule: a cost of the schedule for large maps;
   - the first delivery sets up its module once (0.35-0.62 s).
 - **Measurement notes:** pt_hash's side counts (adds to a GPU array in registered host memory)
-  dominated the first 1533 numbers on pt_victim and in dlink. The two addenda measured without
-  them.
+  dominated the first 1533 numbers on pt_victim and in dlink; addenda 1 and 2 measured without
+  them. Addendum 2 read the per-launch cost as the routing pass's; addendum 3 showed it was the
+  large map's delivery (a review of the draft caught it).
 
 ## A. pt_victim: 1533 against the host path (passes v1-v3; 180 runs, all valid)
 
@@ -142,14 +150,16 @@ S0.2's override files are keyed by the patched PTX's sha256, which S3 changed, s
 regenerated from this build's dump (`variants-gen/`, `dump-lat/`; `s0/make_s02.py` applied
 unchanged).
 
-## B2, B3. Against today's host path on llama.cpp (passes l1, l2; addendum 2: l3, l4)
+## B2, B3. Against today's host path on llama.cpp (passes l1, l2; addendum 2: l3, l4; addendum 3: l5, l6)
 
 Every item is valid and its counts hold:
 - link, dlink, linkn and dlinkn: value = probe runs = 4,233,216;
 - blk: 1-2 lost first touches;
 - dblk: sum = runs - EEXIST (15);
 - ldr and dldr: exact, EEXIST 0;
-- dnone: the map stays empty.
+- dnone: the map stays empty;
+- addendum 3: dlinkns value = 4,233,216; dldrs exact (EEXIST 0); dnones and snone leave their maps
+  empty.
 
 The analysis marks dnone "INVALID" only because it checks for an inline lookup, which dnone by
 design has none of.
@@ -162,11 +172,12 @@ design has none of.
 | host path, with side counts (link) | 3.88 / 4.01 | x346-356 | 11.27-11.65 µs |
 | 1533, with side counts (dlink) | 34.00 / 34.76 | x40-41 | 1.27-1.30 µs |
 | host path, no side counts (linkn) | 4.38 / 4.39 | x315-317 | 10.30-10.33 µs |
-| **1533, no side counts (dlinkn)** | **1,347.7 / 1,354.1** | **2.4-2.7% slower** | **0.79-0.89 ns** |
+| 1533, no side counts, 262,144-entry map (dlinkn) | 1,347.7 / 1,354.1 | 2.4-2.7% slower | 0.79-0.89 ns |
+| **1533, no side counts, 64-entry map (addendum 3)** | **1,369.9 / 1,372.4** | **0.6-0.9% slower** | **0.19-0.31 ns** |
 
-On a real kernel, one lookup and add on the device hash map costs under a nanosecond per thread,
-about 12,000 times less than the host call it replaces. The 32-token prefill goes from 316 times
-the base time to 2.4-2.7% over it.
+On a real kernel, a lookup and add on the device hash map costs 0.2-0.3 ns per thread, against
+the 10.3 µs host call it replaces. With the tools' default map of 262,144 entries the
+deliveries (7.2 ms each, 172-181 per process) took the rest of dlinkn's cost.
 
 **rms_norm, p32, thread 0 of each block (one key):** host path 757 / 774 tokens/s (44-45% fewer,
 13.2-13.9 µs per call); 1533 1,246 / 1,253 (9-10% fewer, 1.71-1.88 µs per call with the side
@@ -181,13 +192,16 @@ counts, which this tool keeps).
 | host path (ldr) | 49.59 / 49.69 | +0.324-0.331 s (20.7-21.2 µs per call) |
 | 1533 (dldr) | 54.61 / 54.75 / 55.01 / 55.09 | +0.085 / +0.093 / +0.067 / +0.072 s |
 | 1533 declared, unused (dnone, addendum 2) | 55.41 / 55.19 | +0.050 / +0.068 s |
+| with 64-entry maps (addendum 3; filter-only 56.95 / 56.48 in that pass): 1533 counter (dldrs) | 56.48 / 56.53 | +0.019 / -0.002 s |
+| 64-entry 1533 declared, unused (dnones) | 57.03 / 57.00 | -0.003 / -0.021 s |
+| a 1531 sum map declared, unused (snone) | 56.99 / 56.96 | -0.002 / -0.019 s |
 
-- **Most of the per-launch counter's cost is the routing pass, not the hash map.** With a 1533 map
-  present, the routing pass runs on the probed modules and changes every thread's path through
-  the tool's rate filter (its helper calls). It does so for any device-model map, 1531 included.
-- That alone costs 0.050-0.068 s per run.
-- The 15,616 hash operations per run add 0.017 / 0.005 s, within the passes' spread.
-- The host path's counter costs 0.32-0.33 s per run.
+- **With a 64-entry map, the 1533 counter cannot be told from the filter alone.** The host path's
+  counter costs 0.32-0.33 s per run.
+- **Addendum 2's split was wrong.** It read dnone's +0.05-0.07 s as the routing pass's cost.
+  With small maps, a declared and unused 1533 or 1531 map costs nothing measurable, so it was the
+  262,144-entry map's delivery: 1,644-1,774 deliveries of 7.2 ms each, 11.8-12.7 s per process,
+  against latd's 260-entry map at 0.53 s for about 1,560.
 
 ## D. Re-checks on the final build (a3db63689)
 

@@ -9,10 +9,11 @@ TOK = {'p32': 32, 'pp': 512, 'tg': 128}
 RUNS = {'p32': 6.0, 'pp': 6.0, 'tg': 5.0 + 1.0 / 128}
 KS = {'link': [0], 'blk': [0], 'ldr': [0, 1, 2, 3], 'ldrf': [0, 1, 2, 3],
       'dlink': [0], 'dblk': [0], 'dldr': [0, 1, 2, 3],
-      'dlinkn': [0], 'linkn': [0], 'dnone': [0, 1, 2, 3]}
+      'dlinkn': [0], 'linkn': [0], 'dnone': [0, 1, 2, 3],
+      'dlinkns': [0], 'dnones': [0, 1, 2, 3], 'dldrs': [0, 1, 2, 3], 'snone': [0, 1, 2, 3]}
 # addendum 2: no side counts in dlinkn/linkn, so their probe runs are rms_norm's
 # thread count over the run (dlink's count in l1/l2)
-NOCHK_RUNS = {'dlinkn': 4233216, 'linkn': 4233216}
+NOCHK_RUNS = {'dlinkn': 4233216, 'linkn': 4233216, 'dlinkns': 4233216}
 
 
 def samples(run):
@@ -64,27 +65,30 @@ for d in sys.argv[1:]:
             runs = NOCHK_RUNS.get(v0) or sum(c[k * 8 + 4] for k in KS[v0])
             misses = sum(c[k * 8 + 1] for k in KS[v0])
             insf = sum(c[k * 8 + 3] for k in KS[v0])
-            ncalls = 0 if v0 in ('ldrf', 'dnone') else runs + (misses if v0 not in ('link', 'dlink', 'dlinkn', 'linkn') else 0)
+            ncalls = 0 if v0 in ('ldrf', 'dnone', 'dnones', 'snone') else runs + (misses if v0 not in ('link', 'dlink', 'dlinkn', 'linkn', 'dlinkns') else 0)
+            dv = re.search(r'device hash map \((\d+) entries, \d+ shards\): (\d+) deliveries, (\d+) us in all', cl)
+            if dv:
+                line += '  [%s-entry map: %s deliveries, %.2f s]' % (dv.group(1), dv.group(2), int(dv.group(3)) / 1e6)
             per = (spr - bspr) / (ncalls / RUNS[wl]) * 1e6 if ncalls else None
             if dev:
                 line += '  routed %s compile errors %d %s' % (inline, cerr, 'ok' if inline and max(inline) >= 1 and cerr == 0 else 'INVALID')
             line += '  routing=%d  probe runs %d (%.0f per run)  host calls %d  %s' % (
                 routing, runs, runs / RUNS[wl], ncalls, ('%.2f us/call' % per) if per else '-')
             f = it.get((wl, 'ldrf' + sfx))
-            if v0 in ('ldr', 'dldr', 'dnone') and f and f[0]:
+            if v0 in ('ldr', 'dldr', 'dnone', 'dldrs', 'dnones', 'snone') and f and f[0]:
                 fspr = TOK[wl] / f[0]
                 line += '  against the filter alone: %+.4f s/run%s' % (spr - fspr, (', %.2f us/call' % ((spr - fspr) / (ncalls / RUNS[wl]) * 1e6)) if ncalls else '')
-            if v0 == 'dnone':
+            if v0 in ('dnone', 'dnones', 'snone'):
                 line += '  (1533 declared, unused) map entries %s, probe runs %d' % (
                     [m.get('entries') for m in json.load(open(os.path.join(run, 'maps.json')))['maps'] if m['name'] == 'h'], runs)
-                dn = it.get((wl, 'dldr' + sfx))
+                dn = it.get((wl, {'dnone': 'dldr', 'dnones': 'dldrs'}.get(v0, 'none') + sfx))
                 if dn and dn[0]:
                     line += '; dldr - dnone: %+.4f s/run' % (TOK[wl] / dn[0] - spr)
             elif v0 == 'ldrf':
                 line += '  (filter only) hash sum %s, probe runs %d' % (hsum, runs)
-            elif v0 in ('dlinkn', 'linkn'):
+            elif v0 in ('dlinkn', 'linkn', 'dlinkns'):
                 vals = None
-                if v0 == 'dlinkn' and os.path.exists(os.path.join(run, 'h.kv')):
+                if v0 in ('dlinkn', 'dlinkns') and os.path.exists(os.path.join(run, 'h.kv')):
                     kvb = open(os.path.join(run, 'h.kv'), 'rb').read()
                     vals = dict((struct.unpack('<IIQ', kvb[i:i + 16])[0], struct.unpack('<IIQ', kvb[i:i + 16])[2]) for i in range(0, len(kvb), 16))
                 got = vals.get(0) if vals is not None else hsum

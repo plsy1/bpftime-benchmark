@@ -171,3 +171,30 @@ Follow-up, passes l3 and l4, `run_s8_llama.sh`:
     rms_norm thread count of the run, taken from dlink's count in l1/l2: 4,233,216;
   - linkn: sum = 4,233,216;
   - dnone: the map stays empty.
+
+## Addendum 3 (written after addendum 2's runs, before these, 2026-11-28 17:00)
+
+**The delivery confound.** Addendum 2's split did not separate the routing pass from the
+delivery. Every 1533 item on llama.cpp so far (dnone, dldr, dlink, dlinkn, dblk) has the tools'
+default 262,144-entry map. The agent logs show 1,640-1,770 deliveries of that map per tg128
+process, 11.8-12.7 s of delivery in all (about 7.2 ms each). latd's 260-entry map took 0.53 s for
+about 1,560. dnone's +0.05-0.07 s per run over ldrf may therefore be the delivery of an oversized
+map, and dlinkn's 0.8-0.9 ns per call is an upper bound until checked.
+
+**Follow-up, passes l5 and l6** (`run_s8_llama.sh`):
+- **Items** (`HS_MAX=64`; the tools use keys 0-3):
+  - `p32:base`;
+  - `p32:dlinkns`: dlinkn with a 64-entry map;
+  - `tg:base`;
+  - `tg:ldrf`;
+  - `tg:dnones`: dnone with a 64-entry map;
+  - `tg:dldrs`: dldr with a 64-entry map;
+  - `tg:snone`: the filter with a 1531 sum map of 4 entries declared and unused (`-DHS_SUMDECL`);
+    the routing pass runs for it too.
+- **Reading:**
+  - dnones - ldrf small against dnone - ldrf: the per-launch cost was the large map's delivery.
+    Otherwise it stays with routing, for 1533; snone - ldrf says whether a 1531 map does the same.
+  - dlinkns per call: the rms_norm number without a large map's delivery.
+- **Counts:** dlinkns value = 4,233,216; dldrs exact (EEXIST 0); dnones and snone: maps empty.
+- **Also from the logs:** each 1533 item's deliveries and their total time.
+- **Wording:** "any device-model map" is stated only if snone shows it.

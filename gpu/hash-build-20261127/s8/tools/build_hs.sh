@@ -55,3 +55,8 @@ mkn hdn -DHS_DEV CNT THREAD KMOD TEST 1024 "-DHS_MAX=1024"
 mkn hdn -DHS_DEV PRE THREAD KC RMS
 mkn hsn "" PRE THREAD KC RMS
 mkd NONE LEADER KC LLAMA4
+# S8 addendum 3: small (64-entry) 1533 maps; a 1531 map declared, unused
+mkn hdn -DHS_DEV PRE THREAD KC RMS _m64 "-DHS_MAX=64"
+o=bpf/hd_none_leader_kc_llama4_m64.bpf.o; clang-15 $FLAGS -DHS_DEV -DHS_MAX=64 -DPT_SET_LLAMA4 -DHS_OP=HS_OP_NONE -DHS_RATE=HS_RATE_LEADER -DHS_KEY=HS_KEY_KC -c pt_hash.bpf.c -o $o; echo $o
+o=bpf/hd_cnt_leader_kc_llama4_m64.bpf.o; clang-15 $FLAGS -DHS_DEV -DHS_MAX=64 -DPT_SET_LLAMA4 -DHS_OP=HS_OP_CNT -DHS_RATE=HS_RATE_LEADER -DHS_KEY=HS_KEY_KC -c pt_hash.bpf.c -o $o; echo $o
+o=bpf/hs_none_leader_kc_llama4_sum.bpf.o; clang-15 $FLAGS -DHS_SUMDECL -DPT_SET_LLAMA4 -DHS_OP=HS_OP_NONE -DHS_RATE=HS_RATE_LEADER -DHS_KEY=HS_KEY_KC -c pt_hash.bpf.c -o $o; echo $o

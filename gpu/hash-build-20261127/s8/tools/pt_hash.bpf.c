@@ -80,6 +80,11 @@ struct { __uint(type, BPF_MAP_TYPE_ARRAY); __uint(max_entries, 16); __type(key, 
 struct { __uint(type, BPF_MAP_TYPE_HASH); __uint(max_entries, HS_MAX); __type(key, u32); __type(value, u64); } h SEC(".maps");
 #endif
 struct { __uint(type, MT_GPU_ARRAY); __uint(max_entries, 8 * NK); __type(key, u32); __type(value, u64); } chk SEC(".maps");
+#if defined(HS_SUMDECL)
+/* S8 addendum 3: a 1531 sum map declared and never used (the routing pass
+ * runs for modules with a device-model map) */
+struct { __uint(type, MT_SUM); __uint(max_entries, 4); __type(key, u32); __type(value, u64); } s_unused SEC(".maps");
+#endif
 
 /* -DHS_NOCHK (S8 addendum): no side counts (chk lives in registered host
  * memory: its adds dominated the device hash map's cost on pt_victim) */
