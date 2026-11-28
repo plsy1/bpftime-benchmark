@@ -78,10 +78,15 @@ decisions D1-D16 there). This file is for tool authors and for whoever changes t
    another thread's insert rests on the hardware's ordering (the headers are published with
    release stores and read with acquire or strong loads); across launches, stream order holds.
 
-5. **Size the map above the number of keys.** An insert past `max_entries` leaves a refused slot
-   in the directory. Refused slots stay, so a map that receives many more distinct keys than it
-   holds fills its directory, and lookups of absent keys then walk all of it (word 11 counts
-   them).
+5. **Size the map above the number of keys, but not far above it.** An insert past `max_entries`
+   leaves a refused slot in the directory. Refused slots stay, so a map that receives many more
+   distinct keys than it holds fills its directory, and lookups of absent keys then walk all of it
+   (word 11 counts them). In the other direction, every delivery reads and applies the whole
+   directory (2 x `max_entries` slots, rounded up to a power of two), whatever the number of live
+   keys: on the Orin about 0.3 ms per delivery at 512-1,024 entries and 7.8 ms at 262,144. A
+   delivery runs after each of the application's synchronizations (and every 20-200 ms), competing
+   with the application for CPU and GPU, so an oversized map costs the application throughput
+   (S8, results `gpu/hash-build-20261127/s8`).
 
 6. **When GPU programs reach the device map.** Only through constant map fds, and only in modules
    patched after this process made its copy. A map without a copy when the process initialized its
