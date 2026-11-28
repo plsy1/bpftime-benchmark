@@ -1,8 +1,9 @@
 # S5: the device copy and the delivery of 1533 maps in the agent (2026-11-28)
 
 Plan: `PLAN-stage1.md` S5, D11a, D12, D14, D15; working steps `s5/S5-steps.md`. Branch
-proto/map-model-70f7bc1f, local commits abc759681 (first part) and 41d68ea8c (second part: review
-fixes, the remaining tests, the claim check on merged locks).
+proto/map-model-70f7bc1f, local commits abc759681 (first part), 41d68ea8c (second part: review
+fixes, the remaining tests, the claim check on merged locks) and da4e70c48 (tests of the claim
+check's branches, slot 255 end to end, a real exit).
 
 ## What was built
 
@@ -60,29 +61,34 @@ of the CUDA attach types (it records what init's link loop hands a CUDA link), a
 | 10: companion binding | s5-companion, s5-reuse-companion + s5-takeover | before or after its hash map, a 15-character name's 12-byte prefix: bound; two candidates, two hash maps of one prefix, 4-byte values: none; words readable with `bpf_map_lookup_elem`; a companion closed and its slot reused before a takeover is not bound and not written |
 | 11: isolation | s5-isolation | the hash module fails to load; a 1531 map in the same process is delivered (77), the 1533 map has no delivery and stays in PHASE 2 |
 | gate (D11a) | s5-gate | no copy without a CUDA link, without a CUDA attach, or in the direct run (PHASE 0, no claim); with them, a copy |
+| the claim check, end to end | s5-slot255 | the agent writes before its copy with writer slot 255 (slots 0..254 held by another description): the claim stays held, deliveries go on, the mirror exact |
+| a real exit | s5-exit, s5-after-exit | `exit()` with a 1533 map registered (the context a static, as the agent's): exit status 0; the next process reads EXIT_DELIVERY 1, SYNCS_AT_EXIT = SYNCS_COVERED, no launches after the last sync, 100 keys in the mirror |
+| (CPU) the claim check's branches | `[gpu-devhash-cpu]` | slot 255 beside the claim; fdinfo unreadable (descriptor limit): held; another file at the number with fdinfo unreadable: giving the claim back leaves that file's lock |
 
-16 test cases, 100 assertions. Before the claim-check fix (below) the suite passed 8 of 9 runs (the
-pass-B death case failed once; the death case alone passed 8 of 8 more); after it, every run
-(counted at the end of this note).
+18 test cases. Before the claim-check fix (below) the suite passed 8 of 9 runs (the pass-B death
+case failed once; the death case alone passed 8 of 8 more); after it, every run.
 
 **Found while testing: the claim check misread merged locks.** The kernel merges one description's
 adjacent locks of one type (`s2/ofd/merge_check.c`): writer slot 255 and the claim's byte 256 show
 as one fdinfo line from byte 255. The check compared the line's start with the claim's byte, so an
 owner that had written before it claimed and held slot 255 (1 in 256: the scan starts at
 pid % 256) took its claim for lost, could not take it again (its own forgotten description held
-it) and stopped delivering: the pass-B death test failed once in ten suite runs. Fixed (range
-check; an unreadable fdinfo with the segment's file at that number counts as held); CPU test "The
-claim stays held beside this process's writer slot 255"; plan section 12.
+it) and stopped delivering: the pass-B death test failed once in ten suite runs. The cause was
+first inferred from that run's log (the retake failed, so the old description still held the
+claim), then reproduced on purpose: s5-slot255 with the old check fails exactly so (claim lost, no
+delivery; mutation C1). Fixed (range check; a number naming another file is checked first; an
+unreadable fdinfo with the segment's file at that number counts as held); CPU tests for each
+branch; plan section 12.
 
 Not handled, as for 1531: the deliveries hold the 1533 object in the segment, so a process that
 unmaps its segment while a device map is registered crashes the delivery thread (the agent unmaps
 only at exit, after the exit delivery; the gate test keeps its copying case last).
 
-## Mutations (28 of 28 caught)
+## Mutations (32 of 32 caught)
 
 Each applied alone, the build rebuilt, the named children (or a whole test case) run; scripts
-`mutate_s5.py` (batch 1, before the review) and `mutate_s5b.py` (batch 2, after it), outputs
-`mutations-s5.txt`, `mutations-s5b.txt`.
+`mutate_s5.py` (batch 1, before the review), `mutate_s5b.py` (batch 2, after it) and
+`mutate_s5c.py` (batch 3, the claim check's branches and the exit), outputs `mutations-s5*.txt`.
 
 | mutation | caught by |
 |---|---|
@@ -110,25 +116,38 @@ Each applied alone, the build rebuilt, the named children (or a whole test case)
 | an exception in the copy not rolled back | s5-fail (PHASE 1 and the claim left) |
 | the claim check takes a lock line's start only | CPU test, slot 255 |
 | the dead owner's pass-B occupancy dropped by the takeover image | death test (no occupied non-live slot) |
+| the claim check takes a lock line's start only, on the GPU | s5-slot255 (claim lost, no delivery) |
+| unreadable fdinfo taken as a lost claim | CPU test, fdinfo unreadable |
+| the number not checked against the segment file first | CPU test, another file at the number (its lock released) |
+| the exit words not written for hash maps | exit test (SYNCS_AT_EXIT 0) |
 
-## Final runs (41d68ea8c)
+The S2 lock mutations (`mutate_s2_ofd3.py`) rerun on da4e70c48 against `[gpu-devhash-cpu]`
+(`s2rerun/`): 20 of 22 caught; the two missed are the two vfork guards, each redundant with the
+other, as on 9bb80ba16 (checked together by hand then).
 
-- `[gpu-devhash-s5]`: 16 cases, 100 assertions; passed on every run after the claim-check fix
-  (the run after the fix, and inside the full suite below).
-- `[gpu-devhash-device]` (S3, S4, S6 and S5): 27 cases, 201 assertions, all pass.
-- `[gpu-devhash-cpu]`: 22 cases, 6,962 assertions, all pass (the slot-255 case added).
+## Final runs (da4e70c48)
+
+- `[gpu-devhash-device]` (S3, S4, S6 and S5's 18): 29 cases, 211 assertions, all pass
+  (`runs/gpu-device-final2.log`).
+- `[gpu-devhash-cpu]`: 24 cases, 6,975 assertions, all pass.
 - The non-CUDA build: `map_handler.cpp`, `bpf_attach_ctx.cpp` and `bpftimetool/main.cpp` compile
   with the build's flags without `BPFTIME_ENABLE_CUDA_ATTACH` (`-fsyntax-only`; the define comes
   only from the command line).
-- 1531 regression (`lat_mmvq`, tg128, worktree build, clocks checked: cpu5 1,728,000, GPU
+- 1531 regression (on 41d68ea8c; `lat_mmvq`, tg128, worktree build, clocks checked: cpu5 1,728,000, GPU
   1020 MHz): base 67.96 t/s, lat_mmvq 56.11 t/s, **+0.1267 ns per thread** (S4/S6's run: +0.1273),
   sum exact (`regression-lat_mmvq.*`). The shared delivery changes cost 1531 nothing measurable.
-- The whole build: `bpftime_daemon` fails to link for want of `-lcupti` and `-lnvrtc` (library
-  paths of this build directory; not touched by S5, not used by the measurements).
+- The whole build: `bpftime_daemon` fails to link for want of `-lcupti` and `-lnvrtc`. S5's
+  commits change no CMake file (`git diff c42a843cb..` lists none), so the link line is the
+  configuration's; whether it ever linked in this build directory was not checked. The
+  measurements do not use it.
 
 ## Not done in S5
 
-- The narrow independent read of the slots and claim code (9bb80ba16) and now of S5: the agents'
-  weekly limit (until 2026-11-30 06:00).
+- Test 9 checks the 1533 object's pin only: the companion array's pin has no check (nothing counts
+  arrays destroyed) and no mutation.
+- Test 5 does not check that a failed copy's block is freed.
+
+- The narrow independent read of the slots and claim code (9bb80ba16), of the claim check's
+  rewrite (41d68ea8c) and of S5: the agents' weekly limit (until 2026-11-30 06:00).
 - Plan test 1c with nv_attach_impl's late path in the runtime tests (the stub covers the order;
   S6's GPU test covers routing with a base).
