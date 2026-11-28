@@ -1831,17 +1831,21 @@ std::string route_thread_local_maps(const std::string &ptx_in,
 		if (!found)
 			fail("routed function " + f + " has no definition");
 	}
-	// the devhash functions once, at the start of the module body (plan
-	// D1): a PTX call needs its callee declared before it
+	// the devhash functions once, before the module's first function
+	// (plan D1): a PTX call needs its callee declared before it. Not after
+	// .address_size: the passes put the probe functions ahead of the
+	// module's own header (the trampoline's header leads the assembled
+	// module, and repeated headers are filtered out), so text placed after
+	// that header came after its callers (S7's first end-to-end run).
 	if (st.hash_lookups + st.hash_inserts > 0) {
-		static const std::regex header(
-			R"((^|\n)[ \t]*\.address_size[^\n]*\n)");
-		std::smatch hm;
-		if (!std::regex_search(ptx, hm, header))
-			fail("no .address_size line for the devhash functions");
-		const size_t at = hm.position(0) + hm.length(0);
+		static const std::regex first_function(
+			R"((^|\n)([ \t]*((\.visible|\.weak|\.extern)[ \t]+)*\.(func|entry)\b))");
+		std::smatch fm;
+		if (!std::regex_search(ptx, fm, first_function))
+			fail("no function for the devhash functions to precede");
+		const size_t at = fm.position(0) + fm.length(1);
 		ptx = ptx.substr(0, at) +
-		      "\n// bpftime device hash map functions (devhash_ptx.h)\n" +
+		      "// bpftime device hash map functions (devhash_ptx.h)\n" +
 		      DEVHASH_PTX + "\n" + ptx.substr(at);
 		st.devhash_text_inserted = 1;
 	}

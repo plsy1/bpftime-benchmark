@@ -1,6 +1,8 @@
 #include "catch2/catch_test_macros.hpp"
 #include "nv_attach_impl.hpp"
 #include "nv_thread_local_routing.hpp"
+#include "nv_attach_utils.hpp"
+#include "ptxpass/core.hpp"
 #include "trampoline/gpu_devhash_layout.h"
 #include <cstdio>
 #include <cstdlib>
@@ -494,4 +496,64 @@ TEST_CASE("A hash-map call block with more than the call is refused, a commented
 			 { h14() }, st2);
 	REQUIRE(st2.hash_lookups == 1);
 	REQUIRE(has(out, "// { // callseq 99, 0 }"));
+}
+
+// The passes put the probe functions ahead of the module's own header, and
+// the attach assembles the trampoline (with its header) before the routed
+// module, filtering the repeated header out. The devhash text went after
+// .address_size, so after its callers: ptxas refused the assembled module
+// ("requires call prototype") and the whole module ran unprobed (S7's first
+// run with a real tool and victim).
+TEST_CASE("The devhash functions precede probe functions placed before the header",
+	  "[hash-map-routing]")
+{
+	thread_local_routing_stats st;
+	auto out = route(func("__retprobe_func__kern",
+			      lookup_and_add() + call(30, 2, "%rd52", "%rd51",
+						      "%rd60", "%rd51", "1")) +
+				 HEAD,
+			 { h14() }, st);
+	REQUIRE(st.hash_lookups == 1);
+	REQUIRE(st.hash_inserts == 1);
+	REQUIRE(count(out, "__bpftime_devhash_lookup(\n") == 1);
+	REQUIRE(out.find("__bpftime_devhash_lookup(\n") <
+		out.find(".visible .func __retprobe_func__kern"));
+}
+
+TEST_CASE("ptxas accepts the routed module as the attach assembles it",
+	  "[hash-map-routing]")
+{
+	const char *ptxas = "/usr/local/cuda/bin/ptxas";
+	if (access(ptxas, X_OK) != 0)
+		SKIP("no ptxas");
+	thread_local_routing_stats st;
+	auto routed = route(func("__retprobe_func__kern",
+				 lookup_and_add() + call(30, 2, "%rd52", "%rd51",
+							 "%rd60", "%rd51", "1")) +
+				    HEAD,
+			    { h14() }, st);
+	REQUIRE(st.hash_inserts == 1);
+	// as the attach compiles it for the device (its .target rewritten)
+	const std::string out = ptxpass::filter_out_version_headers_ptx(
+		wrap_ptx_with_trampoline_for_sm(routed, "sm_87"));
+	char path[] = "/tmp/bpftime-hash-assembled-XXXXXX";
+	const int fd = mkstemp(path);
+	REQUIRE(fd >= 0);
+	REQUIRE(write(fd, out.data(), out.size()) == (ssize_t)out.size());
+	close(fd);
+	const std::string cmd = std::string(ptxas) + " -arch=sm_87 -o /dev/null " +
+				path + " > " + path + ".log 2>&1";
+	const int rc = std::system(cmd.c_str());
+	std::string log;
+	if (FILE *f = fopen((std::string(path) + ".log").c_str(), "r")) {
+		char buf[4096];
+		size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+		buf[n] = 0;
+		log = buf;
+		fclose(f);
+	}
+	unlink(path);
+	unlink((std::string(path) + ".log").c_str());
+	INFO(log);
+	CHECK(rc == 0);
 }

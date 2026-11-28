@@ -2473,6 +2473,44 @@ Tests: `[sm-arch]` (the failure case in a child without visible devices),
 `[cuda-no-device]` (bpftime_runtime_tests, a child without visible devices
 runs a CPU program).
 
+## GPU Device Hash Map (1533)
+
+Tool-facing contract and file map: `runtime/src/bpf_map/gpu/README.md`. For
+changes:
+- `attach/nv_attach_impl/trampoline/gpu_devhash_layout.h` is the only
+  definition of the block, the staging, the states and the hash, for the
+  host, the device functions and the routing pass. Regenerate the PTX after
+  changing it or `devhash/devhash.cu`: `make -C attach/nv_attach_impl/devhash`
+  (`devhash_ptx.h`, `devhash_test_ptx.h`), and for the trampoline's 1533
+  branches `make -C attach/nv_attach_impl/trampoline CLANG=clang++-16
+  ../trampoline_ptx.h`.
+- The trampoline stays sm_61-legal (its PTX target is sm_61): its 1533
+  branches answer NULL, -1 and -22 with nothing newer. The device functions
+  need sm_70 (`.relaxed`, `.acquire`, `nanosleep`) and go only into modules
+  compiled for the device's architecture.
+- The routing pass inserts the devhash text before the module's first
+  function, not after its `.address_size`: the passes put the probe functions
+  ahead of the module's own header, and text placed after that header came
+  after its callers (ptxas refused the module, which then ran unprobed; test
+  "ptxas accepts the routed module as the attach assembles it").
+- Copies are made in the pre-pass at the start of
+  `init_attach_ctx_from_handlers` (`prepare_device_hash_copies`), never under
+  `map_binding_mutex` (a robust mutex a death breaks for good; the seal waits up
+  to a second) and never after a CUDA link of that init exists (no
+  `map_basic_info` may change then). `get_gpu_map_extra_buffer` and
+  `get_gpu_map_max_thread_count` only read the cache.
+- The claim check tests the claim's byte against each fdinfo lock line's range:
+  the kernel merges one description's adjacent locks (writer slot 255 and the
+  claim's byte 256). Comparing a line's start made an owner on slot 255 stop
+  delivering.
+- Tests: every GPU configuration runs in a child process under a deadline (a
+  hung kernel cannot be stopped from inside a process); a child is an agent
+  built as in production (segment created as the server would, reopened, a CUDA
+  attach registered, `init_attach_ctx_from_handlers`). Waiting for a delivery:
+  SYNCS_COVERED reaches the application's sync count, then one more DELIVERIES
+  increment (the companion is written after the count). Catch test names
+  must not contain commas (a filter splits at them).
+
 ## Map Usage Counters
 
 `BPFTIME_ENABLE_MAP_USAGE_STATS` (CMake, off by default) counts map
