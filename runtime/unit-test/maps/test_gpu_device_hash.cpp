@@ -28,6 +28,7 @@
 #include <mutex>
 #include <dirent.h>
 #include <fcntl.h>
+#include <sys/resource.h>
 #include <poll.h>
 #include <pthread.h>
 #include <set>
@@ -2327,4 +2328,108 @@ TEST_CASE("The claim stays held beside this process's writer slot 255",
 	fl.l_len = 1;
 	CHECK(fcntl(other, F_OFD_SETLK, &fl) == 0);
 	close(other);
+}
+
+namespace
+{
+// Makes every new descriptor fail with EMFILE (the lowest free number is
+// the limit) until it goes out of scope.
+struct no_new_fds {
+	struct rlimit old {};
+	bool ok = false;
+	no_new_fds()
+	{
+		if (getrlimit(RLIMIT_NOFILE, &old) != 0)
+			return;
+		const int lowest = dup(0);
+		if (lowest < 0)
+			return;
+		close(lowest);
+		struct rlimit r = old;
+		r.rlim_cur = (rlim_t)lowest;
+		ok = setrlimit(RLIMIT_NOFILE, &r) == 0;
+	}
+	~no_new_fds()
+	{
+		if (ok)
+			setrlimit(RLIMIT_NOFILE, &old);
+	}
+};
+
+bool byte_free_for(int fd, uint64_t byte)
+{
+	struct flock fl {};
+	fl.l_type = F_WRLCK;
+	fl.l_whence = SEEK_SET;
+	fl.l_start = (off_t)byte;
+	fl.l_len = 1;
+	if (fcntl(fd, F_OFD_SETLK, &fl) != 0)
+		return false;
+	fl.l_type = F_UNLCK;
+	fcntl(fd, F_OFD_SETLK, &fl);
+	return true;
+}
+} // namespace
+
+// A process at its descriptor limit (or under a seccomp filter) cannot open
+// /proc/self/fdinfo: with the segment's file still at the description's
+// number, the claim counts as held (the owner keeps delivering).
+TEST_CASE("The claim counts as held when fdinfo cannot be read",
+	  "[gpu-devhash-cpu]")
+{
+	segment seg("nofdinfo");
+	auto *map = seg.make(64);
+	REQUIRE(map->claim(false) == devhash_path::first_copy);
+	REQUIRE(map->still_holds_claim());
+	bool held = false;
+	{
+		no_new_fds limit;
+		REQUIRE(limit.ok);
+		REQUIRE(open("/proc/self/fdinfo/0", O_RDONLY) < 0);
+		held = map->still_holds_claim();
+	}
+	CHECK(held);
+	map->release_claim();
+}
+
+// Another file at the description's number (the host closed it and opened
+// its own) is never taken for the description, even when fdinfo cannot be
+// read: giving the claim back must not unlock the host's lock on its file.
+TEST_CASE("Giving the claim back leaves another file at its number alone",
+	  "[gpu-devhash-cpu]")
+{
+	segment seg("otherfile");
+	auto *map = seg.make(64);
+	REQUIRE(map->claim(false) == devhash_path::first_copy);
+	const int ours = map->description_fd_for_test();
+	REQUIRE(ours >= 3);
+	const std::string host_path = "/dev/shm/" + seg.name + "-host";
+	const int host = open(host_path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+	REQUIRE(host >= 0);
+	const uint64_t byte =
+		map->lock_base() + nv_gpu_device_hash_map_impl::OWNER_LOCK_BYTE;
+	// the host's lock on its own file, at the claim's byte, through the
+	// description that now has the agent's number
+	REQUIRE(dup3(host, ours, O_CLOEXEC) == ours);
+	struct flock fl {};
+	fl.l_type = F_WRLCK;
+	fl.l_whence = SEEK_SET;
+	fl.l_start = (off_t)byte;
+	fl.l_len = 1;
+	REQUIRE(fcntl(ours, F_OFD_SETLK, &fl) == 0);
+	{
+		no_new_fds limit;
+		REQUIRE(limit.ok);
+		map->release_claim();
+	}
+	// another description of the host's file still finds the byte held
+	const int probe = open(host_path.c_str(), O_RDWR | O_CLOEXEC);
+	REQUIRE(probe >= 0);
+	CHECK_FALSE(byte_free_for(probe, byte));
+	close(probe);
+	close(host);
+	unlink(host_path.c_str());
+	// the number is the host's now: the map's destructor must leave it
+	// (it checks the file before closing); the test closes it
+	close(ours);
 }

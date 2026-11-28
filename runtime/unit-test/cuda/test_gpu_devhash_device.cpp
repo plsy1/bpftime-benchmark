@@ -28,6 +28,7 @@
 #include "handler/map_handler.hpp"
 #include "probed_launch_activity.hpp"
 #include <linux/bpf.h>
+#include <fcntl.h>
 #include <atomic>
 #include <optional>
 #include <thread>
@@ -2736,6 +2737,125 @@ int run_s5_reuse_companion()
 	return 0;
 }
 
+// The claim check's merged locks, end to end: this agent writes before its
+// copy with writer slot 255 (another description holds 0..254), so its one
+// description holds slot 255 and the claim's byte 256, which the kernel
+// shows as one lock range; the owner must keep delivering.
+int run_s5_slot255()
+{
+	if (!use_primary_context())
+		return 0;
+	const std::string name = s5_segment_name("slot255");
+	s5_checks c;
+	if (!s5_create_segment(name) ||
+	    !s5_map(S5_HASH_FD, "counts", S5_HASH, 4, 8, 600) ||
+	    !s5_map(S5_COMP_FD, "counts_st", S5_ARRAY, 4, 8, 16))
+		return 2;
+	s5_agent a;
+	a.open(name);
+	nv_gpu_device_hash_map_impl *m = s5_hash(S5_HASH_FD);
+	if (m == nullptr)
+		return 3;
+	const int other = open(("/dev/shm/" + name).c_str(), O_RDWR | O_CLOEXEC);
+	if (other < 0)
+		return 3;
+	for (u64 i = 0; i < 255; i++) {
+		struct flock fl {};
+		fl.l_type = F_WRLCK;
+		fl.l_whence = SEEK_SET;
+		fl.l_start = (off_t)(m->lock_base() + i);
+		fl.l_len = 1;
+		if (fcntl(other, F_OFD_SETLK, &fl) != 0)
+			return 3;
+	}
+	u32 k = 1;
+	u64 v = 1;
+	c.expect("a write before the copy (writer slot 255)",
+		 bpftime_map_update_elem(S5_HASH_FD, &k, &v, BPF_ANY), 0);
+	c.expect("init", (u64)a.init(), 0);
+	u64 shards = 0;
+	const CUdeviceptr block = gpu_model::find_device_hash_copy(m, &shards);
+	if (block == 0) {
+		printf("no copy\n");
+		return 4;
+	}
+	c.expect_true("the claim held", m->still_holds_claim());
+	auto g = s5_gpu_inserts(block, 600, shards, 100, 512, 7919u, 1000u);
+	c.expect_true("delivered",
+		      s5_wait_delivery(m, attach::launch_activity().app_sync_count()));
+	u64 wrong = 0;
+	for (auto &[key, want] : g.want) {
+		auto p = (const u64 *)bpftime_map_lookup_elem(S5_HASH_FD, &key);
+		wrong += p == nullptr || *p != want;
+	}
+	c.expect("mirror wrong", wrong, 0);
+	c.expect("still registered", gpu_model::registered_hash_count_for_test(),
+		 1);
+	printf("RESULT s5-slot255: %d wrong\n", c.bad);
+	a.ctx.reset();
+	close(other);
+	shared_memory_object::remove(name.c_str());
+	return c.bad == 0 ? 0 : 1;
+}
+
+// A real exit with a 1533 map registered: the exit handler stops the
+// delivery and writes the exit words before the segment goes. The agent's
+// context is a static, constructed before the delivery's exit handler is
+// registered, as the agent's is (its destructor runs after the handler).
+int run_s5_exit()
+{
+	if (!use_primary_context())
+		return 0;
+	const std::string name = s5_segment_name("exit");
+	if (!s5_create_segment(name) ||
+	    !s5_map(S5_HASH_FD, "counts", S5_HASH, 4, 8, 600) ||
+	    !s5_map(S5_COMP_FD, "counts_st", S5_ARRAY, 4, 8, 16))
+		return 2;
+	static s5_agent a;
+	a.open(name);
+	if (a.init() != 0)
+		return 2;
+	nv_gpu_device_hash_map_impl *m = s5_hash(S5_HASH_FD);
+	u64 shards = 0;
+	const CUdeviceptr block =
+		m ? gpu_model::find_device_hash_copy(m, &shards) : 0;
+	if (block == 0)
+		return 3;
+	s5_gpu_inserts(block, 600, shards, 100, 512, 7919u, 1000u);
+	if (!s5_wait_delivery(m, attach::launch_activity().app_sync_count()))
+		return 4;
+	printf("EXITING %" PRIu64 " syncs\n",
+	       attach::launch_activity().app_sync_count());
+	fflush(stdout);
+	exit(0); // atexit handlers, static destructors, the segment unmapped
+}
+
+// After the exit above: the exit words.
+int run_s5_after_exit()
+{
+	if (!use_primary_context())
+		return 0;
+	const std::string name = s5_segment_name("exit");
+	s5_checks c;
+	bpftime_destroy_global_shm();
+	setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1);
+	bpftime_initialize_global_shm(shm_open_type::SHM_OPEN_ONLY);
+	nv_gpu_device_hash_map_impl *m = s5_hash(S5_HASH_FD);
+	if (m == nullptr)
+		return 3;
+	c.expect("EXIT_DELIVERY", s5_word(m, DEVHASH_STATUS_EXIT_DELIVERY), 1);
+	c.expect("SYNCS_AT_EXIT", s5_word(m, DEVHASH_STATUS_SYNCS_AT_EXIT), 1);
+	c.expect("SYNCS_COVERED = SYNCS_AT_EXIT",
+		 s5_word(m, DEVHASH_STATUS_SYNCS_COVERED),
+		 s5_word(m, DEVHASH_STATUS_SYNCS_AT_EXIT));
+	c.expect("LAUNCHES_AFTER_LAST_SYNC",
+		 s5_word(m, DEVHASH_STATUS_LAUNCHES_AFTER_LAST_SYNC), 0);
+	c.expect("PHASE", m->get_phase(), DEVHASH_PHASE_DEVICE);
+	c.expect("keys in the mirror", s5_mirror(m).size(), 100);
+	printf("RESULT s5-after-exit: %d wrong\n", c.bad);
+	return c.bad == 0 ? 0 : 1;
+}
+
 // The pre-pass's gate (D11a): no copy without a CUDA link, nor in the
 // direct run (bpftimetool cuda); the map stays the CPU's.
 int run_s5_gate()
@@ -2937,6 +3057,12 @@ TEST_CASE("Device hash GPU child", "[.devhash-gpu-child]")
 		rc = run_s5_isolation();
 	else if (w == "s5-gate")
 		rc = run_s5_gate();
+	else if (w == "s5-slot255")
+		rc = run_s5_slot255();
+	else if (w == "s5-exit")
+		rc = run_s5_exit();
+	else if (w == "s5-after-exit")
+		rc = run_s5_after_exit();
 	else if (w == "s5-hold")
 		rc = run_s5_hold();
 	else if (w == "s5-not-owner")
@@ -3489,4 +3615,29 @@ TEST_CASE("S5: the tool's close leaves the delivered objects",
 	if (!have_gpu())
 		SKIP("no GPU");
 	check_child("s5-close", std::chrono::seconds(120));
+}
+
+TEST_CASE("S5: an owner on writer slot 255 keeps delivering",
+	  "[gpu-devhash-device][gpu-devhash-s5]")
+{
+	if (!have_gpu())
+		SKIP("no GPU");
+	check_child("s5-slot255", std::chrono::seconds(120));
+}
+
+TEST_CASE("S5: a real exit with a device hash map registered",
+	  "[gpu-devhash-device][gpu-devhash-s5]")
+{
+	if (!have_gpu())
+		SKIP("no GPU");
+	const std::string name = "bpftime-s5-exit-" + std::to_string(getpid());
+	const child_env env = { { "BPFTIME_DEVHASH_S5_SHM", name } };
+	// exit status 0, not a signal (run_child reports a signal as -2)
+	const child_result r = run_child("s5-exit", std::chrono::seconds(120), env);
+	INFO("child s5-exit status " << r.status << "\n" << r.output);
+	CHECK(r.status == 0);
+	CHECK(r.output.find("EXITING") != std::string::npos);
+	if (r.status == 0)
+		check_run("s5-after-exit", env);
+	shared_memory_object::remove(name.c_str());
 }

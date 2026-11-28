@@ -229,6 +229,9 @@ class nv_gpu_device_hash_map_impl {
 	// refers to the segment's file (a host closing descriptors it does not
 	// own releases the lock). The owner checks before each delivery.
 	bool still_holds_claim();
+	// Tests: this process's description of the segment's file for this
+	// map (its number), or -1.
+	int description_fd_for_test();
 	// The image a device copy of this process starts from: claim, then by
 	// the path the seal and the CPU table's image, a dead sealer's
 	// recovery, or the takeover's image from the mirror. False: no copy

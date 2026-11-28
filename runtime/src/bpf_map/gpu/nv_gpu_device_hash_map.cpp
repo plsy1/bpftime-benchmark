@@ -1044,6 +1044,15 @@ void nv_gpu_device_hash_map_impl::release_claim()
 	e->owner_locked = false;
 }
 
+int nv_gpu_device_hash_map_impl::description_fd_for_test()
+{
+	if (foreign_task())
+		return -1;
+	local_scope scope;
+	local_map *e = scope.entered ? local_entry(this, generation) : nullptr;
+	return e == nullptr ? -1 : e->fd;
+}
+
 bool nv_gpu_device_hash_map_impl::still_holds_claim()
 {
 	if (foreign_task())
