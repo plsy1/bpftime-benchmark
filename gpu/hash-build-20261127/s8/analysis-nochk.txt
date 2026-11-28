@@ -1,0 +1,18 @@
+== addendum: validity and counts
+  0 failed checks over 44 runs
+
+== addendum: ms per run (median) and per call by slope (per pass)
+  item         D ms   D4 ms    G ms   G8 ms   D4-D per call            G8-G per call
+  empty        429.0   428.5   440.0   431.0   n1 +6 ms, n2 -7 ms       n1 -18 ms, n2 +0 ms
+  hdn-pre      546.0   546.0   553.5   552.0   n1 20.0 ns, n2 -20.0 ns  n1 28.9 ns, n2 -46.3 ns
+  hdn-miss     541.0   533.0   533.5   538.5   n1 -3.3 ns, n2 -50.0 ns  n1 23.1 ns, n2 34.7 ns
+  hdn-cnt-t    668.5   653.0   655.5   655.5   n1 0.0 ns, n2 -103.4 ns  n1 -11.6 ns, n2 11.6 ns
+  hsn-pre     1988.5  5194.0  1127.5  2888.0   n1 11625.5 ns, n2 9724.0 ns n1 10364.6 ns, n2 10011.6 ns
+  resolution D4-D: the empty item's spread 13 ms over 300288 extra threads = 43.3 ns per call
+  resolution G8-G: the empty item's spread 22 ms over 172800 extra threads = 127.3 ns per call
+
+== addendum: delivery cost (D4, all rows live, no side counts)
+  hdn-kmod1024  n1: deliveries logged [359415, 0, 0] us (the first includes set-up 358947 us); exit 232 us; per hash map: 2 deliveries, 697 us in all, longest 466 us; live 1024 count 1024  ok
+  hdn-kmod1024  n2: deliveries logged [358632, 0, 0] us (the first includes set-up 358149 us); exit 251 us; per hash map: 3 deliveries, 974 us in all, longest 480 us; live 1024 count 1024  ok
+  hdn-kmod512   n1: deliveries logged [352865, 0, 0] us (the first includes set-up 352455 us); exit 228 us; per hash map: 2 deliveries, 636 us in all, longest 407 us; live 512 count 512  ok
+  hdn-kmod512   n2: deliveries logged [352044, 0, 0] us (the first includes set-up 351513 us); exit 223 us; per hash map: 3 deliveries, 975 us in all, longest 528 us; live 512 count 512  ok

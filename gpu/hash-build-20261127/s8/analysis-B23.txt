@@ -1,0 +1,28 @@
+== out/l1-20261128-155627
+  p32 base    1380.83 t/s  0.0232 s/run
+  p32 blk      773.50 t/s  0.0414 s/run  overhead 44.0% (x1.8 time)  routing=0  probe runs 8268 (1378 per run)  host calls 8271  13.20 us/call  counted 8266 lost 2 (insert failed 2)  per kernel runs [8268]
+  p32 dblk    1253.18 t/s  0.0255 s/run  overhead 9.2% (x1.1 time)  routed [1] compile errors 0 ok  routing=1  probe runs 8268 (1378 per run)  host calls 8284  1.71 us/call  counted 8253 = runs 8268 - EEXIST 15 - E2BIG 0: ok  per kernel runs [8268]
+  p32 dlink     34.76 t/s  0.9206 s/run  overhead 97.5% (x39.7 time)  routed [1] compile errors 0 ok  routing=1  probe runs 4233216 (705536 per run)  host calls 4233216  1.27 us/call  sum 4233216 ok (= runs, no NULL)
+  p32 link       3.88 t/s  8.2434 s/run  overhead 99.7% (x355.7 time)  routing=0  probe runs 4233216 (705536 per run)  host calls 4233216  11.65 us/call  sum 4233216 ok (= runs, no NULL)
+  tg  base      67.68 t/s  1.8914 s/run
+  tg  dldr      54.61 t/s  2.3438 s/run  overhead 19.3% (x1.2 time)  routed [1, 1, 1] compile errors 0 ok  routing=3  probe runs 78202 (15616 per run)  host calls 78205  28.97 us/call  against the filter alone: +0.0932 s/run, 5.97 us/call  counted 78202 = runs 78202 - EEXIST 0 - E2BIG 0: ok  per kernel runs [28845, 0, 35255, 14102]
+  tg  ldr       49.59 t/s  2.5811 s/run  overhead 26.7% (x1.4 time)  routing=0  probe runs 78202 (15616 per run)  host calls 78205  44.17 us/call  against the filter alone: +0.3306 s/run, 21.17 us/call  counted 78202 lost 0 (insert failed 0)  per kernel runs [28845, 0, 35255, 14102]
+  tg  ldrf      56.87 t/s  2.2506 s/run  overhead 16.0% (x1.2 time)  routing=0  probe runs 78202 (15616 per run)  host calls 0  -  (filter only) hash sum 0, probe runs 78202
+== out/l2-20261128-160645
+  p32 base    1385.34 t/s  0.0231 s/run
+  p32 blk      757.22 t/s  0.0423 s/run  overhead 45.3% (x1.8 time)  routing=0  probe runs 8268 (1378 per run)  host calls 8270  13.90 us/call  counted 8267 lost 1 (insert failed 1)  per kernel runs [8268]
+  p32 dblk    1245.56 t/s  0.0257 s/run  overhead 10.1% (x1.1 time)  routed [1] compile errors 0 ok  routing=1  probe runs 8268 (1378 per run)  host calls 8284  1.88 us/call  counted 8253 = runs 8268 - EEXIST 15 - E2BIG 0: ok  per kernel runs [8268]
+  p32 dlink     34.00 t/s  0.9411 s/run  overhead 97.5% (x40.7 time)  routed [1] compile errors 0 ok  routing=1  probe runs 4233216 (705536 per run)  host calls 4233216  1.30 us/call  sum 4233216 ok (= runs, no NULL)
+  p32 link       4.01 t/s  7.9748 s/run  overhead 99.7% (x345.2 time)  routing=0  probe runs 4233216 (705536 per run)  host calls 4233216  11.27 us/call  sum 4233216 ok (= runs, no NULL)
+  tg  base      67.56 t/s  1.8946 s/run
+  tg  dldr      54.75 t/s  2.3377 s/run  overhead 19.0% (x1.2 time)  routed [1, 1, 1] compile errors 0 ok  routing=3  probe runs 78202 (15616 per run)  host calls 78205  28.37 us/call  against the filter alone: +0.0854 s/run, 5.47 us/call  counted 78202 = runs 78202 - EEXIST 0 - E2BIG 0: ok  per kernel runs [28845, 0, 35255, 14102]
+  tg  ldr       49.69 t/s  2.5761 s/run  overhead 26.5% (x1.4 time)  routing=0  probe runs 78202 (15616 per run)  host calls 78205  43.64 us/call  against the filter alone: +0.3238 s/run, 20.73 us/call  counted 78202 lost 0 (insert failed 0)  per kernel runs [28845, 0, 35255, 14102]
+  tg  ldrf      56.83 t/s  2.2523 s/run  overhead 15.9% (x1.2 time)  routing=0  probe runs 78202 (15616 per run)  host calls 0  -  (filter only) hash sum 0, probe runs 78202
+== across passes
+  p32 blk   t/s 773.50 757.22  overhead 44.0% 45.3%  us/call 13.1997 13.9013
+  p32 dblk  t/s 1253.18 1245.56  overhead 9.2% 10.1%  us/call 1.7097 1.8775
+  p32 dlink t/s 34.76 34.00  overhead 97.5% 97.5%  us/call 1.2720 1.3012
+  p32 link  t/s 3.88 4.01  overhead 99.7% 99.7%  us/call 11.6510 11.2705
+  tg dldr  t/s 54.61 54.75  overhead 19.3% 19.0%  us/call 28.9697 28.3737
+  tg ldr   t/s 49.59 49.69  overhead 26.7% 26.5%  us/call 44.1671 43.6393
+  tg ldrf  t/s 56.87 56.83  overhead 16.0% 15.9%  us/call - -

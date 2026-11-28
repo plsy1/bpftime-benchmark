@@ -1,18 +1,18 @@
-# Device hash map, stage one: the build, steps S0-S7 (2026-11-27 to 11-28)
+# Device hash map, stage one: the build, steps S0-S8 (2026-11-27 to 11-28)
 
 The build of the plan in `gpu/hash-build-plan-20261127` (revision 4; section 9 added after the S2
 code review, section 10 after the independent read of its fixes). Steps done: S0.1, S0.2, S1 (one
 layout header), S2 (the CPU side: map type 1533, phase-0 table, seal, image, delivered mirror,
 takeover image, owner path), S3 (the GPU functions, their test harness, the trampoline's 1533
 branches), S4 (hash snapshot), S5 (the copy and the delivery in the agent), S6 (routing pass), S7
-(tools, docs). Not done yet: S8 (measurement).
+(tools, docs), S8 (measurement). Stage one is built and measured.
 
 Code: branch proto/map-model-70f7bc1f, local commits cce426af (S1), 192f08d7 (S2), c84dd0ff
 (review fixes), 0b9b02af (claim window), 309a9e8c6 (S3), 84ce9813d (writer slots and claim on OFD
 locks), 19f6b777b (S4, S6), 9bb80ba16 (slots and claim after the review of the lock rework),
 c42a843cb (S6 mirror tests), abc759681 (S5, first part), 41d68ea8c (S5, second part), da4e70c48 (S5,
-the claim check's branches, slot 255 end to end, a real exit), dfbc4c603 (S7); pushed through
-da4e70c48.
+the claim check's branches, slot 255 end to end, a real exit), dfbc4c603 (S7), a3db63689 (S8's
+delivery summary line); pushed through da4e70c48.
 
 - **S0.1:** the hash snapshot's acquire load compiles at `.version 7.0` to
   `LDG.E.64.STRONG.GPU` + `CCTL.IVALL` (`s0/`). Recorded only.
@@ -89,6 +89,24 @@ da4e70c48.
   companion's EEXIST its failed inserts (counter, prefilled, missing, graph replays, four
   launches). `s7/S7-result.md`.
 
+- **S8** (rules before the runs, two addenda before theirs):
+  - **Correctness.** Every count is exact on pt_victim (228 runs) and llama.cpp: a 1533 map's values
+    equal the operations that succeeded, and each lost first touch is one EEXIST in the companion.
+  - **Against the sum array (1531),** llama.cpp tg128 with every thread of `mul_mat_vec_q` probed:
+    +0.035 to +0.040 ns per thread, as S0.2 expected (53.2 tokens/s against 55.7-56.0; 67.6 without
+    the agent). The build's routing emits what S0.2 timed.
+  - **Against today's host path,** one lookup and add per thread on rms_norm: 0.8-0.9 ns per call
+    against 10.3 µs. The 32-token prefill runs 2.4-2.7% over its base instead of 316 times it.
+  - **One call per launch:** the hash operations are within the noise. The per-launch counter's
+    0.05-0.07 s per run is the routing pass's change to every thread's path, as with any
+    device-model map.
+  - **Delivery:** 0.3-0.5 ms per delivery at 512-1,024 rows. A 262,144-entry map takes 7.8 ms per
+    delivery (above the 2 ms rule: the CPU passes over all slots).
+  - **Measurement note:** pt_hash's side counts in registered host memory dominated the first
+    numbers; the addenda measured without them.
+
+  `s8/S8-result.md`.
+
 Details: `s2/S2-result.md`, `s2/S2-rework-result.md`, `s3/S3-result.md`, `s0/S0.2-result.md`,
-`s46/S4-S6-result.md`, `s5/S5-result.md`, `s7/S7-result.md`. Rules: `S0-RULES.md`,
-`s2/ofd/RULES-ofd.md`.
+`s46/S4-S6-result.md`, `s5/S5-result.md`, `s7/S7-result.md`, `s8/S8-result.md`. Rules: `S0-RULES.md`,
+`s2/ofd/RULES-ofd.md`, `s8/S8-RULES.md`.

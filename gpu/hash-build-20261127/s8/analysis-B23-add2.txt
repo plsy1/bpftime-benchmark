@@ -1,0 +1,22 @@
+== out/l3-20261128-162011
+  p32 base    1380.16 t/s  0.0232 s/run
+  p32 dlinkn   1347.70 t/s  0.0237 s/run  overhead 2.4% (x1.0 time)  routed [1] compile errors 0 ok  routing=1  probe runs 4233216 (705536 per run)  host calls 4233216  0.00 us/call  value 4233216 ok (= rms_norm threads)  per call 0.79 ns
+  p32 linkn      4.38 t/s  7.3115 s/run  overhead 99.7% (x315.3 time)  routing=0  probe runs 4233216 (705536 per run)  host calls 4233216  10.33 us/call  value 4233216 ok (= rms_norm threads)  per call 10330.13 ns
+  tg  base      67.61 t/s  1.8931 s/run
+  tg  dldr      55.01 t/s  2.3268 s/run  overhead 18.6% (x1.2 time)  routed [1, 1, 1] compile errors 0 ok  routing=3  probe runs 78202 (15616 per run)  host calls 78205  27.77 us/call  against the filter alone: +0.0665 s/run, 4.26 us/call  counted 78202 = runs 78202 - EEXIST 0 - E2BIG 0: ok  per kernel runs [28845, 0, 35255, 14102]
+  tg  dnone     55.41 t/s  2.3100 s/run  overhead 18.0% (x1.2 time)  routed [0, 0, 0] compile errors 0 INVALID  routing=3  probe runs 78202 (15616 per run)  host calls 0  -  against the filter alone: +0.0497 s/run  (1533 declared, unused) map entries [0], probe runs 78202; dldr - dnone: +0.0168 s/run
+  tg  ldrf      56.63 t/s  2.2603 s/run  overhead 16.2% (x1.2 time)  routing=0  probe runs 78202 (15616 per run)  host calls 0  -  (filter only) hash sum 0, probe runs 78202
+== out/l4-20261128-162854
+  p32 base    1391.03 t/s  0.0230 s/run
+  p32 dlinkn   1354.06 t/s  0.0236 s/run  overhead 2.7% (x1.0 time)  routed [1] compile errors 0 ok  routing=1  probe runs 4233216 (705536 per run)  host calls 4233216  0.00 us/call  value 4233216 ok (= rms_norm threads)  per call 0.89 ns
+  p32 linkn      4.39 t/s  7.2930 s/run  overhead 99.7% (x317.0 time)  routing=0  probe runs 4233216 (705536 per run)  host calls 4233216  10.30 us/call  value 4233216 ok (= rms_norm threads)  per call 10304.21 ns
+  tg  base      67.79 t/s  1.8882 s/run
+  tg  dldr      55.09 t/s  2.3236 s/run  overhead 18.7% (x1.2 time)  routed [1, 1, 1] compile errors 0 ok  routing=3  probe runs 78202 (15616 per run)  host calls 78205  27.88 us/call  against the filter alone: +0.0721 s/run, 4.62 us/call  counted 78202 = runs 78202 - EEXIST 0 - E2BIG 0: ok  per kernel runs [28845, 0, 35255, 14102]
+  tg  dnone     55.19 t/s  2.3191 s/run  overhead 18.6% (x1.2 time)  routed [0, 0, 0] compile errors 0 INVALID  routing=3  probe runs 78202 (15616 per run)  host calls 0  -  against the filter alone: +0.0676 s/run  (1533 declared, unused) map entries [0], probe runs 78202; dldr - dnone: +0.0045 s/run
+  tg  ldrf      56.85 t/s  2.2515 s/run  overhead 16.1% (x1.2 time)  routing=0  probe runs 78202 (15616 per run)  host calls 0  -  (filter only) hash sum 0, probe runs 78202
+== across passes
+  p32 dlinkn t/s 1347.70 1354.06  overhead 2.4% 2.7%  us/call 0.0008 0.0009
+  p32 linkn t/s 4.38 4.39  overhead 99.7% 99.7%  us/call 10.3301 10.3042
+  tg dldr  t/s 55.01 55.09  overhead 18.6% 18.7%  us/call 27.7702 27.8810
+  tg dnone t/s 55.41 55.19  overhead 18.0% 18.6%  us/call - -
+  tg ldrf  t/s 56.63 56.85  overhead 16.2% 16.1%  us/call - -
