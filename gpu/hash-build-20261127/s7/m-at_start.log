@@ -1,0 +1,52 @@
+Filters: [hash-map-routing]
+Randomness seeded to: 3006129351
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bpftime_nv_attach_tests is a Catch2 v3.4.0 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+The devhash functions go in once, before every function
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-proto-70f7/attach/nv_attach_impl/test/test_hash_map_routing.cpp:308
+...............................................................................
+
+/home/jetson/src/bpftime-proto-70f7/attach/nv_attach_impl/test/test_hash_map_routing.cpp:321: FAILED:
+  REQUIRE( text > out.find(".address_size 64") )
+with expansion:
+  169 > 17065 (0x42a9)
+
+-------------------------------------------------------------------------------
+ptxas accepts a routed module with an inline lookup and an update
+-------------------------------------------------------------------------------
+/home/jetson/src/bpftime-proto-70f7/attach/nv_attach_impl/test/test_hash_map_routing.cpp:338
+...............................................................................
+
+/home/jetson/src/bpftime-proto-70f7/attach/nv_attach_impl/test/test_hash_map_routing.cpp:371: FAILED:
+  CHECK( rc == 0 )
+with expansion:
+  65280 (0xff00) == 0
+with message:
+  ptxas /tmp/bpftime-hash-routing-PZchdP, line 10; fatal   : Missing .version
+  directive at start of file '/tmp/bpftime-hash-routing-PZchdP'
+  ptxas fatal   : Ptx assembly aborted due to errors
+
+[2026-11-28 14:51:38.520] [info] [nv_attach_impl.cpp:335] Starting nv_attach_impl
+[2026-11-28 14:51:38.520] [info] [nv_attach_impl.cpp:343] nv_attach_impl: late attach: patched copies of loaded fatbins, launches redirected by kernel name
+[2026-11-28 14:51:38.530] [info] [nv_attach_impl.cpp:595] Parsing bundled libraries: /home/jetson/src/bpftime-proto-70f7/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so:/home/jetson/src/bpftime-proto-70f7/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so:/home/jetson/src/bpftime-proto-70f7/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-28 14:51:38.530] [info] [nv_attach_impl.cpp:601] Found path: /home/jetson/src/bpftime-proto-70f7/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so, executing..
+[2026-11-28 14:51:38.546] [info] [nv_attach_impl.cpp:630] Retrived config of /home/jetson/src/bpftime-proto-70f7/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_entry/libptxpass_kprobe_entry.so
+[2026-11-28 14:51:38.547] [info] [nv_attach_impl.cpp:601] Found path: /home/jetson/src/bpftime-proto-70f7/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so, executing..
+[2026-11-28 14:51:38.563] [info] [nv_attach_impl.cpp:630] Retrived config of /home/jetson/src/bpftime-proto-70f7/build-cuda/attach/nv_attach_impl/pass/ptxpass_kretprobe/libptxpass_kretprobe.so
+[2026-11-28 14:51:38.563] [info] [nv_attach_impl.cpp:601] Found path: /home/jetson/src/bpftime-proto-70f7/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so, executing..
+[2026-11-28 14:51:38.579] [info] [nv_attach_impl.cpp:630] Retrived config of /home/jetson/src/bpftime-proto-70f7/build-cuda/attach/nv_attach_impl/pass/ptxpass_kprobe_memcapture/libptxpass_kprobe_memcapture.so
+[2026-11-28 14:51:38.624] [info] [nv_attach_impl.cpp:1063] Thread-local maps in gate.ptx: 0 bytes per thread, 0 kernels, 0 probe calls, 0 probe functions given the area's address (0 lookups made direct, 0 helper calls given the area), 1 other probe functions, by value among them (0 helper calls given 0), 0 generic atomics guarded; sum maps: 0 lookups inline, 1 atomics on their values made global; 0 lookup keys forwarded
+[2026-11-28 14:51:38.624] [info] [nv_attach_impl.cpp:1070] Thread-local area by value in gate.ptx: 0 kernels (0 probe functions take it), 0 lookups made constant, 0 accesses made register moves; 0 kernels whose probes never reach it (0 probe functions, no area); 0 kernels kept the area in memory
+[2026-11-28 14:51:38.624] [info] [nv_attach_impl.cpp:1079] Device hash maps in gate.ptx: 1 lookups inline, 0 updates made insert calls, 0 deletes made -22, devhash functions inserted
+[2026-11-28 14:51:38.624] [info] [nv_attach_impl.cpp:1063] Thread-local maps in gate.ptx: 0 bytes per thread, 0 kernels, 0 probe calls, 0 probe functions given the area's address (0 lookups made direct, 0 helper calls given the area), 1 other probe functions, by value among them (1 helper calls given 0), 1 generic atomics guarded; sum maps: 0 lookups inline, 0 atomics on their values made global; 0 lookup keys forwarded
+[2026-11-28 14:51:38.624] [info] [nv_attach_impl.cpp:1070] Thread-local area by value in gate.ptx: 0 kernels (0 probe functions take it), 0 lookups made constant, 0 accesses made register moves; 0 kernels whose probes never reach it (0 probe functions, no area); 0 kernels kept the area in memory
+[2026-11-28 14:51:38.624] [info] [nv_attach_impl.cpp:1079] Device hash maps in gate.ptx: 0 lookups inline, 0 updates made insert calls, 0 deletes made -22, devhash functions not needed
+===============================================================================
+test cases:  19 |  17 passed | 2 failed
+assertions: 115 | 113 passed | 2 failed
+

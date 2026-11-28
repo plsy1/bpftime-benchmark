@@ -1326,7 +1326,7 @@ A four-lens review of 84ce9813d (slots, claim, tests, host safety), each finding
 Refuted: claim-10 (the claim is not given back when the agent detaches; README 11 now says the
 claim stays with the process until it exits or execs).
 
-## 12. Changes found while building S5 (11-28)
+## 12. Changes found while building S5 and S7 (11-28)
 
 | found | change | where |
 |---|---|---|
@@ -1335,4 +1335,5 @@ claim stays with the process until it exits or execs).
 | exceptions after the image (the mirror's seeding, registration's thread, the cache) escaped with the map sealed and the claim held | one catch-all from the image to registration rolls back (D15); the cache's room reserved before PHASE 2; registration removes its entry when it throws; nothing leaves init | D15, S5 code |
 | "it handles nv attach" was in the gate's text but not in the code | the gate needs an attach implementation registered for the CUDA attach types (8, 9) | D11a |
 | test 1c (late path) needs nv_attach_impl in the runtime tests | a stub CUDA attach in the test agents records what init's link loop gives a CUDA link | S5 test 1c |
+| S7's first run of a real tool and victim: ptxas refused the patched module ("requires call prototype"), which ran unprobed; the passes put the probe functions ahead of the module's own header, so the devhash text placed after `.address_size` came after its callers (S6's tests routed modules whose probes followed the header) | the text goes before the module's first function; tests mirror the attach's assembly (trampoline, filtered headers, device target) | D1, S6 code; `s7/S7-result.md` |
 | the deliveries hold the 1533 object in the segment: a process that unmaps its segment while a device map is registered (a test switching segments) crashes the delivery thread; 1531 maps have the same exposure; the agent unmaps only at exit, after the exit delivery | not handled (as 1531); tests keep one segment per delivering process | README limits |

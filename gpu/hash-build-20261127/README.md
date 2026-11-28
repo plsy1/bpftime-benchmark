@@ -1,17 +1,18 @@
-# Device hash map, stage one: the build, steps S0-S6 (2026-11-27 to 11-28)
+# Device hash map, stage one: the build, steps S0-S7 (2026-11-27 to 11-28)
 
 The build of the plan in `gpu/hash-build-plan-20261127` (revision 4; section 9 added after the S2
 code review, section 10 after the independent read of its fixes). Steps done: S0.1, S0.2, S1 (one
 layout header), S2 (the CPU side: map type 1533, phase-0 table, seal, image, delivered mirror,
 takeover image, owner path), S3 (the GPU functions, their test harness, the trampoline's 1533
-branches), S4 (hash snapshot), S5 (the copy and the delivery in the agent), S6 (routing pass). Not
-built yet: S7 (tools, docs), S8 (measurement).
+branches), S4 (hash snapshot), S5 (the copy and the delivery in the agent), S6 (routing pass), S7
+(tools, docs). Not done yet: S8 (measurement).
 
 Code: branch proto/map-model-70f7bc1f, local commits cce426af (S1), 192f08d7 (S2), c84dd0ff
 (review fixes), 0b9b02af (claim window), 309a9e8c6 (S3), 84ce9813d (writer slots and claim on OFD
 locks), 19f6b777b (S4, S6), 9bb80ba16 (slots and claim after the review of the lock rework),
 c42a843cb (S6 mirror tests), abc759681 (S5, first part), 41d68ea8c (S5, second part), da4e70c48 (S5,
-the claim check's branches, slot 255 end to end, a real exit); the first four pushed 11-27.
+the claim check's branches, slot 255 end to end, a real exit), dfbc4c603 (S7); pushed through
+da4e70c48.
 
 - **S0.1:** the hash snapshot's acquire load compiles at `.version 7.0` to
   `LDG.E.64.STRONG.GPU` + `CCTL.IVALL` (`s0/`). Recorded only.
@@ -78,6 +79,16 @@ the claim check's branches, slot 255 end to end, a real exit); the first four pu
   24 cases, all pass; the S2 lock mutations rerun: 20 of 22 (the two redundant vfork guards, as
   before); the non-CUDA build compiles the touched files.
 
+- **S7:** the probe tools take the device hash map (`pt_hash -DHS_DEV` with its companion,
+  `pt_loader` dumps 1533 by key); `runtime/src/bpf_map/gpu/README.md` and a CLAUDE.md section.
+  **Found by the first end-to-end run:** the routing pass put the devhash functions after the
+  module's `.address_size`, but the passes place the probe functions ahead of that header, so
+  ptxas refused every routed module and it ran unprobed; the text now precedes the module's first
+  function (tests mirror the attach's assembly; two mutations caught). After the fix, on
+  `pt_victim`, every map value equals the tool's hits plus its successful inserts and the
+  companion's EEXIST its failed inserts (counter, prefilled, missing, graph replays, four
+  launches). `s7/S7-result.md`.
+
 Details: `s2/S2-result.md`, `s2/S2-rework-result.md`, `s3/S3-result.md`, `s0/S0.2-result.md`,
-`s46/S4-S6-result.md`, `s5/S5-result.md`. Rules: `S0-RULES.md`,
+`s46/S4-S6-result.md`, `s5/S5-result.md`, `s7/S7-result.md`. Rules: `S0-RULES.md`,
 `s2/ofd/RULES-ofd.md`.

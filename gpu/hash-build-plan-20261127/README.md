@@ -52,6 +52,7 @@ DESIGN.md is to be changed in five places when the build lands (plan section 6).
   and the changes the S2 code review and the independent read of its fixes made during the build
   (sections 9, 10 and 11, rewritten into D8, D11 and S2 in place), and what building S5 found
   (section 12: the claim check on merged locks; the companion's index stored by the owner only, D12;
-  the gate's CUDA-attach condition, D11a; test 1c built with a stub attach).
+  the gate's CUDA-attach condition, D11a; test 1c built with a stub attach), and S7's (the devhash
+  text's placement).
 - `review-r1/`, `review-r2/`, `review-r3/`: the plan each round read (`PLAN-stage1-rN.md`), and every
   reviewer's findings with each refuter's verdict (`plan-review.json`).
