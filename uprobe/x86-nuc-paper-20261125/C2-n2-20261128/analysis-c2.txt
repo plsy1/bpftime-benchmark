@@ -1,0 +1,120 @@
+C2 rows (measured, rounds 0-1): 440; valid 440; (round, rep) units 20
+noisy_core rows: 0 []
+
+== Confirmatory family (Holm over 6; superiority p two-sided; TOST 90 % CI)
+M1 Dnpc vs K+SSLSNIFF_PB_WAKEUP=32
+   n=20 GMR 1.2405 95% [1.2346, 1.2464] 90% [1.2356, 1.2453]  Δx -1.479 µs/ev 95% [-1.511, -1.447] 90% [-1.505, -1.453]
+   p_raw 6.79e-27 (p on Δx 4.43e-27)  p_Holm 3.40e-26  Holm<0.05: True (a faster)  equivalent: False (ratio ±1.5 % and µs ±0.084; ratio False, µs False)
+M2 Dxn+BPFTIME_DIAG_EXACT=1 vs K+SSLSNIFF_PB_WAKEUP=32
+   n=20 GMR 0.9868 95% [0.9828, 0.9907] 90% [0.9835, 0.9900]  Δx +0.102 µs/ev 95% [+0.071, +0.133] 90% [+0.077, +0.128]
+   p_raw 1.25e-06 (p on Δx 1.29e-06)  p_Holm 1.25e-06  Holm<0.05: True (a SLOWER)  equivalent: False (ratio ±1.5 % and µs ±0.084; ratio False, µs False)
+M3 Dnpc+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32 vs K+SSLSNIFF_PB_WAKEUP=32
+   n=20 GMR 1.2263 95% [1.2199, 1.2328] 90% [1.2210, 1.2317]  Δx -1.408 µs/ev 95% [-1.441, -1.374] 90% [-1.436, -1.380]
+   p_raw 1.20e-25 (p on Δx 2.95e-26)  p_Holm 4.81e-25  Holm<0.05: True (a faster)  equivalent: False (ratio ±1.5 % and µs ±0.084; ratio False, µs False)
+M4 Dnpc+BPFTIME_CONSUMER_NAP_US=0 vs K
+   n=20 GMR 1.2896 95% [1.2838, 1.2953] 90% [1.2848, 1.2943]  Δx -1.935 µs/ev 95% [-1.968, -1.902] 90% [-1.962, -1.908]
+   p_raw 8.30e-29 (p on Δx 4.15e-29)  p_Holm 4.98e-28  Holm<0.05: True (a faster)  equivalent: False (ratio ±1.5 % and µs ±0.084; ratio False, µs False)
+M5 Dn vs OlL3x730
+   n=20 GMR 1.0393 95% [1.0339, 1.0448] 90% [1.0349, 1.0438]  Δx -0.221 µs/ev 95% [-0.251, -0.191] 90% [-0.245, -0.196]
+   p_raw 3.17e-12 (p on Δx 3.08e-12)  p_Holm 9.51e-12  Holm<0.05: True (a faster)  equivalent: False (ratio ±1.5 % and µs ±0.084; M5: µs only; ratio False, µs False)
+M6 Dn730f vs OlL3
+   n=20 GMR 1.0307 95% [1.0226, 1.0389] 90% [1.0240, 1.0375]  Δx -0.177 µs/ev 95% [-0.224, -0.130] 90% [-0.216, -0.139]
+   p_raw 1.59e-07 (p on Δx 1.85e-07)  p_Holm 3.18e-07  Holm<0.05: True (a faster)  equivalent: False (ratio ±1.5 % and µs ±0.084; ratio False, µs False)
+TOST: 6 done, 0 equivalent. CIs are within-session (pairs within a night; PREREG-2 §5).
+PREREG-2 §8: M5 Δx -0.221 µs/event, |95 % CI| lower bound 0.191 > 0.1: attribution branch (perf sc / counters)
+
+== Sensitivity: drop the first formal rep of each round / drop noisy_core pairs
+M1 no-first: n=18 GMR 1.2409 95% [1.2345, 1.2473] 90% [1.2356, 1.2462]  Δx -1.481 µs/ev 95% [-1.515, -1.446] 90% [-1.509, -1.452]  p_ratio 4.3e-24  equiv ratio False µs False
+M1 no-noisy: n=20 GMR 1.2405 95% [1.2346, 1.2464] 90% [1.2356, 1.2453]  Δx -1.479 µs/ev 95% [-1.511, -1.447] 90% [-1.505, -1.453]  p_ratio 6.8e-27  equiv ratio False µs False
+M2 no-first: n=18 GMR 0.9855 95% [0.9816, 0.9894] 90% [0.9823, 0.9887]  Δx +0.112 µs/ev 95% [+0.082, +0.143] 90% [+0.087, +0.137]  p_ratio 5.2e-07  equiv ratio False µs False
+M2 no-noisy: n=20 GMR 0.9868 95% [0.9828, 0.9907] 90% [0.9835, 0.9900]  Δx +0.102 µs/ev 95% [+0.071, +0.133] 90% [+0.077, +0.128]  p_ratio 1.2e-06  equiv ratio False µs False
+M3 no-first: n=18 GMR 1.2251 95% [1.2182, 1.2320] 90% [1.2194, 1.2308]  Δx -1.401 µs/ev 95% [-1.437, -1.365] 90% [-1.431, -1.372]  p_ratio 5.6e-23  equiv ratio False µs False
+M3 no-noisy: n=20 GMR 1.2263 95% [1.2199, 1.2328] 90% [1.2210, 1.2317]  Δx -1.408 µs/ev 95% [-1.441, -1.374] 90% [-1.436, -1.380]  p_ratio 1.2e-25  equiv ratio False µs False
+M4 no-first: n=18 GMR 1.2881 95% [1.2823, 1.2940] 90% [1.2833, 1.2930]  Δx -1.927 µs/ev 95% [-1.961, -1.893] 90% [-1.955, -1.899]  p_ratio 3.9e-26  equiv ratio False µs False
+M4 no-noisy: n=20 GMR 1.2896 95% [1.2838, 1.2953] 90% [1.2848, 1.2943]  Δx -1.935 µs/ev 95% [-1.968, -1.902] 90% [-1.962, -1.908]  p_ratio 8.3e-29  equiv ratio False µs False
+M5 no-first: n=18 GMR 1.0412 95% [1.0360, 1.0465] 90% [1.0369, 1.0455]  Δx -0.231 µs/ev 95% [-0.260, -0.202] 90% [-0.255, -0.207]  p_ratio 4.7e-12  equiv ratio False µs False
+M5 no-noisy: n=20 GMR 1.0393 95% [1.0339, 1.0448] 90% [1.0349, 1.0438]  Δx -0.221 µs/ev 95% [-0.251, -0.191] 90% [-0.245, -0.196]  p_ratio 3.2e-12  equiv ratio False µs False
+M6 no-first: n=18 GMR 1.0318 95% [1.0232, 1.0405] 90% [1.0247, 1.0390]  Δx -0.183 µs/ev 95% [-0.233, -0.134] 90% [-0.224, -0.142]  p_ratio 4.7e-07  equiv ratio False µs False
+M6 no-noisy: n=20 GMR 1.0307 95% [1.0226, 1.0389] 90% [1.0240, 1.0375]  Δx -0.177 µs/ev 95% [-0.224, -0.130] 90% [-0.216, -0.139]  p_ratio 1.6e-07  equiv ratio False µs False
+
+== Leg x night (round 0 = night 1, 11-27 00:46; round 1 = night 2, 11-28 00:15+)
+M1: GMR night1 1.2479 night2 1.2331  Welch p 0.005
+M2: GMR night1 0.9864 night2 0.9872  Welch p 0.837
+M3: GMR night1 1.2313 night2 1.2214  Welch p 0.108
+M4: GMR night1 1.2917 night2 1.2875  Welch p 0.467
+M5: GMR night1 1.0379 night2 1.0408  Welch p 0.590
+M6: GMR night1 1.0314 night2 1.0301  Welch p 0.868
+global leg:night F(21,378) = 1.345, p = 0.143 (22 legs incl. B, n = 440)
+
+== Carry-over (x on pred_leg, one-way F per leg; flag p < 0.01)
+  B                                                                      F 1.16 p 0.471 (15 preds, n 20)
+  Dn                                                                     F 1.05 p 0.523 (15 preds, n 20)
+  Dn+BPFTIME_CONSUMER_NAP_US=0                                           F 1.06 p 0.470 (11 preds, n 20)
+  Dn+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32                     F 0.45 p 0.892 (12 preds, n 20)
+  Dn730f                                                                 F 0.54 p 0.829 (12 preds, n 20)
+  Dnextpc                                                                F 2.42 p 0.143 (14 preds, n 20)
+  Dnextpc+BPFTIME_CAREFUL=1                                              F 1.25 p 0.413 (14 preds, n 20)
+  Dnpc                                                                   F 2.34 p 0.214 (16 preds, n 20)
+  Dnpc+BPFTIME_CONSUMER_NAP_US=0                                         F 0.86 p 0.591 (11 preds, n 20)
+  Dnpc+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32                   F 0.78 p 0.659 (12 preds, n 20)
+  Dxn+BPFTIME_DIAG_EXACT=1                                               F 0.88 p 0.621 (16 preds, n 20)
+  Dxn+BPFTIME_DIAG_EXACT=1+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32 F 1.34 p 0.375 (14 preds, n 20)
+  K                                                                      F 0.71 p 0.715 (14 preds, n 20)
+  K+SSLSNIFF_PB_WAKEUP=32                                                F 0.88 p 0.579 (11 preds, n 20)
+  L3port                                                                 F 0.48 p 0.873 (15 preds, n 20)
+  O                                                                      F 1.67 p 0.274 (14 preds, n 20)
+  Ol                                                                     F 0.52 p 0.843 (12 preds, n 20)
+  Ol730x                                                                 F 1.03 p 0.497 (12 preds, n 20)
+  OlL3                                                                   F 1.09 p 0.451 (11 preds, n 20)
+  OlL3x730                                                               F 0.25 p 0.984 (14 preds, n 20)
+  OlL3x730pc                                                             F 0.42 p 0.912 (14 preds, n 20)
+  Olpc                                                                   F 2.10 p 0.165 (13 preds, n 20)
+flagged legs: 0
+
+== Per-leg x (µs/event vs B, mean [95 % CI]) and median rps
+  Dn                                                                     x  1.030 [ 1.004,  1.056]  rps med     89177
+  Dn+BPFTIME_CONSUMER_NAP_US=0                                           x  1.458 [ 1.429,  1.486]  rps med     82845
+  Dn+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32                     x  1.043 [ 1.013,  1.073]  rps med     88990
+  Dn730f                                                                 x  1.172 [ 1.138,  1.206]  rps med     86783
+  Dnextpc                                                                x  1.612 [ 1.586,  1.638]  rps med     80817
+  Dnextpc+BPFTIME_CAREFUL=1                                              x  1.610 [ 1.581,  1.639]  rps med     80713
+  Dnpc                                                                   x  1.566 [ 1.541,  1.591]  rps med     81317
+  Dnpc+BPFTIME_CONSUMER_NAP_US=0                                         x  2.099 [ 2.065,  2.132]  rps med     74755
+  Dnpc+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32                   x  1.637 [ 1.603,  1.672]  rps med     80574
+  Dxn+BPFTIME_DIAG_EXACT=1                                               x  3.148 [ 3.115,  3.181]  rps med     64655
+  Dxn+BPFTIME_DIAG_EXACT=1+BPFTIME_CONSUMER_NAP_US=0+SSLSNIFF_PB_WAKEUP=32 x  3.150 [ 3.128,  3.172]  rps med     64676
+  K                                                                      x  4.034 [ 4.004,  4.063]  rps med     57966
+  K+SSLSNIFF_PB_WAKEUP=32                                                x  3.045 [ 3.020,  3.071]  rps med     65605
+  L3port                                                                 x  1.125 [ 1.083,  1.167]  rps med     87761
+  O                                                                      x  3.694 [ 3.655,  3.733]  rps med     60512
+  Ol                                                                     x  1.884 [ 1.846,  1.923]  rps med     77640
+  Ol730x                                                                 x  1.831 [ 1.800,  1.863]  rps med     77919
+  OlL3                                                                   x  1.349 [ 1.306,  1.392]  rps med     84431
+  OlL3x730                                                               x  1.251 [ 1.227,  1.274]  rps med     85814
+  OlL3x730pc                                                             x  1.726 [ 1.703,  1.748]  rps med     79243
+  Olpc                                                                   x  2.369 [ 2.336,  2.401]  rps med     71841
+
+== Exploratory (uncorrected 95 % CIs)
+  lock price, Tern (Dn730f vs Dn): n=20 GMR 0.9754 95% [0.9694, 0.9813] 90% [0.9705, 0.9803]  Δx +0.142 µs/ev 95% [+0.107, +0.177] 90% [+0.113, +0.171]  equiv(ratio,µs) (False, np.False_)
+  lock price, upstream+L3 (OlL3 vs OlL3x730): n=20 GMR 0.9835 95% [0.9772, 0.9898] 90% [0.9783, 0.9887]  Δx +0.098 µs/ev 95% [+0.060, +0.136] 90% [+0.067, +0.130]  equiv(ratio,µs) (False, np.False_)
+  lock price, upstream (Ol vs Ol730x): n=20 GMR 0.9918 95% [0.9848, 0.9989] 90% [0.9860, 0.9976]  Δx +0.053 µs/ev 95% [+0.007, +0.100] 90% [+0.015, +0.091]  equiv(ratio,µs) (True, np.False_)
+  uid/gid cache (Ol vs OlL3): n=20 GMR 0.9172 95% [0.9103, 0.9241] 90% [0.9115, 0.9229]  Δx +0.536 µs/ev 95% [+0.489, +0.582] 90% [+0.497, +0.574]  equiv(ratio,µs) (False, np.False_)
+  careful mode (Dnextpc+CAREFUL vs Dnextpc): n=20 GMR 1.0004 95% [0.9948, 1.0060] 90% [0.9957, 1.0050]  Δx -0.002 µs/ev 95% [-0.037, +0.033] 90% [-0.031, +0.027]  equiv(ratio,µs) (True, np.True_)
+  Dnext inert (Dnextpc vs Dnpc, B6): n=20 GMR 0.9926 95% [0.9878, 0.9975] 90% [0.9886, 0.9967]  Δx +0.046 µs/ev 95% [+0.015, +0.076] 90% [+0.021, +0.071]  equiv(ratio,µs) (True, np.True_)
+  Dn vs Kb: n=20 GMR 1.3590 95% [1.3531, 1.3649] 90% [1.3541, 1.3639]  Δx -2.015 µs/ev 95% [-2.042, -1.989] 90% [-2.037, -1.993]  equiv(ratio,µs) (False, np.False_)
+  Dn vs K: n=20 GMR 1.5350 95% [1.5269, 1.5432] 90% [1.5283, 1.5417]  Δx -3.004 µs/ev 95% [-3.039, -2.968] 90% [-3.033, -2.975]  equiv(ratio,µs) (False, np.False_)
+  Dnpc vs K: n=20 GMR 1.4011 95% [1.3946, 1.4077] 90% [1.3957, 1.4066]  Δx -2.467 µs/ev 95% [-2.501, -2.434] 90% [-2.495, -2.440]  equiv(ratio,µs) (False, np.False_)
+  Kb vs K: n=20 GMR 1.1295 95% [1.1261, 1.1329] 90% [1.1267, 1.1323]  Δx -0.988 µs/ev 95% [-1.013, -0.964] 90% [-1.009, -0.968]  equiv(ratio,µs) (False, np.False_)
+  O vs K: n=20 GMR 1.0410 95% [1.0356, 1.0465] 90% [1.0365, 1.0456]  Δx -0.340 µs/ev 95% [-0.384, -0.296] 90% [-0.376, -0.303]  equiv(ratio,µs) (False, np.False_)
+  Ol vs K: n=20 GMR 1.3323 95% [1.3234, 1.3412] 90% [1.3249, 1.3396]  Δx -2.149 µs/ev 95% [-2.197, -2.101] 90% [-2.189, -2.110]  equiv(ratio,µs) (False, np.False_)
+  Dn vs Ol: n=20 GMR 1.1522 95% [1.1464, 1.1580] 90% [1.1474, 1.1570]  Δx -0.855 µs/ev 95% [-0.886, -0.823] 90% [-0.881, -0.828]  equiv(ratio,µs) (False, np.False_)
+  Dn vs O: n=20 GMR 1.4745 95% [1.4666, 1.4825] 90% [1.4679, 1.4811]  Δx -2.664 µs/ev 95% [-2.703, -2.625] 90% [-2.696, -2.632]  equiv(ratio,µs) (False, np.False_)
+  checks: Dnpc vs Dn: n=20 GMR 0.9128 95% [0.9081, 0.9175] 90% [0.9089, 0.9167]  Δx +0.536 µs/ev 95% [+0.506, +0.566] 90% [+0.512, +0.561]  equiv(ratio,µs) (False, np.False_)
+  checks: OlL3x730pc vs OlL3x730: n=20 GMR 0.9247 95% [0.9206, 0.9288] 90% [0.9213, 0.9281]  Δx +0.475 µs/ev 95% [+0.448, +0.502] 90% [+0.453, +0.497]  equiv(ratio,µs) (False, np.False_)
+  checks: Olpc vs Ol: n=20 GMR 0.9304 95% [0.9247, 0.9361] 90% [0.9257, 0.9351]  Δx +0.484 µs/ev 95% [+0.443, +0.525] 90% [+0.450, +0.518]  equiv(ratio,µs) (False, np.False_)
+  Dnpc vs OlL3x730pc (checked vs checked): n=20 GMR 1.0259 95% [1.0211, 1.0308] 90% [1.0219, 1.0299]  Δx -0.159 µs/ev 95% [-0.189, -0.130] 90% [-0.184, -0.135]  equiv(ratio,µs) (False, np.False_)
+  Dnextpc+CAREFUL vs Kb: n=20 GMR 1.2318 95% [1.2267, 1.2369] 90% [1.2276, 1.2360]  Δx -1.436 µs/ev 95% [-1.463, -1.408] 90% [-1.458, -1.413]  equiv(ratio,µs) (False, np.False_)
+  Dxn+EXACT/NAP0-WB32 vs Kb: n=20 GMR 0.9865 95% [0.9830, 0.9899] 90% [0.9836, 0.9893]  Δx +0.105 µs/ev 95% [+0.078, +0.132] 90% [+0.082, +0.127]  equiv(ratio,µs) (False, np.False_)
+  Dn/NAP0 vs K: n=20 GMR 1.4264 95% [1.4184, 1.4344] 90% [1.4198, 1.4330]  Δx -2.576 µs/ev 95% [-2.615, -2.538] 90% [-2.608, -2.544]  equiv(ratio,µs) (False, np.False_)
+  Dn/NAP0-WB32 vs Kb: n=20 GMR 1.3558 95% [1.3507, 1.3610] 90% [1.3516, 1.3601]  Δx -2.002 µs/ev 95% [-2.024, -1.981] 90% [-2.020, -1.984]  equiv(ratio,µs) (False, np.False_)
+  L3port vs O: n=20 GMR 1.4501 95% [1.4371, 1.4632] 90% [1.4393, 1.4609]  Δx -2.569 µs/ev 95% [-2.630, -2.509] 90% [-2.619, -2.519]  equiv(ratio,µs) (False, np.False_)

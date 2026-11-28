@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+"""Confirmatory analysis of C2 (x86) per PREREG-2 (+2a, +2b) and of the VIEW leg per PREREG-2c.
+
+Usage: analyze_c2.py c2 <C2-n1 rows.jsonl> <C2-n2 rows.jsonl>
+       analyze_c2.py view <V-n1 rows.jsonl> <V-n2 rows.jsonl>
+
+PREREG-2 rules implemented (section numbers of PREREG-2):
+  §2 M1 Dnpc/Kb, M2 Dxn+EXACT/Kb, M3 Dnpc/NAP0-WB32 / Kb, M4 Dnpc/NAP0 / K, M5 Dn vs OlL3x730,
+     M6 Dn730f vs OlL3 (PREREG-2b). Superiority: Holm over the 6 (paired t on log rps ratio, two-sided).
+     Equivalence: TOST per item with 90 % CI (intersection-union: each item on its own); M5 on the µs criterion only.
+  §3 x = (1/rps_leg - 1/rps_B) 1e6 / 2; Δx between legs independent of B; margins ±1.5 % and ±0.084 µs/event (2a).
+  §4 n = 20 (2 rounds x 10), pairing unit (round, rep), warm-up rows excluded; sensitivity without the first formal
+     rep of each round. Effects: paired GMR + 95 % t-CI; differences: paired mean + 95 % t-CI.
+  §5 carry-over: per leg, x on pred_leg (fixed effect) -> F test, flag p < 0.01; leg x night interaction (rounds on
+     two nights): per contrast, the paired effect night 1 vs night 2 (Welch t), and a global F test on log rps with
+     (round, rep) blocks, leg and leg:night.
+  §6 noisy_core: a row with busy > 5 % on any of CPUs {0,1,3,5,7,15}; main result includes them; sensitivity without
+     pairs that contain a flagged row.
+Only valid rows; a pair is used only if both legs are valid in that (round, rep).
+"""
+import collections, json, math, statistics, sys
+
+import numpy as np
+from scipy import stats
+
+MARGIN_R = 0.015
+MARGIN_US = 0.084
+NONMEASURED = ('0', '1', '3', '5', '7', '15')
+KB = 'K+SSLSNIFF_PB_WAKEUP=32'
+NAP0 = '+BPFTIME_CONSUMER_NAP_US=0'
+WB32 = '+SSLSNIFF_PB_WAKEUP=32'
+C2_FAMILY = [
+    ('M1', 'Dnpc', KB, 'ratio'),
+    ('M2', 'Dxn+BPFTIME_DIAG_EXACT=1', KB, 'ratio'),
+    ('M3', 'Dnpc' + NAP0 + WB32, KB, 'ratio'),
+    ('M4', 'Dnpc' + NAP0, 'K', 'ratio'),
+    ('M5', 'Dn', 'OlL3x730', 'us'),
+    ('M6', 'Dn730f', 'OlL3', 'ratio'),
+]
+C2_EXPLORATORY = [
+    ('lock price, Tern (Dn730f vs Dn)', 'Dn730f', 'Dn'),
+    ('lock price, upstream+L3 (OlL3 vs OlL3x730)', 'OlL3', 'OlL3x730'),
+    ('lock price, upstream (Ol vs Ol730x)', 'Ol', 'Ol730x'),
+    ('uid/gid cache (Ol vs OlL3)', 'Ol', 'OlL3'),
+    ('careful mode (Dnextpc+CAREFUL vs Dnextpc)', 'Dnextpc+BPFTIME_CAREFUL=1', 'Dnextpc'),
+    ('Dnext inert (Dnextpc vs Dnpc, B6)', 'Dnextpc', 'Dnpc'),
+    ('Dn vs Kb', 'Dn', KB),
+    ('Dn vs K', 'Dn', 'K'),
+    ('Dnpc vs K', 'Dnpc', 'K'),
+    ('Kb vs K', KB, 'K'),
+    ('O vs K', 'O', 'K'),
+    ('Ol vs K', 'Ol', 'K'),
+    ('Dn vs Ol', 'Dn', 'Ol'),
+    ('Dn vs O', 'Dn', 'O'),
+    ('checks: Dnpc vs Dn', 'Dnpc', 'Dn'),
+    ('checks: OlL3x730pc vs OlL3x730', 'OlL3x730pc', 'OlL3x730'),
+    ('checks: Olpc vs Ol', 'Olpc', 'Ol'),
+    ('Dnpc vs OlL3x730pc (checked vs checked)', 'Dnpc', 'OlL3x730pc'),
+    ('Dnextpc+CAREFUL vs Kb', 'Dnextpc+BPFTIME_CAREFUL=1', KB),
+    ('Dxn+EXACT/NAP0-WB32 vs Kb', 'Dxn+BPFTIME_DIAG_EXACT=1' + NAP0 + WB32, KB),
+    ('Dn/NAP0 vs K', 'Dn' + NAP0, 'K'),
+    ('Dn/NAP0-WB32 vs Kb', 'Dn' + NAP0 + WB32, KB),
+    ('L3port vs O', 'L3port', 'O'),
+]
+VIEW = 'Dviewpc+BPFTIME_CAREFUL=1+BPFTIME_VIEW=1+VIEWD'
+V_TESTS = [
+    ('V1 cost of the view (same binary)', VIEW, 'Dviewpc+BPFTIME_CAREFUL=1', 'us'),
+    ('V2 read side inert (layout)', 'Dviewpc+BPFTIME_CAREFUL=1', 'Dnextpc+BPFTIME_CAREFUL=1', 'both'),
+]
+V_DESC = [
+    ('V3 VIEW / Kb', VIEW, KB),
+    ('V3 Dnextpc+CAREFUL / Kb', 'Dnextpc+BPFTIME_CAREFUL=1', KB),
+]
+
+
+def load(paths):
+    rows = []
+    for p in paths:
+        for line in open(p):
+            r = json.loads(line)
+            if r.get('warmup') or r.get('round', 0) > 1 or r.get('stage', 'S4') != 'S4':
+                continue
+            rows.append(r)
+    return rows
+
+
+def noisy(r):
+    b = r.get('busy_all') or {}
+    return any((b.get(c) or 0) > 0.05 for c in NONMEASURED)
+
+
+def index(rows):
+    by = collections.defaultdict(dict)
+    for r in rows:
+        if r.get('valid'):
+            by[(r['round'], r['rep'])][r['leg']] = r
+    return by
+
+
+def pairs(by, a, b, drop_first=False, drop_noisy=False):
+    out = []
+    firsts = {}
+    for (rnd, rep) in by:
+        firsts[rnd] = min(firsts.get(rnd, rep), rep)
+    for k in sorted(by):
+        d = by[k]
+        if a in d and b in d:
+            if drop_first and k[1] == firsts[k[0]]:
+                continue
+            if drop_noisy and (noisy(d[a]) or noisy(d[b])):
+                continue
+            out.append((k, d[a], d[b]))
+    return out
+
+
+def tci(xs, level):
+    n = len(xs)
+    m = statistics.fmean(xs)
+    se = statistics.stdev(xs) / math.sqrt(n)
+    t = stats.t.ppf(0.5 + level / 2, n - 1)
+    return m, m - t * se, m + t * se, se
+
+
+def effect(prs):
+    """paired GMR (95 % CI, 90 % CI), Δx µs/event (95 %, 90 %), two-sided p on log ratio and on Δx."""
+    lr = [math.log(ra['rps'] / rb['rps']) for _, ra, rb in prs]
+    dx = [(1 / ra['rps'] - 1 / rb['rps']) * 1e6 / 2 for _, ra, rb in prs]
+    m, lo, hi, se = tci(lr, 0.95)
+    _, lo90, hi90, _ = tci(lr, 0.90)
+    dm, dlo, dhi, dse = tci(dx, 0.95)
+    _, dlo90, dhi90, _ = tci(dx, 0.90)
+    n = len(lr)
+    p_lr = 2 * stats.t.sf(abs(m / se), n - 1) if se > 0 else 0.0
+    p_dx = 2 * stats.t.sf(abs(dm / dse), n - 1) if dse > 0 else 0.0
+    return dict(n=n, gmr=math.exp(m), gmr95=(math.exp(lo), math.exp(hi)), gmr90=(math.exp(lo90), math.exp(hi90)),
+                dx=dm, dx95=(dlo, dhi), dx90=(dlo90, dhi90), p_ratio=p_lr, p_dx=p_dx)
+
+
+def holm(ps):
+    order = sorted(range(len(ps)), key=lambda i: ps[i])
+    adj, run = [0.0] * len(ps), 0.0
+    m = len(ps)
+    for j, i in enumerate(order):
+        run = max(run, min(1.0, (m - j) * ps[i]))
+        adj[i] = run
+    return adj
+
+
+def equiv_ratio(e):
+    lo, hi = e['gmr90']
+    return 1 - MARGIN_R < lo and hi < 1 + MARGIN_R
+
+
+def equiv_us(e):
+    lo, hi = e['dx90']
+    return -MARGIN_US < lo and hi < MARGIN_US
+
+
+def night_interaction(by, a, b):
+    e = {}
+    for rnd in (0, 1):
+        sub = {k: v for k, v in by.items() if k[0] == rnd}
+        prs = pairs(sub, a, b)
+        e[rnd] = [math.log(ra['rps'] / rb['rps']) for _, ra, rb in prs]
+    if len(e[0]) < 2 or len(e[1]) < 2:
+        return None
+    t = stats.ttest_ind(e[0], e[1], equal_var=False)
+    return dict(gmr_n1=math.exp(statistics.fmean(e[0])), gmr_n2=math.exp(statistics.fmean(e[1])), p=float(t.pvalue))
+
+
+def global_interaction(rows, legs):
+    """log rps ~ block(round,rep) + leg + leg:night ; F test of leg:night (night = round)."""
+    rs = [r for r in rows if r.get('valid') and r['leg'] in legs]
+    blocks = sorted({(r['round'], r['rep']) for r in rs})
+    L = sorted({r['leg'] for r in rs})
+    y = np.array([math.log(r['rps']) for r in rs])
+
+    def design(with_inter):
+        cols = []
+        for bl in blocks:
+            cols.append([1.0 if (r['round'], r['rep']) == bl else 0.0 for r in rs])
+        for l in L[1:]:
+            cols.append([1.0 if r['leg'] == l else 0.0 for r in rs])
+        if with_inter:
+            for l in L[1:]:
+                cols.append([1.0 if (r['leg'] == l and r['round'] == 1) else 0.0 for r in rs])
+        return np.array(cols).T
+
+    def rss(X):
+        beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+        res = y - X @ beta
+        return float(res @ res), np.linalg.matrix_rank(X)
+
+    r0, k0 = rss(design(False))
+    r1, k1 = rss(design(True))
+    df1, df2 = k1 - k0, len(y) - k1
+    F = ((r0 - r1) / df1) / (r1 / df2)
+    return dict(F=F, df=(df1, df2), p=float(stats.f.sf(F, df1, df2)), n=len(y), legs=len(L))
+
+
+def carryover(rows, by):
+    """Per leg: x (vs B of the same (round, rep)) on pred_leg as a fixed effect; F test."""
+    out = {}
+    legs = sorted({r['leg'] for r in rows if r.get('valid')} - {'B'})
+    for leg in legs:
+        xs, preds = [], []
+        for k, d in by.items():
+            if leg in d and 'B' in d:
+                xs.append((1 / d[leg]['rps'] - 1 / d['B']['rps']) * 1e6 / 2)
+                preds.append(d[leg].get('pred_leg') or 'FIRST')
+        groups = collections.defaultdict(list)
+        for x, p in zip(xs, preds):
+            groups[p].append(x)
+        g = [v for v in groups.values()]
+        if len(g) < 2 or sum(len(v) for v in g) - len(g) < 1:
+            out[leg] = None
+            continue
+        F, p = stats.f_oneway(*g) if all(len(v) >= 1 for v in g) else (float('nan'), float('nan'))
+        out[leg] = dict(F=float(F), p=float(p), groups=len(g), n=len(xs))
+    return out
+
+
+def fmt_e(e):
+    return (f"n={e['n']} GMR {e['gmr']:.4f} 95% [{e['gmr95'][0]:.4f}, {e['gmr95'][1]:.4f}] "
+            f"90% [{e['gmr90'][0]:.4f}, {e['gmr90'][1]:.4f}]  Δx {e['dx']:+.3f} µs/ev 95% [{e['dx95'][0]:+.3f}, "
+            f"{e['dx95'][1]:+.3f}] 90% [{e['dx90'][0]:+.3f}, {e['dx90'][1]:+.3f}]")
+
+
+def main_c2(paths):
+    rows = load(paths)
+    by = index(rows)
+    print(f"C2 rows (measured, rounds 0-1): {len(rows)}; valid {sum(1 for r in rows if r.get('valid'))}; "
+          f"(round, rep) units {len(by)}")
+    nz = [r for r in rows if noisy(r)]
+    print(f"noisy_core rows: {len(nz)} {[(r['leg'], r['round'], r['rep']) for r in nz][:10]}")
+    res = {}
+    for name, a, b, kind in C2_FAMILY:
+        res[name] = effect(pairs(by, a, b))
+    adj = holm([res[n]['p_ratio'] if kind == 'ratio' else res[n]['p_dx'] for n, _, _, kind in C2_FAMILY])
+    print('\n== Confirmatory family (Holm over 6; superiority p two-sided; TOST 90 % CI)')
+    for (name, a, b, kind), pa in zip(C2_FAMILY, adj):
+        e = res[name]
+        eq = equiv_us(e) if kind == 'us' else (equiv_ratio(e), equiv_us(e))
+        praw = e['p_ratio'] if kind == 'ratio' else e['p_dx']
+        print(f"{name} {a} vs {b}\n   {fmt_e(e)}\n   p_raw {praw:.2e}  p_Holm {pa:.2e}  superior(Holm<0.05) "
+              f"{pa < 0.05}  equivalent {eq} (ratio ±1.5 %, µs ±0.084{'; µs only' if kind == 'us' else ''})")
+    print('\n== Sensitivity: drop the first formal rep of each round / drop noisy_core pairs')
+    for name, a, b, kind in C2_FAMILY:
+        e1 = effect(pairs(by, a, b, drop_first=True))
+        e2 = effect(pairs(by, a, b, drop_noisy=True))
+        print(f"{name}: no-first n={e1['n']} GMR {e1['gmr']:.4f} [{e1['gmr95'][0]:.4f},{e1['gmr95'][1]:.4f}] Δx "
+              f"{e1['dx']:+.3f}  |  no-noisy n={e2['n']} GMR {e2['gmr']:.4f} [{e2['gmr95'][0]:.4f},"
+              f"{e2['gmr95'][1]:.4f}] Δx {e2['dx']:+.3f}")
+    print('\n== Leg x night (round 0 = night 1, 11-27 00:46; round 1 = night 2, 11-28 00:15+)')
+    for name, a, b, kind in C2_FAMILY:
+        ni = night_interaction(by, a, b)
+        print(f"{name}: GMR night1 {ni['gmr_n1']:.4f} night2 {ni['gmr_n2']:.4f}  Welch p {ni['p']:.3f}")
+    legs = sorted({r['leg'] for r in rows})
+    gi = global_interaction(rows, legs)
+    print(f"global leg:night F({gi['df'][0]},{gi['df'][1]}) = {gi['F']:.3f}, p = {gi['p']:.3g} "
+          f"({gi['legs']} legs incl. B, n = {gi['n']})")
+    print('\n== Carry-over (x on pred_leg, one-way F per leg; flag p < 0.01)')
+    co = carryover(rows, by)
+    flagged = {k: v for k, v in co.items() if v and v['p'] < 0.01}
+    for k, v in sorted(co.items()):
+        if v:
+            print(f"  {k:70s} F {v['F']:.2f} p {v['p']:.3f} ({v['groups']} preds, n {v['n']}){'  <-- p<0.01' if v['p'] < 0.01 else ''}")
+    print(f"flagged legs: {len(flagged)}")
+    print('\n== Per-leg x (µs/event vs B, mean [95 % CI]) and median rps')
+    for leg in legs:
+        if leg == 'B':
+            continue
+        prs = pairs(by, leg, 'B')
+        xs = [(1 / ra['rps'] - 1 / rb['rps']) * 1e6 / 2 for _, ra, rb in prs]
+        m, lo, hi, _ = tci(xs, 0.95)
+        print(f"  {leg:70s} x {m:6.3f} [{lo:6.3f}, {hi:6.3f}]  rps med {statistics.median(r['rps'] for _, r, _ in prs):9.0f}")
+    print('\n== Exploratory (uncorrected 95 % CIs)')
+    for name, a, b in C2_EXPLORATORY:
+        prs = pairs(by, a, b)
+        if len(prs) < 3:
+            print(f"  {name}: n/a")
+            continue
+        e = effect(prs)
+        print(f"  {name}: {fmt_e(e)}  equiv(ratio,µs) {(equiv_ratio(e), equiv_us(e))}")
+
+
+def main_view(paths):
+    rows = load(paths)
+    by = index(rows)
+    print(f"V rows (measured): {len(rows)}; valid {sum(1 for r in rows if r.get('valid'))}; units {len(by)}")
+    nz = [r for r in rows if noisy(r)]
+    print(f"noisy_core rows: {len(nz)}")
+    for name, a, b, kind in V_TESTS:
+        e = effect(pairs(by, a, b))
+        print(f"{name}: {a} vs {b}\n   {fmt_e(e)}\n   equivalent µs {equiv_us(e)}  ratio {equiv_ratio(e)}  "
+              f"p_dx {e['p_dx']:.3f}")
+        for rnd in (0, 1):
+            sub = {k: v for k, v in by.items() if k[0] == rnd}
+            er = effect(pairs(sub, a, b))
+            print(f"   session {rnd + 1}: Δx {er['dx']:+.3f} [{er['dx95'][0]:+.3f}, {er['dx95'][1]:+.3f}] GMR {er['gmr']:.4f}")
+    for name, a, b in V_DESC:
+        e = effect(pairs(by, a, b))
+        print(f"{name}: {fmt_e(e)}")
+    vr = [r for r in rows if r['leg'] == VIEW and r.get('valid')]
+    miss = sum(sum(x['misses'] for x in r.get('view_reports', [])) for r in vr)
+    ev = sum(r.get('cnt', {}).get('read_ev', 0) + r.get('cnt', {}).get('write_ev', 0) for r in vr if r.get('cnt'))
+    nrep = [len(r.get('view_reports', [])) for r in vr]
+    print(f"VIEW rows {len(vr)}: misses {miss} over {ev} events ({miss / ev if ev else float('nan'):.2e}); "
+          f"exit reports per row {sorted(set(nrep))}; viewd delta newtask/creds/rename/exec/exit min "
+          f"{[min(r['viewd']['delta'].get(k, 0) for r in vr) for k in ('newtask', 'creds', 'rename', 'exec', 'exit')]}; "
+          f"lock_fail max {max(r['viewd']['delta'].get('lock_fail', 0) for r in vr)}")
+    print('carry-over flags (p<0.01):', {k: round(v['p'], 4) for k, v in carryover(rows, by).items() if v and v['p'] < 0.01})
+
+
+if __name__ == '__main__':
+    mode, *paths = sys.argv[1:]
+    main_c2(paths) if mode == 'c2' else main_view(paths)
