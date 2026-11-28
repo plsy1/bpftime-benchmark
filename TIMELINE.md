@@ -558,6 +558,31 @@ the runs).
   bpftime build lists the items to settle first (CPU seal and index, sharded loss counts, one
   layout definition).
 
+## 11-27 – 11-28: the device hash map, stage one built (S0-S6)
+
+The stage-one plan (revision 4, three review rounds) built on the prototype branch
+`proto/map-model-70f7bc1f` of bpftime (map type 1533; results `gpu/hash-build-20261127`, the plan
+with what the build changed in `gpu/hash-build-plan-20261127`). Built: one layout header (S1), the
+CPU side (S2), the GPU functions and the trampoline's branches (S3), the hash snapshot (S4), the
+copy and the delivery in the agent (S5), the routing pass (S6). Not yet: tools and docs (S7),
+measurement (S8).
+
+- **Writer slots and the owner's claim** are open file description locks on bytes of the
+  segment's file, which the kernel releases at exit, kill and exec in any pid namespace. Two
+  reviews of the first versions (19 and 38 findings, all but one upheld) led there.
+- **The agent (S5):** before init takes its map-binding lock, it claims each 1533 map, seals it
+  and copies it to the GPU; after the application's syncs it delivers the GPU's contents to the
+  CPU-side mirror and to a companion status array. 18 GPU test configurations, each in a process
+  of its own, among them owner deaths at four points, takeovers and a real exit; 32 of 32
+  mutations caught.
+- **Found while testing:** the kernel merges one description's adjacent locks, so an owner on
+  writer slot 255 read its claim (byte 256) as lost and stopped delivering (1 in 10 runs of the
+  GPU suite); fixed and reproduced on purpose.
+- **Cost:** the hand-routed hit path on llama.cpp's `mul_mat_vec_q` costs +0.036 to +0.038 ns per
+  thread over today's sum array (S0.2); the sum array's own path is unchanged by S5 (+0.1267 ns per
+  thread against +0.1273, sum exact).
+- **Open:** an independent read of the final slots and claim code and of S5 (after 11-30).
+
 ## Where it stands (11-18)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
