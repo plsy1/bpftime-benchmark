@@ -393,3 +393,105 @@ TEST_CASE("A module whose only device-model map is a hash map is routed",
 	REQUIRE(has(out0, "_bpf_helper_ext_0001"));
 	REQUIRE_FALSE(has(out0, "__bpftime_devhash"));
 }
+
+// ---- mirrors of test_sum_map_routing.cpp's cases for 1533 (plan S6)
+namespace
+{
+// a lookup of map 14 into %rd55, `extra` after it, then the null check
+// and `atom` at the result
+std::string lookup_extra(const std::string &extra,
+			 const std::string &atom = "atom.add.u64 \t%rd56, [%rd55], 1;",
+			 const std::string &fd = "14")
+{
+	return call(20, 1, fd, "%rd51", "%rd55") + extra +
+	       "\tsetp.eq.s64 \t%p10, %rd55, 0;\n\t@%p10 bra \t$L__BB0_5;\n\t" +
+	       atom + "\n$L__BB0_5:\n";
+}
+} // namespace
+
+TEST_CASE("A hash-map address register written elsewhere keeps the guarded atomic",
+	  "[hash-map-routing]")
+{
+	thread_local_routing_stats st;
+	auto out = route(HEAD + func("__retprobe_func__kern",
+				     lookup_extra("\tmov.b64 \t%rd55, %rd9;\n")),
+			 { h14() }, st);
+	REQUIRE(st.hash_lookups == 1);
+	REQUIRE(st.global_atomics == 0);
+	REQUIRE(st.guarded_atomics == 1);
+	REQUIRE(has(out, "isspacep.local"));
+}
+
+TEST_CASE("Hash-map lookups joined into one register keep the global atomic",
+	  "[hash-map-routing]")
+{
+	// a second lookup (another branch) writes the same register
+	const std::string second = call(21, 1, "14", "%rd60", "%rd55");
+	thread_local_routing_stats st;
+	auto out = route(HEAD + func("__retprobe_func__kern",
+				     lookup_extra(second)),
+			 { h14() }, st);
+	REQUIRE(st.hash_lookups == 2);
+	REQUIRE(st.global_atomics == 1);
+	REQUIRE(st.guarded_atomics == 0);
+	// one of them from a map without a device copy: not only device
+	// addresses any more
+	hash_map_desc other = h14(0);
+	other.fd = 16;
+	thread_local_routing_stats st2;
+	auto out2 = route(HEAD + func("__retprobe_func__kern",
+				      lookup_extra(call(21, 1, "16", "%rd60",
+							"%rd55"))),
+			  { h14(), other }, st2);
+	REQUIRE(st2.hash_lookups == 1);
+	REQUIRE(st2.global_atomics == 0);
+	REQUIRE(st2.guarded_atomics == 1);
+}
+
+TEST_CASE("A lookup of a map that is not a device hash map keeps the call and the guard",
+	  "[hash-map-routing]")
+{
+	thread_local_routing_stats st;
+	auto out = route(HEAD + func("__retprobe_func__kern",
+				     lookup_extra("", "atom.add.u64 \t%rd56, [%rd55], 1;",
+						  "15")),
+			 { h14() }, st);
+	REQUIRE(st.hash_lookups == 0);
+	REQUIRE(has(out, "_bpf_helper_ext_0001"));
+	REQUIRE(st.guarded_atomics == 1);
+	REQUIRE(st.devhash_text_inserted == 0);
+}
+
+TEST_CASE("Only 64-bit adds on a hash map's value take the global fast path",
+	  "[hash-map-routing]")
+{
+	for (const char *atom : { "atom.add.u32 \t%r16, [%rd55], 1;",
+				  "atom.exch.b64 \t%rd56, [%rd55], %rd9;",
+				  "atom.or.b64 \t%rd56, [%rd55], %rd9;" }) {
+		thread_local_routing_stats st;
+		auto out = route(HEAD + func("__retprobe_func__kern",
+					     lookup_extra("", atom)),
+				 { h14() }, st);
+		INFO(atom);
+		REQUIRE(st.hash_lookups == 1);
+		REQUIRE(st.global_atomics == 0);
+		REQUIRE(st.guarded_atomics == 1);
+	}
+}
+
+TEST_CASE("A hash-map call block with more than the call is refused, a commented marker ignored",
+	  "[hash-map-routing]")
+{
+	std::string ptx = HEAD + func("__retprobe_func__kern", lookup_extra(""));
+	const std::string at = "\t.param .b64 retval0;\n";
+	ptx.insert(ptx.find(at), "\tst.local.u32 \t[%rd1+504], %r9;\n");
+	thread_local_routing_stats st;
+	REQUIRE_THROWS_AS(route(ptx, { h14() }, st), std::runtime_error);
+	thread_local_routing_stats st2;
+	auto out = route(HEAD + func("__retprobe_func__kern",
+				     "\t// { // callseq 99, 0 }\n" +
+					     lookup_extra("")),
+			 { h14() }, st2);
+	REQUIRE(st2.hash_lookups == 1);
+	REQUIRE(has(out, "// { // callseq 99, 0 }"));
+}
