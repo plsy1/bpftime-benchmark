@@ -954,6 +954,12 @@ void final_delivery_at_exit()
 			"GPU map delivery: map ({} words, {} shards): {} deliveries, {} us in all, longest {} us, syncs covered {}",
 			m.entries * m.words_per_entry, m.shards, m.deliveries,
 			m.ns_total / 1000, m.ns_max / 1000, m.covered_syncs);
+	for (auto &h : s.hashes)
+		SPDLOG_INFO(
+			"GPU map delivery: device hash map ({} entries, {} shards): {} deliveries, {} us in all, longest {} us, syncs covered {}{}",
+			h.max_entries, h.shards, h.deliveries, h.ns_total / 1000,
+			h.ns_max / 1000, h.covered_syncs,
+			h.dropped ? " (dropped: the claim was lost)" : "");
 }
 // In the application's synchronize call (opt-in): the delivery completes
 // inside it, so the latest synchronization is covered before the call
