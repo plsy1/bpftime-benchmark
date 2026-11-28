@@ -9,6 +9,9 @@ results branch, and the earlier full versions of this file ("Earlier versions" a
 - **Candidate focus, to be confirmed with the advisor:** a GPU map model (direction 1, widened).
 - **Direction 2** (GPU-to-CPU host calls): its engineering layer is in dev, two items still open;
   the research scheme (keep CPU maps, make host calls cheaper or defer them) is dropped.
+- **Hash maps, stage one:** built and measured on the prototype branch (11-28): about 0.04 ns per
+  thread over the sum array, 0.2-0.3 ns per operation against 10.3 us host calls (direction 1,
+  Focus).
 - **Open:** the advisor's view; a discrete GPU for the evaluation; the evidence steps below.
 - `TIMELINE.md`'s 11-14 entry ("both directions are needed") predates this decision, which was
   first recorded in fce97abb.
@@ -122,21 +125,30 @@ from an unpublished thesis: re-check before citing.
 - **Tier 2, the research focus:** hardware-position storage and per-SM rings, for record streams
   and unknown scale.
 - **Tier 3:** per-launch per-thread storage, only if a scenario needs it.
-- **Hash (arbitrary-key) maps, stage one** (user decision 11-26; designed and checked, not built):
+- **Hash (arbitrary-key) maps, stage one** (user decision 11-26; built and measured 11-27/28 on the
+  prototype branch `proto/map-model-70f7bc1f`, map type 1533; results `gpu/hash-build-20261127`,
+  plan `gpu/hash-build-plan-20261127`):
   - Today every GPU hash operation on the Orin is a host call: 10-13 us back to back, 18-21 us
-    sparse; one lookup per thread on rms_norm makes a 32-token prefill 341-351 times slower
-    (`gpu/hash-current-20261126`).
+    sparse. One lookup per thread on rms_norm makes a 32-token prefill 316-351 times slower
+    (`gpu/hash-current-20261126`; S8 10.3 us per call).
   - Stage one keeps keys in a device directory: slots are claimed by CAS and are permanent. Values
-    that GPU code only adds to use 1531's sharded rows. A tool declares the type, as `lat` declares
-    1530/1531, and gets bpf's first-touch semantics, with losses counted in a companion status
-    array.
-  - A directory hit costs 0.034-0.037 ns per thread more than 1531's array (tg128, mul_mat_vec_q:
-    56.1 -> 53.7 t/s). The insert protocol (claim, then reserve) held in standalone stress runs,
-    and E2BIG is exact while keys fit.
+    that GPU code only adds to use 1531's sharded rows. The agent copies the map to the GPU before
+    init takes its binding lock, and delivers it to a CPU-side mirror and a companion status array
+    after the application's synchronizations. The routing pass turns a constant-fd lookup into an
+    inline hit path. A tool declares the type and gets bpf's first-touch semantics, with each lost
+    first touch counted in the companion.
+  - Measured (S8): every count exact. +0.035 to +0.040 ns per thread over 1531 (tg128, every
+    thread of mul_mat_vec_q: 53.2 against 55.7-56.0 tokens/s). Against the host path, 0.19-0.31 ns
+    per lookup and add on rms_norm: the prefill runs 0.6-0.9% over its base instead of 316 times
+    it. With one call per launch, the cost can't be told from the tool's own filter.
+  - Each delivery reads the whole directory, so its cost follows max_entries, not the live keys:
+    0.3-0.5 ms at 260-1,024 entries, 7.2-7.8 ms at 262,144. An oversized map therefore costs the
+    application (0.05-0.07 s per tg128 run).
   - Not served: per-thread keys (E2BIG; they belong in 1530), stores, deletes.
   - Limit: a map given far more distinct keys than max_entries fills its directory with refused
-    slots, and misses then walk all of it
-    (`gpu/hash-design-20261126`, `gpu/hash-round1-20261126`, `gpu/hash-round2-20261127`).
+    slots, and misses then walk all of it.
+  - Open: an independent read of the final writer-slot and claim code and of the agent's copy and
+    delivery.
 - **Ceiling:** entry and exit probes give a thread at most one or two records per launch;
   `__memcapture` fires at every load and store but gives no address. Scenarios that need new attach
   points (correctness checking, instruction mix, region timing, address traces) would raise record

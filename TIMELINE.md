@@ -583,6 +583,34 @@ measurement (S8).
   thread against +0.1273, sum exact).
 - **Open:** an independent read of the final slots and claim code and of S5 (after 11-30).
 
+## 11-28: the device hash map's tools and measurement (S7, S8)
+
+Stage one of the device hash map (1533) is built and measured (results `gpu/hash-build-20261127`,
+`s7/` and `s8/`).
+
+- **Tools and docs (S7).**
+  - The probe tools take the map: `pt_hash` with its companion, and `pt_loader` dumps by key.
+  - A README for tool authors, and a CLAUDE.md section.
+  - The first run of a real tool on a real program found the routing pass placing the hash
+    functions after their callers. ptxas refused every routed module, which then ran unprobed.
+    Fixed.
+- **Measurement (S8),** with rules before the runs and three addenda before theirs:
+  - Every count is exact.
+  - Against the sum array (1531), on tg128 with every thread of `mul_mat_vec_q` probed: +0.035 to
+    +0.040 ns per thread, as expected (53.2 against 55.7-56.0 tokens/s).
+  - Against today's host path, a lookup and add per thread on rms_norm: 0.19-0.31 ns against
+    10.3 us. The 32-token prefill runs 0.6-0.9% over its base instead of 316 times it.
+  - One call per launch: within the noise.
+  - Each delivery reads the whole directory, so the tools' default 262,144-entry map cost
+    7.2-7.8 ms per delivery and 0.05-0.07 s per tg128 run. The README now advises sizing the map
+    near its key count.
+- **Measurement notes.**
+  - The tool's own side counts (adds into a GPU array in host memory) at first hid the hash map's
+    cost.
+  - A review caught an addendum that blamed the routing pass for what was the large map's
+    delivery.
+- **Open:** an independent read of the final writer-slot and claim code and of S5 (after 11-30).
+
 ## Where it stands (11-18)
 
 - uprobe map operations: all ten of the official benchmark at or below bpf on one thread
