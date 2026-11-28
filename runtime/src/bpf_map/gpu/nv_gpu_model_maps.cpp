@@ -1024,19 +1024,35 @@ bool register_device_hash(nv_gpu_device_hash_map_impl *map,
 			cuMemFreeHost(h.staging);
 		return false;
 	}
-	bool first;
-	{
-		std::lock_guard<std::mutex> g(s.reg_mutex);
-		first = s.maps.empty() && s.hashes.empty();
-		if (first) {
-			s.owner = getpid();
-			if (cuCtxGetCurrent(&s.ctx) != CUDA_SUCCESS)
-				s.ctx = nullptr;
+	bool first = false;
+	try {
+		{
+			std::lock_guard<std::mutex> g(s.reg_mutex);
+			first = s.maps.empty() && s.hashes.empty();
+			if (first) {
+				s.owner = getpid();
+				if (cuCtxGetCurrent(&s.ctx) != CUDA_SUCCESS)
+					s.ctx = nullptr;
+			}
+			s.hashes.push_back(h);
 		}
-		s.hashes.push_back(h);
+		if (first)
+			start_delivery(s);
+	} catch (...) {
+		// no thread (or no room): the copy rolls back, so nothing may
+		// keep delivering its block
+		{
+			std::lock_guard<std::mutex> g(s.reg_mutex);
+			for (size_t i = s.hashes.size(); i-- > 0;)
+				if (s.hashes[i].map == map &&
+				    s.hashes[i].block == block) {
+					s.hashes.erase(s.hashes.begin() + i);
+					break;
+				}
+		}
+		cuMemFreeHost(h.staging);
+		throw;
 	}
-	if (first)
-		start_delivery(s);
 	return true;
 }
 
@@ -1140,11 +1156,8 @@ CUdeviceptr make_device_hash_copy(nv_gpu_device_hash_map_impl *map,
 		SPDLOG_ERROR("device hash map: no image ({})", e.what());
 		return 0;
 	}
-	if (auto hook = devhash_copy_hook.load())
-		hook(map); // tests: after the claim and the seal
 	const bool first = path != devhash_path::takeover;
 	const uint64_t max = map->get_max_entries();
-	const uint64_t shards = device_shards();
 	CUdeviceptr block = 0;
 	CUstream st = nullptr;
 	bool mirror_seeded = false;
@@ -1165,19 +1178,26 @@ CUdeviceptr make_device_hash_copy(nv_gpu_device_hash_map_impl *map,
 		map->release_claim();
 		return 0;
 	};
-	if (!bpftime_devhash::geometry_valid(max, shards))
-		return roll_back("geometry");
-	const bpftime_devhash::layout l = bpftime_devhash::layout_for(max, shards);
-	CUresult r;
+	uint64_t shards = 0;
+	bpftime_devhash::layout l{};
+	// Everything up to PHASE 2 may throw (allocations, a thread, a test's
+	// hook): rolled back here, never out of the agent's init.
 	try {
+		if (auto hook = devhash_copy_hook.load())
+			hook(map); // tests: after the claim and the seal
+		shards = device_shards();
+		if (!bpftime_devhash::geometry_valid(max, shards))
+			return roll_back("geometry");
+		l = bpftime_devhash::layout_for(max, shards);
 		const std::vector<uint64_t> host = block_of(l, img);
 		// on a stream of our own, waited for before the base is
 		// published (relaxed capture mode: this may run on an
 		// application thread)
 		CUstreamCaptureMode mode = CU_STREAM_CAPTURE_MODE_RELAXED;
 		cuThreadExchangeStreamCaptureMode(&mode);
-		r = fail_devhash_copy_for_test.load() ? CUDA_ERROR_OUT_OF_MEMORY :
-							      cuMemAlloc(&block, l.total);
+		CUresult r = fail_devhash_copy_for_test.load() ?
+				     CUDA_ERROR_OUT_OF_MEMORY :
+				     cuMemAlloc(&block, l.total);
 		if (r == CUDA_SUCCESS)
 			r = cuStreamCreate(&st, CU_STREAM_NON_BLOCKING);
 		if (r == CUDA_SUCCESS)
@@ -1190,27 +1210,34 @@ CUdeviceptr make_device_hash_copy(nv_gpu_device_hash_map_impl *map,
 			r = cuStreamSynchronize(st);
 		}
 		cuThreadExchangeStreamCaptureMode(&mode);
+		if (r != CUDA_SUCCESS)
+			return roll_back("the copy failed");
+		cuStreamDestroy(st);
+		st = nullptr;
+		// the cache's room before PHASE 2: its insert cannot throw
+		devhash_copies.reserve(devhash_copies.size() + 1);
+		if (first) {
+			// the mirror before any delivery writes it
+			map->seed_mirror(img);
+			mirror_seeded = true;
+		}
+		if (!register_device_hash(map, block, max, shards, companion))
+			return roll_back("registration failed");
 	} catch (const std::exception &e) {
 		return roll_back(e.what());
+	} catch (...) {
+		return roll_back("an exception");
 	}
-	if (r != CUDA_SUCCESS)
-		return roll_back("the copy failed");
-	cuStreamDestroy(st);
-	st = nullptr;
-	if (first) {
-		// the mirror before any delivery writes it
-		map->seed_mirror(img);
-		mirror_seeded = true;
-	}
-	if (!register_device_hash(map, block, max, shards, companion))
-		return roll_back("registration failed");
 	if (first)
 		map->publish_device_phase(); // PHASE 2
 	devhash_copies.push_back({ map, map->get_generation(), block, shards });
-	SPDLOG_INFO(
-		"device hash map: device copy of {} entries ({} slots, {} shards, {} bytes) at {:x}, {}",
-		max, l.slots, shards, l.total, (uint64_t)block,
-		first ? "first copy" : "taken over");
+	try {
+		SPDLOG_INFO(
+			"device hash map: device copy of {} entries ({} slots, {} shards, {} bytes) at {:x}, {}",
+			max, l.slots, shards, l.total, (uint64_t)block,
+			first ? "first copy" : "taken over");
+	} catch (...) {
+	}
 	return block;
 }
 

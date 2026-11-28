@@ -17,6 +17,8 @@
 #include "bpf_map/gpu/nv_gpu_model_maps.hpp"
 #include "nv_thread_local_routing.hpp"
 #include "nv_attach_impl.hpp"
+#include "nv_attach_private_data.hpp"
+#include <stdexcept>
 #include "trampoline/gpu_devhash_layout.h"
 #include "bpf_attach_ctx.hpp"
 #include "bpf_map/array_map_binding.hpp"
@@ -1332,8 +1334,9 @@ bool s5_create_segment(const std::string &name)
 		printf("no program\n");
 		return false;
 	}
-	const int perf = bpftime_add_custom_perf_event(attach::ATTACH_CUDA_PROBE,
-						       "s5_kernel");
+	// a CUDA probe's event, as the server makes one (a kprobe on the
+	// kernel's name: type 8, the CUDA probe attach type)
+	const int perf = bpftime_kprobe_create(-1, "s5_kernel", 0, false, 0);
 	if (perf < 0) {
 		printf("no perf event\n");
 		return false;
@@ -1360,16 +1363,59 @@ bool s5_map(int fd, const char *name, int type, u32 key, u32 value, u32 max)
 	return ok;
 }
 
+// The CUDA attach types' implementation in these agents: records what
+// init's link loop gives a CUDA link (create_map_basic_info, under the
+// binding guard), where nv_attach_impl would patch modules with it.
+struct s5_stub_attach final : attach::base_attach_impl {
+	static inline std::atomic<u64> hash_base{ 0 }, hash_shards{ 0 },
+		links{ 0 };
+	int detach_by_id(int) override
+	{
+		return 0;
+	}
+	int create_attach_with_ebpf_callback(attach::ebpf_run_callback &&,
+					     const attach::attach_private_data &pd,
+					     int) override
+	{
+		const auto &nv =
+			dynamic_cast<const attach::nv_attach_private_data &>(pd);
+		if (nv.map_basic_info.size() > (size_t)S5_HASH_FD) {
+			hash_base = (u64)(uintptr_t)nv.map_basic_info[S5_HASH_FD]
+					    .extra_buffer;
+			hash_shards = nv.map_basic_info[S5_HASH_FD].max_thread_count;
+		}
+		links++;
+		return allocate_id();
+	}
+};
+
 // The agent's side.
 struct s5_agent {
 	std::optional<bpf_attach_ctx> ctx;
-	// reopen the segment as the agent does (no creation)
-	void open(const std::string &name)
+	// reopen the segment as the agent does (no creation); the agent
+	// handles the CUDA attach types unless cuda_attach is false
+	void open(const std::string &name, bool cuda_attach = true)
 	{
 		bpftime_destroy_global_shm();
 		setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1);
 		bpftime_initialize_global_shm(shm_open_type::SHM_OPEN_ONLY);
 		ctx.emplace();
+		if (!cuda_attach)
+			return;
+		ctx->register_attach_impl(
+			{ attach::ATTACH_CUDA_PROBE, attach::ATTACH_CUDA_RETPROBE },
+			std::make_unique<s5_stub_attach>(),
+			[](const std::string_view &sv, int &err) {
+				auto p = std::make_unique<
+					attach::nv_attach_private_data>();
+				if (int e = p->initialize_from_string(sv); e < 0) {
+					err = e;
+					return std::unique_ptr<
+						attach::attach_private_data>();
+				}
+				return std::unique_ptr<attach::attach_private_data>(
+					std::move(p));
+			});
 	}
 	int init()
 	{
@@ -1464,6 +1510,11 @@ void s5_check_binding_mutex_free(nv_gpu_device_hash_map_impl *)
 	t.join();
 }
 
+void s5_throwing_hook(nv_gpu_device_hash_map_impl *)
+{
+	throw std::runtime_error("a test's exception in the copy");
+}
+
 // another process claims the map now (a fork child: claims make no CUDA
 // call); 0 when it would make the first copy
 int s5_other_claims(nv_gpu_device_hash_map_impl *m, devhash_path want)
@@ -1546,6 +1597,13 @@ int run_s5_first()
 		 (u64)s5_hook_mutex_free.load(), 1);
 	c.expect("companion bound", (u64)m->get_companion(), S5_COMP_FD);
 	c.expect("registered", gpu_model::registered_hash_count_for_test(), 1);
+	// what init's own link loop gave the CUDA link (D11a: the copy made
+	// before it, so never base 0)
+	c.expect("CUDA links instantiated", s5_stub_attach::links.load(), 1);
+	c.expect("the link's 1533 base", s5_stub_attach::hash_base.load(),
+		 block);
+	c.expect("the link's 1533 shards", s5_stub_attach::hash_shards.load(),
+		 shards);
 	if (block == 0)
 		return 1;
 	auto info = a.basic_info();
@@ -1765,7 +1823,15 @@ int run_s5_e2e()
 	}
 	auto g = s5_gpu_inserts(block, max, shards, 600, 2048, 7919u, 1000u);
 	const u64 n = attach::launch_activity().app_sync_count();
-	c.expect_true("delivered by D16's rule", s5_wait_delivery(m, n));
+	if (getenv("BPFTIME_GPU_DELIVERY_AT_SYNC") != nullptr) {
+		// the delivery ran inside the sync's note: checked at once
+		c.expect_true("covered when the sync returned",
+			      s5_word(m, DEVHASH_STATUS_SYNCS_COVERED) >= n);
+		c.expect_true("delivered when the sync returned",
+			      s5_word(m, DEVHASH_STATUS_DELIVERIES) >= 1);
+	} else {
+		c.expect_true("delivered by D16's rule", s5_wait_delivery(m, n));
+	}
 	u64 wrong = 0, sum = 0;
 	for (auto &[k, want] : g.want) {
 		auto v = (const u64 *)bpftime_map_lookup_elem(S5_HASH_FD, &k);
@@ -1941,6 +2007,21 @@ int run_s5_takeover()
 	c.expect_true("prefill and GPU keys kept", rank >= 320);
 	for (u32 k = 1; k <= 20; k++)
 		c.expect_true("prefilled key kept", s5_find(b, l, k) >= 0);
+	const char *ec = getenv("BPFTIME_DEVHASH_S5_EXPECT_COMPANION");
+	const int64_t want_comp = ec ? strtoll(ec, nullptr, 10) : S5_COMP_FD;
+	c.expect("companion", (u64)m->get_companion(), (u64)want_comp);
+	if (want_comp < 0) {
+		// the map now in the companion's slot is never written
+		attach::launch_activity().note_app_sync();
+		c.expect_true("delivered", s5_wait_delivery(
+						   m, attach::launch_activity()
+							      .app_sync_count()));
+		for (u32 i : { 0u, 2u, 14u }) {
+			auto v = (const u64 *)bpftime_map_lookup_elem(S5_COMP_FD,
+								      &i);
+			c.expect("reused slot untouched", v ? *v : 1, 0);
+		}
+	}
 	printf("RESULT s5-takeover: %d wrong (%" PRIu64 " live)\n", c.bad,
 	       rank);
 	a.ctx.reset();
@@ -1993,6 +2074,10 @@ int run_s5_fail()
 	c.expect("init", (u64)a.init(), 0);
 	gpu_model::set_devhash_delivery_failures_for_test(false, false);
 	rolled_back("registration failure");
+	gpu_model::set_devhash_copy_hook_for_test(s5_throwing_hook);
+	c.expect("init", (u64)a.init(), 0);
+	gpu_model::set_devhash_copy_hook_for_test(nullptr);
+	rolled_back("an exception in the copy");
 	{
 		u32 k = 5;
 		c.expect("phase-0 delete", bpftime_map_delete_elem(S5_HASH_FD, &k),
@@ -2169,6 +2254,488 @@ int run_s5_isolation()
 	return c.bad == 0 ? 0 : 1;
 }
 
+// ---- owners that stay, stop, exec or die (tests 2 and 3)
+// The owner's data, as in test 4: keys 1..20 prefilled (value k), then
+// 300 GPU keys (104729 j + 5000) delivered.
+constexpr u32 S5_GPU_KEYS = 300, S5_GPU_MUL = 104729u, S5_GPU_ADD = 5000u;
+
+bool s5_owner_segment(const std::string &name)
+{
+	if (!s5_create_segment(name) ||
+	    !s5_map(S5_HASH_FD, "counts", S5_HASH, 4, 8, 600) ||
+	    !s5_map(S5_COMP_FD, "counts_st", S5_ARRAY, 4, 8, 16))
+		return false;
+	// two candidates: the owner binds none
+	if (getenv("BPFTIME_DEVHASH_S5_TWO_COMPANIONS") != nullptr &&
+	    !s5_map(S5_COMP_FD + 1, "counts_st", S5_ARRAY, 4, 8, 16))
+		return false;
+	for (u32 k = 1; k <= 20; k++) {
+		u64 v = k;
+		if (bpftime_map_update_elem(S5_HASH_FD, &k, &v, BPF_ANY) != 0)
+			return false;
+	}
+	return true;
+}
+
+std::atomic<int> s5_stop_at{ -1 };
+std::atomic<bool> s5_writer_in_flight{ false };
+thread_local bool s5_stuck_writer = false;
+void s5_hook(devhash_hook_point p, uint64_t arg)
+{
+	// between passes B and C only in a delivery whose pass B filled slots
+	if (p == devhash_hook_point::delivery_between_b_c && arg == 0)
+		return;
+	if (p == devhash_hook_point::writer_after_inflight_inc &&
+	    s5_stuck_writer) {
+		s5_writer_in_flight = true;
+		for (;;)
+			pause(); // in flight until the process dies
+	}
+	int want = (int)p;
+	if (s5_stop_at.compare_exchange_strong(want, -1)) {
+		printf("STOPPED %d\n", (int)p);
+		fflush(stdout);
+		raise(SIGSTOP);
+	}
+}
+
+void s5_exec_sleep(int)
+{
+	execl("/bin/sleep", "sleep", "60", (char *)nullptr);
+	_exit(98);
+}
+
+// The owner that stays: prefill, copy, GPU keys delivered, then READY;
+// SIGUSR1 makes it exec sleep (its descriptions are close-on-exec).
+int run_s5_hold()
+{
+	if (!use_primary_context())
+		return 0;
+	const std::string name = s5_segment_name("owner");
+	if (!s5_owner_segment(name))
+		return 2;
+	s5_agent a;
+	a.open(name);
+	if (a.init() != 0)
+		return 2;
+	nv_gpu_device_hash_map_impl *m = s5_hash(S5_HASH_FD);
+	u64 shards = 0;
+	const CUdeviceptr block =
+		m ? gpu_model::find_device_hash_copy(m, &shards) : 0;
+	if (block == 0) {
+		printf("no device copy\n");
+		return 3;
+	}
+	s5_gpu_inserts(block, 600, shards, S5_GPU_KEYS, 1024, S5_GPU_MUL,
+		       S5_GPU_ADD);
+	if (!s5_wait_delivery(m, attach::launch_activity().app_sync_count())) {
+		printf("no delivery\n");
+		return 4;
+	}
+	signal(SIGUSR1, s5_exec_sleep);
+	printf("READY %d\n", (int)getpid());
+	fflush(stdout);
+	for (int i = 0; i < 900; i++)
+		usleep(100000); // 90 s at most
+	return 0;
+}
+
+// Test 2: another agent while the owner holds its claim gets no copy and
+// leaves the companion's binding alone.
+int run_s5_not_owner()
+{
+	if (!use_primary_context())
+		return 0;
+	const std::string name = s5_segment_name("owner");
+	const char *o = getenv("BPFTIME_DEVHASH_S5_OWNER");
+	const u64 owner = o ? strtoull(o, nullptr, 10) : 0;
+	s5_checks c;
+	s5_agent a;
+	a.open(name);
+	nv_gpu_device_hash_map_impl *m = s5_hash(S5_HASH_FD);
+	if (m == nullptr)
+		return 3;
+	const int64_t comp = m->get_companion();
+	c.expect("init", (u64)a.init(), 0);
+	c.expect("no copy", gpu_model::find_device_hash_copy(m, nullptr), 0);
+	c.expect("no registration", gpu_model::registered_hash_count_for_test(),
+		 0);
+	c.expect("OWNER", m->get_owner_pid(), owner);
+	c.expect("PHASE", m->get_phase(), DEVHASH_PHASE_DEVICE);
+	c.expect("companion binding unchanged", (u64)m->get_companion(),
+		 (u64)comp);
+	const char *ec = getenv("BPFTIME_DEVHASH_S5_EXPECT_COMPANION");
+	c.expect("companion as the owner left it", (u64)comp,
+		 (u64)(ec ? strtoll(ec, nullptr, 10) : S5_COMP_FD));
+	u32 k = 1;
+	auto v = (const u64 *)bpftime_map_lookup_elem(S5_HASH_FD, &k);
+	c.expect("lookups read the mirror", v ? *v : 0, 1);
+	u64 one = 1;
+	errno = 0;
+	c.expect_true("CPU update refused",
+		      bpftime_map_update_elem(S5_HASH_FD, &k, &one, BPF_ANY) != 0);
+	printf("RESULT s5-not-owner: %d wrong\n", c.bad);
+	a.ctx.reset();
+	return c.bad == 0 ? 0 : 1;
+}
+
+// Test 3: the owner stops (and is killed) at BPFTIME_DEVHASH_S5_STOP:
+// claim, seal-wait (a writer of its own in flight), after-seal, or
+// between-b-c (in its second delivery).
+int run_s5_die()
+{
+	if (!use_primary_context())
+		return 0;
+	const std::string name = s5_segment_name("owner");
+	const char *st = getenv("BPFTIME_DEVHASH_S5_STOP");
+	const std::string stop = st ? st : "";
+	if (!s5_owner_segment(name))
+		return 2;
+	s5_agent a;
+	a.open(name);
+	set_devhash_hook_for_test(s5_hook);
+	if (stop == "between-b-c") {
+		if (a.init() != 0)
+			return 2;
+		nv_gpu_device_hash_map_impl *m = s5_hash(S5_HASH_FD);
+		u64 shards = 0;
+		const CUdeviceptr block =
+			m ? gpu_model::find_device_hash_copy(m, &shards) : 0;
+		if (block == 0)
+			return 3;
+		s5_gpu_inserts(block, 600, shards, S5_GPU_KEYS, 1024,
+			       S5_GPU_MUL, S5_GPU_ADD);
+		if (!s5_wait_delivery(m,
+				      attach::launch_activity().app_sync_count()))
+			return 4;
+		printf("DELIVERED\n");
+		fflush(stdout);
+		s5_stop_at = (int)devhash_hook_point::delivery_between_b_c;
+		// new keys: the next delivery changes headers
+		s5_gpu_inserts(block, 600, shards, 100, 256, 7u, 900000u);
+		for (int i = 0; i < 200; i++)
+			usleep(100000);
+		printf("NOT STOPPED\n");
+		return 5;
+	}
+	if (stop == "seal-wait") {
+		std::thread([] {
+			s5_stuck_writer = true;
+			u32 k = 99;
+			u64 v = 1;
+			bpftime_map_update_elem(S5_HASH_FD, &k, &v, BPF_ANY);
+		}).detach();
+		for (int i = 0; i < 5000 && !s5_writer_in_flight; i++)
+			usleep(1000);
+		if (!s5_writer_in_flight) {
+			printf("no writer in flight\n");
+			return 6;
+		}
+		s5_stop_at = (int)devhash_hook_point::seal_waiting;
+	} else if (stop == "claim") {
+		s5_stop_at = (int)devhash_hook_point::after_claim;
+	} else if (stop == "after-seal") {
+		s5_stop_at = (int)devhash_hook_point::build_image_start;
+	} else {
+		printf("unknown stop point %s\n", stop.c_str());
+		return 7;
+	}
+	a.init();
+	printf("NOT STOPPED\n");
+	return 5;
+}
+
+// Test 3, the next agent: maps can still be created (BPFTIME_DEVHASH_S5_
+// MAP_CREATE), and its copy keeps every prefilled key and (with
+// BPFTIME_DEVHASH_S5_GPU_KEYS) every delivered GPU key.
+int run_s5_next_owner()
+{
+	if (!use_primary_context())
+		return 0;
+	const std::string name = s5_segment_name("owner");
+	const bool gpu_keys = getenv("BPFTIME_DEVHASH_S5_GPU_KEYS") != nullptr;
+	const bool map_create = getenv("BPFTIME_DEVHASH_S5_MAP_CREATE") != nullptr;
+	s5_checks c;
+	s5_agent a;
+	a.open(name);
+	nv_gpu_device_hash_map_impl *m = s5_hash(S5_HASH_FD);
+	if (m == nullptr)
+		return 3;
+	printf("PHASE found %" PRIu64 "\n", m->get_phase());
+	if (map_create) {
+		bool made = false;
+		try {
+			made = bpftime_maps_create(
+				       30, "later",
+				       { .type = (int)bpftime::bpf_map_type::
+						 BPF_MAP_TYPE_HASH,
+					 .key_size = 4,
+					 .value_size = 8,
+					 .max_ents = 16 }) == 30;
+		} catch (const std::exception &e) {
+			printf("map creation threw: %s\n", e.what());
+		}
+		c.expect_true("a map created after the death", made);
+	}
+	const auto before = s5_mirror(m);
+	if (gpu_keys) {
+		// the dead owner's pass B: slots occupied, their headers never
+		// published
+		const devhash_image img = m->takeover_image();
+		u64 opaque = 0;
+		for (u64 h : img.headers)
+			opaque += h == OPAQUE_WORD;
+		c.expect_true("pass B's occupancy left by the dead owner",
+			      opaque > 0);
+	}
+	c.expect("init", (u64)a.init(), 0);
+	u64 shards = 0;
+	const CUdeviceptr block = gpu_model::find_device_hash_copy(m, &shards);
+	if (block == 0) {
+		printf("no copy\n");
+		return 4;
+	}
+	c.expect("PHASE", m->get_phase(), DEVHASH_PHASE_DEVICE);
+	c.expect("OWNER", m->get_owner_pid(), (u64)getpid());
+	const layout l = layout_for(m->get_max_entries(), shards);
+	auto b = s5_read(block, l);
+	for (u32 k = 1; k <= 20; k++) {
+		const int64_t s = s5_find(b, l, k);
+		c.expect("prefilled key kept", s >= 0, 1);
+		if (s >= 0)
+			c.expect("prefilled value",
+				 s5_value(b, l, row_of(b[slot_offset(l, (u64)s) / 8])),
+				 k);
+	}
+	u64 live = 0;
+	for (u64 s = 0; s < l.slots; s++)
+		live += state_of(b[slot_offset(l, s) / 8]) == ST_LIVE;
+	if (gpu_keys) {
+		u64 lost = 0, wrong = 0;
+		for (u32 j = 0; j < S5_GPU_KEYS; j++) {
+			const u32 k = j * S5_GPU_MUL + S5_GPU_ADD;
+			const int64_t s = s5_find(b, l, k);
+			if (s < 0) {
+				lost++;
+				continue;
+			}
+			auto it = before.find(k);
+			if (it == before.end() ||
+			    s5_value(b, l, row_of(b[slot_offset(l, (u64)s) / 8])) !=
+				    it->second)
+				wrong++;
+		}
+		c.expect("delivered GPU keys lost", lost, 0);
+		c.expect("delivered GPU values differing", wrong, 0);
+	} else {
+		c.expect("live keys: the prefill", live, 20);
+	}
+	c.expect("count", b[ctl_offset(CTL_COUNT) / 8], live);
+	printf("RESULT s5-next-owner: %d wrong (%" PRIu64 " live)\n", c.bad,
+	       live);
+	a.ctx.reset();
+	return c.bad == 0 ? 0 : 1;
+}
+
+// Test 7: CPU prefill, the copy, then GPU inserts and adds on the
+// prefilled keys and on new ones.
+int run_s5_prefill_gpu()
+{
+	if (!use_primary_context())
+		return 0;
+	const std::string name = s5_segment_name("prefill");
+	s5_checks c;
+	if (!s5_create_segment(name) ||
+	    !s5_map(S5_HASH_FD, "counts", S5_HASH, 4, 8, 600) ||
+	    !s5_map(S5_COMP_FD, "counts_st", S5_ARRAY, 4, 8, 16))
+		return 2;
+	std::map<u32, u64> seeded;
+	for (u32 j = 0; j < 100; j++) {
+		u32 k = j * 7919u + 1000u;
+		u64 v = 5;
+		seeded[k] = 5;
+		c.expect("prefill", bpftime_map_update_elem(S5_HASH_FD, &k, &v,
+							    BPF_ANY),
+			 0);
+	}
+	s5_agent a;
+	a.open(name);
+	c.expect("init", (u64)a.init(), 0);
+	nv_gpu_device_hash_map_impl *m = s5_hash(S5_HASH_FD);
+	u64 shards = 0;
+	const CUdeviceptr block =
+		m ? gpu_model::find_device_hash_copy(m, &shards) : 0;
+	if (block == 0)
+		return 3;
+	// keys 0..99 prefilled, 100..199 new
+	auto g = s5_gpu_inserts(block, 600, shards, 200, 2048, 7919u, 1000u);
+	c.expect_true("delivered",
+		      s5_wait_delivery(m, attach::launch_activity().app_sync_count()));
+	u64 wrong = 0;
+	for (auto &[k, w] : g.want) {
+		const u64 want = w + (seeded.count(k) ? 5 : 0);
+		auto v = (const u64 *)bpftime_map_lookup_elem(S5_HASH_FD, &k);
+		if (v == nullptr || *v != want) {
+			if (wrong++ < 5)
+				printf("key %u: mirror %" PRIu64 ", want %" PRIu64
+				       "\n",
+				       k, v ? *v : 0, want);
+		}
+	}
+	c.expect("mirror values wrong", wrong, 0);
+	// one slot per key on the device
+	const layout l = layout_for(600, shards);
+	auto b = s5_read(block, l);
+	std::map<u32, int> slots_of;
+	for (u64 s = 0; s < l.slots; s++) {
+		const u64 h = b[slot_offset(l, s) / 8];
+		if (state_of(h) == ST_LIVE)
+			slots_of[key_of(h)]++;
+	}
+	u64 doubled = 0;
+	for (auto &[k, n] : slots_of)
+		doubled += n != 1;
+	c.expect("keys in two slots", doubled, 0);
+	c.expect("live keys", slots_of.size(), 200);
+	u32 w6 = 6 + CNT_EEXIST;
+	auto e = (const u64 *)bpftime_map_lookup_elem(S5_COMP_FD, &w6);
+	c.expect("companion EEXIST", e ? *e : ~0ull, g.eexist);
+	printf("RESULT s5-prefill-gpu: %d wrong (EEXIST %" PRIu64 ")\n", c.bad,
+	       g.eexist);
+	a.ctx.reset();
+	shared_memory_object::remove(name.c_str());
+	return c.bad == 0 ? 0 : 1;
+}
+
+// Test 8: more distinct keys than max_entries: the refused ones.
+int run_s5_refused()
+{
+	if (!use_primary_context())
+		return 0;
+	const std::string name = s5_segment_name("refused");
+	s5_checks c;
+	const u64 max = 64;
+	if (!s5_create_segment(name) ||
+	    !s5_map(S5_HASH_FD, "counts", S5_HASH, 4, 8, (u32)max) ||
+	    !s5_map(S5_COMP_FD, "counts_st", S5_ARRAY, 4, 8, 16))
+		return 2;
+	s5_agent a;
+	a.open(name);
+	c.expect("init", (u64)a.init(), 0);
+	nv_gpu_device_hash_map_impl *m = s5_hash(S5_HASH_FD);
+	u64 shards = 0;
+	const CUdeviceptr block =
+		m ? gpu_model::find_device_hash_copy(m, &shards) : 0;
+	if (block == 0)
+		return 3;
+	auto g = s5_gpu_inserts(block, max, shards, 200, 200, 7919u, 1000u);
+	c.expect_true("delivered",
+		      s5_wait_delivery(m, attach::launch_activity().app_sync_count()));
+	const layout l = layout_for(max, shards);
+	auto b = s5_read(block, l);
+	u64 refused = 0, live = 0;
+	for (u64 s = 0; s < l.slots; s++) {
+		const u64 h = b[slot_offset(l, s) / 8];
+		refused += state_of(h) == ST_REFUSED;
+		live += state_of(h) == ST_LIVE;
+	}
+	auto word = [&](u32 i) -> u64 {
+		auto v = (const u64 *)bpftime_map_lookup_elem(S5_COMP_FD, &i);
+		return v ? *v : ~0ull;
+	};
+	c.expect_true("some refused", g.e2big > 0 && refused > 0);
+	c.expect("companion E2BIG", word(6 + CNT_E2BIG), g.e2big);
+	c.expect("companion refused slots", word(15), refused);
+	c.expect("companion live", word(14), live);
+	c.expect("live", live, max);
+	u64 wrong = 0;
+	for (auto &[k, want] : g.want) {
+		auto v = (const u64 *)bpftime_map_lookup_elem(S5_HASH_FD, &k);
+		if (want == 0)
+			wrong += v != nullptr;
+		else
+			wrong += v == nullptr || *v != want;
+	}
+	c.expect("mirror wrong", wrong, 0);
+	printf("RESULT s5-refused: %d wrong (E2BIG %" PRIu64 ", refused slots %" PRIu64
+	       ")\n",
+	       c.bad, g.e2big, refused);
+	a.ctx.reset();
+	shared_memory_object::remove(name.c_str());
+	return c.bad == 0 ? 0 : 1;
+}
+
+// Test 9: the tool closes its fds while the owner delivers: the pinned
+// objects stay.
+int run_s5_close()
+{
+	if (!use_primary_context())
+		return 0;
+	const std::string name = s5_segment_name("close");
+	s5_checks c;
+	if (!s5_create_segment(name) ||
+	    !s5_map(S5_HASH_FD, "counts", S5_HASH, 4, 8, 600) ||
+	    !s5_map(S5_COMP_FD, "counts_st", S5_ARRAY, 4, 8, 16))
+		return 2;
+	s5_agent a;
+	a.open(name);
+	c.expect("init", (u64)a.init(), 0);
+	nv_gpu_device_hash_map_impl *m = s5_hash(S5_HASH_FD);
+	u64 shards = 0;
+	const CUdeviceptr block =
+		m ? gpu_model::find_device_hash_copy(m, &shards) : 0;
+	if (block == 0)
+		return 3;
+	u32 zero = 0;
+	auto words = (const u64 *)bpftime_map_lookup_elem(S5_COMP_FD, &zero);
+	if (words == nullptr)
+		return 3;
+	const u64 destroyed = devhash_destroyed_for_test();
+	bpftime_close(S5_HASH_FD);
+	bpftime_close(S5_COMP_FD);
+	c.expect("hash fd closed", bpftime_is_map_fd(S5_HASH_FD), 0);
+	c.expect("1533 object destroyed", devhash_destroyed_for_test() - destroyed,
+		 0);
+	s5_gpu_inserts(block, 600, shards, 100, 512, 7919u, 1000u);
+	c.expect_true("delivered after the close",
+		      s5_wait_delivery(m, attach::launch_activity().app_sync_count()));
+	c.expect_true("companion deliveries", words[0] >= 1);
+	c.expect("companion live", words[14], 100);
+	c.expect("1533 object destroyed", devhash_destroyed_for_test() - destroyed,
+		 0);
+	printf("RESULT s5-close: %d wrong\n", c.bad);
+	a.ctx.reset();
+	shared_memory_object::remove(name.c_str());
+	return c.bad == 0 ? 0 : 1;
+}
+
+// The tool closes one of two companion candidates while the owner runs.
+int run_s5_close_candidate()
+{
+	const std::string name = s5_segment_name("owner");
+	bpftime_destroy_global_shm();
+	setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1);
+	bpftime_initialize_global_shm(shm_open_type::SHM_OPEN_ONLY);
+	bpftime_close(S5_COMP_FD + 1);
+	printf("RESULT s5-close-candidate: 0 wrong\n");
+	return 0;
+}
+
+// Test 10, last case: the tool closes the companion after the owner's
+// exit and another map takes its slot.
+int run_s5_reuse_companion()
+{
+	const std::string name = s5_segment_name("owner");
+	bpftime_destroy_global_shm();
+	setenv("BPFTIME_GLOBAL_SHM_NAME", name.c_str(), 1);
+	bpftime_initialize_global_shm(shm_open_type::SHM_OPEN_ONLY);
+	bpftime_close(S5_COMP_FD);
+	if (!s5_map(S5_COMP_FD, "other", S5_ARRAY, 4, 8, 16))
+		return 2;
+	printf("RESULT s5-reuse-companion: 0 wrong\n");
+	return 0;
+}
+
 // The pre-pass's gate (D11a): no copy without a CUDA link, nor in the
 // direct run (bpftimetool cuda); the map stays the CPU's.
 int run_s5_gate()
@@ -2207,6 +2774,25 @@ int run_s5_gate()
 			 0);
 		a.ctx.reset();
 	}
+	const std::string name3 = name + "-noattach";
+	{
+		// a CUDA link, but this agent handles no CUDA attach
+		if (!s5_create_segment(name3) ||
+		    !s5_map(S5_HASH_FD, "counts", S5_HASH, 4, 8, 16))
+			return 2;
+		s5_agent a;
+		a.open(name3, false);
+		c.expect("init", (u64)a.init(), 0);
+		nv_gpu_device_hash_map_impl *m = s5_hash(S5_HASH_FD);
+		if (m == nullptr)
+			return 3;
+		c.expect("no copy without a CUDA attach",
+			 gpu_model::find_device_hash_copy(m, nullptr), 0);
+		c.expect("PHASE 0 without a CUDA attach", m->get_phase(),
+			 DEVHASH_PHASE_CPU);
+		a.ctx.reset();
+	}
+	// last: the copy registers a delivery, which keeps using this segment
 	{
 		// a CUDA link, in the direct run; then an agent's init
 		if (!s5_create_segment(name2) ||
@@ -2233,6 +2819,7 @@ int run_s5_gate()
 	printf("RESULT s5-gate: %d wrong\n", c.bad);
 	shared_memory_object::remove(name.c_str());
 	shared_memory_object::remove(name2.c_str());
+	shared_memory_object::remove(name3.c_str());
 	return c.bad == 0 ? 0 : 1;
 }
 
@@ -2350,6 +2937,24 @@ TEST_CASE("Device hash GPU child", "[.devhash-gpu-child]")
 		rc = run_s5_isolation();
 	else if (w == "s5-gate")
 		rc = run_s5_gate();
+	else if (w == "s5-hold")
+		rc = run_s5_hold();
+	else if (w == "s5-not-owner")
+		rc = run_s5_not_owner();
+	else if (w == "s5-die")
+		rc = run_s5_die();
+	else if (w == "s5-next-owner")
+		rc = run_s5_next_owner();
+	else if (w == "s5-prefill-gpu")
+		rc = run_s5_prefill_gpu();
+	else if (w == "s5-refused")
+		rc = run_s5_refused();
+	else if (w == "s5-close")
+		rc = run_s5_close();
+	else if (w == "s5-reuse-companion")
+		rc = run_s5_reuse_companion();
+	else if (w == "s5-close-candidate")
+		rc = run_s5_close_candidate();
 	else if (const stress_config *c = find_config(w))
 		rc = run_stress(*c);
 	else {
@@ -2573,7 +3178,7 @@ TEST_CASE("Routed 1533 calls agree with the walk on the GPU",
 
 // ---- S5: the copy and the delivery in the agent (plan S5 tests)
 
-TEST_CASE("S5: the first copy, and later links keep its base",
+TEST_CASE("S5: the first copy and later links keep its base",
 	  "[gpu-devhash-device][gpu-devhash-s5]")
 {
 	if (!have_gpu())
@@ -2640,4 +3245,248 @@ TEST_CASE("S5: takeover after the owner's clean exit",
 			break;
 	}
 	shared_memory_object::remove(name.c_str());
+}
+
+namespace
+{
+// A child that keeps running while the parent acts on it.
+struct live_child {
+	pid_t pid = -1;
+	int fd = -1;
+	std::string out;
+};
+
+live_child spawn_child(const std::string &what, const child_env &env)
+{
+	int out[2];
+	REQUIRE(pipe(out) == 0);
+	live_child c;
+	c.pid = fork();
+	REQUIRE(c.pid >= 0);
+	if (c.pid == 0) {
+		dup2(out[1], STDOUT_FILENO);
+		close(out[0]);
+		close(out[1]);
+		setenv(CHILD_ENV, what.c_str(), 1);
+		setenv("SPDLOG_LEVEL", "off", 1);
+		for (auto &[k, v] : env)
+			setenv(k.c_str(), v.c_str(), 1);
+		execl("/proc/self/exe", "bpftime_runtime_tests",
+		      "[.devhash-gpu-child]", "-o", "/dev/null", nullptr);
+		_exit(127);
+	}
+	close(out[1]);
+	c.fd = out[0];
+	return c;
+}
+
+// reads the child's output until it holds marker (false: EOF or timeout)
+bool wait_for_output(live_child &c, const std::string &marker,
+		     std::chrono::seconds t)
+{
+	const auto end = std::chrono::steady_clock::now() + t;
+	char buf[4096];
+	while (c.out.find(marker) == std::string::npos) {
+		const auto left = std::chrono::duration_cast<
+			std::chrono::milliseconds>(end - std::chrono::steady_clock::now());
+		if (left.count() <= 0)
+			return false;
+		struct pollfd pfd = { c.fd, POLLIN, 0 };
+		if (poll(&pfd, 1, (int)std::min<long>(left.count(), 500)) > 0) {
+			const ssize_t n = read(c.fd, buf, sizeof(buf));
+			if (n <= 0)
+				return false;
+			c.out.append(buf, (size_t)n);
+		}
+	}
+	return true;
+}
+
+void kill_child(live_child &c)
+{
+	if (c.pid > 0) {
+		kill(c.pid, SIGKILL);
+		int st = 0;
+		waitpid(c.pid, &st, 0);
+		c.pid = -1;
+	}
+	if (c.fd >= 0) {
+		close(c.fd);
+		c.fd = -1;
+	}
+}
+
+bool runs_sleep(pid_t pid)
+{
+	char path[64], target[256];
+	snprintf(path, sizeof(path), "/proc/%d/exe", (int)pid);
+	const ssize_t n = readlink(path, target, sizeof(target) - 1);
+	if (n <= 0)
+		return false;
+	target[n] = 0;
+	return strstr(target, "sleep") != nullptr;
+}
+
+void check_run(const char *what, const child_env &env)
+{
+	const child_result r = run_child(what, std::chrono::seconds(120), env);
+	INFO("child " << what << " status " << r.status << "\n" << r.output);
+	CHECK(r.status == 0);
+}
+} // namespace
+
+TEST_CASE("S5: no copy for another agent while the owner runs or is stopped "
+	  "and a takeover once it execs",
+	  "[gpu-devhash-device][gpu-devhash-s5]")
+{
+	if (!have_gpu())
+		SKIP("no GPU");
+	const std::string name = "bpftime-s5-hold-" + std::to_string(getpid());
+	child_env env = { { "BPFTIME_DEVHASH_S5_SHM", name } };
+	live_child holder = spawn_child("s5-hold", env);
+	const bool ready =
+		wait_for_output(holder, "READY", std::chrono::seconds(120));
+	INFO("holder: " << holder.out);
+	REQUIRE(ready);
+	env.push_back({ "BPFTIME_DEVHASH_S5_OWNER", std::to_string(holder.pid) });
+	check_run("s5-not-owner", env); // running
+	kill(holder.pid, SIGSTOP);
+	check_run("s5-not-owner", env); // stopped
+	kill(holder.pid, SIGCONT);
+	kill(holder.pid, SIGUSR1); // exec
+	bool execd = false;
+	for (int i = 0; i < 200 && !execd; i++) {
+		execd = runs_sleep(holder.pid);
+		usleep(50000);
+	}
+	CHECK(execd);
+	check_run("s5-takeover", env);
+	kill_child(holder);
+	shared_memory_object::remove(name.c_str());
+}
+
+TEST_CASE("S5: another agent leaves an unbound companion unbound",
+	  "[gpu-devhash-device][gpu-devhash-s5]")
+{
+	if (!have_gpu())
+		SKIP("no GPU");
+	const std::string name = "bpftime-s5-unbound-" + std::to_string(getpid());
+	child_env env = { { "BPFTIME_DEVHASH_S5_SHM", name },
+			  { "BPFTIME_DEVHASH_S5_TWO_COMPANIONS", "1" } };
+	live_child holder = spawn_child("s5-hold", env);
+	const bool ready =
+		wait_for_output(holder, "READY", std::chrono::seconds(120));
+	INFO("holder: " << holder.out);
+	REQUIRE(ready);
+	env.push_back({ "BPFTIME_DEVHASH_S5_OWNER", std::to_string(holder.pid) });
+	env.push_back({ "BPFTIME_DEVHASH_S5_EXPECT_COMPANION", "-1" });
+	// one candidate left: a non-owner must still not bind it
+	check_run("s5-close-candidate", env);
+	check_run("s5-not-owner", env);
+	kill_child(holder);
+	shared_memory_object::remove(name.c_str());
+}
+
+TEST_CASE("S5: takeover after the owner is killed",
+	  "[gpu-devhash-device][gpu-devhash-s5]")
+{
+	if (!have_gpu())
+		SKIP("no GPU");
+	const std::string name = "bpftime-s5-killed-" + std::to_string(getpid());
+	const child_env env = { { "BPFTIME_DEVHASH_S5_SHM", name } };
+	live_child holder = spawn_child("s5-hold", env);
+	const bool ready =
+		wait_for_output(holder, "READY", std::chrono::seconds(120));
+	INFO("holder: " << holder.out);
+	REQUIRE(ready);
+	kill_child(holder);
+	check_run("s5-takeover", env);
+	shared_memory_object::remove(name.c_str());
+}
+
+TEST_CASE("S5: owner deaths after the claim or in the seal wait or after the "
+	  "seal or between passes B and C",
+	  "[gpu-devhash-device][gpu-devhash-s5]")
+{
+	if (!have_gpu())
+		SKIP("no GPU");
+	for (const char *stop :
+	     { "claim", "seal-wait", "after-seal", "between-b-c" }) {
+		SECTION(stop)
+		{
+			const std::string name = std::string("bpftime-s5-die-") +
+						 stop + "-" +
+						 std::to_string(getpid());
+			child_env env = { { "BPFTIME_DEVHASH_S5_SHM", name },
+					  { "BPFTIME_DEVHASH_S5_STOP", stop } };
+			live_child owner = spawn_child("s5-die", env);
+			const bool stopped = wait_for_output(
+				owner, "STOPPED", std::chrono::seconds(120));
+			INFO("owner: " << owner.out);
+			CHECK(stopped);
+			kill_child(owner);
+			if (std::string(stop) == "between-b-c")
+				env.push_back({ "BPFTIME_DEVHASH_S5_GPU_KEYS", "1" });
+			if (std::string(stop) == "seal-wait")
+				env.push_back(
+					{ "BPFTIME_DEVHASH_S5_MAP_CREATE", "1" });
+			if (stopped)
+				check_run("s5-next-owner", env);
+			shared_memory_object::remove(name.c_str());
+		}
+	}
+}
+
+TEST_CASE("S5: a companion closed and its slot reused before a takeover is "
+	  "not bound",
+	  "[gpu-devhash-device][gpu-devhash-s5]")
+{
+	if (!have_gpu())
+		SKIP("no GPU");
+	const std::string name = "bpftime-s5-reuse-" + std::to_string(getpid());
+	const child_env env = { { "BPFTIME_DEVHASH_S5_SHM", name },
+				{ "BPFTIME_DEVHASH_S5_EXPECT_COMPANION", "-1" } };
+	for (const char *what :
+	     { "s5-owner-exit", "s5-reuse-companion", "s5-takeover" }) {
+		const child_result r =
+			run_child(what, std::chrono::seconds(120), env);
+		INFO("child " << what << " status " << r.status << "\n"
+			      << r.output);
+		CHECK(r.status == 0);
+		if (r.status != 0)
+			break;
+	}
+	shared_memory_object::remove(name.c_str());
+}
+
+TEST_CASE("S5: delivered inside the application's sync call",
+	  "[gpu-devhash-device][gpu-devhash-s5]")
+{
+	if (!have_gpu())
+		SKIP("no GPU");
+	check_child("s5-e2e", std::chrono::seconds(120),
+		    { { "BPFTIME_GPU_DELIVERY_AT_SYNC", "1" } });
+}
+
+TEST_CASE("S5: GPU inserts on prefilled keys", "[gpu-devhash-device][gpu-devhash-s5]")
+{
+	if (!have_gpu())
+		SKIP("no GPU");
+	check_child("s5-prefill-gpu", std::chrono::seconds(120));
+}
+
+TEST_CASE("S5: keys past max_entries are refused and counted",
+	  "[gpu-devhash-device][gpu-devhash-s5]")
+{
+	if (!have_gpu())
+		SKIP("no GPU");
+	check_child("s5-refused", std::chrono::seconds(120));
+}
+
+TEST_CASE("S5: the tool's close leaves the delivered objects",
+	  "[gpu-devhash-device][gpu-devhash-s5]")
+{
+	if (!have_gpu())
+		SKIP("no GPU");
+	check_child("s5-close", std::chrono::seconds(120));
 }

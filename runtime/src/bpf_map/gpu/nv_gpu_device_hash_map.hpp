@@ -118,9 +118,17 @@ enum class devhash_hook_point {
 	build_image_start,
 	delivery_before_pass_a,
 	delivery_after_pass_c_slot,
+	// after a claim that leads to a copy (arg: the path), once while the
+	// seal waits for writers in flight, between the delivery's passes B
+	// and C (plan S5 test 3)
+	after_claim,
+	seal_waiting,
+	delivery_between_b_c,
 };
 using devhash_hook_fn = void (*)(devhash_hook_point, uint64_t);
 void set_devhash_hook_for_test(devhash_hook_fn fn);
+// Tests: 1533 objects this process destroyed.
+uint64_t devhash_destroyed_for_test();
 
 class nv_gpu_device_hash_map_impl {
     public:

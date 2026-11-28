@@ -190,13 +190,23 @@ int ofd_lock(int fd, uint64_t byte, short type)
 // Whether the description fd holds a write lock on byte of file ino: the
 // lock lines of /proc/self/fdinfo/<fd> are its own description's (another
 // description of the same file, or another file at the same number, shows
-// none of them).
+// none of them). The kernel merges one description's adjacent locks of one
+// type into one range (writer slot 255 and the claim's byte 256 show as one
+// line from slot 255), so the byte must lie in a line's range, not start it.
+// A number that names another file, or none: false. fdinfo unreadable while
+// the number names the segment's file (a host at its descriptor limit, a
+// seccomp filter): taken as held, as an unreadable maps file keeps a holder
+// alive.
 bool description_holds(int fd, ino_t ino, uint64_t byte)
 {
+	struct stat st {};
+	if (!raw_fstat(fd, &st) || st.st_ino != ino)
+		return false;
 	char path[64];
 	snprintf(path, sizeof(path), "/proc/self/fdinfo/%d", fd);
-	bool held = false;
-	for_each_proc_line(path, [&](char *line) {
+	bool held = false, lines = false;
+	const bool opened = for_each_proc_line(path, [&](char *line) {
+		lines = true;
 		if (strncmp(line, "lock:", 5) != 0 ||
 		    strstr(line, "OFDLCK") == nullptr)
 			return false;
@@ -207,12 +217,21 @@ bool description_holds(int fd, ino_t ino, uint64_t byte)
 		unsigned major, minor;
 		unsigned long i;
 		unsigned long long start;
-		if (sscanf(w + 6, "%d %x:%x:%lu %llu", &pid, &major, &minor, &i,
-			   &start) == 5 &&
-		    (ino_t)i == ino && start == byte)
+		char end_text[32];
+		if (sscanf(w + 6, "%d %x:%x:%lu %llu %31s", &pid, &major, &minor,
+			   &i, &start, end_text) != 6 ||
+		    (ino_t)i != ino)
+			return false;
+		const unsigned long long end =
+			strcmp(end_text, "EOF") == 0 ?
+				~0ull :
+				strtoull(end_text, nullptr, 10);
+		if (start <= byte && byte <= end)
 			held = true;
 		return held;
 	});
+	if (!opened || !lines)
+		return true;
 	return held;
 }
 
@@ -433,7 +452,7 @@ local_map *local_entry(const void *obj, uint64_t gen)
 bool ensure_description(local_map &e, const void *obj, uint64_t base)
 {
 	if (e.fd >= 0) {
-		struct stat st;
+		struct stat st {};
 		const int64_t s = e.slot.load(std::memory_order_relaxed);
 		const bool same_file = raw_fstat(e.fd, &st) &&
 				       st.st_dev == e.dev && st.st_ino == e.ino;
@@ -449,8 +468,23 @@ bool ensure_description(local_map &e, const void *obj, uint64_t base)
 		if (same_file &&
 		    (probe == ~0ull || description_holds(e.fd, e.ino, probe)))
 			return true;
-		SPDLOG_WARN(
-			"device hash map: this process's description of the segment was closed; its writer slot and claim are gone");
+		{
+			// what the check saw, for the log (rare path)
+			std::string locks;
+			char path[64];
+			snprintf(path, sizeof(path), "/proc/self/fdinfo/%d", e.fd);
+			for_each_proc_line(path, [&](char *line) {
+				if (strncmp(line, "lock:", 5) == 0 &&
+				    locks.size() < 512)
+					locks += std::string(line) + "; ";
+				return false;
+			});
+			SPDLOG_WARN(
+				"device hash map: this process's description of the segment was closed; its writer slot and claim are gone (fd {}, same file {}, dev {} ino {}, want dev {} ino {}, probe {}, owner {}, slot {}, locks: {})",
+				e.fd, same_file, (uint64_t)st.st_dev,
+				(uint64_t)st.st_ino, (uint64_t)e.dev,
+				(uint64_t)e.ino, probe, e.owner_locked, s, locks);
+		}
 		const int64_t old_slot = s;
 		const bool was_owner = e.owner_locked;
 		forget_locks(e);
@@ -648,8 +682,18 @@ nv_gpu_device_hash_map_impl::nv_gpu_device_hash_map_impl(
 		max_entries, slots, 2 * slots * 8);
 }
 
+namespace
+{
+std::atomic<uint64_t> devhash_destroyed{ 0 };
+}
+uint64_t bpftime::devhash_destroyed_for_test()
+{
+	return devhash_destroyed.load();
+}
+
 nv_gpu_device_hash_map_impl::~nv_gpu_device_hash_map_impl()
 {
+	devhash_destroyed.fetch_add(1);
 	// this process's description for the map (its writer slot's and its
 	// claim's locks) goes with the map; it would also keep a removed
 	// segment's file alive
@@ -1023,6 +1067,7 @@ bool nv_gpu_device_hash_map_impl::make_image(bool has_cached_copy,
 	path = claim(has_cached_copy);
 	if (path == devhash_path::not_owner || path == devhash_path::have_copy)
 		return false;
+	call_hook(devhash_hook_point::after_claim, (uint64_t)path);
 	bool ok = false;
 	try {
 		switch (path) {
@@ -1090,6 +1135,8 @@ bool nv_gpu_device_hash_map_impl::seal(uint64_t bound_ns)
 			cpu_relax();
 			continue;
 		}
+		if (polls == 64)
+			call_hook(devhash_hook_point::seal_waiting, 0);
 		// every 4096 polls: processes that died with writers in flight
 		if (polls % 4096 == 0) {
 			discount_dead_writers(probe, (uint64_t)dev, (uint64_t)ino);
@@ -1299,12 +1346,16 @@ void nv_gpu_device_hash_map_impl::apply_delivery(const uint8_t *staging)
 		    __atomic_load_n(mval() + s, __ATOMIC_RELAXED) != val[s])
 			__atomic_store_n(mval() + s, val[s], __ATOMIC_RELAXED);
 	// Pass B: the occupancy of every slot this delivery fills
+	uint64_t filled = 0;
 	for (uint64_t s = 0; s < slots; s++)
 		if (__atomic_load_n(mhdr() + s, __ATOMIC_RELAXED) == 0 &&
-		    state_of(hdr[s]) != ST_EMPTY)
+		    state_of(hdr[s]) != ST_EMPTY) {
 			__atomic_store_n(mhdr() + s, OPAQUE_WORD,
 					 __ATOMIC_RELAXED);
+			filled++;
+		}
 	std::atomic_thread_fence(std::memory_order_release);
+	call_hook(devhash_hook_point::delivery_between_b_c, filled);
 	// Pass C: the changed headers, in ascending slot order
 	for (uint64_t s = 0; s < slots; s++) {
 		if (__atomic_load_n(mhdr() + s, __ATOMIC_RELAXED) == hdr[s])

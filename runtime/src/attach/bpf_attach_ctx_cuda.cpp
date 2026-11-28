@@ -550,14 +550,23 @@ bool companion_shape(const bpf_map_handler &m)
 	       m.get_max_entries() >= bpftime::DEVHASH_STATUS_WORDS;
 }
 
-// Binds (or checks the stored binding of) the companion of the 1533 map at
-// index i and pins it; its value words, or null. Under the binding guard.
-uint64_t *bind_companion(
+// The companion of the 1533 map at index i (D12), pinned: its index and
+// value words; index -1 with unbind set when a stored binding's slot no
+// longer holds it. Nothing is stored here: only the process whose copy is
+// made records the binding (another agent leaves the link alone). Under
+// the binding guard.
+struct companion_choice {
+	int64_t index = -1;
+	uint64_t *words = nullptr;
+	bool unbind = false;
+};
+companion_choice choose_companion(
 	const std::shared_ptr<boost::interprocess::managed_shared_memory> &memory,
 	const handler_manager *manager, int i, const bpf_map_handler &hash,
 	nv_gpu_device_hash_map_impl *impl)
 {
 	const std::string name = companion_name(hash);
+	companion_choice out;
 	auto log_once = [&](const std::string &why) {
 		if (devhash_companion_logged.insert(impl).second)
 			SPDLOG_WARN(
@@ -566,14 +575,14 @@ uint64_t *bind_companion(
 	};
 	int64_t index = impl->get_companion();
 	if (index >= 0) {
-		// a binding stored by an earlier process: its slot may have
-		// been closed and reused since
+		// a binding stored by an earlier owner: its slot may have been
+		// closed and reused since
 		const auto *m = map_at(manager, index);
 		if (m == nullptr || !named(*m, name) || !companion_shape(*m)) {
-			impl->set_companion(-1);
 			log_once("the stored slot " + std::to_string(index) +
-				 " no longer holds it; unbound");
-			return nullptr;
+				 " no longer holds it");
+			out.unbind = true;
+			return out;
 		}
 	} else {
 		int arrays = 0, hashes = 0;
@@ -592,25 +601,24 @@ uint64_t *bind_companion(
 				hashes++;
 		}
 		if (arrays == 0)
-			return nullptr; // none declared: nothing to say
+			return out; // none declared: nothing to say
 		if (arrays != 1 || hashes != 1) {
 			log_once(std::to_string(arrays) + " arrays and " +
 				 std::to_string(hashes) +
 				 " device hash maps share the name");
-			return nullptr;
+			return out;
 		}
 		if (!companion_shape(*map_at(manager, index))) {
 			log_once("not an array of at least 16 8-byte values");
-			return nullptr;
+			return out;
 		}
 	}
 	auto binding = array_map_binding::acquire(memory, manager, (int)index,
 						  false);
 	if (!binding) {
 		log_once("cannot pin it");
-		return nullptr;
+		return out;
 	}
-	impl->set_companion(index);
 	void *words = binding->raw_data();
 	bool kept = false;
 	for (auto &b : devhash_companions)
@@ -618,7 +626,9 @@ uint64_t *bind_companion(
 			kept = true;
 	if (!kept)
 		devhash_companions.push_back(std::move(binding));
-	return (uint64_t *)words;
+	out.index = index;
+	out.words = (uint64_t *)words;
+	return out;
 }
 } // namespace
 
@@ -627,15 +637,19 @@ void bpf_attach_ctx::prepare_device_hash_copies(const handler_manager *manager)
 	if (!cuda_ctx || direct_run || manager == nullptr ||
 	    manager != shm_holder.global_shared_memory.get_manager())
 		return;
+	// this agent handles CUDA attaches (the direct run registers them too)
+	if (attach_impls.count(attach::ATTACH_CUDA_PROBE) == 0 &&
+	    attach_impls.count(attach::ATTACH_CUDA_RETPROBE) == 0)
+		return;
 	auto memory = shm_holder.global_shared_memory.retain_mapping();
 	if (!memory)
 		return;
 	struct pending {
 		nv_gpu_device_hash_map_impl *impl;
-		uint64_t *companion;
+		companion_choice comp;
 	};
 	std::vector<pending> todo;
-	{
+	try {
 		// quick, and nothing here waits
 		map_binding_guard guard(map_binding_mutex(*memory));
 		bool cuda_link = false;
@@ -675,9 +689,14 @@ void bpf_attach_ctx::prepare_device_hash_copies(const handler_manager *manager)
 				m->inc_map_refcount();
 				devhash_pinned.push_back(*impl);
 			}
-			todo.push_back({ *impl, bind_companion(memory, manager,
-							       (int)i, *m, *impl) });
+			todo.push_back({ *impl, choose_companion(memory, manager,
+								 (int)i, *m,
+								 *impl) });
 		}
+	} catch (const std::exception &e) {
+		SPDLOG_ERROR("GPU device hash maps: no device copies ({})",
+			     e.what());
+		return;
 	}
 	if (todo.empty())
 		return;
@@ -696,8 +715,21 @@ void bpf_attach_ctx::prepare_device_hash_copies(const handler_manager *manager)
 		}
 		cuCtxSetCurrent(primary);
 	}
-	for (auto &t : todo)
-		gpu_model::make_device_hash_copy(t.impl, t.companion);
+	for (auto &t : todo) {
+		try {
+			if (gpu_model::make_device_hash_copy(t.impl,
+							     t.comp.words) == 0)
+				continue;
+			// the owner records the binding (D12)
+			if (t.comp.index >= 0)
+				t.impl->set_companion(t.comp.index);
+			else if (t.comp.unbind)
+				t.impl->set_companion(-1);
+		} catch (const std::exception &e) {
+			SPDLOG_ERROR("GPU device hash map: no device copy ({})",
+				     e.what());
+		}
+	}
 	if (primary != nullptr) {
 		cuCtxSetCurrent(nullptr);
 		cuDevicePrimaryCtxRelease(device);

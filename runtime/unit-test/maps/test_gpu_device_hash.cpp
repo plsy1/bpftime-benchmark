@@ -2290,3 +2290,41 @@ TEST_CASE("An exec'd image of a writer clears what its earlier image left",
 	CHECK(map->get_inflight() == 0);
 	CHECK(seal_in_child(map, 0, 300 * MS) == 0);
 }
+
+// The kernel merges one description's adjacent write locks into one range:
+// with this process's writer slot at 255 (byte lock_base + 255) the claim's
+// byte (lock_base + 256) shows in fdinfo as one line from byte 255. The
+// claim check read that as lost, and the owner stopped delivering (S5:
+// found as a 1-in-10 failure of the GPU suite).
+TEST_CASE("The claim stays held beside this process's writer slot 255",
+	  "[gpu-devhash-cpu]")
+{
+	segment seg("slot255");
+	auto *map = seg.make(64);
+	// another description of the segment's file holds slots 0..254, so
+	// this process's scan ends at 255
+	const int other = open(("/dev/shm/" + seg.name).c_str(),
+			       O_RDWR | O_CLOEXEC);
+	REQUIRE(other >= 0);
+	for (uint64_t i = 0; i < 255; i++) {
+		struct flock fl {};
+		fl.l_type = F_WRLCK;
+		fl.l_whence = SEEK_SET;
+		fl.l_start = (off_t)(map->lock_base() + i);
+		fl.l_len = 1;
+		REQUIRE(fcntl(other, F_OFD_SETLK, &fl) == 0);
+	}
+	REQUIRE(put(map, 7, 1) == 0); // this process's writer slot: 255
+	REQUIRE(map->claim(false) == devhash_path::first_copy);
+	CHECK(map->still_holds_claim());
+	map->release_claim();
+	// given back: another description can take the claim's byte now
+	struct flock fl {};
+	fl.l_type = F_WRLCK;
+	fl.l_whence = SEEK_SET;
+	fl.l_start = (off_t)(map->lock_base() +
+			     nv_gpu_device_hash_map_impl::OWNER_LOCK_BYTE);
+	fl.l_len = 1;
+	CHECK(fcntl(other, F_OFD_SETLK, &fl) == 0);
+	close(other);
+}
