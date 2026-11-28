@@ -1,4 +1,6 @@
 #include "nv_gpu_model_maps.hpp"
+#include "nv_gpu_device_hash_map.hpp"
+#include "base_attach_impl.hpp"
 #include "bpftime_shm.hpp"
 #include "bpftime_shm_internal.hpp"
 #include "spdlog/spdlog.h"
@@ -398,16 +400,41 @@ struct registered_map {
 	uint64_t deliveries = 0, ns_total = 0, ns_max = 0;
 };
 
+// A device hash map (1533, plan S5): its block, its shards, pinned staging
+// for the hash snapshot, and the companion's value words (D12; null: none
+// bound).
+struct registered_hash {
+	nv_gpu_device_hash_map_impl *map;
+	CUdeviceptr block;
+	uint64_t max_entries, shards;
+	uint8_t *staging = nullptr;
+	CUdeviceptr staging_device = 0;
+	uint64_t staging_bytes = 0;
+	uint64_t *companion = nullptr;
+	bool dropped = false; // the claim was lost: no more deliveries
+	uint64_t busy_ns = 0, idle_ns = 0, next_due_ns = 0, last_ns = 0;
+	uint64_t sync_gap_ns = 0;
+	uint64_t covered_syncs = 0;
+	uint64_t last_sum = 0;
+	uint64_t deliveries = 0, ns_total = 0, ns_max = 0;
+};
+
 struct delivery_state {
 	std::mutex reg_mutex; // the list
 	std::timed_mutex run_mutex; // one delivery at a time
 	std::vector<registered_map> maps;
+	std::vector<registered_hash> hashes;
 	pid_t owner = 0; // the process that registered (fork children skip)
 	CUcontext ctx = nullptr;
 	CUmodule module = nullptr;
 	CUfunction fn = nullptr;
 	CUstream stream = nullptr;
 	bool broken = false;
+	// the hash snapshot (D14): a module of its own, its own warm-up and
+	// broken flag, so a failure there leaves the arrays' deliveries alone
+	CUmodule hash_module = nullptr;
+	CUfunction hash_fn = nullptr;
+	bool hash_broken = false;
 	std::thread thread;
 	std::mutex wake_mutex;
 	std::condition_variable wake;
@@ -517,6 +544,69 @@ bool prepare_locked(delivery_state &s, uint64_t deadline_ns, bool stoppable)
 // its synchronize call (BPFTIME_GPU_DELIVERY_AT_SYNC=1), every map whose
 // last delivery does not cover the application's latest synchronization;
 // exit: the exit handler, every map
+// Tests (S5): fail the hash module's load, fail a hash map's registration.
+std::atomic<bool> fail_hash_module_for_test{ false };
+std::atomic<bool> fail_hash_registration_for_test{ false };
+
+// nothing left to deliver: every kind broken or without maps
+bool nothing_to_deliver(delivery_state &s)
+{
+	std::lock_guard<std::mutex> g(s.reg_mutex);
+	return (s.broken || s.maps.empty()) &&
+	       (s.hash_broken || s.hashes.empty());
+}
+
+// with run_mutex held, the context current and relaxed capture mode
+bool prepare_hash_locked(delivery_state &s, uint64_t deadline_ns,
+			 bool stoppable)
+{
+	if (s.hash_broken)
+		return false;
+	if (s.hash_fn)
+		return true;
+	CUresult r = fail_hash_module_for_test.load() ?
+			     CUDA_ERROR_INVALID_IMAGE :
+			     cuModuleLoadData(&s.hash_module, hash_snapshot_ptx);
+	if (r == CUDA_SUCCESS)
+		r = cuModuleGetFunction(&s.hash_fn, s.hash_module,
+					"bpftime_model_hash_snapshot");
+	if (r == CUDA_SUCCESS && !s.stream)
+		r = cuStreamCreate(&s.stream, CU_STREAM_NON_BLOCKING);
+	// the first launch compiles the PTX (lazy loading): on a small block
+	// of its own, so that it counts as set-up
+	CUdeviceptr wb = 0, ws = 0;
+	if (r == CUDA_SUCCESS) {
+		const bpftime_devhash::layout l =
+			bpftime_devhash::layout_for(1, 32);
+		r = cuMemAlloc(&wb, l.total);
+		if (r == CUDA_SUCCESS)
+			r = cuMemsetD8Async(wb, 0, l.total, s.stream);
+		if (r == CUDA_SUCCESS)
+			r = cuMemAlloc(&ws,
+				       bpftime_devhash::staging_for(1).total);
+		if (r == CUDA_SUCCESS)
+			r = launch_hash_snapshot(s.hash_fn, s.stream, wb, 1, 32,
+						 ws);
+		if (r == CUDA_SUCCESS)
+			r = wait_stream(s, deadline_ns, stoppable);
+	}
+	if (r != CUDA_ERROR_NOT_READY) {
+		if (wb)
+			cuMemFree(wb);
+		if (ws)
+			cuMemFree(ws);
+	}
+	if (r != CUDA_SUCCESS) {
+		SPDLOG_ERROR("GPU map delivery: cannot set up the hash snapshot ({})",
+			     (int)r);
+		if (r != CUDA_ERROR_NOT_READY)
+			s.hash_broken = true;
+		s.hash_fn = r == CUDA_ERROR_NOT_READY ? s.hash_fn : nullptr;
+		return false;
+	}
+	return true;
+}
+
 enum class delivery_kind { drain, at_sync, exit };
 
 // One delivery of every map that is due (all of them at exit); returns the
@@ -532,18 +622,25 @@ uint64_t deliver_locked(delivery_state &s, delivery_kind kind,
 {
 	const bool at_exit = kind == delivery_kind::exit;
 	std::vector<registered_map> maps;
+	std::vector<registered_hash> hashes;
 	{
 		std::lock_guard<std::mutex> g(s.reg_mutex);
-		maps = s.maps;
+		if (!s.broken)
+			maps = s.maps;
+		if (!s.hash_broken)
+			hashes = s.hashes;
 	}
-	if (maps.empty())
+	if (maps.empty() && hashes.empty())
 		return now_ns() + 200000000ull;
-	if (!s.fn) {
+	if (!maps.empty() && !s.fn) {
 		const uint64_t t = now_ns();
 		if (!prepare_locked(s, deadline_ns,
-				    kind == delivery_kind::drain))
-			return s.broken ? UINT64_MAX : now_ns() + 20000000ull;
-		s.setup_ns = now_ns() - t;
+				    kind == delivery_kind::drain)) {
+			if (!s.broken)
+				return now_ns() + 20000000ull;
+			maps.clear(); // the hash maps still go
+		}
+		s.setup_ns += now_ns() - t;
 	}
 	const uint64_t t0 = now_ns();
 	const uint64_t syncs = attach::launch_activity().app_sync_count();
@@ -587,7 +684,7 @@ uint64_t deliver_locked(delivery_state &s, delivery_kind kind,
 			SPDLOG_ERROR("GPU map delivery: snapshot failed ({})",
 				     (int)r);
 			s.broken = true;
-			return UINT64_MAX;
+			break; // the hash maps still go
 		}
 		uint64_t *dst = m.map->host_words();
 		uint64_t c0 = now_ns();
@@ -624,6 +721,97 @@ uint64_t deliver_locked(delivery_state &s, delivery_kind kind,
 			sm.ns_total += m1 - m0;
 			sm.ns_max = std::max(sm.ns_max, m1 - m0);
 			next_due = std::min(next_due, sm.next_due_ns);
+		}
+	}
+	if (!hashes.empty() && !s.hash_fn) {
+		const uint64_t t = now_ns();
+		if (!prepare_hash_locked(s, deadline_ns,
+					 kind == delivery_kind::drain))
+			hashes.clear();
+		s.setup_ns += now_ns() - t;
+	}
+	for (size_t hi = 0; hi < hashes.size(); hi++) {
+		auto &h = hashes[hi];
+		if (h.dropped)
+			continue;
+		uint64_t due = h.next_due_ns;
+		if (syncs != h.covered_syncs)
+			due = std::min(due, kind == delivery_kind::at_sync ?
+						    0 :
+						    h.last_ns + h.sync_gap_ns);
+		if (kind == delivery_kind::at_sync && syncs == h.covered_syncs)
+			due = UINT64_MAX;
+		if (!at_exit && due > t0) {
+			next_due = std::min(next_due, due);
+			continue;
+		}
+		const uint64_t m0 = now_ns();
+		bool holds;
+		{
+			// it takes a process-local mutex and makes system
+			// calls: no probe of this thread may run inside
+			attach::attach_callback_suppression_scope quiet;
+			holds = h.map->still_holds_claim();
+		}
+		if (!holds) {
+			SPDLOG_ERROR(
+				"GPU map delivery: this process no longer holds the device hash map's claim; it stops delivering it");
+			std::lock_guard<std::mutex> g(s.reg_mutex);
+			s.hashes[hi].dropped = true;
+			continue;
+		}
+		CUresult r = launch_hash_snapshot(s.hash_fn, s.stream, h.block,
+						  h.max_entries, h.shards,
+						  h.staging_device);
+		if (r == CUDA_SUCCESS)
+			r = wait_stream(s, deadline_ns,
+					kind == delivery_kind::drain);
+		if (r == CUDA_ERROR_NOT_READY)
+			return UINT64_MAX;
+		if (r != CUDA_SUCCESS) {
+			SPDLOG_ERROR("GPU map delivery: hash snapshot failed ({})",
+				     (int)r);
+			s.hash_broken = true;
+			break;
+		}
+		uint64_t sum = 0;
+		for (uint64_t i = 0; i < h.staging_bytes / 8; i++)
+			sum = sum * 0x100000001b3ull +
+			      ((const uint64_t *)h.staging)[i];
+		h.map->apply_delivery(h.staging);
+		auto *map = h.map;
+		if (!at_exit)
+			__atomic_store_n(
+				map->status_word(DEVHASH_STATUS_SYNCS_COVERED),
+				syncs, __ATOMIC_RELAXED);
+		else
+			__atomic_store_n(
+				map->status_word(DEVHASH_STATUS_EXIT_DELIVERY),
+				1, __ATOMIC_RELAXED);
+		map->finish_delivery();
+		if (h.companion)
+			for (uint64_t w = 0; w < DEVHASH_STATUS_WORDS; w++)
+				__atomic_store_n(
+					h.companion + w,
+					__atomic_load_n(map->status_word(w),
+							__ATOMIC_RELAXED),
+					__ATOMIC_RELAXED);
+		if (delivered)
+			(*delivered)++;
+		const uint64_t m1 = now_ns();
+		{
+			std::lock_guard<std::mutex> g(s.reg_mutex);
+			auto &sh = s.hashes[hi];
+			const bool changed = sum != sh.last_sum;
+			sh.last_sum = sum;
+			sh.last_ns = m1;
+			sh.covered_syncs = syncs;
+			sh.next_due_ns =
+				m1 + (changed ? sh.busy_ns : sh.idle_ns);
+			sh.deliveries++;
+			sh.ns_total += m1 - m0;
+			sh.ns_max = std::max(sh.ns_max, m1 - m0);
+			next_due = std::min(next_due, sh.next_due_ns);
 		}
 	}
 	s.deliveries++;
@@ -685,7 +873,7 @@ void drain_loop()
 				break;
 			s.sync_pending.store(false, std::memory_order_release);
 			std::unique_lock<std::timed_mutex> g(s.run_mutex);
-			if (s.final_done || s.broken)
+			if (s.final_done || nothing_to_deliver(s))
 				break;
 			due = deliver_locked(s, delivery_kind::drain,
 					     UINT64_MAX, nullptr);
@@ -722,6 +910,15 @@ void final_delivery_at_exit()
 					GPU_MODEL_STATUS_LAUNCHES_AFTER_LAST_SYNC),
 				after, __ATOMIC_RELEASE);
 		}
+		for (auto &h : s.hashes) {
+			__atomic_store_n(
+				h.map->status_word(DEVHASH_STATUS_SYNCS_AT_EXIT),
+				syncs, __ATOMIC_RELEASE);
+			__atomic_store_n(
+				h.map->status_word(
+					DEVHASH_STATUS_LAUNCHES_AFTER_LAST_SYNC),
+				after, __ATOMIC_RELEASE);
+		}
 	}
 	s.stop.store(true, std::memory_order_release);
 	{
@@ -741,7 +938,7 @@ void final_delivery_at_exit()
 						     std::defer_lock);
 		if (s.ctx && g.try_lock_for(std::chrono::milliseconds(200))) {
 			context_scope scope(s.ctx);
-			if (!s.final_done && !s.broken)
+			if (!s.final_done && !nothing_to_deliver(s))
 				deliver_locked(s, delivery_kind::exit,
 					       now_ns() + 1000000000ull, &n);
 			s.final_done = true;
@@ -764,7 +961,7 @@ void final_delivery_at_exit()
 int deliver_in_sync_call()
 {
 	auto &s = state();
-	if (!s.ctx || !owned_here() || s.final_done || s.broken)
+	if (!s.ctx || !owned_here() || s.final_done || nothing_to_deliver(s))
 		return 0;
 	context_scope scope(s.ctx);
 	std::unique_lock<std::timed_mutex> g(s.run_mutex);
@@ -777,8 +974,269 @@ int deliver_in_sync_call()
 }
 } // namespace
 
+namespace
+{
+// the delivery thread and the exit handler, at the first registration
+void start_delivery(delivery_state &s)
+{
+	if (!s.ctx) {
+		SPDLOG_ERROR(
+			"GPU map delivery: no current context at registration");
+		return;
+	}
+	attach::launch_activity().set_sync_listener(on_app_sync);
+	atexit(final_delivery_at_exit);
+	s.thread = std::thread(drain_loop);
+}
+} // namespace
+
 namespace bpftime::gpu_model
 {
+bool register_device_hash(nv_gpu_device_hash_map_impl *map,
+			  CUdeviceptr block, uint64_t max_entries,
+			  uint64_t shards, uint64_t *companion)
+{
+	auto &s = state();
+	if (fail_hash_registration_for_test.load())
+		return false;
+	registered_hash h{};
+	h.map = map;
+	h.block = block;
+	h.max_entries = max_entries;
+	h.shards = shards;
+	h.companion = companion;
+	// as a sum map: every 20 ms while it changes, else 200 ms
+	h.busy_ns = 1000000ull * env_ms("BPFTIME_GPU_DELIVERY_BUSY_MS", 20);
+	h.idle_ns = 1000000ull * env_ms("BPFTIME_GPU_DELIVERY_IDLE_MS", 200);
+	h.sync_gap_ns =
+		1000000ull * env_ms("BPFTIME_GPU_DELIVERY_SYNC_GAP_MS", 2);
+	h.next_due_ns = now_ns() + h.busy_ns;
+	h.last_ns = now_ns();
+	h.staging_bytes = bpftime_devhash::staging_for(max_entries).total;
+	if (cuMemAllocHost((void **)&h.staging, h.staging_bytes) !=
+		    CUDA_SUCCESS ||
+	    cuMemHostGetDevicePointer(&h.staging_device, h.staging, 0) !=
+		    CUDA_SUCCESS) {
+		SPDLOG_ERROR(
+			"GPU map delivery: no staging buffer of {} bytes for a device hash map",
+			h.staging_bytes);
+		if (h.staging)
+			cuMemFreeHost(h.staging);
+		return false;
+	}
+	bool first;
+	{
+		std::lock_guard<std::mutex> g(s.reg_mutex);
+		first = s.maps.empty() && s.hashes.empty();
+		if (first) {
+			s.owner = getpid();
+			if (cuCtxGetCurrent(&s.ctx) != CUDA_SUCCESS)
+				s.ctx = nullptr;
+		}
+		s.hashes.push_back(h);
+	}
+	if (first)
+		start_delivery(s);
+	return true;
+}
+
+namespace
+{
+// This process's device copies of 1533 maps (D11a): keyed by the object
+// and its generation (a new map at an old object's address is another
+// map). The mutex is held from the claim to the cache insert.
+struct devhash_copy {
+	const nv_gpu_device_hash_map_impl *map;
+	uint64_t generation;
+	CUdeviceptr block;
+	uint64_t shards;
+};
+std::mutex devhash_copies_mutex;
+std::vector<devhash_copy> devhash_copies;
+std::atomic<bool> fail_devhash_copy_for_test{ false };
+std::atomic<void (*)(nv_gpu_device_hash_map_impl *)> devhash_copy_hook{
+	nullptr
+};
+
+// as 1531's: (SM slots, a power of two) x 32 lanes
+uint64_t device_shards()
+{
+	CUdevice dev = 0;
+	int sms = 0;
+	if (cuCtxGetDevice(&dev) != CUDA_SUCCESS ||
+	    cuDeviceGetAttribute(&sms, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
+				 dev) != CUDA_SUCCESS ||
+	    sms <= 0)
+		sms = 1;
+	uint64_t pow2 = 1;
+	while (pow2 < (uint64_t)sms)
+		pow2 <<= 1;
+	return pow2 * 32;
+}
+
+// The block a device copy starts from: the image's headers in the
+// directory, each live slot's value in shard 0 of its row (or its single
+// word), the count, the counters' totals in shard 0.
+std::vector<uint64_t> block_of(const bpftime_devhash::layout &l,
+			       const devhash_image &img)
+{
+	std::vector<uint64_t> b(l.total / 8, 0);
+	for (uint64_t s = 0; s < l.slots; s++) {
+		const uint64_t h = img.headers[s];
+		b[bpftime_devhash::slot_offset(l, s) / 8] = h;
+		if (bpftime_devhash::state_of(h) == bpftime_devhash::ST_LIVE &&
+		    bpftime_devhash::row_of(h) < l.max_entries)
+			b[bpftime_devhash::value_offset(
+				  l, bpftime_devhash::row_of(h), 0) /
+			  8] = img.values[s];
+	}
+	// the geometry for anyone reading a dump (the device code takes it
+	// as arguments)
+	b[bpftime_devhash::ctl_offset(bpftime_devhash::CTL_MAGIC) / 8] =
+		bpftime_devhash::MAGIC;
+	b[bpftime_devhash::ctl_offset(bpftime_devhash::CTL_MAX_ENTRIES) / 8] =
+		l.max_entries;
+	b[bpftime_devhash::ctl_offset(bpftime_devhash::CTL_SLOTS) / 8] = l.slots;
+	b[bpftime_devhash::ctl_offset(bpftime_devhash::CTL_R) / 8] = l.r;
+	b[bpftime_devhash::ctl_offset(bpftime_devhash::CTL_SHARDS) / 8] =
+		l.shards;
+	b[bpftime_devhash::ctl_offset(bpftime_devhash::CTL_COUNT) / 8] =
+		img.count;
+	for (uint32_t c = 0; c < bpftime_devhash::NUM_COUNTERS; c++)
+		b[bpftime_devhash::counter_offset(l, c, 0) / 8] = img.counters[c];
+	return b;
+}
+} // namespace
+
+CUdeviceptr find_device_hash_copy(const nv_gpu_device_hash_map_impl *map,
+				  uint64_t *shards)
+{
+	std::lock_guard<std::mutex> g(devhash_copies_mutex);
+	for (auto &c : devhash_copies)
+		if (c.map == map && c.generation == map->get_generation()) {
+			if (shards)
+				*shards = c.shards;
+			return c.block;
+		}
+	return 0;
+}
+
+CUdeviceptr make_device_hash_copy(nv_gpu_device_hash_map_impl *map,
+				  uint64_t *companion)
+{
+	std::lock_guard<std::mutex> g(devhash_copies_mutex);
+	for (auto &c : devhash_copies)
+		if (c.map == map && c.generation == map->get_generation())
+			return c.block;
+	devhash_image img;
+	devhash_path path = devhash_path::not_owner;
+	try {
+		// claim, then the seal and the CPU table's image, a dead
+		// sealer's recovery, or the takeover's image (D11e); it gives
+		// the claim back whenever it returns false
+		if (!map->make_image(false, img, path))
+			return 0;
+	} catch (const std::exception &e) {
+		SPDLOG_ERROR("device hash map: no image ({})", e.what());
+		return 0;
+	}
+	if (auto hook = devhash_copy_hook.load())
+		hook(map); // tests: after the claim and the seal
+	const bool first = path != devhash_path::takeover;
+	const uint64_t max = map->get_max_entries();
+	const uint64_t shards = device_shards();
+	CUdeviceptr block = 0;
+	CUstream st = nullptr;
+	bool mirror_seeded = false;
+	// D15: any failure after the seal rolls back
+	auto roll_back = [&](const char *why) -> CUdeviceptr {
+		SPDLOG_ERROR("device hash map: no device copy ({}); rolled back",
+			     why);
+		if (block)
+			cuMemFree(block);
+		if (st)
+			cuStreamDestroy(st);
+		if (first) {
+			if (mirror_seeded)
+				map->reset_mirror();
+			map->unseal(); // PHASE 0: CPU writes work again
+		}
+		// a takeover keeps PHASE 2 and the mirror
+		map->release_claim();
+		return 0;
+	};
+	if (!bpftime_devhash::geometry_valid(max, shards))
+		return roll_back("geometry");
+	const bpftime_devhash::layout l = bpftime_devhash::layout_for(max, shards);
+	CUresult r;
+	try {
+		const std::vector<uint64_t> host = block_of(l, img);
+		// on a stream of our own, waited for before the base is
+		// published (relaxed capture mode: this may run on an
+		// application thread)
+		CUstreamCaptureMode mode = CU_STREAM_CAPTURE_MODE_RELAXED;
+		cuThreadExchangeStreamCaptureMode(&mode);
+		r = fail_devhash_copy_for_test.load() ? CUDA_ERROR_OUT_OF_MEMORY :
+							      cuMemAlloc(&block, l.total);
+		if (r == CUDA_SUCCESS)
+			r = cuStreamCreate(&st, CU_STREAM_NON_BLOCKING);
+		if (r == CUDA_SUCCESS)
+			r = cuMemcpyHtoDAsync(block, host.data(), l.total, st);
+		if (r == CUDA_SUCCESS) {
+			// the agent's own synchronization, not the
+			// application's
+			attach::probed_launch_activity::agent_sync_scope
+				agent_call;
+			r = cuStreamSynchronize(st);
+		}
+		cuThreadExchangeStreamCaptureMode(&mode);
+	} catch (const std::exception &e) {
+		return roll_back(e.what());
+	}
+	if (r != CUDA_SUCCESS)
+		return roll_back("the copy failed");
+	cuStreamDestroy(st);
+	st = nullptr;
+	if (first) {
+		// the mirror before any delivery writes it
+		map->seed_mirror(img);
+		mirror_seeded = true;
+	}
+	if (!register_device_hash(map, block, max, shards, companion))
+		return roll_back("registration failed");
+	if (first)
+		map->publish_device_phase(); // PHASE 2
+	devhash_copies.push_back({ map, map->get_generation(), block, shards });
+	SPDLOG_INFO(
+		"device hash map: device copy of {} entries ({} slots, {} shards, {} bytes) at {:x}, {}",
+		max, l.slots, shards, l.total, (uint64_t)block,
+		first ? "first copy" : "taken over");
+	return block;
+}
+
+void set_devhash_copy_failure_for_test(bool fail)
+{
+	fail_devhash_copy_for_test.store(fail);
+}
+
+void set_devhash_copy_hook_for_test(void (*hook)(nv_gpu_device_hash_map_impl *))
+{
+	devhash_copy_hook.store(hook);
+}
+
+size_t registered_hash_count_for_test()
+{
+	auto &s = state();
+	std::lock_guard<std::mutex> g(s.reg_mutex);
+	return s.hashes.size();
+}
+
+void set_devhash_delivery_failures_for_test(bool module, bool registration)
+{
+	fail_hash_module_for_test.store(module);
+	fail_hash_registration_for_test.store(registration);
+}
+
 void register_device_array(nv_gpu_device_array_map_impl *map,
 			   CUdeviceptr device, uint64_t entries,
 			   uint64_t shards, uint64_t words_per_entry)
@@ -814,7 +1272,7 @@ void register_device_array(nv_gpu_device_array_map_impl *map,
 	bool first;
 	{
 		std::lock_guard<std::mutex> g(s.reg_mutex);
-		first = s.maps.empty();
+		first = s.maps.empty() && s.hashes.empty();
 		if (first) {
 			s.owner = getpid();
 			if (cuCtxGetCurrent(&s.ctx) != CUDA_SUCCESS)
@@ -822,16 +1280,8 @@ void register_device_array(nv_gpu_device_array_map_impl *map,
 		}
 		s.maps.push_back(m);
 	}
-	if (first) {
-		if (!s.ctx) {
-			SPDLOG_ERROR(
-				"GPU map delivery: no current context at registration");
-			return;
-		}
-		attach::launch_activity().set_sync_listener(on_app_sync);
-		atexit(final_delivery_at_exit);
-		s.thread = std::thread(drain_loop);
-	}
+	if (first)
+		start_delivery(s);
 }
 
 int deliver_now(bool final)

@@ -222,6 +222,10 @@ int main(int argc, char *argv[])
 			bpftime_set_logger(
 				std::string(runtime_config.get_logger_output_path()));
 			bpf_attach_ctx ctx;
+			// no 1533 device copies here: their calls stay with
+			// the trampoline, the maps are neither claimed nor
+			// sealed
+			ctx.set_direct_run(true);
 			ctx.register_attach_impl(
 				{ bpftime::attach::ATTACH_CUDA_PROBE,
 				  bpftime::attach::ATTACH_CUDA_RETPROBE },

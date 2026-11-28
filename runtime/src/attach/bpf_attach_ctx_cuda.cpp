@@ -9,6 +9,11 @@
 #include <sys/prctl.h>
 #include <time.h>
 #include "bpf_map/array_map_binding.hpp"
+#include "bpf_map/gpu/nv_gpu_model_maps.hpp"
+#include "bpf_map/gpu/nv_gpu_device_hash_map.hpp"
+#include "handler/handler_manager.hpp"
+#include <set>
+#include <string_view>
 #include <bpf_attach_ctx.hpp>
 #include "bpftime_ratelimited_log.hpp"
 #include <algorithm>
@@ -504,6 +509,199 @@ void *bpf_attach_ctx::gpu_address_of_array_values(int fd)
 	gpu_array_bindings.emplace(binding->raw_data(), std::move(binding));
 	return device;
 #endif
+}
+
+namespace
+{
+// 1533 maps and companions this process pinned: one reference each per
+// process, never returned (the owner delivers into them until it exits),
+// as 1531's device copies
+std::mutex devhash_pins_mutex;
+std::vector<const void *> devhash_pinned;
+std::vector<std::shared_ptr<array_map_binding>> devhash_companions;
+std::set<const void *> devhash_companion_logged;
+
+const bpf_map_handler *map_at(const handler_manager *manager, int64_t i)
+{
+	if (i < 0 || (size_t)i >= manager->size() ||
+	    !manager->is_allocated((int)i))
+		return nullptr;
+	const auto &h = manager->get_handler((int)i);
+	return std::holds_alternative<bpf_map_handler>(h) ?
+		       &std::get<bpf_map_handler>(h) :
+		       nullptr;
+}
+
+// D12: an ARRAY, key 4, value 8, at least 16 entries, named the hash's
+// name cut to 12 bytes and "_st"
+std::string companion_name(const bpf_map_handler &hash)
+{
+	return std::string(std::string_view(hash.name.c_str()).substr(0, 12)) +
+	       "_st";
+}
+bool named(const bpf_map_handler &m, const std::string &name)
+{
+	return std::string_view(m.name.c_str()) == name;
+}
+bool companion_shape(const bpf_map_handler &m)
+{
+	return m.type == bpf_map_type::BPF_MAP_TYPE_ARRAY &&
+	       m.get_key_size() == 4 && m.get_value_size() == 8 &&
+	       m.get_max_entries() >= bpftime::DEVHASH_STATUS_WORDS;
+}
+
+// Binds (or checks the stored binding of) the companion of the 1533 map at
+// index i and pins it; its value words, or null. Under the binding guard.
+uint64_t *bind_companion(
+	const std::shared_ptr<boost::interprocess::managed_shared_memory> &memory,
+	const handler_manager *manager, int i, const bpf_map_handler &hash,
+	nv_gpu_device_hash_map_impl *impl)
+{
+	const std::string name = companion_name(hash);
+	auto log_once = [&](const std::string &why) {
+		if (devhash_companion_logged.insert(impl).second)
+			SPDLOG_WARN(
+				"GPU device hash map {} (fd {}): no companion status array {} ({})",
+				hash.name.c_str(), i, name, why);
+	};
+	int64_t index = impl->get_companion();
+	if (index >= 0) {
+		// a binding stored by an earlier process: its slot may have
+		// been closed and reused since
+		const auto *m = map_at(manager, index);
+		if (m == nullptr || !named(*m, name) || !companion_shape(*m)) {
+			impl->set_companion(-1);
+			log_once("the stored slot " + std::to_string(index) +
+				 " no longer holds it; unbound");
+			return nullptr;
+		}
+	} else {
+		int arrays = 0, hashes = 0;
+		for (size_t j = 0; j < manager->size(); j++) {
+			const auto *m = map_at(manager, (int64_t)j);
+			if (m == nullptr)
+				continue;
+			if (m->type == bpf_map_type::BPF_MAP_TYPE_ARRAY &&
+			    named(*m, name)) {
+				arrays++;
+				index = (int64_t)j;
+			}
+			if (m->type ==
+				    bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP &&
+			    companion_name(*m) == name)
+				hashes++;
+		}
+		if (arrays == 0)
+			return nullptr; // none declared: nothing to say
+		if (arrays != 1 || hashes != 1) {
+			log_once(std::to_string(arrays) + " arrays and " +
+				 std::to_string(hashes) +
+				 " device hash maps share the name");
+			return nullptr;
+		}
+		if (!companion_shape(*map_at(manager, index))) {
+			log_once("not an array of at least 16 8-byte values");
+			return nullptr;
+		}
+	}
+	auto binding = array_map_binding::acquire(memory, manager, (int)index,
+						  false);
+	if (!binding) {
+		log_once("cannot pin it");
+		return nullptr;
+	}
+	impl->set_companion(index);
+	void *words = binding->raw_data();
+	bool kept = false;
+	for (auto &b : devhash_companions)
+		if (b->raw_data() == words)
+			kept = true;
+	if (!kept)
+		devhash_companions.push_back(std::move(binding));
+	return (uint64_t *)words;
+}
+} // namespace
+
+void bpf_attach_ctx::prepare_device_hash_copies(const handler_manager *manager)
+{
+	if (!cuda_ctx || direct_run || manager == nullptr ||
+	    manager != shm_holder.global_shared_memory.get_manager())
+		return;
+	auto memory = shm_holder.global_shared_memory.retain_mapping();
+	if (!memory)
+		return;
+	struct pending {
+		nv_gpu_device_hash_map_impl *impl;
+		uint64_t *companion;
+	};
+	std::vector<pending> todo;
+	{
+		// quick, and nothing here waits
+		map_binding_guard guard(map_binding_mutex(*memory));
+		bool cuda_link = false;
+		for (size_t i = 0; i < manager->size() && !cuda_link; i++) {
+			if (!manager->is_allocated((int)i))
+				continue;
+			const auto &h = manager->get_handler((int)i);
+			if (!std::holds_alternative<bpf_link_handler>(h))
+				continue;
+			const int p = std::get<bpf_link_handler>(h).prog_id;
+			if (p < 0 || (size_t)p >= manager->size() ||
+			    !manager->is_allocated(p))
+				continue;
+			const auto &ph = manager->get_handler(p);
+			cuda_link = std::holds_alternative<bpf_prog_handler>(ph) &&
+				    std::string_view(
+					    std::get<bpf_prog_handler>(ph)
+						    .name.c_str())
+					    .starts_with("cuda__");
+		}
+		// an agent with no CUDA link never claims or seals a map
+		if (!cuda_link)
+			return;
+		std::lock_guard<std::mutex> pins(devhash_pins_mutex);
+		for (size_t i = 0; i < manager->size(); i++) {
+			const auto *m = map_at(manager, (int64_t)i);
+			if (m == nullptr ||
+			    m->type !=
+				    bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP)
+				continue;
+			auto impl = m->try_get_device_hash_map_impl();
+			if (!impl || *impl == nullptr ||
+			    gpu_model::find_device_hash_copy(*impl, nullptr) != 0)
+				continue;
+			if (std::find(devhash_pinned.begin(), devhash_pinned.end(),
+				      *impl) == devhash_pinned.end()) {
+				m->inc_map_refcount();
+				devhash_pinned.push_back(*impl);
+			}
+			todo.push_back({ *impl, bind_companion(memory, manager,
+							       (int)i, *m, *impl) });
+		}
+	}
+	if (todo.empty())
+		return;
+	// the device's primary context (retained by the agent for the
+	// process), as the watcher takes it
+	CUcontext current = nullptr;
+	CUdevice device = 0;
+	CUcontext primary = nullptr;
+	if (cuCtxGetCurrent(&current) != CUDA_SUCCESS || current == nullptr) {
+		if (cuDeviceGet(&device, cuda_device_ordinal()) != CUDA_SUCCESS ||
+		    cuDevicePrimaryCtxRetain(&primary, device) != CUDA_SUCCESS) {
+			SPDLOG_ERROR(
+				"GPU device hash maps: no context for device {}; no device copies",
+				cuda_device_ordinal());
+			return;
+		}
+		cuCtxSetCurrent(primary);
+	}
+	for (auto &t : todo)
+		gpu_model::make_device_hash_copy(t.impl, t.companion);
+	if (primary != nullptr) {
+		cuCtxSetCurrent(nullptr);
+		cuDevicePrimaryCtxRelease(device);
+	}
 }
 
 std::vector<attach::MapBasicInfo>

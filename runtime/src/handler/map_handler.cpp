@@ -1922,6 +1922,16 @@ uint64_t bpf_map_handler::get_gpu_map_max_thread_count() const
 			       map_impl_ptr.get())
 			->get_max_thread_count();
 	}
+	if (this->type == bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP) {
+		// the shards of this process's device copy (0: none)
+		uint64_t shards = 0;
+		if (gpu_model::find_device_hash_copy(
+			    static_cast<nv_gpu_device_hash_map_impl *>(
+				    map_impl_ptr.get()),
+			    &shards) == 0)
+			return 0;
+		return shards;
+	}
 #endif
 
 	SPDLOG_DEBUG("Not a GPU map!");
@@ -1991,6 +2001,15 @@ void *bpf_map_handler::get_gpu_map_extra_buffer() const
 			}
 		}
 		return (void *)device;
+	}
+	if (this->type == bpf_map_type::BPF_MAP_TYPE_GPU_DEVICE_HASH_MAP) {
+		// this process's device copy, made by the attach context's
+		// pre-pass (plan D11a), or NULL: never made here (this runs
+		// under the map-binding mutex)
+		return (void *)gpu_model::find_device_hash_copy(
+			static_cast<nv_gpu_device_hash_map_impl *>(
+				map_impl_ptr.get()),
+			nullptr);
 	}
 #endif
 

@@ -138,6 +138,8 @@ class nv_gpu_device_array_map_impl {
 	}
 };
 
+class nv_gpu_device_hash_map_impl;
+
 namespace gpu_model
 {
 // Delivery (agent): copies every registered device array into its shared
@@ -156,6 +158,31 @@ void register_device_array(nv_gpu_device_array_map_impl *map,
 // One delivery of every registered map now, on the calling thread; final
 // marks the maps' status. Returns the number of maps delivered.
 int deliver_now(bool final);
+// Delivery of a device hash map (1533; plan S5): every snapshot runs while
+// this process still holds the map's claim, then writes the mirror
+// (apply_delivery), the status words and the companion's values (D12;
+// companion null: none). False when it cannot be registered (no staging).
+bool register_device_hash(nv_gpu_device_hash_map_impl *map,
+			  CUdeviceptr block, uint64_t max_entries,
+			  uint64_t shards, uint64_t *companion);
+// The device copy of a 1533 map (plan S5, D11a, D15): the claim, then the
+// seal and the image (or the takeover's image), the block allocated and
+// uploaded, the mirror seeded, the map registered for delivery, PHASE 2,
+// cached; 0 when this process makes none (another owner, a seal that
+// timed out, a failure: rolled back). Run outside map_binding_mutex.
+CUdeviceptr make_device_hash_copy(nv_gpu_device_hash_map_impl *map,
+				  uint64_t *companion);
+// This process's copy of a 1533 map (0: none) and its shard count.
+CUdeviceptr find_device_hash_copy(const nv_gpu_device_hash_map_impl *map,
+				  uint64_t *shards);
+// Tests: fail the copy's allocation; a function the copy calls once the
+// image is made (claimed and sealed or taken over); the hash maps
+// registered for delivery.
+void set_devhash_copy_failure_for_test(bool fail);
+void set_devhash_copy_hook_for_test(void (*hook)(nv_gpu_device_hash_map_impl *));
+size_t registered_hash_count_for_test();
+// Tests: fail the hash snapshot module's load, or a hash registration.
+void set_devhash_delivery_failures_for_test(bool module, bool registration);
 // The device hash map's snapshot (plan S4; the delivery uses it from S5):
 // its PTX, and one launch of it in the current context over a block
 // (device address) into staging (a device-visible address), synchronized;

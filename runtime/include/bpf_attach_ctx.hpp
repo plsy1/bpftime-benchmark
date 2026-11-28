@@ -165,6 +165,13 @@ public:
 
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
 	std::optional<attach::nv_attach_impl *> find_nv_attach_impl() const;
+	// bpftimetool cuda (the direct run): no device copies of 1533 maps are
+	// made, so their calls stay with the trampoline (plan D11a). Set
+	// before init_attach_ctx_from_handlers.
+	void set_direct_run(bool v)
+	{
+		direct_run = v;
+	}
 	// The map table the trampoline reads (map_info), one entry per fd below
 	// filled_size: GPU maps' device buffers, ordinary arrays' device
 	// address of their values.
@@ -208,6 +215,12 @@ public:
 private:
 #ifdef BPFTIME_ENABLE_CUDA_ATTACH
 	void *gpu_address_of_array_values(int fd);
+	// The device copies of 1533 maps (plan D11a), before the binding
+	// guard of init_attach_ctx_from_handlers: under the guard the maps
+	// are pinned and their companions bound (D12), without it the copies
+	// are made. Only when the init will instantiate a CUDA link.
+	void prepare_device_hash_copies(const handler_manager *manager);
+	bool direct_run = false;
 	// Array maps whose values patched modules address directly, pinned
 	// for this context's life (by value storage).
 	std::map<void *, std::shared_ptr<array_map_binding>> gpu_array_bindings;

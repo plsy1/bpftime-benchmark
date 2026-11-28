@@ -190,6 +190,11 @@ int bpf_attach_ctx::init_attach_ctx_from_handlers(
 	const handler_manager *manager, const runtime_config &config)
 {
 	std::lock_guard<std::mutex> lock(ctx_mutex);
+#ifdef BPFTIME_ENABLE_CUDA_ATTACH
+	// 1533 copies are made outside the binding guard: the seal waits up
+	// to a second, and the guard is a robust mutex a death would break
+	prepare_device_hash_copies(manager);
+#endif
 	// Keep handler variants and relocation metadata stable through the cold
 	// loading/attach transaction. Standalone managers retain their old API.
 	std::optional<map_binding_guard> binding_guard;
