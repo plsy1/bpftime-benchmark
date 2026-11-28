@@ -318,7 +318,8 @@ outside the mutex.
 - **It acts only when the init will instantiate a CUDA link:**
   - the ctx has a CUDA context (made in the `bpf_attach_ctx` constructor, so it exists at the first
     init);
-  - it handles nv attach;
+  - it handles nv attach: an attach implementation is registered for the CUDA attach types (8 and
+    9; the agent registers nv_attach_impl, so does the direct run);
   - the scan finds a link handler whose program is a CUDA program (`is_cuda()`).
 - **Why the gate:** the seal happens at the same point as 1531's copy, the first CUDA link. An agent
   with a GPU but no CUDA link (a CPU-only traced process on the same segment) never claims or seals
@@ -421,11 +422,15 @@ entries, named the hash map's name cut to 12 bytes plus `_st`.
 and does the pinning.
 - It needs exactly one ARRAY candidate, and exactly one 1533 map that derives that name. Otherwise
   none binds, logged once.
-- The shm object stores the companion's handler index, the same in every process.
+- The shm object stores the companion's handler index, the same in every process. **Only the
+  process whose copy is made stores it** (or clears it), after the copy: the pre-pass chooses and
+  pins under the guard before it knows whether this process becomes the owner, and another agent's
+  choice must not change the link (S5 review: with two candidates, one closed later, a non-owner
+  would have bound the one left).
 - The binding process records the pinned companion impl pointer, process-local.
 - A process that resolves the stored index later (a takeover) first checks that slot: an ARRAY, with
-  the derived name, key 4, value 8 and at least 16 entries. Otherwise it unbinds and logs, so a
-  closed and reused slot is never written.
+  the derived name, key 4, value 8 and at least 16 entries. Otherwise it unbinds (once its copy is
+  made) and logs, so a closed and reused slot is never written.
 - Only the owner's delivery writes the words.
 
 **Words:**
@@ -894,6 +899,10 @@ So the kill points match production.
     returns non-NULL.
     - Mutation: the copies made at the end of init, as revision 3 had it, so the module is routed
       with base 0.
+    - Built as (S5): the test agent registers a stub implementation of the CUDA attach types that
+      records the `map_basic_info` init's own link loop hands the CUDA link (the 1533 base and
+      shards, where nv_attach_impl would patch modules with them). Routing a module with a given
+      base is S6's GPU test; a late-path load in the runtime tests was not built.
 2. **Not the owner:** a second child gets 0 while the owner holds its claim (alive, or stopped);
    once the owner is killed or execs, the next child takes the map over.
    - Mutation: a claim that always succeeds (section 10).
@@ -1316,3 +1325,14 @@ A four-lens review of 84ce9813d (slots, claim, tests, host safety), each finding
 
 Refuted: claim-10 (the claim is not given back when the agent detaches; README 11 now says the
 claim stays with the process until it exits or execs).
+
+## 12. Changes found while building S5 (11-28)
+
+| found | change | where |
+|---|---|---|
+| the kernel merges one description's adjacent locks of one type: writer slot 255 and the claim's byte 256 show as one fdinfo line from 255; the claim check compared the line's start, so such an owner (1 in 256 of those that write before they claim) took its claim for lost and stopped delivering | the byte must lie in a line's range (end parsed, EOF included); a number naming another file is checked first; fdinfo unreadable with the segment's file at that number counts as held | D11c, `description_holds`; `s2/ofd/RULES-ofd.md` (found later); CPU test "The claim stays held beside this process's writer slot 255" |
+| a non-owner's pre-pass stored the companion's index before it knew it would own the map: with two candidates (none bound) and one closed later, another agent bound the one left | only the process whose copy is made stores (or clears) the index | D12 |
+| exceptions after the image (the mirror's seeding, registration's thread, the cache) escaped with the map sealed and the claim held | one catch-all from the image to registration rolls back (D15); the cache's room reserved before PHASE 2; registration removes its entry when it throws; nothing leaves init | D15, S5 code |
+| "it handles nv attach" was in the gate's text but not in the code | the gate needs an attach implementation registered for the CUDA attach types (8, 9) | D11a |
+| test 1c (late path) needs nv_attach_impl in the runtime tests | a stub CUDA attach in the test agents records what init's link loop gives a CUDA link | S5 test 1c |
+| the deliveries hold the 1533 object in the segment: a process that unmaps its segment while a device map is registered (a test switching segments) crashes the delivery thread; 1531 maps have the same exposure; the agent unmaps only at exit, after the exit delivery | not handled (as 1531); tests keep one segment per delivering process | README limits |

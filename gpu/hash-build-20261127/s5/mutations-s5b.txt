@@ -1,0 +1,26 @@
+N1 a claim that always succeeds: CAUGHT
+  case exit 2: /home/jetson/src/bpftime-proto-70f7/runtime/unit-test/cuda/test_gpu_devhash_device.cpp:3334: FAILED: |   no copy: got 6962749440 (0x19f032000), want 0 |   no registration: got 1 (0x1), want 0 |   OWNER: got 238529 (0x3a3c1), want 238518 |   RESULT s5-not-owner: 3 wrong | /home/jetson/src/bpftime-proto-70f7/runtime/unit-test/cuda/test_gpu_devhash_device.cpp:3334: FAILED: |   no copy: got 6962749440 (0x19f032000), want 0 |   no registration: got 1 (0x1), want 0
+N2 the path chosen by the claim alone: CAUGHT
+  case exit 2: /home/jetson/src/bpftime-proto-70f7/runtime/unit-test/cuda/test_gpu_devhash_device.cpp:3334: FAILED: |   PHASE: got 1 (0x1), want 2 |   prefilled key kept: got 0 (0), want 1 |   prefilled key kept: got 0 (0), want 1 |   prefilled key kept: got 0 (0), want 1 |   prefilled key kept: got 0 (0), want 1 |   prefilled key kept: got 0 (0), want 1 |   prefilled key kept: got 0 (0), want 1
+N3 the copy made under map_binding_mutex (deaths): CAUGHT
+  case exit 3: /home/jetson/src/bpftime-proto-70f7/runtime/unit-test/cuda/test_gpu_devhash_device.cpp:3334: FAILED: | /home/jetson/src/bpftime-proto-70f7/runtime/unit-test/cuda/test_gpu_devhash_device.cpp:3334: FAILED: | /home/jetson/src/bpftime-proto-70f7/runtime/unit-test/cuda/test_gpu_devhash_device.cpp:3334: FAILED: | test cases:  1 |  0 passed | 1 failed | assertions: 24 | 21 passed | 3 failed
+N4 the stored companion slot not checked at resolve: CAUGHT
+  case exit 1: /home/jetson/src/bpftime-proto-70f7/runtime/unit-test/cuda/test_gpu_devhash_device.cpp:3455: FAILED: |   companion: got 21 (0x15), want 18446744073709551615 |   reused slot untouched: got 4 (0x4), want 0 |   reused slot untouched: got 243912 (0x3b8c8), want 0 |   reused slot untouched: got 320 (0x140), want 0 |   RESULT s5-takeover: 4 wrong (320 live) | test cases: 1 | 1 failed | assertions: 9 | 8 passed | 1 failed
+N5 1533 left out of the pin list: CAUGHT
+  s5-close exit 1: 1533 object destroyed: got 1 (0x1), want 0 | delivered after the close: false | companion deliveries: false | companion live: got 0 (0), want 100 | 1533 object destroyed: got 1 (0x1), want 0 | RESULT s5-close: 5 wrong
+N6 word 15 not written: CAUGHT
+  s5-refused exit 1: companion refused slots: got 0 (0), want 34 | RESULT s5-refused: 1 wrong (E2BIG 136, refused slots 34)
+N7 the copies made at the end of init (plan 1c): CAUGHT
+  s5-first exit 1: binding mutex free during the copy: got 0 (0), want 1 | the link's 1533 base: got 0 (0), want 6962749440 | the link's 1533 shards: got 0 (0), want 256 | RESULT s5-first: 3 wrong
+N8 the gate ignores whether the agent handles CUDA attaches: CAUGHT
+  s5-gate exit 139: no copy without a CUDA attach: got 6962749440 (0x19f032000), want 0 | PHASE 0 without a CUDA attach: got 2 (0x2), want 0
+N9 a non-owner records the companion binding: CAUGHT
+  case exit 1: /home/jetson/src/bpftime-proto-70f7/runtime/unit-test/cuda/test_gpu_devhash_device.cpp:3334: FAILED: |   companion binding unchanged: got 21 (0x15), want 18446744073709551615 |   RESULT s5-not-owner: 1 wrong | test cases: 1 | 1 failed | assertions: 9 | 8 passed | 1 failed
+N10 an exception in the copy not rolled back: CAUGHT
+  s5-fail exit 1: PHASE 0: got 1 (0x1), want 0 | OWNER released: got 249371 (0x3ce1b), want 0 | another process can make the first copy: got 10 (0xa), want 0 | phase-0 delete: got 18446744073709551615 (0xffffffffffffffff), want 0 | deleted key absent: got 0 (0), want 1 | count: got 8 (0x8), want 7
+N12 the claim check takes a lock line's start only (adjacent locks merged): CAUGHT
+  case exit 2: /home/jetson/src/bpftime-proto-70f7/runtime/unit-test/maps/test_gpu_device_hash.cpp:2319: FAILED: | /home/jetson/src/bpftime-proto-70f7/runtime/unit-test/maps/test_gpu_device_hash.cpp:2328: FAILED: | test cases:   1 |   0 passed | 1 failed | assertions: 260 | 258 passed | 2 failed
+N11 the dead owner's pass B occupancy ignored by the takeover image: CAUGHT
+  case exit 1: /home/jetson/src/bpftime-proto-70f7/runtime/unit-test/cuda/test_gpu_devhash_device.cpp:3334: FAILED: |   RESULT s5-next-owner: 1 wrong (320 live) | test cases:  1 |  0 passed | 1 failed | assertions: 24 | 23 passed | 1 failed
+restored build: ok
+done rc=0

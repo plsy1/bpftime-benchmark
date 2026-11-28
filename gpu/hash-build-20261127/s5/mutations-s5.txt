@@ -1,0 +1,37 @@
+M1 1533 missing from get_gpu_map_max_thread_count: CAUGHT
+  s5-first exit 1: map_basic_info max_thread_count: got 0 (0), want 256 | second map_basic_info shards: got 0 (0), want 256 | RESULT s5-first: 2 wrong
+M2 no cache in the pre-pass or the copy: CAUGHT
+  s5-first exit 1: no second registration: got 2 (0x2), want 1 | RESULT s5-first: 1 wrong
+M3 the copy made under map_binding_mutex: CAUGHT
+  s5-first exit 1: binding mutex free during the copy: got 0 (0), want 1 | RESULT s5-first: 1 wrong
+M4 takeover rows not renumbered: CAUGHT
+  s5-owner-exit exit 0: RESULT s5-owner-exit: 0 wrong
+  s5-takeover-fail exit 0: RESULT s5-takeover-fail: 0 wrong
+  s5-takeover exit 1: rows not their slot-order rank: got 318 (0x13e), want 0 | RESULT s5-takeover: 1 wrong (320 live)
+M5 PHASE 0 after a failed takeover: CAUGHT
+  s5-owner-exit exit 0: RESULT s5-owner-exit: 0 wrong
+  s5-takeover-fail exit 1: PHASE kept: got 0 (0), want 2 | lookups changed: got 300 (0x12c), want 0 | another process takes over: got 12 (0xc), want 0 | RESULT s5-takeover-fail: 3 wrong
+M6 OWNER not released on a failure: CAUGHT
+  s5-fail exit 1: OWNER released: got 200470 (0x30f16), want 0 | another process can make the first copy: got 10 (0xa), want 0 | OWNER released: got 200470 (0x30f16), want 0 | another process can make the first copy: got 10 (0xa), want 0 | RESULT s5-fail: 4 wrong
+M7 the delivery does not store SYNCS_COVERED: CAUGHT
+  s5-e2e exit 1: delivered by D16's rule: false | companion syncs covered: false | RESULT s5-e2e: 2 wrong (EEXIST 1448, adds 2048)
+M8 companion uniqueness: arrays only: CAUGHT
+  s5-companion exit 1: [2026-11-28 11:27:48.940] [info] [bpftime_shm_internal.cpp:1345] Global shm constructed. shm_open_type 0 for bpftime-s5-companion-201588 | [2026-11-28 11:27:49.036] [info] [bpftime_shm_internal.cpp:1345] Global shm constructed. shm_open_type 1 for bpftime-s5-companion-201588 | [2026-11-28 11:27:49.036] [warning] [bpf_attach_ctx_cuda.cpp:563] GPU device hash map gamma (fd 24): no companion status array gamma_st (2 arrays and 1 device hash maps share the name) | [2026-11-28 11:27:49.036] [warning] [bpf_attach_ctx_cuda.cpp:563] GPU device hash map zeta (fd 32): no companion status array zeta_st (not an array of at least 16 8-byte values) | fd 27: companion 29, want -1 | fd 28: companion 29, want -1
+M9 companion uniqueness: hash maps only: CAUGHT
+  s5-companion exit 1: [2026-11-28 11:29:09.599] [info] [bpftime_shm_internal.cpp:1345] Global shm constructed. shm_open_type 0 for bpftime-s5-companion-204380 | [2026-11-28 11:29:09.703] [info] [bpftime_shm_internal.cpp:1345] Global shm constructed. shm_open_type 1 for bpftime-s5-companion-204380 | [2026-11-28 11:29:09.703] [warning] [bpf_attach_ctx_cuda.cpp:563] GPU device hash map deltadeltadeA (fd 27): no companion status array deltadeltade_st (1 arrays and 2 device hash maps share the name) | [2026-11-28 11:29:09.703] [warning] [bpf_attach_ctx_cuda.cpp:563] GPU device hash map deltadeltadeB (fd 28): no companion status array deltadeltade_st (1 arrays and 2 device hash maps share the name) | [2026-11-28 11:29:09.704] [warning] [bpf_attach_ctx_cuda.cpp:563] GPU device hash map zeta (fd 32): no companion status array zeta_st (not an array of at least 16 8-byte values) | fd 24: companion 26, want -1
+M10 one broken flag: CAUGHT
+  s5-isolation exit 1: 1531 delivered: got 0 (0), want 77 | RESULT s5-isolation: 1 wrong
+M11 count not copied: CAUGHT
+  s5-first exit 1: count: got 0 (0), want 30 | RESULT s5-first: 1 wrong
+M12 companion shape not checked: CAUGHT
+  s5-companion exit 1: [2026-11-28 11:33:35.395] [info] [bpftime_shm_internal.cpp:1345] Global shm constructed. shm_open_type 0 for bpftime-s5-companion-211445 | [2026-11-28 11:33:35.508] [info] [bpftime_shm_internal.cpp:1345] Global shm constructed. shm_open_type 1 for bpftime-s5-companion-211445 | [2026-11-28 11:33:35.508] [warning] [bpf_attach_ctx_cuda.cpp:563] GPU device hash map gamma (fd 24): no companion status array gamma_st (2 arrays and 1 device hash maps share the name) | [2026-11-28 11:33:35.508] [warning] [bpf_attach_ctx_cuda.cpp:563] GPU device hash map deltadeltadeA (fd 27): no companion status array deltadeltade_st (1 arrays and 2 device hash maps share the name) | [2026-11-28 11:33:35.508] [warning] [bpf_attach_ctx_cuda.cpp:563] GPU device hash map deltadeltadeB (fd 28): no companion status array deltadeltade_st (1 arrays and 2 device hash maps share the name) | fd 32: companion 33, want -1
+M13 no unseal after a failed first copy: CAUGHT
+  s5-fail exit 1: PHASE 0: got 1 (0x1), want 0 | another process can make the first copy: got 13 (0xd), want 0 | PHASE 0: got 1 (0x1), want 0 | another process can make the first copy: got 13 (0xd), want 0 | phase-0 delete: got 18446744073709551615 (0xffffffffffffffff), want 0 | deleted key absent: got 0 (0), want 1
+M14 mirror not reset after a failed first copy: CAUGHT
+  s5-fail exit 1: mirror empty: got 8 (0x8), want 0 | RESULT s5-fail: 1 wrong
+M15 the gate ignores CUDA links: CAUGHT
+  s5-gate exit 139: no copy without a CUDA link: got 6962749440 (0x19f032000), want 0 | PHASE 0: got 2 (0x2), want 0 | CPU update: got 18446744073709551615 (0xffffffffffffffff), want 0
+M16 the direct run not honoured: CAUGHT
+  s5-gate exit 1: no copy in the direct run: got 6962749440 (0x19f032000), want 0 | PHASE 0 in the direct run: got 2 (0x2), want 0 | no claim in the direct run: got 222148 (0x363c4), want 0 | RESULT s5-gate: 3 wrong
+restored build: ok
+done rc=0

@@ -41,3 +41,18 @@ pass or fail line.
   (mandatory before S5: slots-1 with a discount that CASes the count it read, owner-4, owner-5,
   slots-8).
 - Item 9 is recorded; it is paid once per process (claim) and per slot per seal, never per update.
+
+## Found later (S5, 11-28): adjacent locks of one description merge
+
+Not among the items above. The kernel merges one open file description's adjacent locks of one
+type into one range: writer slot 255 (byte base + 255) and the claim (byte base + 256) held by one
+description show in `/proc/self/fdinfo` as one line from base + 255 to base + 256
+(`merge_check.c`, run 11-28):
+
+    lock:	1: OFDLCK ADVISORY  WRITE -1 00:1a:13242 17592186044671 17592186044672
+
+The claim check compared a line's start with the claim's byte, so an owner that had written
+before it claimed and held slot 255 (1 in 256: the scan starts at pid % 256) took its claim for
+lost and stopped delivering (one failure in ten runs of the S5 GPU suite). The check now tests
+that the byte lies in a line's range (the end parsed, `EOF` included). Test: "The claim stays held
+beside this process's writer slot 255" (`[gpu-devhash-cpu]`).

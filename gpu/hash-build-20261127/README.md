@@ -1,16 +1,17 @@
-# Device hash map, stage one: the build, steps S0-S4 and S6 (2026-11-27 to 11-28)
+# Device hash map, stage one: the build, steps S0-S6 (2026-11-27 to 11-28)
 
 The build of the plan in `gpu/hash-build-plan-20261127` (revision 4; section 9 added after the S2
 code review, section 10 after the independent read of its fixes). Steps done: S0.1, S0.2, S1 (one
 layout header), S2 (the CPU side: map type 1533, phase-0 table, seal, image, delivered mirror,
 takeover image, owner path), S3 (the GPU functions, their test harness, the trampoline's 1533
-branches), S4 (hash snapshot), S6 (routing pass). Not built yet: S5 (copy and delivery in the
-agent), S7 (tools, docs), S8 (measurement).
+branches), S4 (hash snapshot), S5 (the copy and the delivery in the agent), S6 (routing pass). Not
+built yet: S7 (tools, docs), S8 (measurement).
 
 Code: branch proto/map-model-70f7bc1f, local commits cce426af (S1), 192f08d7 (S2), c84dd0ff
 (review fixes), 0b9b02af (claim window), 309a9e8c6 (S3), 84ce9813d (writer slots and claim on OFD
 locks), 19f6b777b (S4, S6), 9bb80ba16 (slots and claim after the review of the lock rework),
-c42a843cb (S6 mirror tests); the first four pushed 11-27.
+c42a843cb (S6 mirror tests), abc759681 (S5, first part), 41d68ea8c (S5, second part); the first four
+pushed 11-27.
 
 - **S0.1:** the hash snapshot's acquire load compiles at `.version 7.0` to
   `LDG.E.64.STRONG.GPU` + `CCTL.IVALL` (`s0/`). Recorded only.
@@ -58,6 +59,23 @@ c42a843cb (S6 mirror tests); the first four pushed 11-27.
   (`s46/gpu-device-final.log`); `[gpu-devhash-cpu]` 21 cases on 9bb80ba16; `lat_mmvq` (1531) on the
   worktree build: +0.1273 ns per thread, sum exact, no regression (`s46/regression-lat_mmvq.*`).
 
+- **S5:** the agent copies each 1533 map to the GPU in a pre-pass at the start of
+  `init_attach_ctx_from_handlers`, before its binding guard (claim, seal and image, or the
+  takeover's image; upload; mirror seeded; registered; PHASE 2; any failure after the seal rolls
+  back), and delivers it after the application's syncs (claim checked first; the hash snapshot
+  with its own module and broken flag; mirror, status words and the companion status array). The
+  handler accessors return the cached base and shards; `bpftimetool cuda` makes no copy. 16 GPU
+  test cases, each configuration in a child process built as the agent is (plan S5 tests 1-11 and
+  the gate, owner deaths at four points included); 28 of 28 mutations caught (two batches, the
+  second after a review that found an unrolled-back exception path, a non-owner changing the
+  companion's link, an untested ordering and a missing gate condition). **Found while testing:**
+  the kernel merges one description's adjacent locks, so an owner holding writer slot 255 read its
+  claim (byte 256) as lost and stopped delivering (1 in 10 suite runs); the claim check now tests
+  the byte against each lock line's range (plan section 12; `s2/ofd/RULES-ofd.md`, found later).
+  1531 regression: +0.1267 ns per thread, sum exact. `s5/S5-result.md`.
+- **Final runs (41d68ea8c):** `[gpu-devhash-device]` 27 cases (201 assertions), `[gpu-devhash-cpu]`
+  22 cases, all pass; the non-CUDA build compiles the touched files.
+
 Details: `s2/S2-result.md`, `s2/S2-rework-result.md`, `s3/S3-result.md`, `s0/S0.2-result.md`,
-`s46/S4-S6-result.md`. Rules: `S0-RULES.md`,
+`s46/S4-S6-result.md`, `s5/S5-result.md`. Rules: `S0-RULES.md`,
 `s2/ofd/RULES-ofd.md`.
